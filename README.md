@@ -60,16 +60,20 @@ pnpm run dev
 - [x] Recording status indicators
 - [x] Responsive design
 
-### Phase 2: Core Features (In Progress)
-- [ ] Audio capture implementation
-- [ ] WebAssembly speech-to-text integration
-- [ ] Real-time filler word detection
-- [ ] Session history and reports
+### Phase 2: Core Features ✅
+- [x] Audio capture implementation
+- [x] Browser-based speech-to-text integration
+- [x] Real-time filler word detection (6 common words)
+- [x] Session timer and management
+- [x] Live transcript display
+- [x] Error handling and browser compatibility
 
 ### Phase 3: Advanced Features (Planned)
 - [ ] Custom word list management
-- [ ] Performance analytics
-- [ ] Export functionality
+- [ ] Performance analytics and charts
+- [ ] Export functionality (JSON, CSV)
+- [ ] Session history and reports
+- [ ] WebAssembly integration for enhanced performance
 - [ ] Mobile app version
 
 ## Contributing
