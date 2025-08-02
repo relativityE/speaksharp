@@ -93,8 +93,9 @@ function App() {
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">ClearSpeak AI</h1>
-          <p className="text-lg text-gray-600">Real-time filler word detection for better speaking</p>
+          <h1 className="text-4xl font-bold text-center mb-2">SayLess</h1>
+          <p className="text-xl text-muted-foreground text-center mb-8">Real-time filler word detection for better speaking</p>
+          
           {!isSupported && (
             <Alert className="mt-4 max-w-2xl mx-auto">
               <AlertCircle className="h-4 w-4" />
@@ -289,7 +290,7 @@ function App() {
 
         {/* Footer */}
         <div className="text-center text-gray-500 text-sm">
-          <p>ClearSpeak AI - Powered by browser-based speech recognition</p>
+          <p>SayLess - Powered by browser-based speech recognition</p>
         </div>
       </div>
     </div>
