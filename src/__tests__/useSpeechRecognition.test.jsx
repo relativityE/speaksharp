@@ -75,12 +75,18 @@ describe('useSpeechRecognition Hook', () => {
       result.current.startListening()
     })
 
+    // stopListening should not immediately set isListening to false
     act(() => {
       result.current.stopListening()
     })
-
-    expect(result.current.isListening).toBe(false)
+    expect(result.current.isListening).toBe(true)
     expect(mockSpeechRecognition.stop).toHaveBeenCalledTimes(1)
+
+    // isListening should become false only after the 'onend' event
+    act(() => {
+      mockSpeechRecognition.onend()
+    })
+    expect(result.current.isListening).toBe(false)
   })
 
   it('should reset the session', () => {

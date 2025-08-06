@@ -105,7 +105,6 @@ export const useSpeechRecognition = () => {
   const stopListening = useCallback(() => {
     if (recognitionRef.current && isListening) {
       recognitionRef.current.stop()
-      setIsListening(false)
     }
   }, [isListening])
 
