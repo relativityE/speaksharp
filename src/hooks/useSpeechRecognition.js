@@ -1,5 +1,15 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 
+// Filler word detection patterns moved outside the hook to prevent re-creation on each render
+const fillerPatterns = {
+  um: /\b(um|umm|ummm)\b/gi,
+  uh: /\b(uh|uhh|uhhh|er|err)\b/gi,
+  like: /\b(like)\b/gi,
+  youKnow: /\b(you know|y'know|ya know)\b/gi,
+  so: /\b(so)\b/gi, // Removed lookahead to match "so" at the end of a sentence
+  actually: /\b(actually)\b/gi
+}
+
 export const useSpeechRecognition = () => {
   const [isListening, setIsListening] = useState(false)
   const [transcript, setTranscript] = useState('')
@@ -30,24 +40,18 @@ export const useSpeechRecognition = () => {
     }
   }, [])
 
-  // Filler word detection patterns
-  const fillerPatterns = {
-    um: /\b(um|umm|ummm)\b/gi,
-    uh: /\b(uh|uhh|uhhh|er|err)\b/gi,
-    like: /\b(like)\b/gi,
-    youKnow: /\b(you know|y'know|ya know)\b/gi,
-    so: /\b(so)\b(?=\s)/gi, // 'so' followed by space to avoid words like 'also'
-    actually: /\b(actually)\b/gi
-  }
-
   const detectFillerWords = useCallback((text) => {
-    const newCounts = {};
-    for (const key in fillerPatterns) {
-      const pattern = fillerPatterns[key];
-      const matches = text.match(pattern);
-      newCounts[key] = matches ? matches.length : 0;
-    }
-    setFillerCounts(newCounts);
+    setFillerCounts(prevCounts => {
+      const updatedCounts = { ...prevCounts };
+      for (const key in fillerPatterns) {
+        const pattern = fillerPatterns[key];
+        const matches = text.match(pattern);
+        if (matches) {
+          updatedCounts[key] = (updatedCounts[key] || 0) + matches.length;
+        }
+      }
+      return updatedCounts;
+    });
   }, [])
 
   const startListening = useCallback(() => {
@@ -62,24 +66,21 @@ export const useSpeechRecognition = () => {
       lastProcessedLength.current = 0
       
       recognitionRef.current.onresult = (event) => {
-        let finalTranscript = ''
-        let interimTranscript = ''
+        let finalTranscriptChunk = ''
+        let fullTranscript = ''
 
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript
-          if (event.results[i].isFinal) {
-            finalTranscript += transcript
-          } else {
-            interimTranscript += transcript
+        for (let i = 0; i < event.results.length; i++) {
+          const transcriptPart = event.results[i][0].transcript
+          fullTranscript += transcriptPart
+          if (event.results[i].isFinal && i >= event.resultIndex) {
+            finalTranscriptChunk += transcriptPart
           }
         }
 
-        const fullTranscript = finalTranscript + interimTranscript
         setTranscript(fullTranscript)
         
-        // Only process new text for filler word detection
-        if (finalTranscript) {
-          detectFillerWords(finalTranscript)
+        if (finalTranscriptChunk) {
+          detectFillerWords(finalTranscriptChunk)
         }
       }
 
@@ -133,4 +134,3 @@ export const useSpeechRecognition = () => {
     resetSession
   }
 }
-
