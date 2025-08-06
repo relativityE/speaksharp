@@ -66,24 +66,21 @@ export const useSpeechRecognition = () => {
       lastProcessedLength.current = 0
       
       recognitionRef.current.onresult = (event) => {
-        let finalTranscript = ''
-        let interimTranscript = ''
+        let finalTranscriptChunk = ''
+        let fullTranscript = ''
 
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript
-          if (event.results[i].isFinal) {
-            finalTranscript += transcript
-          } else {
-            interimTranscript += transcript
+        for (let i = 0; i < event.results.length; i++) {
+          const transcriptPart = event.results[i][0].transcript
+          fullTranscript += transcriptPart
+          if (event.results[i].isFinal && i >= event.resultIndex) {
+            finalTranscriptChunk += transcriptPart
           }
         }
 
-        const fullTranscript = finalTranscript + interimTranscript
         setTranscript(fullTranscript)
         
-        // Only process new text for filler word detection
-        if (finalTranscript) {
-          detectFillerWords(finalTranscript)
+        if (finalTranscriptChunk) {
+          detectFillerWords(finalTranscriptChunk)
         }
       }
 
