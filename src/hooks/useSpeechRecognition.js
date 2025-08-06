@@ -3,7 +3,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 // Filler word detection patterns moved outside the hook to prevent re-creation on each render
 const fillerPatterns = {
   um: /\b(um|umm|ummm)\b/gi,
-  uh: /\b(uh|uhh|uhhh|er|err)\b/gi,
+  uh: /\b(uh|uhh|uhhh|er|err|ah)\b/gi,
   like: /\b(like)\b/gi,
   youKnow: /\b(you know|y'know|ya know)\b/gi,
   so: /\b(so)\b/gi, // Removed lookahead to match "so" at the end of a sentence
