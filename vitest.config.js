@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import path from 'path'
 
 export default defineConfig({
   plugins: [react()],
@@ -7,11 +8,11 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: './src/setupTests.js',
+    testTimeout: 10000,
   },
   resolve: {
     alias: {
-      '@': '/home/ubuntu/sayless-ai/src',
+      '@': path.resolve(__dirname, './src'),
     },
   },
 })
-
