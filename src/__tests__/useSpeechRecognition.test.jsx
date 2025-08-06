@@ -185,4 +185,102 @@ describe('useSpeechRecognition Hook', () => {
 
     expect(result.current.isListening).toBe(false)
   })
+
+  it('should accumulate filler counts across multiple final results', () => {
+    const { result } = renderHook(() => useSpeechRecognition())
+
+    act(() => {
+      result.current.startListening()
+    })
+
+    const firstEvent = {
+      resultIndex: 0,
+      results: [
+        { 0: { transcript: 'um so ' }, isFinal: true }
+      ]
+    }
+
+    // First result
+    act(() => {
+      mockSpeechRecognition.onresult(firstEvent)
+    })
+
+    expect(result.current.fillerCounts.um).toBe(1)
+    expect(result.current.fillerCounts.so).toBe(1)
+
+    const secondEvent = {
+      resultIndex: 1,
+      results: [
+        firstEvent.results[0],
+        { 0: { transcript: 'like you know ' }, isFinal: true }
+      ]
+    }
+
+    // Second result
+    act(() => {
+      mockSpeechRecognition.onresult(secondEvent)
+    })
+
+    expect(result.current.fillerCounts.like).toBe(1)
+    expect(result.current.fillerCounts.youKnow).toBe(1)
+    // Check if previous counts are preserved
+    expect(result.current.fillerCounts.um).toBe(1)
+    expect(result.current.fillerCounts.so).toBe(1)
+
+    const thirdEvent = {
+      resultIndex: 2,
+      results: [
+        secondEvent.results[0],
+        secondEvent.results[1],
+        { 0: { transcript: 'um so so ' }, isFinal: true }
+      ]
+    }
+
+    // Third result with more filler words
+    act(() => {
+        mockSpeechRecognition.onresult(thirdEvent)
+    })
+
+    expect(result.current.fillerCounts.um).toBe(2)
+    expect(result.current.fillerCounts.so).toBe(3)
+    expect(result.current.fillerCounts.like).toBe(1)
+    expect(result.current.fillerCounts.youKnow).toBe(1)
+  })
+
+  it('should accumulate transcript across multiple final results', () => {
+    const { result } = renderHook(() => useSpeechRecognition())
+
+    act(() => {
+      result.current.startListening()
+    })
+
+    const firstEvent = {
+      resultIndex: 0,
+      results: [
+        { 0: { transcript: 'Hello ' }, isFinal: true }
+      ]
+    }
+
+    // First result
+    act(() => {
+      mockSpeechRecognition.onresult(firstEvent)
+    })
+
+    expect(result.current.transcript).toBe('Hello ')
+
+    const secondEvent = {
+      resultIndex: 1,
+      results: [
+        firstEvent.results[0],
+        { 0: { transcript: 'world' }, isFinal: true }
+      ]
+    }
+
+    // Second result
+    act(() => {
+      mockSpeechRecognition.onresult(secondEvent)
+    })
+
+    expect(result.current.transcript).toBe('Hello world')
+  })
 })
