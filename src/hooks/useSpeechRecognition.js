@@ -41,24 +41,14 @@ export const useSpeechRecognition = () => {
   }
 
   const detectFillerWords = useCallback((text) => {
-    const newCounts = { ...fillerCounts }
-    let hasChanges = false
-
-    Object.entries(fillerPatterns).forEach(([key, pattern]) => {
-      const matches = text.match(pattern)
-      if (matches) {
-        const newCount = matches.length
-        if (newCount > newCounts[key]) {
-          newCounts[key] = newCount
-          hasChanges = true
-        }
-      }
-    })
-
-    if (hasChanges) {
-      setFillerCounts(newCounts)
+    const newCounts = {};
+    for (const key in fillerPatterns) {
+      const pattern = fillerPatterns[key];
+      const matches = text.match(pattern);
+      newCounts[key] = matches ? matches.length : 0;
     }
-  }, [fillerCounts])
+    setFillerCounts(newCounts);
+  }, [])
 
   const startListening = useCallback(() => {
     if (!isSupported || !recognitionRef.current) {
