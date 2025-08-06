@@ -13,7 +13,7 @@ A mobile-first web application that detects and counts filler words in real time
 
 ## Technology Stack
 
-- **Frontend**: React (with Vite)
+- **Frontend**: React (with [Vite](https://vitejs.dev/)) - A next-generation frontend tooling that provides a faster and leaner development experience for modern web projects.
 - **Styling**: Tailwind CSS
 - **UI Components**: shadcn/ui
 - **Icons**: Lucide React
@@ -44,7 +44,7 @@ A mobile-first web application that detects and counts filler words in real time
     npm run dev
     ```
 
-4.  Open your browser and navigate to `http://localhost:5173` (or the address shown in your terminal).
+4.  Open your browser and navigate to the URL shown in your terminal. It is usually `http://localhost:5173`, but it might be different if that port is occupied.
 
 ## Usage
 
@@ -56,7 +56,7 @@ A mobile-first web application that detects and counts filler words in real time
 
 ## How to Test the Application
 
-This project uses [Vitest](https://vitest.dev/) for unit and integration testing.
+This project uses [Vitest](https://vitest.dev/) for unit and integration testing. Vitest is a blazing fast unit-test framework powered by Vite.
 
 To run the tests, use the following command:
 
