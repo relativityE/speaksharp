@@ -3,7 +3,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 // Filler word detection patterns moved outside the hook to prevent re-creation on each render
 const fillerPatterns = {
   um: /\b(um|umm|ummm)\b/gi,
-  uh: /\b(uh|uhh|uhhh|er|err)\b/gi,
+  uh: /\b(uh|uhh|uhhh|er|err|ah)\b/gi,
   like: /\b(like)\b/gi,
   youKnow: /\b(you know|y'know|ya know)\b/gi,
   so: /\b(so)\b/gi, // Removed lookahead to match "so" at the end of a sentence
@@ -41,18 +41,15 @@ export const useSpeechRecognition = () => {
   }, [])
 
   const detectFillerWords = useCallback((text) => {
-    console.log("Detecting filler words in text:", text);
     setFillerCounts(prevCounts => {
       const updatedCounts = { ...prevCounts };
       for (const key in fillerPatterns) {
         const pattern = fillerPatterns[key];
         const matches = text.match(pattern);
-        console.log(`Pattern: ${pattern}, Matches:`, matches);
         if (matches) {
           updatedCounts[key] = (updatedCounts[key] || 0) + matches.length;
         }
       }
-      console.log("Updated counts:", updatedCounts);
       return updatedCounts;
     });
   }, [])
