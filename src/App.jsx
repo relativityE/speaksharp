@@ -248,6 +248,10 @@ function App() {
                   <div className="text-2xl font-bold text-teal-600">{fillerCounts.oh}</div>
                   <div className="text-sm text-gray-600">Oh</div>
                 </div>
+                <div className="text-center p-4 bg-cyan-50 rounded-lg">
+                  <div className="text-2xl font-bold text-cyan-600">{fillerCounts.iMean}</div>
+                  <div className="text-sm text-gray-600">I Mean</div>
+                </div>
               </div>
             </CardContent>
           </Card>

@@ -8,7 +8,8 @@ const fillerPatterns = {
   youKnow: /\b(you know|y'know|ya know)\b/gi,
   so: /\b(so)\b/gi, // Removed lookahead to match "so" at the end of a sentence
   actually: /\b(actually)\b/gi,
-  oh: /\b(oh|ooh)\b/gi
+  oh: /\b(oh|ooh)\b/gi,
+  iMean: /\b(i mean)\b/gi
 }
 
 export const useSpeechRecognition = () => {
@@ -21,7 +22,8 @@ export const useSpeechRecognition = () => {
     youKnow: 0,
     so: 0,
     actually: 0,
-    oh: 0
+    oh: 0,
+    iMean: 0
   })
   const [error, setError] = useState(null)
   const [isSupported, setIsSupported] = useState(false)
@@ -119,7 +121,8 @@ export const useSpeechRecognition = () => {
       youKnow: 0,
       so: 0,
       actually: 0,
-      oh: 0
+      oh: 0,
+      iMean: 0
     })
     lastProcessedLength.current = 0
     setError(null)
