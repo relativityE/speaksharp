@@ -53,7 +53,9 @@ describe('useSpeechRecognition Hook', () => {
       like: 0,
       youKnow: 0,
       so: 0,
-      actually: 0
+      actually: 0,
+      oh: 0,
+      iMean: 0
     })
   })
 
@@ -112,6 +114,8 @@ describe('useSpeechRecognition Hook', () => {
 
     expect(result.current.transcript).toBe('')
     expect(result.current.fillerCounts.um).toBe(0)
+    expect(result.current.fillerCounts.oh).toBe(0)
+    expect(result.current.fillerCounts.iMean).toBe(0)
   })
 
   it('should update transcript and filler counts on result', () => {
@@ -124,7 +128,7 @@ describe('useSpeechRecognition Hook', () => {
     const mockEvent = {
       resultIndex: 0,
       results: [
-        { 0: { transcript: 'hello um so this is a test' }, isFinal: true }
+        { 0: { transcript: 'hello um so oh i mean this is a test uh' }, isFinal: true }
       ]
     }
 
@@ -132,9 +136,12 @@ describe('useSpeechRecognition Hook', () => {
       mockSpeechRecognition.onresult(mockEvent)
     })
 
-    expect(result.current.transcript).toBe('hello um so this is a test')
+    expect(result.current.transcript).toBe('hello um so oh i mean this is a test uh')
     expect(result.current.fillerCounts.um).toBe(1)
     expect(result.current.fillerCounts.so).toBe(1)
+    expect(result.current.fillerCounts.oh).toBe(1)
+    expect(result.current.fillerCounts.uh).toBe(2) // "a" and "uh"
+    expect(result.current.fillerCounts.iMean).toBe(1)
     expect(result.current.fillerCounts.like).toBe(0)
   })
 
@@ -158,6 +165,28 @@ describe('useSpeechRecognition Hook', () => {
 
     expect(result.current.fillerCounts.um).toBe(3)
     expect(result.current.fillerCounts.like).toBe(2)
+  })
+
+  it('should handle "oh" and flexible "uh" detection', () => {
+    const { result } = renderHook(() => useSpeechRecognition())
+
+    act(() => {
+      result.current.startListening()
+    })
+
+    const mockEvent = {
+      resultIndex: 0,
+      results: [
+        { 0: { transcript: 'oh, ooh, that is a test' }, isFinal: true }
+      ]
+    }
+
+    act(() => {
+      mockSpeechRecognition.onresult(mockEvent)
+    })
+
+    expect(result.current.fillerCounts.oh).toBe(2)
+    expect(result.current.fillerCounts.uh).toBe(1) // for "a"
   })
 
   it('should handle errors from speech recognition', () => {
