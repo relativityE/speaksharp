@@ -3,11 +3,12 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 // Filler word detection patterns moved outside the hook to prevent re-creation on each render
 const fillerPatterns = {
   um: /\b(um|umm|ummm)\b/gi,
-  uh: /\b(uh|uhh|uhhh|er|err|ah)\b/gi,
+  uh: /\b(uh|uhh|uhhh|er|err|ah|a)\b/gi,
   like: /\b(like)\b/gi,
   youKnow: /\b(you know|y'know|ya know)\b/gi,
   so: /\b(so)\b/gi, // Removed lookahead to match "so" at the end of a sentence
-  actually: /\b(actually)\b/gi
+  actually: /\b(actually)\b/gi,
+  oh: /\b(oh|ooh)\b/gi
 }
 
 export const useSpeechRecognition = () => {
@@ -19,7 +20,8 @@ export const useSpeechRecognition = () => {
     like: 0,
     youKnow: 0,
     so: 0,
-    actually: 0
+    actually: 0,
+    oh: 0
   })
   const [error, setError] = useState(null)
   const [isSupported, setIsSupported] = useState(false)
@@ -116,7 +118,8 @@ export const useSpeechRecognition = () => {
       like: 0,
       youKnow: 0,
       so: 0,
-      actually: 0
+      actually: 0,
+      oh: 0
     })
     lastProcessedLength.current = 0
     setError(null)
