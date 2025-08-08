@@ -15,6 +15,7 @@ const colorClasses = {
   pink: { bg: 'bg-pink-50', text: 'text-pink-600' },
   teal: { bg: 'bg-teal-50', text: 'text-teal-600' },
   cyan: { bg: 'bg-cyan-50', text: 'text-cyan-600' },
+  indigo: { bg: 'bg-indigo-50', text: 'text-indigo-600' },
 };
 
 export const FillerWordCounters = ({
@@ -29,6 +30,7 @@ export const FillerWordCounters = ({
   const defaultFillerWords = [
     { key: FILLER_WORD_KEYS.UM, color: 'blue', label: 'Um' },
     { key: FILLER_WORD_KEYS.UH, color: 'green', label: 'Uh' },
+    { key: FILLER_WORD_KEYS.AH, color: 'indigo', label: 'Ah' },
     { key: FILLER_WORD_KEYS.LIKE, color: 'yellow', label: 'Like' },
     { key: FILLER_WORD_KEYS.YOU_KNOW, color: 'purple', label: 'You Know' },
     { key: FILLER_WORD_KEYS.SO, color: 'orange', label: 'So' },

@@ -18,7 +18,7 @@ function App() {
   const [sessionDuration, setSessionDuration] = useState(0)
   const [customWord, setCustomWord] = useState("")
   const [customWords, setCustomWords] = useState([])
-  const [isLoggedIn, setIsLoggedIn] = useState(false) // Mock login state
+  const [viewMode, setViewMode] = useState('session') // 'session' or 'analytics'
 
   const {
     isRecording,
@@ -58,6 +58,7 @@ function App() {
     setCustomWords([])
     resetSession()
     clearRecording()
+    setViewMode('session')
   }
 
   const handleEndSession = () => {
@@ -66,6 +67,7 @@ function App() {
     setSessionDuration(0)
     if (isRecording) stopRecording()
     if (isListening) stopListening()
+    setViewMode('session')
   }
 
   const handleToggleRecording = async () => {
@@ -100,8 +102,8 @@ function App() {
 
   const error = audioError || speechError
 
-  const handleLogin = () => setIsLoggedIn(true)
-  const handleLogout = () => setIsLoggedIn(false)
+  const handleViewAnalytics = () => setViewMode('analytics')
+  const handleViewSession = () => setViewMode('session')
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
@@ -111,16 +113,21 @@ function App() {
             <h1 className="text-4xl font-bold">SayLess</h1>
           </div>
           <div>
-            {isLoggedIn ? (
-              <Button onClick={handleLogout} variant="outline">Logout</Button>
-            ) : (
-              <Button onClick={handleLogin}>Simulate Login</Button>
+            {sessionActive && viewMode === 'session' && (
+              <Button onClick={handleViewAnalytics}>Analytics</Button>
+            )}
+            {viewMode === 'analytics' && (
+              <Button onClick={handleViewSession} variant="outline">Back to Session</Button>
             )}
           </div>
         </header>
 
-        {isLoggedIn ? (
-          <AnalyticsDashboard />
+        {viewMode === 'analytics' ? (
+          <AnalyticsDashboard
+            fillerCounts={fillerCounts}
+            sessionDuration={sessionDuration}
+            transcript={transcript}
+          />
         ) : (
           <>
             <div className="text-center mb-4">
@@ -177,7 +184,6 @@ function App() {
               </>
             )}
 
-            {/* Features Overview */}
             <div className="grid md:grid-cols-2 gap-6 my-6">
               <Card>
                 <CardHeader>

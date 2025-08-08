@@ -3,6 +3,7 @@ export const SPEECH_RECOGNITION_LANG = 'en-US';
 export const FILLER_WORD_KEYS = {
   UM: 'um',
   UH: 'uh',
+  AH: 'ah',
   LIKE: 'like',
   YOU_KNOW: 'youKnow',
   SO: 'so',

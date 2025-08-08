@@ -2,8 +2,9 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { SPEECH_RECOGNITION_LANG, FILLER_WORD_KEYS } from '../config';
 
 const defaultFillerPatterns = {
-  [FILLER_WORD_KEYS.UM]: /\b(um|umm|ummm|ahm)\b/gi,
-  [FILLER_WORD_KEYS.UH]: /\b(uh|uhh|uhhh|er|err|ah|a|erh)\b/gi,
+  [FILLER_WORD_KEYS.UM]: /\b(um|umm|ummm|ahm|am|em)\b/gi,
+  [FILLER_WORD_KEYS.UH]: /\b(uh|uhh|uhhh|er|err|a|erh)\b/gi,
+  [FILLER_WORD_KEYS.AH]: /\b(ah)\b/gi,
   [FILLER_WORD_KEYS.LIKE]: /\b(like)\b/gi,
   [FILLER_WORD_KEYS.YOU_KNOW]: /\b(you know|y'know|ya know)\b/gi,
   [FILLER_WORD_KEYS.SO]: /\b(so)\b/gi,
@@ -31,6 +32,7 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
   const [isSupported, setIsSupported] = useState(false);
 
   const recognitionRef = useRef(null);
+  const intentionallyStopped = useRef(false);
 
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -65,14 +67,14 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
   );
 
   const startListening = useCallback(() => {
-    if (!isSupported || !recognitionRef.current) {
-      setError('Speech recognition is not supported in this browser');
+    if (!isSupported || !recognitionRef.current || isListening) {
       return;
     }
 
     try {
       setError(null);
       setIsListening(true);
+      intentionallyStopped.current = false;
 
       recognitionRef.current.onresult = (event) => {
         let finalTranscriptChunk = '';
@@ -87,7 +89,6 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
         }
 
         setTranscript(fullTranscript);
-
         if (finalTranscriptChunk) {
           detectFillerWords(finalTranscriptChunk);
         }
@@ -100,7 +101,17 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
       };
 
       recognitionRef.current.onend = () => {
-        setIsListening(false);
+        if (intentionallyStopped.current) {
+          setIsListening(false);
+        } else {
+          // This is the "keep-alive" logic. If the service stops on its own, restart it.
+          try {
+            recognitionRef.current.start();
+          } catch (err) {
+            console.error('Error restarting speech recognition:', err);
+            setIsListening(false);
+          }
+        }
       };
 
       recognitionRef.current.start();
@@ -109,10 +120,11 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
       setError('Failed to start speech recognition');
       setIsListening(false);
     }
-  }, [isSupported, detectFillerWords]);
+  }, [isSupported, isListening, detectFillerWords]);
 
   const stopListening = useCallback(() => {
     if (recognitionRef.current && isListening) {
+      intentionallyStopped.current = true;
       recognitionRef.current.stop();
     }
   }, [isListening]);
