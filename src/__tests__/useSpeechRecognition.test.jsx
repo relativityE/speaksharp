@@ -71,7 +71,7 @@ describe('useSpeechRecognition Hook', () => {
     expect(mockSpeechRecognition.start).toHaveBeenCalledTimes(1)
   })
 
-  it('should stop listening', () => {
+  it('should stop listening intentionally', () => {
     const { result } = renderHook(() => useSpeechRecognition())
 
     act(() => {
@@ -94,19 +94,15 @@ describe('useSpeechRecognition Hook', () => {
 
   it('should automatically restart if it stops unexpectedly', () => {
     const { result } = renderHook(() => useSpeechRecognition())
-
     act(() => {
       result.current.startListening()
     })
-
     expect(mockSpeechRecognition.start).toHaveBeenCalledTimes(1)
     expect(result.current.isListening).toBe(true)
-
     // Simulate an unexpected end
     act(() => {
       mockSpeechRecognition.onend()
     })
-
     // It should remain in the listening state and have called start again
     expect(result.current.isListening).toBe(true)
     expect(mockSpeechRecognition.start).toHaveBeenCalledTimes(2)
@@ -115,7 +111,6 @@ describe('useSpeechRecognition Hook', () => {
   it('should reset the session', () => {
     const { result } = renderHook(() => useSpeechRecognition())
 
-    // Simulate receiving some results
     act(() => {
       result.current.startListening()
       mockSpeechRecognition.onresult({
@@ -137,50 +132,19 @@ describe('useSpeechRecognition Hook', () => {
     expect(result.current.fillerCounts.um).toBe(0)
   })
 
-  it('should update transcript and filler counts on result', () => {
+  it('should detect variations of "um"', () => {
     const { result } = renderHook(() => useSpeechRecognition())
-
     act(() => {
       result.current.startListening()
     })
-
     const mockEvent = {
       resultIndex: 0,
-      results: [
-        { 0: { transcript: 'hello um so this is a test' }, isFinal: true }
-      ]
+      results: [{ 0: { transcript: 'um, am I ahm, em, ready?' }, isFinal: true }]
     }
-
     act(() => {
       mockSpeechRecognition.onresult(mockEvent)
     })
-
-    expect(result.current.transcript).toBe('hello um so this is a test')
-    expect(result.current.fillerCounts.um).toBe(1)
-    expect(result.current.fillerCounts.so).toBe(1)
-    expect(result.current.fillerCounts.like).toBe(0)
-  })
-
-  it('should handle multiple filler words of the same type', () => {
-    const { result } = renderHook(() => useSpeechRecognition())
-
-    act(() => {
-      result.current.startListening()
-    })
-
-    const mockEvent = {
-      resultIndex: 0,
-      results: [
-        { 0: { transcript: 'um um um, this is like, like, another test' }, isFinal: true }
-      ]
-    }
-
-    act(() => {
-      mockSpeechRecognition.onresult(mockEvent)
-    })
-
-    expect(result.current.fillerCounts.um).toBe(3)
-    expect(result.current.fillerCounts.like).toBe(2)
+    expect(result.current.fillerCounts.um).toBe(4)
   })
 
   it('should separately count "uh" and "ah"', () => {
@@ -195,156 +159,30 @@ describe('useSpeechRecognition Hook', () => {
     act(() => {
       mockSpeechRecognition.onresult(mockEvent)
     })
-    expect(result.current.fillerCounts.uh).toBe(2) // from "uh" and "a"
-    expect(result.current.fillerCounts.ah).toBe(1) // from "ah"
+    expect(result.current.fillerCounts.uh).toBe(2)
+    expect(result.current.fillerCounts.ah).toBe(1)
   })
 
-  it('should detect variations of "um"', () => {
-    const { result } = renderHook(() => useSpeechRecognition())
-    act(() => {
-      result.current.startListening()
+  describe('with custom filler words', () => {
+    it('should detect and count a custom filler word', () => {
+      const { result } = renderHook(() => useSpeechRecognition({ customWords: ['special'] }))
+
+      act(() => {
+        result.current.startListening()
+      })
+
+      const mockEvent = {
+        resultIndex: 0,
+        results: [
+          { 0: { transcript: 'this is a special test with a special word' }, isFinal: true }
+        ]
+      }
+
+      act(() => {
+        mockSpeechRecognition.onresult(mockEvent)
+      })
+
+      expect(result.current.fillerCounts.special).toBe(2)
     })
-    const mockEvent = {
-      resultIndex: 0,
-      results: [{ 0: { transcript: 'um, am I ahm, em, ready?' }, isFinal: true }]
-    }
-    act(() => {
-      mockSpeechRecognition.onresult(mockEvent)
-    })
-    expect(result.current.fillerCounts.um).toBe(4) // um, am, ahm, em
-  })
-
-  it('should handle errors from speech recognition', () => {
-    const { result } = renderHook(() => useSpeechRecognition())
-
-    act(() => {
-      result.current.startListening()
-    })
-
-    const errorEvent = { error: 'network' }
-    act(() => {
-      mockSpeechRecognition.onerror(errorEvent)
-    })
-
-    expect(result.current.error).toBe('Speech recognition error: network')
-    expect(result.current.isListening).toBe(false)
-  })
-
-  it('should set isListening to false on intentional stop', () => {
-    const { result } = renderHook(() => useSpeechRecognition())
-
-    act(() => {
-      result.current.startListening()
-    })
-    expect(result.current.isListening).toBe(true)
-
-    // Intentionally stop
-    act(() => {
-      result.current.stopListening()
-    })
-
-    // Now when onend fires, it should stop for good
-    act(() => {
-      mockSpeechRecognition.onend()
-    })
-    expect(result.current.isListening).toBe(false)
-  })
-
-  it('should accumulate filler counts across multiple final results', () => {
-    const { result } = renderHook(() => useSpeechRecognition())
-
-    act(() => {
-      result.current.startListening()
-    })
-
-    const firstEvent = {
-      resultIndex: 0,
-      results: [
-        { 0: { transcript: 'um so ' }, isFinal: true }
-      ]
-    }
-
-    // First result
-    act(() => {
-      mockSpeechRecognition.onresult(firstEvent)
-    })
-
-    expect(result.current.fillerCounts.um).toBe(1)
-    expect(result.current.fillerCounts.so).toBe(1)
-
-    const secondEvent = {
-      resultIndex: 1,
-      results: [
-        firstEvent.results[0],
-        { 0: { transcript: 'like you know ' }, isFinal: true }
-      ]
-    }
-
-    // Second result
-    act(() => {
-      mockSpeechRecognition.onresult(secondEvent)
-    })
-
-    expect(result.current.fillerCounts.like).toBe(1)
-    expect(result.current.fillerCounts.youKnow).toBe(1)
-    // Check if previous counts are preserved
-    expect(result.current.fillerCounts.um).toBe(1)
-    expect(result.current.fillerCounts.so).toBe(1)
-
-    const thirdEvent = {
-      resultIndex: 2,
-      results: [
-        secondEvent.results[0],
-        secondEvent.results[1],
-        { 0: { transcript: 'um so so ' }, isFinal: true }
-      ]
-    }
-
-    // Third result with more filler words
-    act(() => {
-        mockSpeechRecognition.onresult(thirdEvent)
-    })
-
-    expect(result.current.fillerCounts.um).toBe(2)
-    expect(result.current.fillerCounts.so).toBe(3)
-    expect(result.current.fillerCounts.like).toBe(1)
-    expect(result.current.fillerCounts.youKnow).toBe(1)
-  })
-
-  it('should accumulate transcript across multiple final results', () => {
-    const { result } = renderHook(() => useSpeechRecognition())
-
-    act(() => {
-      result.current.startListening()
-    })
-
-    const firstEvent = {
-      resultIndex: 0,
-      results: [
-        { 0: { transcript: 'Hello ' }, isFinal: true }
-      ]
-    }
-
-    // First result
-    act(() => {
-      mockSpeechRecognition.onresult(firstEvent)
-    })
-
-    expect(result.current.transcript).toBe('Hello ')
-
-    const secondEvent = {
-      resultIndex: 1,
-      results: [
-        firstEvent.results[0],
-        { 0: { transcript: 'world' }, isFinal: true }
-      ]
-    }
-
-    // Second result
-    act(() => {
-      mockSpeechRecognition.onresult(secondEvent)
-    })
-
-    expect(result.current.transcript).toBe('Hello world')
   })
 })

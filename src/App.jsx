@@ -58,6 +58,7 @@ function App() {
     setCustomWords([])
     resetSession()
     clearRecording()
+    setViewMode('session')
   }
 
   const handleEndSession = () => {
@@ -66,6 +67,7 @@ function App() {
     setSessionDuration(0)
     if (isRecording) stopRecording()
     if (isListening) stopListening()
+    setViewMode('session')
   }
 
   const handleToggleRecording = async () => {
@@ -182,7 +184,6 @@ function App() {
               </>
             )}
 
-            {/* Features Overview */}
             <div className="grid md:grid-cols-2 gap-6 my-6">
               <Card>
                 <CardHeader>
