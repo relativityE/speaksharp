@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react'
-import { Button } from '@/components/ui/button.jsx'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx'
-import { Badge } from '@/components/ui/badge.jsx'
-import { Alert, AlertDescription } from '@/components/ui/alert.jsx'
-import { Input } from '@/components/ui/input.jsx'
-import { Mic, MicOff, Play, Square, BarChart3, AlertCircle, Volume2, Plus } from 'lucide-react'
-import { useAudioRecording } from './hooks/useAudioRecording'
-import { useSpeechRecognition } from './hooks/useSpeechRecognition'
-import { AnalyticsDashboard } from './components/AnalyticsDashboard'
+import { Button } from '@/components/ui/button'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { AlertCircle } from 'lucide-react'
+import { useAudioRecording } from '@/hooks/useAudioRecording'
+import { useSpeechRecognition } from '@/hooks/useSpeechRecognition'
+import { AnalyticsDashboard } from '@/components/AnalyticsDashboard'
+import { SessionControl } from '@/components/SessionControl'
+import { RecordingStatus } from '@/components/RecordingStatus'
+import { FillerWordCounters } from '@/components/FillerWordCounters'
+import { ErrorDisplay } from '@/components/ErrorDisplay'
 import './App.css'
 
 function App() {
@@ -18,17 +20,14 @@ function App() {
   const [customWords, setCustomWords] = useState([])
   const [isLoggedIn, setIsLoggedIn] = useState(false) // Mock login state
 
-  // Audio recording hook
   const {
     isRecording,
-    audioBlob,
     error: audioError,
     startRecording,
     stopRecording,
     clearRecording
   } = useAudioRecording()
 
-  // Speech recognition hook
   const {
     isListening,
     transcript,
@@ -40,7 +39,6 @@ function App() {
     resetSession
   } = useSpeechRecognition({ customWords })
 
-  // Session timer
   useEffect(() => {
     let interval = null
     if (sessionActive && sessionStartTime) {
@@ -57,6 +55,7 @@ function App() {
     setSessionActive(true)
     setSessionStartTime(Date.now())
     setSessionDuration(0)
+    setCustomWords([])
     resetSession()
     clearRecording()
   }
@@ -130,218 +129,73 @@ function App() {
                 <Alert className="mt-4 max-w-2xl mx-auto">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
-                    Speech recognition is not supported in this browser. Audio recording will work, but real-time filler word detection requires Chrome, Edge, or Safari.
+                    Speech recognition is not supported in this browser.
                   </AlertDescription>
                 </Alert>
               )}
             </div>
 
-            {error && (
-              <Alert className="mb-6 max-w-2xl mx-auto" variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
+            <ErrorDisplay error={error} />
 
-            <Card className="mb-6">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Mic className="h-5 w-5" />
-                  Session Control
-                  {sessionActive && (
-                    <Badge variant="outline" className="ml-auto">
-                      {formatTime(sessionDuration)}
-                    </Badge>
-                  )}
-                </CardTitle>
-                <CardDescription>
-                  Start a new session to begin tracking your speech patterns
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex gap-4 justify-center">
-                  {!sessionActive ? (
-                    <Button onClick={handleStartSession} size="lg" className="bg-green-600 hover:bg-green-700">
-                      <Play className="h-4 w-4 mr-2" />
-                      Start New Session
-                    </Button>
-                  ) : (
-                    <>
-                      <Button
-                        onClick={handleToggleRecording}
-                        size="lg"
-                        variant={isRecording ? "destructive" : "default"}
-                        disabled={!sessionActive}
-                      >
-                        {isRecording ? (
-                          <>
-                            <MicOff className="h-4 w-4 mr-2" />
-                            Stop Recording
-                          </>
-                        ) : (
-                          <>
-                            <Mic className="h-4 w-4 mr-2" />
-                            Start Recording
-                          </>
-                        )}
-                      </Button>
-                      <Button onClick={handleEndSession} variant="outline" size="lg">
-                        <Square className="h-4 w-4 mr-2" />
-                        End Session
-                      </Button>
-                    </>
-                  )}
-                </div>
-                <div className="text-center p-4 bg-green-50 rounded-lg">
-                  <div className="text-2xl font-bold text-green-600">{fillerCounts.uh}</div>
-                  <div className="text-sm text-gray-600">Uh</div>
-                </div>
-                <div className="text-center p-4 bg-yellow-50 rounded-lg">
-                  <div className="text-2xl font-bold text-yellow-600">{fillerCounts.like}</div>
-                  <div className="text-sm text-gray-600">Like</div>
-                </div>
-                <div className="text-center p-4 bg-purple-50 rounded-lg">
-                  <div className="text-2xl font-bold text-purple-600">{fillerCounts.youKnow}</div>
-                  <div className="text-sm text-gray-600">You Know</div>
-                </div>
-                <div className="text-center p-4 bg-orange-50 rounded-lg">
-                  <div className="text-2xl font-bold text-orange-600">{fillerCounts.so}</div>
-                  <div className="text-sm text-gray-600">So</div>
-                </div>
-                <div className="text-center p-4 bg-pink-50 rounded-lg">
-                  <div className="text-2xl font-bold text-pink-600">{fillerCounts.actually}</div>
-                  <div className="text-sm text-gray-600">Actually</div>
-                </div>
-                <div className="text-center p-4 bg-teal-50 rounded-lg">
-                  <div className="text-2xl font-bold text-teal-600">{fillerCounts.oh}</div>
-                  <div className="text-sm text-gray-600">Oh</div>
-                </div>
-                <div className="text-center p-4 bg-cyan-50 rounded-lg">
-                  <div className="text-2xl font-bold text-cyan-600">{fillerCounts.iMean}</div>
-                  <div className="text-sm text-gray-600">I Mean</div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+            <SessionControl
+              sessionActive={sessionActive}
+              isRecording={isRecording}
+              sessionDuration={sessionDuration}
+              onStartSession={handleStartSession}
+              onEndSession={handleEndSession}
+              onToggleRecording={handleToggleRecording}
+              formatTime={formatTime}
+            />
 
             {sessionActive && (
               <>
-                <Card className="mb-6">
-                  <CardContent className="pt-6">
-                    <div className="text-center space-y-2">
-                      <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full ${
-                        isRecording ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        <div className={`w-3 h-3 rounded-full ${
-                          isRecording ? 'bg-red-500 animate-pulse' : 'bg-gray-400'
-                        }`}></div>
-                        {isRecording ? 'Recording...' : 'Ready to Record'}
-                      </div>
-
-                      {isSupported && isListening && (
-                        <div className="flex items-center justify-center gap-2 text-sm text-blue-600">
-                          <Volume2 className="h-4 w-4" />
-                          Speech recognition active
-                        </div>
-                      )}
-
-                      {sessionActive && (
-                        <div className="text-sm text-gray-600">
-                          Total filler words detected: <span className="font-semibold">{getTotalFillerWords()}</span>
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card className="mb-6">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <BarChart3 className="h-5 w-5" />
-                      Filler Word Detection
-                    </CardTitle>
-                    <CardDescription>
-                      Real-time tracking of common filler words. Add your own word to track below.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <div className="text-center p-4 bg-blue-50 rounded-lg">
-                        <div className="text-2xl font-bold text-blue-600">{fillerCounts.um}</div>
-                        <div className="text-sm text-gray-600">Um</div>
-                      </div>
-                      <div className="text-center p-4 bg-green-50 rounded-lg">
-                        <div className="text-2xl font-bold text-green-600">{fillerCounts.uh}</div>
-                        <div className="text-sm text-gray-600">Uh</div>
-                      </div>
-                      <div className="text-center p-4 bg-yellow-50 rounded-lg">
-                        <div className="text-2xl font-bold text-yellow-600">{fillerCounts.like}</div>
-                        <div className="text-sm text-gray-600">Like</div>
-                      </div>
-                      <div className="text-center p-4 bg-purple-50 rounded-lg">
-                        <div className="text-2xl font-bold text-purple-600">{fillerCounts.youKnow}</div>
-                        <div className="text-sm text-gray-600">You Know</div>
-                      </div>
-                      <div className="text-center p-4 bg-orange-50 rounded-lg">
-                        <div className="text-2xl font-bold text-orange-600">{fillerCounts.so}</div>
-                        <div className="text-sm text-gray-600">So</div>
-                      </div>
-                      <div className="text-center p-4 bg-pink-50 rounded-lg">
-                        <div className="text-2xl font-bold text-pink-600">{fillerCounts.actually}</div>
-                        <div className="text-sm text-gray-600">Actually</div>
-                      </div>
-                      <div className="text-center p-4 bg-teal-50 rounded-lg">
-                        <div className="text-2xl font-bold text-teal-600">{fillerCounts.oh}</div>
-                        <div className="text-sm text-gray-600">Oh</div>
-                      </div>
-                      <div className="text-center p-4 bg-cyan-50 rounded-lg">
-                        <div className="text-2xl font-bold text-cyan-600">{fillerCounts.iMean}</div>
-                        <div className="text-sm text-gray-600">I Mean</div>
-                      </div>
-                      {customWords.map((word) => (
-                        <div key={word} className="text-center p-4 bg-gray-100 rounded-lg">
-                          <div className="text-2xl font-bold text-gray-800">{fillerCounts[word] || 0}</div>
-                          <div className="text-sm text-gray-600 capitalize">{word}</div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="mt-6 flex w-full max-w-sm items-center space-x-2 mx-auto">
-                      <Input
-                        type="text"
-                        placeholder="Add custom word..."
-                        value={customWord}
-                        onChange={(e) => setCustomWord(e.target.value)}
-                        disabled={!sessionActive || customWords.length > 0}
-                      />
-                      <Button
-                        type="button"
-                        onClick={handleAddCustomWord}
-                        disabled={!sessionActive || !customWord || customWords.length > 0}
-                      >
-                        <Plus className="h-4 w-4 mr-2" />
-                        Add Word
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-
+                <RecordingStatus
+                  isRecording={isRecording}
+                  isListening={isListening}
+                  isSupported={isSupported}
+                  totalFillerWords={getTotalFillerWords()}
+                />
+                <FillerWordCounters
+                  fillerCounts={fillerCounts}
+                  customWords={customWords}
+                  customWord={customWord}
+                  setCustomWord={setCustomWord}
+                  onAddCustomWord={handleAddCustomWord}
+                  isSupported={isSupported}
+                  sessionActive={sessionActive}
+                />
                 {transcript && (
                   <Card className="mb-6">
-                    <CardHeader>
-                      <CardTitle className="text-lg">Live Transcript</CardTitle>
-                    </CardHeader>
+                    <CardHeader><CardTitle className="text-lg">Live Transcript</CardTitle></CardHeader>
                     <CardContent>
                       <div className="bg-gray-50 p-4 rounded-lg max-h-40 overflow-y-auto">
-                        <p className="text-sm text-gray-700 leading-relaxed">
-                          {transcript}
-                        </p>
+                        <p className="text-sm text-gray-700 leading-relaxed">{transcript}</p>
                       </div>
                     </CardContent>
                   </Card>
                 )}
               </>
             )}
+
+            {/* Features Overview */}
+            <div className="grid md:grid-cols-2 gap-6 my-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Privacy First</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-gray-600">All processing happens on your device using browser APIs. Your speech never leaves your device.</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Real-time Feedback</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-gray-600">Get instant feedback on your speech patterns to improve your communication skills.</p>
+                </CardContent>
+              </Card>
+            </div>
           </>
         )}
         <footer className="text-center text-gray-500 text-sm mt-8">
