@@ -192,8 +192,38 @@ function App() {
                     </>
                   )}
                 </div>
-              </CardContent>
-            </Card>
+                <div className="text-center p-4 bg-green-50 rounded-lg">
+                  <div className="text-2xl font-bold text-green-600">{fillerCounts.uh}</div>
+                  <div className="text-sm text-gray-600">Uh</div>
+                </div>
+                <div className="text-center p-4 bg-yellow-50 rounded-lg">
+                  <div className="text-2xl font-bold text-yellow-600">{fillerCounts.like}</div>
+                  <div className="text-sm text-gray-600">Like</div>
+                </div>
+                <div className="text-center p-4 bg-purple-50 rounded-lg">
+                  <div className="text-2xl font-bold text-purple-600">{fillerCounts.youKnow}</div>
+                  <div className="text-sm text-gray-600">You Know</div>
+                </div>
+                <div className="text-center p-4 bg-orange-50 rounded-lg">
+                  <div className="text-2xl font-bold text-orange-600">{fillerCounts.so}</div>
+                  <div className="text-sm text-gray-600">So</div>
+                </div>
+                <div className="text-center p-4 bg-pink-50 rounded-lg">
+                  <div className="text-2xl font-bold text-pink-600">{fillerCounts.actually}</div>
+                  <div className="text-sm text-gray-600">Actually</div>
+                </div>
+                <div className="text-center p-4 bg-teal-50 rounded-lg">
+                  <div className="text-2xl font-bold text-teal-600">{fillerCounts.oh}</div>
+                  <div className="text-sm text-gray-600">Oh</div>
+                </div>
+                <div className="text-center p-4 bg-cyan-50 rounded-lg">
+                  <div className="text-2xl font-bold text-cyan-600">{fillerCounts.iMean}</div>
+                  <div className="text-sm text-gray-600">I Mean</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
             {sessionActive && (
               <>

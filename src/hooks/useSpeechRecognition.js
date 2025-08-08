@@ -123,7 +123,9 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
 
   const resetSession = useCallback(() => {
     setTranscript('')
+
     setFillerCounts(getInitialCounts(customWords))
+
     lastProcessedLength.current = 0
     setError(null)
   }, [customWords])
