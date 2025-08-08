@@ -87,6 +87,7 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
             finalTranscriptChunk += transcriptPart;
           }
         }
+
         setTranscript(fullTranscript);
         if (finalTranscriptChunk) {
           detectFillerWords(finalTranscriptChunk);

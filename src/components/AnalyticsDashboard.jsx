@@ -45,11 +45,10 @@ export const AnalyticsDashboard = ({ fillerCounts, sessionDuration, transcript }
           <CardDescription>A summary of your last practice session.</CardDescription>
         </CardHeader>
       </Card>
-
-      {/* Key Stats Section */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader>
+
             <CardTitle>Total Filler Words</CardTitle>
           </CardHeader>
           <CardContent>
