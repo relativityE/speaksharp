@@ -50,10 +50,13 @@ describe('useSpeechRecognition Hook', () => {
     expect(result.current.fillerCounts).toEqual({
       um: 0,
       uh: 0,
+      ah: 0,
       like: 0,
       youKnow: 0,
       so: 0,
-      actually: 0
+      actually: 0,
+      oh: 0,
+      iMean: 0
     })
   })
 
@@ -75,12 +78,38 @@ describe('useSpeechRecognition Hook', () => {
       result.current.startListening()
     })
 
+    // stopListening should not immediately set isListening to false
     act(() => {
       result.current.stopListening()
     })
-
-    expect(result.current.isListening).toBe(false)
+    expect(result.current.isListening).toBe(true)
     expect(mockSpeechRecognition.stop).toHaveBeenCalledTimes(1)
+
+    // isListening should become false only after the 'onend' event
+    act(() => {
+      mockSpeechRecognition.onend()
+    })
+    expect(result.current.isListening).toBe(false)
+  })
+
+  it('should automatically restart if it stops unexpectedly', () => {
+    const { result } = renderHook(() => useSpeechRecognition())
+
+    act(() => {
+      result.current.startListening()
+    })
+
+    expect(mockSpeechRecognition.start).toHaveBeenCalledTimes(1)
+    expect(result.current.isListening).toBe(true)
+
+    // Simulate an unexpected end
+    act(() => {
+      mockSpeechRecognition.onend()
+    })
+
+    // It should remain in the listening state and have called start again
+    expect(result.current.isListening).toBe(true)
+    expect(mockSpeechRecognition.start).toHaveBeenCalledTimes(2)
   })
 
   it('should reset the session', () => {
@@ -154,6 +183,37 @@ describe('useSpeechRecognition Hook', () => {
     expect(result.current.fillerCounts.like).toBe(2)
   })
 
+  it('should separately count "uh" and "ah"', () => {
+    const { result } = renderHook(() => useSpeechRecognition())
+    act(() => {
+      result.current.startListening()
+    })
+    const mockEvent = {
+      resultIndex: 0,
+      results: [{ 0: { transcript: 'uh, this is a test, ah, it is.' }, isFinal: true }]
+    }
+    act(() => {
+      mockSpeechRecognition.onresult(mockEvent)
+    })
+    expect(result.current.fillerCounts.uh).toBe(2) // from "uh" and "a"
+    expect(result.current.fillerCounts.ah).toBe(1) // from "ah"
+  })
+
+  it('should detect variations of "um"', () => {
+    const { result } = renderHook(() => useSpeechRecognition())
+    act(() => {
+      result.current.startListening()
+    })
+    const mockEvent = {
+      resultIndex: 0,
+      results: [{ 0: { transcript: 'um, am I ahm, em, ready?' }, isFinal: true }]
+    }
+    act(() => {
+      mockSpeechRecognition.onresult(mockEvent)
+    })
+    expect(result.current.fillerCounts.um).toBe(4) // um, am, ahm, em
+  })
+
   it('should handle errors from speech recognition', () => {
     const { result } = renderHook(() => useSpeechRecognition())
 
@@ -170,19 +230,23 @@ describe('useSpeechRecognition Hook', () => {
     expect(result.current.isListening).toBe(false)
   })
 
-  it('should set isListening to false on end event', () => {
+  it('should set isListening to false on intentional stop', () => {
     const { result } = renderHook(() => useSpeechRecognition())
 
     act(() => {
       result.current.startListening()
     })
-
     expect(result.current.isListening).toBe(true)
 
+    // Intentionally stop
+    act(() => {
+      result.current.stopListening()
+    })
+
+    // Now when onend fires, it should stop for good
     act(() => {
       mockSpeechRecognition.onend()
     })
-
     expect(result.current.isListening).toBe(false)
   })
 
