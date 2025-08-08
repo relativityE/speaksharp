@@ -66,14 +66,30 @@ npm test
 
 This will run all test files in the `src/__tests__` directory.
 
-## Future Work
+## Application Architecture
 
-This project has the potential for many new features. Here are a few ideas for future development:
+This application is built with a focus on separating concerns, primarily through the use of custom React Hooks to manage state and logic.
 
--   **Custom Phrase Detection**: Allow users to add their own words and phrases to detect.
--   **Post-Session Summary**: Create a summary page that appears after a session is ended, showing detailed metrics and the full transcript.
--   **User Accounts and History**: Add a backend service (like Supabase) to allow users to create accounts and save their session history.
--   **Clarity Score**: Develop an algorithm to provide an overall "clarity score" based on filler word usage, speaking pace, and other metrics.
+### Custom Hooks
+
+-   **`useSpeechRecognition({ customWords })`**: The core of the application. This hook manages the connection to the browser's Web Speech API, processes the transcript in real-time, and counts both default and user-defined filler words.
+    -   `customWords`: An array of strings that can be passed to the hook to detect additional user-defined filler words.
+-   **`useAudioRecording()`**: A simple hook that manages the state of the microphone recording.
+-   **`useAnalyticsData()`**: (Currently Mocked) This hook provides static data for the user's analytics dashboard, including session history and trends. This allows for UI development without a backend.
+
+### Path to a Live Backend
+
+The application is currently being developed with a "frontend-first" approach using mocked data. The custom hooks are designed to make the transition to a live backend seamless.
+
+For example, the `useAnalyticsData` hook currently returns a static object. To connect it to a live backend, the implementation of this hook would be updated to use a data-fetching library (like React Query) to fetch data from the Supabase API. No changes would be needed in the UI components that consume the hook, as the data shape would remain the same.
+
+## Development Roadmap
+
+This project is currently in the process of being migrated to a full-stack SaaS application. The planned features include:
+
+-   **User Authentication**: Allowing users to sign up and log in to save their data.
+-   **Session History & Analytics**: A dashboard for users to view their progress and trends over time.
+-   **Subscription Management**: Integration with Stripe to handle payments for premium features.
 
 ## Contributing
 

@@ -1,26 +1,32 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 
 // Filler word detection patterns moved outside the hook to prevent re-creation on each render
-const fillerPatterns = {
-  um: /\b(um|umm|ummm)\b/gi,
-  uh: /\b(uh|uhh|uhhh|er|err|ah)\b/gi,
+const defaultFillerPatterns = {
+  um: /\b(um|umm|ummm|ahm)\b/gi,
+  uh: /\b(uh|uhh|uhhh|er|err|ah|a|erh)\b/gi,
   like: /\b(like)\b/gi,
   youKnow: /\b(you know|y'know|ya know)\b/gi,
   so: /\b(so)\b/gi, // Removed lookahead to match "so" at the end of a sentence
-  actually: /\b(actually)\b/gi
+  actually: /\b(actually)\b/gi,
+  oh: /\b(oh|ooh)\b/gi,
+  iMean: /\b(i mean)\b/gi
 }
 
-export const useSpeechRecognition = () => {
+const getInitialCounts = (customWords = []) => {
+  const initial = {};
+  Object.keys(defaultFillerPatterns).forEach(key => {
+    initial[key] = 0;
+  });
+  customWords.forEach(word => {
+    initial[word] = 0;
+  });
+  return initial;
+};
+
+export const useSpeechRecognition = ({ customWords = [] } = {}) => {
   const [isListening, setIsListening] = useState(false)
   const [transcript, setTranscript] = useState('')
-  const [fillerCounts, setFillerCounts] = useState({
-    um: 0,
-    uh: 0,
-    like: 0,
-    youKnow: 0,
-    so: 0,
-    actually: 0
-  })
+  const [fillerCounts, setFillerCounts] = useState(getInitialCounts(customWords))
   const [error, setError] = useState(null)
   const [isSupported, setIsSupported] = useState(false)
   
@@ -41,10 +47,17 @@ export const useSpeechRecognition = () => {
   }, [])
 
   const detectFillerWords = useCallback((text) => {
+    const allPatterns = { ...defaultFillerPatterns };
+    customWords.forEach(word => {
+      // Simple word boundary regex for custom words.
+      // This could be improved for multi-word phrases.
+      allPatterns[word] = new RegExp(`\\b(${word})\\b`, 'gi');
+    });
+
     setFillerCounts(prevCounts => {
       const updatedCounts = { ...prevCounts };
-      for (const key in fillerPatterns) {
-        const pattern = fillerPatterns[key];
+      for (const key in allPatterns) {
+        const pattern = allPatterns[key];
         const matches = text.match(pattern);
         if (matches) {
           updatedCounts[key] = (updatedCounts[key] || 0) + matches.length;
@@ -52,7 +65,7 @@ export const useSpeechRecognition = () => {
       }
       return updatedCounts;
     });
-  }, [])
+  }, [customWords])
 
   const startListening = useCallback(() => {
     if (!isSupported || !recognitionRef.current) {
@@ -105,23 +118,15 @@ export const useSpeechRecognition = () => {
   const stopListening = useCallback(() => {
     if (recognitionRef.current && isListening) {
       recognitionRef.current.stop()
-      setIsListening(false)
     }
   }, [isListening])
 
   const resetSession = useCallback(() => {
     setTranscript('')
-    setFillerCounts({
-      um: 0,
-      uh: 0,
-      like: 0,
-      youKnow: 0,
-      so: 0,
-      actually: 0
-    })
+    setFillerCounts(getInitialCounts(customWords))
     lastProcessedLength.current = 0
     setError(null)
-  }, [])
+  }, [customWords])
 
   return {
     isListening,
