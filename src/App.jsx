@@ -1,23 +1,24 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Routes, Route, useNavigate } from 'react-router-dom';
 import { useSpeechRecognition } from './hooks/useSpeechRecognition';
 import { RecordingStatus } from './components/RecordingStatus';
 import { FillerWordCounters } from './components/FillerWordCounters';
 import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { ErrorDisplay } from './components/ErrorDisplay';
+import { Header } from './components/Header';
 import { Hero } from './components/Hero';
 import { Button } from './components/ui/button';
 
 const TRIAL_DURATION_SECONDS = 120; // 2 minutes
 
 function App() {
-  // App view state: 'welcome', 'active_session', 'analytics'
-  const [view, setView] = useState('welcome');
-
+  const navigate = useNavigate();
   const [isTrialActive, setIsTrialActive] = useState(false);
   const [trialTimeRemaining, setTrialTimeRemaining] = useState(TRIAL_DURATION_SECONDS);
   const [showTrialEndModal, setShowTrialEndModal] = useState(false);
-
   const [lastSessionData, setLastSessionData] = useState(null);
+  const [customWords, setCustomWords] = useState([]);
+  const [customWord, setCustomWord] = useState('');
 
   const {
     isListening,
@@ -28,7 +29,13 @@ function App() {
     startListening,
     stopListening,
     reset,
-  } = useSpeechRecognition({});
+  } = useSpeechRecognition({ customWords });
+
+  const handleAddCustomWord = (word) => {
+    if (word && !customWords.includes(word)) {
+      setCustomWords([...customWords, word]);
+    }
+  };
 
   // Trial Timer Logic
   useEffect(() => {
@@ -56,73 +63,65 @@ function App() {
     setLastSessionData(null);
     setTrialTimeRemaining(TRIAL_DURATION_SECONDS);
     setIsTrialActive(true);
-    setView('active_session');
+    navigate('/session');
     startListening();
-  }, [reset, startListening]);
+  }, [reset, startListening, navigate]);
 
   const handleEndTrialAndShowAnalytics = () => {
     setShowTrialEndModal(false);
-    setView('analytics');
-    // The data is already stored, so we just change the view
+    navigate('/analytics');
   };
 
   const handleStartNewSession = () => {
     reset();
-    setView('welcome');
+    navigate('/');
   }
 
   if (!isSupported) {
     return <ErrorDisplay message="Speech recognition is not supported in this browser." />;
   }
 
-  const renderContent = () => {
-    switch (view) {
-      case 'active_session':
-        return (
-          <div className="grid md:grid-cols-2 gap-8">
-            {/* Left Column */}
-            <div className="flex flex-col gap-6">
-              <RecordingStatus
-                isListening={isListening}
-                sessionActive={isTrialActive}
-                sessionDuration={TRIAL_DURATION_SECONDS - trialTimeRemaining}
-              />
-              <FillerWordCounters fillerCounts={fillerCounts} />
-            </div>
-
-            {/* Right Column */}
-            <div>
-              <h2 className="text-2xl font-bold mb-4">Live Transcript</h2>
-              <div className="h-96 p-4 border rounded-lg overflow-y-auto bg-gray-50 dark:bg-gray-800">
-                <p>{transcript || "Speak to see your words here..."}</p>
-              </div>
-            </div>
-          </div>
-        );
-      case 'analytics':
-        return (
-          <div>
-            <AnalyticsDashboard {...lastSessionData} />
-            <Button onClick={handleStartNewSession} className="mt-4">Start a New Session</Button>
-          </div>
-        );
-      case 'welcome':
-      default:
-        return <Hero onStartTrial={handleStartTrial} />;
-    }
-  }
-
   return (
     <div className="App">
-      <header className="App-header">
-        <h1>SayLess</h1>
-        <div className="auth-buttons">
-          <button className="login-btn">Log In</button>
-          <button className="signup-btn">Sign Up</button>
-        </div>
-      </header>
+      <Header />
       <main>
-        {renderContent()}
+        <Routes>
+          <Route path="/" element={<Hero onStartTrial={handleStartTrial} />} />
+          <Route path="/session" element={
+            <div className="grid md:grid-cols-2 gap-8">
+              {/* Left Column */}
+              <div className="flex flex-col gap-6">
+                <RecordingStatus
+                  isListening={isListening}
+                  sessionActive={isTrialActive}
+                  sessionDuration={TRIAL_DURATION_SECONDS - trialTimeRemaining}
+                />
+                <FillerWordCounters
+                  fillerCounts={fillerCounts}
+                  customWords={customWords}
+                  customWord={customWord}
+                  setCustomWord={setCustomWord}
+                  onAddCustomWord={handleAddCustomWord}
+                  sessionActive={isTrialActive}
+                />
+              </div>
+
+              {/* Right Column */}
+              <div>
+                <h2 className="text-2xl font-bold mb-4">Live Transcript</h2>
+                <div className="h-96 p-4 border rounded-lg overflow-y-auto bg-card">
+                  <p>{transcript || "Speak to see your words here..."}</p>
+                </div>
+              </div>
+            </div>
+          } />
+          <Route path="/analytics" element={
+            <div>
+              <AnalyticsDashboard {...lastSessionData} />
+              <Button onClick={handleStartNewSession} className="mt-4">Start a New Session</Button>
+            </div>
+          } />
+        </Routes>
       </main>
 
       {showTrialEndModal && (
