@@ -67,6 +67,17 @@ function App() {
     startListening();
   }, [reset, startListening, navigate]);
 
+  const handleStopTrial = useCallback(() => {
+    setIsTrialActive(false);
+    stopListening();
+    setLastSessionData({
+      transcript,
+      fillerCounts,
+      duration: TRIAL_DURATION_SECONDS - trialTimeRemaining,
+    });
+    navigate('/analytics');
+  }, [stopListening, transcript, fillerCounts, trialTimeRemaining, navigate]);
+
   const handleEndTrialAndShowAnalytics = () => {
     setShowTrialEndModal(false);
     navigate('/analytics');
@@ -95,6 +106,7 @@ function App() {
                   isListening={isListening}
                   sessionActive={isTrialActive}
                   sessionDuration={TRIAL_DURATION_SECONDS - trialTimeRemaining}
+                  onStop={handleStopTrial}
                 />
                 <FillerWordCounters
                   fillerCounts={fillerCounts}

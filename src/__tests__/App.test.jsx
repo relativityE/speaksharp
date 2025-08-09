@@ -16,9 +16,22 @@ vi.mock('../components/Header', () => ({
 vi.mock('../components/RecordingStatus', () => ({
   RecordingStatus: ({ sessionActive }) => <div>{sessionActive ? 'Recording...' : 'Ready'}</div>,
 }));
-vi.mock('../components/FillerWordCounters', () => ({
-  FillerWordCounters: () => <div>Filler Counters</div>,
-}));
+vi.mock('../components/FillerWordCounters', async (importOriginal) => {
+  const mod = await importOriginal()
+  return {
+    ...mod,
+    // Render the custom words to test the add functionality
+    FillerWordCounters: ({ customWords, onAddCustomWord, setCustomWord, customWord }) => (
+      <div>
+        <button onClick={() => onAddCustomWord('new word')}>Add Word</button>
+        <input value={customWord} onChange={e => setCustomWord(e.target.value)} />
+        <div>
+          {customWords.map(word => <span key={word}>{word}</span>)}
+        </div>
+      </div>
+    ),
+  }
+});
 vi.mock('../components/AnalyticsDashboard', () => ({
   AnalyticsDashboard: () => <div>Session Report</div>,
 }));
@@ -80,7 +93,6 @@ describe('App Component', () => {
 
     // App should navigate to /session, where these components are rendered
     expect(screen.getByText('Recording...')).toBeInTheDocument();
-    expect(screen.getByText('Filler Counters')).toBeInTheDocument();
 
     // 2. End Trial
     act(() => {
@@ -113,5 +125,21 @@ describe('App Component', () => {
     // Verify we are back on the welcome screen
     expect(screen.getByText('Start Recording')).toBeInTheDocument();
     expect(screen.queryByText('Session Report')).not.toBeInTheDocument();
+  });
+
+  test('adds a custom word and displays it', () => {
+    renderWithRouter(<App />);
+
+    // Navigate to session page
+    fireEvent.click(screen.getByText('Start Recording'));
+
+    // Check that the custom word is not there initially
+    expect(screen.queryByText('new word')).not.toBeInTheDocument();
+
+    // Simulate adding a new word from our mock component
+    fireEvent.click(screen.getByText('Add Word'));
+
+    // Check that the new word is now displayed because the state in App.jsx has been updated
+    expect(screen.getByText('new word')).toBeInTheDocument();
   });
 });
