@@ -1,77 +1,107 @@
 # SayLess AI - Product Requirements Document (PRD)
 
-**Version**: 1.5
+**Version**: 2.3
+**Last Updated**: 2025-08-09
 
 ## 1. Executive Summary
-This document outlines the requirements for transforming SayLess AI from a client-side tool into a full-stack SaaS platform. The goal is to introduce user accounts, subscription billing, and premium features while maintaining the core value proposition of a privacy-first, real-time speech analysis tool.
+SayLess is a privacy-first, real-time speech analysis tool designed to help users become better presenters and communicators by eliminating filler words. The product processes speech locally in the browser, ensuring no audio or transcript is ever stored for anonymous or free-tier users. Premium tiers unlock more usage time, deeper analytics, and optional, consent-based cloud STT for high-accuracy transcription.
 
-## 2. Known Issues
-- The real-time detection for common filler words like "uh" and "um" can be inconsistent, requiring improvements to the detection logic.
+**Core Value Proposition**: Immediate, private feedback on filler word usage to improve verbal clarity, with a frictionless entry point and a clear path to powerful premium features.
 
-## 3. Proposed Architecture
-A brief overview of the technology stack chosen to build the SaaS platform.
+## 2. User Flow & Tiers
 
-- **Frontend Framework**: Next.js 15 with App Router
-  - **Why**: To enable server-side logic and API routes, which are essential for a scalable SaaS product.
-- **Authentication & Database**: Supabase (Auth & PostgreSQL)
-  - **Why**: To accelerate development with a managed, all-in-one backend for user accounts and data storage.
-- **Payment Processing**: Stripe
-  - **Why**: To securely handle payments and subscriptions, forming the core of the business model.
-- **Bug Reporting & Monitoring**: PostHog
-  - **Why**: To consolidate product analytics and error tracking into a single platform for a holistic view of app health.
+### Anonymous Free Trial
+- **Goal**: Maximize user adoption and deliver an instant "aha!" moment with zero friction.
+- **Flow**:
+  1. User lands on the page and can immediately start a **2-minute trial session**.
+  2. No account or sign-up is required.
+  3. Real-time filler word detection runs locally in the browser.
+  4. At the end of 2 minutes, the session pauses.
+  5. A prompt appears: **"Sign up to save this session and continue."** Data from the trial (filler word counts) is preserved and attached to the new account upon creation.
 
-## 4. Phased Rollout & Feature Tiers
-This section outlines the features to be built and how they will be bundled into different subscription tiers.
-
-### Free Tier
-**Goal**: User acquisition and product validation.
-- **Feature**: **Real-time Filler Word Detection**
-  - **Description**: The core real-time analysis engine.
-  - **Why**: To provide immediate value and showcase the product's primary functionality.
-- **Feature**: **30 Minutes of Analysis per Month**
-  - **Description**: A monthly quota for free analysis time.
-  - **Why**: To allow users to experience the product's value without initial cost, encouraging adoption.
-- **Feature**: **Save Last 3 Sessions**
-  - **Description**: A limited session history for users to review recent performance.
-  - **Why**: To give users a taste of the value of tracking progress over time, creating an incentive to upgrade.
-- **Feature**: **1 Custom Filler Word**
-  - **Description**: The ability to track one user-defined word or phrase.
-  - **Why**: To offer a degree of personalization and demonstrate the power of the custom word feature.
+### Free Tier (Account Required)
+- **Goal**: Convert trial users into registered users to enable retention tracking and create an upgrade path.
+- **Includes**:
+  - **30 minutes/month** of local analysis time (resets monthly).
+  - Ability to track **1 custom filler word**.
+  - **Save the last 3 sessions** to track recent progress.
+  - Visual real-time counters for each tracked word.
 
 ### Pro Tier ($9.99/month)
-**Goal**: Primary revenue driver for engaged users.
-- **Includes**: Everything in the Free Tier, plus:
-- **Feature**: **Unlimited Analysis & Session History**
-  - **Description**: No limits on analysis time or the number of saved sessions.
-  - **Why**: This is the core value proposition for serious users who want to track their progress long-term.
-- **Feature**: **Advanced Analytics Dashboard**
-  - **Description**: A dashboard to visualize progress and trends over time.
-  - **Why**: To provide users with actionable insights and a clear, visual representation of their improvement.
-- **Feature**: **Unlimited Custom Filler Words**
-  - **Description**: The ability to track an unlimited number of custom words.
-  - **Why**: To provide a fully personalized experience for users with specific needs.
-- **Feature**: **Data Export**
-  - **Description**: The ability to export transcripts and reports as PDF or CSV.
-  - **Why**: To allow users to own their data and use it in other contexts (e.g., reports, coaching).
+- **Goal**: Monetize engaged individuals who need more usage and deeper insights.
+- **Includes**:
+  - **Unlimited** local analysis time and session history.
+  - **Unlimited** custom filler words.
+  - **Advanced analytics dashboard** (trend visualization, per-word graphs).
+  - **Export** filler word metadata (CSV/PDF).
 
 ### Premium Tier ($19.99/month)
-**Goal**: For power users, professionals, and future B2B offerings.
-- **Includes**: Everything in the Pro Tier, plus:
-- **Feature**: **Cloud-Powered STT**
-  - **Description**: An optional, high-accuracy transcription service (e.g., Whisper).
-  - **Why**: To provide a premium, high-accuracy alternative for users in noisy environments or those who need the best possible transcription.
-- **Feature**: **Team Collaboration & API Access** (Future)
-  - **Description**: Features for teams to share analytics and for developers to integrate with other tools.
-  - **Why**: To expand the product's market to include business and power users, creating new revenue opportunities.
+- **Goal**: Serve power users, professionals, and future teams who require the highest accuracy.
+- **Includes**:
+  - Everything in Pro Tier.
+  - Optional **cloud-powered STT** (e.g., Whisper API) for higher accuracy.
+  - Clear visual indicator when cloud processing is active.
+  - Team collaboration and API access (Future Roadmap).
 
-## 5. Design & UX Requirements
-- **UI Refresh**: The application will be updated with a modern, clean, and crisp color palette.
-- **Data Privacy**: The UI must be exceptionally clear about what data is being stored and when processing is happening locally versus in the cloud. User control and transparency are paramount.
+## 3. Proposed Architecture
+| Component | Tech Stack | Purpose |
+|---|---|---|
+| Frontend | React + Vite (existing), migrate to **Next.js 15 App Router** | Next.js enables server-side rendering and API routes, essential for subscription logic, authentication, and analytics integrations. |
+| Auth & Database | **Supabase (Auth & PostgreSQL)** | Single platform for authentication, authorization, and metadata storage. Managed, scalable, reduces backend complexity. |
+| Payment Processing | **Stripe** | Industry-standard for secure payments and subscription management. Reliable webhooks and easy integration with Supabase. |
+| Error Tracking & Monitoring | **Sentry** | Purpose-built for real-time error detection and alerting. Critical for production reliability. |
+| Product Analytics | **PostHog** | Tracks user behavior, feature adoption, and engagement trends. Complements Sentry by providing business-level insights. |
+| Speech Processing (Local) | Web Speech API | No data leaves the browser, enabling privacy-first design for the free trial and free tier. |
+| Speech Processing (Cloud) | Whisper API or equivalent (Premium only) | High-accuracy STT for users who opt in. Only metadata stored — no raw audio. |
 
-## 6. Security Considerations
-- All API inputs must be validated.
-- Use secure, HTTP-only cookies for session management.
-- Implement CSRF protection and rate limiting.
-- Leverage Supabase Row Level Security for data access control.
-- Never store raw audio recordings on the server.
+## 4. Privacy & Security Requirements
+- **No storage of audio or transcripts** at any tier.
+- Only filler word counts, timestamps, and trend data are stored for registered users.
+- **Explicit user consent** is required for any cloud-based processing.
+- A clear visual indicator must be present when speech is being sent to the cloud.
+- All API requests must be validated; use secure, HTTP-only cookies for sessions.
+- Supabase Row Level Security (RLS) will be enabled for per-user data isolation.
+- CSRF protection and rate limiting will be implemented.
 
+## 5. Cost & Margin Projections
+This projection models the unit economics for the SayLess SaaS platform based on a target of **250 paid monthly active users (MAU)**.
+
+**Assumptions**:
+- **User Split**: The 250 paid users are split into 200 Pro users and 50 Premium users.
+- **STT Usage**: Premium users utilize the cloud STT feature at an average rate of 135 minutes/month, costing ~$0.81 per user.
+- **Baseline Costs**: Infrastructure and tool costs are estimated at ~$195/month.
+
+| Metric | Calculation | Value |
+|---|---|---|
+| **Revenue** | | |
+| Pro Users | 200 users × $9.99/month | $1,998 |
+| Premium Users | 50 users × $19.99/month | $999.50 |
+| **Total Monthly Revenue** | | **$2,997.50** |
+| | | |
+| **Costs** | | |
+| Baseline Infrastructure | (Vercel, Supabase, Sentry, etc.) | $195 |
+| Payment Processing | (2.9% of Revenue) + ($0.30 × 250 txns) | ~$162 |
+| Cloud STT API | 50 users × $0.81/user | ~$40.50 |
+| **Total Monthly Cost** | | **~$397.50** |
+| | | |
+| **Unit Economics** | | |
+| **Gross Margin** | ((Revenue - Costs) / Revenue) | **~86.7%** |
+
+
+## 6. Development Roadmap (High-Level)
+This PRD will be implemented in phases, as detailed in the `phased-migration.md` document. The high-level plan is:
+1.  **MVP Launch**: Implement the anonymous 2-minute trial, user authentication, free tier limits, and a fully functional Stripe paywall for the Pro and Premium tiers.
+2.  **Pro Tier Features**: Build out the advanced analytics dashboard, unlimited history/custom words, and data export functionality.
+3.  **Premium Tier Features**: Integrate a cloud STT provider with all necessary privacy safeguards and UI indicators.
+4.  **Future Scale**: Explore and implement team/enterprise features and API access.
+
+## 7. Project Structure
+- **/src**: Contains all the application source code.
+  - **/components**: Reusable React components (e.g., `AnalyticsDashboard`, `SessionControl`).
+    - **/ui**: UI primitives, often from a component library like Shadcn/UI.
+  - **/hooks**: Custom React hooks, such as `useSpeechRecognition.js`.
+  - **/lib**: Utility functions.
+  - `App.jsx`: The main application component that orchestrates the UI and state.
+  - `main.jsx`: The entry point for the React application.
+- `PRD.md`: This document.
+- `phased-migration.md`: The technical roadmap and phasing plan.

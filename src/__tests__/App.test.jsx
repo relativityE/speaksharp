@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { vi } from 'vitest';
 import App from '../App';
 
@@ -8,28 +8,19 @@ vi.mock('../hooks/useSpeechRecognition', () => ({
   useSpeechRecognition: vi.fn(),
 }));
 
-// Mock child components for named exports
-vi.mock('../components/SessionControl', () => ({
-  SessionControl: ({ onStart, onStop, onEnd, isListening, sessionActive }) => (
-    <div>
-      <button onClick={onStart}>Start Session</button>
-      <button onClick={() => isListening ? onStop() : onStart()}>{isListening ? 'Stop Recording' : 'Start Recording'}</button>
-      <button onClick={onEnd}>End Session</button>
-      <span>{sessionActive ? 'Session Active' : 'Session Inactive'}</span>
-    </div>
-  ),
-}));
+// Mock child components
 vi.mock('../components/RecordingStatus', () => ({
-    RecordingStatus: ({ isListening }) => <div>{isListening ? 'Listening' : 'Not Listening'}</div>
+  RecordingStatus: ({ isListening }) => <div>{isListening ? 'Recording...' : 'Ready'}</div>,
 }));
 vi.mock('../components/FillerWordCounters', () => ({
-    FillerWordCounters: () => <div>Filler Word Counters</div>
+  FillerWordCounters: () => <div>Filler Counters</div>,
 }));
 vi.mock('../components/AnalyticsDashboard', () => ({
-  AnalyticsDashboard: () => <div>Analytics Dashboard</div>,
+  // The new dashboard just receives data, it doesn't have tiers
+  AnalyticsDashboard: () => <div>Session Report</div>,
 }));
 vi.mock('../components/ErrorDisplay', () => ({
-    ErrorDisplay: ({ message }) => <div>{message}</div>
+  ErrorDisplay: ({ message }) => <div>{message}</div>,
 }));
 
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
@@ -39,11 +30,10 @@ describe('App Component', () => {
   let mockStopListening;
   let mockReset;
 
-  // Helper to create a complete mock object
   const getMockedHookValue = (overrides = {}) => ({
     isListening: false,
-    transcript: '',
-    fillerCounts: {},
+    transcript: 'This is a test transcript with um, like, you know, filler words.',
+    fillerCounts: { um: 1, like: 1, 'you know': 1 },
     error: null,
     isSupported: true,
     startListening: mockStartListening,
@@ -56,91 +46,60 @@ describe('App Component', () => {
     mockStartListening = vi.fn();
     mockStopListening = vi.fn();
     mockReset = vi.fn();
-    // Set the default mock for all tests
     useSpeechRecognition.mockReturnValue(getMockedHookValue());
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
   test('renders initial state correctly', () => {
     render(<App />);
-    expect(screen.getByText('SayLess')).toBeInTheDocument();
-    expect(screen.getByText('Start Session')).toBeInTheDocument();
-    expect(screen.getByText('Click "Start Session" to begin recording.')).toBeInTheDocument();
+    expect(screen.getByText('Start 2-Minute Trial')).toBeInTheDocument();
+    expect(screen.getByText(/Improve your speaking/)).toBeInTheDocument();
   });
 
-  test('starts a session when "Start Session" is clicked', () => {
+  test('runs trial, then shows analytics dashboard', () => {
     const { rerender } = render(<App />);
-    fireEvent.click(screen.getByText('Start Session'));
-
-    expect(mockReset).toHaveBeenCalledTimes(1);
-    expect(mockStartListening).toHaveBeenCalledTimes(1);
     
-    // Rerender with the hook returning "listening" state
+    // 1. Start Trial
+    fireEvent.click(screen.getByText('Start 2-Minute Trial'));
     useSpeechRecognition.mockReturnValue(getMockedHookValue({ isListening: true }));
     rerender(<App />);
-    expect(screen.getByText('Listening')).toBeInTheDocument();
+    expect(screen.getByText('Recording...')).toBeInTheDocument();
+
+    // 2. End Trial
+    act(() => {
+      vi.advanceTimersByTime(120 * 1000);
+    });
+    expect(screen.getByText('Trial Session Ended')).toBeInTheDocument();
+
+    // 3. Dismiss modal and view results
+    fireEvent.click(screen.getByText('Just show me the results'));
+
+    // 4. Verify analytics are shown
+    expect(screen.queryByText('Trial Session Ended')).not.toBeInTheDocument();
+    expect(screen.getByText('Session Report')).toBeInTheDocument();
   });
 
-  test('stops and resumes recording', () => {
+  test('returns to welcome screen from analytics view', () => {
     const { rerender } = render(<App />);
-    fireEvent.click(screen.getByText('Start Session'));
-    expect(mockStartListening).toHaveBeenCalledTimes(1);
 
-    // After starting, we are listening
-    useSpeechRecognition.mockReturnValue(getMockedHookValue({ isListening: true }));
-    rerender(<App />);
-    fireEvent.click(screen.getByText('Stop Recording'));
-    expect(mockStopListening).toHaveBeenCalledTimes(1);
+    // Get to the analytics screen first
+    fireEvent.click(screen.getByText('Start 2-Minute Trial'));
+    act(() => { vi.advanceTimersByTime(120 * 1000); });
+    fireEvent.click(screen.getByText('Just show me the results'));
 
-    // After stopping, we are not listening
-    useSpeechRecognition.mockReturnValue(getMockedHookValue({ isListening: false }));
-    rerender(<App />);
-    fireEvent.click(screen.getByText('Start Recording'));
-    expect(mockStartListening).toHaveBeenCalledTimes(2);
-  });
+    // Ensure we are on the analytics screen
+    expect(screen.getByText('Session Report')).toBeInTheDocument();
 
-  test('ends a session when "End Session" is clicked', () => {
-    const { rerender } = render(<App />);
-    fireEvent.click(screen.getByText('Start Session'));
+    // Click "Start a New Session"
+    fireEvent.click(screen.getByText('Start a New Session'));
 
-    // Simulate active session state
-    useSpeechRecognition.mockReturnValue(getMockedHookValue({ isListening: true, transcript: 'Final transcript.' }));
-    rerender(<App />);
-
-    fireEvent.click(screen.getByText('End Session'));
-    expect(mockStopListening).toHaveBeenCalledTimes(1);
-
-    // After session ends, analytics should be visible
-    useSpeechRecognition.mockReturnValue(getMockedHookValue({ transcript: 'Final transcript.' }));
-    rerender(<App/>);
-
-    expect(screen.getByText('Analytics Dashboard')).toBeInTheDocument();
-  });
-
-  test('displays an error message', () => {
-    useSpeechRecognition.mockReturnValue(getMockedHookValue({ error: 'Test error message' }));
-    render(<App />);
-    expect(screen.getByText('Test error message')).toBeInTheDocument();
-  });
-
-  test('handles custom word addition', () => {
-    render(<App />);
-    const input = screen.getByPlaceholderText('Add custom filler word');
-    const button = screen.getByText('Add');
-
-    fireEvent.change(input, { target: { value: 'testword' } });
-    fireEvent.click(button);
-
-    expect(useSpeechRecognition).toHaveBeenCalledWith({ customWords: ['testword'] });
-  });
-
-  test('shows transcript and filler counts during session', () => {
-    const { rerender } = render(<App />);
-    fireEvent.click(screen.getByText('Start Session'));
-
-    useSpeechRecognition.mockReturnValue(getMockedHookValue({ isListening: true, transcript: 'um, this is a test' }));
-    rerender(<App />);
-
-    expect(screen.getByText('Filler Word Counters')).toBeInTheDocument();
+    // Verify we are back on the welcome screen
+    expect(screen.getByText('Start 2-Minute Trial')).toBeInTheDocument();
+    expect(screen.queryByText('Session Report')).not.toBeInTheDocument();
   });
 });

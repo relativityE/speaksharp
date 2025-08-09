@@ -1,20 +1,23 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSpeechRecognition } from './hooks/useSpeechRecognition';
-import { SessionControl } from './components/SessionControl';
 import { RecordingStatus } from './components/RecordingStatus';
 import { FillerWordCounters } from './components/FillerWordCounters';
 import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { ErrorDisplay } from './components/ErrorDisplay';
-import { Input } from './components/ui/input';
 import { Button } from './components/ui/button';
 import './App.css';
 
+const TRIAL_DURATION_SECONDS = 120; // 2 minutes
+
 function App() {
-  const [sessionActive, setSessionActive] = useState(false);
-  const [sessionStartTime, setSessionStartTime] = useState(null);
-  const [sessionDuration, setSessionDuration] = useState(0);
-  const [customWords, setCustomWords] = useState([]);
-  const [newWord, setNewWord] = useState('');
+  // App view state: 'welcome', 'active_session', 'analytics'
+  const [view, setView] = useState('welcome');
+
+  const [isTrialActive, setIsTrialActive] = useState(false);
+  const [trialTimeRemaining, setTrialTimeRemaining] = useState(TRIAL_DURATION_SECONDS);
+  const [showTrialEndModal, setShowTrialEndModal] = useState(false);
+
+  const [lastSessionData, setLastSessionData] = useState(null);
 
   const {
     isListening,
@@ -25,102 +28,120 @@ function App() {
     startListening,
     stopListening,
     reset,
-  } = useSpeechRecognition({ customWords });
+  } = useSpeechRecognition({});
 
+  // Trial Timer Logic
   useEffect(() => {
     let timer;
-    if (sessionActive) {
+    if (isTrialActive && trialTimeRemaining > 0) {
       timer = setInterval(() => {
-        setSessionDuration(Date.now() - sessionStartTime);
+        setTrialTimeRemaining(prev => prev - 1);
       }, 1000);
+    } else if (isTrialActive && trialTimeRemaining <= 0) {
+      setIsTrialActive(false);
+      stopListening();
+      // Store the session data before showing the modal
+      setLastSessionData({
+        transcript,
+        fillerCounts,
+        duration: TRIAL_DURATION_SECONDS * 1000, // in ms
+      });
+      setShowTrialEndModal(true);
     }
     return () => clearInterval(timer);
-  }, [sessionActive, sessionStartTime]);
+  }, [isTrialActive, trialTimeRemaining, stopListening, transcript, fillerCounts]);
 
-  const handleStartSession = useCallback(() => {
+  const handleStartTrial = useCallback(() => {
     reset();
-    setSessionActive(true);
-    setSessionStartTime(Date.now());
-    setSessionDuration(0);
+    setLastSessionData(null);
+    setTrialTimeRemaining(TRIAL_DURATION_SECONDS);
+    setIsTrialActive(true);
+    setView('active_session');
     startListening();
   }, [reset, startListening]);
 
-  const handleStopSession = useCallback(() => {
-    stopListening();
-    setSessionActive(false);
-  }, [stopListening]);
-
-  const handleEndSession = useCallback(() => {
-    stopListening();
-    setSessionActive(false);
-    // Analytics will be based on the final state of transcript and fillerCounts
-  }, [stopListening]);
-
-  const handleAddWord = () => {
-    if (newWord && !customWords.includes(newWord.toLowerCase())) {
-      setCustomWords([...customWords, newWord.toLowerCase()]);
-      setNewWord('');
-    }
+  const handleEndTrialAndShowAnalytics = () => {
+    setShowTrialEndModal(false);
+    setView('analytics');
+    // The data is already stored, so we just change the view
   };
+
+  const handleStartNewSession = () => {
+    reset();
+    setView('welcome');
+  }
 
   if (!isSupported) {
     return <ErrorDisplay message="Speech recognition is not supported in this browser." />;
+  }
+
+  const renderContent = () => {
+    switch (view) {
+      case 'active_session':
+        return (
+          <>
+            <RecordingStatus
+              isListening={isListening}
+              sessionActive={isTrialActive}
+              sessionDuration={TRIAL_DURATION_SECONDS - trialTimeRemaining}
+            />
+            {error && <ErrorDisplay message={error} />}
+            <div className="session-data">
+              <FillerWordCounters counts={fillerCounts} />
+              <div className="transcript-container">
+                <h2>Transcript</h2>
+                <p>{transcript || "Speak to see your words here..."}</p>
+              </div>
+            </div>
+          </>
+        );
+      case 'analytics':
+        return (
+          <div>
+            <AnalyticsDashboard {...lastSessionData} />
+            <Button onClick={handleStartNewSession} className="mt-4">Start a New Session</Button>
+          </div>
+        );
+      case 'welcome':
+      default:
+        return (
+          <>
+            <h2>Improve your speaking, one less "um" at a time.</h2>
+            <p className="placeholder-text">
+              Click the button below to start a free 2-minute trial. <br/>
+              No account required. All processing is done locally in your browser.
+            </p>
+            <Button onClick={handleStartTrial} size="lg">Start 2-Minute Trial</Button>
+          </>
+        );
+    }
   }
 
   return (
     <div className="App">
       <header className="App-header">
         <h1>SayLess</h1>
-        <p>Your personal speech coach</p>
+        <div className="auth-buttons">
+          <button className="login-btn">Log In</button>
+          <button className="signup-btn">Sign Up</button>
+        </div>
       </header>
       <main>
-        <SessionControl
-          sessionActive={sessionActive}
-          isListening={isListening}
-          onStart={handleStartSession}
-          onStop={handleStopSession}
-          onEnd={handleEndSession}
-        />
-        <RecordingStatus
-          isListening={isListening}
-          sessionActive={sessionActive}
-          sessionDuration={sessionDuration}
-        />
-        {error && <ErrorDisplay message={error} />}
-
-        <div className="custom-word-input">
-          <Input
-            type="text"
-            value={newWord}
-            onChange={(e) => setNewWord(e.target.value)}
-            placeholder="Add custom filler word"
-            disabled={sessionActive}
-          />
-          <Button onClick={handleAddWord} disabled={sessionActive}>Add</Button>
-        </div>
-
-        {sessionActive || transcript ? (
-          <div className="session-data">
-            <FillerWordCounters counts={fillerCounts} />
-            <div className="transcript-container">
-              <h2>Transcript</h2>
-              <p>{transcript}</p>
-            </div>
-          </div>
-        ) : (
-          <div className="placeholder-text">
-            <p>Click "Start Session" to begin recording.</p>
-          </div>
-        )}
-
-        {!sessionActive && transcript && (
-           <AnalyticsDashboard
-             transcript={transcript}
-             fillerCounts={fillerCounts}
-             duration={sessionDuration}
-           />
-        )}
+        {renderContent()}
       </main>
+
+      {showTrialEndModal && (
+        <div className="trial-modal-overlay">
+          <div className="trial-modal-content">
+            <h2>Trial Session Ended</h2>
+            <p>To save this session and unlock more features, please sign up for an account.</p>
+            <button className="signup-btn">Sign Up to Continue</button>
+            <Button variant="ghost" onClick={handleEndTrialAndShowAnalytics}>
+              Just show me the results
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
