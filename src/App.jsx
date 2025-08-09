@@ -6,16 +6,15 @@ import { FillerWordCounters } from './components/FillerWordCounters';
 import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { ErrorDisplay } from './components/ErrorDisplay';
 import { Button } from './components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Header } from './components/Header';
 import { SessionControl } from './components/SessionControl';
 import { InfoCard } from './components/InfoCard';
+import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 
 const TRIAL_DURATION_SECONDS = 120;
 
 function App() {
   const navigate = useNavigate();
-  const [isTrialActive, setIsTrialActive] = useState(false);
   const [trialTimeRemaining, setTrialTimeRemaining] = useState(TRIAL_DURATION_SECONDS);
   const [showTrialEndModal, setShowTrialEndModal] = useState(false);
   const [lastSessionData, setLastSessionData] = useState(null);
@@ -46,7 +45,6 @@ function App() {
         setTrialTimeRemaining(prev => prev - 1);
       }, 1000);
     } else if (isListening && trialTimeRemaining <= 0) {
-      setIsTrialActive(false);
       stopListening();
       setLastSessionData({ transcript, fillerCounts, duration: TRIAL_DURATION_SECONDS * 1000 });
       setShowTrialEndModal(true);
@@ -56,7 +54,6 @@ function App() {
 
   const handleToggleRecording = useCallback(() => {
     if (isListening) {
-      setIsTrialActive(false);
       stopListening();
       setLastSessionData({
         transcript,
@@ -68,7 +65,6 @@ function App() {
       reset();
       setLastSessionData(null);
       setTrialTimeRemaining(TRIAL_DURATION_SECONDS);
-      setIsTrialActive(true);
       navigate('/session');
       startListening();
     }
@@ -77,11 +73,6 @@ function App() {
   const handleEndTrialAndShowAnalytics = () => {
     setShowTrialEndModal(false);
     navigate('/analytics');
-  };
-
-  const handleStartNewSession = () => {
-    reset();
-    navigate('/');
   };
 
   const totalFillerWords = Object.values(fillerCounts).reduce((sum, count) => sum + count, 0);
@@ -115,7 +106,6 @@ function App() {
               />
               <RecordingStatus
                 isRecording={isListening}
-                totalFillerWords={totalFillerWords}
               />
               <FillerWordCounters
                 fillerCounts={fillerCounts}
@@ -124,6 +114,7 @@ function App() {
                 setCustomWord={setCustomWord}
                 onAddCustomWord={handleAddCustomWord}
                 sessionActive={isListening}
+                totalFillerWords={totalFillerWords}
               />
               <div className="grid md:grid-cols-2 gap-6">
                 <InfoCard title="Privacy First">
@@ -136,10 +127,7 @@ function App() {
             </div>
           } />
           <Route path="/analytics" element={
-            <div>
-              <AnalyticsDashboard {...lastSessionData} />
-              <Button onClick={handleStartNewSession} className="mt-4">Start a New Session</Button>
-            </div>
+            <AnalyticsDashboard {...lastSessionData} />
           } />
         </Routes>
       </main>

@@ -26,6 +26,7 @@ export const FillerWordCounters = ({
   setCustomWord,
   onAddCustomWord,
   sessionActive,
+  totalFillerWords,
 }) => {
   const defaultFillerWords = [
     { key: FILLER_WORD_KEYS.UM, color: 'blue', label: 'Um' },
@@ -49,10 +50,15 @@ export const FillerWordCounters = ({
   return (
     <Card className="mb-6">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <BarChart3 className="h-5 w-5" />
-          Filler Word Detection
-        </CardTitle>
+        <div className="flex justify-between items-center">
+          <CardTitle className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5" />
+            Filler Word Detection
+          </CardTitle>
+          <div className="text-sm text-muted-foreground">
+            Total: <span className="font-semibold text-foreground">{totalFillerWords}</span>
+          </div>
+        </div>
         <CardDescription>
           Real-time tracking of common and custom filler words.
         </CardDescription>

@@ -1,7 +1,6 @@
 import React from 'react';
 import { Button } from './ui/button';
 import { Mic, StopCircle } from 'lucide-react';
-import { Badge } from './ui/badge';
 
 const formatTime = (seconds) => {
   const minutes = Math.floor(seconds / 60);
@@ -11,8 +10,8 @@ const formatTime = (seconds) => {
 
 export const SessionControl = ({ isRecording, onToggle, sessionDuration }) => {
   return (
-    <div className="flex gap-4 justify-center items-center">
-      <Button onClick={onToggle} size="lg">
+    <div className="flex items-center justify-between p-4 border rounded-lg">
+      <Button onClick={onToggle} size="lg" variant={isRecording ? 'destructive' : 'default'}>
         {isRecording ? (
           <>
             <StopCircle className="h-4 w-4 mr-2" />
@@ -26,9 +25,9 @@ export const SessionControl = ({ isRecording, onToggle, sessionDuration }) => {
         )}
       </Button>
       {isRecording && (
-        <Badge variant="outline" className="text-lg">
+        <div className="text-lg font-semibold">
           {formatTime(sessionDuration)}
-        </Badge>
+        </div>
       )}
     </div>
   );
