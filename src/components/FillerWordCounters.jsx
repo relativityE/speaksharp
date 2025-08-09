@@ -60,16 +60,20 @@ export const FillerWordCounters = ({
       <CardContent>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {defaultFillerWords.map(({ key, color, label }) => (
-            <div key={key} className={`text-center p-4 ${colorClasses[color].bg} rounded-lg`}>
-              <div className={`text-2xl font-bold ${colorClasses[color].text}`}>{fillerCounts[key] || 0}</div>
-              <div className="text-sm text-gray-600">{label}</div>
-            </div>
+            <Card key={key} className={`text-center ${colorClasses[color].bg}`}>
+              <CardContent className="p-4">
+                <div className={`text-2xl font-bold ${colorClasses[color].text}`}>{fillerCounts[key] || 0}</div>
+                <div className="text-sm text-gray-600">{label}</div>
+              </CardContent>
+            </Card>
           ))}
           {customWords.map((word) => (
-            <div key={word} className="text-center p-4 bg-gray-100 rounded-lg">
-              <div className="text-2xl font-bold text-gray-800">{fillerCounts[word] || 0}</div>
-              <div className="text-sm text-gray-600 capitalize">{word}</div>
-            </div>
+            <Card key={word} className="text-center bg-gray-100">
+              <CardContent className="p-4">
+                <div className="text-2xl font-bold text-gray-800">{fillerCounts[word] || 0}</div>
+                <div className="text-sm text-gray-600 capitalize">{word}</div>
+              </CardContent>
+            </Card>
           ))}
         </div>
         <div className="mt-6 flex w-full max-w-sm items-center space-x-2 mx-auto">
