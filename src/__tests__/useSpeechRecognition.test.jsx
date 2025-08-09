@@ -92,6 +92,21 @@ describe('useSpeechRecognition', () => {
     expect(result.current.fillerCounts.ah).toBe(1);
   });
 
+  it('should correctly detect variations of "uh"', () => {
+    const { result } = renderHook(() => useSpeechRecognition());
+    act(() => {
+      result.current.startListening();
+    });
+    const mockEvent = {
+      resultIndex: 0,
+      results: [{ 0: { transcript: 'uh, uhh, er, erm' }, isFinal: true }],
+    };
+    act(() => {
+      mockSpeechRecognition.onresult(mockEvent);
+    });
+    expect(result.current.fillerCounts.uh).toBe(4);
+  });
+
   it('should count custom filler words', () => {
     const { result } = renderHook(() => useSpeechRecognition({ customWords: ['customword'] }));
     act(() => {
