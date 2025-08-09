@@ -44,7 +44,6 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
       }
     }
     setTranscript(prev => prev + fullTranscript);
-
     if (finalTranscriptChunk) {
       const allPatterns = { ...defaultFillerPatterns };
       customWords.forEach((word) => {

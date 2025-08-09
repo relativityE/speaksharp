@@ -74,3 +74,4 @@ This section outlines the features to be built and how they will be bundled into
 - Implement CSRF protection and rate limiting.
 - Leverage Supabase Row Level Security for data access control.
 - Never store raw audio recordings on the server.
+
