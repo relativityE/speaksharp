@@ -18,9 +18,6 @@ function App() {
 
   const [lastSessionData, setLastSessionData] = useState(null);
 
-  const [customWord, setCustomWord] = useState('');
-  const [customWords, setCustomWords] = useState([]);
-
   const {
     isListening,
     transcript,
@@ -30,14 +27,7 @@ function App() {
     startListening,
     stopListening,
     reset,
-  } = useSpeechRecognition({ customWords });
-
-  const handleAddCustomWord = () => {
-    if (customWord && !customWords.includes(customWord) && customWords.length === 0) {
-      setCustomWords([customWord]);
-      setCustomWord('');
-    }
-  };
+  } = useSpeechRecognition({});
 
   // Trial Timer Logic
   useEffect(() => {
@@ -62,7 +52,6 @@ function App() {
 
   const handleStartTrial = useCallback(() => {
     reset();
-    setCustomWords([]);
     setLastSessionData(null);
     setTrialTimeRemaining(TRIAL_DURATION_SECONDS);
     setIsTrialActive(true);
@@ -78,12 +67,7 @@ function App() {
 
   const handleStartNewSession = () => {
     reset();
-    setCustomWords([]);
     setView('welcome');
-  }
-
-  const handleViewAnalytics = () => {
-    setView('analytics');
   }
 
   if (!isSupported) {
@@ -94,34 +78,25 @@ function App() {
     switch (view) {
       case 'active_session':
         return (
-          <>
-            <RecordingStatus
-              isListening={isListening}
-              sessionActive={isTrialActive}
-              sessionDuration={TRIAL_DURATION_SECONDS - trialTimeRemaining}
-            />
-            {error && <ErrorDisplay message={error} />}
-            <div className="session-data">
-              <div className="flex items-start gap-4">
-                <div className="flex-1">
-                  <FillerWordCounters
-                    fillerCounts={fillerCounts}
-                    customWords={customWords}
-                    customWord={customWord}
-                    setCustomWord={setCustomWord}
-                    onAddCustomWord={handleAddCustomWord}
-                    isSupported={isSupported}
-                    sessionActive={isTrialActive}
-                  />
-                </div>
-                <Button onClick={handleViewAnalytics} variant="outline" className="mt-16">View Analytics</Button>
-              </div>
-              <div className="transcript-container mt-6">
-                <h2>Transcript</h2>
+          <div className="grid md:grid-cols-2 gap-8">
+            {/* Left Column */}
+            <div className="flex flex-col gap-6">
+              <RecordingStatus
+                isListening={isListening}
+                sessionActive={isTrialActive}
+                sessionDuration={TRIAL_DURATION_SECONDS - trialTimeRemaining}
+              />
+              <FillerWordCounters fillerCounts={fillerCounts} />
+            </div>
+
+            {/* Right Column */}
+            <div>
+              <h2 className="text-2xl font-bold mb-4">Live Transcript</h2>
+              <div className="h-96 p-4 border rounded-lg overflow-y-auto bg-gray-50 dark:bg-gray-800">
                 <p>{transcript || "Speak to see your words here..."}</p>
               </div>
             </div>
-          </>
+          </div>
         );
       case 'analytics':
         return (
@@ -139,18 +114,19 @@ function App() {
               Click the button below to start a free 2-minute trial. <br/>
               No account required. All processing is done locally in your browser.
             </p>
-            <Button onClick={handleStartTrial} size="lg">Start Recording</Button>
+            <Button onClick={handleStartTrial} size="lg">Start 2-Minute Trial</Button>
           </>
         );
     }
   }
 
   return (
-    <div className="App dark">
+    <div className="App">
       <header className="App-header">
         <h1>SayLess</h1>
         <div className="auth-buttons">
-          {/* Analytics button moved to welcome screen */}
+          <button className="login-btn">Log In</button>
+          <button className="signup-btn">Sign Up</button>
         </div>
       </header>
       <main>
