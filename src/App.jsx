@@ -5,7 +5,6 @@ import { FillerWordCounters } from './components/FillerWordCounters';
 import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { ErrorDisplay } from './components/ErrorDisplay';
 import { Button } from './components/ui/button';
-import './App.css';
 
 const TRIAL_DURATION_SECONDS = 120; // 2 minutes
 
