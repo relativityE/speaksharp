@@ -1,37 +1,20 @@
 import React from 'react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Volume2 } from 'lucide-react';
 
-export const RecordingStatus = ({ isRecording, isListening, isSupported, totalFillerWords }) => {
+export const RecordingStatus = ({ isRecording }) => {
   return (
-    <Card className="mb-6">
-      <CardContent className="pt-6">
-        <div className="text-center space-y-2">
-          <div
-            className={`inline-flex items-center gap-2 px-4 py-2 rounded-full ${
-              isRecording ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'
-            }`}
-          >
-            <div
-              className={`w-3 h-3 rounded-full ${
-                isRecording ? 'bg-red-500 animate-pulse' : 'bg-gray-400'
-              }`}
-            ></div>
-            {isRecording ? 'Recording...' : 'Ready to Record'}
-          </div>
-
-          {isSupported && isListening && (
-            <div className="flex items-center justify-center gap-2 text-sm text-blue-600">
-              <Volume2 className="h-4 w-4" />
-              Speech recognition active
-            </div>
-          )}
-
-          <div className="text-sm text-gray-600">
-            Total filler words detected: <span className="font-semibold">{totalFillerWords}</span>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+    <div className="flex justify-center">
+      <div
+        className={`inline-flex items-center gap-2 px-4 py-2 rounded-full ${
+          isRecording ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'
+        }`}
+      >
+        <div
+          className={`w-3 h-3 rounded-full ${
+            isRecording ? 'bg-red-500 animate-pulse' : 'bg-gray-400'
+          }`}
+        ></div>
+        {isRecording ? 'Recording...' : 'Not Recording'}
+      </div>
+    </div>
   );
 };
