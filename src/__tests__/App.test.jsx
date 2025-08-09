@@ -1,6 +1,7 @@
 import React from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import App from '../App';
 
 // Mock the custom hook
@@ -9,19 +10,25 @@ vi.mock('../hooks/useSpeechRecognition', () => ({
 }));
 
 // Mock child components
+vi.mock('../components/Header', () => ({
+  Header: () => <header>Mock Header</header>,
+}));
 vi.mock('../components/RecordingStatus', () => ({
-  RecordingStatus: ({ isListening }) => <div>{isListening ? 'Recording...' : 'Ready'}</div>,
+  RecordingStatus: ({ sessionActive }) => <div>{sessionActive ? 'Recording...' : 'Ready'}</div>,
 }));
 vi.mock('../components/FillerWordCounters', () => ({
   FillerWordCounters: () => <div>Filler Counters</div>,
 }));
 vi.mock('../components/AnalyticsDashboard', () => ({
-  // The new dashboard just receives data, it doesn't have tiers
   AnalyticsDashboard: () => <div>Session Report</div>,
 }));
 vi.mock('../components/ErrorDisplay', () => ({
   ErrorDisplay: ({ message }) => <div>{message}</div>,
 }));
+vi.mock('../components/Hero', () => ({
+  Hero: ({ onStartTrial }) => <button onClick={onStartTrial}>Start Recording</button>,
+}));
+
 
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 
@@ -42,6 +49,11 @@ describe('App Component', () => {
     ...overrides,
   });
 
+  const renderWithRouter = (ui, { route = '/' } = {}) => {
+    window.history.pushState({}, 'Test page', route);
+    return render(ui, { wrapper: MemoryRouter });
+  };
+
   beforeEach(() => {
     mockStartListening = vi.fn();
     mockStopListening = vi.fn();
@@ -56,19 +68,19 @@ describe('App Component', () => {
   });
 
   test('renders initial state correctly', () => {
-    render(<App />);
-    expect(screen.getByText('Start 2-Minute Trial')).toBeInTheDocument();
-    expect(screen.getByText(/Improve your speaking/)).toBeInTheDocument();
+    renderWithRouter(<App />);
+    expect(screen.getByText('Start Recording')).toBeInTheDocument();
   });
 
   test('runs trial, then shows analytics dashboard', () => {
-    const { rerender } = render(<App />);
+    renderWithRouter(<App />);
     
     // 1. Start Trial
-    fireEvent.click(screen.getByText('Start 2-Minute Trial'));
-    useSpeechRecognition.mockReturnValue(getMockedHookValue({ isListening: true }));
-    rerender(<App />);
+    fireEvent.click(screen.getByText('Start Recording'));
+
+    // App should navigate to /session, where these components are rendered
     expect(screen.getByText('Recording...')).toBeInTheDocument();
+    expect(screen.getByText('Filler Counters')).toBeInTheDocument();
 
     // 2. End Trial
     act(() => {
@@ -85,10 +97,10 @@ describe('App Component', () => {
   });
 
   test('returns to welcome screen from analytics view', () => {
-    const { rerender } = render(<App />);
+    renderWithRouter(<App />);
 
     // Get to the analytics screen first
-    fireEvent.click(screen.getByText('Start 2-Minute Trial'));
+    fireEvent.click(screen.getByText('Start Recording'));
     act(() => { vi.advanceTimersByTime(120 * 1000); });
     fireEvent.click(screen.getByText('Just show me the results'));
 
@@ -99,7 +111,7 @@ describe('App Component', () => {
     fireEvent.click(screen.getByText('Start a New Session'));
 
     // Verify we are back on the welcome screen
-    expect(screen.getByText('Start 2-Minute Trial')).toBeInTheDocument();
+    expect(screen.getByText('Start Recording')).toBeInTheDocument();
     expect(screen.queryByText('Session Report')).not.toBeInTheDocument();
   });
 });

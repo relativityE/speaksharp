@@ -1,34 +1,46 @@
 import React from 'react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Volume2 } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TimerIcon } from 'lucide-react';
 
-export const RecordingStatus = ({ isRecording, isListening, isSupported, totalFillerWords }) => {
+// Helper to format time from seconds into MM:SS format
+const formatTime = (seconds) => {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+};
+
+export const RecordingStatus = ({ sessionActive, sessionDuration }) => {
   return (
-    <Card className="mb-6">
-      <CardContent className="pt-6">
-        <div className="text-center space-y-2">
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-center text-muted-foreground font-normal text-sm">
+          Session Timer
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div className="text-center space-y-4">
+          {/* Timer Display */}
+          <div className="flex items-center justify-center gap-2">
+            <TimerIcon className="h-8 w-8 text-primary" />
+            <p className="text-5xl font-bold tracking-tighter text-foreground">
+              {formatTime(sessionDuration)}
+            </p>
+          </div>
+
+          {/* Recording Indicator */}
           <div
-            className={`inline-flex items-center gap-2 px-4 py-2 rounded-full ${
-              isRecording ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'
+            className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ${
+              sessionActive
+                ? 'bg-destructive/10 text-destructive'
+                : 'bg-secondary text-secondary-foreground'
             }`}
           >
             <div
-              className={`w-3 h-3 rounded-full ${
-                isRecording ? 'bg-red-500 animate-pulse' : 'bg-gray-400'
+              className={`w-2 h-2 rounded-full ${
+                sessionActive ? 'bg-destructive animate-pulse' : 'bg-muted-foreground'
               }`}
             ></div>
-            {isRecording ? 'Recording...' : 'Ready to Record'}
-          </div>
-
-          {isSupported && isListening && (
-            <div className="flex items-center justify-center gap-2 text-sm text-blue-600">
-              <Volume2 className="h-4 w-4" />
-              Speech recognition active
-            </div>
-          )}
-
-          <div className="text-sm text-gray-600">
-            Total filler words detected: <span className="font-semibold">{totalFillerWords}</span>
+            {sessionActive ? 'Recording...' : 'Not Recording'}
           </div>
         </div>
       </CardContent>

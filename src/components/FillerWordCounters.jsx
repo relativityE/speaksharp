@@ -1,11 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { BarChart3, Plus } from 'lucide-react';
+import { BarChart3, Plus, Save } from 'lucide-react';
 import { FILLER_WORD_KEYS } from '../config';
-
 
 const colorClasses = {
   blue: { bg: 'bg-blue-100 dark:bg-blue-900', text: 'text-blue-600 dark:text-blue-300' },
@@ -27,7 +26,7 @@ export const FillerWordCounters = ({
   onAddCustomWord,
   sessionActive,
 }) => {
-  const [isAdding, setIsAdding] = useState(false);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   const defaultFillerWords = [
     { key: FILLER_WORD_KEYS.UM, color: 'blue', label: 'Um' },
@@ -42,20 +41,55 @@ export const FillerWordCounters = ({
   ];
 
   const handleSave = () => {
-    onAddCustomWord();
-    setIsAdding(false);
+    if (customWord.trim()) {
+      onAddCustomWord(customWord.trim());
+      setCustomWord('');
+      setIsDialogOpen(false);
+    }
   };
 
   return (
     <Card className="mb-6">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <BarChart3 className="h-5 w-5" />
-          Filler Word Detection
-        </CardTitle>
-        <CardDescription>
-          Real-time tracking of common filler words. You can add one custom word to track.
-        </CardDescription>
+      <CardHeader className="flex-row items-center justify-between">
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5" />
+            Filler Word Detection
+          </CardTitle>
+          <CardDescription>
+            Real-time tracking of common and custom filler words.
+          </CardDescription>
+        </div>
+        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          <DialogTrigger asChild>
+            <Button variant="outline" size="sm" disabled={!sessionActive}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Word
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Add Custom Filler Word</DialogTitle>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <Input
+                id="custom-word"
+                placeholder="e.g., 'basically'"
+                value={customWord}
+                onChange={(e) => setCustomWord(e.target.value)}
+              />
+            </div>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button variant="ghost">Cancel</Button>
+              </DialogClose>
+              <Button onClick={handleSave} disabled={!customWord.trim()}>
+                <Save className="h-4 w-4 mr-2" />
+                Save
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -68,43 +102,13 @@ export const FillerWordCounters = ({
             </Card>
           ))}
           {customWords.map((word) => (
-            <Card key={word} className="text-center bg-gray-100 dark:bg-gray-800">
+            <Card key={word} className="text-center bg-card">
               <CardContent className="p-4 flex flex-col justify-center items-center h-full">
-                <div className="text-3xl font-bold">{fillerCounts[word] || 0}</div>
+                <div className="text-3xl font-bold text-primary">{fillerCounts[word] || 0}</div>
                 <div className="text-sm text-muted-foreground capitalize mt-1">{word}</div>
               </CardContent>
             </Card>
           ))}
-          {customWords.length === 0 && (
-            isAdding ? (
-              <Card className="text-center bg-gray-100 dark:bg-gray-800">
-                <CardContent className="p-4 flex flex-col justify-center items-center h-full gap-2">
-                  <Input
-                    type="text"
-                    placeholder="Enter word..."
-                    value={customWord}
-                    onChange={(e) => setCustomWord(e.target.value)}
-                    disabled={!sessionActive}
-                    className="h-9"
-                  />
-                  <Button onClick={handleSave} disabled={!sessionActive || !customWord} size="sm">
-                    <Save className="h-4 w-4 mr-2" />
-                    Save
-                  </Button>
-                </CardContent>
-              </Card>
-            ) : (
-              <Card
-                className="text-center border-dashed border-2 hover:border-primary cursor-pointer"
-                onClick={() => sessionActive && setIsAdding(true)}
-              >
-                <CardContent className="p-4 flex flex-col justify-center items-center h-full text-muted-foreground">
-                  <Plus className="h-8 w-8 mb-2" />
-                  <span>Add Custom Word</span>
-                </CardContent>
-              </Card>
-            )
-          )}
         </div>
       </CardContent>
     </Card>
