@@ -1,137 +1,95 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+import { Button } from '@/components/ui/button';
 
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#AF19FF', '#FF1919', '#4CAF50', '#FFC107', '#9C27B0'];
-
-// A helper function to calculate stats from the current session data
-const calculateSessionStats = (fillerCounts, sessionDuration, transcript) => {
-  const totalFillerWords = Object.values(fillerCounts).reduce((sum, count) => sum + count, 0);
-  const minutes = sessionDuration / 60;
-  const fillerWordsPerMinute = minutes > 0 ? (totalFillerWords / minutes).toFixed(1) : 0;
-
-  const wordCount = transcript.split(/\s+/).filter(Boolean).length;
-  const speakingPace = minutes > 0 ? Math.round(wordCount / minutes) : 0;
-
-  let mostCommonFillerWord = 'N/A';
-  let maxCount = 0;
-  for (const word in fillerCounts) {
-    if (fillerCounts[word] > maxCount) {
-      maxCount = fillerCounts[word];
-      mostCommonFillerWord = word;
-    }
+// Mock data for demonstration purposes
+const mockFreeTierData = {
+  sessionHistory: [
+    { id: 1, date: 'Yesterday', totalWords: 5, wordsPerMin: 2.5 },
+    { id: 2, date: '2 days ago', totalWords: 8, wordsPerMin: 4.0 },
+    { id: 3, date: '3 days ago', totalWords: 4, wordsPerMin: 2.0 },
+  ],
+  trends: {
+    last7Days: 5.6, // Average filler words
   }
-
-  return {
-    totalFillerWords,
-    fillerWordsPerMinute,
-    speakingPace,
-    mostCommonFillerWord,
-  };
 };
 
-export const AnalyticsDashboard = ({ fillerCounts, sessionDuration, transcript }) => {
-  const stats = calculateSessionStats(fillerCounts, sessionDuration, transcript);
+const mockProTierData = {
+  sessionHistory: [
+    ...mockFreeTierData.sessionHistory,
+    { id: 4, date: '4 days ago', totalWords: 10, wordsPerMin: 5.0 },
+    { id: 5, date: '5 days ago', totalWords: 12, wordsPerMin: 6.0 },
+    { id: 6, date: '6 days ago', totalWords: 7, wordsPerMin: 3.5 },
+  ],
+  trends: {
+    last7Days: 7.3,
+    last30Days: 8.1,
+    allTime: 9.2,
+  },
+  // Pro features would have more detailed data, like charts
+};
 
-  const fillerWordDistribution = Object.entries(fillerCounts)
-    .filter(([, count]) => count > 0)
-    .map(([name, value]) => ({ name, value }));
+export const AnalyticsDashboard = ({ tier = 'free' }) => {
+  const data = tier === 'pro' ? mockProTierData : mockFreeTierData;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 mt-8">
       <Card>
         <CardHeader>
-          <CardTitle>Session Report</CardTitle>
-          <CardDescription>A summary of your last practice session.</CardDescription>
+          <CardTitle>Your Analytics Dashboard</CardTitle>
+          <CardDescription>
+            {tier === 'free'
+              ? 'Showing data for your last 3 sessions. Upgrade to Pro for unlimited history and trends.'
+              : 'Showing your full session history and progress trends.'
+            }
+          </CardDescription>
         </CardHeader>
       </Card>
 
       {/* Key Stats Section */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-6 md:grid-cols-3">
         <Card>
-          <CardHeader>
-            <CardTitle>Total Filler Words</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle>Avg. Filler Words (Last 7 Days)</CardTitle></CardHeader>
+          <CardContent><div className="text-4xl font-bold">{data.trends.last7Days}</div></CardContent>
+        </Card>
+        <Card className={tier === 'free' ? 'opacity-50' : ''}>
+          <CardHeader><CardTitle>Avg. Filler Words (Last 30 Days)</CardTitle></CardHeader>
           <CardContent>
-            <div className="text-4xl font-bold">{stats.totalFillerWords}</div>
+            <div className="text-4xl font-bold">{data.trends.last30Days || 'N/A'}</div>
+            {tier === 'free' && <span className="text-xs text-muted-foreground">Pro Feature</span>}
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Filler Words / Min</CardTitle>
-          </CardHeader>
+        <Card className={tier === 'free' ? 'opacity-50' : ''}>
+          <CardHeader><CardTitle>Avg. Filler Words (All Time)</CardTitle></CardHeader>
           <CardContent>
-            <div className="text-4xl font-bold">{stats.fillerWordsPerMinute}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Common Filler Word</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-4xl font-bold capitalize">{stats.mostCommonFillerWord}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Avg. Speaking Pace</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-4xl font-bold">{stats.speakingPace} <span className="text-lg">WPM</span></div>
+            <div className="text-4xl font-bold">{data.trends.allTime || 'N/A'}</div>
+            {tier === 'free' && <span className="text-xs text-muted-foreground">Pro Feature</span>}
           </CardContent>
         </Card>
       </div>
 
-      {/* Charts Section */}
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Filler Word Distribution</CardTitle>
-            <CardDescription>Breakdown of the filler words used in this session.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {fillerWordDistribution.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={fillerWordDistribution}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    outerRadius={100}
-                    fill="#8884d8"
-                    dataKey="value"
-                    nameKey="name"
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                  >
-                    {fillerWordDistribution.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-[300px] text-muted-foreground">
-                No filler words detected in this session.
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-           <CardHeader>
-            <CardTitle>Full Transcript</CardTitle>
-            <CardDescription>The complete transcript from your session.</CardDescription>
-          </CardHeader>
-          <CardContent>
-             <div className="bg-gray-50 p-4 rounded-lg max-h-[300px] overflow-y-auto">
-              <p className="text-sm text-gray-700 leading-relaxed">
-                {transcript || "No transcript available for this session."}
-              </p>
+      {/* Session History Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Session History</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ul>
+            {data.sessionHistory.map(session => (
+              <li key={session.id} className="flex justify-between items-center p-2 border-b">
+                <span>{session.date}</span>
+                <span>{session.totalWords} filler words</span>
+                <span>{session.wordsPerMin} words/min</span>
+              </li>
+            ))}
+          </ul>
+          {tier === 'free' && (
+            <div className="text-center mt-4">
+              <Button>Upgrade to Pro to see all history</Button>
             </div>
-          </CardContent>
-        </Card>
-      </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 };
