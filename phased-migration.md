@@ -30,14 +30,14 @@ This table breaks down the estimated monthly costs for the SaaS infrastructure *
 - **Cost**: ~$0
 
 ### Phase 1A: Frontend MVP & UI Refresh (Current Task)
-The goal of this phase is to build the complete frontend experience for the anonymous free trial. This includes a refreshed UI and uses live data from the user's session for the analytics report.
+The goal of this phase is to build the complete frontend experience for the anonymous free trial, based on a new design reference. This includes a refreshed UI and uses live data from the user's session for the analytics report.
 - **User Flow**:
-  1. **Anonymous 2-Minute Trial**: Implement the UI and timer for the instant trial. The user can manually stop the trial at any time.
-  2. **Placeholder Sign-up Gate**: After 2 minutes, show a non-functional prompt to "Sign up to continue."
+  1. **Anonymous 2-Minute Trial**: Implement the UI and timer for the instant trial. The user can manually start and stop the trial at any time.
+  2. **Placeholder Sign-up Gate**: After the session ends (either by timer or manual stop), show a non-functional prompt to "Sign up to save this session and continue."
 - **Technical Implementation**:
-  - Refresh the UI with a modern, "light sharp theme" with complementary colors.
-  - The main button is "Start Recording" and becomes a "Stop Recording" button during the session.
-  - The session page features a single large container for the filler word counters.
+  - Refresh the UI with a "light sharp theme" with a gradient background and complementary colors, based on the provided reference design.
+  - A new `SessionControl` component handles the start/stop logic.
+  - The session page is structured with a main "Filler Word Detection" card containing the filler word boxes, and separate cards for other information.
   - An inline form is implemented for adding custom filler words.
   - The Analytics Dashboard is populated with live data from the completed session.
 - **Deferred Tasks**: Full authentication and payment integration are deferred to Phase 1B.

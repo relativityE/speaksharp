@@ -8,6 +8,8 @@ import { ErrorDisplay } from './components/ErrorDisplay';
 import { Button } from './components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Header } from './components/Header';
+import { SessionControl } from './components/SessionControl';
+import { InfoCard } from './components/InfoCard';
 
 const TRIAL_DURATION_SECONDS = 120;
 
@@ -39,38 +41,38 @@ function App() {
 
   useEffect(() => {
     let timer;
-    if (isTrialActive && trialTimeRemaining > 0) {
+    if (isListening && trialTimeRemaining > 0) {
       timer = setInterval(() => {
         setTrialTimeRemaining(prev => prev - 1);
       }, 1000);
-    } else if (isTrialActive && trialTimeRemaining <= 0) {
+    } else if (isListening && trialTimeRemaining <= 0) {
       setIsTrialActive(false);
       stopListening();
       setLastSessionData({ transcript, fillerCounts, duration: TRIAL_DURATION_SECONDS * 1000 });
       setShowTrialEndModal(true);
     }
     return () => clearInterval(timer);
-  }, [isTrialActive, trialTimeRemaining, stopListening, transcript, fillerCounts]);
+  }, [isListening, trialTimeRemaining, stopListening, transcript, fillerCounts]);
 
-  const handleStartTrial = useCallback(() => {
-    reset();
-    setLastSessionData(null);
-    setTrialTimeRemaining(TRIAL_DURATION_SECONDS);
-    setIsTrialActive(true);
-    navigate('/session');
-    startListening();
-  }, [reset, startListening, navigate]);
-
-  const handleStopTrial = useCallback(() => {
-    setIsTrialActive(false);
-    stopListening();
-    setLastSessionData({
-      transcript,
-      fillerCounts,
-      duration: TRIAL_DURATION_SECONDS - trialTimeRemaining,
-    });
-    navigate('/analytics');
-  }, [stopListening, transcript, fillerCounts, trialTimeRemaining, navigate]);
+  const handleToggleRecording = useCallback(() => {
+    if (isListening) {
+      setIsTrialActive(false);
+      stopListening();
+      setLastSessionData({
+        transcript,
+        fillerCounts,
+        duration: TRIAL_DURATION_SECONDS - trialTimeRemaining,
+      });
+      navigate('/analytics');
+    } else {
+      reset();
+      setLastSessionData(null);
+      setTrialTimeRemaining(TRIAL_DURATION_SECONDS);
+      setIsTrialActive(true);
+      navigate('/session');
+      startListening();
+    }
+  }, [isListening, stopListening, startListening, reset, navigate, transcript, fillerCounts, trialTimeRemaining]);
 
   const handleEndTrialAndShowAnalytics = () => {
     setShowTrialEndModal(false);
@@ -82,55 +84,61 @@ function App() {
     navigate('/');
   };
 
+  const totalFillerWords = Object.values(fillerCounts).reduce((sum, count) => sum + count, 0);
+
   if (!isSupported) {
     return <ErrorDisplay message="Speech recognition is not supported in this browser." />;
   }
 
   return (
-    <div className="App">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
       <Header />
-      <main>
+      <main className="max-w-4xl mx-auto">
         <Routes>
           <Route path="/" element={
-            <div>
-              <h2>Welcome to SayLess</h2>
-              <Button onClick={handleStartTrial}>Start Recording</Button>
+            <div className="text-center mt-8">
+              <h1 className="text-4xl font-bold text-gray-900 mb-2">ClearSpeak AI</h1>
+              <p className="text-lg text-gray-600 mb-8">Real-time filler word detection for better speaking</p>
+              <SessionControl
+                isRecording={isListening}
+                onToggle={handleToggleRecording}
+                sessionDuration={TRIAL_DURATION_SECONDS - trialTimeRemaining}
+              />
             </div>
           } />
           <Route path="/session" element={
-            <div className="container mx-auto p-4 flex flex-col gap-8">
-              <RecordingStatus
-                sessionActive={isTrialActive}
+            <div className="flex flex-col gap-6 mt-6">
+              <SessionControl
+                isRecording={isListening}
+                onToggle={handleToggleRecording}
                 sessionDuration={TRIAL_DURATION_SECONDS - trialTimeRemaining}
-                onStop={handleStopTrial}
               />
-              <Card className="flex-grow">
-                <CardHeader>
-                  <CardTitle>Filler Word Analysis</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <FillerWordCounters
-                    fillerCounts={fillerCounts}
-                    customWords={customWords}
-                    customWord={customWord}
-                    setCustomWord={setCustomWord}
-                    onAddCustomWord={handleAddCustomWord}
-                    sessionActive={isTrialActive}
-                  />
-                </CardContent>
-              </Card>
-              <div>
-                <h2 className="text-2xl font-bold mb-4 text-left">Live Transcript</h2>
-                <div className="h-96 p-4 border rounded-lg overflow-y-auto bg-gray-100">
-                  <p>{transcript || "Speak to see your words here..."}</p>
-                </div>
+              <RecordingStatus
+                isRecording={isListening}
+                totalFillerWords={totalFillerWords}
+              />
+              <FillerWordCounters
+                fillerCounts={fillerCounts}
+                customWords={customWords}
+                customWord={customWord}
+                setCustomWord={setCustomWord}
+                onAddCustomWord={handleAddCustomWord}
+                sessionActive={isListening}
+              />
+              <div className="grid md:grid-cols-2 gap-6">
+                <InfoCard title="Privacy First">
+                  All processing happens on your device using browser APIs. Your speech never leaves your device.
+                </InfoCard>
+                <InfoCard title="Real-time Feedback">
+                  Get instant feedback on your speech patterns to improve your communication skills.
+                </InfoCard>
               </div>
             </div>
           } />
           <Route path="/analytics" element={
             <div>
               <AnalyticsDashboard {...lastSessionData} />
-              <Button onClick={handleStartNewSession}>Start a New Session</Button>
+              <Button onClick={handleStartNewSession} className="mt-4">Start a New Session</Button>
             </div>
           } />
         </Routes>
