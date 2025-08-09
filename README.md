@@ -66,14 +66,18 @@ npm test
 
 This will run all test files in the `src/__tests__` directory.
 
-## Future Work
+## Project Status & Roadmap
 
-This project has the potential for many new features. Here are a few ideas for future development:
+This project is currently a fully client-side application where all processing happens in your browser. Development is in progress to transform this tool into a full-stack SaaS application.
 
--   **Custom Phrase Detection**: Allow users to add their own words and phrases to detect.
--   **Post-Session Summary**: Create a summary page that appears after a session is ended, showing detailed metrics and the full transcript.
--   **User Accounts and History**: Add a backend service (like Supabase) to allow users to create accounts and save their session history.
--   **Clarity Score**: Develop an algorithm to provide an overall "clarity score" based on filler word usage, speaking pace, and other metrics.
+The high-level roadmap is outlined below. For a detailed breakdown, please see the [Product Requirements Document](./PRD.md).
+
+-   **User Authentication**
+    -   **Why**: To allow users to save their sessions and track progress over time.
+-   **Session History & Analytics**
+    -   **Why**: To provide users with actionable insights into their speech patterns and improvement.
+-   **Subscription Management**
+    -   **Why**: To create a sustainable business model by offering premium, paid features.
 
 ## Contributing
 
