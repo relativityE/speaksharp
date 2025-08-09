@@ -4,6 +4,7 @@ import { RecordingStatus } from './components/RecordingStatus';
 import { FillerWordCounters } from './components/FillerWordCounters';
 import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { ErrorDisplay } from './components/ErrorDisplay';
+import { Hero } from './components/Hero';
 import { Button } from './components/ui/button';
 
 const TRIAL_DURATION_SECONDS = 120; // 2 minutes
@@ -107,16 +108,7 @@ function App() {
         );
       case 'welcome':
       default:
-        return (
-          <>
-            <h2>Improve your speaking, one less "um" at a time.</h2>
-            <p className="placeholder-text">
-              Click the button below to start a free 2-minute trial. <br/>
-              No account required. All processing is done locally in your browser.
-            </p>
-            <Button onClick={handleStartTrial} size="lg">Start 2-Minute Trial</Button>
-          </>
-        );
+        return <Hero onStartTrial={handleStartTrial} />;
     }
   }
 
