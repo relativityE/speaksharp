@@ -5,11 +5,11 @@ import { RecordingStatus } from './components/RecordingStatus';
 import { FillerWordCounters } from './components/FillerWordCounters';
 import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { ErrorDisplay } from './components/ErrorDisplay';
-import { Header } from './components/Header';
-import { Hero } from './components/Hero';
 import { Button } from './components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
+import { Header } from './components/Header';
 
-const TRIAL_DURATION_SECONDS = 120; // 2 minutes
+const TRIAL_DURATION_SECONDS = 120;
 
 function App() {
   const navigate = useNavigate();
@@ -37,7 +37,6 @@ function App() {
     }
   };
 
-  // Trial Timer Logic
   useEffect(() => {
     let timer;
     if (isTrialActive && trialTimeRemaining > 0) {
@@ -47,12 +46,7 @@ function App() {
     } else if (isTrialActive && trialTimeRemaining <= 0) {
       setIsTrialActive(false);
       stopListening();
-      // Store the session data before showing the modal
-      setLastSessionData({
-        transcript,
-        fillerCounts,
-        duration: TRIAL_DURATION_SECONDS * 1000, // in ms
-      });
+      setLastSessionData({ transcript, fillerCounts, duration: TRIAL_DURATION_SECONDS * 1000 });
       setShowTrialEndModal(true);
     }
     return () => clearInterval(timer);
@@ -86,7 +80,7 @@ function App() {
   const handleStartNewSession = () => {
     reset();
     navigate('/');
-  }
+  };
 
   if (!isSupported) {
     return <ErrorDisplay message="Speech recognition is not supported in this browser." />;
@@ -97,31 +91,37 @@ function App() {
       <Header />
       <main>
         <Routes>
-          <Route path="/" element={<Hero onStartTrial={handleStartTrial} />} />
+          <Route path="/" element={
+            <div>
+              <h2>Welcome to SayLess</h2>
+              <Button onClick={handleStartTrial}>Start Recording</Button>
+            </div>
+          } />
           <Route path="/session" element={
-            <div className="grid md:grid-cols-2 gap-8">
-              {/* Left Column */}
-              <div className="flex flex-col gap-6">
-                <RecordingStatus
-                  isListening={isListening}
-                  sessionActive={isTrialActive}
-                  sessionDuration={TRIAL_DURATION_SECONDS - trialTimeRemaining}
-                  onStop={handleStopTrial}
-                />
-                <FillerWordCounters
-                  fillerCounts={fillerCounts}
-                  customWords={customWords}
-                  customWord={customWord}
-                  setCustomWord={setCustomWord}
-                  onAddCustomWord={handleAddCustomWord}
-                  sessionActive={isTrialActive}
-                />
-              </div>
-
-              {/* Right Column */}
+            <div className="container mx-auto p-4 flex flex-col gap-8">
+              <RecordingStatus
+                sessionActive={isTrialActive}
+                sessionDuration={TRIAL_DURATION_SECONDS - trialTimeRemaining}
+                onStop={handleStopTrial}
+              />
+              <Card className="flex-grow">
+                <CardHeader>
+                  <CardTitle>Filler Word Analysis</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <FillerWordCounters
+                    fillerCounts={fillerCounts}
+                    customWords={customWords}
+                    customWord={customWord}
+                    setCustomWord={setCustomWord}
+                    onAddCustomWord={handleAddCustomWord}
+                    sessionActive={isTrialActive}
+                  />
+                </CardContent>
+              </Card>
               <div>
-                <h2 className="text-2xl font-bold mb-4">Live Transcript</h2>
-                <div className="h-96 p-4 border rounded-lg overflow-y-auto bg-card">
+                <h2 className="text-2xl font-bold mb-4 text-left">Live Transcript</h2>
+                <div className="h-96 p-4 border rounded-lg overflow-y-auto bg-gray-100">
                   <p>{transcript || "Speak to see your words here..."}</p>
                 </div>
               </div>
@@ -130,18 +130,16 @@ function App() {
           <Route path="/analytics" element={
             <div>
               <AnalyticsDashboard {...lastSessionData} />
-              <Button onClick={handleStartNewSession} className="mt-4">Start a New Session</Button>
+              <Button onClick={handleStartNewSession}>Start a New Session</Button>
             </div>
           } />
         </Routes>
       </main>
-
       {showTrialEndModal && (
         <div className="trial-modal-overlay">
           <div className="trial-modal-content">
             <h2>Trial Session Ended</h2>
             <p>To save this session and unlock more features, please sign up for an account.</p>
-            <button className="signup-btn">Sign Up to Continue</button>
             <Button variant="ghost" onClick={handleEndTrialAndShowAnalytics}>
               Just show me the results
             </Button>
