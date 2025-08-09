@@ -3,7 +3,7 @@ import { SPEECH_RECOGNITION_LANG, FILLER_WORD_KEYS } from '../config';
 
 const defaultFillerPatterns = {
   [FILLER_WORD_KEYS.UM]: /\b(um|umm|ummm|ahm)\b/gi,
-  [FILLER_WORD_KEYS.UH]: /\b(uh|uhh|uhhh|er|err|erh)\b/gi,
+  [FILLER_WORD_KEYS.UH]: /\b(uh|uhh|uhhh|er|err|erh|erm)\b/gi,
   [FILLER_WORD_KEYS.AH]: /\b(ah)\b/gi,
   [FILLER_WORD_KEYS.LIKE]: /\b(like)\b/gi,
   [FILLER_WORD_KEYS.YOU_KNOW]: /\b(you know|y'know|ya know)\b/gi,

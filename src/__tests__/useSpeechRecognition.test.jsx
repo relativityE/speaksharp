@@ -107,6 +107,41 @@ describe('useSpeechRecognition', () => {
     expect(result.current.fillerCounts.customword).toBe(1);
   });
 
+  it('should correctly detect variations of "uh"', () => {
+    const { result } = renderHook(() => useSpeechRecognition());
+    act(() => {
+      result.current.startListening();
+    });
+    const mockEvent = {
+      resultIndex: 0,
+      results: [{ 0: { transcript: 'uh, uhh, er, erm' }, isFinal: true }],
+    };
+    act(() => {
+      mockSpeechRecognition.onresult(mockEvent);
+    });
+    expect(result.current.fillerCounts.uh).toBe(4);
+  });
+
+  it('should handle multiple and case-insensitive filler words', () => {
+    const { result } = renderHook(() => useSpeechRecognition({ customWords: ['Basically'] }));
+    act(() => {
+      result.current.startListening();
+    });
+    const mockEvent = {
+      resultIndex: 0,
+      results: [{ 0: { transcript: 'Um, so, like, basically... Uh, LIKE, you know. basically.' }, isFinal: true }],
+    };
+    act(() => {
+      mockSpeechRecognition.onresult(mockEvent);
+    });
+    expect(result.current.fillerCounts.um).toBe(1);
+    expect(result.current.fillerCounts.so).toBe(1);
+    expect(result.current.fillerCounts.like).toBe(2);
+    expect(result.current.fillerCounts.uh).toBe(1);
+    expect(result.current.fillerCounts.youKnow).toBe(1);
+    expect(result.current.fillerCounts.Basically).toBe(2);
+  });
+
   it('should implement keep-alive on unexpected end', () => {
     const { result } = renderHook(() => useSpeechRecognition());
     act(() => {

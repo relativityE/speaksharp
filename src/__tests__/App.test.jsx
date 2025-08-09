@@ -110,7 +110,7 @@ describe('App Component', () => {
 
     // Ensure we are on the analytics screen
     expect(screen.getByText('Session Report')).toBeInTheDocument();
-
+    
     // The user should navigate back to the home page via the header link.
     // Since the header is mocked, we can't click the link directly.
     // We can simulate this by having the user go back to the analytics page
