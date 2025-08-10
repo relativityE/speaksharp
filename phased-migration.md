@@ -44,7 +44,6 @@ The goal of this phase was to build a complete and functional client-side experi
   - Refreshed the UI with a modern, clean color scheme and layout for the Home, Session, and Analytics pages.
   - Implemented client-side logic for session management, speech recognition, filler word tracking, analytics, and data download using React state and `localStorage`.
 - **Deferred Tasks**: User authentication, subscriptions, and cloud-based features are deferred to later phases.
-- **Known Issues**: A critical memory leak in the test suite (`vitest`) prevents automated testing. This must be resolved before proceeding to Phase 1B.
 
 ### Phase 1B: Backend & Monetization Integration
 This phase turns the frontend MVP into a fully functional, monetizable platform.
