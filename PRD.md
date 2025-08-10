@@ -16,14 +16,14 @@ SayLess is a privacy-first, real-time speech analysis tool designed to help user
   1. User lands on the page and can immediately start a **2-minute trial session**.
   2. No account or sign-up is required.
   3. Real-time filler word detection runs locally in the browser.
-  4. At the end of 2 minutes, the session pauses.
-  5. A prompt appears: **"Sign up to save this session and continue."** Data from the trial (filler word counts) is preserved and attached to the new account upon creation.
+  4. At the end of 2 minutes, the session automatically ends, and the user is navigated to the analytics page.
+  5. A development-only "override timer" checkbox is available to allow for longer sessions.
 
 ### Free Tier (Account Required)
 - **Goal**: Convert trial users into registered users to enable retention tracking and create an upgrade path.
 - **Includes**:
   - **30 minutes/month** of local analysis time (resets monthly).
-  - Ability to track **1 custom filler word**.
+  - Ability to track **unlimited custom filler words**.
   - **Save the last 3 sessions** to track recent progress.
   - Visual real-time counters for each tracked word.
 
@@ -33,7 +33,7 @@ SayLess is a privacy-first, real-time speech analysis tool designed to help user
   - **Unlimited** local analysis time and session history.
   - **Unlimited** custom filler words.
   - **Advanced analytics dashboard** (trend visualization, per-word graphs).
-  - **Export** filler word metadata (CSV/PDF).
+  - **Export** session history as a JSON file. A more advanced CSV/PDF export is planned.
 
 ### Premium Tier ($19.99/month)
 - **Goal**: Serve power users, professionals, and future teams who require the highest accuracy.
@@ -97,11 +97,12 @@ This PRD will be implemented in phases, as detailed in the `phased-migration.md`
 
 ## 7. Project Structure
 - **/src**: Contains all the application source code.
-  - **/components**: Reusable React components (e.g., `AnalyticsDashboard`, `SessionControl`).
+  - **/pages**: Contains the main page components for each route (`MainPage`, `SessionPage`, `AnalyticsPage`).
+  - **/components**: Reusable React components (e.g., `AnalyticsDashboard`).
     - **/ui**: UI primitives, often from a component library like Shadcn/UI.
   - **/hooks**: Custom React hooks, such as `useSpeechRecognition.js`.
   - **/lib**: Utility functions.
-  - `App.jsx`: The main application component that orchestrates the UI and state.
+  - `App.jsx`: The main application component that defines the routes for the application.
   - `main.jsx`: The entry point for the React application.
 - `PRD.md`: This document.
 - `phased-migration.md`: The technical roadmap and phasing plan.

@@ -24,22 +24,25 @@ This table breaks down the estimated monthly costs for the SaaS infrastructure *
 
 ## 3. Phased Development Roadmap
 
-### Phase 0: Current State (Client-Only MVP)
+### Phase 0: Initial State (Client-Only MVP)
 - **Stack**: Vite + React, static hosting.
-- **Functionality**: Local speech processing only, no backend or user accounts.
+- **Functionality**: Basic speech recognition with a single-page interface. No session history or analytics.
 - **Cost**: ~$0
 
-### Phase 1A: Frontend MVP & UI Refresh (Current Task)
-The goal of this phase is to build the complete frontend experience using **mock data and placeholder UI** for backend features. This allows for rapid iteration on the user experience without requiring immediate backend setup or subscriptions.
+### Phase 1A: UI Refresh and Client-Side Features (Current State)
+The goal of this phase was to build a complete and functional client-side experience with a refreshed UI.
 - **User Flow**:
-  1. **Anonymous 2-Minute Trial**: Implement the UI and timer for the instant trial.
-  2. **Placeholder Sign-up Gate**: After 2 minutes, show a non-functional prompt to "Sign up to continue."
+  - User can start a session from the home page.
+  - The session has a 2-minute time limit, with a developer override option.
+  - Users can add unlimited custom filler words to be tracked.
+  - Real-time filler word detection is simulated.
+  - Session data is saved to `localStorage`.
+  - Users can view their session history and basic analytics on the Analytics page.
+  - Users can download their session history as a JSON file.
 - **Technical Implementation**:
-  - Refresh the UI with a modern, clean color scheme (light theme).
-  - Update the main button to "Start 2-Minute Trial".
-  - Change the "simulate login" button to "View Analytics" and move its location.
-  - The Analytics Dashboard will be updated to show a preview of what Pro/Premium tiers would offer, using mock data.
-- **Deferred Tasks**: Full authentication and payment integration are deferred to Phase 1B.
+  - Refreshed the UI with a modern, clean color scheme and layout for the Home, Session, and Analytics pages.
+  - Implemented client-side logic for session management, filler word tracking, analytics, and data download using React state and `localStorage`.
+- **Deferred Tasks**: User authentication, subscriptions, and cloud-based features are deferred to later phases.
 
 ### Phase 1B: Backend & Monetization Integration
 This phase turns the frontend MVP into a fully functional, monetizable platform.

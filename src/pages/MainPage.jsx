@@ -65,15 +65,14 @@ export const MainPage = () => { // Changed name here
                     <h3>Real-time Feedback</h3>
                     <p>Get instant feedback on your speech patterns to improve your communication skills.</p>
                 </div>
-
-                <div className="feature-card" onClick={handleGoToAnalytics} style={{ cursor: 'pointer' }}>
-                    <h3>View Analytics</h3>
-                    <p>Check your session history and track your progress over time.</p>
-                </div>
             </div>
 
             <div className="footer">
                 <p>SayLess AI - Powered by browser-based speech recognition</p>
+            </div>
+
+            <div style={{ position: 'fixed', bottom: '40px', right: '40px' }}>
+                <a onClick={handleGoToAnalytics} style={{ cursor: 'pointer', textDecoration: 'none', color: '#666', fontWeight: '500' }}>View Analytics</a>
             </div>
         </div>
     );

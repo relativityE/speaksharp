@@ -395,6 +395,8 @@ body {
 .session-page .filler-count.purple { color: #8b5cf6; }
 .session-page .filler-count.red { color: #ef4444; }
 .session-page .filler-count.pink { color: #ec4899; }
+.session-page .filler-count.teal { color: #14b8a6; }
+.session-page .filler-count.yellow { color: #facc15; }
 
 .session-page .filler-label {
     font-size: 14px;
