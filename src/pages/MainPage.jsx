@@ -1,97 +1,80 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
-import { RecordingStatus } from '../components/RecordingStatus';
-import { FillerWordCounters } from '../components/FillerWordCounters';
-import { SessionControl } from '../components/SessionControl';
-import { InfoCard } from '../components/InfoCard';
 
-const TRIAL_DURATION_SECONDS = 120;
+export const MainPage = () => { // Changed name here
+    const navigate = useNavigate();
 
-export const MainPage = () => {
-  const navigate = useNavigate();
-  const [trialTimeRemaining, setTrialTimeRemaining] = useState(TRIAL_DURATION_SECONDS);
-  const [lastSessionData, setLastSessionData] = useState(null);
-  const [customWords, setCustomWords] = useState([]);
-  const [customWord, setCustomWord] = useState('');
-
-  const {
-    isListening,
-    transcript,
-    fillerCounts,
-    startListening,
-    stopListening,
-    reset,
-  } = useSpeechRecognition({ customWords });
-
-  const handleAddCustomWord = (word) => {
-    if (word && !customWords.includes(word)) {
-      setCustomWords([...customWords, word]);
-    }
-  };
-
-  useEffect(() => {
-    let timer;
-    if (isListening && trialTimeRemaining > 0) {
-      timer = setInterval(() => {
-        setTrialTimeRemaining(prev => prev - 1);
-      }, 1000);
-    } else if (isListening && trialTimeRemaining <= 0) {
-      stopListening();
-      const sessionData = { transcript, fillerCounts, duration: TRIAL_DURATION_SECONDS * 1000 };
-      setLastSessionData(sessionData);
-      navigate('/analytics', { state: { sessionData } });
-    }
-    return () => clearInterval(timer);
-  }, [isListening, trialTimeRemaining, stopListening, navigate, transcript, fillerCounts]);
-
-  const handleStartSession = useCallback(() => {
-    reset();
-    setLastSessionData(null);
-    setTrialTimeRemaining(TRIAL_DURATION_SECONDS);
-    startListening();
-  }, [reset, startListening]);
-
-  const handleEndSession = useCallback(() => {
-    stopListening();
-    const sessionData = {
-      transcript,
-      fillerCounts,
-      duration: TRIAL_DURATION_SECONDS - trialTimeRemaining,
+    const handleStartSession = () => {
+        navigate('/session');
     };
-    setLastSessionData(sessionData);
-    navigate('/analytics', { state: { sessionData } });
-  }, [stopListening, transcript, fillerCounts, trialTimeRemaining, navigate]);
 
-  const totalFillerWords = Object.values(fillerCounts).reduce((sum, count) => sum + count, 0);
+    const handleGoToAnalytics = () => {
+        navigate('/analytics');
+    };
 
-  return (
-    <>
-      <SessionControl
-        isRecording={isListening}
-        onStart={handleStartSession}
-        onEnd={handleEndSession}
-        sessionDuration={TRIAL_DURATION_SECONDS - trialTimeRemaining}
-      />
-      <RecordingStatus
-        isRecording={isListening}
-        totalFillerWords={totalFillerWords}
-      />
-      <FillerWordCounters
-        fillerCounts={fillerCounts}
-        customWords={customWords}
-        customWord={customWord}
-        setCustomWord={setCustomWord}
-        onAddCustomWord={handleAddCustomWord}
-      />
-      <div className="grid md:grid-cols-2 gap-6 mb-6">
-        <InfoCard title="Privacy First">
-          All processing happens on your device using browser APIs. Your speech never leaves your device.
-        </InfoCard>
-        <InfoCard title="Real-time Feedback">
-          Get instant feedback on your speech patterns to improve your communication skills.
-        </InfoCard>
-      </div>
-    </>
-  );
+    useEffect(() => {
+        const featureCards = document.querySelectorAll('.feature-card');
+        const handleMouseEnter = (e) => {
+            e.currentTarget.style.transform = 'translateY(-4px)';
+            e.currentTarget.style.boxShadow = '0 8px 32px rgba(0, 0, 0, 0.12)';
+        };
+
+        const handleMouseLeave = (e) => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = '0 4px 24px rgba(0, 0, 0, 0.08)';
+        };
+
+        featureCards.forEach(card => {
+            card.addEventListener('mouseenter', handleMouseEnter);
+            card.addEventListener('mouseleave', handleMouseLeave);
+        });
+
+        return () => {
+            featureCards.forEach(card => {
+                card.removeEventListener('mouseenter', handleMouseEnter);
+                card.removeEventListener('mouseleave', handleMouseLeave);
+            });
+        };
+    }, []);
+
+    return (
+        <div className="container home-page">
+            <div className="header">
+                <h1>SayLess AI</h1>
+                <p>Real-time filler word detection for better speaking</p>
+            </div>
+
+            <div className="session-card">
+                <h2>
+                    <span className="microphone-icon"></span>
+                    Session Control
+                </h2>
+                <p>Start a new session to begin tracking your speech patterns</p>
+                <button className="start-button" onClick={handleStartSession}>
+                    Start New Session
+                </button>
+            </div>
+
+            <div className="features-grid">
+                <div className="feature-card">
+                    <h3>Privacy First</h3>
+                    <p>All processing happens on your device using browser APIs. Your speech never leaves your device.</p>
+                </div>
+
+                <div className="feature-card">
+                    <h3>Real-time Feedback</h3>
+                    <p>Get instant feedback on your speech patterns to improve your communication skills.</p>
+                </div>
+
+                <div className="feature-card" onClick={handleGoToAnalytics} style={{ cursor: 'pointer' }}>
+                    <h3>View Analytics</h3>
+                    <p>Check your session history and track your progress over time.</p>
+                </div>
+            </div>
+
+            <div className="footer">
+                <p>SayLess AI - Powered by browser-based speech recognition</p>
+            </div>
+        </div>
+    );
 };
