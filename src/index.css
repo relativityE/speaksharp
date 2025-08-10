@@ -47,6 +47,7 @@ body {
     background: linear-gradient(135deg, #e8f0fe 0%, #f3e8ff 100%);
     min-height: 100vh;
     padding: 40px 20px;
+    font-size: 18px; /* Increased base font size */
 }
 
 * {
@@ -67,8 +68,8 @@ body {
 }
 
 .footer p {
-    font-size: 16px;
-    color: #999;
+    font-size: 1rem; /* 18px */
+    color: #5a4bcf;
 }
 
 /* --- HomePage specific styles --- */
@@ -79,16 +80,16 @@ body {
 }
 
 .home-page .header h1 {
-    font-size: 48px;
+    font-size: 3rem; /* 54px */
     font-weight: 700;
-    color: #1a1a1a;
-    margin-bottom: 16px;
+    color: #2d3748;
+    margin-bottom: 1rem;
     letter-spacing: -0.02em;
 }
 
 .home-page .header p {
-    font-size: 20px;
-    color: #666;
+    font-size: 1.25rem; /* 22.5px */
+    color: #5a4bcf;
     font-weight: 400;
 }
 
@@ -102,10 +103,10 @@ body {
 }
 
 .home-page .session-card h2 {
-    font-size: 24px;
+    font-size: 1.5rem; /* 27px */
     font-weight: 600;
-    color: #1a1a1a;
-    margin-bottom: 12px;
+    color: #2d3748;
+    margin-bottom: 0.75rem;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -114,7 +115,7 @@ body {
 .home-page .microphone-icon {
     width: 24px;
     height: 24px;
-    background: #333;
+    background: #2d3748;
     border-radius: 50%;
     display: inline-flex;
     align-items: center;
@@ -123,14 +124,14 @@ body {
 
 .home-page .microphone-icon::before {
     content: '🎤';
-    font-size: 16px;
+    font-size: 1rem;
 }
 
 .home-page .session-card p {
-    font-size: 16px;
-    color: #666;
+    font-size: 1rem; /* 18px */
+    color: #5a4bcf;
     line-height: 1.5;
-    margin-bottom: 32px;
+    margin-bottom: 2rem;
 }
 
 .home-page .start-button, .green-button {
@@ -138,8 +139,8 @@ body {
     color: white;
     border: none;
     border-radius: 12px;
-    padding: 16px 32px;
-    font-size: 18px;
+    padding: 1rem 2rem;
+    font-size: 1.125rem; /* 20.25px */
     font-weight: 600;
     cursor: pointer;
     display: flex;
@@ -157,7 +158,7 @@ body {
 
 .home-page .start-button::before {
     content: '▶';
-    font-size: 16px;
+    font-size: 1rem;
 }
 
 .home-page .features-grid {
@@ -175,15 +176,15 @@ body {
 }
 
 .home-page .feature-card h3 {
-    font-size: 20px;
+    font-size: 1.25rem; /* 22.5px */
     font-weight: 600;
-    color: #1a1a1a;
-    margin-bottom: 24px;
+    color: #2d3748;
+    margin-bottom: 1.5rem;
 }
 
 .home-page .feature-card p {
-    font-size: 16px;
-    color: #666;
+    font-size: 1rem; /* 18px */
+    color: #5a4bcf;
     line-height: 1.6;
 }
 
@@ -196,16 +197,16 @@ body {
 }
 
 .session-page .header h1 {
-    font-size: 48px;
+    font-size: 3rem; /* 54px */
     font-weight: 700;
-    color: #1a1a1a;
-    margin-bottom: 16px;
+    color: #2d3748;
+    margin-bottom: 1rem;
     letter-spacing: -0.02em;
 }
 
 .session-page .header p {
-    font-size: 18px;
-    color: #666;
+    font-size: 1.125rem; /* 20.25px */
+    color: #5a4bcf;
     font-weight: 400;
 }
 
@@ -226,16 +227,16 @@ body {
     position: absolute;
     top: 32px;
     right: 32px;
-    font-size: 16px;
-    color: #666;
+    font-size: 1rem; /* 18px */
+    color: #5a4bcf;
     font-weight: 500;
 }
 
 .session-page .session-card h2 {
-    font-size: 20px;
+    font-size: 1.25rem; /* 22.5px */
     font-weight: 600;
-    color: #1a1a1a;
-    margin-bottom: 8px;
+    color: #2d3748;
+    margin-bottom: 0.5rem;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -249,14 +250,14 @@ body {
 
 .session-page .microphone-icon::before {
     content: '🎤';
-    font-size: 16px;
+    font-size: 1rem;
 }
 
 .session-page .session-card p {
-    font-size: 16px;
-    color: #666;
+    font-size: 1rem; /* 18px */
+    color: #5a4bcf;
     line-height: 1.5;
-    margin-bottom: 32px;
+    margin-bottom: 2rem;
 }
 
 .session-page .button-group {
@@ -267,12 +268,12 @@ body {
 }
 
 .session-page .start-button {
-    background: #1a1a1a;
+    background: #2d3748;
     color: white;
     border: none;
     border-radius: 8px;
-    padding: 12px 24px;
-    font-size: 16px;
+    padding: 0.75rem 1.5rem;
+    font-size: 1rem; /* 18px */
     font-weight: 500;
     cursor: pointer;
     display: flex;
@@ -282,22 +283,22 @@ body {
 }
 
 .session-page .start-button:hover {
-    background: #333;
+    background: #4a5568;
     transform: translateY(-1px);
 }
 
 .session-page .start-button::before {
     content: '🎤';
-    font-size: 14px;
+    font-size: 0.875rem; /* 15.75px */
 }
 
 .session-page .end-button {
     background: transparent;
-    color: #666;
+    color: #5a4bcf;
     border: 1px solid #ddd;
     border-radius: 8px;
-    padding: 12px 24px;
-    font-size: 16px;
+    padding: 0.75rem 1.5rem;
+    font-size: 1rem; /* 18px */
     font-weight: 500;
     cursor: pointer;
     display: flex;
@@ -313,7 +314,7 @@ body {
 
 .session-page .end-button::before {
     content: '⏹';
-    font-size: 14px;
+    font-size: 0.875rem; /* 15.75px */
 }
 
 .session-page .status-card {
@@ -326,7 +327,7 @@ body {
     align-items: center;
     justify-content: center;
     gap: 8px;
-    margin-bottom: 16px;
+    margin-bottom: 1rem;
 }
 
 .session-page .status-dot {
@@ -337,21 +338,21 @@ body {
 }
 
 .session-page .status-text {
-    font-size: 16px;
-    color: #64748b;
+    font-size: 1rem; /* 18px */
+    color: #5a4bcf;
     font-weight: 500;
 }
 
 .session-page .total-count {
-    font-size: 16px;
-    color: #666;
+    font-size: 1rem; /* 18px */
+    color: #5a4bcf;
 }
 
 .session-page .detection-card h2 {
-    font-size: 20px;
+    font-size: 1.25rem; /* 22.5px */
     font-weight: 600;
-    color: #1a1a1a;
-    margin-bottom: 8px;
+    color: #2d3748;
+    margin-bottom: 0.5rem;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -359,14 +360,14 @@ body {
 
 .session-page .chart-icon::before {
     content: '📊';
-    font-size: 16px;
+    font-size: 1rem;
 }
 
 .session-page .detection-card p {
-    font-size: 16px;
-    color: #666;
+    font-size: 1rem; /* 18px */
+    color: #5a4bcf;
     line-height: 1.5;
-    margin-bottom: 32px;
+    margin-bottom: 2rem;
 }
 
 .session-page .filler-grid {
@@ -384,9 +385,9 @@ body {
 }
 
 .session-page .filler-count {
-    font-size: 32px;
+    font-size: 2rem; /* 36px */
     font-weight: 700;
-    margin-bottom: 8px;
+    margin-bottom: 0.5rem;
 }
 
 .session-page .filler-count.blue { color: #3b82f6; }
@@ -399,8 +400,8 @@ body {
 .session-page .filler-count.yellow { color: #facc15; }
 
 .session-page .filler-label {
-    font-size: 16px;
-    color: #64748b;
+    font-size: 1rem; /* 18px */
+    color: #5a4bcf;
     font-weight: 500;
 }
 
@@ -419,30 +420,30 @@ body {
 }
 
 .session-page .feature-card h3 {
-    font-size: 18px;
+    font-size: 1.125rem; /* 20.25px */
     font-weight: 600;
-    color: #1a1a1a;
-    margin-bottom: 16px;
+    color: #2d3748;
+    margin-bottom: 1rem;
 }
 
 .session-page .feature-card p {
-    font-size: 16px;
-    color: #666;
+    font-size: 1rem; /* 18px */
+    color: #5a4bcf;
     line-height: 1.6;
 }
 
 /* Media Queries */
 @media (max-width: 768px) {
     .home-page .header h1, .session-page .header h1 {
-        font-size: 36px;
+        font-size: 2.25rem; /* 40.5px */
     }
 
     .home-page .header p {
-        font-size: 18px;
+        font-size: 1.125rem; /* 20.25px */
     }
 
     .session-page .header p {
-        font-size: 16px;
+        font-size: 1rem; /* 18px */
     }
 
     .home-page .session-card {
@@ -460,7 +461,7 @@ body {
     .session-page .session-card .timer {
         position: static;
         text-align: right;
-        margin-bottom: 16px;
+        margin-bottom: 1rem;
     }
 
     .session-page .filler-grid {
@@ -473,7 +474,7 @@ body {
     }
 
     .session-page .filler-count {
-        font-size: 24px;
+        font-size: 1.5rem; /* 27px */
     }
 
     .session-page .features-grid {
