@@ -19,6 +19,7 @@ A mobile-first web application that detects and counts filler words in real time
 - **Styling**: Tailwind CSS
 - **UI Components**: shadcn/ui
 - **Icons**: Lucide React
+- **Authentication & DB**: Supabase
 - **Speech Processing**: Browser's Web Speech API
 
 ## Getting Started
@@ -74,20 +75,14 @@ This will run all test files in the `src/__tests__` directory.
 
 ## Project Status & Roadmap
 
-This project is currently a fully client-side application where all processing happens in your browser. Development is in progress to transform this tool into a full-stack SaaS application.
+This project is currently being developed into a full-stack SaaS application with a **"Speed Over Perfection"** philosophy. The immediate goal is to launch a monetizable MVP within 3 weeks to gather user feedback and iterate quickly.
 
-The high-level roadmap is outlined below. For a detailed breakdown, please see the [Product Requirements Document](./PRD.md).
+The high-level roadmap is to:
+1.  **Launch a functional MVP** with authentication, free/paid tiers, and payment processing.
+2.  **Gather user feedback** and iterate on the core features.
+3.  **Expand the feature set** based on user demand, including advanced analytics and cloud-powered transcription.
 
--   **User Authentication**
-    -   **Why**: To allow users to save their sessions and track progress over time.
--   **Session History & Analytics**
-    -   **Why**: To provide users with actionable insights into their speech patterns and improvement.
--   **Subscription Management**
-    -   **Why**: To create a sustainable business model by offering premium, paid features.
-
-## Known Issues
-
--   **Test Suite Memory Leak**: The Vitest test suite currently suffers from a severe memory leak, causing it to crash with a "heap out of memory" error. This issue seems to be related to the mocking of the `SpeechRecognition` API and its interaction with React hooks. The tests are being skipped until this is resolved.
+For a detailed, day-by-day implementation plan for the MVP, please see the [Smart MVP Implementation Guide](./smart-mvp-plan.md).
 
 ## Contributing
 
