@@ -31,14 +31,14 @@ export const AnalyticsPage = () => {
                 </div>
                 <div style={{ textAlign: 'center' }}>
                     <h1>Analytics</h1>
-                    <p>Review your session history and progress</p>
+                    <p style={{ fontStyle: 'italic', fontSize: '4rem' }}>Review your session history and progress</p>
                 </div>
             </div>
 
             <AnalyticsDashboard sessionHistory={sessionHistory} />
 
-            <div style={{ textAlign: 'center', marginTop: '20px' }}>
-                <a onClick={handleDownload} style={{ cursor: 'pointer', textDecoration: 'underline', color: '#3b82f6' }}>Download History</a>
+            <div style={{ textAlign: 'left', marginTop: '20px' }}>
+                <a onClick={handleDownload} style={{ cursor: 'pointer', textDecoration: 'underline', color: '#3b82f6', fontSize: '2rem' }}>Download History</a>
             </div>
         </div>
     );
