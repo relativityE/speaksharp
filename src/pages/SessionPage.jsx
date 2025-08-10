@@ -7,8 +7,10 @@ export const SessionPage = () => {
     const [startTime, setStartTime] = useState(null);
     const [elapsedTime, setElapsedTime] = useState(0);
     const [fillerCounts, setFillerCounts] = useState({
-        'Um': 0, 'Uh': 0, 'Like': 0, 'You Know': 0, 'So': 0, 'Actually': 0
+        'Um': 0, 'Uh': 0, 'Like': 0, 'You Know': 0, 'So': 0, 'Actually': 0, 'Ah': 0, 'I mean': 0
     });
+    const [customWord, setCustomWord] = useState('');
+    const [overrideTimer, setOverrideTimer] = useState(false);
 
     const timerIntervalRef = useRef(null);
     const detectionTimeoutRef = useRef(null);
@@ -17,7 +19,12 @@ export const SessionPage = () => {
 
     const updateTimer = () => {
         if (startTime) {
-            setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
+            const currentElapsedTime = Math.floor((Date.now() - startTime) / 1000);
+            setElapsedTime(currentElapsedTime);
+
+            if (currentElapsedTime >= 120 && !overrideTimer) {
+                endSession(true);
+            }
         }
     };
 
@@ -37,7 +44,7 @@ export const SessionPage = () => {
         }
     };
 
-    const endSession = () => {
+    const endSession = (shouldNavigateToAnalytics = false) => {
         stopRecording();
         const sessionData = {
             id: Date.now(),
@@ -51,7 +58,11 @@ export const SessionPage = () => {
         history.push(sessionData);
         localStorage.setItem('saylessSessionHistory', JSON.stringify(history));
 
-        navigate('/');
+        if (shouldNavigateToAnalytics) {
+            navigate('/analytics');
+        } else {
+            navigate('/');
+        }
     };
 
     const simulateFillerDetection = () => {
@@ -65,6 +76,16 @@ export const SessionPage = () => {
         }));
 
         detectionTimeoutRef.current = setTimeout(simulateFillerDetection, Math.random() * 3000 + 1000);
+    };
+
+    const addCustomWord = () => {
+        if (customWord && !fillerCounts.hasOwnProperty(customWord)) {
+            setFillerCounts(prevCounts => ({
+                ...prevCounts,
+                [customWord]: 0
+            }));
+            setCustomWord('');
+        }
     };
 
     useEffect(() => {
@@ -83,7 +104,7 @@ export const SessionPage = () => {
                 clearTimeout(detectionTimeoutRef.current);
             }
         }
-    }, [isRecording, startTime]);
+    }, [isRecording, startTime, overrideTimer]);
 
     useEffect(() => {
         // Add hover effects for cards
@@ -117,7 +138,7 @@ export const SessionPage = () => {
         return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
     };
 
-    const colors = ['blue', 'green', 'orange', 'purple', 'red', 'pink'];
+    const colors = ['blue', 'green', 'orange', 'purple', 'red', 'pink', 'teal', 'yellow'];
 
     return (
         <div className="container session-page">
@@ -132,17 +153,24 @@ export const SessionPage = () => {
                     <span className="microphone-icon"></span>
                     Session Control
                 </h2>
-                <p>Start recording to begin tracking your speech patterns</p>
+                <p>Start recording to begin tracking your speech patterns. The session will end automatically after 2 minutes.</p>
                 <div className="button-group">
                     <button className="start-button" onClick={startRecording}>
                         {isRecording ? 'Stop Recording' : 'Start Recording'}
                     </button>
-                    <button className="end-button" onClick={endSession}>
+                    <button className="end-button" onClick={() => endSession(false)}>
                         End Session
                     </button>
-                    <button className="end-button" onClick={() => navigate('/analytics')}>
-                        Analytics
-                    </button>
+                </div>
+                {/* DEV ONLY: Override Timer Checkbox */}
+                <div style={{ marginTop: '20px', textAlign: 'center', fontSize: '12px', color: '#666' }}>
+                    <input
+                        type="checkbox"
+                        id="overrideTimer"
+                        checked={overrideTimer}
+                        onChange={(e) => setOverrideTimer(e.target.checked)}
+                    />
+                    <label htmlFor="overrideTimer" style={{ marginLeft: '8px' }}>Override 2-minute timer (for development)</label>
                 </div>
             </div>
 
@@ -152,6 +180,10 @@ export const SessionPage = () => {
                     <span className="status-text">{isRecording ? 'Recording...' : 'Ready to Record'}</span>
                 </div>
                 <p className="total-count">Total filler words detected: <strong>{totalFillerWords}</strong></p>
+            </div>
+
+            <div style={{ textAlign: 'center', margin: '20px 0' }}>
+                <a onClick={() => navigate('/analytics')} style={{ cursor: 'pointer', textDecoration: 'underline', color: '#666' }}>View Detailed Analytics</a>
             </div>
 
             <div className="card detection-card">
@@ -168,6 +200,22 @@ export const SessionPage = () => {
                             <div className="filler-label">{word}</div>
                         </div>
                     ))}
+                </div>
+
+                <div style={{ marginTop: '30px' }}>
+                    <label htmlFor="customWord" style={{ display: 'block', textAlign: 'left', marginBottom: '10px', fontWeight: '500' }}>Custom word</label>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                        <input
+                            id="customWord"
+                            type="text"
+                            value={customWord}
+                            onChange={(e) => setCustomWord(e.target.value)}
+                            placeholder="Enter word"
+                            style={{ padding: '8px', borderRadius: '8px', border: '1px solid #ddd', flexGrow: 1, fontSize: '14px' }}
+                            maxLength="10"
+                        />
+                        <button onClick={addCustomWord} className="end-button" style={{ padding: '8px 16px' }}>+</button>
+                    </div>
                 </div>
             </div>
 
