@@ -106,11 +106,13 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
     recognition.onend = handleEnd;
 
     return () => {
-      recognition.onresult = null;
-      recognition.onerror = null;
-      recognition.onend = null;
-    };
-  }, [processTranscript, handleEnd]);
+      if (recognitionRef.current) {
+        recognitionRef.current.stop()
+        recognitionRef.current.abort()
+        recognitionRef.current = null // Clear reference
+      }
+    }
+  }, [])
 
   const startListening = useCallback(() => {
     if (isListening || !recognitionRef.current) {
