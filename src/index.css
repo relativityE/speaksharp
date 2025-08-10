@@ -1,0 +1,494 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --radius: 0.625rem;
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0 0);
+    --primary: oklch(0.205 0 0);
+    --primary-foreground: oklch(0.985 0 0);
+    --secondary: oklch(0.97 0 0);
+    --secondary-foreground: oklch(0.205 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --accent: oklch(0.97 0 0);
+    --accent-foreground: oklch(0.205 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --border: oklch(0.922 0 0);
+    --input: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
+    --color-blue-50: oklch(97% 0.014 254.604);
+    --color-indigo-100: oklch(93% 0.034 272.788);
+  }
+
+  * {
+    border-color: var(--border);
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-image: linear-gradient(to bottom right, var(--color-blue-50), var(--color-indigo-100));
+  }
+}
+
+/* SpeakSharp Custom Styles */
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: linear-gradient(135deg, #e8f0fe 0%, #f3e8ff 100%);
+    min-height: 100vh;
+    padding: 40px 20px;
+    font-size: 18px; /* Increased base font size */
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+.container {
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.footer {
+    text-align: center;
+    margin-top: 60px;
+    padding-top: 40px;
+}
+
+.footer p {
+    font-size: 1rem; /* 18px */
+    color: #5a4bcf;
+}
+
+/* --- HomePage specific styles --- */
+
+.home-page .header {
+    text-align: center;
+    margin-bottom: 60px;
+}
+
+.home-page .header h1 {
+    font-size: 3rem; /* 54px */
+    font-weight: 700;
+    color: #2d3748;
+    margin-bottom: 1rem;
+    letter-spacing: -0.02em;
+}
+
+.home-page .header p {
+    font-size: 1.25rem; /* 22.5px */
+    color: #5a4bcf;
+    font-weight: 400;
+}
+
+.home-page .session-card {
+    background: white;
+    border-radius: 16px;
+    padding: 40px;
+    margin-bottom: 40px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.home-page .session-card h2 {
+    font-size: 1.5rem; /* 27px */
+    font-weight: 600;
+    color: #2d3748;
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.home-page .microphone-icon {
+    width: 24px;
+    height: 24px;
+    background: #2d3748;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.home-page .microphone-icon::before {
+    content: '🎤';
+    font-size: 1rem;
+}
+
+.home-page .session-card p {
+    font-size: 1rem; /* 18px */
+    color: #5a4bcf;
+    line-height: 1.5;
+    margin-bottom: 2rem;
+}
+
+.home-page .start-button, .green-button {
+    background: #22c55e;
+    color: white;
+    border: none;
+    border-radius: 12px;
+    padding: 1rem 2rem;
+    font-size: 1.125rem; /* 20.25px */
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 auto;
+    transition: all 0.2s ease;
+}
+
+.home-page .start-button:hover {
+    background: #16a34a;
+    transform: translateY(-1px);
+    box-shadow: 0 8px 24px rgba(34, 197, 94, 0.3);
+}
+
+.home-page .start-button::before {
+    content: '▶';
+    font-size: 1rem;
+}
+
+.home-page .features-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 32px;
+}
+
+.home-page .feature-card {
+    background: white;
+    border-radius: 16px;
+    padding: 32px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.home-page .feature-card h3 {
+    font-size: 1.25rem; /* 22.5px */
+    font-weight: 600;
+    color: #2d3748;
+    margin-bottom: 1.5rem;
+}
+
+.home-page .feature-card p {
+    font-size: 1rem; /* 18px */
+    color: #5a4bcf;
+    line-height: 1.6;
+}
+
+
+/* --- SessionPage specific styles --- */
+
+.session-page .header {
+    text-align: center;
+    margin-bottom: 40px;
+}
+
+.session-page .header h1 {
+    font-size: 3rem; /* 54px */
+    font-weight: 700;
+    color: #2d3748;
+    margin-bottom: 1rem;
+    letter-spacing: -0.02em;
+}
+
+.session-page .header p {
+    font-size: 1.125rem; /* 20.25px */
+    color: #5a4bcf;
+    font-weight: 400;
+}
+
+.session-page .card {
+    background: white;
+    border-radius: 16px;
+    padding: 32px;
+    margin-bottom: 24px;
+    box-shadow: 0 2px 16px rgba(0, 0, 0, 0.08);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.session-page .session-card {
+    position: relative;
+}
+
+.session-page .session-card .timer {
+    position: absolute;
+    top: 32px;
+    right: 32px;
+    font-size: 1rem; /* 18px */
+    color: #5a4bcf;
+    font-weight: 500;
+}
+
+.session-page .session-card h2 {
+    font-size: 1.25rem; /* 22.5px */
+    font-weight: 600;
+    color: #2d3748;
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.session-page .microphone-icon {
+    width: 20px;
+    height: 20px;
+    /* no background */
+}
+
+.session-page .microphone-icon::before {
+    content: '🎤';
+    font-size: 1rem;
+}
+
+.session-page .session-card p {
+    font-size: 1rem; /* 18px */
+    color: #5a4bcf;
+    line-height: 1.5;
+    margin-bottom: 2rem;
+}
+
+.session-page .button-group {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    justify-content: center;
+}
+
+.session-page .start-button {
+    background: #2d3748;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 0.75rem 1.5rem;
+    font-size: 1rem; /* 18px */
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s ease;
+}
+
+.session-page .start-button:hover {
+    background: #4a5568;
+    transform: translateY(-1px);
+}
+
+.session-page .start-button::before {
+    content: '🎤';
+    font-size: 0.875rem; /* 15.75px */
+}
+
+.session-page .end-button {
+    background: transparent;
+    color: #5a4bcf;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 0.75rem 1.5rem;
+    font-size: 1rem; /* 18px */
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s ease;
+}
+
+.session-page .end-button:hover {
+    background: #f5f5f5;
+    border-color: #ccc;
+}
+
+.session-page .end-button::before {
+    content: '⏹';
+    font-size: 0.875rem; /* 15.75px */
+}
+
+.session-page .status-card {
+    text-align: center;
+    padding: 40px 32px;
+}
+
+.session-page .status-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 1rem;
+}
+
+.session-page .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #94a3b8;
+}
+
+.session-page .status-text {
+    font-size: 1rem; /* 18px */
+    color: #5a4bcf;
+    font-weight: 500;
+}
+
+.session-page .total-count {
+    font-size: 1rem; /* 18px */
+    color: #5a4bcf;
+}
+
+.session-page .detection-card h2 {
+    font-size: 1.25rem; /* 22.5px */
+    font-weight: 600;
+    color: #2d3748;
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.session-page .chart-icon::before {
+    content: '📊';
+    font-size: 1rem;
+}
+
+.session-page .detection-card p {
+    font-size: 1rem; /* 18px */
+    color: #5a4bcf;
+    line-height: 1.5;
+    margin-bottom: 2rem;
+}
+
+.session-page .filler-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+}
+
+.session-page .filler-item {
+    text-align: center;
+    padding: 24px 16px;
+    background: #f8fafc;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+}
+
+.session-page .filler-count {
+    font-size: 2rem; /* 36px */
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+}
+
+.session-page .filler-count.blue { color: #3b82f6; }
+.session-page .filler-count.green { color: #10b981; }
+.session-page .filler-count.orange { color: #f59e0b; }
+.session-page .filler-count.purple { color: #8b5cf6; }
+.session-page .filler-count.red { color: #ef4444; }
+.session-page .filler-count.pink { color: #ec4899; }
+.session-page .filler-count.teal { color: #14b8a6; }
+.session-page .filler-count.yellow { color: #facc15; }
+
+.session-page .filler-label {
+    font-size: 1rem; /* 18px */
+    color: #5a4bcf;
+    font-weight: 500;
+}
+
+.session-page .features-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+}
+
+.session-page .feature-card {
+    background: white;
+    border-radius: 16px;
+    padding: 32px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+    border: 1px solid rgba(0,0,0,0.06);
+}
+
+.session-page .feature-card h3 {
+    font-size: 1.125rem; /* 20.25px */
+    font-weight: 600;
+    color: #2d3748;
+    margin-bottom: 1rem;
+}
+
+.session-page .feature-card p {
+    font-size: 1rem; /* 18px */
+    color: #5a4bcf;
+    line-height: 1.6;
+}
+
+/* Media Queries */
+@media (max-width: 768px) {
+    .home-page .header h1, .session-page .header h1 {
+        font-size: 2.25rem; /* 40.5px */
+    }
+
+    .home-page .header p {
+        font-size: 1.125rem; /* 20.25px */
+    }
+
+    .session-page .header p {
+        font-size: 1rem; /* 18px */
+    }
+
+    .home-page .session-card {
+        padding: 32px 24px;
+    }
+
+    .home-page .feature-card {
+        padding: 24px;
+    }
+
+    .session-page .card {
+        padding: 24px;
+    }
+
+    .session-page .session-card .timer {
+        position: static;
+        text-align: right;
+        margin-bottom: 1rem;
+    }
+
+    .session-page .filler-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+    }
+
+    .session-page .filler-item {
+        padding: 16px 12px;
+    }
+
+    .session-page .filler-count {
+        font-size: 1.5rem; /* 27px */
+    }
+
+    .session-page .features-grid {
+        gap: 16px;
+    }
+
+    .session-page .button-group {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .session-page .start-button,
+    .session-page .end-button {
+        width: 100%;
+        justify-content: center;
+    }
+}
