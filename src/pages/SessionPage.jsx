@@ -1,91 +1,186 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
-import { RecordingStatus } from '../components/RecordingStatus';
-import { FillerWordCounters } from '../components/FillerWordCounters';
-import { SessionControl } from '../components/SessionControl';
-import { InfoCard } from '../components/InfoCard';
-
-const TRIAL_DURATION_SECONDS = 120;
 
 export const SessionPage = () => {
     const navigate = useNavigate();
-    const [trialTimeRemaining, setTrialTimeRemaining] = useState(TRIAL_DURATION_SECONDS);
-    const [customWords, setCustomWords] = useState([]);
-    const [customWord, setCustomWord] = useState('');
+    const [isRecording, setIsRecording] = useState(false);
+    const [startTime, setStartTime] = useState(null);
+    const [elapsedTime, setElapsedTime] = useState(0);
+    const [fillerCounts, setFillerCounts] = useState({
+        'Um': 0, 'Uh': 0, 'Like': 0, 'You Know': 0, 'So': 0, 'Actually': 0
+    });
 
-    const {
-        isListening,
-        transcript,
-        fillerCounts,
-        startListening,
-        stopListening,
-        reset,
-    } = useSpeechRecognition({ customWords });
-
-    useEffect(() => {
-        startListening();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
-    useEffect(() => {
-        let timer;
-        if (isListening && trialTimeRemaining > 0) {
-            timer = setInterval(() => {
-                setTrialTimeRemaining(prev => prev - 1);
-            }, 1000);
-        } else if (isListening && trialTimeRemaining <= 0) {
-            stopListening();
-            navigate('/analytics', { state: { sessionData: { transcript, fillerCounts, duration: TRIAL_DURATION_SECONDS * 1000 } } });
-        }
-        return () => clearInterval(timer);
-    }, [isListening, trialTimeRemaining, stopListening, navigate, transcript, fillerCounts]);
-
-    const handleAddCustomWord = (word) => {
-        if (word && !customWords.includes(word)) {
-            setCustomWords([...customWords, word]);
-        }
-    };
-
-    const handleToggleRecording = () => {
-        if (isListening) {
-            stopListening();
-            navigate('/analytics', { state: { sessionData: { transcript, fillerCounts, duration: TRIAL_DURATION_SECONDS - trialTimeRemaining } } });
-        } else {
-            reset();
-            setTrialTimeRemaining(TRIAL_DURATION_SECONDS);
-            startListening();
-        }
-    };
+    const timerIntervalRef = useRef(null);
+    const detectionTimeoutRef = useRef(null);
 
     const totalFillerWords = Object.values(fillerCounts).reduce((sum, count) => sum + count, 0);
 
+    const updateTimer = () => {
+        if (startTime) {
+            setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
+        }
+    };
+
+    const stopRecording = () => {
+        setIsRecording(false);
+        if (detectionTimeoutRef.current) {
+            clearTimeout(detectionTimeoutRef.current);
+        }
+    };
+
+    const startRecording = () => {
+        if (!isRecording) {
+            setIsRecording(true);
+            setStartTime(Date.now());
+        } else {
+            stopRecording();
+        }
+    };
+
+    const endSession = () => {
+        stopRecording();
+        const sessionData = {
+            id: Date.now(),
+            date: new Date().toISOString(),
+            duration: elapsedTime,
+            fillerCounts: fillerCounts,
+            totalFillerWords: totalFillerWords,
+        };
+
+        const history = JSON.parse(localStorage.getItem('saylessSessionHistory')) || [];
+        history.push(sessionData);
+        localStorage.setItem('saylessSessionHistory', JSON.stringify(history));
+
+        navigate('/');
+    };
+
+    const simulateFillerDetection = () => {
+        if(!isRecording) return;
+        const fillers = Object.keys(fillerCounts);
+        const randomFiller = fillers[Math.floor(Math.random() * fillers.length)];
+
+        setFillerCounts(prevCounts => ({
+            ...prevCounts,
+            [randomFiller]: prevCounts[randomFiller] + 1
+        }));
+
+        detectionTimeoutRef.current = setTimeout(simulateFillerDetection, Math.random() * 3000 + 1000);
+    };
+
+    useEffect(() => {
+        if (isRecording) {
+            timerIntervalRef.current = setInterval(updateTimer, 1000);
+            simulateFillerDetection();
+        } else {
+            clearInterval(timerIntervalRef.current);
+            if (detectionTimeoutRef.current) {
+                clearTimeout(detectionTimeoutRef.current);
+            }
+        }
+        return () => {
+            clearInterval(timerIntervalRef.current);
+            if (detectionTimeoutRef.current) {
+                clearTimeout(detectionTimeoutRef.current);
+            }
+        }
+    }, [isRecording, startTime]);
+
+    useEffect(() => {
+        // Add hover effects for cards
+        const cards = document.querySelectorAll('.session-page .card');
+        const handleMouseEnter = (e) => {
+            if (!e.currentTarget.classList.contains('session-card')) {
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 4px 20px rgba(0, 0, 0, 0.12)';
+            }
+        };
+        const handleMouseLeave = (e) => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = '0 2px 16px rgba(0, 0, 0, 0.08)';
+        };
+        cards.forEach(card => {
+            card.addEventListener('mouseenter', handleMouseEnter);
+            card.addEventListener('mouseleave', handleMouseLeave);
+        });
+
+        return () => {
+            cards.forEach(card => {
+                card.removeEventListener('mouseenter', handleMouseEnter);
+                card.removeEventListener('mouseleave', handleMouseLeave);
+            });
+        };
+    }, []);
+
+    const formatTime = (seconds) => {
+        const minutes = Math.floor(seconds / 60);
+        const remainingSeconds = seconds % 60;
+        return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+    };
+
+    const colors = ['blue', 'green', 'orange', 'purple', 'red', 'pink'];
+
     return (
-        <div className="flex flex-col gap-6 mt-6">
-            <SessionControl
-                isRecording={isListening}
-                onToggle={handleToggleRecording}
-                sessionDuration={TRIAL_DURATION_SECONDS - trialTimeRemaining}
-            />
-            <RecordingStatus
-                isRecording={isListening}
-                totalFillerWords={totalFillerWords}
-            />
-            <FillerWordCounters
-                fillerCounts={fillerCounts}
-                customWords={customWords}
-                customWord={customWord}
-                setCustomWord={setCustomWord}
-                onAddCustomWord={handleAddCustomWord}
-                sessionActive={isListening}
-            />
-            <div className="grid md:grid-cols-2 gap-6">
-                <InfoCard title="Privacy First">
-                    All processing happens on your device using browser APIs. Your speech never leaves your device.
-                </InfoCard>
-                <InfoCard title="Real-time Feedback">
-                    Get instant feedback on your speech patterns to improve your communication skills.
-                </InfoCard>
+        <div className="container session-page">
+            <div className="header">
+                <h1>SayLess AI</h1>
+                <p>Real-time filler word detection for better speaking</p>
+            </div>
+
+            <div className="card session-card">
+                <div className="timer">{formatTime(elapsedTime)}</div>
+                <h2>
+                    <span className="microphone-icon"></span>
+                    Session Control
+                </h2>
+                <p>Start recording to begin tracking your speech patterns</p>
+                <div className="button-group">
+                    <button className="start-button" onClick={startRecording}>
+                        {isRecording ? 'Stop Recording' : 'Start Recording'}
+                    </button>
+                    <button className="end-button" onClick={endSession}>
+                        End Session
+                    </button>
+                    <button className="end-button" onClick={() => navigate('/analytics')}>
+                        Analytics
+                    </button>
+                </div>
+            </div>
+
+            <div className="card status-card">
+                <div className="status-indicator">
+                    <span className="status-dot" style={{ background: isRecording ? '#ef4444' : '#94a3b8' }}></span>
+                    <span className="status-text">{isRecording ? 'Recording...' : 'Ready to Record'}</span>
+                </div>
+                <p className="total-count">Total filler words detected: <strong>{totalFillerWords}</strong></p>
+            </div>
+
+            <div className="card detection-card">
+                <h2>
+                    <span className="chart-icon"></span>
+                    Filler Word Detection
+                </h2>
+                <p>Real-time tracking of common filler words</p>
+
+                <div className="filler-grid">
+                    {Object.entries(fillerCounts).map(([word, count], index) => (
+                        <div className="filler-item" key={word}>
+                            <div className={`filler-count ${colors[index % colors.length]}`}>{count}</div>
+                            <div className="filler-label">{word}</div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <div className="features-grid">
+                <div className="card feature-card">
+                    <h3>Privacy First</h3>
+                    <p>All processing happens on your device using browser APIs. Your speech never leaves your device.</p>
+                </div>
+
+                <div className="card feature-card">
+                    <h3>Real-time Feedback</h3>
+                    <p>Get instant feedback on your speech patterns to improve your communication skills.</p>
+                </div>
             </div>
         </div>
     );

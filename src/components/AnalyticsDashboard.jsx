@@ -1,95 +1,91 @@
 import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 
-// Mock data for demonstration purposes
-const mockFreeTierData = {
-  sessionHistory: [
-    { id: 1, date: 'Yesterday', totalWords: 5, wordsPerMin: 2.5 },
-    { id: 2, date: '2 days ago', totalWords: 8, wordsPerMin: 4.0 },
-    { id: 3, date: '3 days ago', totalWords: 4, wordsPerMin: 2.0 },
-  ],
-  trends: {
-    last7Days: 5.6, // Average filler words
-  }
+const calculateTrends = (history) => {
+    if (!history || history.length === 0) {
+        return {
+            avgFillerWords: 0,
+            avgWordsPerMin: 0,
+            totalSessions: 0,
+        };
+    }
+
+    const totalSessions = history.length;
+    const totalFillerWords = history.reduce((sum, session) => sum + session.totalFillerWords, 0);
+    const totalDuration = history.reduce((sum, session) => sum + session.duration, 0);
+
+    const avgWordsPerMin = totalDuration > 0 ? (totalFillerWords / (totalDuration / 60)) : 0;
+
+    return {
+        avgFillerWords: (totalFillerWords / totalSessions).toFixed(1),
+        avgWordsPerMin: avgWordsPerMin.toFixed(1),
+        totalSessions: totalSessions,
+    };
 };
 
-const mockProTierData = {
-  sessionHistory: [
-    ...mockFreeTierData.sessionHistory,
-    { id: 4, date: '4 days ago', totalWords: 10, wordsPerMin: 5.0 },
-    { id: 5, date: '5 days ago', totalWords: 12, wordsPerMin: 6.0 },
-    { id: 6, date: '6 days ago', totalWords: 7, wordsPerMin: 3.5 },
-  ],
-  trends: {
-    last7Days: 7.3,
-    last30Days: 8.1,
-    allTime: 9.2,
-  },
-  // Pro features would have more detailed data, like charts
-};
 
-export const AnalyticsDashboard = ({ tier = 'free' }) => {
-  const data = tier === 'pro' ? mockProTierData : mockFreeTierData;
-
-  return (
-    <div className="space-y-6 mt-8">
-      <Card>
-        <CardHeader>
-          <CardTitle>Your Analytics Dashboard</CardTitle>
-          <CardDescription>
-            {tier === 'free'
-              ? 'Showing data for your last 3 sessions. Upgrade to Pro for unlimited history and trends.'
-              : 'Showing your full session history and progress trends.'
-            }
-          </CardDescription>
-        </CardHeader>
-      </Card>
-
-      {/* Key Stats Section */}
-      <div className="grid gap-6 md:grid-cols-3">
-        <Card>
-          <CardHeader><CardTitle>Avg. Filler Words (Last 7 Days)</CardTitle></CardHeader>
-          <CardContent><div className="text-4xl font-bold">{data.trends.last7Days}</div></CardContent>
-        </Card>
-        <Card className={tier === 'free' ? 'opacity-50' : ''}>
-          <CardHeader><CardTitle>Avg. Filler Words (Last 30 Days)</CardTitle></CardHeader>
-          <CardContent>
-            <div className="text-4xl font-bold">{data.trends.last30Days || 'N/A'}</div>
-            {tier === 'free' && <span className="text-xs text-muted-foreground">Pro Feature</span>}
-          </CardContent>
-        </Card>
-        <Card className={tier === 'free' ? 'opacity-50' : ''}>
-          <CardHeader><CardTitle>Avg. Filler Words (All Time)</CardTitle></CardHeader>
-          <CardContent>
-            <div className="text-4xl font-bold">{data.trends.allTime || 'N/A'}</div>
-            {tier === 'free' && <span className="text-xs text-muted-foreground">Pro Feature</span>}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Session History Section */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Session History</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ul>
-            {data.sessionHistory.map(session => (
-              <li key={session.id} className="flex justify-between items-center p-2 border-b">
-                <span>{session.date}</span>
-                <span>{session.totalWords} filler words</span>
-                <span>{session.wordsPerMin} words/min</span>
-              </li>
-            ))}
-          </ul>
-          {tier === 'free' && (
-            <div className="text-center mt-4">
-              <Button>Upgrade to Pro to see all history</Button>
+export const AnalyticsDashboard = ({ sessionHistory }) => {
+    if (!sessionHistory || sessionHistory.length === 0) {
+        return (
+            <div className="card">
+                <h2>No Session Data</h2>
+                <p>You have not completed any sessions yet. Start a new session to see your analytics.</p>
             </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
+        );
+    }
+
+    const trends = calculateTrends(sessionHistory);
+    const latestSession = sessionHistory[sessionHistory.length - 1];
+    const colors = ['blue', 'green', 'orange', 'purple', 'red', 'pink'];
+
+    return (
+        <div className="space-y-6" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            {/* Key Stats Section */}
+            <div className="features-grid">
+                <div className="card feature-card" style={{textAlign: 'center'}}>
+                    <h3>Total Sessions</h3>
+                    <div className="filler-count">{trends.totalSessions}</div>
+                </div>
+                <div className="card feature-card" style={{textAlign: 'center'}}>
+                    <h3>Avg. Filler Words</h3>
+                    <div className="filler-count">{trends.avgFillerWords}</div>
+                </div>
+                <div className="card feature-card" style={{textAlign: 'center'}}>
+                    <h3>Avg. Words/Min</h3>
+                    <div className="filler-count">{trends.avgWordsPerMin}</div>
+                </div>
+            </div>
+
+            {/* Latest Session Details */}
+            <div className="card detection-card">
+                <h2>
+                    <span className="chart-icon"></span>
+                    Latest Session Details
+                </h2>
+                <p>Breakdown of filler words from your most recent session on {new Date(latestSession.date).toLocaleDateString()}.</p>
+
+                <div className="filler-grid">
+                    {Object.entries(latestSession.fillerCounts).map(([word, count], index) => (
+                        <div className="filler-item" key={word}>
+                            <div className={`filler-count ${colors[index % colors.length]}`}>{count}</div>
+                            <div className="filler-label">{word}</div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* Session History Section */}
+            <div className="card">
+                <h2>Session History</h2>
+                <ul style={{ listStyle: 'none', padding: 0 }}>
+                    {sessionHistory.slice().reverse().map(session => (
+                        <li key={session.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 8px', borderBottom: '1px solid #eee' }}>
+                            <span>{new Date(session.date).toLocaleString()}</span>
+                            <span>{session.totalFillerWords} filler words</span>
+                            <span>{(session.duration)}s duration</span>
+                        </li>
+                    ))}
+                </ul>
+            </div>
+        </div>
+    );
 };
