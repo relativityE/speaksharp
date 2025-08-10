@@ -27,7 +27,7 @@ A mobile-first web application that detects and counts filler words in real time
 ### Prerequisites
 
 - Node.js (v18 or higher)
-- npm (or pnpm, yarn)
+- pnpm (v10.4.1 or higher)
 
 ### Installation
 
@@ -39,12 +39,12 @@ A mobile-first web application that detects and counts filler words in real time
 
 2.  Install dependencies:
     ```bash
-    npm install
+    pnpm install
     ```
 
 3.  Start the development server:
     ```bash
-    npm run dev
+    pnpm run dev
     ```
 
 4.  Open your browser and navigate to the URL shown in your terminal. It is usually `http://localhost:5173`, but it might be different if that port is occupied.
@@ -68,7 +68,7 @@ This project uses [Vitest](https://vitest.dev/) for unit and integration testing
 To run the tests, use the following command:
 
 ```bash
-npm test
+pnpm test
 ```
 
 This will run all test files in the `src/__tests__` directory.
