@@ -1,120 +1,43 @@
 import React from 'react';
-import { render, screen, fireEvent, act } from '@testing-library/react';
-import { vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import App from '../App';
 
-// Mock the custom hook
-vi.mock('../hooks/useSpeechRecognition', () => ({
-  useSpeechRecognition: vi.fn(),
+vi.mock('../pages/HomePage', () => ({
+  HomePage: () => <div>Home Page</div>,
+}));
+vi.mock('../pages/SessionPage', () => ({
+    SessionPage: () => <div>Session Page</div>,
+}));
+vi.mock('../pages/AnalyticsPage', () => ({
+    AnalyticsPage: () => <div>Analytics Page</div>,
 }));
 
-// Mock child components
-vi.mock('../components/Header', () => ({
-  Header: () => <header>Mock Header</header>,
-}));
-vi.mock('../components/RecordingStatus', () => ({
-  RecordingStatus: ({ isRecording }) => <div>{isRecording ? 'Recording...' : 'Ready'}</div>,
-}));
-vi.mock('../components/FillerWordCounters', () => ({
-  FillerWordCounters: () => <div>Filler Counters</div>,
-}));
-vi.mock('../components/AnalyticsDashboard', () => ({
-  AnalyticsDashboard: () => <div>Session Report</div>,
-}));
-vi.mock('../components/ErrorDisplay', () => ({
-  ErrorDisplay: ({ message }) => <div>{message}</div>,
-}));
-vi.mock('../components/SessionControl', () => ({
-    SessionControl: ({ onToggle }) => <button onClick={onToggle}>Start/Stop Recording</button>,
-}));
-vi.mock('../components/InfoCard', () => ({
-    InfoCard: ({ title, children }) => <div><h2>{title}</h2><p>{children}</p></div>,
-}));
-
-
-import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
-
-describe('App Component', () => {
-  let mockStartListening;
-  let mockStopListening;
-  let mockReset;
-
-  const getMockedHookValue = (overrides = {}) => ({
-    isListening: false,
-    transcript: 'This is a test transcript with um, like, you know, filler words.',
-    fillerCounts: { um: 1, like: 1, 'you know': 1 },
-    error: null,
-    isSupported: true,
-    startListening: mockStartListening,
-    stopListening: mockStopListening,
-    reset: mockReset,
-    ...overrides,
+describe('App Routing', () => {
+  it('renders the home page for the root route', () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <App />
+      </MemoryRouter>
+    );
+    expect(screen.getByText('Home Page')).toBeInTheDocument();
   });
 
-  const renderWithRouter = (ui) => {
-    return render(ui, { wrapper: MemoryRouter });
-  };
-
-  beforeEach(() => {
-    mockStartListening = vi.fn();
-    mockStopListening = vi.fn();
-    mockReset = vi.fn();
-    useSpeechRecognition.mockReturnValue(getMockedHookValue());
-    vi.useFakeTimers();
+  it('renders the session page for the /session route', () => {
+    render(
+      <MemoryRouter initialEntries={['/session']}>
+        <App />
+      </MemoryRouter>
+    );
+    expect(screen.getByText('Session Page')).toBeInTheDocument();
   });
 
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.clearAllMocks();
-  });
-
-  test('renders initial state correctly', () => {
-    renderWithRouter(<App />);
-    expect(screen.getByText('Start/Stop Recording')).toBeInTheDocument();
-  });
-
-  test('runs trial, then shows analytics dashboard', () => {
-    const { rerender } = renderWithRouter(<App />);
-    
-    // 1. Start Trial
-    fireEvent.click(screen.getByText('Start/Stop Recording'));
-
-    useSpeechRecognition.mockReturnValue(getMockedHookValue({ isListening: true }));
-    rerender(<App />);
-
-    expect(screen.getByText('Recording...')).toBeInTheDocument();
-
-    // 2. End Trial by timer
-    act(() => {
-      vi.advanceTimersByTime(120 * 1000);
-    });
-    expect(screen.getByText('Trial Session Ended')).toBeInTheDocument();
-
-    // 3. Dismiss modal and view results
-    fireEvent.click(screen.getByText('Just show me the results'));
-
-    // 4. Verify analytics are shown
-    expect(screen.queryByText('Trial Session Ended')).not.toBeInTheDocument();
-    expect(screen.getByText('Session Report')).toBeInTheDocument();
-  });
-
-  test('navigates back to home from analytics by clicking header', () => {
-    const { rerender } = renderWithRouter(<App />);
-
-    // Get to the analytics screen first
-    fireEvent.click(screen.getByText('Start/Stop Recording'));
-    useSpeechRecognition.mockReturnValue(getMockedHookValue({ isListening: true }));
-    rerender(<App />);
-    fireEvent.click(screen.getByText('Start/Stop Recording')); // Stop recording to go to analytics
-
-    // Ensure we are on the analytics screen
-    expect(screen.getByText('Session Report')).toBeInTheDocument();
-    
-    // The user should navigate back to the home page via the header link.
-    // Since the header is mocked, we can't click the link directly.
-    // We can simulate this by having the user go back to the analytics page
-    // and then starting a new session from the home page.
-    // This test is limited by the mocking.
+  it('renders the analytics page for the /analytics route', () => {
+    render(
+      <MemoryRouter initialEntries={['/analytics']}>
+        <App />
+      </MemoryRouter>
+    );
+    expect(screen.getByText('Analytics Page')).toBeInTheDocument();
   });
 });
