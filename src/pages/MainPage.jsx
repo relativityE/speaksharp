@@ -40,8 +40,8 @@ export const MainPage = () => { // Changed name here
     return (
         <div className="container home-page">
             <div className="header">
-                <h1>SayLess AI</h1>
-                <p>Real-time filler word detection for better speaking</p>
+                <h1>SpeakSharp</h1>
+                <p>Cut the clutter. Speak with clarity.</p>
             </div>
 
             <div className="session-card">
@@ -66,13 +66,12 @@ export const MainPage = () => { // Changed name here
                     <p>Get instant feedback on your speech patterns to improve your communication skills.</p>
                 </div>
             </div>
-
-            <div className="footer">
-                <p>SayLess AI - Powered by browser-based speech recognition</p>
+            <div style={{ textAlign: 'right', marginRight: '20px', marginTop: '10px' }}>
+                <a onClick={handleGoToAnalytics} style={{ cursor: 'pointer', textDecoration: 'none', color: '#666', fontWeight: '500', fontSize: '2em' }}>View Analytics</a>
             </div>
 
-            <div style={{ position: 'fixed', bottom: '40px', right: '40px' }}>
-                <a onClick={handleGoToAnalytics} style={{ cursor: 'pointer', textDecoration: 'none', color: '#666', fontWeight: '500' }}>View Analytics</a>
+            <div className="footer">
+                <p>SpeakSharp - Powered by browser-based speech recognition</p>
             </div>
         </div>
     );

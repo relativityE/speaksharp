@@ -1,10 +1,10 @@
-# SayLess AI - Product Requirements Document (PRD)
+# SpeakSharp - Product Requirements Document (PRD)
 
 **Version**: 2.3
 **Last Updated**: 2025-08-09
 
 ## 1. Executive Summary
-SayLess is a privacy-first, real-time speech analysis tool designed to help users become better presenters and communicators by eliminating filler words. The product processes speech locally in the browser, ensuring no audio or transcript is ever stored for anonymous or free-tier users. Premium tiers unlock more usage time, deeper analytics, and optional, consent-based cloud STT for high-accuracy transcription.
+SpeakSharp is a privacy-first, real-time speech analysis tool designed to help users become better presenters and communicators by eliminating filler words. The product processes speech locally in the browser, ensuring no audio or transcript is ever stored for anonymous or free-tier users. Premium tiers unlock more usage time, deeper analytics, and optional, consent-based cloud STT for high-accuracy transcription.
 
 **Core Value Proposition**: Immediate, private feedback on filler word usage to improve verbal clarity, with a frictionless entry point and a clear path to powerful premium features.
 
@@ -64,7 +64,7 @@ SayLess is a privacy-first, real-time speech analysis tool designed to help user
 - CSRF protection and rate limiting will be implemented.
 
 ## 5. Cost & Margin Projections
-This projection models the unit economics for the SayLess SaaS platform based on a target of **250 paid monthly active users (MAU)**.
+This projection models the unit economics for the SpeakSharp SaaS platform based on a target of **250 paid monthly active users (MAU)**.
 
 **Assumptions**:
 - **User Split**: The 250 paid users are split into 200 Pro users and 50 Premium users.
