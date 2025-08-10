@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
+import { useSessionManager } from '../hooks/useSessionManager';
 
 export const SessionPage = () => {
     const navigate = useNavigate();
+    const { saveSession } = useSessionManager();
     const [customWord, setCustomWord] = useState('');
     const [customWords, setCustomWords] = useState([]);
     const [overrideTimer, setOverrideTimer] = useState(false);
@@ -53,18 +55,13 @@ export const SessionPage = () => {
     const endSession = (shouldNavigateToAnalytics = false) => {
         stopListening();
         const sessionData = {
-            id: Date.now(),
             date: new Date().toISOString(),
             duration: elapsedTime,
             fillerCounts: fillerCounts,
             transcript: transcript,
             totalFillerWords: totalFillerWords,
         };
-
-        const history = JSON.parse(localStorage.getItem('saylessSessionHistory')) || [];
-        history.push(sessionData);
-        localStorage.setItem('saylessSessionHistory', JSON.stringify(history));
-
+        saveSession(sessionData);
         if (shouldNavigateToAnalytics) {
             navigate('/analytics');
         } else {
@@ -98,21 +95,21 @@ export const SessionPage = () => {
         <div className="container session-page">
             <div className="header">
                 <h1>SpeakSharp</h1>
-                <p style={{ fontStyle: 'italic', fontSize: '3rem' }}>Cut the clutter. Speak with clarity.</p>
+                <p style={{ fontStyle: 'italic', fontSize: '1.5rem' }}>Cut the clutter. Speak with clarity.</p>
             </div>
 
             <div className="card session-card">
-                <div className="timer" style={{ fontSize: '3rem' }}>{formatTime(elapsedTime)}</div>
+                <div className="timer" style={{ fontSize: '1.5rem' }}>{formatTime(elapsedTime)}</div>
                 <h2>
                     <span className="microphone-icon"></span>
                     Session Control
                 </h2>
-                <p style={{ fontSize: '3rem' }}>Start recording to begin tracking your speech patterns. The session will end automatically after 2 minutes.</p>
+                <p style={{ fontSize: '1.5rem' }}>Start recording to begin tracking your speech patterns. The session will end automatically after 2 minutes.</p>
                 <div className="button-group">
-                    <button className="start-button" onClick={startRecording} style={{ fontSize: '3rem' }}>
+                    <button className="start-button" onClick={startRecording} style={{ fontSize: '1.5rem' }}>
                         {isListening ? 'Stop Recording' : 'Start Recording'}
                     </button>
-                    <button className="end-button" onClick={() => endSession(false)} style={{ fontSize: '3rem' }}>
+                    <button className="end-button" onClick={() => endSession(false)} style={{ fontSize: '1.5rem' }}>
                         End Session
                     </button>
                 </div>
@@ -124,22 +121,22 @@ export const SessionPage = () => {
                         checked={overrideTimer}
                         onChange={(e) => setOverrideTimer(e.target.checked)}
                     />
-                    <label htmlFor="overrideTimer" style={{ marginLeft: '8px', fontSize: '3rem' }}>Override 2-minute timer (for development)</label>
+                    <label htmlFor="overrideTimer" style={{ marginLeft: '8px', fontSize: '1.5rem' }}>Override 2-minute timer (for development)</label>
                 </div>
             </div>
 
             <div className="card status-card">
                 <div className="status-indicator">
                     <span className="status-dot" style={{ background: isListening ? '#ef4444' : '#94a3b8' }}></span>
-                    <span className="status-text" style={{ fontSize: '3rem' }}>{isListening ? 'Recording...' : 'Ready to Record'}</span>
+                    <span className="status-text" style={{ fontSize: '1.5rem' }}>{isListening ? 'Recording...' : 'Ready to Record'}</span>
                 </div>
-                <p className="total-count" style={{ fontSize: '3rem' }}>Total filler words detected: <strong>{totalFillerWords}</strong></p>
-                {error && <p style={{ color: 'red', marginTop: '10px', fontSize: '3rem' }}>{error}</p>}
-                {!isSupported && <p style={{ color: 'red', marginTop: '10px', fontSize: '3rem' }}>Speech recognition is not supported in this browser.</p>}
+                <p className="total-count" style={{ fontSize: '1.5rem' }}>Total filler words detected: <strong>{totalFillerWords}</strong></p>
+                {error && <p style={{ color: 'red', marginTop: '10px', fontSize: '1.5rem' }}>{error}</p>}
+                {!isSupported && <p style={{ color: 'red', marginTop: '10px', fontSize: '1.5rem' }}>Speech recognition is not supported in this browser.</p>}
             </div>
 
             <div style={{ textAlign: 'center', margin: '20px 0' }}>
-                <a onClick={() => navigate('/analytics')} style={{ cursor: 'pointer', textDecoration: 'underline', color: '#666', fontSize: '3rem' }}>View Detailed Analytics</a>
+                <a onClick={() => navigate('/analytics')} style={{ cursor: 'pointer', textDecoration: 'underline', color: '#666', fontSize: '1.5rem' }}>View Detailed Analytics</a>
             </div>
 
             <div className="card detection-card">
@@ -147,37 +144,36 @@ export const SessionPage = () => {
                     <span className="chart-icon"></span>
                     Filler Word Detection
                 </h2>
-                <p style={{ fontSize: '3rem' }}>Real-time tracking of common filler words</p>
-
+                <p style={{ fontSize: '1.5rem' }}>Real-time tracking of common filler words</p>
                 <div className="filler-grid">
                     {Object.entries(fillerCounts).map(([word, count], index) => (
                         <div className="filler-item" key={word}>
-                            <div className={`filler-count ${colors[index % colors.length]}`} style={{ fontSize: '3rem' }}>{count}</div>
-                            <div className="filler-label" style={{ fontSize: '3rem' }}>{formatFillerWord(word)}</div>
+                            <div className={`filler-count ${colors[index % colors.length]}`} style={{ fontSize: '1.5rem' }}>{count}</div>
+                            <div className="filler-label" style={{ fontSize: '1.5rem' }}>{formatFillerWord(word)}</div>
                         </div>
                     ))}
                 </div>
 
                 <div style={{ marginTop: '30px' }}>
                     <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                        <label htmlFor="customWord" style={{ fontWeight: '500', fontSize: '3rem' }}>custom word</label>
+                        <label htmlFor="customWord" style={{ fontWeight: '500', fontSize: '1.5rem' }}>custom word</label>
                         <input
                             id="customWord"
                             type="text"
                             value={customWord}
                             onChange={(e) => setCustomWord(e.target.value)}
                             placeholder="Enter word"
-                            style={{ padding: '8px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '3rem', maxWidth: '120px' }}
+                            style={{ padding: '8px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '1.5rem', maxWidth: '120px' }}
                             maxLength="10"
                         />
-                        <button onClick={addCustomWord} className="start-button" style={{ padding: '8px 16px', fontSize: '3rem' }}>Add</button>
+                        <button onClick={addCustomWord} className="start-button" style={{ padding: '8px 16px', fontSize: '1.5rem' }}>Add</button>
                     </div>
                 </div>
             </div>
 
             <div className="card">
                 <h2>Live Transcript</h2>
-                <div style={{ marginTop: '10px', padding: '10px', border: '1px solid #ddd', borderRadius: '8px', minHeight: '100px', background: '#f8fafc', fontSize: '3rem' }}>
+                <div style={{ marginTop: '10px', padding: '10px', border: '1px solid #ddd', borderRadius: '8px', minHeight: '100px', background: '#f8fafc', fontSize: '1.5rem' }}>
                     {transcript}
                 </div>
             </div>

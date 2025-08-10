@@ -28,7 +28,7 @@ export const AnalyticsDashboard = ({ sessionHistory }) => {
         return (
             <div className="card">
                 <h2>No Session Data</h2>
-                <p style={{ fontSize: '2rem' }}>You have not completed any sessions yet. Start a new session to see your analytics.</p>
+                <p style={{ fontSize: '1rem' }}>You have not completed any sessions yet. Start a new session to see your analytics.</p>
             </div>
         );
     }
@@ -43,15 +43,15 @@ export const AnalyticsDashboard = ({ sessionHistory }) => {
             <div className="features-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
                 <div className="card feature-card" style={{textAlign: 'center'}}>
                     <h3>Total Sessions</h3>
-                    <div className="filler-count" style={{ fontSize: '2rem' }}>{trends.totalSessions}</div>
+                    <div className="filler-count" style={{ fontSize: '1rem' }}>{trends.totalSessions}</div>
                 </div>
                 <div className="card feature-card" style={{textAlign: 'center'}}>
                     <h3>Avg. Filler Words</h3>
-                    <div className="filler-count" style={{ fontSize: '2rem' }}>{trends.avgFillerWords}</div>
+                    <div className="filler-count" style={{ fontSize: '1rem' }}>{trends.avgFillerWords}</div>
                 </div>
                 <div className="card feature-card" style={{textAlign: 'center'}}>
                     <h3>Avg. Words/Min</h3>
-                    <div className="filler-count" style={{ fontSize: '2rem' }}>{trends.avgWordsPerMin}</div>
+                    <div className="filler-count" style={{ fontSize: '1rem' }}>{trends.avgWordsPerMin}</div>
                 </div>
             </div>
 
@@ -61,13 +61,13 @@ export const AnalyticsDashboard = ({ sessionHistory }) => {
                     <span className="chart-icon"></span>
                     Latest Session Details
                 </h2>
-                <p style={{ fontSize: '2rem' }}>Breakdown of filler words from your most recent session on {new Date(latestSession.date).toLocaleDateString()}.</p>
+                <p style={{ fontSize: '1rem' }}>Breakdown of filler words from your most recent session on {new Date(latestSession.date).toLocaleDateString()}.</p>
 
                 <div className="filler-grid">
                     {Object.entries(latestSession.fillerCounts).map(([word, count], index) => (
                         <div className="filler-item" key={word}>
-                            <div className={`filler-count ${colors[index % colors.length]}`} style={{ fontSize: '2rem' }}>{count}</div>
-                            <div className="filler-label" style={{ fontSize: '2rem' }}>{word}</div>
+                            <div className={`filler-count ${colors[index % colors.length]}`} style={{ fontSize: '1rem' }}>{count}</div>
+                            <div className="filler-label" style={{ fontSize: '1rem' }}>{word}</div>
                         </div>
                     ))}
                 </div>
@@ -76,7 +76,7 @@ export const AnalyticsDashboard = ({ sessionHistory }) => {
             {/* Session History Section */}
             <div className="card">
                 <h2>Session History</h2>
-                <ul style={{ listStyle: 'none', padding: 0, fontSize: '2rem' }}>
+                <ul style={{ listStyle: 'none', padding: 0, fontSize: '1rem' }}>
                     {sessionHistory.slice().reverse().map(session => (
                         <li key={session.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 8px', borderBottom: '1px solid #eee' }}>
                             <span>{new Date(session.date).toLocaleString()}</span>
