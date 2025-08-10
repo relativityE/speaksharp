@@ -82,7 +82,16 @@ The high-level roadmap is to:
 2.  **Gather user feedback** and iterate on the core features.
 3.  **Expand the feature set** based on user demand, including advanced analytics and cloud-powered transcription.
 
+
 For a detailed, day-by-day implementation plan for the MVP, please see the [MVP Implementation Guide](./mvp-plan.md).
+
+-   **User Authentication**
+    -   **Why**: To allow users to save their sessions and track progress over time.
+-   **Session History & Analytics**
+    -   **Why**: To provide users with actionable insights into their speech patterns and improvement.
+-   **Subscription Management**
+    -   **Why**: To create a sustainable business model by offering premium, paid features.
+
 
 ## Contributing
 
