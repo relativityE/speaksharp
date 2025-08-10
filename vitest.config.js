@@ -5,10 +5,15 @@ import path from 'path'
 export default defineConfig({
   plugins: [react()],
   test: {
-    environment: 'jsdom',
     globals: true,
-    setupFiles: './src/setupTests.js',
-    testTimeout: 10000,
+    environment: 'happy-dom', // Switch from jsdom - uses less memory
+    setupFiles: ['./src/test/setup.js'],
+    pool: 'threads',
+    poolOptions: {
+      threads: {
+        singleThread: true, // Prevents memory accumulation across tests
+      },
+    },
   },
   resolve: {
     alias: {
