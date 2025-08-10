@@ -45,7 +45,7 @@ export const MainPage = () => { // Changed name here
             <BrowserWarning support={support} />
             <div className="header">
                 <h1>SpeakSharp</h1>
-                <p style={{ fontStyle: 'italic', fontSize: '1.5rem' }}>Cut the clutter. Speak with clarity.</p>
+                <p className="text-tagline font-size-body-main">Cut the clutter. Speak with clarity.</p>
             </div>
 
             <div className="session-card">
@@ -53,8 +53,8 @@ export const MainPage = () => { // Changed name here
                     <span className="microphone-icon"></span>
                     Session Control
                 </h2>
-                <p style={{ fontSize: '1.5rem' }}>Start a new session to begin tracking your speech patterns</p>
-                <button className="start-button" onClick={handleStartSession} style={{ fontSize: '1.5rem' }}>
+                <p className="font-size-body-main">Start a new session to begin tracking your speech patterns</p>
+                <button className="start-button font-size-body-main" onClick={handleStartSession}>
                     Start New Session
                 </button>
             </div>
@@ -62,21 +62,21 @@ export const MainPage = () => { // Changed name here
             <div className="features-grid">
                 <div className="feature-card">
                     <h3>Privacy First</h3>
-                    <p style={{ fontSize: '1.5rem' }}>All processing happens on your device using browser APIs. Your speech never leaves your device.</p>
+                    <p className="font-size-body-main">All processing happens on your device using browser APIs. Your speech never leaves your device.</p>
                 </div>
 
                 <div className="feature-card">
                     <h3>Real-time Feedback</h3>
-                    <p style={{ fontSize: '1.5rem' }}>Get instant feedback on your speech patterns to improve your communication skills.</p>
+                    <p className="font-size-body-main">Get instant feedback on your speech patterns to improve your communication skills.</p>
                 </div>
             </div>
 
             <div style={{ marginTop: '20px', width: '100%', textAlign: 'left' }}>
-                <a onClick={handleGoToAnalytics} style={{ cursor: 'pointer', textDecoration: 'underline', color: '#3b82f6', fontWeight: '500', fontSize: '1.5rem' }}>View Analytics</a>
+                <a onClick={handleGoToAnalytics} className="font-size-body-main" style={{ cursor: 'pointer', textDecoration: 'underline', color: '#3b82f6', fontWeight: '500' }}>View Analytics</a>
             </div>
 
             <div className="footer">
-                <p style={{ fontSize: '1.5rem' }}>SpeakSharp - Powered by browser-based speech recognition</p>
+                <p className="font-size-body-main">SpeakSharp - Powered by browser-based speech recognition</p>
             </div>
         </div>
     );
