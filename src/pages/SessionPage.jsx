@@ -145,7 +145,6 @@ export const SessionPage = () => {
                     Filler Word Detection
                 </h2>
                 <p style={{ fontSize: '1.5rem' }}>Real-time tracking of common filler words</p>
-
                 <div className="filler-grid">
                     {Object.entries(fillerCounts).map(([word, count], index) => (
                         <div className="filler-item" key={word}>
