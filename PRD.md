@@ -69,7 +69,7 @@ The MVP stack is chosen for speed and low initial cost.
 | **Total at scale** | | **~$77/month** (for ~1000 users) |
 
 ## 6. Development Roadmap (3-Week MVP)
-The development will follow an aggressive 3-week timeline to launch the monetizable MVP. The detailed, day-by-day plan is available in the `mvp-plan.md` document.
+The development will follow an aggressive 4-week timeline to launch a monetizable "Smart MVP". The detailed, day-by-day plan is available in the `smart-mvp-plan.md` document.
 
 - **Week 1 (Days 1-7):** Focus on core functionality, including enhanced error handling, browser compatibility checks, and robust local storage management.
 - **Week 2 (Days 8-14):** Implement user authentication with Clerk, usage tracking for the free tier, and a Stripe-powered paywall.
@@ -113,4 +113,4 @@ The development will follow an aggressive 3-week timeline to launch the monetiza
 ## 9. Project Structure
 - **/src**: Contains all the application source code.
 - `PRD.md`: This document.
-- `mvp-plan.md`: The detailed technical roadmap for the 3-week MVP.
+- `smart-mvp-plan.md`: The detailed technical roadmap for the Smart MVP.
