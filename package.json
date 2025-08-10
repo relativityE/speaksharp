@@ -1,5 +1,5 @@
 {
-  "name": "sayless-ai",
+  "name": "speaksharp",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -8,7 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "node --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs"
+    "test": "node --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs --no-file-parallelism"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.0.1",

@@ -85,6 +85,10 @@ The high-level roadmap is outlined below. For a detailed breakdown, please see t
 -   **Subscription Management**
     -   **Why**: To create a sustainable business model by offering premium, paid features.
 
+## Known Issues
+
+-   **Test Suite Memory Leak**: The Vitest test suite currently suffers from a severe memory leak, causing it to crash with a "heap out of memory" error. This issue seems to be related to the mocking of the `SpeechRecognition` API and its interaction with React hooks. The tests are being skipped until this is resolved.
+
 ## Contributing
 
 Contributions are welcome! Please feel free to open an issue or submit a pull request.

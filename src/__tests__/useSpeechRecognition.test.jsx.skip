@@ -2,31 +2,31 @@ import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 
-// Mock the global SpeechRecognition API
-const mockSpeechRecognition = {
-  start: vi.fn(),
-  stop: vi.fn(),
-  onresult: null,
-  onerror: null,
-  onend: null,
-  continuous: false,
-  interimResults: false,
-  lang: '',
-};
-
-beforeEach(() => {
-  vi.clearAllMocks();
-  global.window.SpeechRecognition = vi.fn(() => mockSpeechRecognition);
-});
-
-afterEach(() => {
-  // Restore original if it exists
-  if (global.window.SpeechRecognition) {
-    global.window.SpeechRecognition = undefined;
-  }
-});
-
 describe('useSpeechRecognition', () => {
+  let mockSpeechRecognition;
+
+  beforeEach(() => {
+    mockSpeechRecognition = {
+      start: vi.fn(),
+      stop: vi.fn(),
+      abort: vi.fn(),
+      onresult: null,
+      onerror: null,
+      onend: null,
+      continuous: false,
+      interimResults: false,
+      lang: '',
+    };
+    global.window.SpeechRecognition = vi.fn(() => mockSpeechRecognition);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    // Restore original if it exists
+    if (global.window.SpeechRecognition) {
+      delete global.window.SpeechRecognition;
+    }
+  });
   it('should initialize with correct default state', () => {
     const { result } = renderHook(() => useSpeechRecognition());
     expect(result.current.isListening).toBe(false);
