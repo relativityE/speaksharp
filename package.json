@@ -8,7 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest"
+    "test": "node --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.0.1",

@@ -153,17 +153,17 @@ export const SessionPage = () => {
 
                 <div style={{ marginTop: '30px' }}>
                     <label htmlFor="customWord" style={{ display: 'block', textAlign: 'left', marginBottom: '10px', fontWeight: '500' }}>Custom word</label>
-                    <div style={{ display: 'flex', gap: '10px' }}>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                         <input
                             id="customWord"
                             type="text"
                             value={customWord}
                             onChange={(e) => setCustomWord(e.target.value)}
                             placeholder="Enter word"
-                            style={{ padding: '8px', borderRadius: '8px', border: '1px solid #ddd', flexGrow: 1, fontSize: '16px' }}
+                            style={{ padding: '8px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '16px', maxWidth: '120px' }}
                             maxLength="10"
                         />
-                        <button onClick={addCustomWord} className="end-button" style={{ padding: '8px 16px' }}>+</button>
+                        <button onClick={addCustomWord} className="start-button" style={{ padding: '8px 16px' }}>Add</button>
                     </div>
                 </div>
             </div>

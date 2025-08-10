@@ -27,22 +27,19 @@ export const AnalyticsPage = () => {
         <div className="container session-page analytics-page">
             <div className="header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', padding: '20px 0' }}>
                 <div style={{ position: 'absolute', left: 0 }}>
-                    <button className="end-button" onClick={() => navigate('/')} style={{ padding: '8px 16px' }}>
-                        &larr; Home
-                    </button>
+                    <a onClick={() => navigate('/')} style={{ cursor: 'pointer', fontSize: '2rem' }}>&#8962;</a>
                 </div>
                 <div style={{ textAlign: 'center' }}>
                     <h1>Analytics</h1>
                     <p>Review your session history and progress</p>
                 </div>
-                <div style={{ position: 'absolute', right: 0 }}>
-                    <button className="end-button" onClick={handleDownload} style={{ padding: '8px 16px' }}>
-                        Download History
-                    </button>
-                </div>
             </div>
 
             <AnalyticsDashboard sessionHistory={sessionHistory} />
+
+            <div style={{ textAlign: 'center', marginTop: '20px' }}>
+                <a onClick={handleDownload} style={{ cursor: 'pointer', textDecoration: 'underline', color: '#3b82f6' }}>Download History</a>
+            </div>
         </div>
     );
 };

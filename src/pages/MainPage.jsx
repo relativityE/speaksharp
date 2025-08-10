@@ -61,13 +61,13 @@ export const MainPage = () => { // Changed name here
                     <p>All processing happens on your device using browser APIs. Your speech never leaves your device.</p>
                 </div>
 
-                <div className="feature-card">
+                <div className="feature-card" style={{position: 'relative'}}>
                     <h3>Real-time Feedback</h3>
                     <p>Get instant feedback on your speech patterns to improve your communication skills.</p>
+                    <div style={{ position: 'absolute', bottom: '20px', right: '20px' }}>
+                        <a onClick={handleGoToAnalytics} style={{ cursor: 'pointer', textDecoration: 'underline', color: '#3b82f6', fontWeight: '500', fontSize: '0.875rem' }}>View Analytics</a>
+                    </div>
                 </div>
-            </div>
-            <div style={{ textAlign: 'right', marginRight: '20px', marginTop: '10px' }}>
-                <a onClick={handleGoToAnalytics} style={{ cursor: 'pointer', textDecoration: 'none', color: '#666', fontWeight: '500', fontSize: '2em' }}>View Analytics</a>
             </div>
 
             <div className="footer">
