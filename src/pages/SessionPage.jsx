@@ -1,56 +1,63 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 
 export const SessionPage = () => {
     const navigate = useNavigate();
-    const [isRecording, setIsRecording] = useState(false);
-    const [startTime, setStartTime] = useState(null);
-    const [elapsedTime, setElapsedTime] = useState(0);
-    const [fillerCounts, setFillerCounts] = useState({
-        'Um': 0, 'Uh': 0, 'Like': 0, 'You Know': 0, 'So': 0, 'Actually': 0, 'Ah': 0, 'I mean': 0
-    });
     const [customWord, setCustomWord] = useState('');
+    const [customWords, setCustomWords] = useState([]);
     const [overrideTimer, setOverrideTimer] = useState(false);
 
+    const {
+        isListening,
+        transcript,
+        fillerCounts,
+        error,
+        isSupported,
+        startListening,
+        stopListening,
+        reset,
+    } = useSpeechRecognition({ customWords });
+
+    const [elapsedTime, setElapsedTime] = useState(0);
     const timerIntervalRef = useRef(null);
-    const detectionTimeoutRef = useRef(null);
 
     const totalFillerWords = Object.values(fillerCounts).reduce((sum, count) => sum + count, 0);
 
     const updateTimer = () => {
-        if (startTime) {
-            const currentElapsedTime = Math.floor((Date.now() - startTime) / 1000);
-            setElapsedTime(currentElapsedTime);
+        setElapsedTime(prev => prev + 1);
+    };
 
-            if (currentElapsedTime >= 120 && !overrideTimer) {
+    useEffect(() => {
+        if (isListening) {
+            timerIntervalRef.current = setInterval(updateTimer, 1000);
+            if (elapsedTime >= 120 && !overrideTimer) {
                 endSession(true);
             }
+        } else {
+            clearInterval(timerIntervalRef.current);
         }
-    };
-
-    const stopRecording = () => {
-        setIsRecording(false);
-        if (detectionTimeoutRef.current) {
-            clearTimeout(detectionTimeoutRef.current);
-        }
-    };
+        return () => clearInterval(timerIntervalRef.current);
+    }, [isListening, elapsedTime, overrideTimer]);
 
     const startRecording = () => {
-        if (!isRecording) {
-            setIsRecording(true);
-            setStartTime(Date.now());
+        if (!isListening) {
+            reset();
+            setElapsedTime(0);
+            startListening();
         } else {
-            stopRecording();
+            stopListening();
         }
     };
 
     const endSession = (shouldNavigateToAnalytics = false) => {
-        stopRecording();
+        stopListening();
         const sessionData = {
             id: Date.now(),
             date: new Date().toISOString(),
             duration: elapsedTime,
             fillerCounts: fillerCounts,
+            transcript: transcript,
             totalFillerWords: totalFillerWords,
         };
 
@@ -65,72 +72,12 @@ export const SessionPage = () => {
         }
     };
 
-    const simulateFillerDetection = () => {
-        if(!isRecording) return;
-        const fillers = Object.keys(fillerCounts);
-        const randomFiller = fillers[Math.floor(Math.random() * fillers.length)];
-
-        setFillerCounts(prevCounts => ({
-            ...prevCounts,
-            [randomFiller]: prevCounts[randomFiller] + 1
-        }));
-
-        detectionTimeoutRef.current = setTimeout(simulateFillerDetection, Math.random() * 3000 + 1000);
-    };
-
     const addCustomWord = () => {
-        if (customWord && !fillerCounts.hasOwnProperty(customWord)) {
-            setFillerCounts(prevCounts => ({
-                ...prevCounts,
-                [customWord]: 0
-            }));
+        if (customWord && !customWords.includes(customWord)) {
+            setCustomWords(prev => [...prev, customWord]);
             setCustomWord('');
         }
     };
-
-    useEffect(() => {
-        if (isRecording) {
-            timerIntervalRef.current = setInterval(updateTimer, 1000);
-            simulateFillerDetection();
-        } else {
-            clearInterval(timerIntervalRef.current);
-            if (detectionTimeoutRef.current) {
-                clearTimeout(detectionTimeoutRef.current);
-            }
-        }
-        return () => {
-            clearInterval(timerIntervalRef.current);
-            if (detectionTimeoutRef.current) {
-                clearTimeout(detectionTimeoutRef.current);
-            }
-        }
-    }, [isRecording, startTime, overrideTimer]);
-
-    useEffect(() => {
-        // Add hover effects for cards
-        const cards = document.querySelectorAll('.session-page .card');
-        const handleMouseEnter = (e) => {
-            if (!e.currentTarget.classList.contains('session-card')) {
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.boxShadow = '0 4px 20px rgba(0, 0, 0, 0.12)';
-            }
-        };
-        const handleMouseLeave = (e) => {
-            e.currentTarget.style.transform = 'translateY(0)';
-            e.currentTarget.style.boxShadow = '0 2px 16px rgba(0, 0, 0, 0.08)';
-        };
-        cards.forEach(card => {
-            card.addEventListener('mouseenter', handleMouseEnter);
-            card.addEventListener('mouseleave', handleMouseLeave);
-        });
-
-        return () => {
-            cards.forEach(card => {
-                card.removeEventListener('mouseenter', handleMouseEnter);
-                card.removeEventListener('mouseleave', handleMouseLeave);
-            });
-        };
-    }, []);
 
     const formatTime = (seconds) => {
         const minutes = Math.floor(seconds / 60);
@@ -143,8 +90,8 @@ export const SessionPage = () => {
     return (
         <div className="container session-page">
             <div className="header">
-                <h1>SayLess AI</h1>
-                <p>Real-time filler word detection for better speaking</p>
+                <h1>SpeakSharp</h1>
+                <p>Cut the clutter. Speak with clarity.</p>
             </div>
 
             <div className="card session-card">
@@ -156,14 +103,14 @@ export const SessionPage = () => {
                 <p>Start recording to begin tracking your speech patterns. The session will end automatically after 2 minutes.</p>
                 <div className="button-group">
                     <button className="start-button" onClick={startRecording}>
-                        {isRecording ? 'Stop Recording' : 'Start Recording'}
+                        {isListening ? 'Stop Recording' : 'Start Recording'}
                     </button>
                     <button className="end-button" onClick={() => endSession(false)}>
                         End Session
                     </button>
                 </div>
                 {/* DEV ONLY: Override Timer Checkbox */}
-                <div style={{ marginTop: '20px', textAlign: 'center', fontSize: '12px', color: '#666' }}>
+                <div style={{ marginTop: '20px', textAlign: 'center', fontSize: '14px', color: '#666' }}>
                     <input
                         type="checkbox"
                         id="overrideTimer"
@@ -176,10 +123,12 @@ export const SessionPage = () => {
 
             <div className="card status-card">
                 <div className="status-indicator">
-                    <span className="status-dot" style={{ background: isRecording ? '#ef4444' : '#94a3b8' }}></span>
-                    <span className="status-text">{isRecording ? 'Recording...' : 'Ready to Record'}</span>
+                    <span className="status-dot" style={{ background: isListening ? '#ef4444' : '#94a3b8' }}></span>
+                    <span className="status-text">{isListening ? 'Recording...' : 'Ready to Record'}</span>
                 </div>
                 <p className="total-count">Total filler words detected: <strong>{totalFillerWords}</strong></p>
+                {error && <p style={{ color: 'red', marginTop: '10px' }}>{error}</p>}
+                {!isSupported && <p style={{ color: 'red', marginTop: '10px' }}>Speech recognition is not supported in this browser.</p>}
             </div>
 
             <div style={{ textAlign: 'center', margin: '20px 0' }}>
@@ -211,7 +160,7 @@ export const SessionPage = () => {
                             value={customWord}
                             onChange={(e) => setCustomWord(e.target.value)}
                             placeholder="Enter word"
-                            style={{ padding: '8px', borderRadius: '8px', border: '1px solid #ddd', flexGrow: 1, fontSize: '14px' }}
+                            style={{ padding: '8px', borderRadius: '8px', border: '1px solid #ddd', flexGrow: 1, fontSize: '16px' }}
                             maxLength="10"
                         />
                         <button onClick={addCustomWord} className="end-button" style={{ padding: '8px 16px' }}>+</button>
@@ -219,15 +168,10 @@ export const SessionPage = () => {
                 </div>
             </div>
 
-            <div className="features-grid">
-                <div className="card feature-card">
-                    <h3>Privacy First</h3>
-                    <p>All processing happens on your device using browser APIs. Your speech never leaves your device.</p>
-                </div>
-
-                <div className="card feature-card">
-                    <h3>Real-time Feedback</h3>
-                    <p>Get instant feedback on your speech patterns to improve your communication skills.</p>
+            <div className="card">
+                <h2>Live Transcript</h2>
+                <div style={{ marginTop: '10px', padding: '10px', border: '1px solid #ddd', borderRadius: '8px', minHeight: '100px', background: '#f8fafc' }}>
+                    {transcript}
                 </div>
             </div>
         </div>

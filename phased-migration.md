@@ -1,7 +1,7 @@
-# SayLess AI – Phased Migration Plan to SaaS
+# SpeakSharp – Phased Migration Plan to SaaS
 
 ## 1. Overview
-This document outlines the phased roadmap for transitioning SayLess AI from a client-only web app into a full-stack SaaS platform. The core strategy is to introduce a frictionless **2-minute anonymous trial** to maximize adoption, followed by a required sign-up to unlock further usage and premium features.
+This document outlines the phased roadmap for transitioning SpeakSharp from a client-only web app into a full-stack SaaS platform. The core strategy is to introduce a frictionless **2-minute anonymous trial** to maximize adoption, followed by a required sign-up to unlock further usage and premium features.
 
 The architecture is designed to be **privacy-first**, with all speech processing remaining local unless a user explicitly opts into a premium, cloud-based feature.
 
@@ -34,14 +34,15 @@ The goal of this phase was to build a complete and functional client-side experi
 - **User Flow**:
   - User can start a session from the home page.
   - The session has a 2-minute time limit, with a developer override option.
+  - Users can view a live transcript of their speech.
   - Users can add unlimited custom filler words to be tracked.
-  - Real-time filler word detection is simulated.
+  - Real-time filler word detection is done using the browser's Web Speech API.
   - Session data is saved to `localStorage`.
   - Users can view their session history and basic analytics on the Analytics page.
   - Users can download their session history as a JSON file.
 - **Technical Implementation**:
   - Refreshed the UI with a modern, clean color scheme and layout for the Home, Session, and Analytics pages.
-  - Implemented client-side logic for session management, filler word tracking, analytics, and data download using React state and `localStorage`.
+  - Implemented client-side logic for session management, speech recognition, filler word tracking, analytics, and data download using React state and `localStorage`.
 - **Deferred Tasks**: User authentication, subscriptions, and cloud-based features are deferred to later phases.
 
 ### Phase 1B: Backend & Monetization Integration

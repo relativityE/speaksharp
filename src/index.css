@@ -41,7 +41,7 @@
   }
 }
 
-/* SayLess AI Custom Styles */
+/* SpeakSharp Custom Styles */
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     background: linear-gradient(135deg, #e8f0fe 0%, #f3e8ff 100%);
@@ -67,7 +67,7 @@ body {
 }
 
 .footer p {
-    font-size: 14px;
+    font-size: 16px;
     color: #999;
 }
 
@@ -123,7 +123,7 @@ body {
 
 .home-page .microphone-icon::before {
     content: '🎤';
-    font-size: 14px;
+    font-size: 16px;
 }
 
 .home-page .session-card p {
@@ -139,7 +139,7 @@ body {
     border: none;
     border-radius: 12px;
     padding: 16px 32px;
-    font-size: 16px;
+    font-size: 18px;
     font-weight: 600;
     cursor: pointer;
     display: flex;
@@ -157,7 +157,7 @@ body {
 
 .home-page .start-button::before {
     content: '▶';
-    font-size: 14px;
+    font-size: 16px;
 }
 
 .home-page .features-grid {
@@ -253,7 +253,7 @@ body {
 }
 
 .session-page .session-card p {
-    font-size: 14px;
+    font-size: 16px;
     color: #666;
     line-height: 1.5;
     margin-bottom: 32px;
@@ -272,7 +272,7 @@ body {
     border: none;
     border-radius: 8px;
     padding: 12px 24px;
-    font-size: 14px;
+    font-size: 16px;
     font-weight: 500;
     cursor: pointer;
     display: flex;
@@ -288,7 +288,7 @@ body {
 
 .session-page .start-button::before {
     content: '🎤';
-    font-size: 12px;
+    font-size: 14px;
 }
 
 .session-page .end-button {
@@ -297,7 +297,7 @@ body {
     border: 1px solid #ddd;
     border-radius: 8px;
     padding: 12px 24px;
-    font-size: 14px;
+    font-size: 16px;
     font-weight: 500;
     cursor: pointer;
     display: flex;
@@ -313,7 +313,7 @@ body {
 
 .session-page .end-button::before {
     content: '⏹';
-    font-size: 12px;
+    font-size: 14px;
 }
 
 .session-page .status-card {
@@ -343,7 +343,7 @@ body {
 }
 
 .session-page .total-count {
-    font-size: 14px;
+    font-size: 16px;
     color: #666;
 }
 
@@ -363,7 +363,7 @@ body {
 }
 
 .session-page .detection-card p {
-    font-size: 14px;
+    font-size: 16px;
     color: #666;
     line-height: 1.5;
     margin-bottom: 32px;
@@ -399,7 +399,7 @@ body {
 .session-page .filler-count.yellow { color: #facc15; }
 
 .session-page .filler-label {
-    font-size: 14px;
+    font-size: 16px;
     color: #64748b;
     font-weight: 500;
 }
@@ -426,7 +426,7 @@ body {
 }
 
 .session-page .feature-card p {
-    font-size: 14px;
+    font-size: 16px;
     color: #666;
     line-height: 1.6;
 }
