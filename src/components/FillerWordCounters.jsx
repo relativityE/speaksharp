@@ -1,9 +1,5 @@
 import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { BarChart3, Plus } from 'lucide-react';
-import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { FILLER_WORD_KEYS } from '../config';
 
 const colorClasses = {
@@ -15,13 +11,7 @@ const colorClasses = {
   pink: { bg: 'bg-pink-50', text: 'text-pink-600' },
 };
 
-export const FillerWordCounters = ({
-  fillerCounts,
-  customWords,
-  customWord,
-  setCustomWord,
-  onAddCustomWord,
-}) => {
+export const FillerWordCounters = ({ fillerCounts }) => {
   const defaultFillerWords = [
     { key: FILLER_WORD_KEYS.UM, color: 'blue', label: 'Um' },
     { key: FILLER_WORD_KEYS.UH, color: 'green', label: 'Uh' },
@@ -31,23 +21,11 @@ export const FillerWordCounters = ({
     { key: FILLER_WORD_KEYS.ACTUALLY, color: 'pink', label: 'Actually' },
   ];
 
-  const handleAddClick = () => {
-    if (customWord.trim()) {
-      onAddCustomWord(customWord.trim());
-      setCustomWord('');
-    }
-  };
-
   return (
     <Card className="mb-6">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <BarChart3 className="h-5 w-5" />
-          Filler Word Detection
-        </CardTitle>
-        <CardDescription>
-          Real-time tracking of common filler words
-        </CardDescription>
+        <CardTitle>Filler Word Detection</CardTitle>
+        <CardDescription>Real-time tracking of common filler words</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -57,25 +35,6 @@ export const FillerWordCounters = ({
               <div className="text-sm text-gray-600">{label}</div>
             </div>
           ))}
-          {customWords.map((word) => (
-            <div key={word} className="text-center p-4 bg-gray-100 rounded-lg">
-              <div className="text-2xl font-bold">{fillerCounts[word] || 0}</div>
-              <div className="text-sm text-gray-600 capitalize">{word}</div>
-            </div>
-          ))}
-        </div>
-        <div className="mt-6 flex items-center gap-2">
-          <Label htmlFor="custom-word" className="whitespace-nowrap">Custom Word</Label>
-          <Input
-            id="custom-word"
-            type="text"
-            placeholder="Add a word to track..."
-            value={customWord}
-            onChange={(e) => setCustomWord(e.target.value)}
-          />
-          <Button onClick={handleAddClick} size="icon">
-            <Plus className="h-4 w-4" />
-          </Button>
         </div>
       </CardContent>
     </Card>
