@@ -12,6 +12,7 @@
 4.  **Session Handling**: When an anonymous session ends (either by timer or by clicking "End Session"), the recording stops, but the session is not saved, and the user is not redirected to the analytics page. This is correct.
 5.  **Protected Routes**: The `/analytics` page remains protected and correctly redirects anonymous users to the `/auth` page.
 
+
 ### Authenticated User Flow
 1.  **Header UI**: The header correctly displays the user's email, an "Analytics" link, and a "Logout" button for authenticated users.
 2.  **Session Handling**: Authenticated users can start sessions without a time limit. When a session is ended, it is correctly saved, and the user is redirected to the analytics page.
