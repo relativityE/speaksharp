@@ -23,8 +23,8 @@ const FillerWordCounter = ({ word, count, maxCount }) => {
     }, [count, displayCount]);
 
     return (
-        <div>
-            <div className="flex items-center justify-between text-sm mb-1">
+        <div data-testid={`filler-word-counter-${word}`}>
+            <div className="flex items-center justify-between text-base mb-1">
                 <span className="capitalize text-muted-foreground">{word}</span>
                 <span className={`font-bold text-foreground transition-colors duration-300 ${isAnimating ? 'text-primary' : ''}`}>
                     {displayCount}
@@ -48,7 +48,7 @@ const FillerWordAnalysis = ({ fillerCounts }) => {
                 {sortedFillerWords.length > 0 ? sortedFillerWords.map(([word, count]) => (
                     <FillerWordCounter key={word} word={word} count={count} maxCount={maxCount} />
                 )) : (
-                    <p className="text-sm text-muted-foreground">Start speaking to see your analysis.</p>
+                    <p className="text-base text-muted-foreground">Start speaking to see your analysis.</p>
                 )}
             </CardContent>
         </Card>
@@ -181,7 +181,7 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
                     <div className="text-6xl font-bold font-mono text-foreground mb-2">
                         {formatTime(elapsedTime)}
                     </div>
-                    <div className={`mb-4 text-sm font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
+                    <div className={`mb-4 text-base font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
                         {isLoading ? 'INITIALIZING...' : (isListening ? '● RECORDING' : 'SESSION PAUSED')}
                     </div>
                     <Button

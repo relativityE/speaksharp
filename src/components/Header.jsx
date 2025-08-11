@@ -13,7 +13,7 @@ export const Header = () => {
         return null;
     }
 
-    const navLinkClasses = "flex items-center px-3 py-2 rounded-md text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors";
+    const navLinkClasses = "flex items-center px-3 py-2 rounded-md text-base font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors";
     const activeLinkClasses = "bg-secondary text-foreground";
 
     return (
@@ -54,9 +54,17 @@ export const Header = () => {
                             </div>
                         </>
                     ) : (
-                        <NavLink to="/auth" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
-                            Login / Sign Up
-                        </NavLink>
+                        <nav className="flex items-center gap-4">
+                            <NavLink
+                                to="/analytics"
+                                className={({ isActive }) => `${navLinkClasses} ${isActive ? activeLinkClasses : ''}`}
+                            >
+                                View Analytics
+                            </NavLink>
+                            <Button asChild>
+                                <NavLink to="/auth">Login / Sign Up</NavLink>
+                            </Button>
+                        </nav>
                     )}
                 </div>
             </div>
