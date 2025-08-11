@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import App from '../App';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -21,21 +21,20 @@ const renderWithRouter = (ui, { route = '/', authState = { user: null } } = {}) 
     useAuth.mockReturnValue(authState);
     return render(
         <MemoryRouter initialEntries={[route]}>
-            <App />
+            {ui}
         </MemoryRouter>
     );
 };
 
-
 describe('App Routing', () => {
-    beforeEach(() => {
+    afterEach(() => {
         vi.clearAllMocks();
+        cleanup();
     });
 
     it('renders the main page for the root route when authenticated', () => {
         renderWithRouter(<App />, { route: '/', authState: { user: { id: '123' } } });
         expect(screen.getByText('Main Page')).toBeInTheDocument();
-        expect(screen.getByText('Header')).toBeInTheDocument();
     });
 
     it('renders the analytics page for the /analytics route when authenticated', () => {
@@ -43,9 +42,13 @@ describe('App Routing', () => {
         expect(screen.getByText('Analytics Page')).toBeInTheDocument();
     });
 
-    it('redirects to the auth page when not authenticated', () => {
+    it('renders the main page for the root route when NOT authenticated', () => {
         renderWithRouter(<App />, { route: '/', authState: { user: null } });
+        expect(screen.getByText('Main Page')).toBeInTheDocument();
+    });
+
+    it('redirects to the auth page for a protected route when not authenticated', () => {
+        renderWithRouter(<App />, { route: '/analytics', authState: { user: null } });
         expect(screen.getByText('Auth Page')).toBeInTheDocument();
-        expect(screen.queryByText('Main Page')).not.toBeInTheDocument();
     });
 });

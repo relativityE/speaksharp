@@ -20,26 +20,12 @@ function App() {
 
   return (
     <div>
-      {user && <Header />}
+      <Header />
       <main>
         <Routes>
           <Route path="/auth" element={<AuthPage />} />
-          <Route
-            path="/"
-            element={
-              <ProtectedRoute>
-                <MainPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/session"
-            element={
-              <ProtectedRoute>
-                <SessionPage />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/" element={<MainPage />} />
+          <Route path="/session" element={<SessionPage />} />
           <Route
             path="/analytics"
             element={

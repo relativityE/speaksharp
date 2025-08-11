@@ -53,22 +53,35 @@ export const Header = () => {
                             <Mic size={16} style={{ marginRight: '8px' }} />
                             New Session
                         </NavLink>
-                        <NavLink
-                            to="/analytics"
-                            style={({ isActive }) => (isActive ? { ...navLinkStyle, ...activeLinkStyle } : navLinkStyle)}
-                        >
-                            <BarChart3 size={16} style={{ marginRight: '8px' }} />
-                            Analytics
-                        </NavLink>
+                        {user && (
+                            <NavLink
+                                to="/analytics"
+                                style={({ isActive }) => (isActive ? { ...navLinkStyle, ...activeLinkStyle } : navLinkStyle)}
+                            >
+                                <BarChart3 size={16} style={{ marginRight: '8px' }} />
+                                Analytics
+                            </NavLink>
+                        )}
                     </nav>
-                    {user && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span className="text-sm text-muted-foreground">{user.email}</span>
-                            <Button variant="ghost" size="icon" onClick={signOut}>
-                                <LogOut size={16} />
-                            </Button>
-                        </div>
-                    )}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {user ? (
+                            <>
+                                <span className="text-sm text-muted-foreground">{user.email}</span>
+                                <Button variant="ghost" size="icon" onClick={signOut}>
+                                    <LogOut size={16} />
+                                </Button>
+                            </>
+                        ) : (
+                            <>
+                                <Button asChild variant="outline">
+                                    <NavLink to="/auth">Login</NavLink>
+                                </Button>
+                                <Button asChild>
+                                    <NavLink to="/auth">Sign Up</NavLink>
+                                </Button>
+                            </>
+                        )}
+                    </div>
                 </div>
             </div>
         </header>

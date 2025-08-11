@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { supabase } from '@/lib/supabaseClient';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
@@ -14,19 +14,22 @@ export default function AuthPage() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [message, setMessage] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setMessage('');
     try {
       if (isSignUp) {
         const { error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-        alert('Check your email for the login link!');
+        setMessage('Check your email for the confirmation link!');
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
+        // Navigate will be handled by the session change
       }
     } catch (error) {
       setError(error.message);
@@ -40,10 +43,13 @@ export default function AuthPage() {
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900">
+    <div className="flex items-center justify-center" style={{ minHeight: 'calc(100vh - 80px)' }}>
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle role="heading" aria-level="1">{isSignUp ? 'Sign Up' : 'Sign In'}</CardTitle>
+          <CardTitle className="text-2xl" as="h2">{isSignUp ? 'Create an account' : 'Sign In'}</CardTitle>
+          <CardDescription>
+            {isSignUp ? 'Enter your email below to create your account.' : 'Enter your credentials to access your account.'}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit}>
@@ -70,6 +76,7 @@ export default function AuthPage() {
                 />
               </div>
               {error && <p className="text-red-500 text-sm">{error}</p>}
+              {message && <p className="text-green-500 text-sm">{message}</p>}
               <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? 'Loading...' : (isSignUp ? 'Sign Up' : 'Sign In')}
               </Button>
@@ -77,7 +84,11 @@ export default function AuthPage() {
           </form>
           <div className="mt-4 text-center text-sm">
             {isSignUp ? 'Already have an account?' : "Don't have an account?"}
-            <Button variant="link" type="button" onClick={() => setIsSignUp(!isSignUp)}>
+            <Button variant="link" type="button" onClick={() => {
+              setIsSignUp(!isSignUp);
+              setError(null);
+              setMessage('');
+            }}>
               {isSignUp ? 'Sign In' : 'Sign Up'}
             </Button>
           </div>

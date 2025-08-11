@@ -51,15 +51,24 @@ A mobile-first web application that detects and counts filler words in real time
 
 ## Usage
 
-1.  **Start a Session**: Click "Start New Session" on the home page to begin a new recording session. The session will automatically end after 2 minutes. You can use the "Override timer" checkbox for longer sessions during development.
+SpeakSharp can be used with or without an account.
+
+### Anonymous Free Trial
+
+1.  **Start a Session**: Click "Start New Session" on the home page to begin a new recording session.
 2.  **Grant Microphone Access**: Allow the browser to access your microphone when prompted.
-3.  **Control Recording**: Use the "Start Recording" and "Stop Recording" buttons to control the session.
-4.  **View Live Transcript**: Watch your speech being transcribed in real time in the "Live Transcript" box.
-5.  **Add Custom Filler Words**: You can add your own custom filler words to be tracked during the session.
-6.  **Monitor Progress**: View the live counters for each filler word on the session page.
-7.  **View Analytics**: Click the "View Detailed Analytics" link on the session page or the "View Analytics" link on the home page to see your session history and trends.
-8.  **Download History**: On the Analytics page, you can download your entire session history as a JSON file.
-9.  **End Session**: Click "End Session" when you are finished to save your session data and return to the home page.
+3.  **Start Recording**: Your session will be limited to **2 minutes**. Use the "Start Recording" and "Stop Recording" buttons to control the session.
+4.  **View Live Transcript**: Watch your speech being transcribed in real time.
+5.  **Monitor Progress**: View the live counters for each filler word on the session page.
+6.  **Sign Up**: To save your session history and get more features, sign up for a free account.
+
+### Authenticated Users
+
+1.  **Sign Up / Login**: Create a free account or log in to access all features.
+2.  **Unlimited Sessions**: Start sessions of any length.
+3.  **View Analytics**: Track your progress over time with detailed analytics and session history.
+4.  **Save and Export**: Your sessions are automatically saved to your account. You can export your entire history from the analytics page.
+5.  **Custom Filler Words**: Add and track your own custom filler words across sessions.
 
 ## How to Test the Application
 
