@@ -1,6 +1,6 @@
 import React from 'react';
 
-const HighlightedTranscript = ({ transcript, fillerWords }) => {
+const HighlightedTranscriptComponent = ({ transcript, fillerWords }) => {
     if (!transcript) return null;
 
     const fillerRegex = new RegExp(`\\b(${fillerWords.join('|')})\\b`, 'gi');
@@ -21,9 +21,10 @@ const HighlightedTranscript = ({ transcript, fillerWords }) => {
         </p>
     );
 };
+export const HighlightedTranscript = React.memo(HighlightedTranscriptComponent);
 
 
-export const TranscriptPanel = ({ transcript, customWords }) => {
+const TranscriptPanelComponent = ({ transcript, customWords }) => {
     const defaultFillerWords = ['um', 'uh', 'like', 'you know', 'so', 'actually', 'i mean', 'right'];
     const allFillerWords = [...new Set([...defaultFillerWords, ...customWords.map(w => w.toLowerCase())])];
 
@@ -43,3 +44,4 @@ export const TranscriptPanel = ({ transcript, customWords }) => {
         </div>
     );
 };
+export const TranscriptPanel = React.memo(TranscriptPanelComponent);

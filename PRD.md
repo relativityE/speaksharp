@@ -149,3 +149,17 @@ This section captures feedback from user testing and design reviews.
 - **Value Proposition Simplification**:
     - Replace the three value proposition cards with a single, clear benefit statement.
     - Enhance credibility with statements like "Used by 1000+ professionals".
+
+## 12. Implementation Notes
+
+This section documents key decisions and clarifications made during the implementation of the design feedback from Section 10.
+
+-   **Button Styles**: The `default` button variant has been updated to be the green "Primary Action" button, as specified in the `DESIGN_SYSTEM.md`. A new `brand` variant was created to house the previous purple style for use in non-primary actions.
+
+-   **Browser Warning**: The browser compatibility warning was relocated to a new section just above the footer on the main page. A dedicated settings/help page was deemed out of scope for the current work, and this placement makes the warning accessible without cluttering the main hero section.
+
+-   **Landing Page Content**: The three feature cards on the landing page have been replaced with a new social proof section. This section includes placeholder testimonials that should be replaced with real user content.
+
+-   **Confidence Levels**: An investigation into implementing color-coded confidence levels for filler words was completed. The feature is technically feasible via the Web Speech API's `confidence` property. However, the implementation requires a significant refactoring of the `useSpeechRecognition` hook and its dependent components. This feature has been deferred for future consideration due to its complexity.
+
+-   **Session Transcript Storage**: The investigation also confirmed that, in line with the privacy requirements, the full session transcript is not saved to the database.

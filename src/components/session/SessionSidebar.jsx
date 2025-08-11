@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { Mic, Square, Plus, Trash2 } from 'lucide-react';
+import { Mic, Square, Plus, Trash2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -113,6 +113,7 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
     const navigate = useNavigate();
     const { user } = useAuth();
     const [elapsedTime, setElapsedTime] = useState(0);
+    const [isLoading, setIsLoading] = useState(false);
     const timerIntervalRef = useRef(null);
 
     const endSessionAndSave = () => {
@@ -130,6 +131,7 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
 
     useEffect(() => {
         if (isListening) {
+            setIsLoading(false);
             timerIntervalRef.current = setInterval(() => {
                 setElapsedTime(prev => prev + 1);
             }, 1000);
@@ -149,6 +151,7 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
         if (isListening) {
             endSessionAndSave();
         } else {
+            setIsLoading(true);
             reset();
             setElapsedTime(0);
             startListening();
@@ -161,6 +164,16 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
         return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
     };
 
+    const getButtonContent = () => {
+        if (isLoading) {
+            return <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Starting...</>;
+        }
+        if (isListening) {
+            return <><Square className="w-4 h-4 mr-2" /> End Session</>;
+        }
+        return <><Mic className="w-4 h-4 mr-2" /> Start Recording</>;
+    };
+
     return (
         <div className="flex flex-col gap-6">
             <Card className="text-center">
@@ -169,16 +182,16 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
                         {formatTime(elapsedTime)}
                     </div>
                     <div className={`mb-4 text-sm font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
-                        {isListening ? '● RECORDING' : 'SESSION PAUSED'}
+                        {isLoading ? 'INITIALIZING...' : (isListening ? '● RECORDING' : 'SESSION PAUSED')}
                     </div>
                     <Button
                         onClick={handleStartStop}
                         size="lg"
                         variant={isListening ? 'destructive' : 'default'}
                         className="w-full"
+                        disabled={isLoading}
                     >
-                        {isListening ? <Square className="w-4 h-4 mr-2" /> : <Mic className="w-4 h-4 mr-2" />}
-                        {isListening ? 'End Session' : 'Start Recording'}
+                        {getButtonContent()}
                     </Button>
                 </CardContent>
             </Card>

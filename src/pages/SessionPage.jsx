@@ -14,7 +14,7 @@ export const SessionPage = () => {
         <div className="container mx-auto px-4 py-10">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <div className="lg:col-span-2">
-                    <TranscriptPanel {...speechRecognition} customWords={customWords} />
+                    <TranscriptPanel transcript={speechRecognition.transcript} customWords={customWords} />
                 </div>
                 <div className="lg:col-span-1">
                     <SessionSidebar {...speechRecognition} customWords={customWords} setCustomWords={setCustomWords} saveSession={saveSession} />
