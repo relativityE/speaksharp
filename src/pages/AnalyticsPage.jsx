@@ -1,73 +1,47 @@
 import React from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
 import { useSessionManager } from '../hooks/useSessionManager';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '@/components/ui/button';
-import { Download } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
 
 const AnonymousAnalyticsView = () => (
     <div className="text-center py-20">
-        <h2 className="text-3xl font-bold text-light-text mb-4">Unlock Your Full Potential</h2>
-        <p className="text-muted-text mb-8 max-w-2xl mx-auto">
-            Sign up for a free account to save your session history, track your progress over time, and get detailed insights into your speaking patterns.
+        <h2 className="text-3xl font-bold text-foreground mb-4">See Your Progress in Action</h2>
+        <p className="text-muted-foreground mb-8 max-w-2xl mx-auto">
+            Create a free account to save your session history, track your improvement over time, and gain detailed insights into your speaking habits.
         </p>
-        <Button asChild size="lg" className="bg-accent-blue text-charcoal hover:bg-accent-blue/90">
-            <NavLink to="/auth">Sign Up for Free</NavLink>
+        <Button asChild size="lg">
+            <NavLink to="/auth">Create Your Free Account</NavLink>
         </Button>
-        <div className="mt-12 opacity-50 pointer-events-none" aria-hidden="true">
-            <p className="mb-4 text-sm tracking-widest uppercase text-muted-text">
-                Your future dashboard
-            </p>
-            <AnalyticsDashboard sessionHistory={[]} />
-        </div>
     </div>
 );
 
 const AuthenticatedAnalyticsView = () => {
-    const { sessions: sessionHistory, exportSessions, loading } = useSessionManager();
+    const { sessions, loading } = useSessionManager();
     const navigate = useNavigate();
 
     if (loading) {
-        return <p className="text-center text-muted-text">Loading analytics...</p>;
-    }
-
-    if (sessionHistory.length === 0) {
         return (
             <div className="text-center py-20">
-                <h2 className="text-3xl font-bold text-light-text mb-4">No Session Data</h2>
-                <p className="text-muted-text mb-8 max-w-2xl mx-auto">
-                    You haven't completed any sessions yet. Start your first session to unlock personalized insights and track your progress.
-                </p>
-                <Button size="lg" className="bg-accent-blue text-charcoal hover:bg-accent-blue/90" onClick={() => navigate('/session')}>
-                    Start New Session
-                </Button>
+                <p className="text-muted-foreground">Loading your analytics...</p>
             </div>
         );
     }
 
+    // The empty state is now handled inside AnalyticsDashboard
+    if (sessions.length === 0) {
+        return <AnalyticsDashboard sessionHistory={[]} />;
+    }
+
     return (
         <>
-            <div className="flex items-center justify-between mb-8">
-                <div>
-                    <h1 className="text-4xl font-bold text-light-text">Your Analytics</h1>
-                    <p className="mt-1 text-muted-text">Review your session history and track your progress.</p>
-                </div>
-                <Button variant="outline" onClick={exportSessions} disabled={!sessionHistory || sessionHistory.length === 0}>
-                    <Download className="w-4 h-4 mr-2" />
-                    Export My Data
-                </Button>
+            <div className="mb-8">
+                <h1 className="text-4xl font-bold text-foreground">Your Dashboard</h1>
+                <p className="mt-1 text-muted-foreground">Here's an overview of your progress. Keep it up!</p>
             </div>
-            <AnalyticsDashboard sessionHistory={sessionHistory} />
-            <div className="mt-12 p-6 rounded-lg bg-card-bg border border-accent-blue/20 text-center">
-                <h3 className="text-xl font-bold text-light-text mb-2">Want to see your full history?</h3>
-                <p className="text-muted-text mb-4">
-                    Upgrade to Pro for unlimited data and advanced analytics.
-                </p>
-                <Button className="bg-accent-blue text-charcoal hover:bg-accent-blue/90">
-                    Upgrade to Pro
-                </Button>
-            </div>
+            <AnalyticsDashboard sessionHistory={sessions} />
         </>
     );
 };
@@ -76,7 +50,7 @@ export const AnalyticsPage = () => {
     const { user } = useAuth();
 
     return (
-        <div className="container py-10">
+        <div className="container mx-auto px-4 py-10">
             {user ? <AuthenticatedAnalyticsView /> : <AnonymousAnalyticsView />}
         </div>
     );

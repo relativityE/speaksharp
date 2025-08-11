@@ -1,25 +1,20 @@
 import React from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
-export const BrowserWarning = ({ support }) => {
-  if (support.speechRecognition) return null
+export const BrowserWarning = ({ isSupported }) => {
+  if (isSupported) {
+    return null;
+  }
 
   return (
-    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
-      <div className="flex">
-        <AlertTriangle className="h-5 w-5 text-yellow-400" />
-        <div className="ml-3">
-          <h3 className="text-sm font-medium text-yellow-800">Browser Compatibility Issue</h3>
-          <div className="mt-2 text-sm text-yellow-700">
-            <p>SpeakSharp works best with:</p>
-            <ul className="list-disc ml-5 mt-1">
-              <li>Chrome (recommended)</li>
-              <li>Edge</li>
-              <li>Safari (limited)</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
+    <Alert variant="destructive" className="mb-8">
+      <AlertTriangle className="h-4 w-4" />
+      <AlertTitle>Browser Not Fully Supported</AlertTitle>
+      <AlertDescription>
+        Your browser has limited support for the speech recognition technology used by SpeakSharp.
+        For the best experience, we recommend using the latest version of Google Chrome.
+      </AlertDescription>
+    </Alert>
+  );
+};
