@@ -1,127 +1,31 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+@import "tailwindcss";
 
-/*
-  SpeakSharp Design System (v3 - Charcoal)
-  Based on the new design guide.
-*/
+@theme {
+  --color-background: #1E1E28;
+  --color-foreground: #F0F0F2;
+  --color-card: #2A2C37;
+  --color-popover: #2A2C37;
+  --color-primary: #00C9FF;
+  --color-primary-foreground: #1E1E28;
+  --color-secondary: #2A2C37;
+  --color-secondary-foreground: #F0F0F2;
+  --color-muted: #2A2C37;
+  --color-muted-foreground: #A0A0A3;
+  --color-accent: #00C9FF;
+  --color-accent-foreground: #1E1E28;
+  --color-destructive: #FF5252;
+  --color-destructive-foreground: #F0F0F2;
+  --color-border: #2A2C37;
+  --color-input: #2A2C37;
+  --color-ring: #00C9FF;
+  --color-highlight: #FFD700;
+  --color-highlight-foreground: #1E1E28;
 
-/* Core Theme Variables */
-:root {
-  /* Color Palette */
-  --bg-charcoal: #1E1E28;
-  --bg-card: #2A2C37;
-  --text-light: #F0F0F2;
-  --text-muted: #A0A0A3;
-  --accent-blue: #00C9FF;
-  --highlight-yellow: #FFD700;
-
-  /* Old variables for compatibility - to be phased out */
-  --color-bg-primary: var(--bg-charcoal);
-  --color-bg-secondary: var(--bg-card);
-  --color-text-primary: var(--text-light);
-  --color-text-secondary: var(--text-muted);
-  --color-accent: var(--accent-blue);
-  --color-border: var(--bg-card);
-
-  /* Spacing */
-  --spacing-base: 8px;
-  --spacing-2: calc(var(--spacing-base) * 2); /* 16px */
-  --spacing-3: calc(var(--spacing-base) * 3); /* 24px */
-  --spacing-4: calc(var(--spacing-base) * 4); /* 32px */
-  --spacing-6: calc(var(--spacing-base) * 6); /* 48px */
-
-  /* Radius */
-  --radius: 0.5rem;
+  --font-sans: "Inter", "sans-serif";
 }
 
-/* Base Body & Typography Styles */
 body {
-  background-color: var(--bg-charcoal);
-  color: var(--text-light);
-  font-family: 'Inter', sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-h1, .h1 {
-  font-size: 3rem;   /* 48px */
-  font-weight: 700;
-  color: var(--text-light);
-}
-
-h2, .h2 {
-  font-size: 2rem;   /* 32px */
-  font-weight: 700;
-  color: var(--text-light);
-}
-
-h3, .h3 {
-  font-size: 1.5rem; /* 24px */
-  font-weight: 700;
-  color: var(--text-light);
-}
-
-p, .p {
-  font-size: 1rem;   /* 16px */
-  font-weight: 400;
-  line-height: 1.75;
-  color: var(--text-muted);
-}
-
-a {
-  color: var(--color-accent);
-  text-decoration: none;
-}
-a:hover {
-  text-decoration: underline;
-}
-
-/* Utility Classes */
-.container {
-  max-width: 1100px;
-  margin-left: auto;
-  margin-right: auto;
-  padding: 0 var(--spacing-4);
-}
-
-/* Keep old component styles for now to avoid breaking things, will be replaced by Tailwind */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius);
-  font-size: 0.875rem;
-  font-weight: 500;
-  transition-property: all;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-  transition-duration: 150ms;
-  padding: 0.75rem 1.5rem;
-  border: 1px solid transparent;
-  cursor: pointer;
-}
-
-.btn-primary {
-  background-color: var(--color-accent);
-  color: var(--color-bg-primary);
-  font-weight: 600;
-}
-.btn-primary:hover {
-  opacity: 0.9;
-}
-
-.btn-secondary {
-  border-color: var(--color-text-secondary);
-  color: var(--color-text-secondary);
-}
-.btn-secondary:hover {
-  background-color: var(--color-bg-secondary);
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-}
-
-.card {
-  background-color: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  padding: 24px;
+    font-family: theme(font.sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }

@@ -21,7 +21,7 @@ const renderWithRouter = (route) => {
     useAuth.mockReturnValue({ user: null, session: null });
     return render(
         <MemoryRouter initialEntries={[route]}>
-            {ui}
+            <App />
         </MemoryRouter>
     );
 };

@@ -5,47 +5,50 @@ import { Mic, Square, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
 
-const FillerWordCounter = ({ word, count }) => {
+const FillerWordCounter = ({ word, count, maxCount }) => {
     const [displayCount, setDisplayCount] = useState(count);
     const [isAnimating, setIsAnimating] = useState(false);
+    const progress = maxCount > 0 ? (count / maxCount) * 100 : 0;
 
     useEffect(() => {
         if (count !== displayCount) {
             setIsAnimating(true);
-            setTimeout(() => {
-                setDisplayCount(count);
-                setIsAnimating(false);
-            }, 300); // Animation duration
+            setDisplayCount(count);
+            const timer = setTimeout(() => setIsAnimating(false), 300); // Animation duration
+            return () => clearTimeout(timer);
         }
     }, [count, displayCount]);
 
     return (
-        <div className="flex items-center justify-between text-sm">
-            <span className="capitalize text-muted-text">{word}</span>
-            <span className={`font-bold text-light-text transition-colors duration-300 ${isAnimating ? 'text-accent-blue' : ''}`}>
-                {displayCount}
-            </span>
+        <div>
+            <div className="flex items-center justify-between text-sm mb-1">
+                <span className="capitalize text-muted-foreground">{word}</span>
+                <span className={`font-bold text-foreground transition-colors duration-300 ${isAnimating ? 'text-primary' : ''}`}>
+                    {displayCount}
+                </span>
+            </div>
+            <Progress value={progress} className="h-1" />
         </div>
     );
 };
 
-
 const FillerWordAnalysis = ({ fillerCounts }) => {
     const sortedFillerWords = Object.entries(fillerCounts).sort(([, a], [, b]) => b - a);
+    const maxCount = Math.max(...Object.values(fillerCounts), 0);
 
     return (
         <Card>
             <CardHeader>
                 <CardTitle className="text-xl">Filler Word Analysis</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-4">
                 {sortedFillerWords.length > 0 ? sortedFillerWords.map(([word, count]) => (
-                    <FillerWordCounter key={word} word={word} count={count} />
+                    <FillerWordCounter key={word} word={word} count={count} maxCount={maxCount} />
                 )) : (
-                    <p className="text-sm text-muted-text">No filler words detected yet.</p>
+                    <p className="text-sm text-muted-foreground">Start speaking to see your analysis.</p>
                 )}
             </CardContent>
         </Card>
@@ -57,10 +60,16 @@ const CustomWords = ({ customWords, setCustomWords }) => {
 
     const addWord = () => {
         if (newWord && !customWords.includes(newWord.toLowerCase())) {
-            setCustomWords(prev => [...prev, newWord.toLowerCase()]);
+            setCustomWords(prev => [...prev, newWord.toLowerCase().trim()]);
             setNewWord('');
         }
     };
+
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter') {
+            addWord();
+        }
+    }
 
     const removeWord = (wordToRemove) => {
         setCustomWords(prev => prev.filter(word => word !== wordToRemove));
@@ -77,8 +86,9 @@ const CustomWords = ({ customWords, setCustomWords }) => {
                         type="text"
                         value={newWord}
                         onChange={(e) => setNewWord(e.target.value)}
+                        onKeyDown={handleKeyDown}
                         placeholder="Add a word..."
-                        className="bg-charcoal"
+                        className="bg-input"
                     />
                     <Button onClick={addWord} variant="secondary" size="icon">
                         <Plus size={16} />
@@ -86,12 +96,12 @@ const CustomWords = ({ customWords, setCustomWords }) => {
                 </div>
                 <div className="flex flex-wrap gap-2">
                     {customWords.map(word => (
-                        <div key={word} className="flex items-center gap-2 px-2 py-1 text-sm rounded-md bg-charcoal">
+                        <Badge key={word} variant="secondary" className="flex items-center gap-2">
                             <span>{word}</span>
-                            <button onClick={() => removeWord(word)} className="text-muted-text hover:text-light-text">
+                            <button onClick={() => removeWord(word)} className="text-muted-foreground hover:text-foreground">
                                 <Trash2 size={12} />
                             </button>
-                        </div>
+                        </Badge>
                     ))}
                 </div>
             </CardContent>
@@ -103,29 +113,16 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
     const navigate = useNavigate();
     const { user } = useAuth();
     const [elapsedTime, setElapsedTime] = useState(0);
-    const [overrideTimer, setOverrideTimer] = useState(false);
     const timerIntervalRef = useRef(null);
-    const ANONYMOUS_TIME_LIMIT = 120; // 2 minutes
 
     const endSessionAndSave = () => {
         stopListening();
-        if (!user) {
-            // For anonymous users, we don't save, just stop.
-            // A modal could be shown here to encourage sign-up.
-            return;
-        }
+        if (!user) return;
+
         const sessionData = {
             duration: elapsedTime,
-            total_words: transcript.split(/\s+/).filter(Boolean).length,
-            filler_words: fillerCounts,
-            custom_words: customWords.reduce((acc, word) => {
-                const regex = new RegExp(`\\b${word}\\b`, 'gi');
-                const count = (transcript.match(regex) || []).length;
-                if (count > 0) {
-                    acc[word] = count;
-                }
-                return acc;
-            }, {}),
+            transcript: transcript,
+            filler_counts: fillerCounts,
         };
         saveSession(sessionData);
         navigate('/analytics');
@@ -134,19 +131,19 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
     useEffect(() => {
         if (isListening) {
             timerIntervalRef.current = setInterval(() => {
-                setElapsedTime(prev => {
-                    const newTime = prev + 1;
-                    if (!user && !overrideTimer && newTime >= ANONYMOUS_TIME_LIMIT) {
-                        stopListening();
-                    }
-                    return newTime;
-                });
+                setElapsedTime(prev => prev + 1);
             }, 1000);
         } else {
             clearInterval(timerIntervalRef.current);
         }
         return () => clearInterval(timerIntervalRef.current);
-    }, [isListening, user, stopListening, overrideTimer]);
+    }, [isListening]);
+
+    useEffect(() => {
+        if(!isListening) {
+            setElapsedTime(0);
+        }
+    }, [isListening])
 
     const handleStartStop = () => {
         if (isListening) {
@@ -164,49 +161,33 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
         return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
     };
 
-    const timeLimit = user ? null : ANONYMOUS_TIME_LIMIT;
-
     return (
-        <div className="flex flex-col flex-1 gap-6">
+        <div className="flex flex-col gap-6">
             <Card className="text-center">
                 <CardContent className="p-6">
-                    <div className="text-6xl font-bold font-mono text-light-text">
+                    <div className="text-6xl font-bold font-mono text-foreground mb-2">
                         {formatTime(elapsedTime)}
-                        {timeLimit && (
-                            <span className="text-2xl text-muted-text"> / {formatTime(timeLimit)}</span>
-                        )}
                     </div>
-                    <div className={`mt-2 mb-4 text-sm ${isListening ? 'text-accent-blue' : 'text-muted-text'}`}>
-                        {isListening ? '● Recording' : 'Ready to start'}
+                    <div className={`mb-4 text-sm font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
+                        {isListening ? '● RECORDING' : 'SESSION PAUSED'}
                     </div>
                     <Button
                         onClick={handleStartStop}
                         size="lg"
-                        className={`w-full ${isListening ? 'bg-red-600 hover:bg-red-700' : 'bg-accent-blue hover:bg-accent-blue/90'} text-white`}
+                        variant={isListening ? 'destructive' : 'default'}
+                        className="w-full"
                     >
                         {isListening ? <Square className="w-4 h-4 mr-2" /> : <Mic className="w-4 h-4 mr-2" />}
                         {isListening ? 'End Session' : 'Start Recording'}
                     </Button>
-                    {!user && (
-                        <div className="flex items-center justify-center mt-4 space-x-2">
-                            <Checkbox
-                                id="override-timer"
-                                checked={overrideTimer}
-                                onCheckedChange={setOverrideTimer}
-                            />
-                            <Label htmlFor="override-timer" className="text-sm text-muted-text">
-                                Override 2-min limit (for dev)
-                            </Label>
-                        </div>
-                    )}
                 </CardContent>
             </Card>
 
             <FillerWordAnalysis fillerCounts={fillerCounts} />
             <CustomWords customWords={customWords} setCustomWords={setCustomWords} />
 
-            {error && <p className="text-sm text-red-500">Error: {error}</p>}
-            {!isSupported && <p className="text-sm text-red-500">Speech recognition not supported in this browser.</p>}
+            {error && <p className="text-sm text-destructive">Error: {error}</p>}
+            {!isSupported && <p className="text-sm text-destructive">Speech recognition not supported in this browser.</p>}
         </div>
     );
 };

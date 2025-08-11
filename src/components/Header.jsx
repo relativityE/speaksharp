@@ -1,87 +1,56 @@
 import React from 'react';
-import { NavLink } from 'react-router-dom';
-import { Home, BarChart3, Mic, LogOut } from 'lucide-react';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from './ui/button';
-
-const navLinkStyle = {
-    display: 'flex',
-    alignItems: 'center',
-    padding: '8px 12px',
-    borderRadius: 'var(--radius)',
-    color: 'var(--color-text-secondary)',
-    textDecoration: 'none',
-    transition: 'background-color 0.2s, color 0.2s',
-};
-
-const activeLinkStyle = {
-    backgroundColor: 'var(--color-bg-secondary)',
-    color: 'var(--color-text-primary)',
-};
+import { LogOut, UserCircle } from 'lucide-react';
 
 export const Header = () => {
     const { user, signOut } = useAuth();
+    const location = useLocation();
+
+    // As per the design spec, the header should be hidden on the sign-in page.
+    if (location.pathname === '/auth') {
+        return null;
+    }
+
+    const navLinkClasses = "flex items-center px-3 py-2 rounded-md text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors";
+    const activeLinkClasses = "bg-secondary text-foreground";
 
     return (
-        <header style={{
-            padding: '16px 0',
-            borderBottom: '1px solid var(--color-border)',
-            backgroundColor: 'var(--color-bg-primary)',
-            position: 'sticky',
-            top: 0,
-            zIndex: 10,
-        }}>
-            <div className="container" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <NavLink to="/" style={{ textDecoration: 'none' }}>
-                    <h2 className="h2" style={{ fontSize: '1.5rem', color: 'var(--color-text-primary)', margin: 0 }}>
-                        SpeakSharp
-                    </h2>
+        <header className="sticky top-0 z-10 border-b border-card bg-background">
+            <div className="container mx-auto flex h-16 items-center justify-between px-4">
+                <NavLink to="/" className="text-xl font-bold text-primary">
+                    SpeakSharp
                 </NavLink>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    {user && (
-                        <nav style={{ display: 'flex', gap: '8px' }}>
-                            <NavLink
-                                to="/"
-                                style={({ isActive }) => (isActive ? { ...navLinkStyle, ...activeLinkStyle } : navLinkStyle)}
-                            >
-                                <Home size={16} style={{ marginRight: '8px' }} />
-                                Dashboard
-                            </NavLink>
-                            <NavLink
-                                to="/session"
-                                style={({ isActive }) => (isActive ? { ...navLinkStyle, ...activeLinkStyle } : navLinkStyle)}
-                            >
-                                <Mic size={16} style={{ marginRight: '8px' }} />
-                                New Session
-                            </NavLink>
-                            <NavLink
-                                to="/analytics"
-                                style={({ isActive }) => (isActive ? { ...navLinkStyle, ...activeLinkStyle } : navLinkStyle)}
-                            >
-                                <BarChart3 size={16} style={{ marginRight: '8px' }} />
-                                Analytics
-                            </NavLink>
-                        </nav>
-                    )}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {user ? (
-                            <>
-                                <span className="text-sm text-muted-foreground">{user.email}</span>
+                <div className="flex items-center gap-4">
+                    {user ? (
+                        <>
+                            <nav className="hidden md:flex items-center gap-2">
+                                <NavLink
+                                    to="/analytics"
+                                    className={({ isActive }) => `${navLinkClasses} ${isActive ? activeLinkClasses : ''}`}
+                                >
+                                    Analytics
+                                </NavLink>
+                                <NavLink
+                                    to="/session"
+                                    className={({ isActive }) => `${navLinkClasses} ${isActive ? activeLinkClasses : ''}`}
+                                >
+                                    New Session
+                                </NavLink>
+                            </nav>
+                            <div className="flex items-center gap-2">
                                 <Button variant="ghost" size="icon" onClick={signOut}>
-                                    <LogOut size={16} />
+                                    <LogOut size={18} />
                                 </Button>
-                            </>
-                        ) : (
-                            <>
-                                <Button asChild variant="outline">
-                                    <NavLink to="/auth">Login</NavLink>
-                                </Button>
-                                <Button asChild>
-                                    <NavLink to="/auth">Sign Up</NavLink>
-                                </Button>
-                            </>
-                        )}
-                    </div>
+                                <UserCircle size={24} className="text-muted-foreground" />
+                            </div>
+                        </>
+                    ) : (
+                        <NavLink to="/auth" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
+                            Login / Sign Up
+                        </NavLink>
+                    )}
                 </div>
             </div>
         </header>

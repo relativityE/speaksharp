@@ -11,9 +11,15 @@ export const SessionPage = () => {
     const speechRecognition = useSpeechRecognition({ customWords });
 
     return (
-        <div className="container" style={{ display: 'flex', gap: '40px', paddingTop: '40px' }}>
-            <TranscriptPanel {...speechRecognition} customWords={customWords} />
-            <SessionSidebar {...speechRecognition} customWords={customWords} setCustomWords={setCustomWords} saveSession={saveSession} />
+        <div className="container mx-auto px-4 py-10">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div className="lg:col-span-2">
+                    <TranscriptPanel {...speechRecognition} customWords={customWords} />
+                </div>
+                <div className="lg:col-span-1">
+                    <SessionSidebar {...speechRecognition} customWords={customWords} setCustomWords={setCustomWords} saveSession={saveSession} />
+                </div>
+            </div>
         </div>
     );
 };

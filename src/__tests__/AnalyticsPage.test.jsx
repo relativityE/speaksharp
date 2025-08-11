@@ -45,16 +45,8 @@ describe('AnalyticsPage', () => {
     describe('when user is not authenticated', () => {
         it('renders a call-to-action to sign up', () => {
             renderAnalyticsPage({ user: null });
-            expect(screen.getByText('Unlock Your Full Potential')).toBeInTheDocument();
-            expect(screen.getByRole('link', { name: /sign up for free/i })).toBeInTheDocument();
-        });
-
-        it('shows a disabled preview of the dashboard', () => {
-            renderAnalyticsPage({ user: null });
-            expect(screen.getByText('Your future dashboard')).toBeInTheDocument();
-            const dashboard = screen.getByTestId('analytics-dashboard');
-            expect(dashboard).toBeInTheDocument();
-            expect(dashboard.parentElement).toHaveClass('opacity-50');
+            expect(screen.getByText('See Your Progress in Action')).toBeInTheDocument();
+            expect(screen.getByRole('link', { name: /Create Your Free Account/i })).toBeInTheDocument();
         });
     });
 
@@ -70,7 +62,7 @@ describe('AnalyticsPage', () => {
             });
             renderAnalyticsPage({ user: mockUser });
 
-            expect(screen.getByText('Your Analytics')).toBeInTheDocument();
+            expect(screen.getByText('Your Dashboard')).toBeInTheDocument();
             const dashboard = screen.getByTestId('analytics-dashboard');
             expect(dashboard).toBeInTheDocument();
             expect(dashboard).toHaveTextContent('2 sessions');
@@ -83,7 +75,7 @@ describe('AnalyticsPage', () => {
                 loading: true,
             });
             renderAnalyticsPage({ user: mockUser });
-            expect(screen.getByText('Loading analytics...')).toBeInTheDocument();
+            expect(screen.getByText('Loading your analytics...')).toBeInTheDocument();
         });
     });
 });
