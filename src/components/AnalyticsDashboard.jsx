@@ -1,4 +1,5 @@
 import React from 'react';
+import { BarChart, Clock, Hash, TrendingUp, Zap } from 'lucide-react';
 
 const calculateTrends = (history) => {
     if (!history || history.length === 0) {
@@ -22,20 +23,26 @@ const calculateTrends = (history) => {
     };
 };
 
+const StatCard = ({ icon, label, value, unit }) => (
+    <div className="card card-metric p-6 flex flex-col items-center justify-center text-center">
+        <div className="text-4xl font-bold text-white">{value}</div>
+        <div className="text-sm text-primary-foreground/80 mt-1">{label}</div>
+    </div>
+);
+
 
 export const AnalyticsDashboard = ({ sessionHistory }) => {
     if (!sessionHistory || sessionHistory.length === 0) {
         return (
-            <div className="card">
-                <h2>No Session Data</h2>
-                <p className="font-size-analytics-no-data">You have not completed any sessions yet. Start a new session to see your analytics.</p>
+            <div className="card p-8 text-center">
+                <h2 className="h2">No Session Data</h2>
+                <p className="text-muted mt-2">You have not completed any sessions yet. Start a new session to see your analytics.</p>
             </div>
         );
     }
 
     const trends = calculateTrends(sessionHistory);
     const latestSession = sessionHistory[sessionHistory.length - 1];
-    const colors = ['blue', 'green', 'orange', 'purple', 'red', 'pink'];
 
     const formatFillerWord = (word) => {
         if (word.includes('_')) {
@@ -45,50 +52,43 @@ export const AnalyticsDashboard = ({ sessionHistory }) => {
     };
 
     return (
-        <div className="space-y-6" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        <div className="space-y-8">
             {/* Key Stats Section */}
-            <div className="features-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
-                <div className="card" style={{textAlign: 'center'}}>
-                    <h3>Total Sessions</h3>
-                    <div className="filler-count font-size-body-analytics">{trends.totalSessions}</div>
-                </div>
-                <div className="card" style={{textAlign: 'center'}}>
-                    <h3>Avg. Filler Words</h3>
-                    <div className="filler-count font-size-body-analytics">{trends.avgFillerWords}</div>
-                </div>
-                <div className="card" style={{textAlign: 'center'}}>
-                    <h3>Avg. Words/Min</h3>
-                    <div className="filler-count font-size-body-analytics">{trends.avgWordsPerMin}</div>
-                </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                <StatCard icon={<Hash />} label="Total Sessions" value={trends.totalSessions} />
+                <StatCard icon={<TrendingUp />} label="Avg. Filler Words" value={trends.avgFillerWords} />
+                <StatCard icon={<Clock />} label="Avg. Words/Min" value={trends.avgWordsPerMin} />
             </div>
 
             {/* Latest Session Details */}
-            <div className="card">
-                <h2>
-                    <span className="chart-icon"></span>
+            <div className="card p-6">
+                <h2 className="h2 flex items-center">
+                    <Zap className="mr-2 h-5 w-5 text-primary" />
                     Latest Session Details
                 </h2>
-                <p className="font-size-body-analytics">Breakdown of filler words from your most recent session on {new Date(latestSession.date).toLocaleDateString()}.</p>
-
-                <div className="filler-grid">
-                    {Object.entries(latestSession.fillerCounts).map(([word, count], index) => (
-                        <div className="filler-item" key={word}>
-                            <div className={`filler-count ${colors[index % colors.length]}`}>{count}</div>
-                            <div className="filler-label">{formatFillerWord(word)}</div>
+                <p className="text-muted mt-1">Breakdown of filler words from your most recent session on {new Date(latestSession.date).toLocaleDateString()}.</p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mt-6">
+                    {Object.entries(latestSession.fillerCounts).map(([word, count]) => (
+                        <div className="bg-secondary rounded-lg p-4 text-center" key={word}>
+                            <div className="text-3xl font-bold text-primary">{count}</div>
+                            <div className="text-sm text-muted-foreground">{formatFillerWord(word)}</div>
                         </div>
                     ))}
                 </div>
             </div>
 
             {/* Session History Section */}
-            <div className="card">
-                <h2>Session History</h2>
-                <ul className="font-size-body-analytics" style={{ listStyle: 'none', padding: 0 }}>
+            <div className="card p-6">
+                <h2 className="h2 flex items-center">
+                    <BarChart className="mr-2 h-5 w-5 text-primary" />
+                    Session History
+                </h2>
+                <ul className="space-y-4 mt-4">
                     {sessionHistory.slice().reverse().map(session => (
-                        <li key={session.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 8px', borderBottom: '1px solid #eee' }}>
-                            <span>{new Date(session.date).toLocaleString()}</span>
-                            <span>{session.totalFillerWords} filler words</span>
-                            <span>{(session.duration)}s duration</span>
+                        <li key={session.id} className="flex justify-between items-center bg-secondary p-4 rounded-lg">
+                            <span className="font-medium">{new Date(session.date).toLocaleString()}</span>
+                            <span className="text-muted-foreground">{session.totalFillerWords} filler words</span>
+                            <span className="text-sm text-muted-foreground">{(session.duration)}s duration</span>
                         </li>
                     ))}
                 </ul>
