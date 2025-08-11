@@ -38,22 +38,22 @@ export const Header = () => {
                     </h2>
                 </NavLink>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <nav style={{ display: 'flex', gap: '8px' }}>
-                        <NavLink
-                            to="/"
-                            style={({ isActive }) => (isActive ? { ...navLinkStyle, ...activeLinkStyle } : navLinkStyle)}
-                        >
-                            <Home size={16} style={{ marginRight: '8px' }} />
-                            Dashboard
-                        </NavLink>
-                        <NavLink
-                            to="/session"
-                            style={({ isActive }) => (isActive ? { ...navLinkStyle, ...activeLinkStyle } : navLinkStyle)}
-                        >
-                            <Mic size={16} style={{ marginRight: '8px' }} />
-                            New Session
-                        </NavLink>
-                        {user && (
+                    {user && (
+                        <nav style={{ display: 'flex', gap: '8px' }}>
+                            <NavLink
+                                to="/"
+                                style={({ isActive }) => (isActive ? { ...navLinkStyle, ...activeLinkStyle } : navLinkStyle)}
+                            >
+                                <Home size={16} style={{ marginRight: '8px' }} />
+                                Dashboard
+                            </NavLink>
+                            <NavLink
+                                to="/session"
+                                style={({ isActive }) => (isActive ? { ...navLinkStyle, ...activeLinkStyle } : navLinkStyle)}
+                            >
+                                <Mic size={16} style={{ marginRight: '8px' }} />
+                                New Session
+                            </NavLink>
                             <NavLink
                                 to="/analytics"
                                 style={({ isActive }) => (isActive ? { ...navLinkStyle, ...activeLinkStyle } : navLinkStyle)}
@@ -61,8 +61,8 @@ export const Header = () => {
                                 <BarChart3 size={16} style={{ marginRight: '8px' }} />
                                 Analytics
                             </NavLink>
-                        )}
-                    </nav>
+                        </nav>
+                    )}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         {user ? (
                             <>

@@ -29,7 +29,7 @@ export const MainPage = () => {
 
             <div className="max-w-3xl mx-auto mb-20">
                 <h1 className="mb-4 text-5xl font-bold md:text-6xl text-light-text">
-                    Speak with Clarity. Build Confidence.
+                    Speak with Clarity. Build Your Confidence.
                 </h1>
                 <p className="max-w-2xl mx-auto mb-8 text-lg text-muted-text">
                     SpeakSharp analyzes your speech in real-time to help you eliminate filler words like 'um' and 'uh.' Become a more confident and articulate speaker today.
