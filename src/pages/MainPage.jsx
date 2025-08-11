@@ -62,7 +62,7 @@ export const MainPage = () => {
             <div className="features-grid">
                 <div className="card">
                     <h3>Privacy First</h3>
-                    <p>All processing happens on your device using browser APIs. Your speech never leaves your device.</p>
+                    <p className="font-size-body-main">All processing happens on your device using browser APIs. Your speech never leaves your device.</p>
                 </div>
 
                 <div className="card">
