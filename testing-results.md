@@ -3,10 +3,14 @@
 ## Functionality Verification
 
 ### Installation:
-- `pnpm install` was successful. The previous issue with `@supabase/supabase-js` failing to resolve has been fixed by ensuring dependencies are installed correctly with `pnpm`.
+- `pnpm install` was successful. The previous issue with `@supabase/supabase-js` failing to resolve has been fixed.
+- The fix involved a multi-step process:
+  1. Deleting `node_modules`, `pnpm-lock.yaml`, and the extraneous `package-lock.json`.
+  2. Updating `vite.config.js` to include `@supabase/supabase-js` in the `optimizeDeps.include` array to help Vite with dependency resolution when using pnpm.
+  3. Performing a clean install with `pnpm install`.
 
 ### Running the Application:
-- `pnpm run dev` successfully started the development server on `http://localhost:5173/`.
+- `pnpm run dev` successfully started the development server on `http://localhost:5173/`. The import error for `@supabase/supabase-js` no longer occurs.
 
 ### Core Features Testing (as per README.md):
 1. **Start New Session**: Clicking "Start New Session" button successfully transitions the UI to the recording interface.
@@ -19,4 +23,5 @@
 - **Microphone Access**: The primary issue is the lack of microphone access within the sandbox environment, which prevents full testing of the audio capture, speech-to-text transcription, and filler word detection features. This is an environmental limitation, not a bug in the application code.
 
 ## Conclusion:
-- The SpeakSharp application appears to be correctly implemented based on the available testing capabilities within the sandbox. The UI responds as expected, and error handling for microphone permissions is in place. Full functional testing of audio-dependent features is not possible in this environment. The dependency resolution issue has been resolved.
+- The SpeakSharp application's dependency and build issues are now resolved. The application starts correctly.
+- The UI responds as expected for non-audio features, and error handling for microphone permissions is in place. Full functional testing of audio-dependent features is not possible in this environment.
