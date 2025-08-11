@@ -1,216 +1,111 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
 /*
-================================================================================
-SpeakSharp Global Styles
-================================================================================
+ SpeakSharp Design System (v2)
+ High-Fidelity Redesign
 */
 
-/* --- Variables --- */
+/* Custom Theme Variables */
 :root {
-    --radius: 0.625rem;
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
+  --font-primary: 'Poppins', sans-serif;
+  --font-secondary: 'Inter', sans-serif;
 
-    /* Custom Theme Variables */
-    --brand-accent: #5b21b6; /* Dark Purple */
-    --brand-text-main: #2d3748; /* Dark Gray */
-    --brand-text-secondary: var(--brand-accent);
+  --color-bg-primary: #121217;
+  --color-bg-secondary: #2A2C37;
+  --color-accent: #00C9FF;
+  --color-text-primary: #F0F0F2;
+  --color-text-secondary: #A0A0A3;
+  --color-border: #2A2C37;
+
+  --radius: 0.5rem;
 }
 
-/* --- Base & Reset --- */
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-    border-color: var(--border);
-}
-
+/* Base Body & Typography Styles */
 body {
-    background-color: var(--background);
-    color: var(--foreground);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    background: linear-gradient(135deg, #e8f0fe 0%, #f3e8ff 100%);
-    min-height: 100vh;
-    padding: 40px 20px;
-    font-size: 18px;
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-family: var(--font-secondary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-.container {
-    max-width: 800px;
-    margin: 0 auto;
-}
-
-/*
-================================================================================
-Global Typographic Scale
-================================================================================
-*/
 h1, .h1 {
-    font-size: 3rem;
-    font-weight: 700;
-    color: var(--brand-text-main);
-    margin-bottom: 1rem;
-    letter-spacing: -0.02em;
+  font-family: var(--font-primary);
+  font-weight: 700;
+  font-size: 3rem; /* 48px */
 }
 
 h2, .h2 {
-    font-size: 1.5rem;
-    font-weight: 600;
-    color: var(--brand-text-main);
-    margin-bottom: 0.75rem;
+  font-family: var(--font-primary);
+  font-weight: 700;
+  font-size: 2.25rem; /* 36px */
 }
 
 h3, .h3 {
-    font-size: 1.25rem;
-    font-weight: 600;
-    color: var(--brand-text-main);
-    margin-bottom: 1.5rem;
+  font-family: var(--font-primary);
+  font-weight: 600;
+  font-size: 1.5rem; /* 24px */
 }
 
-p, a, li, span, label, div {
-    font-size: 1rem;
-    color: var(--brand-text-secondary);
-    line-height: 1.6;
+p, .p {
+  font-family: var(--font-secondary);
+  font-weight: 400;
+  font-size: 1rem; /* 16px */
+  line-height: 1.75;
+  color: var(--color-text-secondary);
 }
 
 a {
-    cursor: pointer;
-    text-decoration: underline;
+  color: var(--color-accent);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
 }
 
-.text-tagline {
-    font-style: italic;
+/* Component Styles */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition-property: all;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+  padding: 0.75rem 1.5rem;
+  border: 1px solid transparent;
+  cursor: pointer;
 }
 
-/*
-================================================================================
-Global Component Styles
-================================================================================
-*/
-
-/* --- Header & Footer --- */
-.page-header {
-    text-align: center;
-    margin-bottom: 60px;
+.btn-primary {
+  background-color: var(--color-accent);
+  color: var(--color-bg-primary);
+  font-weight: 600;
+}
+.btn-primary:hover {
+  opacity: 0.9;
 }
 
-.page-footer {
-    text-align: center;
-    margin-top: 60px;
-    padding-top: 40px;
+.btn-secondary {
+  border-color: var(--color-text-secondary);
+  color: var(--color-text-secondary);
+}
+.btn-secondary:hover {
+  background-color: var(--color-bg-secondary);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
 }
 
-/* --- Cards --- */
 .card {
-    background: white;
-    border-radius: 16px;
-    padding: 32px;
-    margin-bottom: 24px;
-    box-shadow: 0 2px 16px rgba(0, 0, 0, 0.08);
-    border: 1px solid rgba(0, 0, 0, 0.06);
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 24px;
 }
 
-.features-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 32px;
-}
-
-/* --- Buttons --- */
-.button {
-    border: none;
-    border-radius: 8px;
-    padding: 0.75rem 1.5rem;
-    font-size: 1rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.button-primary {
-    background: #2d3748;
-    color: white;
-}
-.button-primary:hover {
-    background: #4a5568;
-    transform: translateY(-1px);
-}
-
-.button-secondary {
-    background: transparent;
-    color: var(--brand-accent);
-    border: 1px solid #ddd;
-}
-.button-secondary:hover {
-    background: #f5f5f5;
-    border-color: #ccc;
-}
-
-@media (max-width: 768px) {
-    h1, .h1 { font-size: 2.25rem; }
-    h2, .h2 { font-size: 1.25rem; }
-    h3, .h3 { font-size: 1.125rem; }
-
-    .card { padding: 24px; }
-    .features-grid { gap: 16px; }
-}
-
-/* --- Text Style Utilities --- */
-
-.text-tagline {
-    font-style: italic;
-}
-
-/* --- Font Sizes --- */
-
-/* Home & Session Pages */
-.font-size-body-main {
-    font-size: 0.75rem;
-}
-
-/* Analytics Page */
-.font-size-body-analytics {
-    font-size: 1rem;
-}
-
-.font-size-analytics-tagline {
-    font-size: 1rem; /* User requested half of 2rem */
-}
-
-.font-size-analytics-download {
-    font-size: 2rem;
-}
-
-.font-size-analytics-no-data {
-    font-size: 2rem;
-}
-
-/* --- Layout Utilities --- */
-.icon-home-analytics {
-    position: absolute;
-    top: 20px;
-    right: 0;
-    cursor: pointer;
-    font-size: 5rem;
+.container {
+  max-width: 1100px;
+  margin-left: auto;
+  margin-right: auto;
+  padding: 0 2rem;
 }
