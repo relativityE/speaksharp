@@ -167,12 +167,6 @@ Global Component Styles
     border-color: #ccc;
 }
 
-
-/*
-================================================================================
-Media Queries
-================================================================================
-*/
 @media (max-width: 768px) {
     h1, .h1 { font-size: 2.25rem; }
     h2, .h2 { font-size: 1.25rem; }
@@ -180,4 +174,43 @@ Media Queries
 
     .card { padding: 24px; }
     .features-grid { gap: 16px; }
+}
+
+/* --- Text Style Utilities --- */
+
+.text-tagline {
+    font-style: italic;
+}
+
+/* --- Font Sizes --- */
+
+/* Home & Session Pages */
+.font-size-body-main {
+    font-size: 0.75rem;
+}
+
+/* Analytics Page */
+.font-size-body-analytics {
+    font-size: 1rem;
+}
+
+.font-size-analytics-tagline {
+    font-size: 1rem; /* User requested half of 2rem */
+}
+
+.font-size-analytics-download {
+    font-size: 2rem;
+}
+
+.font-size-analytics-no-data {
+    font-size: 2rem;
+}
+
+/* --- Layout Utilities --- */
+.icon-home-analytics {
+    position: absolute;
+    top: 20px;
+    right: 0;
+    cursor: pointer;
+    font-size: 5rem;
 }

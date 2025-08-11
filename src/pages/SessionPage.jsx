@@ -105,7 +105,7 @@ export const SessionPage = () => {
                     <span className="microphone-icon"></span>
                     Session Control
                 </h2>
-                <p>Start recording to begin tracking your speech patterns. The session will end automatically after 2 minutes.</p>
+                <p className="font-size-body-main">Start recording to begin tracking your speech patterns. The session will end automatically after 2 minutes.</p>
                 <div className="button-group">
                     <button className="button button-primary" onClick={startRecording}>
                         {isListening ? 'Stop Recording' : 'Start Recording'}
@@ -121,18 +121,18 @@ export const SessionPage = () => {
                         checked={overrideTimer}
                         onChange={(e) => setOverrideTimer(e.target.checked)}
                     />
-                    <label htmlFor="overrideTimer" style={{ marginLeft: '8px' }}>Override 2-minute timer (for development)</label>
+                    <label htmlFor="overrideTimer" className="font-size-body-main" style={{ marginLeft: '8px' }}>Override 2-minute timer (for development)</label>
                 </div>
             </div>
 
             <div className="card">
                 <div className="status-indicator">
                     <span className="status-dot" style={{ background: isListening ? '#ef4444' : '#94a3b8' }}></span>
-                    <span className="status-text">{isListening ? 'Recording...' : 'Ready to Record'}</span>
+                    <span className="status-text font-size-body-main">{isListening ? 'Recording...' : 'Ready to Record'}</span>
                 </div>
-                <p className="total-count">Total filler words detected: <strong>{totalFillerWords}</strong></p>
-                {error && <p style={{ color: 'red', marginTop: '10px' }}>{error}</p>}
-                {!isSupported && <p style={{ color: 'red', marginTop: '10px' }}>Speech recognition is not supported in this browser.</p>}
+                <p className="total-count font-size-body-main">Total filler words detected: <strong>{totalFillerWords}</strong></p>
+                {error && <p className="font-size-body-main" style={{ color: 'red', marginTop: '10px' }}>{error}</p>}
+                {!isSupported && <p className="font-size-body-main" style={{ color: 'red', marginTop: '10px' }}>Speech recognition is not supported in this browser.</p>}
             </div>
 
             <div style={{ textAlign: 'center', margin: '20px 0' }}>
@@ -144,7 +144,7 @@ export const SessionPage = () => {
                     <span className="chart-icon"></span>
                     Filler Word Detection
                 </h2>
-                <p>Real-time tracking of common filler words</p>
+                <p className="font-size-body-main">Real-time tracking of common filler words</p>
 
                 <div className="filler-grid">
                     {Object.entries(fillerCounts).map(([word, count], index) => (
@@ -174,7 +174,7 @@ export const SessionPage = () => {
 
             <div className="card">
                 <h2>Live Transcript</h2>
-                <div style={{ marginTop: '10px', padding: '10px', border: '1px solid #ddd', borderRadius: '8px', minHeight: '100px', background: '#f8fafc' }}>
+                <div className="font-size-body-main" style={{ marginTop: '10px', padding: '10px', border: '1px solid #ddd', borderRadius: '8px', minHeight: '100px', background: '#f8fafc' }}>
                     {transcript}
                 </div>
             </div>
