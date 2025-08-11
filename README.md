@@ -51,24 +51,19 @@ A mobile-first web application that detects and counts filler words in real time
 
 ## Usage
 
-SpeakSharp can be used with or without an account.
+SpeakSharp uses a "progressive reveal" model. All pages are accessible to everyone, but more features are unlocked when you sign up for a free account.
 
-### Anonymous Free Trial
+### Anonymous Users (Free Trial)
+-   **Start a Session**: Anyone can start a recording session from the main page.
+-   **2-Minute Limit**: Trial sessions are limited to 2 minutes. A checkbox is available for developers to override this limit.
+-   **View Analytics Page**: You can view the Analytics page, but it will show a demo and a prompt to sign up to save and view your history.
 
-1.  **Start a Session**: Click "Start New Session" on the home page to begin a new recording session.
-2.  **Grant Microphone Access**: Allow the browser to access your microphone when prompted.
-3.  **Start Recording**: Your session will be limited to **2 minutes**. Use the "Start Recording" and "Stop Recording" buttons to control the session.
-4.  **View Live Transcript**: Watch your speech being transcribed in real time.
-5.  **Monitor Progress**: View the live counters for each filler word on the session page.
-6.  **Sign Up**: To save your session history and get more features, sign up for a free account.
-
-### Authenticated Users
-
-1.  **Sign Up / Login**: Create a free account or log in to access all features.
-2.  **Unlimited Sessions**: Start sessions of any length.
-3.  **View Analytics**: Track your progress over time with detailed analytics and session history.
-4.  **Save and Export**: Your sessions are automatically saved to your account. You can export your entire history from the analytics page.
-5.  **Custom Filler Words**: Add and track your own custom filler words across sessions.
+### Authenticated Users (Free Tier)
+-   **Sign Up / Login**: Create a free account to unlock more features.
+-   **Save Session History**: Your sessions are automatically saved to your account.
+-   **Track Progress**: The Analytics page will show your full session history and progress charts.
+-   **Unlimited Session Length**: The 2-minute limit is removed.
+-   **Custom Filler Words**: Add and track your own list of custom filler words.
 
 ## How to Test the Application
 

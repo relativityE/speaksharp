@@ -7,13 +7,6 @@ import { SessionPage } from './pages/SessionPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import AuthPage from './pages/AuthPage';
 
-function ProtectedRoute({ children }) {
-  const { user } = useAuth();
-  if (!user) {
-    return <Navigate to="/auth" />;
-  }
-  return children;
-}
 
 function App() {
   const { user } = useAuth();
@@ -26,14 +19,7 @@ function App() {
           <Route path="/auth" element={<AuthPage />} />
           <Route path="/" element={<MainPage />} />
           <Route path="/session" element={<SessionPage />} />
-          <Route
-            path="/analytics"
-            element={
-              <ProtectedRoute>
-                <AnalyticsPage />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/analytics" element={<AnalyticsPage />} />
         </Routes>
       </main>
     </div>
