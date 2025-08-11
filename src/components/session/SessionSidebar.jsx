@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 import { Mic, Square, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 
 const FillerWordCounter = ({ word, count }) => {
     const [displayCount, setDisplayCount] = useState(count);
@@ -98,16 +101,23 @@ const CustomWords = ({ customWords, setCustomWords }) => {
 
 export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, isSupported, startListening, stopListening, reset, customWords, setCustomWords, saveSession }) => {
     const navigate = useNavigate();
+    const { user } = useAuth();
     const [elapsedTime, setElapsedTime] = useState(0);
+    const [overrideTimer, setOverrideTimer] = useState(false);
     const timerIntervalRef = useRef(null);
+    const ANONYMOUS_TIME_LIMIT = 120; // 2 minutes
 
     const endSessionAndSave = () => {
         stopListening();
-        // The data saved should match the DB schema from smart-mvp-plan.md
+        if (!user) {
+            // For anonymous users, we don't save, just stop.
+            // A modal could be shown here to encourage sign-up.
+            return;
+        }
         const sessionData = {
             duration: elapsedTime,
             total_words: transcript.split(/\s+/).filter(Boolean).length,
-            filler_words: fillerCounts, // This is already a JSON object
+            filler_words: fillerCounts,
             custom_words: customWords.reduce((acc, word) => {
                 const regex = new RegExp(`\\b${word}\\b`, 'gi');
                 const count = (transcript.match(regex) || []).length;
@@ -123,12 +133,20 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
 
     useEffect(() => {
         if (isListening) {
-            timerIntervalRef.current = setInterval(() => setElapsedTime(prev => prev + 1), 1000);
+            timerIntervalRef.current = setInterval(() => {
+                setElapsedTime(prev => {
+                    const newTime = prev + 1;
+                    if (!user && !overrideTimer && newTime >= ANONYMOUS_TIME_LIMIT) {
+                        stopListening();
+                    }
+                    return newTime;
+                });
+            }, 1000);
         } else {
             clearInterval(timerIntervalRef.current);
         }
         return () => clearInterval(timerIntervalRef.current);
-    }, [isListening]);
+    }, [isListening, user, stopListening, overrideTimer]);
 
     const handleStartStop = () => {
         if (isListening) {
@@ -146,12 +164,17 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
         return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
     };
 
+    const timeLimit = user ? null : ANONYMOUS_TIME_LIMIT;
+
     return (
         <div className="flex flex-col flex-1 gap-6">
             <Card className="text-center">
                 <CardContent className="p-6">
                     <div className="text-6xl font-bold font-mono text-light-text">
                         {formatTime(elapsedTime)}
+                        {timeLimit && (
+                            <span className="text-2xl text-muted-text"> / {formatTime(timeLimit)}</span>
+                        )}
                     </div>
                     <div className={`mt-2 mb-4 text-sm ${isListening ? 'text-accent-blue' : 'text-muted-text'}`}>
                         {isListening ? '● Recording' : 'Ready to start'}
@@ -164,6 +187,18 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
                         {isListening ? <Square className="w-4 h-4 mr-2" /> : <Mic className="w-4 h-4 mr-2" />}
                         {isListening ? 'End Session' : 'Start Recording'}
                     </Button>
+                    {!user && (
+                        <div className="flex items-center justify-center mt-4 space-x-2">
+                            <Checkbox
+                                id="override-timer"
+                                checked={overrideTimer}
+                                onCheckedChange={setOverrideTimer}
+                            />
+                            <Label htmlFor="override-timer" className="text-sm text-muted-text">
+                                Override 2-min limit (for dev)
+                            </Label>
+                        </div>
+                    )}
                 </CardContent>
             </Card>
 
