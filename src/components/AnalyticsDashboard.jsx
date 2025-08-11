@@ -37,26 +37,33 @@ export const AnalyticsDashboard = ({ sessionHistory }) => {
     const latestSession = sessionHistory[sessionHistory.length - 1];
     const colors = ['blue', 'green', 'orange', 'purple', 'red', 'pink'];
 
+    const formatFillerWord = (word) => {
+        if (word.includes('_')) {
+            return word.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+        }
+        return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    };
+
     return (
         <div className="space-y-6" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
             {/* Key Stats Section */}
-            <div className="features-grid">
-                <div className="card feature-card" style={{textAlign: 'center'}}>
+            <div className="features-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
+                <div className="card" style={{textAlign: 'center'}}>
                     <h3>Total Sessions</h3>
                     <div className="filler-count">{trends.totalSessions}</div>
                 </div>
-                <div className="card feature-card" style={{textAlign: 'center'}}>
+                <div className="card" style={{textAlign: 'center'}}>
                     <h3>Avg. Filler Words</h3>
                     <div className="filler-count">{trends.avgFillerWords}</div>
                 </div>
-                <div className="card feature-card" style={{textAlign: 'center'}}>
+                <div className="card" style={{textAlign: 'center'}}>
                     <h3>Avg. Words/Min</h3>
                     <div className="filler-count">{trends.avgWordsPerMin}</div>
                 </div>
             </div>
 
             {/* Latest Session Details */}
-            <div className="card detection-card">
+            <div className="card">
                 <h2>
                     <span className="chart-icon"></span>
                     Latest Session Details
@@ -67,7 +74,7 @@ export const AnalyticsDashboard = ({ sessionHistory }) => {
                     {Object.entries(latestSession.fillerCounts).map(([word, count], index) => (
                         <div className="filler-item" key={word}>
                             <div className={`filler-count ${colors[index % colors.length]}`}>{count}</div>
-                            <div className="filler-label">{word}</div>
+                            <div className="filler-label">{formatFillerWord(word)}</div>
                         </div>
                     ))}
                 </div>

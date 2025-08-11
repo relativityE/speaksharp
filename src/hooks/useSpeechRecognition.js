@@ -2,9 +2,9 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { SPEECH_RECOGNITION_LANG, FILLER_WORD_KEYS } from '../config';
 
 const defaultFillerPatterns = {
-  [FILLER_WORD_KEYS.UM]: /(um|umm|ummm|ahm)/gi,
-  [FILLER_WORD_KEYS.UH]: /(uh|uhh|uhhh|er|err|erh)/gi,
-  [FILLER_WORD_KEYS.AH]: /(ah)/gi,
+  [FILLER_WORD_KEYS.UM]: /\b(um|umm|ummm|ahm)\b/gi,
+  [FILLER_WORD_KEYS.UH]: /\b(uh|uhh|uhhh|er|err|erh)\b/gi,
+  [FILLER_WORD_KEYS.AH]: /\b(ah)\b/gi,
   [FILLER_WORD_KEYS.LIKE]: /\b(like)\b/gi,
   [FILLER_WORD_KEYS.YOU_KNOW]: /\b(you know|y'know|ya know)\b/gi,
   [FILLER_WORD_KEYS.SO]: /\b(so)\b/gi,
@@ -32,6 +32,7 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
 
   const recognitionRef = useRef(null);
   const intentionallyStopped = useRef(false);
+  const processTranscriptRef = useRef(null);
 
   useEffect(() => {
     setFillerCounts(getInitialCounts(customWords));
@@ -69,12 +70,16 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
     }
   }, [customWords]);
 
+  // Keep a ref to the latest processTranscript function
+  useEffect(() => {
+    processTranscriptRef.current = processTranscript;
+  }, [processTranscript]);
+
   const handleEnd = useCallback(() => {
     if (intentionallyStopped.current) {
       setIsListening(false);
       return;
     }
-    // Keep-alive: restart if not intentionally stopped
     if (recognitionRef.current) {
       try {
         recognitionRef.current.start();
@@ -88,6 +93,7 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
+      setError('Speech recognition is not supported in this browser.');
       return;
     }
 
@@ -97,7 +103,11 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
     recognition.interimResults = true;
     recognition.lang = SPEECH_RECOGNITION_LANG;
 
-    recognition.onresult = processTranscript;
+    recognition.onresult = (event) => {
+      if (processTranscriptRef.current) {
+        processTranscriptRef.current(event);
+      }
+    };
     recognition.onerror = (event) => {
       console.error('Speech recognition error:', event.error);
       setError(`Speech recognition error: ${event.error}`);
@@ -106,11 +116,15 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
     recognition.onend = handleEnd;
 
     return () => {
-      recognition.onresult = null;
-      recognition.onerror = null;
-      recognition.onend = null;
+      if (recognitionRef.current) {
+        recognitionRef.current.onresult = null;
+        recognitionRef.current.onerror = null;
+        recognitionRef.current.onend = null;
+        recognitionRef.current.stop();
+        recognitionRef.current.abort();
+      }
     };
-  }, [processTranscript, handleEnd]);
+  }, [handleEnd]);
 
   const startListening = useCallback(() => {
     if (isListening || !recognitionRef.current) {

@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
+import { useSessionManager } from '../hooks/useSessionManager';
 
 export const SessionPage = () => {
     const navigate = useNavigate();
+    const { saveSession } = useSessionManager();
     const [customWord, setCustomWord] = useState('');
     const [customWords, setCustomWords] = useState([]);
     const [overrideTimer, setOverrideTimer] = useState(false);
@@ -28,6 +30,23 @@ export const SessionPage = () => {
         setElapsedTime(prev => prev + 1);
     };
 
+    const endSession = (shouldNavigateToAnalytics = false) => {
+        stopListening();
+        const sessionData = {
+            date: new Date().toISOString(),
+            duration: elapsedTime,
+            fillerCounts: fillerCounts,
+            transcript: transcript,
+            totalFillerWords: totalFillerWords,
+        };
+        saveSession(sessionData);
+        if (shouldNavigateToAnalytics) {
+            navigate('/analytics');
+        } else {
+            navigate('/');
+        }
+    };
+
     useEffect(() => {
         if (isListening) {
             timerIntervalRef.current = setInterval(updateTimer, 1000);
@@ -38,7 +57,7 @@ export const SessionPage = () => {
             clearInterval(timerIntervalRef.current);
         }
         return () => clearInterval(timerIntervalRef.current);
-    }, [isListening, elapsedTime, overrideTimer]);
+    }, [isListening, elapsedTime, overrideTimer, endSession]);
 
     const startRecording = () => {
         if (!isListening) {
@@ -47,28 +66,6 @@ export const SessionPage = () => {
             startListening();
         } else {
             stopListening();
-        }
-    };
-
-    const endSession = (shouldNavigateToAnalytics = false) => {
-        stopListening();
-        const sessionData = {
-            id: Date.now(),
-            date: new Date().toISOString(),
-            duration: elapsedTime,
-            fillerCounts: fillerCounts,
-            transcript: transcript,
-            totalFillerWords: totalFillerWords,
-        };
-
-        const history = JSON.parse(localStorage.getItem('saylessSessionHistory')) || [];
-        history.push(sessionData);
-        localStorage.setItem('saylessSessionHistory', JSON.stringify(history));
-
-        if (shouldNavigateToAnalytics) {
-            navigate('/analytics');
-        } else {
-            navigate('/');
         }
     };
 
@@ -87,14 +84,22 @@ export const SessionPage = () => {
 
     const colors = ['blue', 'green', 'orange', 'purple', 'red', 'pink', 'teal', 'yellow'];
 
+    const formatFillerWord = (word) => {
+        // Split camelCase strings like "iMean" into "i Mean"
+        const words = word.replace(/([A-Z])/g, ' $1').split(' ');
+
+        // Capitalize the first letter of each word
+        return words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+    };
+
     return (
-        <div className="container session-page">
-            <div className="header">
+        <div className="container">
+            <div className="page-header">
                 <h1>SpeakSharp</h1>
-                <p>Cut the clutter. Speak with clarity.</p>
+                <p className="text-tagline">Cut the clutter. Speak with clarity.</p>
             </div>
 
-            <div className="card session-card">
+            <div className="card">
                 <div className="timer">{formatTime(elapsedTime)}</div>
                 <h2>
                     <span className="microphone-icon"></span>
@@ -102,15 +107,14 @@ export const SessionPage = () => {
                 </h2>
                 <p>Start recording to begin tracking your speech patterns. The session will end automatically after 2 minutes.</p>
                 <div className="button-group">
-                    <button className="start-button" onClick={startRecording}>
+                    <button className="button button-primary" onClick={startRecording}>
                         {isListening ? 'Stop Recording' : 'Start Recording'}
                     </button>
-                    <button className="end-button" onClick={() => endSession(false)}>
+                    <button className="button button-secondary" onClick={() => endSession(false)}>
                         End Session
                     </button>
                 </div>
-                {/* DEV ONLY: Override Timer Checkbox */}
-                <div style={{ marginTop: '20px', textAlign: 'center', fontSize: '14px', color: '#666' }}>
+                <div style={{ marginTop: '20px', textAlign: 'center', color: '#666' }}>
                     <input
                         type="checkbox"
                         id="overrideTimer"
@@ -121,7 +125,7 @@ export const SessionPage = () => {
                 </div>
             </div>
 
-            <div className="card status-card">
+            <div className="card">
                 <div className="status-indicator">
                     <span className="status-dot" style={{ background: isListening ? '#ef4444' : '#94a3b8' }}></span>
                     <span className="status-text">{isListening ? 'Recording...' : 'Ready to Record'}</span>
@@ -132,10 +136,10 @@ export const SessionPage = () => {
             </div>
 
             <div style={{ textAlign: 'center', margin: '20px 0' }}>
-                <a onClick={() => navigate('/analytics')} style={{ cursor: 'pointer', textDecoration: 'underline', color: '#666' }}>View Detailed Analytics</a>
+                <a onClick={() => navigate('/analytics')}>View Detailed Analytics</a>
             </div>
 
-            <div className="card detection-card">
+            <div className="card">
                 <h2>
                     <span className="chart-icon"></span>
                     Filler Word Detection
@@ -146,24 +150,24 @@ export const SessionPage = () => {
                     {Object.entries(fillerCounts).map(([word, count], index) => (
                         <div className="filler-item" key={word}>
                             <div className={`filler-count ${colors[index % colors.length]}`}>{count}</div>
-                            <div className="filler-label">{word}</div>
+                            <div className="filler-label">{formatFillerWord(word)}</div>
                         </div>
                     ))}
                 </div>
 
                 <div style={{ marginTop: '30px' }}>
-                    <label htmlFor="customWord" style={{ display: 'block', textAlign: 'left', marginBottom: '10px', fontWeight: '500' }}>Custom word</label>
                     <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                        <label htmlFor="customWord" style={{ fontWeight: '500' }}>custom word</label>
                         <input
                             id="customWord"
                             type="text"
                             value={customWord}
                             onChange={(e) => setCustomWord(e.target.value)}
                             placeholder="Enter word"
-                            style={{ padding: '8px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '16px', maxWidth: '120px' }}
+                            style={{ padding: '8px', borderRadius: '8px', border: '1px solid #ddd', maxWidth: '120px' }}
                             maxLength="10"
                         />
-                        <button onClick={addCustomWord} className="start-button" style={{ padding: '8px 16px' }}>Add</button>
+                        <button onClick={addCustomWord} className="button button-primary" style={{ padding: '8px 16px' }}>Add</button>
                     </div>
                 </div>
             </div>
