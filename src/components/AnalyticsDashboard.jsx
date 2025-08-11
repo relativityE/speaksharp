@@ -1,9 +1,10 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, LabelList } from 'recharts';
-import { TrendingUp, Clock, Hash } from 'lucide-react';
+import { TrendingUp, Clock, Hash, CheckCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 
 const calculateTrends = (history) => {
     if (!history || history.length === 0) {
@@ -92,8 +93,16 @@ const SessionHistoryItem = ({ session }) => {
                     <p className="text-sm text-muted-foreground">{new Date(session.created_at).toLocaleTimeString()}</p>
                 </div>
                 <div className="text-right">
-                    <p className="font-semibold text-foreground">{totalFillers} filler words</p>
-                    <p className="text-sm text-muted-foreground">{durationMins} min duration</p>
+                    <div className="flex items-center justify-end gap-4">
+                        <div>
+                            <p className="font-semibold text-foreground">{totalFillers} filler words</p>
+                            <p className="text-sm text-muted-foreground">{durationMins} min duration</p>
+                        </div>
+                        <Badge variant="secondary" className="hidden sm:flex items-center gap-1.5">
+                            <CheckCircle className="h-3.5 w-3.5" />
+                            Completed
+                        </Badge>
+                    </div>
                 </div>
             </div>
         </div>
