@@ -20,7 +20,7 @@ export const MainPage = () => {
                     <h1 className="text-5xl md:text-6xl font-bold mb-4">
                         Reduce your filler words by 50% in 30 days.
                     </h1>
-                    <p className="max-w-2xl mx-auto mb-8 text-lg text-muted-foreground">
+                    <p className="max-w-2xl mx-auto mb-8 text-2xl text-muted-foreground">
                         Get real-time feedback to eliminate filler words and become a more articulate speaker.
                     </p>
                     <Button size="lg" onClick={handleStartSession}>
