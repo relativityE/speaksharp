@@ -1,216 +1,180 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
 /*
-================================================================================
-SpeakSharp Global Styles
-================================================================================
+ SpeakSharp Design System
+ Manually compiled CSS as a workaround for a persistent build issue.
 */
 
-/* --- Variables --- */
+/* Tailwind Base Styles (Manually included for reset) */
+*, ::before, ::after {
+  box-sizing: border-box;
+  border-width: 0;
+  border-style: solid;
+  border-color: #e5e7eb;
+}
+html {
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+  -moz-tab-size: 4;
+  tab-size: 4;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+}
+/* ... (other base styles would go here, but keeping it minimal for now) ... */
+
+
+/* Custom Theme Variables */
 :root {
-    --radius: 0.625rem;
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
-
-    /* Custom Theme Variables */
-    --brand-accent: #5b21b6; /* Dark Purple */
-    --brand-text-main: #2d3748; /* Dark Gray */
-    --brand-text-secondary: var(--brand-accent);
+  --background: #030712;
+  --foreground: #f9fafb;
+  --card: #030712;
+  --card-foreground: #f9fafb;
+  --popover: #030712;
+  --popover-foreground: #f9fafb;
+  --primary: #8B5CF6;
+  --primary-foreground: #f9fafb;
+  --secondary: #1f2937;
+  --secondary-foreground: #f9fafb;
+  --muted: #1f2937;
+  --muted-foreground: #9ca3af;
+  --accent: #10B981;
+  --accent-foreground: #f9fafb;
+  --destructive: #ef4444;
+  --destructive-foreground: #f9fafb;
+  --border: #1f2937;
+  --input: #1f2937;
+  --ring: #a78bfa;
+  --radius: 0.5rem;
 }
 
-/* --- Base & Reset --- */
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-    border-color: var(--border);
-}
-
+/* Base Body & Typography Styles */
 body {
-    background-color: var(--background);
-    color: var(--foreground);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    background: linear-gradient(135deg, #e8f0fe 0%, #f3e8ff 100%);
-    min-height: 100vh;
-    padding: 40px 20px;
-    font-size: 18px;
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-.container {
-    max-width: 800px;
-    margin: 0 auto;
-}
-
-/*
-================================================================================
-Global Typographic Scale
-================================================================================
-*/
 h1, .h1 {
-    font-size: 3rem;
-    font-weight: 700;
-    color: var(--brand-text-main);
-    margin-bottom: 1rem;
-    letter-spacing: -0.02em;
+  font-size: 1.5rem; /* text-2xl */
+  font-weight: 700; /* font-bold */
+  letter-spacing: -0.025em; /* tracking-tight */
+}
+@media (min-width: 1024px) {
+  h1, .h1 {
+    font-size: 2.25rem; /* lg:text-4xl */
+  }
 }
 
 h2, .h2 {
-    font-size: 1.5rem;
-    font-weight: 600;
-    color: var(--brand-text-main);
-    margin-bottom: 0.75rem;
+  font-size: 1.25rem; /* text-xl */
+  font-weight: 600; /* font-semibold */
+  letter-spacing: -0.025em; /* tracking-tight */
+}
+@media (min-width: 1024px) {
+  h2, .h2 {
+    font-size: 1.5rem; /* lg:text-2xl */
+  }
 }
 
 h3, .h3 {
-    font-size: 1.25rem;
-    font-weight: 600;
-    color: var(--brand-text-main);
-    margin-bottom: 1.5rem;
+  font-size: 1.125rem; /* text-lg */
+  font-weight: 600; /* font-semibold */
+  letter-spacing: -0.025em; /* tracking-tight */
+}
+@media (min-width: 1024px) {
+  h3, .h3 {
+    font-size: 1.25rem; /* lg:text-xl */
+  }
 }
 
-p, a, li, span, label, div {
-    font-size: 1rem;
-    color: var(--brand-text-secondary);
-    line-height: 1.6;
+p, .p {
+  line-height: 1.75; /* leading-7 */
 }
 
-a {
-    cursor: pointer;
-    text-decoration: underline;
+.text-muted {
+  color: var(--muted-foreground);
+}
+.text-primary {
+  color: var(--primary);
+}
+.text-accent {
+  color: var(--accent);
 }
 
-.text-tagline {
-    font-style: italic;
+/* Component Styles */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+  padding: 0.5rem 1rem;
+}
+.btn:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--ring);
+}
+.btn:disabled {
+  pointer-events: none;
+  opacity: 0.5;
 }
 
-/*
-================================================================================
-Global Component Styles
-================================================================================
-*/
-
-/* --- Header & Footer --- */
-.page-header {
-    text-align: center;
-    margin-bottom: 60px;
+.btn-primary {
+  background-color: var(--accent);
+  color: var(--accent-foreground);
+}
+.btn-primary:hover {
+  background-color: #10B981cc; /* 90% opacity */
 }
 
-.page-footer {
-    text-align: center;
-    margin-top: 60px;
-    padding-top: 40px;
+.btn-secondary {
+  background-color: var(--secondary);
+  color: var(--secondary-foreground);
+}
+.btn-secondary:hover {
+  background-color: #1f2937cc; /* 80% opacity */
 }
 
-/* --- Cards --- */
+.btn-outline {
+  border: 1px solid var(--primary);
+  color: var(--primary);
+  background-color: transparent;
+}
+.btn-outline:hover {
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+}
+
 .card {
-    background: white;
-    border-radius: 16px;
-    padding: 32px;
-    margin-bottom: 24px;
-    box-shadow: 0 2px 16px rgba(0, 0, 0, 0.08);
-    border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 0.75rem; /* rounded-xl */
+  border: 1px solid var(--border);
+  background-color: var(--card);
+  color: var(--card-foreground);
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
 }
 
-.features-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 32px;
+.card-metric {
+  color: var(--primary-foreground);
+  background-image: linear-gradient(to bottom right, var(--primary), #6d28d9);
 }
 
-/* --- Buttons --- */
-.button {
-    border: none;
-    border-radius: 8px;
-    padding: 0.75rem 1.5rem;
-    font-size: 1rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s ease;
+.container {
+  max-width: 80rem; /* max-w-4xl is 56rem, but going larger */
+  margin-left: auto;
+  margin-right: auto;
+  padding: 1rem;
 }
-
-.button-primary {
-    background: #2d3748;
-    color: white;
+@media (min-width: 640px) {
+  .container {
+    padding: 1.5rem;
+  }
 }
-.button-primary:hover {
-    background: #4a5568;
-    transform: translateY(-1px);
-}
-
-.button-secondary {
-    background: transparent;
-    color: var(--brand-accent);
-    border: 1px solid #ddd;
-}
-.button-secondary:hover {
-    background: #f5f5f5;
-    border-color: #ccc;
-}
-
-@media (max-width: 768px) {
-    h1, .h1 { font-size: 2.25rem; }
-    h2, .h2 { font-size: 1.25rem; }
-    h3, .h3 { font-size: 1.125rem; }
-
-    .card { padding: 24px; }
-    .features-grid { gap: 16px; }
-}
-
-/* --- Text Style Utilities --- */
-
-.text-tagline {
-    font-style: italic;
-}
-
-/* --- Font Sizes --- */
-
-/* Home & Session Pages */
-.font-size-body-main {
-    font-size: 0.75rem;
-}
-
-/* Analytics Page */
-.font-size-body-analytics {
-    font-size: 1rem;
-}
-
-.font-size-analytics-tagline {
-    font-size: 1rem; /* User requested half of 2rem */
-}
-
-.font-size-analytics-download {
-    font-size: 2rem;
-}
-
-.font-size-analytics-no-data {
-    font-size: 2rem;
-}
-
-/* --- Layout Utilities --- */
-.icon-home-analytics {
-    position: absolute;
-    top: 20px;
-    right: 0;
-    cursor: pointer;
-    font-size: 5rem;
+@media (min-width: 1024px) {
+  .container {
+    padding: 2rem;
+  }
 }
