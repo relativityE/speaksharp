@@ -1,13 +1,14 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
-import { TrendingUp, Clock, Hash, Download } from 'lucide-react';
+import { TrendingUp, Clock, Hash } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 
 const calculateTrends = (history) => {
     if (!history || history.length === 0) {
         return {
-            avgFillerWords: 0,
-            avgWordsPerMin: 0,
+            avgFillerWordsPerMin: 0,
             totalSessions: 0,
             totalPracticeTime: 0,
             chartData: [],
@@ -16,28 +17,32 @@ const calculateTrends = (history) => {
     }
 
     const totalSessions = history.length;
-    const totalFillerWords = history.reduce((sum, session) => sum + session.totalFillerWords, 0);
-    const totalDuration = history.reduce((sum, session) => sum + session.duration, 0);
-    const avgWordsPerMin = totalDuration > 0 ? (totalFillerWords / (totalDuration / 60)) : 0;
+    const totalDuration = history.reduce((sum, session) => sum + (session.duration || 0), 0);
+    const totalFillerWords = history.reduce((sum, session) => {
+        if (!session.filler_words) return sum;
+        return sum + Object.values(session.filler_words).reduce((a, b) => a + b, 0);
+    }, 0);
+
+    const avgFillerWordsPerMin = totalDuration > 0 ? (totalFillerWords / (totalDuration / 60)) : 0;
 
     const chartData = history.map(s => ({
-        date: new Date(s.date).toLocaleDateString(),
-        'Filler Words per Minute': s.duration > 0 ? (s.totalFillerWords / (s.duration / 60)).toFixed(1) : 0,
+        date: new Date(s.created_at).toLocaleDateString(),
+        'FW/min': s.duration > 0 ? (Object.values(s.filler_words || {}).reduce((a, b) => a + b, 0) / (s.duration / 60)).toFixed(1) : 0,
     })).reverse();
 
     const allFillerCounts = history.reduce((acc, session) => {
-        for (const word in session.fillerCounts) {
-            acc[word] = (acc[word] || 0) + session.fillerCounts[word];
+        if (!session.filler_words) return acc;
+        for (const word in session.filler_words) {
+            acc[word] = (acc[word] || 0) + session.filler_words[word];
         }
         return acc;
     }, {});
 
-    const topFillerWords = Object.entries(allFillerCounts).sort(([,a],[,b]) => b-a).slice(0, 5);
+    const topFillerWords = Object.entries(allFillerCounts).sort(([, a], [, b]) => b - a).slice(0, 5).map(([name, value]) => ({ name, value }));
 
     return {
-        avgFillerWords: (totalFillerWords / totalSessions).toFixed(1),
-        avgWordsPerMin: avgWordsPerMin.toFixed(1),
-        totalSessions: totalSessions,
+        avgFillerWordsPerMin: avgFillerWordsPerMin.toFixed(1),
+        totalSessions,
         totalPracticeTime: Math.round(totalDuration / 60),
         chartData,
         topFillerWords
@@ -47,29 +52,50 @@ const calculateTrends = (history) => {
 const EmptyState = () => {
     const navigate = useNavigate();
     return (
-        <div className="card" style={{ textAlign: 'center', padding: '80px' }}>
-            <h2 className="h2" style={{ color: 'var(--color-text-primary)' }}>Your Progress Awaits</h2>
-            <p className="p" style={{ maxWidth: '450px', margin: '16px auto 32px auto' }}>
+        <div className="flex flex-col items-center justify-center p-20 text-center rounded-lg bg-card-bg">
+            <h2 className="text-3xl font-bold text-light-text">Your Progress Awaits</h2>
+            <p className="max-w-md mx-auto my-4 text-muted-text">
                 Complete your first session to unlock your personal analytics dashboard and start tracking your journey to confident speaking.
             </p>
-            <button onClick={() => navigate('/session')} className="btn btn-primary">Start Your First Session</button>
+            <Button onClick={() => navigate('/session')} className="bg-accent-blue text-charcoal hover:bg-accent-blue/90">
+                Start Your First Session
+            </Button>
         </div>
     );
 };
 
 const StatCard = ({ icon, label, value, unit }) => (
-    <div className="card" style={{ padding: '24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', color: 'var(--color-text-secondary)' }}>
+    <Card>
+        <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+            <CardTitle className="text-sm font-medium text-muted-text">{label}</CardTitle>
             {icon}
-            <span style={{ marginLeft: '8px', fontSize: '0.875rem' }}>{label}</span>
-        </div>
-        <div style={{ fontSize: '2.25rem', fontWeight: '700', color: 'var(--color-text-primary)', marginTop: '8px' }}>
-            {value} <span style={{ fontSize: '1rem', color: 'var(--color-text-secondary)' }}>{unit}</span>
-        </div>
-    </div>
+        </CardHeader>
+        <CardContent>
+            <div className="text-4xl font-bold text-light-text">
+                {value}
+                {unit && <span className="ml-2 text-lg font-normal text-muted-text">{unit}</span>}
+            </div>
+        </CardContent>
+    </Card>
 );
 
-export const AnalyticsDashboard = ({ sessionHistory, exportSessions }) => {
+const SessionHistoryItem = ({ session }) => (
+    <Card className="p-4 transition-all duration-200 hover:bg-white/5">
+        <div className="flex items-center justify-between">
+            <div>
+                <p className="font-semibold text-light-text">{new Date(session.created_at).toLocaleDateString()}</p>
+                <p className="text-sm text-muted-text">{new Date(session.created_at).toLocaleTimeString()}</p>
+            </div>
+            <div className="text-right">
+                <p className="font-semibold text-light-text">{(Object.values(session.filler_words || {}).reduce((a, b) => a + b, 0))} filler words</p>
+                <p className="text-sm text-muted-text">{session.duration}s duration</p>
+            </div>
+        </div>
+    </Card>
+);
+
+
+export const AnalyticsDashboard = ({ sessionHistory }) => {
     if (!sessionHistory || sessionHistory.length === 0) {
         return <EmptyState />;
     }
@@ -77,55 +103,72 @@ export const AnalyticsDashboard = ({ sessionHistory, exportSessions }) => {
     const trends = calculateTrends(sessionHistory);
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px' }}>
-                <StatCard icon={<Hash size={16} />} label="Total Sessions" value={trends.totalSessions} />
-                <StatCard icon={<TrendingUp size={16} />} label="Avg. Filler Words / Min" value={trends.avgFillerWords} />
-                <StatCard icon={<Clock size={16} />} label="Total Practice Time" value={trends.totalPracticeTime} unit="mins" />
+        <div className="space-y-6">
+            <div className="grid gap-6 md:grid-cols-3">
+                <StatCard icon={<Hash size={20} className="text-muted-text" />} label="Total Sessions" value={trends.totalSessions} />
+                <StatCard icon={<TrendingUp size={20} className="text-muted-text" />} label="Avg. Filler Words / Min" value={trends.avgFillerWordsPerMin} />
+                <StatCard icon={<Clock size={20} className="text-muted-text" />} label="Total Practice Time" value={trends.totalPracticeTime} unit="mins" />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '24px' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                    <div className="card">
-                        <h3 className="h3" style={{ color: 'var(--color-text-primary)', marginBottom: '16px' }}>Filler Word Trend</h3>
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+                <Card className="col-span-1 lg:col-span-2">
+                    <CardHeader>
+                        <CardTitle>Filler Word Trend</CardTitle>
+                    </CardHeader>
+                    <CardContent className="pl-2">
                         <ResponsiveContainer width="100%" height={300}>
                             <LineChart data={trends.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                                <XAxis dataKey="date" stroke="var(--color-text-secondary)" fontSize="0.75rem" />
-                                <YAxis stroke="var(--color-text-secondary)" fontSize="0.75rem" />
-                                <Tooltip contentStyle={{ backgroundColor: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }} />
-                                <Line type="monotone" dataKey="Filler Words per Minute" stroke="var(--color-accent)" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} />
+                                <CartesianGrid strokeDasharray="3 3" stroke="var(--bg-charcoal)" />
+                                <XAxis dataKey="date" stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
+                                <YAxis stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
+                                <Tooltip
+                                    cursor={{ fill: 'var(--bg-charcoal)' }}
+                                    contentStyle={{
+                                        backgroundColor: 'var(--bg-card)',
+                                        border: '1px solid var(--bg-charcoal)',
+                                        color: 'var(--text-light)'
+                                    }}
+                                />
+                                <Line type="monotone" dataKey="FW/min" stroke="var(--accent-blue)" strokeWidth={3} dot={{ r: 5 }} activeDot={{ r: 8 }} />
                             </LineChart>
                         </ResponsiveContainer>
-                    </div>
-                    <div className="card">
-                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                            <h3 className="h3" style={{ color: 'var(--color-text-primary)' }}>Session History</h3>
-                            <button className="btn btn-secondary" onClick={exportSessions}><Download size={16} style={{marginRight: '8px'}} /> Export My Data</button>
-                        </div>
-                        <ul style={{ listStyle: 'none', padding: 0 }}>
-                            {sessionHistory.slice(0, 5).map(session => (
-                                <li key={session.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 0', borderBottom: '1px solid var(--color-border)' }}>
-                                    <span>{new Date(session.date).toLocaleString()}</span>
-                                    <span>{session.totalFillerWords} filler words</span>
-                                    <span>{(session.duration)}s duration</span>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-                </div>
-                <div className="card">
-                    <h3 className="h3" style={{ color: 'var(--color-text-primary)', marginBottom: '16px' }}>Top Filler Words</h3>
-                     <ResponsiveContainer width="100%" height={300}>
-                        <BarChart data={trends.topFillerWords} layout="vertical" margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-                            <XAxis type="number" hide />
-                            <YAxis type="category" dataKey="0" stroke="var(--color-text-secondary)" fontSize="0.875rem" width={80} />
-                            <Tooltip cursor={{fill: 'var(--color-bg-primary)'}} contentStyle={{ backgroundColor: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}/>
-                            <Bar dataKey="1" fill="var(--color-accent)" background={{ fill: 'var(--color-bg-primary)' }} radius={[4, 4, 0, 0]} />
-                        </BarChart>
-                    </ResponsiveContainer>
-                </div>
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Top Filler Words</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <ResponsiveContainer width="100%" height={300}>
+                            <BarChart data={trends.topFillerWords} layout="vertical" margin={{ top: 0, right: 0, left: -10, bottom: 0 }}>
+                                <XAxis type="number" hide />
+                                <YAxis type="category" dataKey="name" stroke="var(--text-muted)" fontSize={14} tickLine={false} axisLine={false} />
+                                <Tooltip
+                                    cursor={{ fill: 'var(--bg-charcoal)' }}
+                                    contentStyle={{
+                                        backgroundColor: 'var(--bg-card)',
+                                        border: '1px solid var(--bg-charcoal)',
+                                        color: 'var(--text-light)'
+                                    }}
+                                />
+                                <Bar dataKey="value" fill="var(--accent-blue)" radius={[0, 4, 4, 0]} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </CardContent>
+                </Card>
             </div>
+
+            <Card>
+                <CardHeader>
+                    <CardTitle>Session History</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    {sessionHistory.slice(0, 10).map(session => (
+                        <SessionHistoryItem key={session.id} session={session} />
+                    ))}
+                </CardContent>
+            </Card>
         </div>
     );
 };

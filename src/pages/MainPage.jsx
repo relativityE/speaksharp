@@ -2,7 +2,18 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBrowserSupport } from '../hooks/useBrowserSupport';
 import { BrowserWarning } from '../components/BrowserWarning';
-import { Zap, Shield, BarChart } from 'lucide-react'; // Assuming lucide-react for icons
+import { Button } from '@/components/ui/button';
+import { Zap, Shield, LineChart, Lock } from 'lucide-react';
+
+const FeatureCard = ({ icon, title, children }) => (
+  <div className="flex flex-col items-center p-6 text-center bg-card-bg rounded-lg md:items-start md:text-left">
+    <div className="flex items-center justify-center w-12 h-12 mb-4 rounded-full bg-accent-blue/10 text-accent-blue">
+      {icon}
+    </div>
+    <h3 className="mb-2 text-xl font-bold text-light-text">{title}</h3>
+    <p className="text-muted-text">{children}</p>
+  </div>
+);
 
 export const MainPage = () => {
     const navigate = useNavigate();
@@ -13,53 +24,48 @@ export const MainPage = () => {
     };
 
     return (
-        <div className="container" style={{ textAlign: 'center', paddingTop: '80px', paddingBottom: '80px' }}>
+        <div className="flex flex-col items-center px-4 pt-20 pb-20 text-center bg-charcoal">
             <BrowserWarning support={support} />
 
-            <div className="hero-section" style={{ maxWidth: '700px', margin: '0 auto 80px auto' }}>
-                <h1 className="h1" style={{ color: 'var(--color-text-primary)', marginBottom: '16px' }}>
+            <div className="max-w-3xl mx-auto mb-20">
+                <h1 className="mb-4 text-5xl font-bold md:text-6xl text-light-text">
                     Speak with Clarity. Build Confidence.
                 </h1>
-                <p className="p" style={{ fontSize: '1.25rem', marginBottom: '32px' }}>
-                    SpeakSharp analyzes your speech in real-time to help you eliminate filler words like "um" and "uh". Become a more confident and articulate speaker today.
+                <p className="max-w-2xl mx-auto mb-8 text-lg text-muted-text">
+                    SpeakSharp analyzes your speech in real-time to help you eliminate filler words like 'um' and 'uh.' Become a more confident and articulate speaker today.
                 </p>
-                <button className="btn btn-primary" style={{ padding: '1rem 2.5rem', fontSize: '1rem' }} onClick={handleStartSession}>
-                    Start a Free 2-Minute Session
-                </button>
-                <p className="p" style={{ fontSize: '0.875rem', marginTop: '16px', color: 'var(--color-text-secondary)' }}>
-                    No account required.
+                <Button
+                  size="lg"
+                  className="bg-accent-blue text-charcoal hover:bg-accent-blue/90"
+                  onClick={handleStartSession}
+                >
+                    Start My Free Session
+                </Button>
+                <p className="mt-4 text-sm text-muted-text">
+                    No account required. Get started in seconds.
                 </p>
             </div>
 
-            <div className="social-proof" style={{ marginBottom: '80px' }}>
-                <p style={{ textTransform: 'uppercase', letterSpacing: '1px', fontSize: '0.75rem', color: 'var(--color-text-secondary)', marginBottom: '16px' }}>
-                    TRUSTED BY PROFESSIONALS AT
+            <div className="w-full max-w-5xl mx-auto mb-20">
+                <p className="mb-4 text-sm tracking-widest uppercase text-muted-text">
+                    Designed for professionals to improve their communication.
                 </p>
-                {/* Placeholder for logos */}
-                <div style={{ display: 'flex', justifyContent: 'center', gap: '40px', alignItems: 'center', filter: 'grayscale(1) opacity(0.6)' }}>
-                    <span>Logo 1</span>
-                    <span>Logo 2</span>
-                    <span>Logo 3</span>
-                    <span>Logo 4</span>
+                {/* In a real app, you would have a component for logos */}
+                <div className="flex items-center justify-center gap-12 opacity-50 grayscale">
+                    {/* Placeholder for logos */}
                 </div>
             </div>
 
-            <div className="features-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '40px', maxWidth: '1000px', margin: '0 auto' }}>
-                <div className="feature-card" style={{ textAlign: 'left' }}>
-                    <Zap size={24} color="var(--color-accent)" style={{ marginBottom: '16px' }} />
-                    <h3 className="h3" style={{ color: 'var(--color-text-primary)', marginBottom: '8px' }}>Real-time Feedback</h3>
-                    <p className="p">Get instant feedback on your filler words as you speak.</p>
-                </div>
-                <div className="feature-card" style={{ textAlign: 'left' }}>
-                    <Shield size={24} color="var(--color-accent)" style={{ marginBottom: '16px' }} />
-                    <h3 className="h3" style={{ color: 'var(--color-text-primary)', marginBottom: '8px' }}>Privacy First</h3>
-                    <p className="p">All processing happens on your device. Your speech never leaves your browser.</p>
-                </div>
-                <div className="feature-card" style={{ textAlign: 'left' }}>
-                    <BarChart size={24} color="var(--color-accent)" style={{ marginBottom: '16px' }} />
-                    <h3 className="h3" style={{ color: 'var(--color-text-primary)', marginBottom: '8px' }}>Track Your Progress</h3>
-                    <p className="p">Use our detailed analytics to see how you improve over time.</p>
-                </div>
+            <div className="grid w-full max-w-5xl gap-8 md:grid-cols-3">
+                 <FeatureCard icon={<Zap size={24} />} title="Instant Feedback">
+                    Get immediate, real-time analysis of your speech patterns and filler word usage.
+                </FeatureCard>
+                <FeatureCard icon={<Lock size={24} />} title="Privacy First">
+                    All audio processing happens locally in your browser. Your voice data never leaves your device.
+                </FeatureCard>
+                <FeatureCard icon={<LineChart size={24} />} title="Track Your Progress">
+                    See how you improve over time with detailed analytics and session history.
+                </FeatureCard>
             </div>
         </div>
     );

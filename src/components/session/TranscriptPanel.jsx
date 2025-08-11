@@ -3,38 +3,43 @@ import React from 'react';
 const HighlightedTranscript = ({ transcript, fillerWords }) => {
     if (!transcript) return null;
 
+    // A more robust regex to handle different cases and word boundaries
     const fillerRegex = new RegExp(`\\b(${fillerWords.join('|')})\\b`, 'gi');
     const parts = transcript.split(fillerRegex);
 
     return (
-        <p className="p" style={{ fontSize: '1.125rem', lineHeight: 1.8, color: 'var(--color-text-primary)' }}>
-            {parts.map((part, index) =>
-                fillerWords.includes(part.toLowerCase()) ? (
-                    <span key={index} style={{ backgroundColor: 'rgba(0, 201, 255, 0.1)', color: 'var(--color-accent)', padding: '2px 4px', borderRadius: '4px' }}>
+        <p className="text-xl leading-relaxed text-light-text">
+            {parts.map((part, index) => {
+                const isFiller = fillerWords.includes(part.toLowerCase());
+                return isFiller ? (
+                    <span key={index} className="px-1 rounded bg-highlight-yellow/20 text-highlight-yellow">
                         {part}
                     </span>
                 ) : (
                     <span key={index}>{part}</span>
-                )
-            )}
+                );
+            })}
         </p>
     );
 };
 
 
 export const TranscriptPanel = ({ transcript, customWords }) => {
-    const defaultFillerWords = ['um', 'uh', 'like', 'you know', 'i mean', 'so', 'right'];
+    // This list should ideally come from a config file
+    const defaultFillerWords = ['um', 'uh', 'like', 'you know', 'so', 'actually', 'i mean', 'right'];
     const allFillerWords = [...new Set([...defaultFillerWords, ...customWords.map(w => w.toLowerCase())])];
 
     return (
-        <div style={{ flex: 2 }}>
-            <h2 className="h2" style={{ color: 'var(--color-text-primary)', marginBottom: '8px' }}>
-                Live Transcript
-            </h2>
-            <p className="p" style={{ marginBottom: '24px' }}>
-                Start speaking and see your words appear here. Filler words will be highlighted.
-            </p>
-            <div className="card" style={{ minHeight: '60vh', padding: '32px' }}>
+        <div className="flex-[2]">
+            <div className="mb-6">
+                 <h2 className="text-3xl font-bold text-light-text">
+                    Live Transcript
+                </h2>
+                <p className="text-muted-text">
+                    Speak and see your words appear here. Filler words will be highlighted in yellow.
+                </p>
+            </div>
+            <div className="p-8 rounded-lg bg-card-bg min-h-[60vh]">
                 <HighlightedTranscript transcript={transcript} fillerWords={allFillerWords} />
             </div>
         </div>
