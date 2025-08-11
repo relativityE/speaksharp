@@ -85,31 +85,32 @@ export const SessionPage = () => {
     const colors = ['blue', 'green', 'orange', 'purple', 'red', 'pink', 'teal', 'yellow'];
 
     const formatFillerWord = (word) => {
-        if (word.includes('_')) {
-            return word.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-        }
-        return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+        // Split camelCase strings like "iMean" into "i Mean"
+        const words = word.replace(/([A-Z])/g, ' $1').split(' ');
+
+        // Capitalize the first letter of each word
+        return words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
     };
 
     return (
-        <div className="container session-page">
-            <div className="header">
+        <div className="container">
+            <div className="page-header">
                 <h1>SpeakSharp</h1>
-                <p className="text-tagline font-size-body-main">Cut the clutter. Speak with clarity.</p>
+                <p className="text-tagline">Cut the clutter. Speak with clarity.</p>
             </div>
 
-            <div className="card session-card">
-                <div className="timer font-size-body-main">{formatTime(elapsedTime)}</div>
+            <div className="card">
+                <div className="timer">{formatTime(elapsedTime)}</div>
                 <h2>
                     <span className="microphone-icon"></span>
                     Session Control
                 </h2>
                 <p className="font-size-body-main">Start recording to begin tracking your speech patterns. The session will end automatically after 2 minutes.</p>
                 <div className="button-group">
-                    <button className="start-button font-size-body-main" onClick={startRecording}>
+                    <button className="button button-primary" onClick={startRecording}>
                         {isListening ? 'Stop Recording' : 'Start Recording'}
                     </button>
-                    <button className="end-button font-size-body-main" onClick={() => endSession(false)}>
+                    <button className="button button-secondary" onClick={() => endSession(false)}>
                         End Session
                     </button>
                 </div>
@@ -124,7 +125,7 @@ export const SessionPage = () => {
                 </div>
             </div>
 
-            <div className="card status-card">
+            <div className="card">
                 <div className="status-indicator">
                     <span className="status-dot" style={{ background: isListening ? '#ef4444' : '#94a3b8' }}></span>
                     <span className="status-text font-size-body-main">{isListening ? 'Recording...' : 'Ready to Record'}</span>
@@ -135,10 +136,10 @@ export const SessionPage = () => {
             </div>
 
             <div style={{ textAlign: 'center', margin: '20px 0' }}>
-                <a onClick={() => navigate('/analytics')} className="font-size-body-main" style={{ cursor: 'pointer', textDecoration: 'underline', color: '#666' }}>View Detailed Analytics</a>
+                <a onClick={() => navigate('/analytics')}>View Detailed Analytics</a>
             </div>
 
-            <div className="card detection-card">
+            <div className="card">
                 <h2>
                     <span className="chart-icon"></span>
                     Filler Word Detection
@@ -148,26 +149,25 @@ export const SessionPage = () => {
                 <div className="filler-grid">
                     {Object.entries(fillerCounts).map(([word, count], index) => (
                         <div className="filler-item" key={word}>
-                            <div className={`filler-count ${colors[index % colors.length]} font-size-body-main`}>{count}</div>
-                            <div className="filler-label font-size-body-main">{formatFillerWord(word)}</div>
+                            <div className={`filler-count ${colors[index % colors.length]}`}>{count}</div>
+                            <div className="filler-label">{formatFillerWord(word)}</div>
                         </div>
                     ))}
                 </div>
 
                 <div style={{ marginTop: '30px' }}>
                     <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                        <label htmlFor="customWord" className="font-size-body-main" style={{ fontWeight: '500' }}>custom word</label>
+                        <label htmlFor="customWord" style={{ fontWeight: '500' }}>custom word</label>
                         <input
                             id="customWord"
                             type="text"
                             value={customWord}
                             onChange={(e) => setCustomWord(e.target.value)}
                             placeholder="Enter word"
-                            className="font-size-body-main"
                             style={{ padding: '8px', borderRadius: '8px', border: '1px solid #ddd', maxWidth: '120px' }}
                             maxLength="10"
                         />
-                        <button onClick={addCustomWord} className="start-button font-size-body-main" style={{ padding: '8px 16px' }}>Add</button>
+                        <button onClick={addCustomWord} className="button button-primary" style={{ padding: '8px 16px' }}>Add</button>
                     </div>
                 </div>
             </div>

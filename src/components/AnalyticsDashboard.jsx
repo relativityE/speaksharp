@@ -48,22 +48,22 @@ export const AnalyticsDashboard = ({ sessionHistory }) => {
         <div className="space-y-6" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
             {/* Key Stats Section */}
             <div className="features-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
-                <div className="card feature-card" style={{textAlign: 'center'}}>
+                <div className="card" style={{textAlign: 'center'}}>
                     <h3>Total Sessions</h3>
                     <div className="filler-count font-size-body-analytics">{trends.totalSessions}</div>
                 </div>
-                <div className="card feature-card" style={{textAlign: 'center'}}>
+                <div className="card" style={{textAlign: 'center'}}>
                     <h3>Avg. Filler Words</h3>
                     <div className="filler-count font-size-body-analytics">{trends.avgFillerWords}</div>
                 </div>
-                <div className="card feature-card" style={{textAlign: 'center'}}>
+                <div className="card" style={{textAlign: 'center'}}>
                     <h3>Avg. Words/Min</h3>
                     <div className="filler-count font-size-body-analytics">{trends.avgWordsPerMin}</div>
                 </div>
             </div>
 
             {/* Latest Session Details */}
-            <div className="card detection-card">
+            <div className="card">
                 <h2>
                     <span className="chart-icon"></span>
                     Latest Session Details
@@ -73,8 +73,8 @@ export const AnalyticsDashboard = ({ sessionHistory }) => {
                 <div className="filler-grid">
                     {Object.entries(latestSession.fillerCounts).map(([word, count], index) => (
                         <div className="filler-item" key={word}>
-                            <div className={`filler-count ${colors[index % colors.length]} font-size-body-analytics`}>{count}</div>
-                            <div className="filler-label font-size-body-analytics">{formatFillerWord(word)}</div>
+                            <div className={`filler-count ${colors[index % colors.length]}`}>{count}</div>
+                            <div className="filler-label">{formatFillerWord(word)}</div>
                         </div>
                     ))}
                 </div>

@@ -32,6 +32,7 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
 
   const recognitionRef = useRef(null);
   const intentionallyStopped = useRef(false);
+  const processTranscriptRef = useRef(null);
 
   useEffect(() => {
     setFillerCounts(getInitialCounts(customWords));
@@ -69,12 +70,16 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
     }
   }, [customWords]);
 
+  // Keep a ref to the latest processTranscript function
+  useEffect(() => {
+    processTranscriptRef.current = processTranscript;
+  }, [processTranscript]);
+
   const handleEnd = useCallback(() => {
     if (intentionallyStopped.current) {
       setIsListening(false);
       return;
     }
-    // Keep-alive: restart if not intentionally stopped
     if (recognitionRef.current) {
       try {
         recognitionRef.current.start();
@@ -88,6 +93,7 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
+      setError('Speech recognition is not supported in this browser.');
       return;
     }
 
@@ -97,7 +103,11 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
     recognition.interimResults = true;
     recognition.lang = SPEECH_RECOGNITION_LANG;
 
-    recognition.onresult = processTranscript;
+    recognition.onresult = (event) => {
+      if (processTranscriptRef.current) {
+        processTranscriptRef.current(event);
+      }
+    };
     recognition.onerror = (event) => {
       console.error('Speech recognition error:', event.error);
       setError(`Speech recognition error: ${event.error}`);
@@ -107,12 +117,14 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
 
     return () => {
       if (recognitionRef.current) {
-        recognitionRef.current.stop()
-        recognitionRef.current.abort()
-        recognitionRef.current = null // Clear reference
+        recognitionRef.current.onresult = null;
+        recognitionRef.current.onerror = null;
+        recognitionRef.current.onend = null;
+        recognitionRef.current.stop();
+        recognitionRef.current.abort();
       }
-    }
-  }, [processTranscript, handleEnd])
+    };
+  }, [handleEnd]);
 
   const startListening = useCallback(() => {
     if (isListening || !recognitionRef.current) {
