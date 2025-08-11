@@ -1,56 +1,71 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+
 /*
- SpeakSharp Design System (v2)
- High-Fidelity Redesign
+  SpeakSharp Design System (v3 - Charcoal)
+  Based on the new design guide.
 */
 
-/* Custom Theme Variables */
+/* Core Theme Variables */
 :root {
-  --font-primary: 'Poppins', sans-serif;
-  --font-secondary: 'Inter', sans-serif;
+  /* Color Palette */
+  --bg-charcoal: #1E1E28;
+  --bg-card: #2A2C37;
+  --text-light: #F0F0F2;
+  --text-muted: #A0A0A3;
+  --accent-blue: #00C9FF;
+  --highlight-yellow: #FFD700;
 
-  --color-bg-primary: #121217;
-  --color-bg-secondary: #2A2C37;
-  --color-accent: #00C9FF;
-  --color-text-primary: #F0F0F2;
-  --color-text-secondary: #A0A0A3;
-  --color-border: #2A2C37;
+  /* Old variables for compatibility - to be phased out */
+  --color-bg-primary: var(--bg-charcoal);
+  --color-bg-secondary: var(--bg-card);
+  --color-text-primary: var(--text-light);
+  --color-text-secondary: var(--text-muted);
+  --color-accent: var(--accent-blue);
+  --color-border: var(--bg-card);
 
+  /* Spacing */
+  --spacing-base: 8px;
+  --spacing-2: calc(var(--spacing-base) * 2); /* 16px */
+  --spacing-3: calc(var(--spacing-base) * 3); /* 24px */
+  --spacing-4: calc(var(--spacing-base) * 4); /* 32px */
+  --spacing-6: calc(var(--spacing-base) * 6); /* 48px */
+
+  /* Radius */
   --radius: 0.5rem;
 }
 
 /* Base Body & Typography Styles */
 body {
-  background-color: var(--color-bg-primary);
-  color: var(--color-text-primary);
-  font-family: var(--font-secondary);
+  background-color: var(--bg-charcoal);
+  color: var(--text-light);
+  font-family: 'Inter', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 h1, .h1 {
-  font-family: var(--font-primary);
+  font-size: 3rem;   /* 48px */
   font-weight: 700;
-  font-size: 3rem; /* 48px */
+  color: var(--text-light);
 }
 
 h2, .h2 {
-  font-family: var(--font-primary);
+  font-size: 2rem;   /* 32px */
   font-weight: 700;
-  font-size: 2.25rem; /* 36px */
+  color: var(--text-light);
 }
 
 h3, .h3 {
-  font-family: var(--font-primary);
-  font-weight: 600;
   font-size: 1.5rem; /* 24px */
+  font-weight: 700;
+  color: var(--text-light);
 }
 
 p, .p {
-  font-family: var(--font-secondary);
+  font-size: 1rem;   /* 16px */
   font-weight: 400;
-  font-size: 1rem; /* 16px */
   line-height: 1.75;
-  color: var(--color-text-secondary);
+  color: var(--text-muted);
 }
 
 a {
@@ -61,7 +76,15 @@ a:hover {
   text-decoration: underline;
 }
 
-/* Component Styles */
+/* Utility Classes */
+.container {
+  max-width: 1100px;
+  margin-left: auto;
+  margin-right: auto;
+  padding: 0 var(--spacing-4);
+}
+
+/* Keep old component styles for now to avoid breaking things, will be replaced by Tailwind */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -101,11 +124,4 @@ a:hover {
   border: 1px solid var(--color-border);
   border-radius: 12px;
   padding: 24px;
-}
-
-.container {
-  max-width: 1100px;
-  margin-left: auto;
-  margin-right: auto;
-  padding: 0 2rem;
 }

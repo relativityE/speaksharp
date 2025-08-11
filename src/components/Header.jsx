@@ -1,6 +1,8 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { Home, BarChart3, Mic } from 'lucide-react';
+import { Home, BarChart3, Mic, LogOut } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import { Button } from './ui/button';
 
 const navLinkStyle = {
     display: 'flex',
@@ -18,6 +20,8 @@ const activeLinkStyle = {
 };
 
 export const Header = () => {
+    const { user, signOut } = useAuth();
+
     return (
         <header style={{
             padding: '16px 0',
@@ -33,29 +37,39 @@ export const Header = () => {
                         SpeakSharp
                     </h2>
                 </NavLink>
-                <nav style={{ display: 'flex', gap: '8px' }}>
-                    <NavLink
-                        to="/"
-                        style={({ isActive }) => (isActive ? { ...navLinkStyle, ...activeLinkStyle } : navLinkStyle)}
-                    >
-                        <Home size={16} style={{ marginRight: '8px' }} />
-                        Dashboard
-                    </NavLink>
-                    <NavLink
-                        to="/session"
-                        style={({ isActive }) => (isActive ? { ...navLinkStyle, ...activeLinkStyle } : navLinkStyle)}
-                    >
-                        <Mic size={16} style={{ marginRight: '8px' }} />
-                        New Session
-                    </NavLink>
-                    <NavLink
-                        to="/analytics"
-                        style={({ isActive }) => (isActive ? { ...navLinkStyle, ...activeLinkStyle } : navLinkStyle)}
-                    >
-                        <BarChart3 size={16} style={{ marginRight: '8px' }} />
-                        Analytics
-                    </NavLink>
-                </nav>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                    <nav style={{ display: 'flex', gap: '8px' }}>
+                        <NavLink
+                            to="/"
+                            style={({ isActive }) => (isActive ? { ...navLinkStyle, ...activeLinkStyle } : navLinkStyle)}
+                        >
+                            <Home size={16} style={{ marginRight: '8px' }} />
+                            Dashboard
+                        </NavLink>
+                        <NavLink
+                            to="/session"
+                            style={({ isActive }) => (isActive ? { ...navLinkStyle, ...activeLinkStyle } : navLinkStyle)}
+                        >
+                            <Mic size={16} style={{ marginRight: '8px' }} />
+                            New Session
+                        </NavLink>
+                        <NavLink
+                            to="/analytics"
+                            style={({ isActive }) => (isActive ? { ...navLinkStyle, ...activeLinkStyle } : navLinkStyle)}
+                        >
+                            <BarChart3 size={16} style={{ marginRight: '8px' }} />
+                            Analytics
+                        </NavLink>
+                    </nav>
+                    {user && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span className="text-sm text-muted-foreground">{user.email}</span>
+                            <Button variant="ghost" size="icon" onClick={signOut}>
+                                <LogOut size={16} />
+                            </Button>
+                        </div>
+                    )}
+                </div>
             </div>
         </header>
     );

@@ -1,24 +1,51 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Mic, Square, Pause, Plus, Trash2 } from 'lucide-react';
+import { Mic, Square, Plus, Trash2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+
+const FillerWordCounter = ({ word, count }) => {
+    const [displayCount, setDisplayCount] = useState(count);
+    const [isAnimating, setIsAnimating] = useState(false);
+
+    useEffect(() => {
+        if (count !== displayCount) {
+            setIsAnimating(true);
+            setTimeout(() => {
+                setDisplayCount(count);
+                setIsAnimating(false);
+            }, 300); // Animation duration
+        }
+    }, [count, displayCount]);
+
+    return (
+        <div className="flex items-center justify-between text-sm">
+            <span className="capitalize text-muted-text">{word}</span>
+            <span className={`font-bold text-light-text transition-colors duration-300 ${isAnimating ? 'text-accent-blue' : ''}`}>
+                {displayCount}
+            </span>
+        </div>
+    );
+};
+
 
 const FillerWordAnalysis = ({ fillerCounts }) => {
     const sortedFillerWords = Object.entries(fillerCounts).sort(([, a], [, b]) => b - a);
 
     return (
-        <div className="card">
-            <h3 className="h3" style={{ color: 'var(--color-text-primary)', marginBottom: '16px' }}>Filler Word Analysis</h3>
-            <div style={{ spaceY: '12px' }}>
+        <Card>
+            <CardHeader>
+                <CardTitle className="text-xl">Filler Word Analysis</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
                 {sortedFillerWords.length > 0 ? sortedFillerWords.map(([word, count]) => (
-                    <div key={word} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.875rem' }}>
-                        <span style={{ textTransform: 'capitalize', color: 'var(--color-text-secondary)' }}>{word}</span>
-                        <span style={{ fontWeight: '600', color: 'var(--color-text-primary)' }}>{count}</span>
-                    </div>
+                    <FillerWordCounter key={word} word={word} count={count} />
                 )) : (
-                    <p className="p" style={{ fontSize: '0.875rem' }}>No filler words detected yet.</p>
+                    <p className="text-sm text-muted-text">No filler words detected yet.</p>
                 )}
-            </div>
-        </div>
+            </CardContent>
+        </Card>
     );
 };
 
@@ -37,67 +64,75 @@ const CustomWords = ({ customWords, setCustomWords }) => {
     };
 
     return (
-        <div className="card">
-            <h3 className="h3" style={{ color: 'var(--color-text-primary)', marginBottom: '16px' }}>Custom Words</h3>
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-                <input
-                    type="text"
-                    value={newWord}
-                    onChange={(e) => setNewWord(e.target.value)}
-                    placeholder="Add a word..."
-                    style={{ flex: 1, background: 'var(--color-bg-primary)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', padding: '8px', color: 'var(--color-text-primary)' }}
-                />
-                <button onClick={addWord} className="btn btn-secondary" style={{ padding: '8px' }}><Plus size={16} /></button>
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                {customWords.map(word => (
-                    <div key={word} style={{ display: 'flex', alignItems: 'center', background: 'var(--color-bg-primary)', padding: '4px 8px', borderRadius: 'var(--radius)', fontSize: '0.875rem' }}>
-                        <span>{word}</span>
-                        <button onClick={() => removeWord(word)} style={{ marginLeft: '8px', background: 'none', border: 'none', color: 'var(--color-text-secondary)', cursor: 'pointer' }}><Trash2 size={12} /></button>
-                    </div>
-                ))}
-            </div>
-        </div>
+        <Card>
+            <CardHeader>
+                <CardTitle className="text-xl">Custom Words</CardTitle>
+            </CardHeader>
+            <CardContent>
+                <div className="flex gap-2 mb-4">
+                    <Input
+                        type="text"
+                        value={newWord}
+                        onChange={(e) => setNewWord(e.target.value)}
+                        placeholder="Add a word..."
+                        className="bg-charcoal"
+                    />
+                    <Button onClick={addWord} variant="secondary" size="icon">
+                        <Plus size={16} />
+                    </Button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                    {customWords.map(word => (
+                        <div key={word} className="flex items-center gap-2 px-2 py-1 text-sm rounded-md bg-charcoal">
+                            <span>{word}</span>
+                            <button onClick={() => removeWord(word)} className="text-muted-text hover:text-light-text">
+                                <Trash2 size={12} />
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            </CardContent>
+        </Card>
     );
 };
 
 export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, isSupported, startListening, stopListening, reset, customWords, setCustomWords, saveSession }) => {
     const navigate = useNavigate();
     const [elapsedTime, setElapsedTime] = useState(0);
-    const [overrideTimer, setOverrideTimer] = useState(false);
     const timerIntervalRef = useRef(null);
-    const totalFillerWords = Object.values(fillerCounts).reduce((sum, count) => sum + count, 0);
 
-    const endSessionAndSave = (navigateToAnalytics = false) => {
+    const endSessionAndSave = () => {
         stopListening();
+        // The data saved should match the DB schema from smart-mvp-plan.md
         const sessionData = {
-            date: new Date().toISOString(),
             duration: elapsedTime,
-            fillerCounts: fillerCounts,
-            transcript: transcript,
-            totalFillerWords: totalFillerWords,
+            total_words: transcript.split(/\s+/).filter(Boolean).length,
+            filler_words: fillerCounts, // This is already a JSON object
+            custom_words: customWords.reduce((acc, word) => {
+                const regex = new RegExp(`\\b${word}\\b`, 'gi');
+                const count = (transcript.match(regex) || []).length;
+                if (count > 0) {
+                    acc[word] = count;
+                }
+                return acc;
+            }, {}),
         };
         saveSession(sessionData);
-        if (navigateToAnalytics) {
-            navigate('/analytics');
-        }
+        navigate('/analytics');
     };
 
     useEffect(() => {
         if (isListening) {
             timerIntervalRef.current = setInterval(() => setElapsedTime(prev => prev + 1), 1000);
-            if (elapsedTime >= 120 && !overrideTimer) {
-                endSessionAndSave(true);
-            }
         } else {
             clearInterval(timerIntervalRef.current);
         }
         return () => clearInterval(timerIntervalRef.current);
-    }, [isListening, elapsedTime, overrideTimer]);
+    }, [isListening]);
 
     const handleStartStop = () => {
         if (isListening) {
-            endSessionAndSave(true);
+            endSessionAndSave();
         } else {
             reset();
             setElapsedTime(0);
@@ -112,35 +147,31 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
     };
 
     return (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            <div className="card" style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: '3rem', fontFamily: 'var(--font-primary)', fontWeight: '700', color: 'var(--color-text-primary)' }}>
-                    {formatTime(elapsedTime)}
-                </div>
-                <div style={{ color: isListening ? 'var(--color-accent)' : 'var(--color-text-secondary)', marginBottom: '16px' }}>
-                    {isListening ? '● Recording' : 'Ready to start'}
-                </div>
-                <button className="btn btn-primary" onClick={handleStartStop} style={{ width: '100%' }}>
-                    {isListening ? <><Square size={16} style={{ marginRight: '8px' }} />Stop & Save Session</> : <><Mic size={16} style={{ marginRight: '8px' }} />Start Recording</>}
-                </button>
-                 <div style={{ marginTop: '16px' }}>
-                    <input
-                        type="checkbox"
-                        id="overrideTimer"
-                        checked={overrideTimer}
-                        onChange={(e) => setOverrideTimer(e.target.checked)}
-                    />
-                    <label htmlFor="overrideTimer" style={{ marginLeft: '8px', fontSize: '0.875rem', color: 'var(--color-text-secondary)' }}>
-                        Override 2-minute timer
-                    </label>
-                </div>
-            </div>
+        <div className="flex flex-col flex-1 gap-6">
+            <Card className="text-center">
+                <CardContent className="p-6">
+                    <div className="text-6xl font-bold font-mono text-light-text">
+                        {formatTime(elapsedTime)}
+                    </div>
+                    <div className={`mt-2 mb-4 text-sm ${isListening ? 'text-accent-blue' : 'text-muted-text'}`}>
+                        {isListening ? '● Recording' : 'Ready to start'}
+                    </div>
+                    <Button
+                        onClick={handleStartStop}
+                        size="lg"
+                        className={`w-full ${isListening ? 'bg-red-600 hover:bg-red-700' : 'bg-accent-blue hover:bg-accent-blue/90'} text-white`}
+                    >
+                        {isListening ? <Square className="w-4 h-4 mr-2" /> : <Mic className="w-4 h-4 mr-2" />}
+                        {isListening ? 'End Session' : 'Start Recording'}
+                    </Button>
+                </CardContent>
+            </Card>
 
             <FillerWordAnalysis fillerCounts={fillerCounts} />
             <CustomWords customWords={customWords} setCustomWords={setCustomWords} />
 
-            {error && <p style={{ color: 'red', fontSize: '0.875rem' }}>Error: {error}</p>}
-            {!isSupported && <p style={{ color: 'red', fontSize: '0.875rem' }}>Speech recognition not supported.</p>}
+            {error && <p className="text-sm text-red-500">Error: {error}</p>}
+            {!isSupported && <p className="text-sm text-red-500">Speech recognition not supported in this browser.</p>}
         </div>
     );
 };
