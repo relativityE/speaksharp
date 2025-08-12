@@ -1,31 +1,33 @@
 @import "tailwindcss";
 
 @theme {
-  --color-background: #1E1E28;
-  --color-foreground: #F0F0F2;
-  --color-card: #2A2C37;
-  --color-popover: #2A2C37;
-  --color-primary: #00C9FF;
-  --color-primary-foreground: #1E1E28;
-  --color-secondary: #2A2C37;
-  --color-secondary-foreground: #F0F0F2;
-  --color-muted: #2A2C37;
-  --color-muted-foreground: #A0A0A3;
-  --color-accent: #00C9FF;
-  --color-accent-foreground: #1E1E28;
-  --color-destructive: #FF5252;
-  --color-destructive-foreground: #F0F0F2;
-  --color-border: #2A2C37;
-  --color-input: #2A2C37;
-  --color-ring: #00C9FF;
-  --color-highlight: #FFD700;
-  --color-highlight-foreground: #1E1E28;
+  /* Design System v1 Colors */
+  --color-background: #0D0C1D; /* Dark Blue/Purple */
+  --color-foreground: #FFFFFF; /* White */
+  --color-card: #1A192D; /* Lighter Dark */
+  --color-popover: #1A192D; /* Lighter Dark */
+  --color-primary: #7C3AED; /* Purple - Darker for better contrast */
+  --color-primary-foreground: #FFFFFF;
+  --color-secondary: #1A192D; /* Lighter Dark */
+  --color-secondary-foreground: #FFFFFF;
+  --color-muted: #1A192D; /* Lighter Dark */
+  --color-muted-foreground: #A0A0B0; /* Light Gray */
+  --color-accent: #8B5CF6; /* Purple */
+  --color-accent-foreground: #FFFFFF;
+  --color-destructive: #EF4444; /* Red */
+  --color-destructive-foreground: #FFFFFF;
+  --color-border: #2A293D; /* Subtle Dark */
+  --color-input: #1A192D; /* Lighter Dark */
+  --color-ring: #8B5CF6; /* Purple */
+  --color-highlight: #10B981; /* Green */
+  --color-highlight-foreground: #FFFFFF;
 
   --font-sans: "Inter", "sans-serif";
 }
 
 body {
     font-family: theme(font.sans);
+    font-size: 16px; /* Base font size from Design System */
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }

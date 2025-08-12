@@ -1,95 +1,84 @@
-# SpeakSharp - Product Requirements Document (PRD)
+# SpeakSharp Product Requirements Document (PRD)
 
-**Version**: 4.0
-**Last Updated**: 2025-08-10
+**Version**: 5.0
+**Last Updated**: 2025-08-11
 
 ## 1. Executive Summary
-SpeakSharp is a privacy-first, real-time speech analysis tool designed to help users improve their communication skills. The product processes speech locally in the browser, ensuring user privacy.
 
-**Core Value Proposition**: Immediate, private feedback on filler word usage to improve verbal clarity, with a frictionless entry point and a clear path to powerful premium features.
-**Guiding Philosophy**: This PRD follows a **"Smart MVP"** model. The primary goal is to launch a professional and trustworthy product quickly, building on a stable and scalable foundation from day one.
+### 1.1. Product Vision
+SpeakSharp is a privacy-first, real-time speech analysis tool designed to empower users to become more confident and articulate speakers. By providing immediate, on-device feedback on filler word usage and speaking pace, we help users practice and improve their communication skills in a safe and private environment.
 
-## 2. User Flow & Tiers (MVP)
+### 1.2. Business Value & Go-to-Market Strategy
+Our core value is delivering a frictionless user experience that provides an instant "aha!" moment, driving conversion from a generous free tier to affordable paid plans. Our privacy-first architecture is a key differentiator.
 
-### Anonymous Free Trial
-- **Goal**: Maximize user adoption and deliver an instant "aha!" moment with zero friction.
-- **Flow**: User can immediately start a **2-minute trial session** without an account.
+**Go-to-Market Strategy:**
+- **Initial User Acquisition**: Target young professionals, students, and non-native English speakers via content marketing (blogs, social media) and partnerships with educational institutions and career coaches.
+- **Growth Phase**: Use social proof (testimonials, usage stats) on the landing page to build credibility.
+- **Marketing KPIs**:
+    - Homepage to Signup Conversion: Target 15%+
+    - Session Completion Rate: Target 80%+
+    - Mobile Bounce Rate: Target <40%
 
-### Free Tier (Account Required via Supabase)
-- **Goal**: Convert trial users into registered users.
-- **Includes**:
-  - **5 minutes/month** of local analysis time.
-  - Storage for the **last 3 sessions**.
-  - Up to **10 custom filler words**.
+## 2. User Tiers & Pricing Model
 
-### Pro Tier ($9.99/month)
-- **Goal**: Monetize engaged individuals.
-- **Includes**: Everything in Free, plus **unlimited** practice time, custom words, session history, and advanced analytics.
+| Tier | Price/Month | Key Features | Target User |
+|---|---|---|---|
+| **Free** | $0 | 2-minute trial session, 5 mins/month with account, last 3 sessions saved, 10 custom words. | Casual users, students |
+| **Pro** | $5.99 | Unlimited practice time, full session history, unlimited custom words, advanced analytics. | Engaged individuals, professionals |
+| **Premium** | $9.99 | All Pro features, plus high-accuracy cloud transcription (optional), PDF reports. | Power users, executives, coaches |
 
-### Premium Tier ($19.99/month)
-- **Goal**: Serve power users and professionals.
-- **Includes**: Everything in Pro, plus **high-accuracy cloud transcription** (optional) and detailed PDF reports.
+## 3. Financial Projections (Hypothetical)
+This is a simplified model based on a conservative user growth ramp-up.
 
-## 3. Proposed Architecture (MVP)
-The MVP stack is chosen for a balance of speed, low initial cost, and long-term scalability.
+### 3.1. Assumptions
+- **Conversion Rate (MAU to Paid)**: 5%
+- **Paid Tier Split**: 80% Pro / 20% Premium
+- **Fixed Monthly Costs**: ~$100 (Vercel, Supabase, Sentry, Resend at scale)
 
-| Component | Tech Stack | Purpose |
+### 3.2. Projections
+| Metric | Month 1 | Month 3 | Month 6 |
+|---|---|---|---|
+| **MAU** | 100 | 1,000 | 2,500 |
+| **Paid Users** | 5 | 50 | 125 |
+| **Monthly Revenue** | $33.95 | $339.50 | $848.75 |
+| **Monthly Profit** | -$66.05 | $239.50 | $748.75 |
+| **Profit Margin** | -195% | 70.5% | 88.2% |
+
+## 4. Implementation Status & Roadmap
+
+### 4.1. Completed Work
+- [x] **Critical Bug Fix**: Corrected detection logic for 'Uh', 'Ah', and 'Oh' filler words.
+- [x] **Core UI Polish**: Replaced the header text link with a home icon, fixed systemic font size issues in UI components, and improved the primary theme color for sharper contrast.
+- [x] **New Design System**: Implemented a new, high-contrast color palette and increased base font sizes for improved readability.
+- [x] **Component Styling**: Standardized button and card styles.
+- [x] **Landing Page Overhaul**: Redesigned the hero and value proposition sections to focus on outcomes and social proof.
+- [x] **Improved Navigation**: Added "Home" and "View Analytics" links to the main header.
+- [x] **UX Enhancements**: Added loading indicators for session processing and "Completed" status badges in the session history.
+- [x] **Performance Optimization**: Fixed a rendering issue that caused the live transcript to lag.
+- [x] **File Cleanup**: Removed temporary log files and consolidated documentation.
+
+### 4.2. Future Work (Backlog)
+- [ ] **Implement Free Tier Limitations**: Track user's monthly usage to enforce the 5-minute cap for free accounts as a prerequisite for monetization.
+- [ ] **Color-Coded Confidence Levels**: Investigate and implement color-coding for filler word detection based on speech recognition confidence scores. (Note: Feasible but requires significant refactoring).
+- [ ] **Offline Mode**: Implement full offline capabilities with clear indicators for users on unstable connections.
+- [ ] **User Testimonials**: Replace placeholder testimonials on the landing page with real user stories and photos.
+
+## Appendix A: Core Design System
+
+#### Color Palette
+| Role | Color | Hex Code |
 |---|---|---|
-| Frontend | **React + Vite** (on Vercel) | Fast, modern, and cheap to host. |
-| Auth & Database | **Supabase** | Handles user auth, database, and serverless functions. |
-| Payment Processing | **Stripe Checkout & Portal** | Easiest way to implement and manage subscriptions. |
-| Monitoring | **Sentry & Vercel Analytics** | Essential for proactive error tracking and performance monitoring. |
-| Transactional Email | **Resend** | Reliable email delivery for password resets and notifications. |
+| **Primary Action** | Green | `#10B981` |
+| **Primary Brand** | Purple | `#8B5CF6` |
+| **Background** | Dark Blue/Purple | `#0D0C1D` |
+| **Component BG** | Lighter Dark | `#1A192D` |
+| **Border** | Subtle Dark | `#2A293D` |
+| **Text (Headlines)**| White | `#FFFFFF` |
+| **Text (Body)** | Light Gray | `#A0A0B0` |
+| **Destructive** | Red | `#EF4444` |
 
-## 4. Privacy & Security Requirements
-- **No storage of audio or transcripts** without explicit user consent.
-- Only filler word counts and analysis data are stored for registered users.
-- **Row Level Security (RLS)** will be enabled in Supabase to ensure users can only access their own data.
-- All API requests must be validated.
-- **Legal documents** (Privacy Policy, ToS) must be in place before launch.
-
-## 5. Cost Breakdown (MVP)
-| Service | Free Tier | Cost at Scale |
-|---|---|---|
-| **Vercel** | 100GB bandwidth | $20/month |
-| **Supabase** | 50K MAU, 500MB DB | $25/month |
-| **Stripe** | No monthly fee | 2.9% + $0.30/txn |
-| **Sentry** | 5,000 errors/mo | $26/month |
-| **Resend** | 3,000 emails/mo | $20/month |
-| **Legal Templates** | N/A | ~$200 (one-time) |
-| **Total** | **$0/month** | **~$91/month** |
-
-## 6. Development Roadmap (4-Week MVP)
-The development will follow a 4-week timeline to launch a professional and monetizable MVP. The detailed technical plan is available in `smart-mvp-plan.md`.
-
-- **Week 0-1: Foundation & Legal:** Set up Supabase, integrate auth, create legal documents, and configure data backups.
-- **Week 2: Core Features & Email:** Implement usage limits, build the paywall, and set up transactional emails with Resend.
-- **Week 3: Payments & Support:** Integrate Stripe Checkout and the Customer Portal, set up Sentry monitoring, and build a support contact system.
-- **Week 4: Polish & Launch:** Conduct final end-to-end testing, deploy to production, and monitor the first users.
-
-## 7. Pre-Launch Success Checklist
-Before launch, we must be able to answer "Yes" to all of the following:
-- [ ] Can a user sign up and immediately start using the product?
-- [ ] Can a user upgrade to Pro and have it work instantly?
-- [ ] Can a user cancel their subscription without contacting support?
-- [ ] If something breaks, will the team be notified within 30 minutes?
-- [ ] If a user emails support, will the team receive it?
-- [ ] Are we legally compliant to collect payments and user data?
-- [ ] If the database disappeared, could we recover user data?
-
-## 8. Risk Mitigation
-
-### **Technical Risks:**
-1. **Supabase integration issues** → Mitigation: Isolate and test auth and database connections in Week 0.
-2. **Payment failures** → Mitigation: Thoroughly test with Stripe's test mode before launch.
-3. **Email deliverability** → Mitigation: Use a reputable service like Resend and test all transactional emails.
-
-### **Business Risks:**
-1. **No user interest** → Mitigation: Offer a compelling free tier to attract users and gather feedback.
-2. **Price resistance** → Mitigation: Be prepared to A/B test pricing post-launch.
-3. **Competition** → Mitigation: Emphasize the privacy-first angle and superior user experience.
-
-## 9. Project Structure
-- **/src**: Contains all the application source code.
-- `PRD.md`: This document.
-- `smart-mvp-plan.md`: The detailed technical roadmap for the Smart MVP.
+#### Typography
+*   **Font Family**: **Inter**, with a fallback to `sans-serif`.
+*   **Base Font Size**: 16px.
+*   **Link & Button Font Size**: 16px.
+*   **Tagline Font Size**: 20px.

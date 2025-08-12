@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { Mic, Square, Plus, Trash2 } from 'lucide-react';
+import { supabase } from '../../lib/supabaseClient';
+import { Mic, Square, Plus, Trash2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,7 +25,7 @@ const FillerWordCounter = ({ word, count, maxCount }) => {
 
     return (
         <div>
-            <div className="flex items-center justify-between text-sm mb-1">
+            <div className="flex items-center justify-between text-base mb-1">
                 <span className="capitalize text-muted-foreground">{word}</span>
                 <span className={`font-bold text-foreground transition-colors duration-300 ${isAnimating ? 'text-primary' : ''}`}>
                     {displayCount}
@@ -48,7 +49,7 @@ const FillerWordAnalysis = ({ fillerCounts }) => {
                 {sortedFillerWords.length > 0 ? sortedFillerWords.map(([word, count]) => (
                     <FillerWordCounter key={word} word={word} count={count} maxCount={maxCount} />
                 )) : (
-                    <p className="text-sm text-muted-foreground">Start speaking to see your analysis.</p>
+                    <p className="text-base text-muted-foreground">Start speaking to see your analysis.</p>
                 )}
             </CardContent>
         </Card>
@@ -111,13 +112,26 @@ const CustomWords = ({ customWords, setCustomWords }) => {
 
 export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, isSupported, startListening, stopListening, reset, customWords, setCustomWords, saveSession }) => {
     const navigate = useNavigate();
-    const { user } = useAuth();
+    const { user, profile } = useAuth();
     const [elapsedTime, setElapsedTime] = useState(0);
+    const [isLoading, setIsLoading] = useState(false);
     const timerIntervalRef = useRef(null);
 
-    const endSessionAndSave = () => {
+    const FREE_TIER_LIMIT_SECONDS = 300; // 5 minutes
+    const usageInSeconds = profile?.usage_seconds || 0;
+    const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
+    const remainingTime = isPro ? Infinity : FREE_TIER_LIMIT_SECONDS - usageInSeconds;
+
+    const endSessionAndSave = async () => {
         stopListening();
         if (!user) return;
+
+        if (elapsedTime > 0) {
+            const { error: rpcError } = await supabase.rpc('update_user_usage', { session_duration_seconds: Math.ceil(elapsedTime) });
+            if (rpcError) {
+                console.error("Error updating user usage:", rpcError);
+            }
+        }
 
         const sessionData = {
             duration: elapsedTime,
@@ -130,6 +144,7 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
 
     useEffect(() => {
         if (isListening) {
+            setIsLoading(false);
             timerIntervalRef.current = setInterval(() => {
                 setElapsedTime(prev => prev + 1);
             }, 1000);
@@ -138,6 +153,14 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
         }
         return () => clearInterval(timerIntervalRef.current);
     }, [isListening]);
+
+    useEffect(() => {
+        if (isListening && user && !isPro && elapsedTime >= remainingTime) {
+            endSessionAndSave();
+            alert("You've reached your free monthly limit. Upgrade to Pro for unlimited practice.");
+        }
+    }, [isListening, elapsedTime, remainingTime, user, isPro]);
+
 
     useEffect(() => {
         if(!isListening) {
@@ -149,6 +172,12 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
         if (isListening) {
             endSessionAndSave();
         } else {
+            if (user && !isPro && remainingTime <= 0) {
+                alert("You have used all your free practice time for this month. Please upgrade to a Pro plan for unlimited practice.");
+                return;
+            }
+
+            setIsLoading(true);
             reset();
             setElapsedTime(0);
             startListening();
@@ -161,6 +190,16 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
         return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
     };
 
+    const getButtonContent = () => {
+        if (isLoading) {
+            return <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Starting...</>;
+        }
+        if (isListening) {
+            return <><Square className="w-4 h-4 mr-2" /> End Session</>;
+        }
+        return <><Mic className="w-4 h-4 mr-2" /> Start Recording</>;
+    };
+
     return (
         <div className="flex flex-col gap-6">
             <Card className="text-center">
@@ -168,17 +207,17 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
                     <div className="text-6xl font-bold font-mono text-foreground mb-2">
                         {formatTime(elapsedTime)}
                     </div>
-                    <div className={`mb-4 text-sm font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
-                        {isListening ? '● RECORDING' : 'SESSION PAUSED'}
+                    <div className={`mb-4 text-base font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
+                        {isLoading ? 'INITIALIZING...' : (isListening ? '● RECORDING' : 'SESSION PAUSED')}
                     </div>
                     <Button
                         onClick={handleStartStop}
                         size="lg"
                         variant={isListening ? 'destructive' : 'default'}
                         className="w-full"
+                        disabled={isLoading}
                     >
-                        {isListening ? <Square className="w-4 h-4 mr-2" /> : <Mic className="w-4 h-4 mr-2" />}
-                        {isListening ? 'End Session' : 'Start Recording'}
+                        {getButtonContent()}
                     </Button>
                 </CardContent>
             </Card>
@@ -186,8 +225,8 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
             <FillerWordAnalysis fillerCounts={fillerCounts} />
             <CustomWords customWords={customWords} setCustomWords={setCustomWords} />
 
-            {error && <p className="text-sm text-destructive">Error: {error}</p>}
-            {!isSupported && <p className="text-sm text-destructive">Speech recognition not supported in this browser.</p>}
+            {error && <p className="text-base text-destructive">Error: {error}</p>}
+            {!isSupported && <p className="text-base text-destructive">Speech recognition not supported in this browser.</p>}
         </div>
     );
 };

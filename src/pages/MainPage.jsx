@@ -3,17 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useBrowserSupport } from '../hooks/useBrowserSupport';
 import { BrowserWarning } from '../components/BrowserWarning';
 import { Button } from '@/components/ui/button';
-import { Zap, Shield, LineChart } from 'lucide-react';
-
-const FeatureCard = ({ icon, title, children }) => (
-  <div className="flex flex-col p-6 text-left bg-card rounded-lg">
-    <div className="flex items-center justify-center w-12 h-12 mb-4 rounded-full bg-primary/10 text-primary">
-      {icon}
-    </div>
-    <h3 className="mb-2 text-xl font-bold text-foreground">{title}</h3>
-    <p className="text-muted-foreground">{children}</p>
-  </div>
-);
 
 export const MainPage = () => {
     const navigate = useNavigate();
@@ -28,48 +17,49 @@ export const MainPage = () => {
             <main className="flex-grow">
                 {/* Hero Section */}
                 <section className="container mx-auto px-4 py-20 text-center">
-                    <BrowserWarning isSupported={isSupported} />
                     <h1 className="text-5xl md:text-6xl font-bold mb-4">
-                        Speak with Clarity. Build Confidence.
+                        Reduce your filler words by 50% in 30 days.
                     </h1>
-                    <p className="max-w-2xl mx-auto mb-8 text-lg text-muted-foreground">
+                    <p className="max-w-2xl mx-auto mb-8 text-xl text-muted-foreground">
                         Get real-time feedback to eliminate filler words and become a more articulate speaker.
                     </p>
                     <Button size="lg" onClick={handleStartSession}>
-                        Start My Free Session
+                        Try Free Session
                     </Button>
-                    <p className="mt-4 text-sm text-muted-foreground">
+                    <p className="mt-4 text-base text-muted-foreground">
                         No account required. Get started in seconds.
                     </p>
                 </section>
 
-                {/* Trust Signal */}
-                <section className="text-center py-12">
-                    <p className="text-sm tracking-widest uppercase text-muted-foreground">
-                        Designed by professionals for professionals.
+                {/* Social Proof Section */}
+                <section className="container mx-auto px-4 py-20 text-center">
+                    <h2 className="text-3xl font-bold mb-4">Join over 1,000 professionals</h2>
+                    <p className="text-base text-muted-foreground mb-8">
+                        Already 10,000+ sessions completed on our platform.
                     </p>
+                    {/* Placeholder for testimonials */}
+                    <div className="grid gap-8 md:grid-cols-3 text-left">
+                        <div className="p-6 border border-card rounded-lg">
+                            <p className="text-foreground mb-4">"SpeakSharp transformed my presentation skills. The real-time feedback is a game-changer."</p>
+                        </div>
+                        <div className="p-6 border border-card rounded-lg">
+                            <p className="text-foreground mb-4">"I used to be so nervous about filler words. Now I speak with confidence. Highly recommend!"</p>
+                        </div>
+                        <div className="p-6 border border-card rounded-lg">
+                            <p className="text-foreground mb-4">"The best tool for public speaking practice. It's simple, effective, and private."</p>
+                        </div>
+                    </div>
                 </section>
 
-
-                {/* Value Proposition Section */}
-                <section className="container mx-auto px-4 py-20">
-                    <div className="grid gap-8 md:grid-cols-3">
-                        <FeatureCard icon={<Zap size={24} />} title="Real-time Feedback">
-                            Get immediate analysis of your speech patterns and filler word usage.
-                        </FeatureCard>
-                        <FeatureCard icon={<Shield size={24} />} title="Privacy First">
-                            All audio processing happens locally. Your voice data never leaves your device.
-                        </FeatureCard>
-                        <FeatureCard icon={<LineChart size={24} />} title="Track Your Progress">
-                            See how you improve over time with detailed analytics and session history.
-                        </FeatureCard>
-                    </div>
+                {/* Browser Warning Section */}
+                <section className="container mx-auto px-4 py-10">
+                    <BrowserWarning isSupported={isSupported} />
                 </section>
             </main>
 
             {/* Footer */}
             <footer className="py-6 text-center border-t border-card">
-                <p className="text-sm text-muted-foreground">
+                <p className="text-base text-muted-foreground">
                     &copy; {new Date().getFullYear()} SpeakSharp. All rights reserved.
                 </p>
             </footer>
