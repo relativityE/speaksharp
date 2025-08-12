@@ -26,8 +26,8 @@ const FillerWordCounter = ({ word, count, maxCount }) => {
 
     return (
         <div>
-            <div className="flex items-center justify-between text-base mb-1">
-                <span className="capitalize text-muted-foreground">{word}</span>
+            <div className="flex items-center justify-between mb-1">
+                <span className="text-muted-foreground">{word}</span>
                 <span className={`font-bold text-foreground transition-colors duration-300 ${isAnimating ? 'text-primary' : ''}`}>
                     {displayCount}
                 </span>
@@ -50,7 +50,7 @@ const FillerWordAnalysis = ({ fillerCounts }) => {
                 {sortedFillerWords.length > 0 ? sortedFillerWords.map(([word, count]) => (
                     <FillerWordCounter key={word} word={word} count={count} maxCount={maxCount} />
                 )) : (
-                    <p className="text-base text-muted-foreground">Start speaking to see your analysis.</p>
+                    <p className="text-muted-foreground">Start speaking to see your analysis.</p>
                 )}
             </CardContent>
         </Card>
@@ -125,7 +125,19 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
 
     const endSessionAndSave = async () => {
         stopListening();
-        if (!user) return;
+
+        const sessionData = {
+            duration: elapsedTime,
+            transcript: transcript,
+            filler_counts: fillerCounts,
+            created_at: new Date().toISOString(),
+        };
+
+        if (!user) {
+            sessionStorage.setItem('anonymousSession', JSON.stringify(sessionData));
+            navigate('/analytics');
+            return;
+        }
 
         if (elapsedTime > 0) {
             const { error: rpcError } = await supabase.rpc('update_user_usage', { session_duration_seconds: Math.ceil(elapsedTime) });
@@ -134,11 +146,6 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
             }
         }
 
-        const sessionData = {
-            duration: elapsedTime,
-            transcript: transcript,
-            filler_counts: fillerCounts,
-        };
         saveSession(sessionData);
         navigate('/analytics');
     };
@@ -202,7 +209,7 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
                     <div className="mb-2">
                         <CircularTimer elapsedTime={elapsedTime} />
                     </div>
-                    <div className={`mb-4 text-base font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
+                    <div className={`mb-4 font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
                         {isLoading ? 'INITIALIZING...' : (isListening ? '● RECORDING' : '')}
                     </div>
                     <Button
@@ -220,8 +227,8 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
             <FillerWordAnalysis fillerCounts={fillerCounts} />
             <CustomWords customWords={customWords} setCustomWords={setCustomWords} />
 
-            {error && <p className="text-base text-destructive">Error: {error}</p>}
-            {!isSupported && <p className="text-base text-destructive">Speech recognition not supported in this browser.</p>}
+            {error && <p className="text-destructive">Error: {error}</p>}
+            {!isSupported && <p className="text-destructive">Speech recognition not supported in this browser.</p>}
         </div>
     );
 };

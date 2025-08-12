@@ -49,6 +49,18 @@ A mobile-first web application that detects and counts filler words in real time
 
 4.  Open your browser and navigate to the URL shown in your terminal. It is usually `http://localhost:5173`, but it might be different if that port is occupied.
 
+## How to Test the Application
+
+This project uses [Vitest](https://vitest.dev/) for unit and integration testing. Vitest is a blazing fast unit-test framework powered by Vite.
+
+To run the tests, use the following command:
+
+```bash
+pnpm test
+```
+
+This will run all test files in the `src/__tests__` directory.
+
 ## Usage
 
 SpeakSharp uses a "progressive reveal" model. All pages are accessible to everyone, but more features are unlocked when you sign up for a free account.
@@ -64,18 +76,6 @@ SpeakSharp uses a "progressive reveal" model. All pages are accessible to everyo
 -   **Track Progress**: The Analytics page will show your full session history and progress charts.
 -   **Unlimited Session Length**: The 2-minute limit is removed.
 -   **Custom Filler Words**: Add and track your own list of custom filler words.
-
-## How to Test the Application
-
-This project uses [Vitest](https://vitest.dev/) for unit and integration testing. Vitest is a blazing fast unit-test framework powered by Vite.
-
-To run the tests, use the following command:
-
-```bash
-pnpm test
-```
-
-This will run all test files in the `src/__tests__` directory.
 
 ## Project Status & Roadmap
 
