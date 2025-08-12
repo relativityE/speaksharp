@@ -27,7 +27,7 @@ const FillerWordCounter = ({ word, count, maxCount }) => {
     return (
         <div>
             <div className="flex items-center justify-between text-base mb-1">
-                <span className="capitalize text-muted-foreground">{word}</span>
+                <span className="text-muted-foreground">{word}</span>
                 <span className={`font-bold text-foreground transition-colors duration-300 ${isAnimating ? 'text-primary' : ''}`}>
                     {displayCount}
                 </span>
@@ -125,7 +125,19 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
 
     const endSessionAndSave = async () => {
         stopListening();
-        if (!user) return;
+
+        const sessionData = {
+            duration: elapsedTime,
+            transcript: transcript,
+            filler_counts: fillerCounts,
+            created_at: new Date().toISOString(),
+        };
+
+        if (!user) {
+            sessionStorage.setItem('anonymousSession', JSON.stringify(sessionData));
+            navigate('/analytics');
+            return;
+        }
 
         if (elapsedTime > 0) {
             const { error: rpcError } = await supabase.rpc('update_user_usage', { session_duration_seconds: Math.ceil(elapsedTime) });
@@ -134,11 +146,6 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
             }
         }
 
-        const sessionData = {
-            duration: elapsedTime,
-            transcript: transcript,
-            filler_counts: fillerCounts,
-        };
         saveSession(sessionData);
         navigate('/analytics');
     };
