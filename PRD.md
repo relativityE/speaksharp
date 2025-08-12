@@ -12,7 +12,7 @@ SpeakSharp is a privacy-first, real-time speech analysis tool designed to empowe
 Our core value is delivering a frictionless user experience that provides an instant "aha!" moment, driving conversion from a generous free tier to affordable paid plans. Our privacy-first architecture is a key differentiator.
 
 **Go-to-Market Strategy:**
-- **Initial Launch**: Target young professionals, students, and non-native English speakers via content marketing (blogs, social media) and partnerships with educational institutions and career coaches.
+- **Initial User Acquisition**: Target young professionals, students, and non-native English speakers via content marketing (blogs, social media) and partnerships with educational institutions and career coaches.
 - **Growth Phase**: Use social proof (testimonials, usage stats) on the landing page to build credibility.
 - **Marketing KPIs**:
     - Homepage to Signup Conversion: Target 15%+
@@ -57,7 +57,7 @@ This is a simplified model based on a conservative user growth ramp-up.
 
 ### 4.2. Future Work (Backlog)
 - [ ] **Color-Coded Confidence Levels**: Investigate and implement color-coding for filler word detection based on speech recognition confidence scores. (Note: Feasible but requires significant refactoring).
-- [ ] **Offline Mode**: Implement full offline capabilities with clear indicators.
+- [ ] **Offline Mode**: Implement full offline capabilities with clear indicators for users on unstable connections.
 - [ ] **User Testimonials**: Replace placeholder testimonials on the landing page with real user stories and photos.
 
 ## Appendix A: Core Design System

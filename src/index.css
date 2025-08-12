@@ -31,10 +31,3 @@ body {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
-
-/* Ensure links, buttons, and other small text are readable */
-a,
-button,
-footer p {
-    @apply text-base;
-}

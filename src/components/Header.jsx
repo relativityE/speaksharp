@@ -57,7 +57,7 @@ export const Header = () => {
                         <nav className="flex items-center gap-4">
                             <NavLink
                                 to="/analytics"
-                                className={({ isActive }) => `${navLinkClasses} ${isActive ? activeLinkClasses : ''}`}
+                                className={navLinkClasses}
                             >
                                 View Analytics
                             </NavLink>
