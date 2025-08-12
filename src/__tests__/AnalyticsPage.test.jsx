@@ -43,10 +43,10 @@ describe('AnalyticsPage', () => {
     });
 
     describe('when user is not authenticated', () => {
-        it('renders a call-to-action to sign up', () => {
+        it('renders the analytics dashboard', () => {
             renderAnalyticsPage({ user: null });
-            expect(screen.getByText('See Your Progress in Action')).toBeInTheDocument();
-            expect(screen.getByRole('link', { name: /Create Your Free Account/i })).toBeInTheDocument();
+            const dashboard = screen.getByTestId('analytics-dashboard');
+            expect(dashboard).toBeInTheDocument();
         });
     });
 

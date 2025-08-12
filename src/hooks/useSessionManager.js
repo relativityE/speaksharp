@@ -8,14 +8,18 @@ export const useSessionManager = () => {
   const [loading, setLoading] = useState(true);
 
   const loadSessions = useCallback(async () => {
-    if (!user) {
-      setSessions([]);
-      setLoading(false);
-      return;
-    }
     setLoading(true);
-    const savedSessions = await getSessionHistory(user.id);
-    setSessions(savedSessions);
+    if (user) {
+      const savedSessions = await getSessionHistory(user.id);
+      setSessions(savedSessions);
+    } else {
+      const anonymousSession = sessionStorage.getItem('anonymousSession');
+      if (anonymousSession) {
+        setSessions([JSON.parse(anonymousSession)]);
+      } else {
+        setSessions([]);
+      }
+    }
     setLoading(false);
   }, [user]);
 
