@@ -61,6 +61,18 @@ To run the tests, use the following command:
 pnpm test
 ```
 
+## How to Test the Application
+
+This project uses [Vitest](https://vitest.dev/) for unit and integration testing. Vitest is a blazing fast unit-test framework powered by Vite.
+
+To run the tests, use the following command:
+
+```bash
+pnpm test
+```
+
+This will run all test files in the `src/__tests__` directory.
+
 ## Usage
 
 SpeakSharp uses a "progressive reveal" model. All pages are accessible to everyone, but more features are unlocked when you sign up for a free account.

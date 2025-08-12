@@ -24,7 +24,7 @@ export const MainPage = () => {
                         Get real-time feedback to eliminate filler words and become a more articulate speaker.
                     </p>
                     <Button size="lg" onClick={handleStartSession}>
-                        Try Free Session
+                        Try A Free Session
                     </Button>
                     <p className="mt-4 text-base text-muted-foreground">
                         No account required. Get started in seconds.
