@@ -18,7 +18,7 @@ export const MainPage = () => {
                 {/* Hero Section */}
                 <section className="container mx-auto px-4 py-20 text-center">
                     <h1 className="text-5xl md:text-6xl font-bold mb-4">
-                        Reduce your filler words by 50% in 30 days.
+                        Speak with confidence.
                     </h1>
                     <p className="max-w-2xl mx-auto mb-8 text-xl text-muted-foreground">
                         Get real-time feedback to eliminate filler words and become a more articulate speaker.
@@ -29,26 +29,6 @@ export const MainPage = () => {
                     <p className="mt-4 text-base text-muted-foreground">
                         No account required. Get started in seconds.
                     </p>
-                </section>
-
-                {/* Social Proof Section */}
-                <section className="container mx-auto px-4 py-20 text-center">
-                    <h2 className="text-3xl font-bold mb-4">Join over 1,000 professionals</h2>
-                    <p className="text-base text-muted-foreground mb-8">
-                        Already 10,000+ sessions completed on our platform.
-                    </p>
-                    {/* Placeholder for testimonials */}
-                    <div className="grid gap-8 md:grid-cols-3 text-left">
-                        <div className="p-6 border border-card rounded-lg">
-                            <p className="text-foreground mb-4">"SpeakSharp transformed my presentation skills. The real-time feedback is a game-changer."</p>
-                        </div>
-                        <div className="p-6 border border-card rounded-lg">
-                            <p className="text-foreground mb-4">"I used to be so nervous about filler words. Now I speak with confidence. Highly recommend!"</p>
-                        </div>
-                        <div className="p-6 border border-card rounded-lg">
-                            <p className="text-foreground mb-4">"The best tool for public speaking practice. It's simple, effective, and private."</p>
-                        </div>
-                    </div>
                 </section>
 
                 {/* Browser Warning Section */}
