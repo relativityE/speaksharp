@@ -56,7 +56,7 @@ const EmptyState = () => {
     return (
         <Card className="flex flex-col items-center justify-center p-12 text-center">
             <h2 className="text-2xl font-bold text-foreground">Ready to See Your Progress?</h2>
-            <p className="max-w-md mx-auto my-4 text-muted-foreground">
+            <p className="max-w-md mx-auto my-4 text-muted-foreground text-base">
                 Complete a session to start tracking your journey to confident speaking.
             </p>
             <Button onClick={() => navigate('/session')}>
@@ -89,13 +89,13 @@ const SessionHistoryItem = ({ session }) => {
         <div className="p-4 transition-all duration-200 rounded-lg hover:bg-secondary">
             <div className="flex items-center justify-between">
                 <div>
-                    <p className="font-semibold text-foreground">{new Date(session.created_at).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                    <p className="font-semibold text-foreground text-base">{new Date(session.created_at).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
                     <p className="text-base text-muted-foreground">{new Date(session.created_at).toLocaleTimeString()}</p>
                 </div>
                 <div className="text-right">
                     <div className="flex items-center justify-end gap-4">
                         <div>
-                            <p className="font-semibold text-foreground">{totalFillers} filler words</p>
+                            <p className="font-semibold text-foreground text-base">{totalFillers} filler words</p>
                             <p className="text-base text-muted-foreground">{durationMins} min duration</p>
                         </div>
                         <Badge variant="secondary" className="hidden sm:flex items-center gap-1.5">
@@ -172,7 +172,7 @@ export const AnalyticsDashboard = ({ sessionHistory }) => {
                                 </Bar>
                             </BarChart>
                         </ResponsiveContainer>
-                    </CardContent>
+                    </CardContent>.
                 </Card>
             </div>
 

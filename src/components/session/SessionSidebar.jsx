@@ -23,7 +23,7 @@ const FillerWordCounter = ({ word, count, maxCount }) => {
     }, [count, displayCount]);
 
     return (
-        <div data-testid={`filler-word-counter-${word}`}>
+        <div>
             <div className="flex items-center justify-between text-base mb-1">
                 <span className="capitalize text-muted-foreground">{word}</span>
                 <span className={`font-bold text-foreground transition-colors duration-300 ${isAnimating ? 'text-primary' : ''}`}>
@@ -199,8 +199,8 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
             <FillerWordAnalysis fillerCounts={fillerCounts} />
             <CustomWords customWords={customWords} setCustomWords={setCustomWords} />
 
-            {error && <p className="text-sm text-destructive">Error: {error}</p>}
-            {!isSupported && <p className="text-sm text-destructive">Speech recognition not supported in this browser.</p>}
+            {error && <p className="text-base text-destructive">Error: {error}</p>}
+            {!isSupported && <p className="text-base text-destructive">Speech recognition not supported in this browser.</p>}
         </div>
     );
 };
