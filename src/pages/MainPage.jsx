@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 
 export const MainPage = () => {
     const navigate = useNavigate();
-    const { isSupported } = useBrowserSupport();
+    const { isSupported, error } = useBrowserSupport();
 
     const handleStartSession = () => {
         navigate('/session');
@@ -24,7 +24,7 @@ export const MainPage = () => {
                         Get real-time feedback to eliminate filler words and become a more articulate speaker.
                     </p>
                     <Button size="lg" onClick={handleStartSession}>
-                        Try Free Session
+                        Try A Free Session
                     </Button>
                     <p className="mt-4 text-base text-muted-foreground">
                         No account required. Get started in seconds.
@@ -33,7 +33,7 @@ export const MainPage = () => {
 
                 {/* Browser Warning Section */}
                 <section className="container mx-auto px-4 py-10">
-                    <BrowserWarning isSupported={isSupported} />
+                    <BrowserWarning isSupported={isSupported} supportError={error} />
                 </section>
             </main>
 

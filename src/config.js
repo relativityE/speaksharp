@@ -5,9 +5,9 @@ export const FILLER_WORD_KEYS = {
   UH: 'uh',
   AH: 'ah',
   LIKE: 'like',
-  YOU_KNOW: 'youKnow',
+  YOU_KNOW: 'You Know',
   SO: 'so',
   ACTUALLY: 'actually',
   OH: 'oh',
-  I_MEAN: 'iMean',
+  I_MEAN: 'I Mean',
 };

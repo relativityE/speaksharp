@@ -1,5 +1,19 @@
 # SpeakSharp Product Requirements Document
-**Version 6.11** | **Last Updated: August 12, 2025**
+**Version 6.12** | **Last Updated: August 12, 2025**
+
+---
+
+## 🔄 Recent Updates (v6.12)
+*August 12, 2025*
+
+- **Analytics for All:** Anonymous users can now view a complete analysis of their practice session without needing to create an account. This lowers the barrier to experiencing the product's full value.
+- **UI & UX Enhancements:**
+    - Corrected the display of "You Know" and "I Mean" filler words.
+    - Redesigned the "Browser Not Supported" warning to be a less intrusive, more informative caution message.
+    - Increased the font size of all links across the application to improve readability and accessibility.
+- **Technical Fixes:**
+    - Resolved a CSS build error related to theme color resolution.
+    - Added a new test suite for the site header to improve test coverage.
 
 ---
 
