@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 
 export const MainPage = () => {
     const navigate = useNavigate();
-    const { isSupported } = useBrowserSupport();
+    const { isSupported, error } = useBrowserSupport();
 
     const handleStartSession = () => {
         navigate('/session');
@@ -33,7 +33,7 @@ export const MainPage = () => {
 
                 {/* Browser Warning Section */}
                 <section className="container mx-auto px-4 py-10">
-                    <BrowserWarning isSupported={isSupported} />
+                    <BrowserWarning isSupported={isSupported} supportError={error} />
                 </section>
             </main>
 
