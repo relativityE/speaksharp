@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { Separator } from '@/components/ui/separator';
 import CircularTimer from './CircularTimer';
 
 const FillerWordCounter = ({ word, data, maxCount }) => {
@@ -41,27 +42,10 @@ const FillerWordCounter = ({ word, data, maxCount }) => {
     );
 };
 
-const FillerWordAnalysis = ({ fillerData }) => {
+const FillerWordAnalysis = ({ fillerData, customWords, setCustomWords }) => {
     const sortedFillerWords = Object.entries(fillerData).sort(([, a], [, b]) => b.count - a.count);
     const maxCount = Math.max(...Object.values(fillerData).map(d => d.count), 0);
 
-    return (
-        <Card>
-            <CardHeader className="p-4">
-                <CardTitle className="text-lg">Filler Word Analysis</CardTitle>
-            </CardHeader>
-            <CardContent className="p-4 pt-0 space-y-3">
-                {sortedFillerWords.length > 0 ? sortedFillerWords.map(([word, data]) => (
-                    <FillerWordCounter key={word} word={word} data={data} maxCount={maxCount} />
-                )) : (
-                    <p className="text-muted-foreground">Start speaking to see your analysis.</p>
-                )}
-            </CardContent>
-        </Card>
-    );
-};
-
-const CustomWords = ({ customWords, setCustomWords }) => {
     const [newWord, setNewWord] = useState('');
 
     const addWord = () => {
@@ -83,32 +67,43 @@ const CustomWords = ({ customWords, setCustomWords }) => {
 
     return (
         <Card>
-            <CardHeader>
-                <CardTitle className="text-xl">Custom Words</CardTitle>
+            <CardHeader className="p-4">
+                <CardTitle className="text-lg">Filler Word Analysis</CardTitle>
             </CardHeader>
-            <CardContent>
-                <div className="flex gap-2 mb-4">
-                    <Input
-                        type="text"
-                        value={newWord}
-                        onChange={(e) => setNewWord(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        placeholder="Add a word..."
-                        className="bg-input"
-                    />
-                    <Button onClick={addWord} variant="secondary" size="icon">
-                        <Plus size={16} />
-                    </Button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                    {customWords.map(word => (
-                        <Badge key={word} variant="secondary" className="flex items-center gap-2">
-                            <span>{word}</span>
-                            <button onClick={() => removeWord(word)} className="text-muted-foreground hover:text-foreground">
-                                <Trash2 size={12} />
-                            </button>
-                        </Badge>
-                    ))}
+            <CardContent className="p-4 pt-0 space-y-3">
+                {sortedFillerWords.length > 0 ? sortedFillerWords.map(([word, data]) => (
+                    <FillerWordCounter key={word} word={word} data={data} maxCount={maxCount} />
+                )) : (
+                    <p className="text-muted-foreground">Start speaking to see your analysis.</p>
+                )}
+
+                <Separator className="my-4" />
+
+                <div className="space-y-2">
+                    <p className="text-sm font-medium text-muted-foreground">Custom Words</p>
+                    <div className="flex gap-2">
+                        <Input
+                            type="text"
+                            value={newWord}
+                            onChange={(e) => setNewWord(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            placeholder="Add a word to track..."
+                            className="bg-input"
+                        />
+                        <Button onClick={addWord} variant="secondary" size="icon">
+                            <Plus size={16} />
+                        </Button>
+                    </div>
+                    <div className="flex flex-wrap gap-2 pt-2">
+                        {customWords.map(word => (
+                            <Badge key={word} variant="secondary" className="flex items-center gap-2">
+                                <span>{word}</span>
+                                <button onClick={() => removeWord(word)} className="text-muted-foreground hover:text-foreground">
+                                    <Trash2 size={12} />
+                                </button>
+                            </Badge>
+                        ))}
+                    </div>
                 </div>
             </CardContent>
         </Card>
@@ -228,8 +223,7 @@ export const SessionSidebar = ({ isListening, transcript, fillerData, error, isS
                 </CardContent>
             </Card>
 
-            <FillerWordAnalysis fillerData={fillerData} />
-            <CustomWords customWords={customWords} setCustomWords={setCustomWords} />
+            <FillerWordAnalysis fillerData={fillerData} customWords={customWords} setCustomWords={setCustomWords} />
 
             {error && <p className="text-destructive">Error: {error}</p>}
             {!isSupported && <p className="text-destructive">Speech recognition not supported in this browser.</p>}

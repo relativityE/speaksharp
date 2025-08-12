@@ -17,14 +17,14 @@ const CircularTimer = ({ elapsedTime }) => {
     const formattedTime = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 
     return (
-        <div className="relative w-32 h-32 mx-auto">
+        <div className="relative w-24 h-24 mx-auto">
             <ResponsiveContainer width="100%" height="100%">
                 <RadialBarChart
                     cx="50%"
                     cy="50%"
-                    innerRadius="80%"
+                    innerRadius="75%"
                     outerRadius="100%"
-                    barSize={8}
+                    barSize={6}
                     data={data}
                     startAngle={90}
                     endAngle={-270}
@@ -39,12 +39,12 @@ const CircularTimer = ({ elapsedTime }) => {
                         background={{ fill: 'hsl(var(--card))' }}
                         dataKey="value"
                         angleAxisId={0}
-                        cornerRadius={8}
+                        cornerRadius={6}
                     />
                 </RadialBarChart>
             </ResponsiveContainer>
             <div className="absolute top-0 left-0 right-0 bottom-0 flex items-center justify-center">
-                <span className="text-3xl font-bold font-mono text-foreground">
+                <span className="text-2xl font-bold font-mono text-foreground">
                     {formattedTime}
                 </span>
             </div>
