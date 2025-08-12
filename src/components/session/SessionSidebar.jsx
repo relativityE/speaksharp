@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import CircularTimer from './CircularTimer';
 
 const FillerWordCounter = ({ word, count, maxCount }) => {
     const [displayCount, setDisplayCount] = useState(count);
@@ -184,12 +185,6 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
         }
     };
 
-    const formatTime = (seconds) => {
-        const minutes = Math.floor(seconds / 60);
-        const remainingSeconds = seconds % 60;
-        return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
-    };
-
     const getButtonContent = () => {
         if (isLoading) {
             return <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Starting...</>;
@@ -203,12 +198,12 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
     return (
         <div className="flex flex-col gap-6">
             <Card className="text-center">
-                <CardContent className="p-6">
-                    <div className="text-6xl font-bold font-mono text-foreground mb-2">
-                        {formatTime(elapsedTime)}
+                <CardContent className="p-3">
+                    <div className="mb-2">
+                        <CircularTimer elapsedTime={elapsedTime} />
                     </div>
                     <div className={`mb-4 text-base font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
-                        {isLoading ? 'INITIALIZING...' : (isListening ? '● RECORDING' : 'SESSION PAUSED')}
+                        {isLoading ? 'INITIALIZING...' : (isListening ? '● RECORDING' : '')}
                     </div>
                     <Button
                         onClick={handleStartStop}
