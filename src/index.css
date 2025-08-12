@@ -39,5 +39,5 @@ a {
 }
 
 a:hover {
-    color: theme(colors.primary);
+    color: var(--color-primary);
 }
