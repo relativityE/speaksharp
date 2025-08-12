@@ -108,6 +108,7 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
         processTranscriptRef.current(event);
       }
     };
+    recognition.onstart = () => setIsListening(true);
     recognition.onerror = (event) => {
       console.error('Speech recognition error:', event.error);
       setError(`Speech recognition error: ${event.error}`);
@@ -134,7 +135,6 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
       setError(null);
       intentionallyStopped.current = false;
       recognitionRef.current.start();
-      setIsListening(true);
     } catch (err) {
       console.error('Error starting speech recognition:', err);
       setError('Failed to start speech recognition');
