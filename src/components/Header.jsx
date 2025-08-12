@@ -2,7 +2,7 @@ import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from './ui/button';
-import { LogOut, UserCircle } from 'lucide-react';
+import { Home, LogOut, UserCircle } from 'lucide-react';
 
 export const Header = () => {
     const { user, signOut } = useAuth();
@@ -19,8 +19,8 @@ export const Header = () => {
     return (
         <header className="sticky top-0 z-10 border-b border-card bg-background">
             <div className="container mx-auto flex h-16 items-center justify-between px-4">
-                <NavLink to="/" className="text-xl font-bold text-primary">
-                    SpeakSharp
+                <NavLink to="/" aria-label="Home">
+                    <Home className="h-6 w-6" />
                 </NavLink>
                 <div className="flex items-center gap-4">
                     {user ? (

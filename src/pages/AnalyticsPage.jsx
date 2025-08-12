@@ -9,7 +9,7 @@ import { Card, CardContent } from '@/components/ui/card';
 const AnonymousAnalyticsView = () => (
     <div className="text-center py-20">
         <h2 className="text-3xl font-bold text-foreground mb-4">See Your Progress in Action</h2>
-        <p className="text-muted-foreground mb-8 max-w-2xl mx-auto">
+        <p className="text-base text-muted-foreground mb-8 max-w-2xl mx-auto">
             Create a free account to save your session history, track your improvement over time, and gain detailed insights into your speaking habits.
         </p>
         <Button asChild size="lg">

@@ -47,6 +47,8 @@ This is a simplified model based on a conservative user growth ramp-up.
 ## 4. Implementation Status & Roadmap
 
 ### 4.1. Completed Work
+- [x] **Critical Bug Fix**: Corrected detection logic for 'Uh', 'Ah', and 'Oh' filler words.
+- [x] **Core UI Polish**: Replaced the header text link with a home icon, fixed systemic font size issues in UI components, and improved the primary theme color for sharper contrast.
 - [x] **New Design System**: Implemented a new, high-contrast color palette and increased base font sizes for improved readability.
 - [x] **Component Styling**: Standardized button and card styles.
 - [x] **Landing Page Overhaul**: Redesigned the hero and value proposition sections to focus on outcomes and social proof.
@@ -56,6 +58,7 @@ This is a simplified model based on a conservative user growth ramp-up.
 - [x] **File Cleanup**: Removed temporary log files and consolidated documentation.
 
 ### 4.2. Future Work (Backlog)
+- [ ] **Implement Free Tier Limitations**: Track user's monthly usage to enforce the 5-minute cap for free accounts as a prerequisite for monetization.
 - [ ] **Color-Coded Confidence Levels**: Investigate and implement color-coding for filler word detection based on speech recognition confidence scores. (Note: Feasible but requires significant refactoring).
 - [ ] **Offline Mode**: Implement full offline capabilities with clear indicators for users on unstable connections.
 - [ ] **User Testimonials**: Replace placeholder testimonials on the landing page with real user stories and photos.
