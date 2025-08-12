@@ -25,15 +25,18 @@
   --font-sans: "Inter", "sans-serif";
 }
 
+html {
+    font-size: 24px; /* Significantly increased base font size for readability */
+}
+
 body {
     font-family: theme(font.sans);
-    font-size: 16px; /* Base font size from Design System */
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
 
 a {
-    font-size: 1.1rem;
+    font-size: 1em; /* Inherit font size from parent */
     text-decoration: none;
     transition: color 0.2s ease-in-out;
 }
