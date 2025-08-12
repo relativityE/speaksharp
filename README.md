@@ -4,14 +4,13 @@ A mobile-first web application that detects and counts filler words in real time
 
 ## Features
 
-- **Real-time Filler Word Detection**: Automatically detects common filler words like "um", "uh", "like", and "you know".
-- **Live Transcript**: Displays a real-time transcript of your speech.
-- **Custom Filler Words**: Add your own custom words to be tracked.
-- **Mobile-First Design**: Optimized for mobile devices with a responsive web interface.
-- **Browser-Based Speech-to-Text**: Uses the browser's built-in `SpeechRecognition` API for transcription.
-- **Session Management**: Start and stop recording sessions with intuitive controls.
-- **Live Analytics**: Real-time word count and frequency tracking.
-- **Privacy First**: All audio processing happens on your device. Your speech never leaves your computer.
+- **Real-time Filler Word Detection**: Counts common filler words (e.g., "um", "like") and custom words in real-time.
+- **Color-Coded Highlighting**: Each filler word is assigned a unique color. Words are highlighted in the live transcript and color-coded in the analysis panel for immediate visual feedback.
+- **Dynamic Transcript Box**: The transcript panel starts small and grows as you speak, maximizing screen real estate.
+- **Live Analytics**: The sidebar provides a live-updating word count and frequency analysis.
+- **Privacy First**: All audio processing is done locally in your browser; your voice data never leaves your device.
+- **Session Management**: Start, stop, and save practice sessions.
+- **Customizable Experience**: Add your own words to track and use a mobile-friendly, responsive interface.
 
 ## Technology Stack
 
@@ -46,32 +45,8 @@ A mobile-first web application that detects and counts filler words in real time
     ```bash
     pnpm run dev
     ```
-    The server will now run on HTTPS to enable microphone access in the browser.
 
-4.  Open your browser and navigate to `https://localhost:5173`.
-
-    > **Note:** Since the project uses a self-signed certificate for HTTPS in development, you will see a security warning in your browser. You can safely bypass this warning for local development.
-
-### Running Tests
-
-This project uses [Vitest](https://vitest.dev/) for unit and integration testing.
-
-To run the tests, use the following command:
-```bash
-pnpm test
-```
-
-## How to Test the Application
-
-This project uses [Vitest](https://vitest.dev/) for unit and integration testing. Vitest is a blazing fast unit-test framework powered by Vite.
-
-To run the tests, use the following command:
-
-```bash
-pnpm test
-```
-
-This will run all test files in the `src/__tests__` directory.
+4.  Open your browser and navigate to the URL shown in your terminal. It is usually `http://localhost:5173`, but it might be different if that port is occupied.
 
 ## How to Test the Application
 

@@ -10,7 +10,8 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import CircularTimer from './CircularTimer';
 
-const FillerWordCounter = ({ word, count, maxCount }) => {
+const FillerWordCounter = ({ word, data, maxCount }) => {
+    const { count, color } = data;
     const [displayCount, setDisplayCount] = useState(count);
     const [isAnimating, setIsAnimating] = useState(false);
     const progress = maxCount > 0 ? (count / maxCount) * 100 : 0;
@@ -27,28 +28,31 @@ const FillerWordCounter = ({ word, count, maxCount }) => {
     return (
         <div>
             <div className="flex items-center justify-between mb-1">
-                <span className="text-muted-foreground">{word}</span>
+                <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
+                    <span className="text-muted-foreground">{word}</span>
+                </div>
                 <span className={`font-bold text-foreground transition-colors duration-300 ${isAnimating ? 'text-primary' : ''}`}>
                     {displayCount}
                 </span>
             </div>
-            <Progress value={progress} className="h-1" />
+            <Progress value={progress} style={{ '--progress-color': color }} className="h-1 [&>div]:bg-[--progress-color]" />
         </div>
     );
 };
 
-const FillerWordAnalysis = ({ fillerCounts }) => {
-    const sortedFillerWords = Object.entries(fillerCounts).sort(([, a], [, b]) => b - a);
-    const maxCount = Math.max(...Object.values(fillerCounts), 0);
+const FillerWordAnalysis = ({ fillerData }) => {
+    const sortedFillerWords = Object.entries(fillerData).sort(([, a], [, b]) => b.count - a.count);
+    const maxCount = Math.max(...Object.values(fillerData).map(d => d.count), 0);
 
     return (
         <Card>
-            <CardHeader>
-                <CardTitle className="text-xl">Filler Word Analysis</CardTitle>
+            <CardHeader className="p-4">
+                <CardTitle className="text-lg">Filler Word Analysis</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-                {sortedFillerWords.length > 0 ? sortedFillerWords.map(([word, count]) => (
-                    <FillerWordCounter key={word} word={word} count={count} maxCount={maxCount} />
+            <CardContent className="p-4 pt-0 space-y-3">
+                {sortedFillerWords.length > 0 ? sortedFillerWords.map(([word, data]) => (
+                    <FillerWordCounter key={word} word={word} data={data} maxCount={maxCount} />
                 )) : (
                     <p className="text-muted-foreground">Start speaking to see your analysis.</p>
                 )}
@@ -111,7 +115,7 @@ const CustomWords = ({ customWords, setCustomWords }) => {
     );
 };
 
-export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, isSupported, startListening, stopListening, reset, customWords, setCustomWords, saveSession }) => {
+export const SessionSidebar = ({ isListening, transcript, fillerData, error, isSupported, startListening, stopListening, reset, customWords, setCustomWords, saveSession }) => {
     const navigate = useNavigate();
     const { user, profile } = useAuth();
     const [elapsedTime, setElapsedTime] = useState(0);
@@ -129,7 +133,7 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
         const sessionData = {
             duration: elapsedTime,
             transcript: transcript,
-            filler_counts: fillerCounts,
+            filler_data: fillerData,
             created_at: new Date().toISOString(),
         };
 
@@ -224,7 +228,7 @@ export const SessionSidebar = ({ isListening, transcript, fillerCounts, error, i
                 </CardContent>
             </Card>
 
-            <FillerWordAnalysis fillerCounts={fillerCounts} />
+            <FillerWordAnalysis fillerData={fillerData} />
             <CustomWords customWords={customWords} setCustomWords={setCustomWords} />
 
             {error && <p className="text-destructive">Error: {error}</p>}
