@@ -69,13 +69,13 @@ const EmptyState = () => {
 const StatCard = ({ icon, label, value, unit }) => (
     <Card>
         <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
+            <CardTitle className="text-base font-medium text-muted-foreground">{label}</CardTitle>
             {icon}
         </CardHeader>
         <CardContent>
             <div className="text-4xl font-bold text-foreground">
                 {value}
-                {unit && <span className="ml-2 text-lg font-normal text-muted-foreground">{unit}</span>}
+                {unit && <span className="ml-2 text-xl font-normal text-muted-foreground">{unit}</span>}
             </div>
         </CardContent>
     </Card>
@@ -90,13 +90,13 @@ const SessionHistoryItem = ({ session }) => {
             <div className="flex items-center justify-between">
                 <div>
                     <p className="font-semibold text-foreground">{new Date(session.created_at).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
-                    <p className="text-sm text-muted-foreground">{new Date(session.created_at).toLocaleTimeString()}</p>
+                    <p className="text-base text-muted-foreground">{new Date(session.created_at).toLocaleTimeString()}</p>
                 </div>
                 <div className="text-right">
                     <div className="flex items-center justify-end gap-4">
                         <div>
                             <p className="font-semibold text-foreground">{totalFillers} filler words</p>
-                            <p className="text-sm text-muted-foreground">{durationMins} min duration</p>
+                            <p className="text-base text-muted-foreground">{durationMins} min duration</p>
                         </div>
                         <Badge variant="secondary" className="hidden sm:flex items-center gap-1.5">
                             <CheckCircle className="h-3.5 w-3.5" />
@@ -133,8 +133,8 @@ export const AnalyticsDashboard = ({ sessionHistory }) => {
                         <ResponsiveContainer width="100%" height={300}>
                             <LineChart data={trends.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                                 <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
-                                <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                                <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
+                                <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={14} tickLine={false} axisLine={false} />
+                                <YAxis stroke="hsl(var(--muted-foreground))" fontSize={14} tickLine={false} axisLine={false} />
                                 <Tooltip
                                     cursor={{ fill: 'hsla(var(--secondary))' }}
                                     contentStyle={{
@@ -158,7 +158,7 @@ export const AnalyticsDashboard = ({ sessionHistory }) => {
                             <BarChart data={trends.topFillerWords} layout="vertical" margin={{ top: 0, right: 20, left: 10, bottom: 0 }}>
                                 <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
                                 <XAxis type="number" hide />
-                                <YAxis type="category" dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={14} tickLine={false} axisLine={false} width={80} />
+                                <YAxis type="category" dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={16} tickLine={false} axisLine={false} width={80} />
                                 <Tooltip
                                     cursor={{ fill: 'hsla(var(--secondary))' }}
                                     contentStyle={{
