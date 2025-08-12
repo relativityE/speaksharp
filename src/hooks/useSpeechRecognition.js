@@ -13,13 +13,20 @@ const defaultFillerPatterns = {
   [FILLER_WORD_KEYS.I_MEAN]: /\b(i mean)\b/gi,
 };
 
-const getInitialCounts = (customWords = []) => {
+const FILLER_WORD_COLORS = [
+  '#FF6B6B', '#4ECDC4', '#45B7D1', '#FED766', '#F0B7A4',
+  '#2D728F', '#F4A261', '#E76F51', '#2A9D8F', '#E9C46A',
+  '#A8DADC', '#F19C79', '#D4A5A5', '#8E8D8A', '#5E503F'
+];
+
+const getInitialFillerData = (customWords = []) => {
   const initial = {};
-  Object.values(FILLER_WORD_KEYS).forEach((key) => {
-    initial[key] = 0;
-  });
-  customWords.forEach((word) => {
-    initial[word] = 0;
+  const allFillerKeys = [...Object.values(FILLER_WORD_KEYS), ...customWords];
+  allFillerKeys.forEach((key, index) => {
+    initial[key] = {
+      count: 0,
+      color: FILLER_WORD_COLORS[index % FILLER_WORD_COLORS.length]
+    };
   });
   return initial;
 };
@@ -27,7 +34,7 @@ const getInitialCounts = (customWords = []) => {
 export const useSpeechRecognition = ({ customWords = [] } = {}) => {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
-  const [fillerCounts, setFillerCounts] = useState(getInitialCounts(customWords));
+  const [fillerData, setFillerData] = useState(getInitialFillerData(customWords));
   const [error, setError] = useState(null);
 
   const recognitionRef = useRef(null);
@@ -35,7 +42,7 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
   const processTranscriptRef = useRef(null);
 
   useEffect(() => {
-    setFillerCounts(getInitialCounts(customWords));
+    setFillerData(getInitialFillerData(customWords));
   }, [customWords]);
 
   const processTranscript = useCallback((event) => {
@@ -56,16 +63,23 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
         allPatterns[word] = new RegExp(`\\b(${word})\\b`, 'gi');
       });
 
-      setFillerCounts((prevCounts) => {
-        const updatedCounts = { ...prevCounts };
+      setFillerData((prevData) => {
+        const updatedData = { ...prevData };
         for (const key in allPatterns) {
           const pattern = allPatterns[key];
           const matches = finalTranscriptChunk.match(pattern);
           if (matches) {
-            updatedCounts[key] = (updatedCounts[key] || 0) + matches.length;
+            if (!updatedData[key]) { // Handle new custom words added mid-session
+                const newIndex = Object.keys(updatedData).length;
+                updatedData[key] = {
+                    count: 0,
+                    color: FILLER_WORD_COLORS[newIndex % FILLER_WORD_COLORS.length]
+                };
+            }
+            updatedData[key] = { ...updatedData[key], count: updatedData[key].count + matches.length };
           }
         }
-        return updatedCounts;
+        return updatedData;
       });
     }
   }, [customWords]);
@@ -108,7 +122,6 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
         processTranscriptRef.current(event);
       }
     };
-    recognition.onstart = () => setIsListening(true);
     recognition.onerror = (event) => {
       console.error('Speech recognition error:', event.error);
       setError(`Speech recognition error: ${event.error}`);
@@ -135,6 +148,7 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
       setError(null);
       intentionallyStopped.current = false;
       recognitionRef.current.start();
+      setIsListening(true);
     } catch (err) {
       console.error('Error starting speech recognition:', err);
       setError('Failed to start speech recognition');
@@ -152,14 +166,14 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
 
   const reset = useCallback(() => {
     setTranscript('');
-    setFillerCounts(getInitialCounts(customWords));
+    setFillerData(getInitialFillerData(customWords));
     setError(null);
   }, [customWords]);
 
   return {
     isListening,
     transcript,
-    fillerCounts,
+    fillerData,
     error,
     isSupported: !!(window.SpeechRecognition || window.webkitSpeechRecognition),
     startListening,

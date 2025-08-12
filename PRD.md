@@ -1,5 +1,14 @@
 # SpeakSharp Product Requirements Document
-**Version 6.12** | **Last Updated: August 12, 2025**
+**Version 6.13** | **Last Updated: August 12, 2025**
+
+---
+
+## 🔄 Recent Updates (v6.13)
+*August 12, 2025*
+
+- **Advanced Session UI:** Implemented a major redesign of the session page for a more dynamic and interactive user experience.
+    - **Color-Coded Analysis:** Filler words are now assigned unique colors, which are displayed in the analysis list and used for real-time highlighting in the transcript.
+    - **Dynamic Layout:** The timer and analysis boxes have been resized, and the transcript panel now starts small and grows as the user speaks, making better use of screen space.
 
 ---
 

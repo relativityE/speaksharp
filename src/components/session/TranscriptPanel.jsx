@@ -1,17 +1,22 @@
 import React from 'react';
 
-const HighlightedTranscript = ({ transcript, fillerWords }) => {
+const HighlightedTranscript = ({ transcript, fillerData }) => {
     if (!transcript) return null;
 
+    const fillerWords = Object.keys(fillerData);
     const fillerRegex = new RegExp(`\\b(${fillerWords.join('|')})\\b`, 'gi');
     const parts = transcript.split(fillerRegex);
 
     return (
         <p className="text-xl leading-relaxed text-foreground">
             {parts.map((part, index) => {
-                const isFiller = fillerWords.some(word => new RegExp(`^${word}$`, 'i').test(part));
-                return isFiller ? (
-                    <span key={index} className="px-1 rounded bg-highlight text-highlight-foreground">
+                if (!part) return null;
+                const lowerPart = part.toLowerCase();
+                const fillerKey = fillerWords.find(key => key.toLowerCase() === lowerPart);
+                const fillerInfo = fillerKey ? fillerData[fillerKey] : null;
+
+                return fillerInfo ? (
+                    <span key={index} className="px-1 rounded" style={{ backgroundColor: fillerInfo.color, color: '#000' }}>
                         {part}
                     </span>
                 ) : (
@@ -23,10 +28,7 @@ const HighlightedTranscript = ({ transcript, fillerWords }) => {
 };
 
 
-export const TranscriptPanel = ({ transcript, customWords }) => {
-    const defaultFillerWords = ['um', 'uh', 'like', 'you know', 'so', 'actually', 'i mean', 'right'];
-    const allFillerWords = [...new Set([...defaultFillerWords, ...customWords.map(w => w.toLowerCase())])];
-
+export const TranscriptPanel = ({ transcript, fillerData }) => {
     return (
         <div>
             <div className="mb-4">
@@ -37,8 +39,8 @@ export const TranscriptPanel = ({ transcript, customWords }) => {
                     Your spoken words appear here. Filler words are highlighted.
                 </p>
             </div>
-            <div className="p-6 rounded-lg bg-card min-h-[60vh] border border-border">
-                <HighlightedTranscript transcript={transcript} fillerWords={allFillerWords} />
+            <div className="p-6 rounded-lg bg-card min-h-[10rem] max-h-[60vh] overflow-y-auto transition-all duration-300 ease-in-out border border-border">
+                <HighlightedTranscript transcript={transcript} fillerData={fillerData} />
             </div>
         </div>
     );
