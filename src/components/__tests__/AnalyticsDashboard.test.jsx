@@ -56,8 +56,8 @@ describe('calculateTrends', () => {
         const trends = calculateTrends(history);
         expect(trends.totalSessions).toBe(3);
         expect(trends.totalPracticeTime).toBe(1); // Only the valid 1 minute session
-        // Total fillers = 30. Total time = 1 min.
-        expect(trends.avgFillerWordsPerMin).toBe("30.0");
+        // Total fillers from valid sessions = 15. Total time = 1 min.
+        expect(trends.avgFillerWordsPerMin).toBe("15.0");
     });
 
     it('should handle the "filler_data" schema', () => {

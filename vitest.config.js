@@ -6,14 +6,13 @@ export default defineConfig({
   plugins: [react()],
   test: {
     globals: true,
-    environment: 'happy-dom', // Switch from jsdom - uses less memory
-    setupFiles: ['./src/test/setup.js'],
-    pool: 'threads',
-    poolOptions: {
-      threads: {
-        singleThread: true, // Prevents memory accumulation across tests
-      },
-    },
+    environment: 'jsdom',
+    setupFiles: './src/test/setup.js',
+    isolate: true,
+    clearMocks: true,
+    restoreMocks: true,
+    testTimeout: 15000,
+    hookTimeout: 10000
   },
   resolve: {
     alias: {
