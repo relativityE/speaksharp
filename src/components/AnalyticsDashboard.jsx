@@ -19,9 +19,6 @@ export const calculateTrends = (history) => {
     }
 
     const totalSessions = history.length;
-    // FIX: Ensure duration is a number to prevent NaN errors.
-    const totalDuration = history.reduce((sum, session) => sum + (parseFloat(session.duration) || 0), 0);
-
     const getFillersCount = (session) => {
         const fillerData = session.filler_words || session.filler_data; // Prioritize new schema
         if (!fillerData) {
@@ -38,14 +35,23 @@ export const calculateTrends = (history) => {
         return Object.values(fillerData).reduce((sum, data) => sum + (data.count || data), 0);
     };
 
-    const totalFillerWords = history.reduce((sum, session) => sum + getFillersCount(session), 0);
+    const { totalDuration, totalFillerWords } = history.reduce((acc, session) => {
+        const duration = Number(session.duration);
+        // Only include sessions with a valid, positive duration in calculations
+        if (!isNaN(duration) && duration > 0) {
+            acc.totalDuration += duration;
+            acc.totalFillerWords += getFillersCount(session);
+        }
+        return acc;
+    }, { totalDuration: 0, totalFillerWords: 0 });
     const avgFillerWordsPerMin = totalDuration > 0 ? (totalFillerWords / (totalDuration / 60)) : 0;
 
     const chartData = history.map(s => {
         // FIX: Ensure duration is a number for this calculation as well.
-        const duration = parseFloat(s.duration) || 0;
+        const duration = Number(s.duration);
+        const validDuration = isNaN(duration) ? 0 : duration;
         const fillerCount = getFillersCount(s);
-        const fwPerMin = duration > 0 ? (fillerCount / (duration / 60)).toFixed(1) : "0.0";
+        const fwPerMin = validDuration > 0 ? (fillerCount / (validDuration / 60)).toFixed(1) : "0.0";
         return {
             date: new Date(s.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
             'FW/min': fwPerMin,
@@ -250,22 +256,28 @@ export const AnalyticsDashboard = ({ sessionHistory }) => {
                         <CardTitle>Filler Word Trend</CardTitle>
                     </CardHeader>
                     <CardContent className="pl-2">
-                        <ResponsiveContainer width="100%" height={300}>
-                            <LineChart data={trends.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                                <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
-                                <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={14} tickLine={false} axisLine={false} />
-                                <YAxis stroke="hsl(var(--muted-foreground))" fontSize={14} tickLine={false} axisLine={false} />
-                                <Tooltip
-                                    cursor={{ fill: 'hsla(var(--secondary))' }}
-                                    contentStyle={{
-                                        backgroundColor: 'hsl(var(--card))',
-                                        borderColor: 'hsl(var(--border))',
-                                        color: 'hsl(var(--foreground))'
-                                    }}
-                                />
-                                <Line type="monotone" dataKey="FW/min" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                            </LineChart>
-                        </ResponsiveContainer>
+                        {trends.chartData.length > 1 ? (
+                            <ResponsiveContainer width="100%" height={300}>
+                                <LineChart data={trends.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                                    <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
+                                    <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={14} tickLine={false} axisLine={false} />
+                                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize={14} tickLine={false} axisLine={false} />
+                                    <Tooltip
+                                        cursor={{ fill: 'hsla(var(--secondary))' }}
+                                        contentStyle={{
+                                            backgroundColor: 'hsl(var(--card))',
+                                            borderColor: 'hsl(var(--border))',
+                                            color: 'hsl(var(--foreground))'
+                                        }}
+                                    />
+                                    <Line type="monotone" dataKey="FW/min" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                                </LineChart>
+                            </ResponsiveContainer>
+                        ) : (
+                            <div className="flex items-center justify-center h-[300px] text-center text-muted-foreground">
+                                <p>Complete at least two sessions to see your progress trend.</p>
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
 
@@ -274,25 +286,31 @@ export const AnalyticsDashboard = ({ sessionHistory }) => {
                         <CardTitle>Top Filler Words</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <ResponsiveContainer width="100%" height={300}>
-                            <BarChart data={trends.topFillerWords} layout="vertical" margin={{ top: 0, right: 20, left: 10, bottom: 0 }}>
-                                <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
-                                <XAxis type="number" hide />
-                                <YAxis type="category" dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={16} tickLine={false} axisLine={false} width={80} />
-                                <Tooltip
-                                    cursor={{ fill: 'hsla(var(--secondary))' }}
-                                    contentStyle={{
-                                        backgroundColor: 'hsl(var(--card))',
-                                        borderColor: 'hsl(var(--border))',
-                                        color: 'hsl(var(--foreground))'
-                                    }}
-                                />
-                                <Bar dataKey="value" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]}>
-                                    <LabelList dataKey="value" position="right" className="fill-foreground" />
-                                </Bar>
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </CardContent>.
+                        {trends.topFillerWords.length > 0 ? (
+                            <ResponsiveContainer width="100%" height={300}>
+                                <BarChart data={trends.topFillerWords} layout="vertical" margin={{ top: 0, right: 20, left: 10, bottom: 0 }}>
+                                    <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
+                                    <XAxis type="number" hide />
+                                    <YAxis type="category" dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={16} tickLine={false} axisLine={false} width={80} />
+                                    <Tooltip
+                                        cursor={{ fill: 'hsla(var(--secondary))' }}
+                                        contentStyle={{
+                                            backgroundColor: 'hsl(var(--card))',
+                                            borderColor: 'hsl(var(--border))',
+                                            color: 'hsl(var(--foreground))'
+                                        }}
+                                    />
+                                    <Bar dataKey="value" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]}>
+                                        <LabelList dataKey="value" position="right" className="fill-white" />
+                                    </Bar>
+                                </BarChart>
+                            </ResponsiveContainer>
+                        ) : (
+                            <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+                                <p>No filler words detected yet. Keep practicing!</p>
+                            </div>
+                        )}
+                    </CardContent>
                 </Card>
             </div>
 

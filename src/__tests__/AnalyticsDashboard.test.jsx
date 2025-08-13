@@ -79,4 +79,34 @@ describe('AnalyticsDashboard - calculateTrends', () => {
     expect(trends.topFillerWords).toEqual([]);
     expect(trends.avgFillerWordsPerMin).toBe('0.0');
   });
+
+  it('should handle sessions with null or invalid duration', () => {
+    const mockHistory = [
+      {
+        id: '1',
+        created_at: new Date().toISOString(),
+        duration: 120, // 2 minutes
+        filler_words: { 'um': { count: 10 } },
+      },
+      {
+        id: '2',
+        created_at: new Date().toISOString(),
+        duration: null, // Invalid duration
+        filler_words: { 'like': { count: 5 } },
+      },
+       {
+        id: '3',
+        created_at: new Date().toISOString(),
+        duration: ' sixty ', // Invalid duration
+        filler_words: { 'so': { count: 5 } },
+      },
+    ];
+
+    const trends = calculateTrends(mockHistory);
+
+    expect(trends.totalSessions).toBe(3);
+    expect(trends.totalPracticeTime).toBe(2); // Only the first session is valid
+    expect(trends.avgFillerWordsPerMin).not.toBe('NaN');
+    expect(trends.avgFillerWordsPerMin).toBe('5.0'); // 10 fillers / 2 mins = 5.0
+  });
 });
