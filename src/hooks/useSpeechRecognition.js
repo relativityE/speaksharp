@@ -34,6 +34,8 @@ const getInitialFillerData = (customWords = []) => {
 export const useSpeechRecognition = ({ customWords = [] } = {}) => {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
+  const [finalChunks, setFinalChunks] = useState([]);
+  const [interimTranscript, setInterimTranscript] = useState('');
   const [fillerData, setFillerData] = useState(getInitialFillerData(customWords));
   const [error, setError] = useState(null);
 
@@ -46,43 +48,48 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
   }, [customWords]);
 
   const processTranscript = useCallback((event) => {
-    let finalTranscriptChunk = '';
-    let fullTranscript = '';
+    let finalChunk = '';
+    let currentInterim = '';
+
     for (let i = event.resultIndex; i < event.results.length; i++) {
-      const transcriptPart = event.results[i][0].transcript;
-      fullTranscript += transcriptPart;
-      if (event.results[i].isFinal) {
-        finalTranscriptChunk += transcriptPart;
-      }
-    }
-    setTranscript(prev => prev + fullTranscript);
-
-    if (finalTranscriptChunk) {
-      const allPatterns = { ...defaultFillerPatterns };
-      customWords.forEach((word) => {
-        allPatterns[word] = new RegExp(`\\b(${word})\\b`, 'gi');
-      });
-
-      setFillerData((prevData) => {
-        const newData = { ...prevData };
-        let changed = false;
-        for (const key in allPatterns) {
-          const pattern = allPatterns[key];
-          const matches = finalTranscriptChunk.match(pattern);
-          if (matches && matches.length > 0) {
-            if (!newData[key]) { // Handle new custom words added mid-session
-                const newIndex = Object.keys(newData).length;
-                newData[key] = {
-                    count: 0,
-                    color: FILLER_WORD_COLORS[newIndex % FILLER_WORD_COLORS.length]
-                };
-            }
-            newData[key] = { ...newData[key], count: newData[key].count + matches.length };
-            changed = true;
-          }
+        const transcriptPart = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+            finalChunk += transcriptPart.trim() + ' ';
+        } else {
+            currentInterim += transcriptPart;
         }
-        return changed ? newData : prevData;
-      });
+    }
+
+    if (finalChunk.trim()) {
+        setFinalChunks(prev => [...prev, { text: finalChunk, id: Math.random() }]);
+        setInterimTranscript('');
+
+        // Filler word detection on the finalized chunk
+        const allPatterns = { ...defaultFillerPatterns };
+        customWords.forEach((word) => {
+            allPatterns[word] = new RegExp(`\\b(${word})\\b`, 'gi');
+        });
+        setFillerData((prevData) => {
+            const newData = { ...prevData };
+            let changed = false;
+            for (const key in allPatterns) {
+                const pattern = allPatterns[key];
+                const matches = finalChunk.match(pattern);
+                if (matches && matches.length > 0) {
+                    if (!newData[key]) {
+                        const newIndex = Object.keys(newData).length;
+                        newData[key] = { count: 0, color: FILLER_WORD_COLORS[newIndex % FILLER_WORD_COLORS.length] };
+                    }
+                    newData[key] = { ...newData[key], count: newData[key].count + matches.length };
+                    changed = true;
+                }
+            }
+            return changed ? newData : prevData;
+        });
+    }
+
+    if (currentInterim) {
+        setInterimTranscript(currentInterim);
     }
   }, [customWords]);
 
@@ -177,14 +184,23 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
   }, [isListening]);
 
   const reset = useCallback(() => {
-    setTranscript('');
+    setFinalChunks([]);
+    setInterimTranscript('');
+    setTranscript(''); // Keep this for now for any dependencies
     setFillerData(getInitialFillerData(customWords));
     setError(null);
   }, [customWords]);
 
+  useEffect(() => {
+    const newTranscript = [...finalChunks.map(c => c.text), interimTranscript].join('');
+    setTranscript(newTranscript);
+  }, [finalChunks, interimTranscript]);
+
   return {
     isListening,
     transcript,
+    chunks: finalChunks,
+    interimTranscript,
     fillerData,
     error,
     isSupported: !!(window.SpeechRecognition || window.webkitSpeechRecognition),

@@ -5,11 +5,12 @@ import { TrendingUp, Clock, Hash, CheckCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export const calculateTrends = (history) => {
     if (!history || history.length === 0) {
         return {
-            avgFillerWordsPerMin: 0,
+            avgFillerWordsPerMin: "0.0",
             totalSessions: 0,
             totalPracticeTime: 0,
             chartData: [],
@@ -18,46 +19,65 @@ export const calculateTrends = (history) => {
     }
 
     const totalSessions = history.length;
-    const totalDuration = history.reduce((sum, session) => sum + (session.duration || 0), 0);
+    // FIX: Ensure duration is a number to prevent NaN errors.
+    const totalDuration = history.reduce((sum, session) => sum + (parseFloat(session.duration) || 0), 0);
 
     const getFillersCount = (session) => {
         const fillerData = session.filler_words || session.filler_data; // Prioritize new schema
-        if (fillerData) {
-            return Object.values(fillerData).reduce((sum, data) => sum + (data.count || data), 0);
+        if (!fillerData) {
+            if (session.filler_counts) { // Backwards compatibility
+                return Object.values(session.filler_counts).reduce((a, b) => a + b, 0);
+            }
+            return 0;
         }
-        if (session.filler_counts) { // Backwards compatibility
-            return Object.values(session.filler_counts).reduce((a, b) => a + b, 0);
+
+        if (Array.isArray(fillerData)) {
+            return fillerData.reduce((sum, item) => sum + (item.count || 0), 0);
         }
-        return 0;
+
+        return Object.values(fillerData).reduce((sum, data) => sum + (data.count || data), 0);
     };
 
     const totalFillerWords = history.reduce((sum, session) => sum + getFillersCount(session), 0);
     const avgFillerWordsPerMin = totalDuration > 0 ? (totalFillerWords / (totalDuration / 60)) : 0;
 
-    const chartData = history.map(s => ({
-        date: new Date(s.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        'FW/min': s.duration > 0 ? (getFillersCount(s) / (s.duration / 60)).toFixed(1) : 0,
-    })).reverse();
+    const chartData = history.map(s => {
+        // FIX: Ensure duration is a number for this calculation as well.
+        const duration = parseFloat(s.duration) || 0;
+        const fillerCount = getFillersCount(s);
+        const fwPerMin = duration > 0 ? (fillerCount / (duration / 60)).toFixed(1) : "0.0";
+        return {
+            date: new Date(s.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            'FW/min': fwPerMin,
+        };
+    }).reverse();
 
     const allFillerCounts = history.reduce((acc, session) => {
-        // Prioritize new schema `filler_words`, fallback to older formats
         const fillerData = session.filler_words || session.filler_data || session.filler_counts;
         if (!fillerData) return acc;
 
-        for (const word in fillerData) {
-            // Handle both new object format {count, color} and old count format
-            const count = (typeof fillerData[word] === 'object' && fillerData[word] !== null)
-                ? fillerData[word].count
-                : fillerData[word];
+        // FIX: Handle array-based filler_words schema to prevent [object Object] bug
+        if (Array.isArray(fillerData)) {
+            for (const item of fillerData) {
+                if (item.word && typeof item.count === 'number') {
+                    acc[item.word] = (acc[item.word] || 0) + item.count;
+                }
+            }
+        } else { // Handle object-based schemas
+            for (const word in fillerData) {
+                const count = (typeof fillerData[word] === 'object' && fillerData[word] !== null)
+                    ? fillerData[word].count
+                    : fillerData[word];
 
-            if (typeof count === 'number') {
-              acc[word] = (acc[word] || 0) + count;
+                if (typeof count === 'number') {
+                  acc[word] = (acc[word] || 0) + count;
+                }
             }
         }
         return acc;
     }, {});
 
-    const topFillerWords = Object.entries(allFillerCounts).sort(([, a], [, b]) => b - a).slice(0, 5).map(([name, value]) => ({ name, value }));
+    const topFillerWords = Object.entries(allFillerCounts).sort(([keyA, a], [keyB, b]) => b - a || keyA.localeCompare(keyB)).slice(0, 5).map(([name, value]) => ({ name, value }));
 
     return {
         avgFillerWordsPerMin: avgFillerWordsPerMin.toFixed(1),
@@ -83,8 +103,8 @@ const EmptyState = () => {
     );
 };
 
-const StatCard = ({ icon, label, value, unit }) => (
-    <Card>
+const StatCard = ({ icon, label, value, unit, className }) => (
+    <Card className={className}>
         <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-base font-medium text-muted-foreground">{label}</CardTitle>
             {icon}
@@ -131,6 +151,84 @@ const SessionHistoryItem = ({ session }) => {
     );
 };
 
+export const AnalyticsDashboardSkeleton = () => (
+    <div className="space-y-8 animate-pulse">
+        <div className="grid gap-6 md:grid-cols-3">
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+                    <Skeleton className="h-5 w-2/5" />
+                </CardHeader>
+                <CardContent>
+                    <Skeleton className="h-8 w-1/3" />
+                </CardContent>
+            </Card>
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+                    <Skeleton className="h-5 w-4/5" />
+                </CardHeader>
+                <CardContent>
+                    <Skeleton className="h-8 w-1/3" />
+                </CardContent>
+            </Card>
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+                    <Skeleton className="h-5 w-3/5" />
+                </CardHeader>
+                <CardContent>
+                    <Skeleton className="h-8 w-1/3" />
+                </CardContent>
+            </Card>
+        </div>
+
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-5">
+            <Card className="col-span-1 lg:col-span-3">
+                <CardHeader>
+                    <Skeleton className="h-6 w-1/3" />
+                </CardHeader>
+                <CardContent>
+                    <Skeleton className="h-[240px] w-full" />
+                </CardContent>
+            </Card>
+            <Card className="col-span-1 lg:col-span-2">
+                 <CardHeader>
+                    <Skeleton className="h-6 w-1/2" />
+                </CardHeader>
+                <CardContent>
+                    <Skeleton className="h-[240px] w-full" />
+                </CardContent>
+            </Card>
+        </div>
+
+        <Card>
+            <CardHeader>
+                <Skeleton className="h-6 w-1/4" />
+            </CardHeader>
+            <CardContent className="space-y-4">
+                <div className="flex justify-between items-center">
+                    <div className="space-y-2">
+                        <Skeleton className="h-5 w-48" />
+                        <Skeleton className="h-4 w-32" />
+                    </div>
+                    <div className="space-y-2 text-right">
+                        <Skeleton className="h-5 w-24" />
+                        <Skeleton className="h-4 w-20" />
+                    </div>
+                </div>
+                 <div className="flex justify-between items-center">
+                    <div className="space-y-2">
+                        <Skeleton className="h-5 w-48" />
+                        <Skeleton className="h-4 w-32" />
+                    </div>
+                    <div className="space-y-2 text-right">
+                        <Skeleton className="h-5 w-24" />
+                        <Skeleton className="h-4 w-20" />
+                    </div>
+                </div>
+            </CardContent>
+        </Card>
+    </div>
+);
+
 export const AnalyticsDashboard = ({ sessionHistory }) => {
     if (!sessionHistory || sessionHistory.length === 0) {
         return <EmptyState />;
@@ -140,8 +238,8 @@ export const AnalyticsDashboard = ({ sessionHistory }) => {
 
     return (
         <div className="space-y-8">
-            <div className="grid gap-6 md:grid-cols-3">
-                <StatCard icon={<Hash size={20} className="text-muted-foreground" />} label="Total Sessions" value={trends.totalSessions} />
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+                <StatCard icon={<Hash size={20} className="text-muted-foreground" />} label="Total Sessions" value={trends.totalSessions} className="sm:col-span-2 md:col-span-1" />
                 <StatCard icon={<TrendingUp size={20} className="text-muted-foreground" />} label="Avg. Filler Words / Min" value={trends.avgFillerWordsPerMin} />
                 <StatCard icon={<Clock size={20} className="text-muted-foreground" />} label="Total Practice Time" value={trends.totalPracticeTime} unit="mins" />
             </div>
