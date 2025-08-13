@@ -100,8 +100,8 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
 
   const handleEnd = useCallback(() => {
     // The auto-restart logic can cause infinite loops in some test environments.
-    // We disable it during testing, as it's not a critical feature to test.
-    if (process.env.NODE_ENV === 'test') {
+    // We disable it during testing by checking for the existence of the `vi` global.
+    if (typeof window !== 'undefined' && window.vi) {
       setIsListening(false);
       return;
     }
