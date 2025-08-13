@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 
-const calculateTrends = (history) => {
+export const calculateTrends = (history) => {
     if (!history || history.length === 0) {
         return {
             avgFillerWordsPerMin: 0,
@@ -21,8 +21,9 @@ const calculateTrends = (history) => {
     const totalDuration = history.reduce((sum, session) => sum + (session.duration || 0), 0);
 
     const getFillersCount = (session) => {
-        if (session.filler_data) {
-            return Object.values(session.filler_data).reduce((sum, data) => sum + data.count, 0);
+        const fillerData = session.filler_words || session.filler_data; // Prioritize new schema
+        if (fillerData) {
+            return Object.values(fillerData).reduce((sum, data) => sum + (data.count || data), 0);
         }
         if (session.filler_counts) { // Backwards compatibility
             return Object.values(session.filler_counts).reduce((a, b) => a + b, 0);
@@ -39,12 +40,19 @@ const calculateTrends = (history) => {
     })).reverse();
 
     const allFillerCounts = history.reduce((acc, session) => {
-        const fillerData = session.filler_data || session.filler_counts;
+        // Prioritize new schema `filler_words`, fallback to older formats
+        const fillerData = session.filler_words || session.filler_data || session.filler_counts;
         if (!fillerData) return acc;
 
         for (const word in fillerData) {
-            const count = fillerData[word].count || fillerData[word]; // Handle both new and old format
-            acc[word] = (acc[word] || 0) + count;
+            // Handle both new object format {count, color} and old count format
+            const count = (typeof fillerData[word] === 'object' && fillerData[word] !== null)
+                ? fillerData[word].count
+                : fillerData[word];
+
+            if (typeof count === 'number') {
+              acc[word] = (acc[word] || 0) + count;
+            }
         }
         return acc;
     }, {});
