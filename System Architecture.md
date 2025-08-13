@@ -10,54 +10,75 @@ The system is built for speed, both in user experience and development velocity.
 
 The architecture is designed around a modern, client-heavy Jamstack approach, directly supporting the PRD's stated competitive edge of **"speed + privacy"**. The frontend is a sophisticated single-page application that handles most of the business logic, communicating with a managed backend service for data persistence and authentication. This minimizes server-side complexity and accelerates development.
 
-```mermaid
-graph TD
-    subgraph "User's Browser"
-        A["React SPA (`src`)"]
-    end
-
-    subgraph "Development & Build"
-        B["Vite & Vitest"]
-    end
-
-    subgraph "Backend Services (Managed)"
-        C["Supabase"]
-        D["Stripe"]
-        E["Sentry"]
-        F["PostHog"]
-    end
-
-    A -- "Develop & Test" --> B
-    A -- "API Calls (HTTPS)" --> C
-    A -- "Error Reporting" --> E
-    A -- "Product Analytics" --> F
-    C -- "Fetches Data" --> C_DB[("Postgres DB")]
-    C -- "Handles Auth" --> C_Auth[("GoTrue Auth")]
-    C -- "Payment Webhooks" --> D
-
-    style A fill:#61DAFB,stroke:#000,stroke-width:2px
-    style B fill:#FFC83D,stroke:#000,stroke-width:2px
-    style C fill:#3ECF8E,stroke:#000,stroke-width:2px
-    style D fill:#6772E5,stroke:#000,stroke-width:2px
-    style E fill:#FB443E,stroke:#000,stroke-width:2px
-    style F fill:#F46B2D,stroke:#000,stroke-width:2px
+```text
++--------------------------+      +---------------------------------+
+|      React SPA (`src`)   |----->|      Development & Build        |
+|    (in User's Browser)   |      |        (Vite, Vitest)           |
++--------------------------+      +---------------------------------+
+             |
+             | API Calls, Analytics, Error Reporting
+             |
+             v
++-------------------------------------------------------------------+
+|                    Backend Services (Managed)                     |
+|                                                                   |
+| +------------+  +----------+  +----------+  +-----------+         |
+| |  Supabase  |  |  Stripe  |  |  Sentry  |  |  PostHog  |         |
+| | - DB/Auth  |  |          |  |          |  |           |         |
+| +------------+  +----------+  +----------+  +-----------+         |
++-------------------------------------------------------------------+
 ```
 
 ### Technology Stack Breakdown
 
-| Technology | Purpose | Implementation Location(s) & Notes |
-| :--- | :--- | :--- |
-| **React** | Frontend UI Library | The core of the application. Used to build all components and pages.<br>• **`src/`**: Entire frontend application source.<br>• **`src/pages/`**: Top-level page components.<br>• **`src/components/`**: Reusable UI elements. |
-| **Vite** | Build Tool & Dev Server | Provides a fast development experience and bundles the application for production.<br>• **`vite.config.js`**: Main configuration file.<br>• **`package.json`**: `dev`, `build`, `preview` scripts. |
-| **Supabase** | Backend-as-a-Service | Provides the database, authentication, and APIs, drastically reducing backend work for the MVP.<br>• **`src/lib/supabaseClient.js`**: Client initialization.<br>• **`src/contexts/AuthContext.jsx`**: Handles auth state changes.<br>• **`supabase/migrations/`**: Database schema definitions. |
-| **Tailwind CSS** | Utility-First CSS | Used for all styling, enabling rapid UI development.<br>• **`tailwind.config.cjs`**: Configuration and theme.<br>• **`src/index.css`**: Base styles and imports. |
-| **shadcn/ui** | UI Component Library | Provides a set of pre-built, accessible, and composable React components.<br>• **`src/components/ui/`**: Location of all `shadcn` components. |
-| **Vitest** | Test Runner | Used for all unit and integration testing. Chosen for its speed and seamless integration with Vite.<br>• **`vitest.config.js`**: Test environment configuration.<br>• **`src/__tests__/`**: Location of test files. |
-| **Web Speech API** | Core Feature | Browser API used for on-device, real-time speech-to-text conversion. This is the heart of the privacy-first approach.<br>• **`src/hooks/useSpeechRecognition.js`**: Hook that encapsulates all interaction with this API. |
-| **Stripe** | Payments | Handles all subscription payments for the "Pro" tier.<br>• **`supabase/migrations/...`**: `stripe_customer_id` is stored in `user_profiles` to link users to payments. Backend integration likely uses webhooks. |
-| **Sentry** | Error Monitoring | Captures runtime errors and performance data to ensure a stable MVP.<br>• **`src/main.jsx`**: Sentry is initialized and wraps the main App component. |
-| **PostHog** | Product Analytics | Tracks user behavior, feature adoption, and conversion funnels. This directly supports the "Primary Success Metrics" outlined in the PRD.<br>• *Implementation TBD, likely via a script or React SDK.* |
-| **React Router** | Client-Side Routing | Manages navigation between different pages in the single-page application.<br>• **`src/App.jsx`**: Route definitions.<br>• **`src/main.jsx`**: `BrowserRouter` setup. |
+```text
+┌──────────────────┬────────────────────────────┬──────────────────────────────────────────────────────────────────────┐
+│ Technology       │ Purpose                    │ Implementation Location(s) & Notes                                   │
+├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+│ React            │ Frontend UI Library        │ The core of the application. Used to build all components & pages.   │
+│                  │                            │ • `src/`: Entire frontend application source.                      │
+│                  │                            │ • `src/pages/`: Top-level page components.                         │
+│                  │                            │ • `src/components/`: Reusable UI elements.                         │
+├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+│ Vite             │ Build Tool & Dev Server    │ Provides a fast dev experience and bundles the app for production.   │
+│                  │                            │ • `vite.config.js`: Main configuration file.                       │
+│                  │                            │ • `package.json`: `dev`, `build`, `preview` scripts.               │
+├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+│ Supabase         │ Backend-as-a-Service       │ Provides DB, auth, & APIs, reducing backend work for the MVP.        │
+│                  │                            │ • `src/lib/supabaseClient.js`: Client initialization.              │
+│                  │                            │ • `src/contexts/AuthContext.jsx`: Handles auth state.              │
+│                  │                            │ • `supabase/migrations/`: Database schema definitions.             │
+├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+│ Tailwind CSS     │ Utility-First CSS          │ Used for all styling, enabling rapid UI development.                 │
+│                  │                            │ • `tailwind.config.cjs`: Configuration and theme.                  │
+│                  │                            │ • `src/index.css`: Base styles and imports.                        │
+├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+│ shadcn/ui        │ UI Component Library       │ Provides pre-built, accessible, and composable React components.     │
+│                  │                            │ • `src/components/ui/`: Location of all `shadcn` components.       │
+├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+│ Vitest           │ Test Runner                │ Used for all unit and integration testing. Chosen for speed and      │
+│                  │                            │ seamless integration with Vite.                                      │
+│                  │                            │ • `vitest.config.js`: Test environment configuration.              │
+│                  │                            │ • `src/__tests__/`: Location of test files.                        │
+├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+│ Web Speech API   │ Core Feature               │ Browser API for on-device, real-time speech-to-text. This is         │
+│                  │                            │ the heart of the privacy-first approach.                             │
+│                  │                            │ • `src/hooks/useSpeechRecognition.js`: Encapsulates API interaction. │
+├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+│ Stripe           │ Payments                   │ Handles all subscription payments for the "Pro" tier.                │
+│                  │                            │ • `supabase/migrations/...`: `stripe_customer_id` in `user_profiles`.│
+├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+│ Sentry           │ Error Monitoring           │ Captures runtime errors and performance data to ensure a stable MVP. │
+│                  │                            │ • `src/main.jsx`: Sentry is initialized and wraps the App.         │
+├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+│ PostHog          │ Product Analytics          │ Tracks user behavior & funnels to support "Primary Success Metrics". │
+│                  │                            │ • *Implementation TBD, likely via a script or React SDK.*          │
+├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+│ React Router     │ Client-Side Routing        │ Manages navigation between pages in the SPA.                         │
+│                  │                            │ • `src/App.jsx`: Route definitions.                                │
+│                  │                            │ • `src/main.jsx`: `BrowserRouter` setup.                           │
+└──────────────────┴────────────────────────────┴──────────────────────────────────────────────────────────────────────┘
+```
 
 ## 3. The Test Environment and Suite
 
@@ -65,7 +86,7 @@ The testing strategy is designed for rapid feedback and reliability, directly su
 
 *   **Framework**: The project uses **Vitest**, a modern test runner built on top of Vite. This choice is strategic: it shares the same configuration as the development server, making it exceptionally fast and simple to maintain. This speed is critical for a fast-paced MVP development cycle.
 *   **Test Organization**: Tests are co-located with the code they validate (e.g., `src/__tests__`, `src/components/__tests__`), making them easy to find and run. They focus on testing individual components and hooks.
-*   **Mocking (`src/test/setup.js`)**: A key part of the strategy is the robust mocking of browser-only APIs like `MediaRecorder` and `SpeechRecognition`. This allows the core logic of the application to be tested thoroughly in a lightweight `happy-dom` command-line environment, avoiding the need for slow, flaky, full-browser tests for every commit.
+*   **Mocking (`src/test/setup.js`)**: A key part of the strategy is the robust mocking of browser-only APIs like `MediaRecorder` and `SpeechRecognition`. This allows the core logic of the application to be tested thoroughly in a lightweight `happy-dom` command-line environment, a core part of the strategy is the robust mocking of browser-only APIs like `MediaRecorder` and `SpeechRecognition`. This allows the core logic of the application to be tested thoroughly in a lightweight `happy-dom` command-line environment, avoiding the need for slow, flaky, full-browser tests for every commit.
 *   **Rationale vs. Alternatives**:
     *   **vs. Jest**: Vitest is faster and requires less configuration in a Vite project.
     *   **vs. Docker**: A Dockerized test environment would be overkill for this stage, adding complexity and slowing down the development loop. The current setup provides the right balance of confidence and speed for an MVP.
