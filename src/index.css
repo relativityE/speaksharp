@@ -1,26 +1,26 @@
 @import "tailwindcss";
 
 @theme {
-  /* Design System v1 Colors */
-  --color-background: #0D0C1D; /* Dark Blue/Purple */
-  --color-foreground: #FFFFFF; /* White */
-  --color-card: #1A192D; /* Lighter Dark */
-  --color-popover: #1A192D; /* Lighter Dark */
-  --color-primary: #7C3AED; /* Purple - Darker for better contrast */
-  --color-primary-foreground: #FFFFFF;
-  --color-secondary: #1A192D; /* Lighter Dark */
-  --color-secondary-foreground: #FFFFFF;
-  --color-muted: #1A192D; /* Lighter Dark */
-  --color-muted-foreground: #A0A0B0; /* Light Gray */
-  --color-accent: #8B5CF6; /* Purple */
-  --color-accent-foreground: #FFFFFF;
-  --color-destructive: #EF4444; /* Red */
-  --color-destructive-foreground: #FFFFFF;
-  --color-border: #2A293D; /* Subtle Dark */
-  --color-input: #1A192D; /* Lighter Dark */
-  --color-ring: #8B5CF6; /* Purple */
-  --color-highlight: #10B981; /* Green */
-  --color-highlight-foreground: #FFFFFF;
+  /* Merged Theme: "Precision Light" + "Grayscale & Feedback" */
+  --color-background: #FFFFFF; /* white */
+  --color-foreground: #1C1C1E; /* dark charcoal */
+  --color-card: #F7F9FB; /* soft gray */
+  --color-popover: #F7F9FB; /* soft gray */
+  --color-primary: #2563EB; /* blue */
+  --color-primary-foreground: #FFFFFF; /* white */
+  --color-secondary: #F7F9FB; /* soft gray */
+  --color-secondary-foreground: #2563EB; /* blue */
+  --color-muted: #F7F9FB; /* soft gray */
+  --color-muted-foreground: #8E8E93; /* medium gray */
+  --color-accent: #10B981; /* green */
+  --color-accent-foreground: #FFFFFF; /* white */
+  --color-destructive: #FF3B30; /* red */
+  --color-destructive-foreground: #FFFFFF; /* white */
+  --color-border: #E5E5EA; /* light gray */
+  --color-input: #E5E5EA; /* light gray */
+  --color-ring: #2563EB; /* blue */
+  --color-highlight: #FBBF24; /* yellow */
+  --color-highlight-foreground: #1C1C1E; /* dark charcoal */
 
   --font-sans: "Inter", "sans-serif";
 }

@@ -20,19 +20,28 @@ export const calculateTrends = (history) => {
 
     const totalSessions = history.length;
     const getFillersCount = (session) => {
-        const fillerData = session.filler_words || session.filler_data; // Prioritize new schema
+        const safeSum = (values) => {
+            return values.reduce((sum, value) => {
+                const num = Number(value);
+                return sum + (isNaN(num) ? 0 : num);
+            }, 0);
+        };
+
+        const fillerData = session.filler_words || session.filler_data;
         if (!fillerData) {
-            if (session.filler_counts) { // Backwards compatibility
-                return Object.values(session.filler_counts).reduce((a, b) => a + b, 0);
+            if (session.filler_counts) { // Backwards compatibility for old schema
+                return safeSum(Object.values(session.filler_counts));
             }
             return 0;
         }
 
-        if (Array.isArray(fillerData)) {
-            return fillerData.reduce((sum, item) => sum + (item.count || 0), 0);
+        if (Array.isArray(fillerData)) { // Handles { word: 'like', count: 12 }
+            return safeSum(fillerData.map(item => item.count));
         }
 
-        return Object.values(fillerData).reduce((sum, data) => sum + (data.count || data), 0);
+        // Handles { 'like': { count: 5 } } or { 'like': 5 }
+        const counts = Object.values(fillerData).map(data => (data && data.count) || data);
+        return safeSum(counts);
     };
 
     const { totalDuration, totalFillerWords } = history.reduce((acc, session) => {
