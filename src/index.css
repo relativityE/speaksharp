@@ -44,3 +44,11 @@ a {
 a:hover {
     color: var(--color-primary);
 }
+
+/* Ensure form elements inherit the global font size for readability */
+button,
+input,
+textarea,
+select {
+    font-size: inherit;
+}

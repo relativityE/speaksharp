@@ -20,22 +20,31 @@ const calculateTrends = (history) => {
     const totalSessions = history.length;
     const totalDuration = history.reduce((sum, session) => sum + (session.duration || 0), 0);
 
-    const totalFillerWords = history.reduce((sum, session) => {
-        if (!session.filler_counts) return sum;
-        return sum + Object.values(session.filler_counts).reduce((a, b) => a + b, 0);
-    }, 0);
+    const getFillersCount = (session) => {
+        if (session.filler_data) {
+            return Object.values(session.filler_data).reduce((sum, data) => sum + data.count, 0);
+        }
+        if (session.filler_counts) { // Backwards compatibility
+            return Object.values(session.filler_counts).reduce((a, b) => a + b, 0);
+        }
+        return 0;
+    };
 
+    const totalFillerWords = history.reduce((sum, session) => sum + getFillersCount(session), 0);
     const avgFillerWordsPerMin = totalDuration > 0 ? (totalFillerWords / (totalDuration / 60)) : 0;
 
     const chartData = history.map(s => ({
         date: new Date(s.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        'FW/min': s.duration > 0 ? (Object.values(s.filler_counts || {}).reduce((a, b) => a + b, 0) / (s.duration / 60)).toFixed(1) : 0,
+        'FW/min': s.duration > 0 ? (getFillersCount(s) / (s.duration / 60)).toFixed(1) : 0,
     })).reverse();
 
     const allFillerCounts = history.reduce((acc, session) => {
-        if (!session.filler_counts) return acc;
-        for (const word in session.filler_counts) {
-            acc[word] = (acc[word] || 0) + session.filler_counts[word];
+        const fillerData = session.filler_data || session.filler_counts;
+        if (!fillerData) return acc;
+
+        for (const word in fillerData) {
+            const count = fillerData[word].count || fillerData[word]; // Handle both new and old format
+            acc[word] = (acc[word] || 0) + count;
         }
         return acc;
     }, {});
@@ -82,7 +91,12 @@ const StatCard = ({ icon, label, value, unit }) => (
 );
 
 const SessionHistoryItem = ({ session }) => {
-    const totalFillers = Object.values(session.filler_counts || {}).reduce((a, b) => a + b, 0);
+    const getFillersCount = (s) => {
+        if (s.filler_data) return Object.values(s.filler_data).reduce((sum, data) => sum + data.count, 0);
+        if (s.filler_counts) return Object.values(s.filler_counts).reduce((a, b) => a + b, 0);
+        return 0;
+    };
+    const totalFillers = getFillersCount(session);
     const durationMins = (session.duration / 60).toFixed(1);
 
     return (

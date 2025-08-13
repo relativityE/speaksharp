@@ -203,12 +203,12 @@ export const SessionSidebar = ({ isListening, transcript, fillerData, error, isS
 
     return (
         <div className="flex flex-col gap-6">
-            <Card className="text-center">
-                <CardContent className="p-3">
-                    <div className="mb-2">
+            <Card className="text-center max-w-xs mx-auto">
+                <CardContent className="p-2">
+                    <div className="mb-1">
                         <CircularTimer elapsedTime={elapsedTime} />
                     </div>
-                    <div className={`mb-4 font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
+                    <div className={`mb-2 font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
                         {isLoading ? 'INITIALIZING...' : (isListening ? '● RECORDING' : '')}
                     </div>
                     <Button

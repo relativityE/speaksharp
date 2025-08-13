@@ -64,22 +64,24 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
       });
 
       setFillerData((prevData) => {
-        const updatedData = { ...prevData };
+        const newData = { ...prevData };
+        let changed = false;
         for (const key in allPatterns) {
           const pattern = allPatterns[key];
           const matches = finalTranscriptChunk.match(pattern);
-          if (matches) {
-            if (!updatedData[key]) { // Handle new custom words added mid-session
-                const newIndex = Object.keys(updatedData).length;
-                updatedData[key] = {
+          if (matches && matches.length > 0) {
+            if (!newData[key]) { // Handle new custom words added mid-session
+                const newIndex = Object.keys(newData).length;
+                newData[key] = {
                     count: 0,
                     color: FILLER_WORD_COLORS[newIndex % FILLER_WORD_COLORS.length]
                 };
             }
-            updatedData[key] = { ...updatedData[key], count: updatedData[key].count + matches.length };
+            newData[key] = { ...newData[key], count: newData[key].count + matches.length };
+            changed = true;
           }
         }
-        return updatedData;
+        return changed ? newData : prevData;
       });
     }
   }, [customWords]);
