@@ -114,6 +114,39 @@ Hosting         → Vercel
 
 ---
 
+## Test Approach
+
+Our project employs a sophisticated, hybrid testing strategy to balance speed and accuracy. It consists of two parallel tracks: a primary suite for fast feedback and a specialized suite for features that are difficult to test in a simulated environment.
+
+### 1. The Main Test Suite: **Vitest + JSDOM**
+
+This is the primary testing stack for the majority of the application.
+
+*   **Vite**: Acts as the core build tool. When you run the tests, Vitest uses Vite's engine to compile and process the React code and tests.
+*   **Vitest**: Our main **test runner**. `pnpm test` executes all `*.test.jsx` files.
+*   **JSDOM**: Vitest runs its tests in a **simulated browser environment** called JSDOM. It's fast but is not a real browser. This was identified as the source of instability for browser-native APIs like `SpeechRecognition`.
+
+### 2. The Special Case Test: **Playwright + Real Browser**
+
+For features that are untestable in JSDOM, we migrate them to a separate, more robust environment.
+
+*   **Playwright**: This is our secondary **test runner**, used for specific end-to-end or component-in-browser tests. It controls a **real, full-featured browser** (Chromium), avoiding JSDOM's limitations.
+*   **Standalone Harness**: We create tiny, self-contained React applications (`playwright-tests/harness/`) to host the component or hook under test.
+*   **Embedded Server**: The Playwright test itself builds the harness using a dedicated Vite config (`vite.harness.config.ts`) and serves it using a lightweight, built-in HTTP server. This makes the test completely self-contained and independent of the main dev server.
+
+### Summary of Tools
+
+| Tool          | Role                                           | When It's Used                                               |
+| :------------ | :--------------------------------------------- | :----------------------------------------------------------- |
+| **Vite**      | Core build engine.                             | Used by `pnpm run dev`, Vitest, and the Playwright harness build. |
+| **Vitest**    | Main test runner for fast unit/integration tests. | `pnpm test`                                                  |
+| **JSDOM**     | Simulated browser for Vitest.                  | The environment for all Vitest tests.                        |
+| **Playwright**| Secondary, end-to-end test runner.             | For specific unstable features (`npx playwright test`).        |
+
+This hybrid approach allows us to maintain a fast and efficient development cycle for most of the codebase while ensuring that complex, browser-specific features are tested with the accuracy and stability of a real browser environment.
+
+---
+
 ## 🗓️ Development Roadmap
 
 ### PHASE 1 — MVP (Weeks 1-3)
@@ -246,3 +279,5 @@ Target: 3:1+ (Highly favorable ✅)
 ---
 
 *Ready to help users speak with confidence while keeping their privacy protected.* 🎤🔒
+
+---
