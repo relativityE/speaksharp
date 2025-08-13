@@ -35,6 +35,25 @@ global.navigator.mediaDevices = {
   })
 }
 
+// Mock scrollIntoView, which is not implemented in JSDOM
+window.HTMLElement.prototype.scrollIntoView = vi.fn();
+
+// Mock ResizeObserver, which is not implemented in JSDOM
+global.ResizeObserver = class ResizeObserver {
+    constructor(callback) {
+        this.callback = callback;
+    }
+    observe(target) {
+        // Do nothing
+    }
+    unobserve(target) {
+        // Do nothing
+    }
+    disconnect() {
+        // Do nothing
+    }
+};
+
 afterEach(() => {
   vi.clearAllMocks()
   vi.restoreAllMocks()

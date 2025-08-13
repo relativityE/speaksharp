@@ -76,6 +76,17 @@ SpeakSharp uses a "progressive reveal" model. All pages are accessible to everyo
 -   **Unlimited Session Length**: The 2-minute limit is removed.
 -   **Custom Filler Words**: Add and track your own list of custom filler words.
 
+## User Tiers & Authentication
+
+The application is built with a "public-first" approach. Core pages like the main session recorder and analytics dashboard are viewable by anyone. However, to persist data and unlock features, users must create an account.
+
+-   **Authentication Provider**: We use **Supabase Auth** for handling user sign-up, sign-in, and password recovery.
+-   **Sign-Up**: When a new user signs up, Supabase sends a confirmation email with a verification link. The user must click this link to activate their account.
+-   **Password Reset**: Users can request a password reset link from the Sign-In page. This also uses Supabase's secure email-based recovery flow.
+-   **Session Management**: User sessions are managed via the `AuthContext`, which provides user and profile data throughout the application.
+
+This model allows for a low-friction initial experience while providing a clear path to engagement and feature unlock for registered users.
+
 ## Project Status & Roadmap
 
 This project is currently being developed into a full-stack SaaS application with a **"Speed Over Perfection"** philosophy. The immediate goal is to launch a monetizable MVP within 3 weeks to gather user feedback and iterate quickly.
