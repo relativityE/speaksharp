@@ -85,7 +85,6 @@ The high-level roadmap is to:
 2.  **Gather user feedback** and iterate on the core features.
 3.  **Expand the feature set** based on user demand, including advanced analytics and cloud-powered transcription.
 
-For a detailed, day-by-day implementation plan for the MVP, please see the [Smart MVP Implementation Guide](./smart-mvp-plan.md).
 
 ## Contributing
 
