@@ -35,19 +35,86 @@ global.navigator.mediaDevices = {
   })
 }
 
-// Mock SpeechRecognition globally
-const mockSpeechRecognition = vi.fn().mockImplementation(() => ({
-  start: vi.fn(),
-  stop: vi.fn(),
-  abort: vi.fn(),
-  addEventListener: vi.fn(),
-  removeEventListener: vi.fn(),
-  continuous: true,
-  interimResults: true,
-}))
+// Stateful SpeechRecognition Mock provided by user
+class MockSpeechRecognition {
+  constructor() {
+    this.continuous = false;
+    this.lang = 'en-US';
+    this.interimResults = false;
+    this.maxAlternatives = 1;
 
-global.SpeechRecognition = mockSpeechRecognition
-global.webkitSpeechRecognition = mockSpeechRecognition
+    // Event handlers (assignable)
+    this.onstart = null;
+    this.onend = null;
+    this.onresult = null;
+    this.onerror = null;
+
+    // Internal state
+    this._listening = false;
+    this._timeoutId = null;
+  }
+
+  start() {
+    if (this._listening) {
+      // Already listening — ignore duplicate start calls
+      return;
+    }
+    this._listening = true;
+
+    // Simulate async start
+    setTimeout(() => {
+      this.onstart?.();
+      // Optional: simulate recognition result
+      this._simulateResult();
+    }, 10);
+
+    // Simulate speech end after some delay
+    this._timeoutId = setTimeout(() => {
+      if (!this._listening) return;
+      this._listening = false;
+      this.onend?.();
+    }, 200); // adjust as needed
+  }
+
+  stop() {
+    if (!this._listening) return;
+    this._listening = false;
+    clearTimeout(this._timeoutId);
+    setTimeout(() => {
+      this.onend?.();
+    }, 10);
+  }
+
+  abort() {
+    this.stop();
+  }
+
+  _simulateResult() {
+    setTimeout(() => {
+      if (!this._listening) return;
+      const fakeEvent = {
+        results: [
+          [
+            {
+              transcript: 'test phrase',
+              confidence: 0.9,
+            },
+          ],
+        ],
+        resultIndex: 0,
+      };
+      if (fakeEvent.results[0]) {
+        fakeEvent.results[0].isFinal = true;
+      }
+      this.onresult?.(fakeEvent);
+    }, 50);
+  }
+}
+
+// Attach mock globally
+global.SpeechRecognition = MockSpeechRecognition;
+global.webkitSpeechRecognition = MockSpeechRecognition;
+
 
 afterEach(() => {
   vi.clearAllMocks()
