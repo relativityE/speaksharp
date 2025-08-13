@@ -128,7 +128,7 @@ Hosting         → Vercel
 │             │ ⏳ PostHog setup (KPI + A/B)  │                                │
 ├─────────────┼───────────────────────────────┼────────────────────────────────┤
 │   Week 2    │ ✅ Landing page w/ real UX    │ • Publish 1 SEO article        │
-│             │ ⏳ Sentry error logging       │ • Social handles + demo video  │
+│             │ ✅ Sentry error logging       │ • Social handles + demo video  │
 ├─────────────┼───────────────────────────────┼────────────────────────────────┤
 │   Week 3    │ ✅ QA & performance tuning    │ • Publish 2nd SEO article      │
 │             │ • Launch MVP                  │ • Announce beta on Reddit      │
