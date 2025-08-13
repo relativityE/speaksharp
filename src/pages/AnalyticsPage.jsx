@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
+import { AnalyticsDashboard, AnalyticsDashboardSkeleton } from '../components/AnalyticsDashboard';
 import { useSessionManager } from '../hooks/useSessionManager';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -12,8 +12,12 @@ const AuthenticatedAnalyticsView = () => {
 
     if (loading) {
         return (
-            <div className="text-center py-20">
-                <p className="text-muted-foreground">Loading your analytics...</p>
+            <div>
+                <div className="mb-8">
+                    <h1 className="text-4xl font-bold text-foreground">Your Dashboard</h1>
+                    <p className="mt-1 text-muted-foreground">Here's an overview of your progress. Keep it up!</p>
+                </div>
+                <AnalyticsDashboardSkeleton />
             </div>
         );
     }

@@ -1,14 +1,15 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 
-const HighlightedTranscript = ({ transcript, fillerData }) => {
-    if (!transcript) return null;
-
+const Chunk = ({ chunk, fillerData }) => {
     const fillerWords = Object.keys(fillerData);
+    if (fillerWords.length === 0) {
+        return <span>{chunk}</span>;
+    }
     const fillerRegex = new RegExp(`\\b(${fillerWords.join('|')})\\b`, 'gi');
-    const parts = transcript.split(fillerRegex);
+    const parts = chunk.split(fillerRegex);
 
     return (
-        <p className="text-xl leading-relaxed text-foreground">
+        <>
             {parts.map((part, index) => {
                 if (!part) return null;
                 const lowerPart = part.toLowerCase();
@@ -23,12 +24,30 @@ const HighlightedTranscript = ({ transcript, fillerData }) => {
                     <span key={index}>{part}</span>
                 );
             })}
+        </>
+    );
+}
+
+const MemoizedChunk = React.memo(Chunk);
+
+const HighlightedTranscript = ({ chunks, interimTranscript, fillerData }) => {
+    return (
+        <p className="text-xl leading-relaxed text-foreground">
+            {chunks.map((chunk) => (
+                <MemoizedChunk key={chunk.id} chunk={chunk.text} fillerData={fillerData} />
+            ))}
+            {interimTranscript && <span className="text-muted-foreground">{interimTranscript}</span>}
         </p>
     );
 };
 
+export const TranscriptPanel = ({ chunks = [], interimTranscript, fillerData }) => {
+    const transcriptEndRef = useRef(null);
 
-export const TranscriptPanel = ({ transcript, fillerData }) => {
+    useEffect(() => {
+        transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [chunks, interimTranscript]);
+
     return (
         <div>
             <div className="mb-4">
@@ -40,7 +59,8 @@ export const TranscriptPanel = ({ transcript, fillerData }) => {
                 </p>
             </div>
             <div className="p-6 rounded-lg bg-card min-h-[10rem] max-h-[60vh] overflow-y-auto transition-all duration-300 ease-in-out border border-border">
-                <HighlightedTranscript transcript={transcript} fillerData={fillerData} />
+                <HighlightedTranscript chunks={chunks} interimTranscript={interimTranscript} fillerData={fillerData} />
+                <div ref={transcriptEndRef} />
             </div>
         </div>
     );
