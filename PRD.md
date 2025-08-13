@@ -281,12 +281,3 @@ Target: 3:1+ (Highly favorable ✅)
 *Ready to help users speak with confidence while keeping their privacy protected.* 🎤🔒
 
 ---
-
-## ⚠️ Known Issues
-
-### Playwright Test for `useSpeechRecognition` Hook is Failing
-
-*   **Status:** Unresolved
-*   **Symptom:** The Playwright test for the `useSpeechRecognition` hook (`playwright-tests/useSpeechRecognition.spec.ts`) is currently failing. While the test runs in a stable browser environment without the previous memory leaks, the assertions time out. The mocked `SpeechRecognition` API is not successfully triggering state updates within the React hook.
-*   **Impact:** The stability of the `useSpeechRecognition` hook is not currently covered by automated testing.
-*   **Next Steps:** This issue requires interactive, step-through debugging in a browser to trace the component's state and props in real-time. The problem is believed to be a subtle timing or context issue between Playwright's browser environment, the React component lifecycle, and the injected mock.
