@@ -156,10 +156,12 @@ export const SessionSidebar = ({ isListening, transcript, fillerData, error, isS
                 setElapsedTime(prev => prev + 1);
             }, 1000);
         } else {
+            // Also stop loading if an error occurs
+            if (error) setIsLoading(false);
             clearInterval(timerIntervalRef.current);
         }
         return () => clearInterval(timerIntervalRef.current);
-    }, [isListening]);
+    }, [isListening, error]);
 
     useEffect(() => {
         if (isListening && user && !isPro && elapsedTime >= remainingTime) {
