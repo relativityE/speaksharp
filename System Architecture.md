@@ -11,23 +11,56 @@ The system is built for speed, both in user experience and development velocity.
 The architecture is designed around a modern, client-heavy Jamstack approach, directly supporting the PRD's stated competitive edge of **"speed + privacy"**. The frontend is a sophisticated single-page application that handles most of the business logic, communicating with a managed backend service for data persistence and authentication. This minimizes server-side complexity and accelerates development.
 
 ```text
-+--------------------------+      +---------------------------------+
-|      React SPA (`src`)   |----->|      Development & Build        |
-|    (in User's Browser)   |      |        (Vite, Vitest)           |
-+--------------------------+      +---------------------------------+
-             |
-             | API Calls, Analytics, Error Reporting
-             |
-             v
-+-------------------------------------------------------------------+
-|                    Backend Services (Managed)                     |
-|                                                                   |
-| +------------+  +----------+  +----------+  +-----------+         |
-| |  Supabase  |  |  Stripe  |  |  Sentry  |  |  PostHog  |         |
-| | - DB/Auth  |  |          |  |          |  |           |         |
-| |- Functions |  |          |  |          |  |           |         |
-| +------------+  +----------+  +----------+  +-----------+         |
-+-------------------------------------------------------------------+
+                          +---------------------------------------------+
+                          |              User's Browser                 |
+                          |                                             |
++-------------------------+---------------------------------------------+
+|                         |                                             |
+| +-----------------------v----------------+  +-----------------------+ |
+| |      React SPA (Vite, `src`)           |  | Browser Web Speech API| |
+| |                                        |  | (On-Device STT)       | |
+| |  - `SessionPage.jsx`                   |<-+ (Privacy: No audio  | |
+| |  - `SessionSidebar.jsx`                |  |      leaves device)   | |
+| |  - `useSpeechRecognition.js`           |  +-----------------------+ |
+| |  - `useSessionManager.js`              |                            |
+| +----------------------------------------+                            |
+|                         |                                             |
++-------------------------+---------------------------------------------+
+                          |
++-------------------------+---------------------------------------------+
+|       FREE USER         |                PRO USER                     |
+| (Usage Limit Enforced)  |         (No Usage Limit, Pro Features)      |
++-------------------------+---------------------------------------------+
+             |                                       |
+             |                                       |
++------------v--------------------------+ +-----------v---------------------------+
+| Save Session (Metadata Only)          | | Save Session (Metadata Only)          |
+| `supabase.from('sessions').insert()`  | | `supabase.from('sessions').insert()`  |
++---------------------------------------+ +---------------------------------------+
+             |                                       |
++------------v--------------------------+ +-----------v---------------------------+
+| Update Usage                          | | Update Usage                          |
+| `supabase.rpc('update_user_usage')`   | | `supabase.rpc('update_user_usage')`   |
++---------------------------------------+ +---------------------------------------+
+                                                     |
+                                          (One-time Upgrade Process)
+                                                     |
+             +---------------------------------------v---------------------------------------+
+             |                                                                               |
+             |  1. `supabase.functions.invoke('stripe-checkout')`                            |
+             |       |                                                                       |
+             |       +--> Creates Stripe Checkout Session, redirects User to Stripe          |
+             |                                                                               |
+             |  2. User completes payment on Stripe                                          |
+             |       |                                                                       |
+             |       +--> Stripe sends webhook event                                         |
+             |                                                                               |
+             |  3. `supabase.functions.invoke('stripe-webhook')`                             |
+             |       |                                                                       |
+             |       +--> Verifies event, updates `user_profiles.subscription_status` to 'pro'|
+             |                                                                               |
+             +-------------------------------------------------------------------------------+
+
 ```
 
 ### Technology Stack Breakdown
@@ -113,3 +146,48 @@ The entire system architecture is a direct reflection of the goals outlined in t
     *   **Architecture**: The client-heavy architecture for free users is infinitely scalable at near-zero cost. The system is already designed to integrate with a serverless function for a "High-accuracy cloud transcription" feature for Pro users, demonstrating a clear and cost-effective path to scaling premium features. The database schema includes fields for `subscription_status` and `usage_seconds`, directly enabling the tiered pricing model.
 
 In summary, the architecture is not just a technical blueprint; it is a well-considered plan to efficiently build, launch, and scale the exact product envisioned in the PRD.
+
+## 5. User Flows & API Usage
+
+This section details the step-by-step execution flow for both free and paid users, clarifying which APIs are used and what data is stored.
+
+### Free User Flow
+
+The free tier is designed to be privacy-first and low-cost, with all core speech analysis happening on the user's device.
+
+1.  **Authentication & Limits**: A user with a `subscription_status` of `'free'` logs in. The frontend, specifically the `SessionSidebar.jsx` component, checks their `usage_seconds` against the `FREE_TIER_LIMIT_SECONDS` (currently 5 minutes). If the limit is exceeded, the recording functionality is disabled.
+2.  **Speech Recognition (Client-Side)**: When the user starts a session, the `useSpeechRecognition.js` hook is activated. It exclusively uses the **browser's built-in Web Speech API** for speech-to-text conversion.
+    *   **Privacy Guarantee**: All transcription and real-time analysis (e.g., filler word counting) occurs locally in the browser. Raw audio and full transcripts **never** leave the user's device.
+3.  **Session Completion**: The user manually stops the session or hits the free-tier time limit.
+4.  **Data Persistence (Metadata Only)**: The `useSessionManager.js` and `lib/storage.js` modules collaborate to save the session.
+    *   **API Hit**: An `insert` call is made to the Supabase `sessions` table.
+    *   **Data Stored**: Only session metadata is persisted (e.g., `duration`, `total_words`, `filler_words` JSON). The full transcript is discarded and **not** sent to the database, reinforcing privacy.
+5.  **Usage Tracking**: After a successful save, an RPC (Remote Procedure Call) is made to a Supabase function.
+    *   **API Hit**: `supabase.rpc('update_user_usage', ...)` is called.
+    *   **Action**: This secure function adds the `session_duration_seconds` to the user's monthly total in the `user_profiles` table.
+
+**Key Files & Components**: `SessionPage.jsx`, `SessionSidebar.jsx`, `useSpeechRecognition.js`, `useSessionManager.js`, `lib/storage.js`, `lib/supabaseClient.js`.
+
+### Paid (Pro) User Flow
+
+The Pro tier removes limitations and adds features, but for the MVP, it maintains the same privacy-first transcription architecture.
+
+1.  **Authentication**: A user with a `subscription_status` of `'pro'` or `'premium'` logs in.
+2.  **Unrestricted Usage**: In `SessionSidebar.jsx`, the client-side check for usage limits is bypassed, allowing for unlimited recording time. Pro-specific features, like the "Custom Words" tracker, are also enabled in the UI.
+3.  **Speech Recognition (Client-Side)**: The process is **identical to the free user flow**. The MVP uses the same browser-based Web Speech API for all users, regardless of their subscription status. There is currently no separate, high-accuracy cloud transcription service.
+4.  **Session Completion & Persistence**: This is identical to the free user flow. Session metadata (not the transcript) is saved to the `sessions` table.
+5.  **Usage Tracking**: The `update_user_usage` RPC function is still called. This is harmless and ensures the usage metric is still tracked, even if it isn't used to limit the user. The function's logic also correctly handles monthly resets for all user types.
+
+**Key Files & Components**: The same as the free flow, with conditional logic in `SessionSidebar.jsx` unlocking the Pro features.
+
+### Upgrade Flow (Free to Pro)
+
+This flow involves coordination between the React app, Supabase Edge Functions, and the Stripe API.
+
+1.  **Initiate Checkout**: The user clicks the "Upgrade" button in the `SessionSidebar.jsx` component.
+    *   **API Hit**: `supabase.functions.invoke('stripe-checkout')` is called.
+2.  **Stripe Function**: This Supabase Edge Function (running on Deno) uses a secret key to securely communicate with the Stripe API, creating a new Checkout Session. It returns the session ID to the client.
+3.  **Redirect to Stripe**: The frontend uses the received session ID to redirect the user to Stripe's hosted payment page.
+4.  **Stripe Webhook**: After a successful payment, Stripe sends a `checkout.session.completed` event to a predefined webhook endpoint.
+    *   **API Hit**: The `stripe-webhook` Supabase Edge Function is triggered.
+5.  **Confirm Subscription**: This second function verifies the webhook's signature to ensure it's a legitimate request from Stripe. It then uses a Supabase service role key to update the user's record in the `user_profiles` table, setting their `subscription_status` to `'pro'`.

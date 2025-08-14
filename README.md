@@ -58,8 +58,11 @@ A mobile-first web application that detects and counts filler words in real time
 
     # Stripe
     VITE_STRIPE_PUBLISHABLE_KEY=your_stripe_publishable_key_here
-    VITE_STRIPE_SECRET_KEY=your_stripe_secret_key_here
-    VITE_STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret_here
+    VITE_STRIPE_PRICE_ID=your_stripe_price_id_here
+    # The following keys are used in Supabase Edge Functions and should NOT be exposed to the client.
+    # Do not add the VITE_ prefix to them.
+    STRIPE_SECRET_KEY=your_stripe_secret_key_here
+    STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret_here
     ```
 
 4.  Start the development server:
@@ -99,19 +102,23 @@ This command looks for test files in the `playwright-tests` directory and runs t
 
 ## Usage
 
-SpeakSharp uses a "progressive reveal" model. All pages are accessible to everyone, but more features are unlocked when you sign up for a free account.
+SpeakSharp uses a "progressive reveal" model. All pages are accessible to everyone, but more features are unlocked when you sign up for an account.
 
-### Anonymous Users (Free Trial)
--   **Start a Session**: Anyone can start a recording session from the main page.
--   **2-Minute Limit**: Trial sessions are limited to 2 minutes. A checkbox is available for developers to override this limit.
--   **View Analytics Page**: You can view the Analytics page, but it will show a demo and a prompt to sign up to save and view your history.
+### Anonymous Users
+-   **Start a Session**: Anyone can start a recording session from the main page to try the core functionality.
+-   **No Data Persistence**: Sessions for anonymous users are not saved. To save your progress, you must create a free account.
+-   **View Analytics Page**: You can view the Analytics page, but it will show a demo and a prompt to sign up.
 
 ### Authenticated Users (Free Tier)
--   **Sign Up / Login**: Create a free account to unlock more features.
+-   **Sign Up / Login**: Create a free account to save your session history.
+-   **5-Minute Monthly Limit**: Free accounts have a 5-minute (300-second) monthly usage limit for recorded sessions.
 -   **Save Session History**: Your sessions are automatically saved to your account.
 -   **Track Progress**: The Analytics page will show your full session history and progress charts.
--   **Unlimited Session Length**: The 2-minute limit is removed.
--   **Custom Filler Words**: Add and track your own list of custom filler words.
+
+### Authenticated Users (Pro Tier)
+-   **Upgrade to Pro**: Users can upgrade to a Pro account via Stripe to unlock all features.
+-   **Unlimited Usage**: The 5-minute monthly limit is removed.
+-   **Custom Filler Words**: Pro users can add and track their own list of custom filler words.
 
 ## User Tiers & Authentication
 
@@ -133,6 +140,10 @@ The high-level roadmap is to:
 2.  **Gather user feedback** and iterate on the core features.
 3.  **Expand the feature set** based on user demand, including advanced analytics and cloud-powered transcription.
 
+
+## Known Issues
+
+-   **Testing Web Speech API**: The browser's Web Speech API has an auto-restart behavior that can cause infinite loops in some testing environments (like JSDOM). The application logic in `src/hooks/useSpeechRecognition.js` includes a workaround to disable this auto-restart when running under the Vitest testing framework.
 
 ## Contributing
 

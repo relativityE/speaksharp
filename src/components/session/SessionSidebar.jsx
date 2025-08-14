@@ -151,8 +151,7 @@ export const SessionSidebar = ({ isListening, transcript, fillerData, error, isS
         try {
             const { data, error } = await supabase.functions.invoke('stripe-checkout', {
                 body: {
-                    // TODO: Replace with your actual Price ID from your Stripe Dashboard
-                    priceId: 'price_1PLaAkG16YUfbOlV9Vp2I50b'
+                    priceId: import.meta.env.VITE_STRIPE_PRICE_ID
                 },
             });
 
