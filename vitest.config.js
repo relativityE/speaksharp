@@ -12,7 +12,13 @@ export default defineConfig({
     clearMocks: true,
     restoreMocks: true,
     testTimeout: 15000,
-    hookTimeout: 10000
+    hookTimeout: 10000,
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/build/**',
+      '**/playwright-tests/**',
+    ],
   },
   resolve: {
     alias: {

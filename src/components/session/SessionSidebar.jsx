@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Separator } from '@/components/ui/separator';
 import CircularTimer from './CircularTimer';
 
@@ -79,8 +80,23 @@ const FillerWordAnalysis = ({ fillerData, customWords, setCustomWords }) => {
 
                 <Separator className="my-4" />
 
-                <div className="space-y-2">
-                    <p className="text-sm font-medium text-muted-foreground">Custom Words</p>
+                <div className="space-y-3">
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <div className="flex items-center gap-2">
+                                    <h4 className="text-sm font-medium text-muted-foreground">Custom Words</h4>
+                                    <Badge variant="outline">PRO</Badge>
+                                </div>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p>Track words or phrases unique to your vocabulary. <br />This is a Pro feature.</p>
+                            </TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
+                    <p className="text-xs text-muted-foreground -mt-2">
+                        Define your own filler words to get a more personalized analysis.
+                    </p>
                     <div className="flex gap-2">
                         <Input
                             type="text"
