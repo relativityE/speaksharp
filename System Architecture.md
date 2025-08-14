@@ -25,6 +25,7 @@ The architecture is designed around a modern, client-heavy Jamstack approach, di
 | +------------+  +----------+  +----------+  +-----------+         |
 | |  Supabase  |  |  Stripe  |  |  Sentry  |  |  PostHog  |         |
 | | - DB/Auth  |  |          |  |          |  |           |         |
+| |- Functions |  |          |  |          |  |           |         |
 | +------------+  +----------+  +----------+  +-----------+         |
 +-------------------------------------------------------------------+
 ```
@@ -32,33 +33,36 @@ The architecture is designed around a modern, client-heavy Jamstack approach, di
 ### Technology Stack Breakdown
 
 ```text
+┌──────────────────┬────────────────────────────┬──────────────────────────────────────────────────────────────────────┬────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Technology       │ Purpose                    │ Implementation Location(s) & Notes                                   │ Keys & Usage                                                                                     │
+├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ React            │ Frontend UI Library        │ The core of the application. Used to build all components & pages.   │ N/A                                                                                              │
+│                  │                            │ • `src/`: Entire frontend application source.                      │                                                                                                │
+├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ Vite             │ Build Tool & Dev Server    │ Provides a fast dev experience and bundles the app for production.   │ N/A                                                                                              │
+│                  │                            │ • `vite.config.js`: Main configuration file.                       │                                                                                                │
+├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ Supabase         │ Backend-as-a-Service       │ Provides DB, auth, & APIs, reducing backend work for the MVP.        │ • `VITE_SUPABASE_URL`: Public URL for the project.                                               │
+│                  │                            │ • `src/lib/supabaseClient.js`: Client initialization.              │ • `VITE_SUPABASE_ANON_KEY`: Public key for client-side access.                                   │
+│                  │                            │ • `supabase/functions`: Location of serverless edge functions.       │ • `SUPABASE_SERVICE_ROLE_KEY`: Secret key for admin access in functions.                         │
+├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ Tailwind CSS     │ Utility-First CSS          │ Used for all styling, enabling rapid UI development.                 │ N/A                                                                                              │
+│                  │                            │ • `tailwind.config.cjs`: Configures the theme and font sizes.      │                                                                                                │
+│                  │                            │ • `src/index.css`: Defines global styles and HSL color variables.  │                                                                                                │
+├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ Sentry           │ Error Monitoring           │ Captures runtime errors and performance data to ensure a stable MVP. │ • `VITE_SENTRY_DSN`: Public key for sending error data to Sentry.                                │
+│                  │                            │ • `src/main.jsx`: Sentry is initialized and wraps the App.         │                                                                                                │
+├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ PostHog          │ Product Analytics          │ Tracks user behavior & funnels to support "Primary Success Metrics". │ • `VITE_POSTHOG_KEY`: Public key for sending event data to PostHog.                                │
+│                  │                            │ • `src/lib/posthog.js`: PostHog is initialized.                    │ • `VITE_POSTHOG_HOST`: The URL of the PostHog instance.                                            │
+├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ Stripe           │ Payments                   │ Handles all subscription payments for the "Pro" tier.                │ • `VITE_STRIPE_PUBLISHABLE_KEY`: Public key for Stripe.js on the client.                         │
+│                  │                            │ • `supabase/functions/stripe-checkout`: Creates checkout sessions.   │ • `STRIPE_SECRET_KEY`: Secret key for server-side API calls in functions.                        │
+│                  │                            │ • `supabase/functions/stripe-webhook`: Handles payment events.       │ • `STRIPE_WEBHOOK_SECRET`: Secret to verify webhooks are from Stripe.                            │
+└──────────────────┴────────────────────────────┴──────────────────────────────────────────────────────────────────────┴────────────────────────────────────────────────────────────────────────────────────────────────┘
+
 ┌──────────────────┬────────────────────────────┬──────────────────────────────────────────────────────────────────────┐
 │ Technology       │ Purpose                    │ Implementation Location(s) & Notes                                   │
-├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
-│ React            │ Frontend UI Library        │ The core of the application. Used to build all components & pages.   │
-│                  │                            │ • `src/`: Entire frontend application source.                      │
-│                  │                            │ • `src/pages/`: Top-level page components.                         │
-│                  │                            │ • `src/components/`: Reusable UI elements.                         │
-├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
-│ Vite             │ Build Tool & Dev Server    │ Provides a fast dev experience and bundles the app for production.   │
-│                  │                            │ • `vite.config.js`: Main configuration file.                       │
-│                  │                            │ • `package.json`: `dev`, `build`, `preview` scripts.               │
-├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
-│ Supabase         │ Backend-as-a-Service       │ Provides DB, auth, & APIs, reducing backend work for the MVP.        │
-│                  │                            │ • `src/lib/supabaseClient.js`: Client initialization.              │
-│                  │                            │ • `src/contexts/AuthContext.jsx`: Handles auth state.              │
-│                  │                            │ • `supabase/migrations/`: Database schema definitions.             │
-├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
-│ Tailwind CSS     │ Utility-First CSS          │ Used for all styling, enabling rapid UI development.                 │
-<<<<<<< HEAD
-│                  │                            │ • `tailwind.config.cjs`: Configures the theme, including fonts and │
-│                  │                            │   colors.                                                          │
-│                  │                            │ • `src/index.css`: Defines global styles and HSL color variables   │
-│                  │                            │   for the theme.                                                   │
-=======
-│                  │                            │ • `tailwind.config.cjs`: Configuration and theme.                  │
-│                  │                            │ • `src/index.css`: Base styles and imports.                        │
->>>>>>> origin/feat/ui-overhaul
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
 │ shadcn/ui        │ UI Component Library       │ Provides pre-built, accessible, and composable React components.     │
 │                  │                            │ • `src/components/ui/`: Location of all `shadcn` components.       │
@@ -73,15 +77,6 @@ The architecture is designed around a modern, client-heavy Jamstack approach, di
 │ Web Speech API   │ Core Feature               │ Browser API for on-device, real-time speech-to-text. This is         │
 │                  │                            │ the heart of the privacy-first approach.                             │
 │                  │                            │ • `src/hooks/useSpeechRecognition.js`: Encapsulates API interaction. │
-├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
-│ Stripe           │ Payments                   │ Handles all subscription payments for the "Pro" tier.                │
-│                  │                            │ • `supabase/migrations/...`: `stripe_customer_id` in `user_profiles`.│
-├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
-│ Sentry           │ Error Monitoring           │ Captures runtime errors and performance data to ensure a stable MVP. │
-│                  │                            │ • `src/main.jsx`: Sentry is initialized and wraps the App.         │
-├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
-│ PostHog          │ Product Analytics          │ Tracks user behavior & funnels to support "Primary Success Metrics". │
-│                  │                            │ • *Implementation TBD, likely via a script or React SDK.*          │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
 │ React Router     │ Client-Side Routing        │ Manages navigation between pages in the SPA.                         │
 │                  │                            │ • `src/App.jsx`: Route definitions.                                │

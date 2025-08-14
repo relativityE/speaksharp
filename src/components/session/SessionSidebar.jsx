@@ -2,9 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabaseClient';
-import { Mic, Square, Plus, Trash2, Loader2 } from 'lucide-react';
+import { Mic, Square, Plus, Trash2, Loader2, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { useStripe } from '@stripe/react-stripe-js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -129,14 +130,50 @@ const FillerWordAnalysis = ({ fillerData, customWords, setCustomWords }) => {
 export const SessionSidebar = ({ isListening, transcript, fillerData, error, isSupported, startListening, stopListening, reset, customWords, setCustomWords, saveSession }) => {
     const navigate = useNavigate();
     const { user, profile } = useAuth();
+    const stripe = useStripe();
     const [elapsedTime, setElapsedTime] = useState(0);
     const [isLoading, setIsLoading] = useState(false);
+    const [isUpgrading, setIsUpgrading] = useState(false);
     const timerIntervalRef = useRef(null);
 
     const FREE_TIER_LIMIT_SECONDS = 300; // 5 minutes
     const usageInSeconds = profile?.usage_seconds || 0;
     const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
     const remainingTime = isPro ? Infinity : FREE_TIER_LIMIT_SECONDS - usageInSeconds;
+
+    const handleUpgrade = async () => {
+        if (!user) {
+            navigate('/auth');
+            return;
+        }
+
+        setIsUpgrading(true);
+        try {
+            const { data, error } = await supabase.functions.invoke('stripe-checkout', {
+                body: {
+                    // TODO: Replace with your actual Price ID from your Stripe Dashboard
+                    priceId: 'price_1PLaAkG16YUfbOlV9Vp2I50b'
+                },
+            });
+
+            if (error) {
+                throw new Error(`Function Error: ${error.message}`);
+            }
+
+            const { sessionId } = data;
+            const { error: stripeError } = await stripe.redirectToCheckout({ sessionId });
+
+            if (stripeError) {
+                console.error("Stripe redirect error:", stripeError.message);
+                alert(`Error: ${stripeError.message}`);
+            }
+        } catch (e) {
+            console.error("Upgrade process failed:", e);
+            alert("Could not initiate the upgrade process. Please try again later.");
+        } finally {
+            setIsUpgrading(false);
+        }
+    };
 
     const endSessionAndSave = async () => {
         stopListening();
@@ -242,6 +279,20 @@ export const SessionSidebar = ({ isListening, transcript, fillerData, error, isS
             </Card>
 
             <FillerWordAnalysis fillerData={fillerData} customWords={customWords} setCustomWords={setCustomWords} />
+
+            <Card>
+                <CardHeader>
+                    <CardTitle className="text-lg">Upgrade to Pro</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <p className="text-muted-foreground mb-4">
+                        Unlock unlimited practice time, advanced analytics, and more.
+                    </p>
+                    <Button className="w-full" onClick={handleUpgrade} disabled={isUpgrading || !user || isPro}>
+                        {isUpgrading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Upgrading...</> : isPro ? 'You are a Pro!' : <><Zap className="w-4 h-4 mr-2" /> Upgrade Now</>}
+                    </Button>
+                </CardContent>
+            </Card>
 
             {error && <p className="text-destructive">Error: {error}</p>}
             {!isSupported && <p className="text-destructive">Speech recognition not supported in this browser.</p>}

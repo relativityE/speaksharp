@@ -4,6 +4,8 @@ import { render, screen, act, fireEvent, waitFor } from '@testing-library/react'
 import { SessionSidebar } from '../components/session/SessionSidebar';
 import { useAuth } from '../contexts/AuthContext';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { Elements } from '@stripe/react-stripe-js';
+import { loadStripe } from '@stripe/stripe-js';
 
 // Mock dependencies
 vi.mock('../contexts/AuthContext', () => ({
@@ -18,6 +20,7 @@ vi.mock('../hooks/useSessionManager', () => ({
     }),
 }));
 
+const stripePromise = loadStripe('pk_test_123'); // Mock publishable key
 
 describe('SessionSidebar component', () => {
   const mockUseAuth = useAuth;
@@ -50,21 +53,37 @@ describe('SessionSidebar component', () => {
       saveSession: vi.fn(),
     };
 
-    const { rerender } = render(<SessionSidebar {...props} />);
+    const { rerender } = render(
+      <Elements stripe={stripePromise}>
+        <SessionSidebar {...props} />
+      </Elements>
+    );
 
     // State 1: Idle
     expect(screen.getByRole('button', { name: /Start Recording/i })).toBeInTheDocument();
 
     // State 2: Initializing
-    rerender(<SessionSidebar {...props} isListening={true} />);
+    rerender(
+      <Elements stripe={stripePromise}>
+        <SessionSidebar {...props} isListening={true} />
+      </Elements>
+    );
 
     // State 3: Recording
-    rerender(<SessionSidebar {...props} isListening={true} />);
+    rerender(
+      <Elements stripe={stripePromise}>
+        <SessionSidebar {...props} isListening={true} />
+      </Elements>
+    );
     expect(screen.getByText(/● RECORDING/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /End Session/i })).toBeInTheDocument();
 
     // State 4: Idle again
-    rerender(<SessionSidebar {...props} isListening={false} />);
+    rerender(
+      <Elements stripe={stripePromise}>
+        <SessionSidebar {...props} isListening={false} />
+      </Elements>
+    );
     expect(screen.getByRole('button', { name: /Start Recording/i })).toBeInTheDocument();
   });
 });

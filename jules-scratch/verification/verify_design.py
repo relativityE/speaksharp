@@ -4,7 +4,7 @@ import time
 def verify_design(page: Page):
     """
     This script verifies the new light-themed design of the application.
-    It explicitly waits for the CSS to be loaded and uses robust selectors.
+    It explicitly waits for the CSS to be loaded to prevent race conditions with Vite.
     """
     try:
         # 1. Verify the Auth Page
@@ -44,6 +44,7 @@ def verify_design(page: Page):
 
     except Exception as e:
         print(f"An error occurred during verification: {e}")
+        # Take a screenshot on error to help debug
         page.screenshot(path="jules-scratch/verification/error.png")
         print("Took an error screenshot for debugging.")
         raise
