@@ -1,4 +1,5 @@
 # SpeakSharp Product Requirements Document
+
 **Version 6.17** | **Last Updated: August 14, 2025**
 
 ---
@@ -14,6 +15,21 @@
     - Implemented a professional two-tone light theme with a light gray background, white cards, and blue accents for a clean, high-contrast aesthetic.
     - Increased global font sizes for better readability and accessibility.
 - **Bug Fixes & Stability:** Restored critical non-UI fixes, including the session page scrolling bug.
+
+
+**Version 6.15** | **Last Updated: August 13, 2025**
+
+---
+
+## 🔄 Recent Updates (v6.15)
+*August 13, 2025*
+
+- **Global UI Overhaul:** Replaced the primary font with "Inter" for improved readability and implemented a new, modern color palette (off-white background, new text and accent colors) for a cleaner look and feel across the application.
+- **Sign-In Page Redesign:** Completely redesigned the sign-in page to align with the new visual identity, featuring improved layout, spacing, and modern aesthetics.
+- **Consistent Navigation:** Implemented a unified header across all pages, including the sign-in page, ensuring the SpeakSharp logo is always present and serves as a home button.
+- **Bug Fix: Session Page Stability:** Resolved a critical bug causing the session page to "bounce" or scroll unexpectedly during live transcription, providing a more stable user experience.
+
+---
 
 ## 🔄 Recent Updates (v6.14)
 *August 13, 2025*

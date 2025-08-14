@@ -60,6 +60,28 @@ The architecture is designed around a modern, client-heavy Jamstack approach, di
 │                  │                            │ • `supabase/functions/stripe-checkout`: Creates checkout sessions.   │ • `STRIPE_SECRET_KEY`: Secret key for server-side API calls in functions.                        │
 │                  │                            │ • `supabase/functions/stripe-webhook`: Handles payment events.       │ • `STRIPE_WEBHOOK_SECRET`: Secret to verify webhooks are from Stripe.                            │
 └──────────────────┴────────────────────────────┴──────────────────────────────────────────────────────────────────────┴────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────┬────────────────────────────┬──────────────────────────────────────────────────────────────────────┐
+│ Technology       │ Purpose                    │ Implementation Location(s) & Notes                                   │
+├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+│ shadcn/ui        │ UI Component Library       │ Provides pre-built, accessible, and composable React components.     │
+│                  │                            │ • `src/components/ui/`: Location of all `shadcn` components.       │
+│                  │                            │ • Key components like `Header.jsx` and `SessionSidebar.jsx` use    │
+│                  │                            │   `Sheet` for mobile menus and `Tooltip` for enhanced UX.          │
+├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+│ Vitest           │ Test Runner                │ Used for all unit and integration testing. Chosen for speed and      │
+│                  │                            │ seamless integration with Vite.                                      │
+│                  │                            │ • `vitest.config.js`: Test environment configuration.              │
+│                  │                            │ • `src/__tests__/`: Location of test files.                        │
+├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+│ Web Speech API   │ Core Feature               │ Browser API for on-device, real-time speech-to-text. This is         │
+│                  │                            │ the heart of the privacy-first approach.                             │
+│                  │                            │ • `src/hooks/useSpeechRecognition.js`: Encapsulates API interaction. │
+├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+│ React Router     │ Client-Side Routing        │ Manages navigation between pages in the SPA.                         │
+│                  │                            │ • `src/App.jsx`: Route definitions.                                │
+│                  │                            │ • `src/main.jsx`: `BrowserRouter` setup.                           │
+└──────────────────┴────────────────────────────┴──────────────────────────────────────────────────────────────────────┘
 ```
 
 ## 3. The Test Environment and Suite
