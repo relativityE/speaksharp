@@ -10,6 +10,9 @@ module.exports = {
   ],
   theme: {
     extend: {
+      fontSize: {
+        'base': '20px',
+      },
       fontFamily: {
         sans: ["Inter", ...fontFamily.sans],
       },
