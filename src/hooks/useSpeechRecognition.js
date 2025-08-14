@@ -14,9 +14,15 @@ const defaultFillerPatterns = {
 };
 
 const FILLER_WORD_COLORS = [
-  '#FF6B6B', '#4ECDC4', '#45B7D1', '#FED766', '#F0B7A4',
-  '#2D728F', '#F4A261', '#E76F51', '#2A9D8F', '#E9C46A',
-  '#A8DADC', '#F19C79', '#D4A5A5', '#8E8D8A', '#5E503F'
+  '#F472B6', // Pink-400
+  '#22D3EE', // Cyan-400
+  '#FBBF24', // Amber-400
+  '#4ADE80', // Green-400
+  '#F97316', // Orange-500
+  '#A78BFA', // Violet-400
+  '#2DD4BF', // Teal-400
+  '#F43F5E', // Rose-500
+  '#60A5FA', // Blue-400
 ];
 
 const getInitialFillerData = (customWords = []) => {

@@ -9,19 +9,14 @@ export const Header = () => {
     const { user, signOut } = useAuth();
     const location = useLocation();
 
-    // As per the design spec, the header should be hidden on the sign-in page.
-    if (location.pathname === '/auth') {
-        return null;
-    }
-
     const navLinkClasses = "flex items-center px-3 py-2 rounded-md text-base font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors";
     const activeLinkClasses = "bg-secondary text-foreground";
 
     return (
-        <header className="sticky top-0 z-10 border-b border-card bg-background">
+        <header className="sticky top-0 z-10 border-b bg-background">
             <div className="container mx-auto flex h-16 items-center justify-between px-4">
-                <NavLink to="/" aria-label="Home">
-                    <Home className="h-6 w-6" />
+                <NavLink to="/" className="text-xl font-bold text-primary">
+                    SpeakSharp
                 </NavLink>
                 <div className="flex items-center gap-4">
                     {user ? (
@@ -58,10 +53,12 @@ export const Header = () => {
                             </Sheet>
                         </>
                     ) : (
-                        <nav className="flex items-center gap-4">
-                            <NavLink to="/analytics" className={navLinkClasses}>View Analytics</NavLink>
-                            <Button asChild><NavLink to="/auth">Login / Sign Up</NavLink></Button>
-                        </nav>
+                        location.pathname !== '/auth' && (
+                            <nav className="flex items-center gap-4">
+                                <NavLink to="/analytics" className={navLinkClasses}>View Analytics</NavLink>
+                                <Button asChild><NavLink to="/auth">Login / Sign Up</NavLink></Button>
+                            </nav>
+                        )
                     )}
                 </div>
             </div>
