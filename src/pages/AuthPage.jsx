@@ -85,7 +85,7 @@ export default function AuthPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit}>
-            <div className="grid gap-4">
+            <div className="grid gap-6">
               <div className="grid gap-2">
                 <Label htmlFor="email">Email</Label>
                 <Input
@@ -102,8 +102,8 @@ export default function AuthPage() {
                   <div className="flex items-center">
                     <Label htmlFor="password">Password</Label>
                     {view === 'sign_in' && (
-                       <Button variant="link" type="button" onClick={() => handleViewChange('forgot_password')} className="ml-auto inline-block text-sm underline text-muted-foreground hover:text-primary h-auto p-0">
-                          Forgot Password?
+                       <Button variant="link" type="button" onClick={() => handleViewChange('forgot_password')} className="ml-auto inline-block text-sm text-muted-foreground hover:text-primary h-auto p-0">
+                          Forgot?
                        </Button>
                     )}
                   </div>
