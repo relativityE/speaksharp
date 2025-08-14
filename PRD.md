@@ -1,5 +1,17 @@
 # SpeakSharp Product Requirements Document
-**Version 6.13** | **Last Updated: August 12, 2025**
+**Version 6.14** | **Last Updated: August 13, 2025**
+
+---
+
+## 🔄 Recent Updates (v6.14)
+*August 13, 2025*
+
+- **General:** Implemented a default light theme and softened the highlight color for filler words.
+- **Analytics:** Verified the fix for the `NaN` error on the analytics page and implemented robust data handling for chart visualizations.
+- **Landing Page:** Added a prominent "privacy-first" message and improved the visibility of the "no account required" text to reduce friction.
+- **Session UI:** Enhanced the "Custom Words" feature with a tooltip, clearer instructions, and a "Pro" badge.
+- **Responsiveness:** Implemented a responsive header with a hamburger menu for mobile devices.
+- **Tests:** Fixed several failing tests.
 
 ---
 

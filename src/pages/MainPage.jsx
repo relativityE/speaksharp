@@ -23,12 +23,19 @@ export const MainPage = () => {
                     <p className="max-w-2xl mx-auto mb-8 text-xl text-muted-foreground">
                         Get real-time feedback to eliminate filler words and become a more articulate speaker.
                     </p>
-                    <Button size="lg" onClick={handleStartSession}>
-                        Try a Free Session
-                    </Button>
-                    <p className="mt-4 text-base text-muted-foreground">
-                        No account required. Get started in seconds.
-                    </p>
+                    <div className="flex flex-col items-center gap-4">
+                        <Button size="lg" onClick={handleStartSession}>
+                            Try a Free Session
+                        </Button>
+                        <div className="text-center">
+                            <p className="text-lg font-semibold text-primary">
+                                ✨ Privacy-First: Your audio is never stored.
+                            </p>
+                            <p className="mt-1 text-base text-muted-foreground">
+                                No account required. Get started in seconds.
+                            </p>
+                        </div>
+                    </div>
                 </section>
 
                 {/* Demo Section */}

@@ -50,15 +50,31 @@ A mobile-first web application that detects and counts filler words in real time
 
 ## How to Test the Application
 
-This project uses [Vitest](https://vitest.dev/) for unit and integration testing. Vitest is a blazing fast unit-test framework powered by Vite.
+This project uses a hybrid testing strategy to ensure both speed and reliability.
 
-To run the tests, use the following command:
+### 1. Unit & Integration Tests (Vitest)
+
+For most of the application logic and component testing, we use [Vitest](https://vitest.dev/), a fast and modern test runner that works seamlessly with Vite. These tests run in a simulated JSDOM environment, which is fast but not a real browser.
+
+To run the main test suite, use the following command:
 
 ```bash
 pnpm test
 ```
 
-This will run all test files in the `src/__tests__` directory.
+This command executes all `*.test.jsx` files located under the `src` directory.
+
+### 2. End-to-End & Browser-Specific Tests (Playwright)
+
+For features that rely on browser-native APIs (like the Web Speech API) and are difficult to test reliably in JSDOM, we use [Playwright](https://playwright.dev/). These tests run in a real browser environment, providing a more accurate and stable testing ground for complex features.
+
+To run the Playwright tests, use the following command:
+
+```bash
+npx playwright test
+```
+
+This command looks for test files in the `playwright-tests` directory and runs them in a headless browser.
 
 ## Usage
 

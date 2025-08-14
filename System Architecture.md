@@ -55,6 +55,8 @@ The architecture is designed around a modern, client-heavy Jamstack approach, di
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
 │ shadcn/ui        │ UI Component Library       │ Provides pre-built, accessible, and composable React components.     │
 │                  │                            │ • `src/components/ui/`: Location of all `shadcn` components.       │
+│                  │                            │ • Key components like `Header.jsx` and `SessionSidebar.jsx` use    │
+│                  │                            │   `Sheet` for mobile menus and `Tooltip` for enhanced UX.          │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
 │ Vitest           │ Test Runner                │ Used for all unit and integration testing. Chosen for speed and      │
 │                  │                            │ seamless integration with Vite.                                      │
@@ -86,10 +88,11 @@ The testing strategy is designed for rapid feedback and reliability, directly su
 
 *   **Framework**: The project uses **Vitest**, a modern test runner built on top of Vite. This choice is strategic: it shares the same configuration as the development server, making it exceptionally fast and simple to maintain. This speed is critical for a fast-paced MVP development cycle.
 *   **Test Organization**: Tests are co-located with the code they validate (e.g., `src/__tests__`, `src/components/__tests__`), making them easy to find and run. They focus on testing individual components and hooks.
-*   **Mocking (`src/test/setup.js`)**: A key part of the strategy is the robust mocking of browser-only APIs like `MediaRecorder` and `SpeechRecognition`. This allows the core logic of the application to be tested thoroughly in a lightweight `happy-dom` command-line environment, a core part of the strategy is the robust mocking of browser-only APIs like `MediaRecorder` and `SpeechRecognition`. This allows the core logic of the application to be tested thoroughly in a lightweight `happy-dom` command-line environment, avoiding the need for slow, flaky, full-browser tests for every commit.
+*   **Mocking (`src/test/setup.js`)**: For the Vitest suite, a key part of the strategy is the robust mocking of browser-only APIs like `MediaRecorder` and `SpeechRecognition`. This allows the core application logic to be tested quickly in a simulated `jsdom` environment.
+*   **Playwright for Real Browser Testing**: For features that are inherently difficult to mock or require a true browser environment (like the Web Speech API), the project uses **Playwright**. This secondary test suite runs in a real browser, providing a higher level of confidence for critical, browser-dependent features. This hybrid approach balances the speed of JSDOM with the accuracy of a real browser.
 *   **Rationale vs. Alternatives**:
     *   **vs. Jest**: Vitest is faster and requires less configuration in a Vite project.
-    *   **vs. Docker**: A Dockerized test environment would be overkill for this stage, adding complexity and slowing down the development loop. The current setup provides the right balance of confidence and speed for an MVP.
+    *   **vs. Cypress/Playwright for everything**: While Playwright is used, relying on it for all tests would be too slow for rapid development. The hybrid approach provides the best of both worlds.
 
 ## 4. Alignment with PRD Goals
 
