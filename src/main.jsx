@@ -8,18 +8,13 @@ import { PostHogProvider } from 'posthog-js/react'
 import { initPostHog } from './lib/posthog.js'
 import { Elements } from '@stripe/react-stripe-js'
 import { loadStripe } from '@stripe/stripe-js'
+import * as Sentry from '@sentry/react';
+import { ErrorPage } from './pages/ErrorPage';
 
 // Initialize PostHog
 initPostHog();
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
-
-const options = {
-  api_host: import.meta.env.VITE_PUBLIC_POSTHOG_HOST,
-  defaults: '2025-05-24',
-  capture_exceptions: true, // Enables capturing exceptions using Error Tracking
-  debug: import.meta.env.MODE === 'development',
-}
 
 Sentry.init({
   dsn: import.meta.env.VITE_SENTRY_DSN,
@@ -40,7 +35,7 @@ createRoot(document.getElementById('root')).render(
         <AuthProvider>
           <Elements stripe={stripePromise}>
             {/* The Sentry.ErrorBoundary wraps the entire App to catch all errors */}
-            <Sentry.ErrorBoundary fallback={<div>An error has occurred. Please refresh the page.</div>}>
+            <Sentry.ErrorBoundary fallback={<ErrorPage />}>
               <App />
             </Sentry.ErrorBoundary>
           </Elements>

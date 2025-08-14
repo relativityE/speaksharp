@@ -91,25 +91,21 @@ Growth     → SEO expansion, retargeting ads, coach partnerships
 
 ---
 
-## 💰 Pricing Model
+## 💰 Pricing Model (Phase 1 MVP)
+
+*Note: This table reflects the features implemented in the initial MVP. Additional Pro features are planned for future phases.*
 
 ```
 ┌─────────────┬──────────────┬───────────────────────────────────────┐
-│    TIER     │    PRICE     │               FEATURES                │
+│    TIER     │    PRICE     │            MVP FEATURES               │
 ├─────────────┼──────────────┼───────────────────────────────────────┤
-│    FREE     │     $0       │ • 2-min trial session                 │
-│             │              │ • 10 mins/month logged in             │
-│             │              │ • Last 3 sessions saved               │
-│             │              │ • 5 custom words                      │
+│    FREE     │     $0       │ • 5 mins/month of practice time       │
+│             │              │ • Full session history saved          │
 │             │              │ • Basic analytics                     │
 ├─────────────┼──────────────┼───────────────────────────────────────┤
-│    PRO      │   $7.99      │ • Unlimited sessions                  │
-│             │              │ • Unlimited custom words              │
+│    PRO      │   $7.99      │ • Unlimited practice time             │
+│             │              │ • Unlimited custom words to track     │
 │             │              │ • Full analytics history              │
-│             │              │ • Improvement tracking                │
-│             │              │ • PDF export                          │
-│             │              │ • High-accuracy cloud transcription   │
-│             │              │ • Download audio locally              │
 └─────────────┴──────────────┴───────────────────────────────────────┘
 ```
 
@@ -135,7 +131,7 @@ Growth     → SEO expansion, retargeting ads, coach partnerships
 Frontend        → React + Vite
 Styling         → Tailwind CSS + shadcn/ui  
 Auth/Database   → Supabase
-Speech API      → Web Speech API (MVP) + Whisper API (Pro)
+Speech API      → Web Speech API
 Payments        → Stripe
 Monitoring      → Sentry
 Analytics       → PostHog
