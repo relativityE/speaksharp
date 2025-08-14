@@ -145,10 +145,6 @@ The high-level roadmap is to:
 
 -   **Testing Web Speech API**: The browser's Web Speech API has an auto-restart behavior that can cause infinite loops in some testing environments (like JSDOM). The application logic in `src/hooks/useSpeechRecognition.js` includes a workaround to disable this auto-restart when running under the Vitest testing framework.
 
-## Contributing
-
-Contributions are welcome! Please feel free to open an issue or submit a pull request.
-
 ## License
 
 This project is licensed under the MIT License. See the `LICENSE` file for details.
