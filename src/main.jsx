@@ -9,6 +9,8 @@ import { initPostHog } from './lib/posthog.js'
 import { Elements } from '@stripe/react-stripe-js'
 import { loadStripe } from '@stripe/stripe-js'
 import * as Sentry from '@sentry/react';
+import { ErrorPage } from './pages/ErrorPage';
+
 
 // Initialize PostHog
 initPostHog();
@@ -34,7 +36,7 @@ createRoot(document.getElementById('root')).render(
         <AuthProvider>
           <Elements stripe={stripePromise}>
             {/* The Sentry.ErrorBoundary wraps the entire App to catch all errors */}
-            <Sentry.ErrorBoundary fallback={<div>An error has occurred. Please refresh the page.</div>}>
+            <Sentry.ErrorBoundary fallback={<ErrorPage />}>
               <App />
             </Sentry.ErrorBoundary>
           </Elements>

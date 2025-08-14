@@ -100,6 +100,16 @@ npx playwright test
 
 This command looks for test files in the `playwright-tests` directory and runs them in a headless browser.
 
+## How to Deploy Your Web App
+
+### What Vercel does for your web app
+Vercel is a hosting platform optimized for modern web applications like this one. It connects directly to your GitHub repository. Every time you push new code to your main branch, Vercel will automatically build your application and deploy it to a public URL. It manages the entire hosting process, including providing a global content delivery network (CDN) for speed, handling SSL certificates for security, and even creating temporary "preview" deployments for every new pull request so you can test changes before they go live.
+
+### How to Configure Environment Variables on Vercel
+To make the deployed application work with services like Supabase and Stripe, you will need to add the project's environment variables to your Vercel project settings. **You should never share these secret keys.**
+
+The `README.md` file contains the full list of required variables in the "Getting Started" section (e.g., `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_STRIPE_PUBLISHABLE_KEY`, etc.). You will copy these keys from your Supabase, Stripe, and other service dashboards and paste them into the "Environment Variables" section of your project's settings on the Vercel website. This process is secure and ensures your secret keys are never exposed.
+
 ## Usage
 
 SpeakSharp uses a "progressive reveal" model. All pages are accessible to everyone, but more features are unlocked when you sign up for an account.
@@ -143,7 +153,10 @@ The high-level roadmap is to:
 
 ## Known Issues
 
--   **Testing Web Speech API**: The browser's Web Speech API has an auto-restart behavior that can cause infinite loops in some testing environments (like JSDOM). The application logic in `src/hooks/useSpeechRecognition.js` includes a workaround to disable this auto-restart when running under the Vitest testing framework.
+-   **E2E Test for Speech Recognition is Disabled**: The Playwright test for the `useSpeechRecognition` hook, located at `playwright-tests/useSpeechRecognition.spec.ts.skip`, is currently disabled. The test fails because the `onstart` event of the Speech Recognition API does not fire in the Playwright test environment, preventing the hook's `isListening` state from becoming `true`.
+    -   **Investigation Summary**: Attempts to fix this by refining the API mock and by using the real API with a fake media stream have been unsuccessful. The root cause appears to be a subtle issue within the test environment that prevents the API from activating correctly.
+    -   **Recommendation**: This test needs to be investigated by a developer with deep expertise in Playwright and browser media API interactions before it can be re-enabled.
+-   **Vitest Environment Note**: The browser's Web Speech API has an auto-restart behavior that can cause infinite loops in some testing environments (like JSDOM). The application logic in `src/hooks/useSpeechRecognition.js` includes a workaround to disable this auto-restart when running under the Vitest testing framework.
 
 ## License
 
