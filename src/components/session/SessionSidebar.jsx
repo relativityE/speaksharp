@@ -42,7 +42,10 @@ const FillerWordCounter = ({ word, data, maxCount }) => {
     );
 };
 
-const FillerWordAnalysis = ({ fillerData, customWords, setCustomWords }) => {
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Info, Sparkles } from 'lucide-react';
+
+const FillerWordAnalysis = ({ fillerData, customWords, setCustomWords, isPro }) => {
     const sortedFillerWords = Object.entries(fillerData).sort(([, a], [, b]) => b.count - a.count);
     const maxCount = Math.max(...Object.values(fillerData).map(d => d.count), 0);
 
@@ -79,26 +82,44 @@ const FillerWordAnalysis = ({ fillerData, customWords, setCustomWords }) => {
 
                 <Separator className="my-4" />
 
-                <div className="space-y-2">
-                    <p className="text-sm font-medium text-muted-foreground">Custom Words</p>
+                <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-muted-foreground">Custom Words to Track</p>
+                        {!isPro && (
+                            <Badge variant="premium">
+                                <Sparkles className="w-3 h-3 mr-1" />
+                                PRO
+                            </Badge>
+                        )}
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger>
+                                    <Info size={14} className="text-muted-foreground" />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    <p>Track words specific to your industry or personal habits.</p>
+                                </TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                    </div>
                     <div className="flex gap-2">
                         <Input
                             type="text"
                             value={newWord}
                             onChange={(e) => setNewWord(e.target.value)}
                             onKeyDown={handleKeyDown}
-                            placeholder="Add a word to track..."
+                            placeholder="e.g., 'actually', 'literally'"
                             className="bg-input"
                         />
-                        <Button onClick={addWord} variant="secondary" size="icon">
+                        <Button onClick={addWord} variant="secondary" size="icon" aria-label="Add custom word">
                             <Plus size={16} />
                         </Button>
                     </div>
-                    <div className="flex flex-wrap gap-2 pt-2">
+                    <div className="flex flex-wrap gap-2 pt-2 min-h-[2.5rem]">
                         {customWords.map(word => (
                             <Badge key={word} variant="secondary" className="flex items-center gap-2">
                                 <span>{word}</span>
-                                <button onClick={() => removeWord(word)} className="text-muted-foreground hover:text-foreground">
+                                <button onClick={() => removeWord(word)} className="text-muted-foreground hover:text-foreground" aria-label={`Remove ${word}`}>
                                     <Trash2 size={12} />
                                 </button>
                             </Badge>

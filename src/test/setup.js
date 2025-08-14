@@ -35,6 +35,22 @@ global.navigator.mediaDevices = {
   })
 }
 
+// Mock scrollIntoView for headless browser environments
+if (typeof window !== 'undefined' && window.HTMLElement) {
+    window.HTMLElement.prototype.scrollIntoView = vi.fn();
+}
+
+// Mock ResizeObserver for headless browser environments
+if (typeof global.ResizeObserver === 'undefined') {
+    global.ResizeObserver = class ResizeObserver {
+        constructor(callback) { this.callback = callback; }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+    };
+}
+
+
 afterEach(() => {
   vi.clearAllMocks()
   vi.restoreAllMocks()

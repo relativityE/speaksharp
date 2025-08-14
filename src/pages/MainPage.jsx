@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useBrowserSupport } from '../hooks/useBrowserSupport';
 import { BrowserWarning } from '../components/BrowserWarning';
 import { Button } from '@/components/ui/button';
+import { Shield } from 'lucide-react';
 
 export const MainPage = () => {
     const navigate = useNavigate();
@@ -26,9 +27,13 @@ export const MainPage = () => {
                     <Button size="lg" onClick={handleStartSession}>
                         Try a Free Session
                     </Button>
-                    <p className="mt-4 text-base text-muted-foreground">
+                    <p className="mt-4 text-lg text-foreground font-semibold">
                         No account required. Get started in seconds.
                     </p>
+                    <div className="mt-8 flex items-center justify-center gap-2 text-muted-foreground">
+                        <Shield size={18} />
+                        <p className="text-base font-medium">Privacy-first: Your audio is never stored.</p>
+                    </div>
                 </section>
 
                 {/* Demo Section */}

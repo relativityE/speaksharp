@@ -9,6 +9,9 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 vi.mock('../contexts/AuthContext', () => ({
   useAuth: vi.fn(),
 }));
+vi.mock('../components/session/CircularTimer', () => ({
+    default: () => <div data-testid="circular-timer-mock" />
+}));
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
 }));
@@ -57,7 +60,7 @@ describe('SessionSidebar component', () => {
 
     // Action: Advance timers to allow mock SpeechRecognition onstart to fire
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(20);
+      await vi.advanceTimersByTimeAsync(100);
     });
 
     // State 3: Recording, button shows "End Session"

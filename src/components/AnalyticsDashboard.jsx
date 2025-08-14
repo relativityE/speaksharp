@@ -18,85 +18,81 @@ export const calculateTrends = (history) => {
         };
     }
 
-    const totalSessions = history.length;
     const getFillersCount = (session) => {
-        const safeSum = (values) => {
-            return values.reduce((sum, value) => {
-                const num = Number(value);
-                return sum + (isNaN(num) ? 0 : num);
+        const fillerData = session.filler_words || session.filler_data || session.filler_counts;
+        if (!fillerData) return 0;
+
+        let total = 0;
+        if (Array.isArray(fillerData)) {
+            // Handles [{ word: 'like', count: 12 }]
+            total = fillerData.reduce((sum, item) => sum + (Number(item.count) || 0), 0);
+        } else if (typeof fillerData === 'object') {
+            // Handles { 'like': { count: 5 } } or { 'like': 5 }
+            total = Object.values(fillerData).reduce((sum, value) => {
+                const count = (typeof value === 'object' && value !== null) ? value.count : value;
+                return sum + (Number(count) || 0);
             }, 0);
-        };
-
-        const fillerData = session.filler_words || session.filler_data;
-        if (!fillerData) {
-            if (session.filler_counts) { // Backwards compatibility for old schema
-                return safeSum(Object.values(session.filler_counts));
-            }
-            return 0;
         }
-
-        if (Array.isArray(fillerData)) { // Handles { word: 'like', count: 12 }
-            return safeSum(fillerData.map(item => item.count));
-        }
-
-        // Handles { 'like': { count: 5 } } or { 'like': 5 }
-        const counts = Object.values(fillerData).map(data => (data && data.count) || data);
-        return safeSum(counts);
+        return total;
     };
 
-    const { totalDuration, totalFillerWords } = history.reduce((acc, session) => {
+    let totalDuration = 0;
+    let totalFillerWords = 0;
+    history.forEach(session => {
         const duration = Number(session.duration);
-        // Only include sessions with a valid, positive duration in calculations
         if (!isNaN(duration) && duration > 0) {
-            acc.totalDuration += duration;
-            acc.totalFillerWords += getFillersCount(session);
+            totalDuration += duration;
+            totalFillerWords += getFillersCount(session);
         }
-        return acc;
-    }, { totalDuration: 0, totalFillerWords: 0 });
+    });
+
     const avgFillerWordsPerMin = totalDuration > 0 ? (totalFillerWords / (totalDuration / 60)) : 0;
 
-    const chartData = history.map(s => {
-        // FIX: Ensure duration is a number for this calculation as well.
-        const duration = Number(s.duration);
-        const validDuration = isNaN(duration) ? 0 : duration;
-        const fillerCount = getFillersCount(s);
-        const fwPerMin = validDuration > 0 ? (fillerCount / (validDuration / 60)).toFixed(1) : "0.0";
-        return {
-            date: new Date(s.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-            'FW/min': fwPerMin,
-        };
-    }).reverse();
+    const chartData = history
+        .map(s => {
+            const duration = Number(s.duration);
+            if (isNaN(duration) || duration <= 0) return null;
+            const fillerCount = getFillersCount(s);
+            const fwPerMin = fillerCount / (duration / 60);
+            return {
+                date: new Date(s.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                'FW/min': fwPerMin.toFixed(1),
+            };
+        })
+        .filter(Boolean) // Remove null entries
+        .reverse();
 
     const allFillerCounts = history.reduce((acc, session) => {
         const fillerData = session.filler_words || session.filler_data || session.filler_counts;
         if (!fillerData) return acc;
 
-        // FIX: Handle array-based filler_words schema to prevent [object Object] bug
         if (Array.isArray(fillerData)) {
-            for (const item of fillerData) {
+            fillerData.forEach(item => {
                 if (item.word && typeof item.count === 'number') {
                     acc[item.word] = (acc[item.word] || 0) + item.count;
                 }
-            }
-        } else { // Handle object-based schemas
+            });
+        } else if (typeof fillerData === 'object') {
             for (const word in fillerData) {
                 const count = (typeof fillerData[word] === 'object' && fillerData[word] !== null)
                     ? fillerData[word].count
                     : fillerData[word];
-
                 if (typeof count === 'number') {
-                  acc[word] = (acc[word] || 0) + count;
+                    acc[word] = (acc[word] || 0) + count;
                 }
             }
         }
         return acc;
     }, {});
 
-    const topFillerWords = Object.entries(allFillerCounts).sort(([keyA, a], [keyB, b]) => b - a || keyA.localeCompare(keyB)).slice(0, 5).map(([name, value]) => ({ name, value }));
+    const topFillerWords = Object.entries(allFillerCounts)
+        .sort(([keyA, a], [keyB, b]) => b - a || keyA.localeCompare(keyB))
+        .slice(0, 5)
+        .map(([name, value]) => ({ name, value }));
 
     return {
         avgFillerWordsPerMin: avgFillerWordsPerMin.toFixed(1),
-        totalSessions,
+        totalSessions: history.length,
         totalPracticeTime: Math.round(totalDuration / 60),
         chartData,
         topFillerWords
