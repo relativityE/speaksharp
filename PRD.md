@@ -1,4 +1,5 @@
 # SpeakSharp Product Requirements Document
+<<<<<<< HEAD
 **Version 6.15** | **Last Updated: August 13, 2025**
 
 ---
@@ -11,6 +12,12 @@
 - **Consistent Navigation:** Implemented a unified header across all pages, including the sign-in page, ensuring the SpeakSharp logo is always present and serves as a home button.
 - **Bug Fix: Session Page Stability:** Resolved a critical bug causing the session page to "bounce" or scroll unexpectedly during live transcription, providing a more stable user experience.
 
+=======
+**Version 6.14** | **Last Updated: August 13, 2025**
+
+---
+
+>>>>>>> origin/feat/ui-overhaul
 ## 🔄 Recent Updates (v6.14)
 *August 13, 2025*
 

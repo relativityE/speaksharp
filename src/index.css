@@ -1,34 +1,54 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-@layer base {
-  :root {
-    --background: 210 40% 98%;
-    --foreground: 222 22% 17%;
-    --card: 0 0% 100%;
-    --card-foreground: 222 22% 17%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 22% 17%;
-    --primary: 217 91% 60%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 220 16% 96%;
-    --secondary-foreground: 222 22% 17%;
-    --muted: 220 16% 96%;
-    --muted-foreground: 215 9% 51%;
-    --accent: 217 91% 60%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 215 14% 91%;
-    --input: 215 14% 91%;
-    --ring: 217 91% 60%;
-  }
+@theme {
+  /* Merged Theme: "Precision Light" + "Grayscale & Feedback" */
+  --color-background: #FFFFFF; /* white */
+  --color-foreground: #1C1C1E; /* dark charcoal */
+  --color-card: #F7F9FB; /* soft gray */
+  --color-popover: #F7F9FB; /* soft gray */
+  --color-primary: #2563EB; /* blue */
+  --color-primary-foreground: #FFFFFF; /* white */
+  --color-secondary: #F7F9FB; /* soft gray */
+  --color-secondary-foreground: #2563EB; /* blue */
+  --color-muted: #F7F9FB; /* soft gray */
+  --color-muted-foreground: #8E8E93; /* medium gray */
+  --color-accent: #10B981; /* green */
+  --color-accent-foreground: #FFFFFF; /* white */
+  --color-destructive: #FF3B30; /* red */
+  --color-destructive-foreground: #FFFFFF; /* white */
+  --color-border: #E5E5EA; /* light gray */
+  --color-input: #E5E5EA; /* light gray */
+  --color-ring: #2563EB; /* blue */
+  --color-highlight: #ADD8E6; /* light blue */
+  --color-highlight-foreground: #1C1C1E; /* dark charcoal */
+
+  --font-sans: "Inter", "sans-serif";
 }
 
-@layer base {
-  body {
+html {
+    font-size: 24px; /* Significantly increased base font size for readability */
+}
+
+body {
+    font-family: theme(font.sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-  }
+}
+
+a {
+    font-size: 1em; /* Inherit font size from parent */
+    text-decoration: none;
+    transition: color 0.2s ease-in-out;
+}
+
+a:hover {
+    color: var(--color-primary);
+}
+
+/* Ensure form elements inherit the global font size for readability */
+button,
+input,
+textarea,
+select {
+    font-size: inherit;
 }
