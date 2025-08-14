@@ -1,42 +1,54 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-@layer base {
-  :root {
-    --background: 222 47% 11%; /* #0A192F */
-    --foreground: 215 20% 90%; /* #E2E8F0 */
+@theme {
+  /* Merged Theme: "Precision Light" + "Grayscale & Feedback" */
+  --color-background: #FFFFFF; /* white */
+  --color-foreground: #1C1C1E; /* dark charcoal */
+  --color-card: #F7F9FB; /* soft gray */
+  --color-popover: #F7F9FB; /* soft gray */
+  --color-primary: #2563EB; /* blue */
+  --color-primary-foreground: #FFFFFF; /* white */
+  --color-secondary: #F7F9FB; /* soft gray */
+  --color-secondary-foreground: #2563EB; /* blue */
+  --color-muted: #F7F9FB; /* soft gray */
+  --color-muted-foreground: #8E8E93; /* medium gray */
+  --color-accent: #10B981; /* green */
+  --color-accent-foreground: #FFFFFF; /* white */
+  --color-destructive: #FF3B30; /* red */
+  --color-destructive-foreground: #FFFFFF; /* white */
+  --color-border: #E5E5EA; /* light gray */
+  --color-input: #E5E5EA; /* light gray */
+  --color-ring: #2563EB; /* blue */
+  --color-highlight: #ADD8E6; /* light blue */
+  --color-highlight-foreground: #1C1C1E; /* dark charcoal */
 
-    --card: 222 39% 23%; /* #1E293B */
-    --card-foreground: 215 20% 90%; /* #E2E8F0 */
-
-    --popover: 222 39% 23%; /* #1E293B */
-    --popover-foreground: 215 20% 90%; /* #E2E8F0 */
-
-    --primary: 217 91% 60%; /* #3B82F6 */
-    --primary-foreground: 210 40% 98%; /* Light Gray */
-
-    --secondary: 222 39% 23%; /* #1E293B */
-    --secondary-foreground: 215 20% 90%; /* #E2E8F0 */
-
-    --muted: 222 39% 23%; /* #1E293B */
-    --muted-foreground: 215 19% 65%; /* #94A3B8 */
-
-    --accent: 217 91% 60%; /* #3B82F6 */
-    --accent-foreground: 210 40% 98%; /* Light Gray */
-
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 220 26% 28%; /* #334155 */
-    --input: 220 26% 28%; /* #334155 */
-    --ring: 217 91% 60%; /* #3B82F6 */
-  }
+  --font-sans: "Inter", "sans-serif";
 }
 
-@layer base {
-  body {
+html {
+    font-size: 24px; /* Significantly increased base font size for readability */
+}
+
+body {
+    font-family: theme(font.sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-  }
+}
+
+a {
+    font-size: 1em; /* Inherit font size from parent */
+    text-decoration: none;
+    transition: color 0.2s ease-in-out;
+}
+
+a:hover {
+    color: var(--color-primary);
+}
+
+/* Ensure form elements inherit the global font size for readability */
+button,
+input,
+textarea,
+select {
+    font-size: inherit;
 }

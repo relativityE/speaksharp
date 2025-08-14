@@ -11,7 +11,7 @@ module.exports = {
   theme: {
     extend: {
       fontSize: {
-        'base': '18px',
+        'base': '20px',
       },
       fontFamily: {
         sans: ["Inter", ...fontFamily.sans],

@@ -17,7 +17,7 @@ const Chunk = ({ chunk, fillerData }) => {
                 const fillerInfo = fillerKey ? fillerData[fillerKey] : null;
 
                 return fillerInfo ? (
-                    <span key={index} className="px-1 rounded font-semibold" style={{ backgroundColor: `${fillerInfo.color}4D`, color: '#E2E8F0' }}>
+                    <span key={index} className="px-1 rounded font-semibold" style={{ backgroundColor: fillerInfo.color, color: 'black' }}>
                         {part}
                     </span>
                 ) : (

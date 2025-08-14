@@ -13,7 +13,7 @@ export const Header = () => {
     const activeLinkClasses = "bg-secondary text-foreground";
 
     return (
-        <header className="sticky top-0 z-10 border-b bg-background">
+        <header className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur-sm">
             <div className="container mx-auto flex h-16 items-center justify-between px-4">
                 <NavLink to="/" className="text-xl font-bold text-primary">
                     SpeakSharp

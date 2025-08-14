@@ -50,10 +50,8 @@ The architecture is designed around a modern, client-heavy Jamstack approach, di
 │                  │                            │ • `supabase/migrations/`: Database schema definitions.             │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
 │ Tailwind CSS     │ Utility-First CSS          │ Used for all styling, enabling rapid UI development.                 │
-│                  │                            │ • `tailwind.config.cjs`: Configures the theme, including fonts and │
-│                  │                            │   colors.                                                          │
-│                  │                            │ • `src/index.css`: Defines global styles and HSL color variables   │
-│                  │                            │   for the theme.                                                   │
+│                  │                            │ • `tailwind.config.cjs`: Configuration and theme.                  │
+│                  │                            │ • `src/index.css`: Base styles and imports.                        │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
 │ shadcn/ui        │ UI Component Library       │ Provides pre-built, accessible, and composable React components.     │
 │                  │                            │ • `src/components/ui/`: Location of all `shadcn` components.       │
