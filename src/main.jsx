@@ -4,6 +4,15 @@ import { BrowserRouter } from 'react-router-dom'
 import './index.css'
 import App from './App.jsx'
 import { AuthProvider } from './contexts/AuthContext.jsx'
+import { PostHogProvider } from 'posthog-js/react'
+import { initPostHog } from './lib/posthog.js'
+import { Elements } from '@stripe/react-stripe-js'
+import { loadStripe } from '@stripe/stripe-js'
+
+// Initialize PostHog
+initPostHog();
+
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 
 // --- Sentry Initialization Code ---
 // This code initializes Sentry for the entire application.
@@ -39,12 +48,16 @@ Sentry.init({
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>
-      <AuthProvider>
-        {/* The Sentry.ErrorBoundary wraps the entire App to catch all errors */}
-        <Sentry.ErrorBoundary fallback={<div>An error has occurred. Please refresh the page.</div>}>
-          <App />
-        </Sentry.ErrorBoundary>
-      </AuthProvider>
+      <PostHogProvider>
+        <AuthProvider>
+          <Elements stripe={stripePromise}>
+            {/* The Sentry.ErrorBoundary wraps the entire App to catch all errors */}
+            <Sentry.ErrorBoundary fallback={<div>An error has occurred. Please refresh the page.</div>}>
+              <App />
+            </Sentry.ErrorBoundary>
+          </Elements>
+        </AuthProvider>
+      </PostHogProvider>
     </BrowserRouter>
   </StrictMode>,
 )

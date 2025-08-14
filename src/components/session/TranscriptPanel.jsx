@@ -17,7 +17,7 @@ const Chunk = ({ chunk, fillerData }) => {
                 const fillerInfo = fillerKey ? fillerData[fillerKey] : null;
 
                 return fillerInfo ? (
-                    <span key={index} className="px-1 rounded" style={{ backgroundColor: fillerInfo.color, color: '#000' }}>
+                    <span key={index} className="px-1 rounded font-semibold" style={{ backgroundColor: fillerInfo.color, color: 'black' }}>
                         {part}
                     </span>
                 ) : (
@@ -42,10 +42,12 @@ const HighlightedTranscript = ({ chunks, interimTranscript, fillerData }) => {
 };
 
 export const TranscriptPanel = ({ chunks = [], interimTranscript, fillerData }) => {
-    const transcriptEndRef = useRef(null);
+    const scrollContainerRef = useRef(null);
 
     useEffect(() => {
-        transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+        }
     }, [chunks, interimTranscript]);
 
     return (
@@ -58,9 +60,8 @@ export const TranscriptPanel = ({ chunks = [], interimTranscript, fillerData }) 
                     Your spoken words appear here. Filler words are highlighted.
                 </p>
             </div>
-            <div className="p-6 rounded-lg bg-card min-h-[10rem] max-h-[60vh] overflow-y-auto transition-all duration-300 ease-in-out border border-border">
+            <div ref={scrollContainerRef} className="p-6 rounded-lg bg-card min-h-[10rem] max-h-[60vh] overflow-y-auto transition-all duration-300 ease-in-out border border-border">
                 <HighlightedTranscript chunks={chunks} interimTranscript={interimTranscript} fillerData={fillerData} />
-                <div ref={transcriptEndRef} />
             </div>
         </div>
     );

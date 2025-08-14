@@ -67,12 +67,12 @@ export default function AuthPage() {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-background p-4">
-      <div className="text-center mb-6">
-        <h1 className="text-3xl font-bold text-primary">SpeakSharp</h1>
+      <div className="text-center mb-8">
+        <h1 className="text-5xl font-bold text-primary">SpeakSharp</h1>
       </div>
-      <Card className="w-full max-w-sm">
+      <Card className="w-full max-w-sm rounded-xl border shadow-sm">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">
+          <CardTitle className="text-3xl font-bold">
             {view === 'sign_in' && 'Sign In'}
             {view === 'sign_up' && 'Create an Account'}
             {view === 'forgot_password' && 'Reset Password'}
@@ -80,7 +80,7 @@ export default function AuthPage() {
           <CardDescription>
             {view === 'sign_in' && 'Enter your credentials to access your account.'}
             {view === 'sign_up' && 'Enter your details to get started.'}
-            {view === 'forgot_password' && "Enter your email to receive a password reset link. You will be redirected after resetting."}
+            {view === 'forgot_password' && "Enter your email for a password reset link."}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -95,7 +95,6 @@ export default function AuthPage() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="bg-input"
                 />
               </div>
               {view !== 'forgot_password' && (
@@ -114,13 +113,12 @@ export default function AuthPage() {
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="bg-input"
                   />
                 </div>
               )}
               {error && <p className="text-sm text-destructive font-semibold">{error}</p>}
               {message && <p className="text-sm text-green-600 font-semibold bg-green-100 border border-green-200 rounded-md p-3 text-center">{message}</p>}
-              <Button type="submit" className="w-full" disabled={loading}>
+              <Button type="submit" className="w-full text-lg py-6" disabled={loading}>
                 {loading ? 'Processing...' :
                   view === 'sign_in' ? 'Sign In' :
                   view === 'sign_up' ? 'Sign Up' : 'Send Reset Link'
@@ -132,7 +130,7 @@ export default function AuthPage() {
             {view === 'sign_in' && "Don't have an account?"}
             {view === 'sign_up' && 'Already have an account?'}
             {view === 'forgot_password' && 'Remembered your password?'}
-            <Button variant="link" type="button" onClick={() => handleViewChange(view === 'sign_in' || view === 'forgot_password' ? 'sign_up' : 'sign_in')} className="text-primary">
+            <Button variant="link" type="button" onClick={() => handleViewChange(view === 'sign_in' || view === 'forgot_password' ? 'sign_up' : 'sign_in')} className="text-primary font-semibold">
                 {view === 'sign_in' || view === 'forgot_password' ? 'Sign Up' : 'Sign In'}
             </Button>
           </div>

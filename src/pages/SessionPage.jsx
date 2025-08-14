@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { useSessionManager } from '../hooks/useSessionManager';
+import posthog from 'posthog-js';
 import { TranscriptPanel } from '../components/session/TranscriptPanel';
 import { SessionSidebar } from '../components/session/SessionSidebar';
 import { Button } from '@/components/ui/button';
@@ -13,6 +14,10 @@ export const SessionPage = () => {
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
     const speechRecognition = useSpeechRecognition({ customWords });
+
+    useEffect(() => {
+        posthog.capture('session_page_viewed');
+    }, []);
 
     return (
         <div className="container mx-auto px-4 py-10">

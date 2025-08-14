@@ -41,7 +41,28 @@ A mobile-first web application that detects and counts filler words in real time
     pnpm install
     ```
 
-3.  Start the development server:
+3.  Set up your environment variables.
+    Create a file named `.env.local` in the root of the project. This file is ignored by git and is where you will store your secret keys. Add the following variables:
+
+    ```
+    # Supabase
+    VITE_SUPABASE_URL=your_supabase_project_url_here
+    VITE_SUPABASE_ANON_KEY=your_supabase_anon_key_here
+
+    # Sentry
+    VITE_SENTRY_DSN=your_sentry_dsn_here
+
+    # PostHog
+    VITE_POSTHOG_KEY=your_posthog_project_api_key_here
+    VITE_POSTHOG_HOST=your_posthog_api_host_here
+
+    # Stripe
+    VITE_STRIPE_PUBLISHABLE_KEY=your_stripe_publishable_key_here
+    VITE_STRIPE_SECRET_KEY=your_stripe_secret_key_here
+    VITE_STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret_here
+    ```
+
+4.  Start the development server:
     ```bash
     pnpm run dev
     ```

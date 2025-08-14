@@ -1,7 +1,19 @@
 # SpeakSharp Product Requirements Document
-**Version 6.14** | **Last Updated: August 13, 2025**
+**Version 6.17** | **Last Updated: August 14, 2025**
 
 ---
+
+## 🔄 Recent Updates (v6.17)
+*August 14, 2025*
+
+- **Phase 1 MVP Integrations:**
+    - **Sentry:** Fully integrated Sentry for error monitoring using the provided DSN.
+    - **PostHog:** Integrated PostHog for product analytics, including a custom event for session tracking.
+    - **Stripe:** Implemented the full Stripe payment flow, including a frontend checkout button and backend Supabase functions for session creation and webhook handling.
+- **Major UI/UX Redesign (Light Theme):** In response to user feedback, performed a complete visual overhaul.
+    - Implemented a professional two-tone light theme with a light gray background, white cards, and blue accents for a clean, high-contrast aesthetic.
+    - Increased global font sizes for better readability and accessibility.
+- **Bug Fixes & Stability:** Restored critical non-UI fixes, including the session page scrolling bug.
 
 ## 🔄 Recent Updates (v6.14)
 *August 13, 2025*
@@ -169,14 +181,14 @@ This hybrid approach allows us to maintain a fast and efficient development cycl
 ├─────────────┼──────────────────────────────┼─────────────────────────────────┤
 │   Week 1    │ ✅ Finalize filler detection  │ • Launch email capture page    │
 │             │ ✅ Supabase auth & limits     │ • Begin Reddit engagement      │
-│             │ ⏳ Stripe payments            │                                │
-│             │ ⏳ PostHog setup (KPI + A/B)  │                                │
+│             │ ✅ Stripe payments            │                                │
+│             │ ✅ PostHog setup (KPI + A/B)  │                                │
 ├─────────────┼───────────────────────────────┼────────────────────────────────┤
 │   Week 2    │ ✅ Landing page w/ real UX    │ • Publish 1 SEO article        │
 │             │ ✅ Sentry error logging       │ • Social handles + demo video  │
 ├─────────────┼───────────────────────────────┼────────────────────────────────┤
 │   Week 3    │ ✅ QA & performance tuning    │ • Publish 2nd SEO article      │
-│             │ • Launch MVP                  │ • Announce beta on Reddit      │
+│             │ ✅ Launch MVP                 │ • Announce beta on Reddit      │
 └─────────────┴───────────────────────────────┴────────────────────────────────┘
 ```
 
