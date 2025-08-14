@@ -66,26 +66,27 @@ export default function AuthPage() {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-background p-4">
-      <div className="text-center mb-6">
-        <h1 className="text-3xl font-bold text-primary">SpeakSharp</h1>
+    <div className="flex flex-col items-center justify-center min-h-screen bg-muted p-4">
+      <div className="text-center mb-8">
+        <h1 className="text-4xl font-bold text-primary">SpeakSharp</h1>
+        <p className="text-muted-foreground">Your AI-powered speech coach</p>
       </div>
-      <Card className="w-full max-w-sm">
+      <Card className="w-full max-w-sm rounded-xl shadow-md">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">
-            {view === 'sign_in' && 'Sign In'}
+            {view === 'sign_in' && 'Welcome Back'}
             {view === 'sign_up' && 'Create an Account'}
             {view === 'forgot_password' && 'Reset Password'}
           </CardTitle>
           <CardDescription>
-            {view === 'sign_in' && 'Enter your credentials to access your account.'}
-            {view === 'sign_up' && 'Enter your details to get started.'}
-            {view === 'forgot_password' && "Enter your email to receive a password reset link. You will be redirected after resetting."}
+            {view === 'sign_in' && 'Sign in to continue your journey.'}
+            {view === 'sign_up' && 'Get started with SpeakSharp.'}
+            {view === 'forgot_password' && "Enter your email to receive a password reset link."}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit}>
-            <div className="grid gap-4">
+            <div className="grid gap-6">
               <div className="grid gap-2">
                 <Label htmlFor="email">Email</Label>
                 <Input
@@ -95,7 +96,6 @@ export default function AuthPage() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="bg-input"
                 />
               </div>
               {view !== 'forgot_password' && (
@@ -103,8 +103,8 @@ export default function AuthPage() {
                   <div className="flex items-center">
                     <Label htmlFor="password">Password</Label>
                     {view === 'sign_in' && (
-                       <Button variant="link" type="button" onClick={() => handleViewChange('forgot_password')} className="ml-auto inline-block text-sm underline text-muted-foreground hover:text-primary h-auto p-0">
-                          Forgot Password?
+                       <Button variant="link" type="button" onClick={() => handleViewChange('forgot_password')} className="ml-auto inline-block text-sm text-muted-foreground hover:text-primary h-auto p-0">
+                          Forgot?
                        </Button>
                     )}
                   </div>
@@ -114,7 +114,6 @@ export default function AuthPage() {
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="bg-input"
                   />
                 </div>
               )}
@@ -128,11 +127,9 @@ export default function AuthPage() {
               </Button>
             </div>
           </form>
-          <div className="mt-4 text-center text-sm">
-            {view === 'sign_in' && "Don't have an account?"}
-            {view === 'sign_up' && 'Already have an account?'}
-            {view === 'forgot_password' && 'Remembered your password?'}
-            <Button variant="link" type="button" onClick={() => handleViewChange(view === 'sign_in' || view === 'forgot_password' ? 'sign_up' : 'sign_in')} className="text-primary">
+          <div className="mt-6 text-center text-sm">
+            {view === 'sign_in' ? "Don't have an account?" : 'Already have an account?'}
+            <Button variant="link" type="button" onClick={() => handleViewChange(view === 'sign_in' || view === 'forgot_password' ? 'sign_up' : 'sign_in')} className="text-primary font-semibold">
                 {view === 'sign_in' || view === 'forgot_password' ? 'Sign Up' : 'Sign In'}
             </Button>
           </div>
