@@ -91,11 +91,13 @@ Growth     → SEO expansion, retargeting ads, coach partnerships
 
 ---
 
-## 💰 Pricing Model
+## 💰 Pricing Model (Phase 1 MVP)
+
+*Note: This table reflects the features implemented in the initial MVP. Additional Pro features are planned for future phases.*
 
 ```
 ┌─────────────┬──────────────┬───────────────────────────────────────┐
-│    TIER     │    PRICE     │               FEATURES                │
+│    TIER     │    PRICE     │            MVP FEATURES               │
 ├─────────────┼──────────────┼───────────────────────────────────────┤
 │    FREE     │     $0       │ • 5 mins/month of practice time       │
 │             │              │ • Full session history saved          │
@@ -133,7 +135,7 @@ Frontend        → React + Vite
 Styling         → Tailwind CSS + shadcn/ui  
 Auth/Database   → Supabase
 Speech API      → Browser Web Speech API (Free Tier)
-              → Google Cloud STT API (Pro Tier)
+                → Google Cloud STT API (Pro Tier)
 Payments        → Stripe
 Monitoring      → Sentry
 Analytics       → PostHog

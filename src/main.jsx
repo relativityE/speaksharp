@@ -11,6 +11,7 @@ import { loadStripe } from '@stripe/stripe-js'
 import * as Sentry from '@sentry/react';
 import { ErrorPage } from './pages/ErrorPage';
 
+
 // Initialize PostHog
 initPostHog();
 
