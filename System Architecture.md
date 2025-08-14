@@ -57,14 +57,31 @@ This diagram offers a more detailed look at the application's architecture from 
                           |
 +-------------------------+---------------------------------------------+
 |       FREE USER         |                PRO USER                     |
-| (Usage Limit Enforced)  |         (No Usage Limit, Pro Features)      |
+| (Usage Limit Enforced)  |  (No Usage Limit, Pro Features, Cloud STT)  |
 +-------------------------+---------------------------------------------+
              |                                       |
-             |                                       |
-+------------v--------------------------+ +-----------v---------------------------+
-| Save Session (Metadata Only)          | | Save Session (Metadata Only)          |
-| `supabase.from('sessions').insert()`  | | `supabase.from('sessions').insert()`  |
-+---------------------------------------+ +---------------------------------------+
+             |                                       +----------------------------------+
+             |                                       |                                  |
+             |                                       |  IF "High-Accuracy Mode" ON:     |
+             |                                       |  1. Record Audio in Browser      |
+             |                                       |  2. `supabase.functions.invoke`  |
+             |                                       |     ('cloud-transcribe')         |
+             |                                       |           |                      |
+             |                                       |           v                      |
+             |                                       |  +------------------+            |
+             |                                       |  | Supabase Edge Fn |-+          |
+             |                                       |  +------------------+ |          |
+             |                                       +-----------------------+          |
+             |                                                         |                |
+             |                                                         v                |
+             |                                                +--------------------+    |
+             |                                                | Google Cloud STT |    |
+             |                                                +--------------------+    |
+             |                                                                          |
++------------v--------------------------+ +-----------v------------------------------------------------+
+| Save Session (Metadata Only)          | | Save Session (Browser & Cloud Transcripts)                   |
+| `supabase.from('sessions').insert()`  | | `supabase.from('sessions').insert()`                         |
++---------------------------------------+ +----------------------------------------------------------------+
              |                                       |
 +------------v--------------------------+ +-----------v---------------------------+
 | Update Usage                          | | Update Usage                          |
@@ -198,12 +215,14 @@ The free tier is designed to be privacy-first and low-cost, with all core speech
 
 ### Paid (Pro) User Flow
 
-The Pro tier removes limitations and adds features, but for the MVP, it maintains the same privacy-first transcription architecture.
+The Pro tier enhances the experience with higher accuracy transcription and additional features.
 
 1.  **Authentication**: A user with a `subscription_status` of `'pro'` or `'premium'` logs in.
-2.  **Unrestricted Usage**: In `SessionSidebar.jsx`, the client-side check for usage limits is bypassed, allowing for unlimited recording time. Pro-specific features, like the "Custom Words" tracker, are also enabled in the UI.
-3.  **Speech Recognition (Client-Side)**: The process is **identical to the free user flow**. The MVP uses the same browser-based Web Speech API for all users, regardless of their subscription status. There is currently no separate, high-accuracy cloud transcription service.
-4.  **Session Completion & Persistence**: This is identical to the free user flow. Session metadata (not the transcript) is saved to the `sessions` table.
+2.  **Transcription Mode Selection**: In `SessionSidebar.jsx`, the Pro user can enable "High-Accuracy Mode".
+    *   **If OFF**: The flow is identical to the Free User Flow, using the browser's Web Speech API.
+    *   **If ON**: The application uses the `useAudioRecording` hook to capture audio.
+3.  **Cloud Speech Recognition**: When the session ends, the recorded audio is sent to the `cloud-transcribe` Supabase Edge Function. This function acts as a secure proxy, forwarding the audio to the **Google Cloud Speech-to-Text API** for transcription.
+4.  **Session Completion & Persistence**: When the session is saved, both the original browser-generated transcript and the new high-accuracy cloud transcript are saved to the `sessions` table in the `browser_transcript` and `cloud_transcript` columns, respectively. This allows for a side-by-side comparison on the analytics page.
 5.  **Usage Tracking**: The `update_user_usage` RPC function is still called. This is harmless and ensures the usage metric is still tracked, even if it isn't used to limit the user. The function's logic also correctly handles monthly resets for all user types.
 
 **Key Files & Components**: The same as the free flow, with conditional logic in `SessionSidebar.jsx` unlocking the Pro features.

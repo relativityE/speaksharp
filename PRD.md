@@ -105,7 +105,10 @@ Growth     → SEO expansion, retargeting ads, coach partnerships
 ├─────────────┼──────────────┼───────────────────────────────────────┤
 │    PRO      │   $7.99      │ • Unlimited practice time             │
 │             │              │ • Unlimited custom words to track     │
-│             │              │ • Full analytics history              │
+│             │              │ • Enhanced analytics with trend charts│
+│             │              │ • High-accuracy cloud transcription   │
+│             │              │ • Transcript accuracy comparison      │
+│             │              │ • PDF session report export           │
 └─────────────┴──────────────┴───────────────────────────────────────┘
 ```
 
@@ -131,7 +134,8 @@ Growth     → SEO expansion, retargeting ads, coach partnerships
 Frontend        → React + Vite
 Styling         → Tailwind CSS + shadcn/ui  
 Auth/Database   → Supabase
-Speech API      → Web Speech API
+Speech API      → Browser Web Speech API (Free Tier)
+                → Google Cloud STT API (Pro Tier)
 Payments        → Stripe
 Monitoring      → Sentry
 Analytics       → PostHog
@@ -141,7 +145,7 @@ Hosting         → Vercel
 ### Scalability Architecture
 **Speech Processing:**
 - **Free Users:** Browser Web Speech API (unlimited concurrent users)
-- **Pro Users:** Optional Whisper API via serverless functions
+- **Pro Users:** Google Cloud STT API via Supabase Edge Function
 
 **Scaling Strategy:**
 - Client-heavy architecture minimizes server load

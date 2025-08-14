@@ -1,0 +1,5 @@
+{
+  "imports": {
+    "npm:@google-cloud/speech": "https://esm.sh/@google-cloud/speech@6.2.0"
+  }
+}
