@@ -135,8 +135,8 @@ describe('calculateTrends', () => {
 
         // Note: history is reversed in chartData
         expect(trends.chartData).toEqual([
-            { date: expectedDate2, 'FW/min': "3.0" }, // 6 fillers / 2 mins
-            { date: expectedDate1, 'FW/min': "6.0" }, // 6 fillers / 1 min
+            { date: expectedDate2, 'FW/min': 3.0, 'Total Fillers': 6, 'Duration (mins)': 2 },
+            { date: expectedDate1, 'FW/min': 6.0, 'Total Fillers': 6, 'Duration (mins)': 1 },
         ]);
     });
 });

@@ -11,6 +11,7 @@ import { SlidersHorizontal } from 'lucide-react';
 export const SessionPage = () => {
     const { saveSession } = useSessionManager();
     const [customWords, setCustomWords] = useState([]);
+    const [isCloudMode, setIsCloudMode] = useState(false);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
     const speechRecognition = useSpeechRecognition({ customWords });
@@ -28,7 +29,7 @@ export const SessionPage = () => {
 
                 {/* Desktop Sidebar */}
                 <div className="hidden lg:block lg:col-span-1">
-                    <SessionSidebar {...speechRecognition} customWords={customWords} setCustomWords={setCustomWords} saveSession={saveSession} />
+                    <SessionSidebar {...speechRecognition} customWords={customWords} setCustomWords={setCustomWords} saveSession={saveSession} isCloudMode={isCloudMode} setIsCloudMode={setIsCloudMode} />
                 </div>
 
                 {/* Mobile Drawer */}
@@ -42,7 +43,7 @@ export const SessionPage = () => {
                         </DrawerTrigger>
                         <DrawerContent>
                             <div className="p-4 overflow-y-auto h-[80vh]">
-                                <SessionSidebar {...speechRecognition} customWords={customWords} setCustomWords={setCustomWords} saveSession={saveSession} />
+                                <SessionSidebar {...speechRecognition} customWords={customWords} setCustomWords={setCustomWords} saveSession={saveSession} isCloudMode={isCloudMode} setIsCloudMode={setIsCloudMode} />
                             </div>
                         </DrawerContent>
                     </Drawer>

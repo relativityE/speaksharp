@@ -1,11 +1,14 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, LabelList } from 'recharts';
-import { TrendingUp, Clock, Hash, CheckCircle } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, LabelList, Legend } from 'recharts';
+import { TrendingUp, Clock, Hash, CheckCircle, ArrowLeft, Download } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ComparisonView } from './analytics/ComparisonView';
+import { generatePdfReport } from '../lib/pdfGenerator';
 
 export const calculateTrends = (history) => {
     if (!history || history.length === 0) {
@@ -46,7 +49,6 @@ export const calculateTrends = (history) => {
 
     const { totalDuration, totalFillerWords } = history.reduce((acc, session) => {
         const duration = Number(session.duration);
-        // Only include sessions with a valid, positive duration in calculations
         if (!isNaN(duration) && duration > 0) {
             acc.totalDuration += duration;
             acc.totalFillerWords += getFillersCount(session);
@@ -56,14 +58,15 @@ export const calculateTrends = (history) => {
     const avgFillerWordsPerMin = totalDuration > 0 ? (totalFillerWords / (totalDuration / 60)) : 0;
 
     const chartData = history.map(s => {
-        // FIX: Ensure duration is a number for this calculation as well.
         const duration = Number(s.duration);
         const validDuration = isNaN(duration) ? 0 : duration;
         const fillerCount = getFillersCount(s);
-        const fwPerMin = validDuration > 0 ? (fillerCount / (validDuration / 60)).toFixed(1) : "0.0";
+        const fwPerMin = validDuration > 0 ? (fillerCount / (validDuration / 60)) : 0;
         return {
             date: new Date(s.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-            'FW/min': fwPerMin,
+            'FW/min': parseFloat(fwPerMin.toFixed(1)),
+            'Total Fillers': fillerCount,
+            'Duration (mins)': parseFloat((validDuration / 60).toFixed(1)),
         };
     }).reverse();
 
@@ -71,19 +74,17 @@ export const calculateTrends = (history) => {
         const fillerData = session.filler_words || session.filler_data || session.filler_counts;
         if (!fillerData) return acc;
 
-        // FIX: Handle array-based filler_words schema to prevent [object Object] bug
         if (Array.isArray(fillerData)) {
             for (const item of fillerData) {
                 if (item.word && typeof item.count === 'number') {
                     acc[item.word] = (acc[item.word] || 0) + item.count;
                 }
             }
-        } else { // Handle object-based schemas
+        } else {
             for (const word in fillerData) {
                 const count = (typeof fillerData[word] === 'object' && fillerData[word] !== null)
                     ? fillerData[word].count
                     : fillerData[word];
-
                 if (typeof count === 'number') {
                   acc[word] = (acc[word] || 0) + count;
                 }
@@ -133,7 +134,7 @@ const StatCard = ({ icon, label, value, unit, className }) => (
     </Card>
 );
 
-const SessionHistoryItem = ({ session }) => {
+const SessionHistoryItem = ({ session, onSelect }) => {
     const getFillersCount = (s) => {
         if (s.filler_data) return Object.values(s.filler_data).reduce((sum, data) => sum + data.count, 0);
         if (s.filler_counts) return Object.values(s.filler_counts).reduce((a, b) => a + b, 0);
@@ -143,7 +144,7 @@ const SessionHistoryItem = ({ session }) => {
     const durationMins = (session.duration / 60).toFixed(1);
 
     return (
-        <div className="p-4 transition-all duration-200 rounded-lg hover:bg-secondary">
+        <div className="p-4 transition-all duration-200 rounded-lg hover:bg-secondary cursor-pointer" onClick={() => onSelect(session)}>
             <div className="flex items-center justify-between">
                 <div>
                     <p className="font-semibold text-foreground text-base">{new Date(session.created_at).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
@@ -169,82 +170,50 @@ const SessionHistoryItem = ({ session }) => {
 export const AnalyticsDashboardSkeleton = () => (
     <div className="space-y-8 animate-pulse">
         <div className="grid gap-6 md:grid-cols-3">
-            <Card>
-                <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-                    <Skeleton className="h-5 w-2/5" />
-                </CardHeader>
-                <CardContent>
-                    <Skeleton className="h-8 w-1/3" />
-                </CardContent>
-            </Card>
-            <Card>
-                <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-                    <Skeleton className="h-5 w-4/5" />
-                </CardHeader>
-                <CardContent>
-                    <Skeleton className="h-8 w-1/3" />
-                </CardContent>
-            </Card>
-            <Card>
-                <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-                    <Skeleton className="h-5 w-3/5" />
-                </CardHeader>
-                <CardContent>
-                    <Skeleton className="h-8 w-1/3" />
-                </CardContent>
-            </Card>
+            <Card><CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0"><Skeleton className="h-5 w-2/5" /></CardHeader><CardContent><Skeleton className="h-8 w-1/3" /></CardContent></Card>
+            <Card><CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0"><Skeleton className="h-5 w-4/5" /></CardHeader><CardContent><Skeleton className="h-8 w-1/3" /></CardContent></Card>
+            <Card><CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0"><Skeleton className="h-5 w-3/5" /></CardHeader><CardContent><Skeleton className="h-8 w-1/3" /></CardContent></Card>
         </div>
-
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-5">
-            <Card className="col-span-1 lg:col-span-3">
-                <CardHeader>
-                    <Skeleton className="h-6 w-1/3" />
-                </CardHeader>
-                <CardContent>
-                    <Skeleton className="h-[240px] w-full" />
-                </CardContent>
-            </Card>
-            <Card className="col-span-1 lg:col-span-2">
-                 <CardHeader>
-                    <Skeleton className="h-6 w-1/2" />
-                </CardHeader>
-                <CardContent>
-                    <Skeleton className="h-[240px] w-full" />
-                </CardContent>
-            </Card>
-        </div>
-
-        <Card>
-            <CardHeader>
-                <Skeleton className="h-6 w-1/4" />
-            </CardHeader>
-            <CardContent className="space-y-4">
-                <div className="flex justify-between items-center">
-                    <div className="space-y-2">
-                        <Skeleton className="h-5 w-48" />
-                        <Skeleton className="h-4 w-32" />
-                    </div>
-                    <div className="space-y-2 text-right">
-                        <Skeleton className="h-5 w-24" />
-                        <Skeleton className="h-4 w-20" />
-                    </div>
-                </div>
-                 <div className="flex justify-between items-center">
-                    <div className="space-y-2">
-                        <Skeleton className="h-5 w-48" />
-                        <Skeleton className="h-4 w-32" />
-                    </div>
-                    <div className="space-y-2 text-right">
-                        <Skeleton className="h-5 w-24" />
-                        <Skeleton className="h-4 w-20" />
-                    </div>
-                </div>
-            </CardContent>
-        </Card>
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-3"><Card className="col-span-1 lg:col-span-2"><CardHeader><Skeleton className="h-6 w-1/3" /></CardHeader><CardContent><Skeleton className="h-[240px] w-full" /></CardContent></Card><Card className="col-span-1 lg:col-span-1"><CardHeader><Skeleton className="h-6 w-1/2" /></CardHeader><CardContent><Skeleton className="h-[240px] w-full" /></CardContent></Card></div>
+        <Card><CardHeader><Skeleton className="h-6 w-1/4" /></CardHeader><CardContent className="space-y-4"><div className="flex justify-between items-center"><div className="space-y-2"><Skeleton className="h-5 w-48" /><Skeleton className="h-4 w-32" /></div><div className="space-y-2 text-right"><Skeleton className="h-5 w-24" /><Skeleton className="h-4 w-20" /></div></div><div className="flex justify-between items-center"><div className="space-y-2"><Skeleton className="h-5 w-48" /><Skeleton className="h-4 w-32" /></div><div className="space-y-2 text-right"><Skeleton className="h-5 w-24" /><Skeleton className="h-4 w-20" /></div></div></CardContent></Card>
     </div>
 );
 
+const SessionDetailView = ({ session, onBack }) => {
+    const { profile } = useAuth();
+    const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
+
+    const handleDownload = () => {
+        generatePdfReport(session);
+    };
+
+    return (
+        <div className="space-y-6">
+            <div className="flex justify-between items-center">
+                <Button variant="ghost" onClick={onBack}>
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Back to Dashboard
+                </Button>
+                {isPro && (
+                    <Button onClick={handleDownload}>
+                        <Download className="mr-2 h-4 w-4" />
+                        Download PDF
+                    </Button>
+                )}
+            </div>
+            <ComparisonView browserTranscript={session.browser_transcript} cloudTranscript={session.cloud_transcript} />
+            {/* TODO: Add filler word details for this session here */}
+        </div>
+    );
+};
+
 export const AnalyticsDashboard = ({ sessionHistory }) => {
+    const [selectedSession, setSelectedSession] = useState(null);
+
+    if (selectedSession) {
+        return <SessionDetailView session={selectedSession} onBack={() => setSelectedSession(null)} />;
+    }
+
     if (!sessionHistory || sessionHistory.length === 0) {
         return <EmptyState />;
     }
@@ -258,46 +227,15 @@ export const AnalyticsDashboard = ({ sessionHistory }) => {
                 <StatCard icon={<TrendingUp size={20} className="text-muted-foreground" />} label="Avg. Filler Words / Min" value={trends.avgFillerWordsPerMin} />
                 <StatCard icon={<Clock size={20} className="text-muted-foreground" />} label="Total Practice Time" value={trends.totalPracticeTime} unit="mins" />
             </div>
-
-            <div className="grid grid-cols-1 gap-8 lg:grid-cols-5">
-                <Card className="col-span-1 lg:col-span-3">
-                    <CardHeader>
-                        <CardTitle>Filler Word Trend</CardTitle>
-                    </CardHeader>
-                    <CardContent className="pl-2">
-                        {trends.chartData.length > 1 ? (
-                            <ResponsiveContainer width="100%" height={300}>
-                                <LineChart data={trends.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                                    <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
-                                    <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={14} tickLine={false} axisLine={false} />
-                                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize={14} tickLine={false} axisLine={false} />
-                                    <Tooltip
-                                        cursor={{ fill: 'hsla(var(--secondary))' }}
-                                        contentStyle={{
-                                            backgroundColor: 'hsl(var(--card))',
-                                            borderColor: 'hsl(var(--border))',
-                                            color: 'hsl(var(--foreground))'
-                                        }}
-                                    />
-                                    <Line type="monotone" dataKey="FW/min" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                                </LineChart>
-                            </ResponsiveContainer>
-                        ) : (
-                            <div className="flex items-center justify-center h-[300px] text-center text-muted-foreground">
-                                <p>Complete at least two sessions to see your progress trend.</p>
-                            </div>
-                        )}
-                    </CardContent>
-                </Card>
-
-                <Card className="col-span-1 lg:col-span-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                <Card className="md:col-span-1 lg:col-span-1">
                     <CardHeader>
                         <CardTitle>Top Filler Words</CardTitle>
                     </CardHeader>
                     <CardContent>
                         {trends.topFillerWords.length > 0 ? (
                             <ResponsiveContainer width="100%" height={300}>
-                                <BarChart data={trends.topFillerWords} layout="vertical" margin={{ top: 0, right: 20, left: 10, bottom: 0 }}>
+                                <BarChart data={trends.topFillerWords} layout="vertical" margin={{ top: 0, right: 30, left: 10, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
                                     <XAxis type="number" hide />
                                     <YAxis type="category" dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={16} tickLine={false} axisLine={false} width={80} />
@@ -310,26 +248,57 @@ export const AnalyticsDashboard = ({ sessionHistory }) => {
                                         }}
                                     />
                                     <Bar dataKey="value" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]}>
-                                        <LabelList dataKey="value" position="right" className="fill-white" />
+                                        <LabelList dataKey="value" position="right" offset={10} className="fill-foreground" />
                                     </Bar>
                                 </BarChart>
                             </ResponsiveContainer>
                         ) : (
                             <div className="flex items-center justify-center h-[300px] text-muted-foreground">
-                                <p>No filler words detected yet. Keep practicing!</p>
+                                <p>No filler words detected yet.</p>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+                <Card className="md:col-span-2 lg:col-span-2">
+                    <CardHeader>
+                        <CardTitle>Progress Over Time</CardTitle>
+                    </CardHeader>
+                    <CardContent className="pl-2">
+                        {trends.chartData.length > 1 ? (
+                            <ResponsiveContainer width="100%" height={300}>
+                                <LineChart data={trends.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                                    <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
+                                    <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={14} tickLine={false} axisLine={false} />
+                                    <YAxis yAxisId="left" stroke="hsl(var(--primary))" orientation="left" />
+                                    <YAxis yAxisId="right" stroke="hsl(var(--muted-foreground))" orientation="right" />
+                                    <Tooltip
+                                        cursor={{ fill: 'hsla(var(--secondary))' }}
+                                        contentStyle={{
+                                            backgroundColor: 'hsl(var(--card))',
+                                            borderColor: 'hsl(var(--border))',
+                                            color: 'hsl(var(--foreground))'
+                                        }}
+                                    />
+                                    <Legend />
+                                    <Line yAxisId="left" type="monotone" dataKey="FW/min" stroke="#8884d8" strokeWidth={2} name="FW / min" dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                                    <Line yAxisId="right" type="monotone" dataKey="Total Fillers" stroke="#82ca9d" strokeWidth={2} name="Total Fillers" />
+                                </LineChart>
+                            </ResponsiveContainer>
+                        ) : (
+                            <div className="flex items-center justify-center h-[300px] text-center text-muted-foreground">
+                                <p>Complete at least two sessions to see your progress trend.</p>
                             </div>
                         )}
                     </CardContent>
                 </Card>
             </div>
-
             <Card>
                 <CardHeader>
                     <CardTitle>Session History</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2">
                     {sessionHistory.slice(0, 10).map(session => (
-                        <SessionHistoryItem key={session.id} session={session} />
+                        <SessionHistoryItem key={session.id} session={session} onSelect={setSelectedSession} />
                     ))}
                 </CardContent>
             </Card>
