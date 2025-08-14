@@ -10,6 +10,34 @@ The system is built for speed, both in user experience and development velocity.
 
 The architecture is designed around a modern, client-heavy Jamstack approach, directly supporting the PRD's stated competitive edge of **"speed + privacy"**. The frontend is a sophisticated single-page application that handles most of the business logic, communicating with a managed backend service for data persistence and authentication. This minimizes server-side complexity and accelerates development.
 
+### High-Level Overview
+
+The following diagram provides a simplified, high-level overview of the major technology components and their general relationships.
+
+```text
++--------------------------+      +---------------------------------+
+|      React SPA (`src`)   |----->|      Development & Build        |
+|    (in User's Browser)   |      |        (Vite, Vitest)           |
++--------------------------+      +---------------------------------+
+             |
+             | API Calls, Analytics, Error Reporting
+             |
+             v
++-------------------------------------------------------------------+
+|                    Backend Services (Managed)                     |
+|                                                                   |
+| +------------+  +----------+  +----------+  +-----------+         |
+| |  Supabase  |  |  Stripe  |  |  Sentry  |  |  PostHog  |         |
+| | - DB/Auth  |  |          |  |          |  |           |         |
+| |- Functions |  |          |  |          |  |           |         |
+| +------------+  +----------+  +----------+  +-----------+         |
++-------------------------------------------------------------------+
+```
+
+### Detailed User Flow Diagram
+
+This diagram offers a more detailed look at the application's architecture from a user flow perspective, showing the specific paths and API calls for different user tiers.
+
 ```text
                           +---------------------------------------------+
                           |              User's Browser                 |
