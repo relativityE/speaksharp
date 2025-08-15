@@ -58,11 +58,8 @@ A mobile-first web application that detects and counts filler words in real time
 
     # Stripe
     VITE_STRIPE_PUBLISHABLE_KEY=your_stripe_publishable_key_here
-    VITE_STRIPE_PRICE_ID=your_stripe_price_id_here
-    # The following keys are used in Supabase Edge Functions and should NOT be exposed to the client.
-    # Do not add the VITE_ prefix to them.
-    STRIPE_SECRET_KEY=your_stripe_secret_key_here
-    STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret_here
+    VITE_STRIPE_SECRET_KEY=your_stripe_secret_key_here
+    VITE_STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret_here
     ```
 
 4.  Start the development server:
@@ -100,35 +97,21 @@ npx playwright test
 
 This command looks for test files in the `playwright-tests` directory and runs them in a headless browser.
 
-## How to Deploy Your Web App
-
-### What Vercel does for your web app
-Vercel is a hosting platform optimized for modern web applications like this one. It connects directly to your GitHub repository. Every time you push new code to your main branch, Vercel will automatically build your application and deploy it to a public URL. It manages the entire hosting process, including providing a global content delivery network (CDN) for speed, handling SSL certificates for security, and even creating temporary "preview" deployments for every new pull request so you can test changes before they go live.
-
-### How to Configure Environment Variables on Vercel
-To make the deployed application work with services like Supabase and Stripe, you will need to add the project's environment variables to your Vercel project settings. **You should never share these secret keys.**
-
-The `README.md` file contains the full list of required variables in the "Getting Started" section (e.g., `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_STRIPE_PUBLISHABLE_KEY`, etc.). You will copy these keys from your Supabase, Stripe, and other service dashboards and paste them into the "Environment Variables" section of your project's settings on the Vercel website. This process is secure and ensures your secret keys are never exposed.
-
 ## Usage
 
-SpeakSharp uses a "progressive reveal" model. All pages are accessible to everyone, but more features are unlocked when you sign up for an account.
+SpeakSharp uses a "progressive reveal" model. All pages are accessible to everyone, but more features are unlocked when you sign up for a free account.
 
-### Anonymous Users
--   **Start a Session**: Anyone can start a recording session from the main page to try the core functionality.
--   **No Data Persistence**: Sessions for anonymous users are not saved. To save your progress, you must create a free account.
--   **View Analytics Page**: You can view the Analytics page, but it will show a demo and a prompt to sign up.
+### Anonymous Users (Free Trial)
+-   **Start a Session**: Anyone can start a recording session from the main page.
+-   **2-Minute Limit**: Trial sessions are limited to 2 minutes. A checkbox is available for developers to override this limit.
+-   **View Analytics Page**: You can view the Analytics page, but it will show a demo and a prompt to sign up to save and view your history.
 
 ### Authenticated Users (Free Tier)
--   **Sign Up / Login**: Create a free account to save your session history.
--   **5-Minute Monthly Limit**: Free accounts have a 5-minute (300-second) monthly usage limit for recorded sessions.
+-   **Sign Up / Login**: Create a free account to unlock more features.
 -   **Save Session History**: Your sessions are automatically saved to your account.
 -   **Track Progress**: The Analytics page will show your full session history and progress charts.
-
-### Authenticated Users (Pro Tier)
--   **Upgrade to Pro**: Users can upgrade to a Pro account via Stripe to unlock all features.
--   **Unlimited Usage**: The 5-minute monthly limit is removed.
--   **Custom Filler Words**: Pro users can add and track their own list of custom filler words.
+-   **Unlimited Session Length**: The 2-minute limit is removed.
+-   **Custom Filler Words**: Add and track your own list of custom filler words.
 
 ## User Tiers & Authentication
 
@@ -151,12 +134,9 @@ The high-level roadmap is to:
 3.  **Expand the feature set** based on user demand, including advanced analytics and cloud-powered transcription.
 
 
-## Known Issues
+## Contributing
 
--   **E2E Test for Speech Recognition is Disabled**: The Playwright test for the `useSpeechRecognition` hook, located at `playwright-tests/useSpeechRecognition.spec.ts.skip`, is currently disabled. The test fails because the `onstart` event of the Speech Recognition API does not fire in the Playwright test environment, preventing the hook's `isListening` state from becoming `true`.
-    -   **Investigation Summary**: Attempts to fix this by refining the API mock and by using the real API with a fake media stream have been unsuccessful. The root cause appears to be a subtle issue within the test environment that prevents the API from activating correctly.
-    -   **Recommendation**: This test needs to be investigated by a developer with deep expertise in Playwright and browser media API interactions before it can be re-enabled.
--   **Vitest Environment Note**: The browser's Web Speech API has an auto-restart behavior that can cause infinite loops in some testing environments (like JSDOM). The application logic in `src/hooks/useSpeechRecognition.js` includes a workaround to disable this auto-restart when running under the Vitest testing framework.
+Contributions are welcome! Please feel free to open an issue or submit a pull request.
 
 ## License
 
