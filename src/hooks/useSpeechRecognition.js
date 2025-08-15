@@ -36,6 +36,7 @@ const getInitialFillerData = (customWords = []) => {
   return initial;
 };
 
+
 export const useSpeechRecognition = ({ customWords = [] } = {}) => {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
@@ -46,94 +47,70 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
   const [mode, setMode] = useState('cloud'); // 'local' or 'cloud'
 
   const transcriptionServiceRef = useRef(null);
-  const pollIntervalRef = useRef(null);
+
+  const handleTranscriptUpdate = useCallback(({ transcript: newTranscript, isFinal }) => {
+    if (isFinal) {
+      setFinalChunks(prev => [...prev, { text: newTranscript.slice(transcript.length), id: prev.length }]);
+      setInterimTranscript('');
+    } else {
+      setInterimTranscript(newTranscript.slice(transcript.length));
+    }
+  }, [transcript]);
 
   useEffect(() => {
     // This effect now only handles cleanup when the component unmounts.
     return () => {
       transcriptionServiceRef.current?.destroy();
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-      }
     };
-  }, []); // No dependencies needed anymore.
+  }, []);
 
-  const processTranscript = useCallback((newTranscript) => {
-    // For now, treat everything as a final chunk.
-    const finalChunk = newTranscript.slice(transcript.length);
-    if (finalChunk.trim()) {
-      setFinalChunks(prev => [...prev, { text: finalChunk, id: Math.random() }]);
-
-      const allPatterns = { ...defaultFillerPatterns };
-      customWords.forEach((word) => {
-          allPatterns[word] = new RegExp(`\\b(${word})\\b`, 'gi');
-      });
-      setFillerData((prevData) => {
-          const newData = { ...prevData };
-          let changed = false;
-          for (const key in allPatterns) {
-              const pattern = allPatterns[key];
-              const matches = finalChunk.match(pattern);
-              if (matches && matches.length > 0) {
-                  if (!newData[key]) {
-                      const newIndex = Object.keys(newData).length;
-                      newData[key] = { count: 0, color: FILLER_WORD_COLORS[newIndex % FILLER_WORD_COLORS.length] };
-                  }
-                  newData[key] = { ...newData[key], count: newData[key].count + matches.length };
-                  changed = true;
-              }
-          }
-          return changed ? newData : prevData;
-      });
-    }
-  }, [customWords, transcript]);
+  const processFillerWords = useCallback((text) => {
+    const allPatterns = { ...defaultFillerPatterns };
+    customWords.forEach((word) => {
+        allPatterns[word] = new RegExp(`\\b(${word})\\b`, 'gi');
+    });
+    setFillerData((prevData) => {
+        const newData = { ...prevData };
+        let changed = false;
+        for (const key in allPatterns) {
+            const pattern = allPatterns[key];
+            const matches = text.match(pattern);
+            if (matches && matches.length > 0) {
+                if (!newData[key]) {
+                    const newIndex = Object.keys(newData).length;
+                    newData[key] = { count: 0, color: FILLER_WORD_COLORS[newIndex % FILLER_WORD_COLORS.length] };
+                }
+                newData[key] = { ...newData[key], count: newData[key].count + matches.length };
+                changed = true;
+            }
+        }
+        return changed ? newData : prevData;
+    });
+  }, [customWords]);
 
   const startListening = async () => {
-    // Defer initialization until the user clicks "start".
-    if (!transcriptionServiceRef.current) {
-      try {
-        const service = new TranscriptionService(mode);
-        await service.init();
-        transcriptionServiceRef.current = service;
-      } catch (err) {
-        console.error("Failed to initialize transcription service", err);
-        setError("Failed to initialize transcription service. Please check microphone permissions.");
-        return;
-      }
-    }
+    if (isListening) return;
 
-    if (isListening) {
-      return;
-    }
     try {
       setError(null);
-      await transcriptionServiceRef.current.startTranscription();
+      const ServiceToUse = (typeof window !== 'undefined' && window.MockTranscriptionService) || TranscriptionService;
+      const service = new ServiceToUse(mode, { onUpdate: handleTranscriptUpdate });
+      await service.init();
+      transcriptionServiceRef.current = service;
+
+      await service.startTranscription();
       setIsListening(true);
-
-      pollIntervalRef.current = setInterval(async () => {
-        const newTranscript = await transcriptionServiceRef.current.getTranscript();
-        if (newTranscript !== transcript) {
-          processTranscript(newTranscript);
-        }
-      }, 200);
-
     } catch (err) {
-      console.error('Error starting speech recognition:', err);
-      setError('Failed to start speech recognition');
+      console.error("Failed to initialize or start transcription service", err);
+      setError("Failed to start speech recognition. Please check microphone permissions.");
     }
   };
 
   const stopListening = async () => {
-    if (!isListening || !transcriptionServiceRef.current) {
-      return;
-    }
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
-    }
+    if (!isListening || !transcriptionServiceRef.current) return;
+
     await transcriptionServiceRef.current.stopTranscription();
     setIsListening(false);
-    const finalTranscript = await transcriptionServiceRef.current.getTranscript();
-    processTranscript(finalTranscript);
   };
 
   const reset = useCallback(() => {
@@ -146,8 +123,21 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
 
   useEffect(() => {
     const newTranscript = finalChunks.map(c => c.text).join('');
-    setTranscript(newTranscript);
-  }, [finalChunks]);
+    if (newTranscript !== transcript) {
+      setTranscript(newTranscript);
+      processFillerWords(newTranscript);
+    }
+  }, [finalChunks, transcript, processFillerWords]);
+
+  const [isSupported, setIsSupported] = useState(false);
+
+  useEffect(() => {
+    setIsSupported(
+      typeof navigator !== 'undefined' &&
+      !!navigator.mediaDevices &&
+      !!navigator.mediaDevices.getUserMedia
+    );
+  }, []);
 
   return {
     isListening,
@@ -156,7 +146,7 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
     interimTranscript,
     fillerData,
     error,
-    isSupported: true, // Assuming the service is supported
+    isSupported,
     startListening,
     stopListening,
     reset,

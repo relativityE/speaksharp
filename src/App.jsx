@@ -7,11 +7,10 @@ import { SessionPage } from './pages/SessionPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import AuthPage from './pages/AuthPage';
 import TestPage from './pages/TestPage';
+import ProtectedRoute from './components/ProtectedRoute';
 
 
 function App() {
-  const { user } = useAuth();
-
   return (
     <div>
       <Header />
@@ -19,8 +18,16 @@ function App() {
           <Routes>
             <Route path="/auth" element={<AuthPage />} />
             <Route path="/" element={<MainPage />} />
-            <Route path="/session" element={<SessionPage />} />
-            <Route path="/analytics" element={<AnalyticsPage />} />
+            <Route path="/session" element={
+              <ProtectedRoute>
+                <SessionPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/analytics" element={
+              <ProtectedRoute>
+                <AnalyticsPage />
+              </ProtectedRoute>
+            } />
             <Route path="/test-page" element={<TestPage />} />
           </Routes>
       </main>

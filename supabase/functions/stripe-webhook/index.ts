@@ -11,6 +11,11 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")
 )
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
 serve(async (req) => {
   const signature = req.headers.get("Stripe-Signature")
   const body = await req.text()
@@ -24,7 +29,12 @@ serve(async (req) => {
 
     if (event.type === "checkout.session.completed") {
       const session = event.data.object
-      const { userId, subscriptionId } = session.metadata
+      const userId = session.client_reference_id
+      const subscriptionId = session.subscription
+
+      if (!userId || !subscriptionId) {
+        throw new Error(`Missing userId (${userId}) or subscriptionId (${subscriptionId}) in checkout session`)
+      }
 
       await supabase
         .from("user_profiles")
@@ -36,9 +46,9 @@ serve(async (req) => {
     }
 
     return new Response(JSON.stringify({ received: true }), {
-      headers: { "Content-Type": "application/json" },
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     })
   } catch (err) {
-    return new Response(err.message, { status: 400 })
+    return new Response(err.message, { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } })
   }
 })

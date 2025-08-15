@@ -16,9 +16,8 @@ vi.mock('../pages/AnalyticsPage', () => ({ AnalyticsPage: () => <div>Analytics P
 vi.mock('../pages/AuthPage', () => ({ default: () => <div>Auth Page</div> }));
 vi.mock('../components/Header', () => ({ Header: () => <header>Header</header> }));
 
-const renderWithRouter = (route) => {
-    // Set a default mock return value for useAuth
-    useAuth.mockReturnValue({ user: null, session: null });
+const renderWithRouter = (route, user = null) => {
+    useAuth.mockReturnValue({ user: user, loading: false });
     return render(
         <MemoryRouter initialEntries={[route]}>
             <App />
@@ -37,14 +36,26 @@ describe('App Routing', () => {
         expect(screen.getByText('Main Page')).toBeInTheDocument();
     });
 
-    it('renders the session page for the /session route', () => {
-        renderWithRouter('/session');
+    it('renders the session page for the /session route when authenticated', () => {
+        renderWithRouter('/session', { id: '123', email: 'test@example.com' });
         expect(screen.getByText('Session Page')).toBeInTheDocument();
     });
 
-    it('renders the analytics page for the /analytics route', () => {
-        renderWithRouter('/analytics');
+    it('redirects to auth page for /session route when not authenticated', () => {
+        renderWithRouter('/session');
+        expect(screen.getByText('Auth Page')).toBeInTheDocument();
+        expect(screen.queryByText('Session Page')).not.toBeInTheDocument();
+    });
+
+    it('renders the analytics page for the /analytics route when authenticated', () => {
+        renderWithRouter('/analytics', { id: '123', email: 'test@example.com' });
         expect(screen.getByText('Analytics Page')).toBeInTheDocument();
+    });
+
+    it('redirects to auth page for /analytics route when not authenticated', () => {
+        renderWithRouter('/analytics');
+        expect(screen.getByText('Auth Page')).toBeInTheDocument();
+        expect(screen.queryByText('Analytics Page')).not.toBeInTheDocument();
     });
 
     it('renders the auth page for the /auth route', () => {

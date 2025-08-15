@@ -34,27 +34,24 @@ test.describe('useSpeechRecognition in browser', () => {
   test('starts listening, receives transcript, and stops', async ({ page }) => {
     await page.goto(`http://localhost:${port}/`);
 
-    // Inject the mock using page.evaluate after the page is loaded
+    // Inject the mock TranscriptionService using page.evaluate
     await page.evaluate(() => {
-      class MockSpeechRecognition {
-        continuous = false;
-        interimResults = false;
-        lang = 'en-US';
-        onstart = null;
-        onresult = null;
-        onend = null;
-
-        start() {
+      let onUpdateCallback;
+      (window as any).MockTranscriptionService = class MockTranscriptionService {
+        constructor(mode, { onUpdate }) {
+          onUpdateCallback = onUpdate;
+        }
+        init = async () => Promise.resolve();
+        startTranscription = async () => {
+          // Simulate a transcript update
           setTimeout(() => {
-            this.onstart?.();
-            this.onresult?.({ results: [[{ transcript: 'test phrase' }]] });
+            onUpdateCallback({ transcript: 'test phrase', isFinal: true });
           }, 50);
-        }
-        stop() {
-          setTimeout(() => this.onend?.(), 50);
-        }
-      }
-      (window as any).webkitSpeechRecognition = MockSpeechRecognition;
+          return Promise.resolve();
+        };
+        stopTranscription = async () => Promise.resolve();
+        destroy = () => {};
+      };
     });
 
     // Initial state check

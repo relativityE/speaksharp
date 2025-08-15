@@ -2,9 +2,10 @@
 // EXPECTS: model files in /models/whisper/ (public path), e.g. tiny.en.bin / base.en.bin
 
 export default class LocalWhisper {
-  constructor({ model = 'tiny.en.bin', performanceWatcher } = {}) {
+  constructor({ model = 'tiny.en.bin', performanceWatcher, onUpdate } = {}) {
     this.model = model;
     this.performanceWatcher = performanceWatcher;
+    this.onUpdate = onUpdate;
     this.transcript = '';
     this.ready = false;
     this._stop = null;
@@ -29,7 +30,15 @@ export default class LocalWhisper {
     const onFrame = async (f32) => {
       // TODO(2): Feed PCM f32 (16k mono) to whisper.cpp incremental API
       // const partial = await this.whisper.processFrame(f32);
-      // if (partial?.text) this.transcript = partial.text;
+      // if (partial?.text) {
+      //   this.transcript = partial.text;
+      //   if (this.onUpdate) {
+      //     this.onUpdate({
+      //       transcript: partial.text,
+      //       isFinal: false // Assume local processing is always partial until flush
+      //     });
+      //   }
+      // }
 
       // PERF: crude realtime check (frames are 1024 @ 16kHz ≈ 64ms of audio)
       this._frameCount++;
