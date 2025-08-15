@@ -33,4 +33,4 @@ create table sessions (
 alter table sessions enable row level security;
 
 create policy "Users can manage own sessions" on sessions
-  for all using (auth.uid() = user_id);
+  for all using ((select auth.uid()) = user_id);
