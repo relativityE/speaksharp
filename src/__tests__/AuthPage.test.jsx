@@ -38,11 +38,7 @@ describe('AuthPage', () => {
 
   it('should render Sign In form by default', () => {
     render(<AuthPage />, { wrapper: BrowserRouter });
-<<<<<<< HEAD
-    expect(getTitle(/welcome back/i)).toBeInTheDocument();
-=======
     expect(getTitle(/sign in/i)).toBeInTheDocument();
->>>>>>> origin/feat/ui-overhaul
   });
 
   it('should switch to Sign Up form when "Sign Up" is clicked', () => {
@@ -85,22 +81,14 @@ describe('AuthPage', () => {
 
   it('should switch to Forgot Password view when link is clicked', () => {
     render(<AuthPage />, { wrapper: BrowserRouter });
-<<<<<<< HEAD
-    fireEvent.click(screen.getByRole('button', { name: /forgot\?/i }));
-=======
     fireEvent.click(screen.getByRole('button', { name: /forgot password/i }));
->>>>>>> origin/feat/ui-overhaul
     expect(getTitle(/reset password/i)).toBeInTheDocument();
     expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument();
   });
 
   it('should call resetPasswordForEmail on forgot password form submission', async () => {
     render(<AuthPage />, { wrapper: BrowserRouter });
-<<<<<<< HEAD
-    fireEvent.click(screen.getByRole('button', { name: /forgot\?/i }));
-=======
     fireEvent.click(screen.getByRole('button', { name: /forgot password/i }));
->>>>>>> origin/feat/ui-overhaul
 
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'test@example.com' } });
     fireEvent.click(screen.getByRole('button', { name: /send reset link/i }));
