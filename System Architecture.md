@@ -24,7 +24,7 @@ The architecture is designed around a modern, client-heavy Jamstack approach. Th
 |  | if (mode === 'local') {   |  |
 |  |   Whisper.cpp (WASM)      |  |
 |  | } else {                  |  |
-|  |   AssemblyAI (SDK)        |  |
+|  |   AssemblyAI (via Token)  |  |
 |  | }                         |  |
 |  +---------------------------+  |
 +---------------------------------+
@@ -60,7 +60,7 @@ This diagram offers a more detailed look at the application's architecture from 
 | |  - `SessionSidebar.jsx`                |<--+ if (mode === 'local') {         | |
 | |  - `useSpeechRecognition.js`           |  |   LocalWhisper (On-Device)    | |
 | |    (Provides callback)                 |  | } else {                        | |
-| |  - `useSessionManager.js`              |  |   CloudAssemblyAI (Cloud, SDK)  | |
+| |  - `useSessionManager.js`              |  |   CloudAssemblyAI (via Supabase token fn) | |
 | +----------------------------------------+  | }                               | |
 |                                          |  +---------------------------------+ |
 |                                          |                                    |
@@ -118,12 +118,13 @@ This diagram offers a more detailed look at the application's architecture from 
 │                  │                            │ • `src/lib/supabaseClient.js`: Client initialization.              │ • `VITE_SUPABASE_ANON_KEY`: Public key for client-side access.                                   │
 │                  │                            │ • `supabase/functions`: Location of serverless edge functions.       │ • `SUPABASE_SERVICE_ROLE_KEY`: Secret key for admin access in functions.                         │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ Transcription    │ Core Feature               │ A swappable service for speech-to-text. Uses an event-driven         │ • `VITE_ASSEMBLYAI_API_KEY`: API key for AssemblyAI service.                                     │
-│ Service          │                            │ approach via an `onTranscriptUpdate` callback to provide real-time   │                                                                                                │
+│ Transcription    │ Core Feature               │ A swappable service for speech-to-text. Uses an event-driven         │ • `ASSEMBLYAI_API_KEY`: Secret key for server-side token generation.                             │
+│ Service          │                            │ approach via an `onTranscriptUpdate` callback to provide real-time   │   (Set in Supabase project secrets)                                                          │
 │                  │                            │ results to the UI without polling.                                   │                                                                                                │
 │                  │                            │ • `src/services/transcription`: Wrapper for STT providers.         │                                                                                                │
 │                  │                            │ • `modes/LocalWhisper.js`: On-device (planned).                    │                                                                                                │
-│                  │                            │ • `modes/CloudAssemblyAI.js`: Cloud-based (current), uses the official `assemblyai` SDK. │                                                                                                │
+│                  │                            │ • `modes/CloudAssemblyAI.js`: Cloud-based, uses temporary tokens for │                                                                                                │
+│                  │                            │   secure, browser-based authentication via a Supabase function.      │                                                                                                │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Tailwind CSS     │ Utility-First CSS          │ Used for all styling, enabling rapid UI development.                 │ N/A                                                                                              │
 │                  │                            │ • `tailwind.config.cjs`: Configures the theme and font sizes.      │                                                                                                │
