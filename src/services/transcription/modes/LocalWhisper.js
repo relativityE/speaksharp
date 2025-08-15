@@ -2,9 +2,10 @@
 // EXPECTS: model files in /models/whisper/ (public path), e.g. tiny.en.bin / base.en.bin
 
 export default class LocalWhisper {
-  constructor({ model = 'tiny.en.bin', performanceWatcher } = {}) {
+  constructor({ model = 'tiny.en.bin', performanceWatcher, onTranscriptUpdate } = {}) {
     this.model = model;
     this.performanceWatcher = performanceWatcher;
+    this.onTranscriptUpdate = onTranscriptUpdate;
     this.transcript = '';
     this.ready = false;
     this._stop = null;
@@ -26,10 +27,35 @@ export default class LocalWhisper {
     this._frameCount = 0;
     this._t0 = performance.now();
 
+    // --- SIMULATION ---
+    // This is a temporary simulation to demonstrate the callback mechanism.
+    // In a real implementation, the onFrame handler would call onTranscriptUpdate.
+    if (this.onTranscriptUpdate) {
+      this.onTranscriptUpdate({ transcript: { partial: '' } });
+      const simulatedWords = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.".split(" ");
+      let wordIndex = 0;
+      this._simulationInterval = setInterval(() => {
+        if (wordIndex < simulatedWords.length) {
+          const partial = simulatedWords.slice(0, wordIndex + 1).join(" ");
+          this.transcript = partial;
+          this.onTranscriptUpdate({ transcript: { partial } });
+          wordIndex++;
+        } else {
+          clearInterval(this._simulationInterval);
+        }
+      }, 500);
+    }
+    // --- END SIMULATION ---
+
     const onFrame = async (f32) => {
       // TODO(2): Feed PCM f32 (16k mono) to whisper.cpp incremental API
       // const partial = await this.whisper.processFrame(f32);
-      // if (partial?.text) this.transcript = partial.text;
+      // if (partial?.text) {
+      //   this.transcript = partial.text;
+      //   if (this.onTranscriptUpdate) {
+      //     this.onTranscriptUpdate({ transcript: { partial: partial.text } });
+      //   }
+      // }
 
       // PERF: crude realtime check (frames are 1024 @ 16kHz ≈ 64ms of audio)
       this._frameCount++;
@@ -48,6 +74,13 @@ export default class LocalWhisper {
   async stopTranscription() {
     if (this._stop) this._stop();
     this._stop = null;
+
+    // --- SIMULATION CLEANUP ---
+    if (this._simulationInterval) {
+      clearInterval(this._simulationInterval);
+      this._simulationInterval = null;
+    }
+    // --- END SIMULATION ---
 
     // TODO(3): Optionally flush to get final text
     // const finalText = await this.whisper.flush();

@@ -46,23 +46,11 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
   const [mode, setMode] = useState('cloud'); // 'local' or 'cloud'
 
   const transcriptionServiceRef = useRef(null);
-  const pollIntervalRef = useRef(null);
 
-  useEffect(() => {
-    // This effect now only handles cleanup when the component unmounts.
-    return () => {
-      transcriptionServiceRef.current?.destroy();
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-      }
-    };
-  }, []); // No dependencies needed anymore.
-
-  const processTranscript = useCallback((newTranscript) => {
-    // For now, treat everything as a final chunk.
-    const finalChunk = newTranscript.slice(transcript.length);
-    if (finalChunk.trim()) {
-      setFinalChunks(prev => [...prev, { text: finalChunk, id: Math.random() }]);
+  const processFinalChunk = useCallback((finalChunk) => {
+    const newFinalChunk = finalChunk.trim();
+    if (newFinalChunk) {
+      setFinalChunks(prev => [...prev, { text: newFinalChunk, id: Math.random() }]);
 
       const allPatterns = { ...defaultFillerPatterns };
       customWords.forEach((word) => {
@@ -73,7 +61,7 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
           let changed = false;
           for (const key in allPatterns) {
               const pattern = allPatterns[key];
-              const matches = finalChunk.match(pattern);
+              const matches = newFinalChunk.match(pattern);
               if (matches && matches.length > 0) {
                   if (!newData[key]) {
                       const newIndex = Object.keys(newData).length;
@@ -86,13 +74,30 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
           return changed ? newData : prevData;
       });
     }
-  }, [customWords, transcript]);
+    setInterimTranscript('');
+  }, [customWords]);
+
+  const onTranscriptUpdate = useCallback((data) => {
+    if (data.transcript?.partial) {
+      setInterimTranscript(data.transcript.partial);
+    }
+    if (data.transcript?.final) {
+      processFinalChunk(data.transcript.final);
+    }
+  }, [processFinalChunk]);
+
+  useEffect(() => {
+    // This effect now only handles cleanup when the component unmounts.
+    return () => {
+      transcriptionServiceRef.current?.destroy();
+    };
+  }, []); // No dependencies needed anymore.
 
   const startListening = async () => {
     // Defer initialization until the user clicks "start".
     if (!transcriptionServiceRef.current) {
       try {
-        const service = new TranscriptionService(mode);
+        const service = new TranscriptionService(mode, { onTranscriptUpdate });
         await service.init();
         transcriptionServiceRef.current = service;
       } catch (err) {
@@ -109,14 +114,6 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
       setError(null);
       await transcriptionServiceRef.current.startTranscription();
       setIsListening(true);
-
-      pollIntervalRef.current = setInterval(async () => {
-        const newTranscript = await transcriptionServiceRef.current.getTranscript();
-        if (newTranscript !== transcript) {
-          processTranscript(newTranscript);
-        }
-      }, 200);
-
     } catch (err) {
       console.error('Error starting speech recognition:', err);
       setError('Failed to start speech recognition');
@@ -127,13 +124,9 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
     if (!isListening || !transcriptionServiceRef.current) {
       return;
     }
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
-    }
     await transcriptionServiceRef.current.stopTranscription();
     setIsListening(false);
-    const finalTranscript = await transcriptionServiceRef.current.getTranscript();
-    processTranscript(finalTranscript);
+    processFinalChunk(interimTranscript);
   };
 
   const reset = useCallback(() => {
