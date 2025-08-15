@@ -1,68 +1,17 @@
 # SpeakSharp Product Requirements Document
 
-**Version 6.17** | **Last Updated: August 14, 2025**
+**Version 6.18** | **Last Updated: August 14, 2025**
 
 ---
 
-## 🔄 Recent Updates (v6.17)
+## 🔄 Recent Updates (v6.18)
 *August 14, 2025*
 
-- **Phase 1 MVP Integrations:**
-    - **Sentry:** Fully integrated Sentry for error monitoring using the provided DSN.
-    - **PostHog:** Integrated PostHog for product analytics, including a custom event for session tracking.
-    - **Stripe:** Implemented the full Stripe payment flow, including a frontend checkout button and backend Supabase functions for session creation and webhook handling.
-- **Major UI/UX Redesign (Light Theme):** In response to user feedback, performed a complete visual overhaul.
-    - Implemented a professional two-tone light theme with a light gray background, white cards, and blue accents for a clean, high-contrast aesthetic.
-    - Increased global font sizes for better readability and accessibility.
-- **Bug Fixes & Stability:** Restored critical non-UI fixes, including the session page scrolling bug.
-
-
-**Version 6.15** | **Last Updated: August 13, 2025**
-
----
-
-## 🔄 Recent Updates (v6.15)
-*August 13, 2025*
-
-- **Global UI Overhaul:** Replaced the primary font with "Inter" for improved readability and implemented a new, modern color palette (off-white background, new text and accent colors) for a cleaner look and feel across the application.
-- **Sign-In Page Redesign:** Completely redesigned the sign-in page to align with the new visual identity, featuring improved layout, spacing, and modern aesthetics.
-- **Consistent Navigation:** Implemented a unified header across all pages, including the sign-in page, ensuring the SpeakSharp logo is always present and serves as a home button.
-- **Bug Fix: Session Page Stability:** Resolved a critical bug causing the session page to "bounce" or scroll unexpectedly during live transcription, providing a more stable user experience.
-
----
-
-## 🔄 Recent Updates (v6.14)
-*August 13, 2025*
-
-- **General:** Implemented a default light theme and softened the highlight color for filler words.
-- **Analytics:** Verified the fix for the `NaN` error on the analytics page and implemented robust data handling for chart visualizations.
-- **Landing Page:** Added a prominent "privacy-first" message and improved the visibility of the "no account required" text to reduce friction.
-- **Session UI:** Enhanced the "Custom Words" feature with a tooltip, clearer instructions, and a "Pro" badge.
-- **Responsiveness:** Implemented a responsive header with a hamburger menu for mobile devices.
-- **Tests:** Fixed several failing tests.
-
----
-
-## 🔄 Recent Updates (v6.13)
-*August 12, 2025*
-
-- **Advanced Session UI:** Implemented a major redesign of the session page for a more dynamic and interactive user experience.
-    - **Color-Coded Analysis:** Filler words are now assigned unique colors, which are displayed in the analysis list and used for real-time highlighting in the transcript.
-    - **Dynamic Layout:** The timer and analysis boxes have been resized, and the transcript panel now starts small and grows as the user speaks, making better use of screen space.
-
----
-
-## 🔄 Recent Updates (v6.12)
-*August 12, 2025*
-
-- **Analytics for All:** Anonymous users can now view a complete analysis of their practice session without needing to create an account. This lowers the barrier to experiencing the product's full value.
-- **UI & UX Enhancements:**
-    - Corrected the display of "You Know" and "I Mean" filler words.
-    - Redesigned the "Browser Not Supported" warning to be a less intrusive, more informative caution message.
-    - Increased the font size of all links across the application to improve readability and accessibility.
-- **Technical Fixes:**
-    - Resolved a CSS build error related to theme color resolution.
-    - Added a new test suite for the site header to improve test coverage.
+- **New Transcription Engine:** Implemented a new, flexible `TranscriptionService` to handle speech-to-text processing. This service is designed with a two-phase approach:
+    - **Phase 1 (Current):** Uses AssemblyAI for cloud-based transcription, enabling rapid development and testing.
+    - **Phase 2 (Planned):** Will use Whisper.cpp for on-device, private transcription.
+- **UI for Mode Switching:** Added a toggle in the session sidebar to allow users to switch between "local" and "cloud" transcription modes.
+- **Documentation Overhaul:** Updated `README.md` and `System Architecture.md` to reflect the new transcription architecture, including updated diagrams, technology stack, and deployment instructions. Added a security alert for production keys.
 
 ---
 
@@ -135,7 +84,7 @@ Growth     → SEO expansion, retargeting ads, coach partnerships
 Frontend        → React + Vite
 Styling         → Tailwind CSS + shadcn/ui  
 Auth/Database   → Supabase
-Speech API      → Web Speech API (MVP) + Whisper API (Pro)
+Speech API      → TranscriptionService (AssemblyAI / Whisper.cpp)
 Payments        → Stripe
 Monitoring      → Sentry
 Analytics       → PostHog
@@ -144,8 +93,8 @@ Hosting         → Vercel
 
 ### Scalability Architecture
 **Speech Processing:**
-- **Free Users:** Browser Web Speech API (unlimited concurrent users)
-- **Pro Users:** Optional Whisper API via serverless functions
+- **Phase 1 (Current):** AssemblyAI for cloud-based transcription.
+- **Phase 2 (Planned):** Whisper.cpp for local, on-device transcription to ensure privacy.
 
 **Scaling Strategy:**
 - Client-heavy architecture minimizes server load
@@ -164,7 +113,7 @@ This is the primary testing stack for the majority of the application.
 
 *   **Vite**: Acts as the core build tool. When you run the tests, Vitest uses Vite's engine to compile and process the React code and tests.
 *   **Vitest**: Our main **test runner**. `pnpm test` executes all `*.test.jsx` files.
-*   **JSDOM**: Vitest runs its tests in a **simulated browser environment** called JSDOM. It's fast but is not a real browser. This was identified as the source of instability for browser-native APIs like `SpeechRecognition`.
+*   **JSDOM**: Vitest runs its tests in a **simulated browser environment** called JSDOM. It's fast but is not a real browser. This was identified as the source of instability for browser-native APIs like the ones used in the `TranscriptionService`.
 
 ### 2. The Special Case Test: **Playwright + Real Browser**
 
@@ -189,56 +138,44 @@ This hybrid approach allows us to maintain a fast and efficient development cycl
 
 ## 🗓️ Development Roadmap
 
-### PHASE 1 — MVP (Weeks 1-3)
+### PHASE 1 — MVP FOUNDATION (Weeks 1-3) - 90% Complete
+- **Must Have:**
+    - `✅` **[M]** Implement core backend services (Supabase Auth & DB).
+    - `✅` **[M]** Implement `TranscriptionService` with AssemblyAI provider.
+    - `✅` **[M]** Integrate `TranscriptionService` into the main session page.
+    - `✅` **[M]** Implement Stripe payment flow for Pro tier.
+    - `✅` **[M]** Set up Sentry for error monitoring.
+    - `✅` **[M]** Set up PostHog for product analytics.
+- **Should Have:**
+    - `✅` **[S]** Develop a responsive UI with a professional light theme.
+    - `[ ]` **[S]** Comprehensive QA and performance tuning.
+- **Could Have:**
+    - `[ ]` **[C]** A/B testing setup with PostHog.
+- **Won't Have (for this phase):**
+    - `[ ]` **[W]** On-device transcription (moved to Phase 2).
 
-```
-┌─────────────┬──────────────────────────────┬─────────────────────────────────┐
-│    WEEK     │          ENGINEERING         │       MARKETING & GROWTH        │
-├─────────────┼──────────────────────────────┼─────────────────────────────────┤
-│   Week 1    │ ✅ Finalize filler detection  │ • Launch email capture page    │
-│             │ ✅ Supabase auth & limits     │ • Begin Reddit engagement      │
-│             │ ✅ Stripe payments            │                                │
-│             │ ✅ PostHog setup (KPI + A/B)  │                                │
-├─────────────┼───────────────────────────────┼────────────────────────────────┤
-│   Week 2    │ ✅ Landing page w/ real UX    │ • Publish 1 SEO article        │
-│             │ ✅ Sentry error logging       │ • Social handles + demo video  │
-├─────────────┼───────────────────────────────┼────────────────────────────────┤
-│   Week 3    │ ✅ QA & performance tuning    │ • Publish 2nd SEO article      │
-│             │ ✅ Launch MVP                 │ • Announce beta on Reddit      │
-└─────────────┴───────────────────────────────┴────────────────────────────────┘
-```
+### PHASE 2 — PRIVACY & POLISH (Months 1-3) - 0% Complete
+- **Must Have:**
+    - `[ ]` **[M]** Integrate Whisper.cpp into `TranscriptionService` for on-device transcription.
+    - `[ ]` **[M]** Implement automatic fallback from local to cloud STT based on performance.
+    - `[ ]` **[M]** Build a comprehensive analytics dashboard for users.
+- **Should Have:**
+    - `[ ]` **[S]** Implement weekly summary emails.
+    - `[ ]` **[S]** Add in-app prompts to encourage users to upgrade.
+    - `[ ]` **[S]** Conduct thorough cross-browser testing and bug fixing.
+- **Could Have:**
+    - `[ ]` **[C]** A/B test different UI elements and user flows.
+    - `[ ]` **[C]** Optimize funnels based on PostHog data.
 
-### PHASE 2 — GROWTH (Months 1-3)
-
-```
-┌─────────────┬─────────────────────────────────┬─────────────────────────────────┐
-│    MONTH    │          ENGINEERING            │       MARKETING & GROWTH        │
-├─────────────┼─────────────────────────────────┼─────────────────────────────────┤
-│   Month 1   │ • Progress dashboard            │ • Product Hunt launch           │
-│             │ • Upgrade prompts               │ • Start Google Ads campaign     │
-│             │ • Cross-browser QA              │ • Retargeting via FB/IG         │
-│             │ • A/B test landing page         │ • Continue Reddit outreach      │
-├─────────────┼─────────────────────────────────┼─────────────────────────────────┤
-│   Month 2   │ • Weekly summary emails         │ • Publish 2 SEO posts/month     │
-│             │ • Funnel optimization           │ • Optimize Google Ads keywords  │
-├─────────────┼─────────────────────────────────┼─────────────────────────────────┤
-│   Month 3   │ • Performance monitoring        │ • Content marketing expansion   │
-│             │ • User feedback implementation  │ • Partnership outreach          │
-└─────────────┴─────────────────────────────────┴─────────────────────────────────┘
-```
-
-### PHASE 3 — SCALE (Months 6-12)
-
-```
-┌─────────────┬─────────────────────────────────┬─────────────────────────────────┐
-│ TIMEFRAME   │          ENGINEERING            │       MARKETING & GROWTH        │
-├─────────────┼─────────────────────────────────┼─────────────────────────────────┤
-│ Months 6-12 │ • Offline mode                  │ • Paid partnerships             │
-│             │ • AI suggestions                │ • International SEO             │
-│             │ • Team accounts                 │ • Case studies                  │
-│             │ • Language support              │ • Content scaling               │
-└─────────────┴─────────────────────────────────┴─────────────────────────────────┘
-```
+### PHASE 3 — SCALE & EXPANSION (Months 6-12) - 0% Complete
+- **Must Have:**
+    - `[ ]` **[M]** Implement team accounts and billing.
+- **Should Have:**
+    - `[ ]` **[S]** Add support for more languages.
+    - `[ ]` **[S]** Develop AI-powered suggestions for improving speech.
+- **Could Have:**
+    - `[ ]` **[C]** Full offline mode for the application.
+    - `[ ]` **[C]** Case studies and advanced content marketing.
 
 ---
 

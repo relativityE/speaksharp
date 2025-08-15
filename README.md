@@ -8,7 +8,7 @@ A mobile-first web application that detects and counts filler words in real time
 - **Color-Coded Highlighting**: Each filler word is assigned a unique color. Words are highlighted in the live transcript and color-coded in the analysis panel for immediate visual feedback.
 - **Dynamic Transcript Box**: The transcript panel starts small and grows as you speak, maximizing screen real estate.
 - **Live Analytics**: The sidebar provides a live-updating word count and frequency analysis.
-- **Privacy First**: All audio processing is done locally in your browser; your voice data never leaves your device.
+- **Hybrid Speech Processing**: Supports both local, in-browser speech recognition for privacy and a cloud-based option (AssemblyAI) for higher accuracy.
 - **Session Management**: Start, stop, and save practice sessions.
 - **Customizable Experience**: Add your own words to track and use a mobile-friendly, responsive interface.
 
@@ -19,7 +19,9 @@ A mobile-first web application that detects and counts filler words in real time
 - **UI Components**: shadcn/ui
 - **Icons**: Lucide React
 - **Authentication & DB**: Supabase
-- **Speech Processing**: Browser's Web Speech API
+- **Speech Processing**:
+    - **Phase 1 (Current)**: AssemblyAI for cloud-based transcription.
+    - **Phase 2 (Planned)**: Whisper.cpp for local, on-device transcription to ensure privacy.
 
 ## Getting Started
 
@@ -49,6 +51,9 @@ A mobile-first web application that detects and counts filler words in real time
     VITE_SUPABASE_URL=your_supabase_project_url_here
     VITE_SUPABASE_ANON_KEY=your_supabase_anon_key_here
 
+    # AssemblyAI
+    VITE_ASSEMBLYAI_API_KEY=your_assemblyai_api_key_here
+
     # Sentry
     VITE_SENTRY_DSN=your_sentry_dsn_here
 
@@ -67,7 +72,29 @@ A mobile-first web application that detects and counts filler words in real time
     pnpm run dev
     ```
 
-4.  Open your browser and navigate to the URL shown in your terminal. It is usually `http://localhost:5173`, but it might be different if that port is occupied.
+5.  Open your browser and navigate to the URL shown in your terminal. It is usually `http://localhost:5173`, but it might be different if that port is occupied.
+
+
+*****************************************************************
+*                                                               *
+*   DANGEROUS!  ALERT!  DANGEROUS!  ALERT!  DANGEROUS!  ALERT!   *
+*                                                               *
+*   The following keys MUST be rolled before any production     *
+*   deployment. These are development keys and should not be    *
+*   used in a live environment.                                 *
+*                                                               *
+*   - VITE_SUPABASE_URL                                         *
+*   - VITE_SUPABASE_ANON_KEY                                    *
+*   - VITE_ASSEMBLYAI_API_KEY                                   *
+*   - VITE_SENTRY_DSN                                           *
+*   - VITE_POSTHOG_KEY                                          *
+*   - VITE_POSTHOG_HOST                                         *
+*   - VITE_STRIPE_PUBLISHABLE_KEY                               *
+*   - VITE_STRIPE_SECRET_KEY                                    *
+*   - VITE_STRIPE_WEBHOOK_SECRET                                *
+*                                                               *
+*****************************************************************
+
 
 ## How to Test the Application
 
@@ -87,7 +114,7 @@ This command executes all `*.test.jsx` files located under the `src` directory.
 
 ### 2. End-to-End & Browser-Specific Tests (Playwright)
 
-For features that rely on browser-native APIs (like the Web Speech API) and are difficult to test reliably in JSDOM, we use [Playwright](https://playwright.dev/). These tests run in a real browser environment, providing a more accurate and stable testing ground for complex features.
+For features that rely on browser-native APIs (like the `TranscriptionService`'s audio processing) and are difficult to test reliably in JSDOM, we use [Playwright](https://playwright.dev/). These tests run in a real browser environment, providing a more accurate and stable testing ground for complex features.
 
 To run the Playwright tests, use the following command:
 
@@ -128,10 +155,20 @@ This model allows for a low-friction initial experience while providing a clear 
 
 This project is currently being developed into a full-stack SaaS application with a **"Speed Over Perfection"** philosophy. The immediate goal is to launch a monetizable MVP within 3 weeks to gather user feedback and iterate quickly.
 
-The high-level roadmap is to:
-1.  **Launch a functional MVP** with authentication, free/paid tiers, and payment processing.
-2.  **Gather user feedback** and iterate on the core features.
-3.  **Expand the feature set** based on user demand, including advanced analytics and cloud-powered transcription.
+The high-level roadmap is a two-phase plan:
+1.  **Phase 1: Fast Development & Testing (AssemblyAI)**
+    - Goal: Quickly test features, get user feedback, and fix bugs using a cloud-based transcription service.
+    - This phase prioritizes speed of iteration over privacy-first features.
+2.  **Phase 2: Privacy-First Production (Whisper.cpp On-Device)**
+    - Goal: Deliver on the "privacy-first" promise by moving transcription to the user's device.
+    - This phase will involve integrating Whisper.cpp to ensure no audio leaves the device.
+
+## How to Deploy to Vercel
+
+1.  **Fork the repository** to your own GitHub account.
+2.  **Create a new project on Vercel** and connect it to your forked repository.
+3.  **Configure the environment variables** in the Vercel project settings. You will need to add all the variables from your `.env.local` file.
+4.  **Deploy!** Vercel will automatically build and deploy your application. Any new pushes to the `main` branch will trigger a new deployment.
 
 
 ## Contributing
