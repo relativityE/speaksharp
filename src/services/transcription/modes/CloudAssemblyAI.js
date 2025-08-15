@@ -1,25 +1,47 @@
 import { AssemblyAI } from 'assemblyai';
 
 export default class CloudAssemblyAI {
-  constructor({ apiKey = import.meta.env.VITE_ASSEMBLYAI_API_KEY, performanceWatcher, onTranscriptUpdate } = {}) {
-    this.apiKey = apiKey;
+  constructor({ performanceWatcher, onTranscriptUpdate } = {}) {
     this.performanceWatcher = performanceWatcher;
     this.onTranscriptUpdate = onTranscriptUpdate;
-    this.client = null;
     this.transcriber = null;
+    this.token = null;
     this._frameCount = 0;
     this._t0 = 0;
   }
 
+  async _fetchToken() {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    if (!supabaseUrl) {
+      throw new Error('VITE_SUPABASE_URL is not defined.');
+    }
+    const response = await fetch(`${supabaseUrl}/functions/v1/assemblyai-token`, {
+      method: 'POST', // or 'GET' depending on your function
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    });
+    if (!response.ok) {
+      throw new Error('Failed to fetch AssemblyAI token');
+    }
+    const data = await response.json();
+    return data.token;
+  }
+
   async init() {
-    if (!this.apiKey) throw new Error('Missing VITE_ASSEMBLYAI_API_KEY');
-    this.client = new AssemblyAI({ apiKey: this.apiKey });
+    this.token = await this._fetchToken();
+    if (!this.token) {
+      throw new Error('Failed to retrieve a temporary token for AssemblyAI');
+    }
   }
 
   async startTranscription(mic) {
-    if (!this.client) throw new Error('AssemblyAI client not initialized');
+    if (!this.token) throw new Error('AssemblyAI token not available');
 
-    this.transcriber = this.client.streaming.transcriber({
+    // Note: We create the client here because it's token-based and lightweight.
+    // The AssemblyAI client object itself does not maintain a connection.
+    const client = new AssemblyAI({ token: this.token });
+    this.transcriber = client.streaming.transcriber({
       sampleRate: 16000,
     });
 
