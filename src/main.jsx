@@ -1,4 +1,4 @@
-import { StrictMode } from 'react'
+import React, { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import './index.css'
@@ -9,6 +9,11 @@ import { initPostHog } from './lib/posthog.js'
 import { Elements } from '@stripe/react-stripe-js'
 import { loadStripe } from '@stripe/stripe-js'
 import * as Sentry from "@sentry/react";
+
+// Debugging logs
+console.log('Main.jsx loading...');
+console.log('React:', React);
+console.log('App component:', App);
 
 // Initialize PostHog
 initPostHog();

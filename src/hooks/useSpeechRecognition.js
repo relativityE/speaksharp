@@ -43,7 +43,7 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
   const [interimTranscript, setInterimTranscript] = useState('');
   const [fillerData, setFillerData] = useState(getInitialFillerData(customWords));
   const [error, setError] = useState(null);
-  const [mode, setMode] = useState('local'); // 'local' or 'cloud'
+  const [mode, setMode] = useState('cloud'); // 'local' or 'cloud'
 
   const transcriptionServiceRef = useRef(null);
   const pollIntervalRef = useRef(null);
