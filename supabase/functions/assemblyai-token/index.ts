@@ -7,14 +7,10 @@ const client = new AssemblyAI({
   apiKey: Deno.env.get('ASSEMBLYAI_API_KEY'),
 });
 
-// Determine the allowed origin based on the environment.
-// For local development, allow localhost. For production, use the specific domain.
-const allowedOrigin = Deno.env.get('DENO_ENV') === 'development'
-  ? 'http://localhost:5173'
-  : 'https://speaksharp.com'; // Replace with your actual production domain
-
+// Allow requests from any origin.
+// This is a temporary solution for development and should be reviewed for production.
 const corsHeaders = {
-  'Access-Control-Allow-Origin': allowedOrigin,
+  'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
