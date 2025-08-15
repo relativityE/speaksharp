@@ -18,6 +18,8 @@ The architecture is designed around a modern, client-heavy Jamstack approach. Th
 |                                 |      +---------------------------------+
 |  +---------------------------+  |
 |  |  TranscriptionService     |  |
+|  | (Event-Driven via        |  |
+|  |  onTranscriptUpdate)      |  |
 |  |---------------------------|  |
 |  | if (mode === 'local') {   |  |
 |  |   Whisper.cpp (WASM)      |  |
@@ -53,10 +55,11 @@ This diagram offers a more detailed look at the application's architecture from 
 |                         |                                             |
 | +-----------------------v----------------+  +---------------------------------+ |
 | |      React SPA (Vite, `src`)           |  |      TranscriptionService       | |
-| |                                        |  |---------------------------------| |
-| |  - `SessionPage.jsx`                   |  | if (mode === 'local') {         | |
-| |  - `SessionSidebar.jsx`                |<--+   LocalWhisper (On-Device)    | |
-| |  - `useSpeechRecognition.js`           |  | } else {                        | |
+| |                                        |  |  (Provides onTranscriptUpdate)  | |
+| |  - `SessionPage.jsx`                   |  |---------------------------------| |
+| |  - `SessionSidebar.jsx`                |<--+ if (mode === 'local') {         | |
+| |  - `useSpeechRecognition.js`           |  |   LocalWhisper (On-Device)    | |
+| |    (Provides callback)                 |  | } else {                        | |
 | |  - `useSessionManager.js`              |  |   CloudAssemblyAI (Cloud)       | |
 | +----------------------------------------+  | }                               | |
 |                                          |  +---------------------------------+ |
@@ -115,8 +118,10 @@ This diagram offers a more detailed look at the application's architecture from 
 │                  │                            │ • `src/lib/supabaseClient.js`: Client initialization.              │ • `VITE_SUPABASE_ANON_KEY`: Public key for client-side access.                                   │
 │                  │                            │ • `supabase/functions`: Location of serverless edge functions.       │ • `SUPABASE_SERVICE_ROLE_KEY`: Secret key for admin access in functions.                         │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ Transcription    │ Core Feature               │ A swappable service for speech-to-text.                              │ • `VITE_ASSEMBLYAI_API_KEY`: API key for AssemblyAI service.                                     │
-│ Service          │                            │ • `src/services/transcription`: Wrapper for STT providers.         │                                                                                                │
+│ Transcription    │ Core Feature               │ A swappable service for speech-to-text. Uses an event-driven         │ • `VITE_ASSEMBLYAI_API_KEY`: API key for AssemblyAI service.                                     │
+│ Service          │                            │ approach via an `onTranscriptUpdate` callback to provide real-time   │                                                                                                │
+│                  │                            │ results to the UI without polling.                                   │                                                                                                │
+│                  │                            │ • `src/services/transcription`: Wrapper for STT providers.         │                                                                                                │
 │                  │                            │ • `modes/LocalWhisper.js`: On-device (planned).                    │                                                                                                │
 │                  │                            │ • `modes/CloudAssemblyAI.js`: Cloud-based (current).               │                                                                                                │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤

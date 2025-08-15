@@ -15,6 +15,11 @@
 
 ---
 
+## ⚠️ Known Issues
+- **On-Device Transcription is Not Yet Implemented:** The `LocalWhisper` provider in the `TranscriptionService` is currently a simulation. It does not perform real on-device speech-to-text. This is the top priority for Phase 2 of the roadmap.
+
+---
+
 ## 🎯 Executive Summary
 
 ### Product Vision
@@ -141,6 +146,7 @@ This simplified and robust approach allows us to maintain a fast and efficient d
     - `✅` **[M]** Implement `TranscriptionService` with AssemblyAI provider.
     - `✅` **[M]** Integrate `TranscriptionService` into the main session page.
     - `✅` **[M]** Implement Stripe payment flow for Pro tier.
+    - `[ ]` **[M]** Configure production Price ID for Stripe checkout.
     - `✅` **[M]** Set up Sentry for error monitoring.
     - `✅` **[M]** Set up PostHog for product analytics.
 - **Should Have:**
@@ -153,7 +159,7 @@ This simplified and robust approach allows us to maintain a fast and efficient d
 
 ### PHASE 2 — PRIVACY & POLISH (Months 1-3) - 0% Complete
 - **Must Have:**
-    - `[ ]` **[M]** Integrate Whisper.cpp into `TranscriptionService` for on-device transcription.
+    - `[ ]` **[M]** Integrate Whisper.cpp into `TranscriptionService` for on-device transcription. (See "Known Issues")
     - `[ ]` **[M]** Implement automatic fallback from local to cloud STT based on performance.
     - `[ ]` **[M]** Build a comprehensive analytics dashboard for users.
 - **Should Have:**
