@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabaseClient';
 import { Mic, Square, Plus, Trash2, Loader2, Zap } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useStripe } from '@stripe/react-stripe-js';
@@ -139,10 +140,8 @@ export const SessionSidebar = ({ isListening, transcript, fillerData, error, isS
     const [isUpgrading, setIsUpgrading] = useState(false);
     const timerIntervalRef = useRef(null);
 
-    const FREE_TIER_LIMIT_SECONDS = 300; // 5 minutes
     const usageInSeconds = profile?.usage_seconds || 0;
     const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
-    const remainingTime = isPro ? Infinity : FREE_TIER_LIMIT_SECONDS - usageInSeconds;
 
     const handleUpgrade = async () => {
         if (!user) {
@@ -194,10 +193,23 @@ export const SessionSidebar = ({ isListening, transcript, fillerData, error, isS
             return;
         }
 
-        if (elapsedTime > 0) {
-            const { error: rpcError } = await supabase.rpc('update_user_usage', { session_duration_seconds: Math.ceil(elapsedTime) });
+        // Only update usage for free users
+        if (elapsedTime > 0 && user && !isPro) {
+            const { data: updateSuccess, error: rpcError } = await supabase.rpc('update_user_usage', {
+                session_duration_seconds: Math.ceil(elapsedTime)
+            });
+
             if (rpcError) {
                 console.error("Error updating user usage:", rpcError);
+                toast.error("Could not save session usage. Please contact support.");
+            } else if (!updateSuccess) {
+                toast.error("You've exceeded your free monthly limit.", {
+                    description: "Your session was saved, but usage could not be updated. Please upgrade to a Pro plan for unlimited practice.",
+                    action: {
+                        label: "Upgrade",
+                        onClick: () => handleUpgrade(),
+                    },
+                });
             }
         }
 
@@ -220,14 +232,6 @@ export const SessionSidebar = ({ isListening, transcript, fillerData, error, isS
     }, [isListening, error]);
 
     useEffect(() => {
-        if (isListening && user && !isPro && elapsedTime >= remainingTime) {
-            endSessionAndSave();
-            alert("You've reached your free monthly limit. Upgrade to Pro for unlimited practice.");
-        }
-    }, [isListening, elapsedTime, remainingTime, user, isPro]);
-
-
-    useEffect(() => {
         if(!isListening) {
             setElapsedTime(0);
         }
@@ -237,11 +241,6 @@ export const SessionSidebar = ({ isListening, transcript, fillerData, error, isS
         if (isListening) {
             endSessionAndSave();
         } else {
-            if (user && !isPro && remainingTime <= 0) {
-                alert("You have used all your free practice time for this month. Please upgrade to a Pro plan for unlimited practice.");
-                return;
-            }
-
             setIsLoading(true);
             reset();
             setElapsedTime(0);
