@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { SPEECH_RECOGNITION_LANG, FILLER_WORD_KEYS } from '../config';
+import TranscriptionService from '../services/transcription/TranscriptionService';
+import { FILLER_WORD_KEYS } from '../config';
 
 const defaultFillerPatterns = {
   [FILLER_WORD_KEYS.UM]: /\b(um|umm|ummm|ahm)\b/gi,
@@ -42,163 +43,109 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
   const [interimTranscript, setInterimTranscript] = useState('');
   const [fillerData, setFillerData] = useState(getInitialFillerData(customWords));
   const [error, setError] = useState(null);
+  const [mode, setMode] = useState('local'); // 'local' or 'cloud'
 
-  const recognitionRef = useRef(null);
-  const intentionallyStopped = useRef(false);
-  const processTranscriptRef = useRef(null);
+  const transcriptionServiceRef = useRef(null);
+  const pollIntervalRef = useRef(null);
 
   useEffect(() => {
-    setFillerData(getInitialFillerData(customWords));
-  }, [customWords]);
-
-  const processTranscript = useCallback((event) => {
-    let finalChunk = '';
-    let currentInterim = '';
-
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcriptPart = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-            finalChunk += transcriptPart.trim() + ' ';
-        } else {
-            currentInterim += transcriptPart;
-        }
-    }
-
-    if (finalChunk.trim()) {
-        setFinalChunks(prev => [...prev, { text: finalChunk, id: Math.random() }]);
-        setInterimTranscript('');
-
-        // Filler word detection on the finalized chunk
-        const allPatterns = { ...defaultFillerPatterns };
-        customWords.forEach((word) => {
-            allPatterns[word] = new RegExp(`\\b(${word})\\b`, 'gi');
-        });
-        setFillerData((prevData) => {
-            const newData = { ...prevData };
-            let changed = false;
-            for (const key in allPatterns) {
-                const pattern = allPatterns[key];
-                const matches = finalChunk.match(pattern);
-                if (matches && matches.length > 0) {
-                    if (!newData[key]) {
-                        const newIndex = Object.keys(newData).length;
-                        newData[key] = { count: 0, color: FILLER_WORD_COLORS[newIndex % FILLER_WORD_COLORS.length] };
-                    }
-                    newData[key] = { ...newData[key], count: newData[key].count + matches.length };
-                    changed = true;
-                }
-            }
-            return changed ? newData : prevData;
-        });
-    }
-
-    if (currentInterim) {
-        setInterimTranscript(currentInterim);
-    }
-  }, [customWords]);
-
-  // Keep a ref to the latest processTranscript function
-  useEffect(() => {
-    processTranscriptRef.current = processTranscript;
-  }, [processTranscript]);
-
-  const handleEnd = useCallback(() => {
-    // The auto-restart logic can cause infinite loops in some test environments.
-    // We disable it during testing by checking for the existence of the `vi` global.
-    if (typeof window !== 'undefined' && window.vi) {
-      setIsListening(false);
-      return;
-    }
-
-    if (intentionallyStopped.current) {
-      setIsListening(false);
-      return;
-    }
-    if (recognitionRef.current) {
+    const initService = async () => {
       try {
-        recognitionRef.current.start();
+        const service = new TranscriptionService(mode);
+        await service.init();
+        transcriptionServiceRef.current = service;
       } catch (err) {
-        console.error('Error restarting speech recognition:', err);
-        setIsListening(false);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setError('Speech recognition is not supported in this browser.');
-      return;
-    }
-
-    recognitionRef.current = new SpeechRecognition();
-    const recognition = recognitionRef.current;
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = SPEECH_RECOGNITION_LANG;
-
-    recognition.onstart = () => {
-      setIsListening(true);
-    };
-    recognition.onresult = (event) => {
-      if (processTranscriptRef.current) {
-        processTranscriptRef.current(event);
+        console.error("Failed to initialize transcription service", err);
+        setError("Failed to initialize transcription service");
       }
     };
-    recognition.onerror = (event) => {
-      console.error('Speech recognition error:', event.error);
-      setError(`Speech recognition error: ${event.error}`);
-      setIsListening(false);
-    };
-    recognition.onend = handleEnd;
+    initService();
 
     return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.onstart = null;
-        recognitionRef.current.onresult = null;
-        recognitionRef.current.onerror = null;
-        recognitionRef.current.onend = null;
-        recognitionRef.current.stop();
-        recognitionRef.current.abort();
+      transcriptionServiceRef.current?.destroy();
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
       }
     };
-  }, [handleEnd]);
+  }, [mode]);
 
-  const startListening = useCallback(() => {
-    if (isListening || !recognitionRef.current) {
+  const processTranscript = useCallback((newTranscript) => {
+    // For now, treat everything as a final chunk.
+    const finalChunk = newTranscript.slice(transcript.length);
+    if (finalChunk.trim()) {
+      setFinalChunks(prev => [...prev, { text: finalChunk, id: Math.random() }]);
+
+      const allPatterns = { ...defaultFillerPatterns };
+      customWords.forEach((word) => {
+          allPatterns[word] = new RegExp(`\\b(${word})\\b`, 'gi');
+      });
+      setFillerData((prevData) => {
+          const newData = { ...prevData };
+          let changed = false;
+          for (const key in allPatterns) {
+              const pattern = allPatterns[key];
+              const matches = finalChunk.match(pattern);
+              if (matches && matches.length > 0) {
+                  if (!newData[key]) {
+                      const newIndex = Object.keys(newData).length;
+                      newData[key] = { count: 0, color: FILLER_WORD_COLORS[newIndex % FILLER_WORD_COLORS.length] };
+                  }
+                  newData[key] = { ...newData[key], count: newData[key].count + matches.length };
+                  changed = true;
+              }
+          }
+          return changed ? newData : prevData;
+      });
+    }
+  }, [customWords, transcript]);
+
+  const startListening = async () => {
+    if (isListening || !transcriptionServiceRef.current) {
       return;
     }
     try {
       setError(null);
-      intentionallyStopped.current = false;
-      recognitionRef.current.start();
+      await transcriptionServiceRef.current.startTranscription();
+      setIsListening(true);
+
+      pollIntervalRef.current = setInterval(async () => {
+        const newTranscript = await transcriptionServiceRef.current.getTranscript();
+        if (newTranscript !== transcript) {
+          processTranscript(newTranscript);
+        }
+      }, 200);
+
     } catch (err) {
       console.error('Error starting speech recognition:', err);
       setError('Failed to start speech recognition');
     }
-  }, [isListening]);
+  };
 
-  const stopListening = useCallback(() => {
-    if (!isListening || !recognitionRef.current) {
+  const stopListening = async () => {
+    if (!isListening || !transcriptionServiceRef.current) {
       return;
     }
-    intentionallyStopped.current = true;
-    recognitionRef.current.stop();
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+    }
+    await transcriptionServiceRef.current.stopTranscription();
     setIsListening(false);
-  }, [isListening]);
+    const finalTranscript = await transcriptionServiceRef.current.getTranscript();
+    processTranscript(finalTranscript);
+  };
 
   const reset = useCallback(() => {
     setFinalChunks([]);
     setInterimTranscript('');
-    setTranscript(''); // Keep this for now for any dependencies
+    setTranscript('');
     setFillerData(getInitialFillerData(customWords));
     setError(null);
   }, [customWords]);
 
   useEffect(() => {
-    const newTranscript = [...finalChunks.map(c => c.text), interimTranscript].join('');
+    const newTranscript = finalChunks.map(c => c.text).join('');
     setTranscript(newTranscript);
-  }, [finalChunks, interimTranscript]);
+  }, [finalChunks]);
 
   return {
     isListening,
@@ -207,9 +154,11 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
     interimTranscript,
     fillerData,
     error,
-    isSupported: !!(window.SpeechRecognition || window.webkitSpeechRecognition),
+    isSupported: true, // Assuming the service is supported
     startListening,
     stopListening,
     reset,
+    mode,
+    setMode,
   };
 };

@@ -14,6 +14,7 @@ export const SessionPage = () => {
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
     const speechRecognition = useSpeechRecognition({ customWords });
+    const { mode, setMode } = speechRecognition;
 
     useEffect(() => {
         posthog.capture('session_page_viewed');
@@ -28,7 +29,7 @@ export const SessionPage = () => {
 
                 {/* Desktop Sidebar */}
                 <div className="hidden lg:block lg:col-span-1">
-                    <SessionSidebar {...speechRecognition} customWords={customWords} setCustomWords={setCustomWords} saveSession={saveSession} />
+                    <SessionSidebar {...speechRecognition} customWords={customWords} setCustomWords={setCustomWords} saveSession={saveSession} mode={mode} setMode={setMode} />
                 </div>
 
                 {/* Mobile Drawer */}
@@ -42,7 +43,7 @@ export const SessionPage = () => {
                         </DrawerTrigger>
                         <DrawerContent>
                             <div className="p-4 overflow-y-auto h-[80vh]">
-                                <SessionSidebar {...speechRecognition} customWords={customWords} setCustomWords={setCustomWords} saveSession={saveSession} />
+                                <SessionSidebar {...speechRecognition} customWords={customWords} setCustomWords={setCustomWords} saveSession={saveSession} mode={mode} setMode={setMode} />
                             </div>
                         </DrawerContent>
                     </Drawer>

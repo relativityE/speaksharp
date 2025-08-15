@@ -127,7 +127,10 @@ const FillerWordAnalysis = ({ fillerData, customWords, setCustomWords }) => {
     );
 };
 
-export const SessionSidebar = ({ isListening, transcript, fillerData, error, isSupported, startListening, stopListening, reset, customWords, setCustomWords, saveSession }) => {
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+
+export const SessionSidebar = ({ isListening, transcript, fillerData, error, isSupported, startListening, stopListening, reset, customWords, setCustomWords, saveSession, mode, setMode }) => {
     const navigate = useNavigate();
     const { user, profile } = useAuth();
     const stripe = useStripe();
@@ -258,6 +261,26 @@ export const SessionSidebar = ({ isListening, transcript, fillerData, error, isS
 
     return (
         <div className="flex flex-col gap-6">
+            <Card>
+                <CardHeader>
+                    <CardTitle className="text-lg">Settings</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <div className="flex items-center justify-between">
+                        <Label htmlFor="transcription-mode">Transcription Mode</Label>
+                        <div className="flex items-center gap-2">
+                            <Label htmlFor="transcription-mode" className="text-sm text-muted-foreground">Local</Label>
+                            <Switch
+                                id="transcription-mode"
+                                checked={mode === 'cloud'}
+                                onCheckedChange={(checked) => setMode(checked ? 'cloud' : 'local')}
+                            />
+                            <Label htmlFor="transcription-mode" className="text-sm text-muted-foreground">Cloud</Label>
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
+
             <Card className="text-center max-w-xs mx-auto">
                 <CardContent className="p-2">
                     <div className="mb-1">
