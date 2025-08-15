@@ -1,54 +1,64 @@
 @import "tailwindcss";
 
-@theme {
-  /* Merged Theme: "Precision Light" + "Grayscale & Feedback" */
-  --color-background: #FFFFFF; /* white */
-  --color-foreground: #1C1C1E; /* dark charcoal */
-  --color-card: #F7F9FB; /* soft gray */
-  --color-popover: #F7F9FB; /* soft gray */
-  --color-primary: #2563EB; /* blue */
-  --color-primary-foreground: #FFFFFF; /* white */
-  --color-secondary: #F7F9FB; /* soft gray */
-  --color-secondary-foreground: #2563EB; /* blue */
-  --color-muted: #F7F9FB; /* soft gray */
-  --color-muted-foreground: #8E8E93; /* medium gray */
-  --color-accent: #10B981; /* green */
-  --color-accent-foreground: #FFFFFF; /* white */
-  --color-destructive: #FF3B30; /* red */
-  --color-destructive-foreground: #FFFFFF; /* white */
-  --color-border: #E5E5EA; /* light gray */
-  --color-input: #E5E5EA; /* light gray */
-  --color-ring: #2563EB; /* blue */
-  --color-highlight: #ADD8E6; /* light blue */
-  --color-highlight-foreground: #1C1C1E; /* dark charcoal */
+:root {
+  --background: 0 0% 100%;
+  --foreground: 240 2% 11%;
 
-  --font-sans: "Inter", "sans-serif";
+  --card: 210 20% 98%;
+  --card-foreground: 240 2% 11%;
+
+  --popover: 210 20% 98%;
+  --popover-foreground: 240 2% 11%;
+
+  --primary: 221 83% 53%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 210 20% 98%;
+  --secondary-foreground: 221 83% 53%;
+
+  --muted: 210 20% 98%;
+  --muted-foreground: 240 2% 56%;
+
+  --accent: 158 83% 42%;
+  --accent-foreground: 0 0% 100%;
+
+  --destructive: 3 100% 59%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 240 5% 90%;
+  --input: 240 5% 90%;
+  --ring: 221 83% 53%;
+
+  --radius: 0.5rem;
 }
 
 html {
-    font-size: 24px; /* Significantly increased base font size for readability */
+    font-size: 24px;
 }
 
 body {
-    font-family: theme(font.sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
 
 a {
-    font-size: 1em; /* Inherit font size from parent */
+    font-size: 1em;
     text-decoration: none;
     transition: color 0.2s ease-in-out;
 }
 
 a:hover {
-    color: var(--color-primary);
+    color: hsl(var(--primary));
 }
 
-/* Ensure form elements inherit the global font size for readability */
 button,
 input,
 textarea,
 select {
     font-size: inherit;
+}
+
+/* Custom progress bar color */
+.progress-bar-custom {
+    background-color: hsl(var(--primary));
 }

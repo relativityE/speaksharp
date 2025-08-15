@@ -260,33 +260,15 @@ export const SessionSidebar = ({ isListening, transcript, fillerData, error, isS
 
     return (
         <div className="flex flex-col gap-6">
+            {/* Main Controls Card */}
             <Card>
                 <CardHeader>
-                    <CardTitle className="text-lg">Settings</CardTitle>
+                    <CardTitle className="text-lg">Session Controls</CardTitle>
                 </CardHeader>
-                <CardContent>
-                    <div className="flex items-center justify-between">
-                        <Label htmlFor="transcription-mode">Transcription Mode</Label>
-                        <div className="flex items-center gap-2">
-                            <Label htmlFor="transcription-mode" className="text-sm text-muted-foreground">Local</Label>
-                            <Switch
-                                id="transcription-mode"
-                                checked={mode === 'cloud'}
-                                onCheckedChange={(checked) => setMode(checked ? 'cloud' : 'local')}
-                            />
-                            <Label htmlFor="transcription-mode" className="text-sm text-muted-foreground">Cloud</Label>
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
-
-            <Card className="text-center max-w-xs mx-auto">
-                <CardContent className="p-2">
-                    <div className="mb-1">
-                        <CircularTimer elapsedTime={elapsedTime} />
-                    </div>
-                    <div className={`mb-2 font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
-                        {isLoading ? 'INITIALIZING...' : (isListening ? '● RECORDING' : '')}
+                <CardContent className="flex flex-col items-center gap-4">
+                    <CircularTimer elapsedTime={elapsedTime} />
+                    <div className={`font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
+                        {isLoading ? 'INITIALIZING...' : (isListening ? '● RECORDING' : 'READY')}
                     </div>
                     <Button
                         onClick={handleStartStop}
@@ -297,27 +279,49 @@ export const SessionSidebar = ({ isListening, transcript, fillerData, error, isS
                     >
                         {getButtonContent()}
                     </Button>
+                    <Separator className="w-full my-2" />
+                    <div className="flex items-center justify-between w-full">
+                        <Label htmlFor="transcription-mode" className="text-sm">Transcription Mode</Label>
+                        <div className="flex items-center gap-2">
+                            <Label htmlFor="transcription-mode" className="text-xs text-muted-foreground">Local</Label>
+                            <Switch
+                                id="transcription-mode"
+                                checked={mode === 'cloud'}
+                                onCheckedChange={(checked) => setMode(checked ? 'cloud' : 'local')}
+                                disabled={isListening}
+                            />
+                            <Label htmlFor="transcription-mode" className="text-xs text-muted-foreground">Cloud</Label>
+                        </div>
+                    </div>
                 </CardContent>
             </Card>
 
+            {/* Filler Word Analysis Card */}
             <FillerWordAnalysis fillerData={fillerData} customWords={customWords} setCustomWords={setCustomWords} />
 
-            <Card>
-                <CardHeader>
-                    <CardTitle className="text-lg">Upgrade to Pro</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <p className="text-muted-foreground mb-4">
-                        Unlock unlimited practice time, advanced analytics, and more.
-                    </p>
-                    <Button className="w-full" onClick={handleUpgrade} disabled={isUpgrading || !user || isPro}>
-                        {isUpgrading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Upgrading...</> : isPro ? 'You are a Pro!' : <><Zap className="w-4 h-4 mr-2" /> Upgrade Now</>}
-                    </Button>
-                </CardContent>
-            </Card>
+            {/* Upgrade Card */}
+            {!isPro && (
+                 <Card>
+                    <CardHeader>
+                        <CardTitle className="text-lg flex items-center gap-2">
+                            <Zap className="text-primary" size={20} />
+                            Upgrade to Pro
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <p className="text-muted-foreground mb-4 text-sm">
+                            Unlock unlimited practice time, advanced analytics, and custom word tracking.
+                        </p>
+                        <Button className="w-full" onClick={handleUpgrade} disabled={isUpgrading || !user}>
+                            {isUpgrading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Upgrading...</> : 'Upgrade Now'}
+                        </Button>
+                    </CardContent>
+                </Card>
+            )}
 
-            {error && <p className="text-destructive">Error: {error}</p>}
-            {!isSupported && <p className="text-destructive">Speech recognition not supported in this browser.</p>}
+            {/* Error Display */}
+            {error && <p className="text-destructive text-center p-2 bg-destructive/10 rounded-md">Error: {error}</p>}
+            {!isSupported && <p className="text-destructive text-center p-2 bg-destructive/10 rounded-md">Speech recognition not supported in this browser.</p>}
         </div>
     );
 };
