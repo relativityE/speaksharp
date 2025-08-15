@@ -75,8 +75,8 @@ This diagram offers a more detailed look at the application's architecture from 
 +---------------------------------------+ +---------------------------------------+
              |                                       |
 +------------v--------------------------+ +-----------v---------------------------+
-| Update Usage                          | | Update Usage                          |
-| `supabase.rpc('update_user_usage')`   | | `supabase.rpc('update_user_usage')`   |
+| Update & Enforce Usage Limit          | | (No Usage Update Call)                |
+| `supabase.rpc('update_user_usage')`   | |                                       |
 +---------------------------------------+ +---------------------------------------+
                                                      |
                                           (One-time Upgrade Process)
@@ -173,17 +173,17 @@ This section details the step-by-step execution flow for both free and paid user
 
 The free tier is designed to be flexible, allowing users to choose between privacy-focused local processing and higher-accuracy cloud processing.
 
-1.  **Authentication & Limits**: A user with a `subscription_status` of `'free'` logs in. The frontend, specifically the `SessionSidebar.jsx` component, checks their `usage_seconds` against the `FREE_TIER_LIMIT_SECONDS` (currently 5 minutes). If the limit is exceeded, the recording functionality is disabled.
+1.  **Authentication**: A user with a `subscription_status` of `'free'` logs in.
 2.  **Speech Recognition (User's Choice)**: When the user starts a session, the `useSpeechRecognition.js` hook is activated, which in turn uses the `TranscriptionService`. The user can toggle between two modes:
     *   **Local Mode**: This mode is the default and uses a placeholder for the on-device `Whisper.cpp` engine. In this mode, no audio leaves the device, ensuring maximum privacy.
     *   **Cloud Mode**: This mode uses the `AssemblyAI` service for transcription. Audio is streamed to the AssemblyAI servers for processing.
-3.  **Session Completion**: The user manually stops the session or hits the free-tier time limit.
+3.  **Session Completion**: The user manually stops the session.
 4.  **Data Persistence (Metadata Only)**: The `useSessionManager.js` and `lib/storage.js` modules collaborate to save the session.
     *   **API Hit**: An `insert` call is made to the Supabase `sessions` table.
     *   **Data Stored**: Only session metadata is persisted (e.g., `duration`, `total_words`, `filler_words` JSON). The full transcript is discarded and **not** sent to the database, reinforcing privacy.
-5.  **Usage Tracking**: After a successful save, an RPC (Remote Procedure Call) is made to a Supabase function.
+5.  **Usage Tracking & Enforcement**: After a successful save, an RPC (Remote Procedure Call) is made to a Supabase function.
     *   **API Hit**: `supabase.rpc('update_user_usage', ...)` is called.
-    *   **Action**: This secure function adds the `session_duration_seconds` to the user's monthly total in the `user_profiles` table.
+    *   **Action**: This secure backend function checks if the user is over their monthly limit. If they are not, it adds the `session_duration_seconds` to their total. If they are over the limit, it returns `false`, and the frontend displays a notification. This prevents any further usage until the next month or an upgrade.
 
 **Key Files & Components**: `SessionPage.jsx`, `SessionSidebar.jsx`, `useSpeechRecognition.js`, `useSessionManager.js`, `lib/storage.js`, `lib/supabaseClient.js`, `services/transcription/TranscriptionService.js`.
 
@@ -192,10 +192,9 @@ The free tier is designed to be flexible, allowing users to choose between priva
 The Pro tier removes limitations and adds features.
 
 1.  **Authentication**: A user with a `subscription_status` of `'pro'` or `'premium'` logs in.
-2.  **Unrestricted Usage**: In `SessionSidebar.jsx`, the client-side check for usage limits is bypassed, allowing for unlimited recording time. Pro-specific features, like the "Custom Words" tracker, are also enabled in the UI.
+2.  **Unrestricted Usage**: Pro-specific features, like the "Custom Words" tracker, are enabled in the UI. There are no usage limits.
 3.  **Speech Recognition (User's Choice)**: The process is **identical to the free user flow**. The user can choose between `local` and `cloud` modes.
-4.  **Session Completion & Persistence**: This is identical to the free user flow. Session metadata (not the transcript) is saved to the `sessions` table.
-5.  **Usage Tracking**: The `update_user_usage` RPC function is still called. This is harmless and ensures the usage metric is still tracked, even if it isn't used to limit the user. The function's logic also correctly handles monthly resets for all user types.
+4.  **Session Completion & Persistence**: This is identical to the free user flow. Session metadata (not the transcript) is saved to the `sessions` table. The `update_user_usage` RPC function is **not** called, as it is unnecessary for Pro users.
 
 **Key Files & Components**: The same as the free flow, with conditional logic in `SessionSidebar.jsx` unlocking the Pro features.
 
