@@ -74,7 +74,7 @@ A mobile-first web application that detects and counts filler words in real time
 
 5.  Open your browser and navigate to the URL shown in your terminal. It is usually `http://localhost:5173`, but it might be different if that port is occupied.
 
-
+## Production Ready Checklist
 *****************************************************************
 *                                                               *
 *   DANGEROUS!  ALERT!  DANGEROUS!  ALERT!  DANGEROUS!  ALERT!   *
