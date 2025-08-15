@@ -51,8 +51,8 @@ A mobile-first web application that detects and counts filler words in real time
     VITE_SUPABASE_URL=your_supabase_project_url_here
     VITE_SUPABASE_ANON_KEY=your_supabase_anon_key_here
 
-    # AssemblyAI
-    VITE_ASSEMBLYAI_API_KEY=your_assemblyai_api_key_here
+    # AssemblyAI - This is now a server-side secret, not a client-side variable.
+    # See the Supabase setup instructions for how to set the ASSEMBLYAI_API_KEY for the Edge Function.
 
     # Sentry
     VITE_SENTRY_DSN=your_sentry_dsn_here
@@ -73,6 +73,16 @@ A mobile-first web application that detects and counts filler words in real time
     ```
 
 5.  Open your browser and navigate to the URL shown in your terminal. It is usually `http://localhost:5173`, but it might be different if that port is occupied.
+
+## Known Issues
+
+When running the application in a development environment, you may see several warnings in the browser console. Most of these are non-critical and can be safely ignored for now.
+
+-   **`net::ERR_BLOCKED_BY_CLIENT`**: This error is typically caused by a browser ad blocker or privacy extension. It blocks tracking requests to services like Sentry and Stripe but does not affect core application functionality.
+-   **PostHog Warnings**: You may see warnings about a missing API key for PostHog (our analytics service). These can be ignored if you are not actively working on analytics features.
+-   **Stripe HTTPS Warning**: A warning about Stripe needing to be run over HTTPS is expected in local development and does not impact testing.
+
+These issues are documented and will be addressed as part of the broader project polishing phase.
 
 ## Production Ready Checklist
 *****************************************************************
