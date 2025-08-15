@@ -24,7 +24,7 @@ The architecture is designed around a modern, client-heavy Jamstack approach. Th
 |  | if (mode === 'local') {   |  |
 |  |   Whisper.cpp (WASM)      |  |
 |  | } else {                  |  |
-|  |   AssemblyAI (WebSocket)  |  |
+|  |   AssemblyAI (SDK)        |  |
 |  | }                         |  |
 |  +---------------------------+  |
 +---------------------------------+
@@ -60,7 +60,7 @@ This diagram offers a more detailed look at the application's architecture from 
 | |  - `SessionSidebar.jsx`                |<--+ if (mode === 'local') {         | |
 | |  - `useSpeechRecognition.js`           |  |   LocalWhisper (On-Device)    | |
 | |    (Provides callback)                 |  | } else {                        | |
-| |  - `useSessionManager.js`              |  |   CloudAssemblyAI (Cloud)       | |
+| |  - `useSessionManager.js`              |  |   CloudAssemblyAI (Cloud, SDK)  | |
 | +----------------------------------------+  | }                               | |
 |                                          |  +---------------------------------+ |
 |                                          |                                    |
@@ -123,7 +123,7 @@ This diagram offers a more detailed look at the application's architecture from 
 │                  │                            │ results to the UI without polling.                                   │                                                                                                │
 │                  │                            │ • `src/services/transcription`: Wrapper for STT providers.         │                                                                                                │
 │                  │                            │ • `modes/LocalWhisper.js`: On-device (planned).                    │                                                                                                │
-│                  │                            │ • `modes/CloudAssemblyAI.js`: Cloud-based (current).               │                                                                                                │
+│                  │                            │ • `modes/CloudAssemblyAI.js`: Cloud-based (current), uses the official `assemblyai` SDK. │                                                                                                │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Tailwind CSS     │ Utility-First CSS          │ Used for all styling, enabling rapid UI development.                 │ N/A                                                                                              │
 │                  │                            │ • `tailwind.config.cjs`: Configures the theme and font sizes.      │                                                                                                │
