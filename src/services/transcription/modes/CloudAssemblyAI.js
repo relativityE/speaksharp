@@ -1,10 +1,11 @@
 // src/services/transcription/modes/CloudAssemblyAI.js
 export default class CloudAssemblyAI {
-  constructor({ apiKey = import.meta.env.VITE_ASSEMBLYAI_API_KEY, performanceWatcher } = {}) {
+  constructor({ apiKey = import.meta.env.VITE_ASSEMBLYAI_API_KEY, performanceWatcher, onTranscriptUpdate } = {}) {
     this.apiKey = apiKey;
     this.ws = null;
     this.transcript = '';
     this.performanceWatcher = performanceWatcher;
+    this.onTranscriptUpdate = onTranscriptUpdate;
     this._frameCount = 0;
     this._t0 = 0;
   }
@@ -14,6 +15,9 @@ export default class CloudAssemblyAI {
   }
 
   async startTranscription(mic) {
+    if (this.onTranscriptUpdate) {
+      this.onTranscriptUpdate({ transcript: { partial: '' } });
+    }
     // ⚠️ Confirm the current realtime WS endpoint in docs
     const url = /* e.g. */ `wss://api.assemblyai.com/v2/realtime/ws?sample_rate=16000`;
     this.ws = new WebSocket(url, []);
@@ -29,6 +33,9 @@ export default class CloudAssemblyAI {
         if (msg.text) {
           // You can track partial vs final from msg structure
           this.transcript = msg.text;
+          if (this.onTranscriptUpdate) {
+            this.onTranscriptUpdate({ transcript: { partial: msg.text } });
+          }
         }
       } catch {}
     };

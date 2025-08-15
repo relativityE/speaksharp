@@ -4,9 +4,10 @@ import CloudAssemblyAI from './modes/CloudAssemblyAI';
 import { createMicStream } from './utils/audioUtils';
 
 export default class TranscriptionService {
-  constructor(mode = 'local', { model = 'tiny.en.bin' } = {}) {
+  constructor(mode = 'local', { model = 'tiny.en.bin', onTranscriptUpdate } = {}) {
     this.mode = mode;      // 'local' | 'cloud'
     this.model = model;    // whisper model
+    this.onTranscriptUpdate = onTranscriptUpdate;
     this.instance = null;
     this.mic = null;
     this._fallbackArmed = true;
@@ -36,10 +37,14 @@ export default class TranscriptionService {
     if (this.instance) {
       try { await this.instance.stopTranscription(); } catch {}
     }
+    const providerConfig = {
+      performanceWatcher,
+      onTranscriptUpdate: this.onTranscriptUpdate,
+    };
     this.instance =
       this.mode === 'local'
-        ? new LocalWhisper({ model: this.model, performanceWatcher })
-        : new CloudAssemblyAI({ performanceWatcher });
+        ? new LocalWhisper({ model: this.model, ...providerConfig })
+        : new CloudAssemblyAI(providerConfig);
     await this.instance.init();
   }
 
