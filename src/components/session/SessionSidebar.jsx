@@ -11,8 +11,6 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Separator } from '@/components/ui/separator';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
 import CircularTimer from './CircularTimer';
 
 const FillerWordCounter = ({ word, data, maxCount }) => {
@@ -129,7 +127,7 @@ const FillerWordAnalysis = ({ fillerData, customWords, setCustomWords }) => {
     );
 };
 
-export const SessionSidebar = ({ isListening, transcript, browserTranscript, fillerData, error, isSupported, startListening, stopListening, reset, customWords, setCustomWords, saveSession, isCloudMode, setIsCloudMode }) => {
+export const SessionSidebar = ({ isListening, transcript, fillerData, error, isSupported, startListening, stopListening, reset, customWords, setCustomWords, saveSession }) => {
     const navigate = useNavigate();
     const { user, profile } = useAuth();
     const stripe = useStripe();
@@ -153,7 +151,8 @@ export const SessionSidebar = ({ isListening, transcript, browserTranscript, fil
         try {
             const { data, error } = await supabase.functions.invoke('stripe-checkout', {
                 body: {
-                    priceId: import.meta.env.VITE_STRIPE_PRICE_ID
+                    // TODO: Replace with your actual Price ID from your Stripe Dashboard
+                    priceId: 'price_1PLaAkG16YUfbOlV9Vp2I50b'
                 },
             });
 
@@ -181,10 +180,9 @@ export const SessionSidebar = ({ isListening, transcript, browserTranscript, fil
 
         const sessionData = {
             duration: elapsedTime,
-            filler_words: fillerData, // Note: DB schema uses filler_words
+            transcript: transcript,
+            filler_data: fillerData,
             created_at: new Date().toISOString(),
-            browser_transcript: isCloudMode ? browserTranscript : transcript,
-            cloud_transcript: isCloudMode ? transcript : null,
         };
 
         if (!user) {
@@ -244,7 +242,7 @@ export const SessionSidebar = ({ isListening, transcript, browserTranscript, fil
             setIsLoading(true);
             reset();
             setElapsedTime(0);
-            startListening({ isCloud: isCloudMode });
+            startListening();
         }
     };
 
@@ -279,30 +277,6 @@ export const SessionSidebar = ({ isListening, transcript, browserTranscript, fil
                     </Button>
                 </CardContent>
             </Card>
-
-            {isPro && (
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="text-lg">Pro Settings</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="flex items-center justify-between">
-                            <Label htmlFor="cloud-mode" className="flex flex-col gap-1">
-                                <span>High-Accuracy Mode</span>
-                                <span className="text-xs font-normal text-muted-foreground">
-                                    Uses cloud transcription for better results.
-                                </span>
-                            </Label>
-                            <Switch
-                                id="cloud-mode"
-                                checked={isCloudMode}
-                                onCheckedChange={setIsCloudMode}
-                                disabled={isListening}
-                            />
-                        </div>
-                    </CardContent>
-                </Card>
-            )}
 
             <FillerWordAnalysis fillerData={fillerData} customWords={customWords} setCustomWords={setCustomWords} />
 
