@@ -1,4 +1,5 @@
 import { AssemblyAI } from 'assemblyai';
+import { supabase } from '../../../lib/supabaseClient';
 
 export default class CloudAssemblyAI {
   constructor({ performanceWatcher, onTranscriptUpdate } = {}) {
@@ -11,62 +12,40 @@ export default class CloudAssemblyAI {
 
   async _getTemporaryToken() {
     try {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      // Use the Supabase client to invoke the edge function.
+      // This is the most robust method as it handles the URL and auth headers automatically.
+      const { data, error } = await supabase.functions.invoke('assemblyai-token');
 
-      if (!supabaseUrl || !supabaseAnonKey) {
-        throw new Error('Supabase environment variables VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY must be configured.');
+      if (error) {
+        throw error;
       }
 
-      const response = await fetch(`${supabaseUrl}/functions/v1/assemblyai-token`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${supabaseAnonKey}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`Token request failed with status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      if (!data.token) {
+      if (!data || !data.token) {
         throw new Error('Token not found in response from Supabase function.');
       }
+
       return data.token;
     } catch (error) {
       console.error('Failed to get AssemblyAI token:', error);
-      throw error;
+      throw new Error(`Failed to get AssemblyAI token: ${error.message}`);
     }
   }
 
   async init() {
-    // The init method is no longer responsible for fetching the token.
-    // It will be fetched on-demand in startTranscription to ensure it's always fresh.
+    // Token will be fetched on-demand in startTranscription.
   }
 
   async startTranscription(mic) {
     try {
       const token = await this._getTemporaryToken();
-
-      // --- Start of requested debugging logs ---
-      console.log('--- AssemblyAI Debug Info ---');
-      console.log('Token received type:', typeof token);
-      console.log('Is token a non-empty string?', typeof token === 'string' && token.length > 0);
-      console.log('Token value (first 10 chars):', typeof token === 'string' ? token.substring(0, 10) + '...' : 'N/A');
-      // --- End of requested debugging logs ---
-
       if (typeof token !== 'string' || !token) {
         throw new Error('Invalid token received. Must be a non-empty string.');
       }
 
-      const config = {
+      this.transcriber = new AssemblyAI.StreamingTranscriber({
         token: token,
         sampleRate: 16000,
-      };
-
-      this.transcriber = new AssemblyAI.StreamingTranscriber(config);
+      });
 
       this.transcriber.on('open', ({ sessionId }) => {
         console.log(`AssemblyAI session opened with ID: ${sessionId}`);
@@ -102,7 +81,6 @@ export default class CloudAssemblyAI {
       const onFrame = (f32) => {
         if (!this.transcriber) return;
         this.transcriber.sendAudio(f32);
-        // PERF
         if (this._frameCount % 10 === 0 && this.performanceWatcher) {
           const elapsedMs = performance.now() - this._t0;
           const audioMs = (this._frameCount * 1024) / 16000 * 1000;
