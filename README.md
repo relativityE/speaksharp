@@ -72,7 +72,29 @@ A mobile-first web application that detects and counts filler words in real time
     pnpm run dev
     ```
 
-5.  Open `http://localhost:5173` in your browser.
+5.  Open your browser and navigate to the URL shown in your terminal. It is usually `http://localhost:5173`, but it might be different if that port is occupied.
+
+## Production Ready Checklist
+*****************************************************************
+*                                                               *
+*   DANGEROUS!  ALERT!  DANGEROUS!  ALERT!  DANGEROUS!  ALERT!   *
+*                                                               *
+*   The following keys MUST be rolled before any production     *
+*   deployment. These are development keys and should not be    *
+*   used in a live environment.                                 *
+*                                                               *
+*   - VITE_SUPABASE_URL                                         *
+*   - VITE_SUPABASE_ANON_KEY                                    *
+*   - VITE_ASSEMBLYAI_API_KEY                                   *
+*   - VITE_SENTRY_DSN                                           *
+*   - VITE_POSTHOG_KEY                                          *
+*   - VITE_POSTHOG_HOST                                         *
+*   - VITE_STRIPE_PUBLISHABLE_KEY                               *
+*   - VITE_STRIPE_SECRET_KEY                                    *
+*   - VITE_STRIPE_WEBHOOK_SECRET                                *
+*                                                               *
+*****************************************************************
+
 
 ## How to Test the Application
 

@@ -49,25 +49,14 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
   const pollIntervalRef = useRef(null);
 
   useEffect(() => {
-    const initService = async () => {
-      try {
-        const service = new TranscriptionService(mode);
-        await service.init();
-        transcriptionServiceRef.current = service;
-      } catch (err) {
-        console.error("Failed to initialize transcription service", err);
-        setError("Failed to initialize transcription service");
-      }
-    };
-    initService();
-
+    // This effect now only handles cleanup when the component unmounts.
     return () => {
       transcriptionServiceRef.current?.destroy();
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
       }
     };
-  }, [mode]);
+  }, []); // No dependencies needed anymore.
 
   const processTranscript = useCallback((newTranscript) => {
     // For now, treat everything as a final chunk.
@@ -100,7 +89,20 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
   }, [customWords, transcript]);
 
   const startListening = async () => {
-    if (isListening || !transcriptionServiceRef.current) {
+    // Defer initialization until the user clicks "start".
+    if (!transcriptionServiceRef.current) {
+      try {
+        const service = new TranscriptionService(mode);
+        await service.init();
+        transcriptionServiceRef.current = service;
+      } catch (err) {
+        console.error("Failed to initialize transcription service", err);
+        setError("Failed to initialize transcription service. Please check microphone permissions.");
+        return;
+      }
+    }
+
+    if (isListening) {
       return;
     }
     try {
