@@ -38,7 +38,6 @@ export default class CloudAssemblyAI {
   async startTranscription(mic) {
     try {
       const token = await this._getTemporaryToken();
-
       if (typeof token !== 'string' || !token) {
         throw new Error('Invalid token received. Must be a non-empty string.');
       }

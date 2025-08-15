@@ -34,19 +34,26 @@ Sentry.init({
   sendDefaultPii: true,
 })
 
-createRoot(document.getElementById('root')).render(
-  <StrictMode>
-    <BrowserRouter>
-      <PostHogProvider>
-        <AuthProvider>
-          <Elements stripe={stripePromise}>
-            {/* The Sentry.ErrorBoundary wraps the entire App to catch all errors */}
-            <Sentry.ErrorBoundary fallback={<div>An error has occurred. Please refresh the page.</div>}>
-              <App />
-            </Sentry.ErrorBoundary>
-          </Elements>
-        </AuthProvider>
-      </PostHogProvider>
-    </BrowserRouter>
-  </StrictMode>,
-)
+const rootElement = document.getElementById('root');
+
+// This check prevents the app from being rendered twice in development
+// due to Vite's strict mode or HMR.
+if (!rootElement._reactRootContainer) {
+  const root = createRoot(rootElement);
+  root.render(
+    <StrictMode>
+      <BrowserRouter>
+        <PostHogProvider>
+          <AuthProvider>
+            <Elements stripe={stripePromise}>
+              {/* The Sentry.ErrorBoundary wraps the entire App to catch all errors */}
+              <Sentry.ErrorBoundary fallback={<div>An error has occurred. Please refresh the page.</div>}>
+                <App />
+              </Sentry.ErrorBoundary>
+            </Elements>
+          </AuthProvider>
+        </PostHogProvider>
+      </BrowserRouter>
+    </StrictMode>
+  );
+}
