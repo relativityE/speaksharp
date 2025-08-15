@@ -47,13 +47,44 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
 
   const transcriptionServiceRef = useRef(null);
 
+  const processFinalChunk = useCallback((finalChunk) => {
+    const newFinalChunk = finalChunk.trim();
+    if (newFinalChunk) {
+      setFinalChunks(prev => [...prev, { text: newFinalChunk, id: Math.random() }]);
+
+      const allPatterns = { ...defaultFillerPatterns };
+      customWords.forEach((word) => {
+          allPatterns[word] = new RegExp(`\\b(${word})\\b`, 'gi');
+      });
+      setFillerData((prevData) => {
+          const newData = { ...prevData };
+          let changed = false;
+          for (const key in allPatterns) {
+              const pattern = allPatterns[key];
+              const matches = newFinalChunk.match(pattern);
+              if (matches && matches.length > 0) {
+                  if (!newData[key]) {
+                      const newIndex = Object.keys(newData).length;
+                      newData[key] = { count: 0, color: FILLER_WORD_COLORS[newIndex % FILLER_WORD_COLORS.length] };
+                  }
+                  newData[key] = { ...newData[key], count: newData[key].count + matches.length };
+                  changed = true;
+              }
+          }
+          return changed ? newData : prevData;
+      });
+    }
+    setInterimTranscript('');
+  }, [customWords]);
+
   const onTranscriptUpdate = useCallback((data) => {
     if (data.transcript?.partial) {
       setInterimTranscript(data.transcript.partial);
     }
-    // Note: The current service providers only give partials.
-    // A more robust implementation would handle final chunks and update accordingly.
-  }, []);
+    if (data.transcript?.final) {
+      processFinalChunk(data.transcript.final);
+    }
+  }, [processFinalChunk]);
 
   useEffect(() => {
     // This effect now only handles cleanup when the component unmounts.
@@ -95,34 +126,7 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
     }
     await transcriptionServiceRef.current.stopTranscription();
     setIsListening(false);
-
-    const newFinalChunk = interimTranscript.trim();
-    if (newFinalChunk) {
-      setFinalChunks(prev => [...prev, { text: newFinalChunk, id: Math.random() }]);
-
-      const allPatterns = { ...defaultFillerPatterns };
-      customWords.forEach((word) => {
-          allPatterns[word] = new RegExp(`\\b(${word})\\b`, 'gi');
-      });
-      setFillerData((prevData) => {
-          const newData = { ...prevData };
-          let changed = false;
-          for (const key in allPatterns) {
-              const pattern = allPatterns[key];
-              const matches = newFinalChunk.match(pattern);
-              if (matches && matches.length > 0) {
-                  if (!newData[key]) {
-                      const newIndex = Object.keys(newData).length;
-                      newData[key] = { count: 0, color: FILLER_WORD_COLORS[newIndex % FILLER_WORD_COLORS.length] };
-                  }
-                  newData[key] = { ...newData[key], count: newData[key].count + matches.length };
-                  changed = true;
-              }
-          }
-          return changed ? newData : prevData;
-      });
-    }
-    setInterimTranscript('');
+    processFinalChunk(interimTranscript);
   };
 
   const reset = useCallback(() => {

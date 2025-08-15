@@ -89,7 +89,7 @@ Growth     → SEO expansion, retargeting ads, coach partnerships
 Frontend        → React + Vite
 Styling         → Tailwind CSS + shadcn/ui  
 Auth/Database   → Supabase
-Speech API      → TranscriptionService (AssemblyAI / Whisper.cpp)
+Speech API      → TranscriptionService (AssemblyAI SDK / Whisper.cpp)
 Payments        → Stripe
 Monitoring      → Sentry
 Analytics       → PostHog
