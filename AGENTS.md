@@ -52,26 +52,10 @@ Jules will automatically configure the PR to merge the newly published branch in
 
 This functionality within Jules simplifies the process of making changes, publishing them, and submitting them for review, leading to faster merging and reduced context switching.
 
-## 6. Pre-Submission Checklist
+## 6. Mandatory Pre-Submission Plan Steps
 
-Before generating a pull request, you **must** perform the following steps, unless explicitly waived by the user.
+To ensure quality and consistency, the final steps of every work plan **must** include the following actions before using the `submit` tool:
 
-1.  **Update `AGENTS.md`:** Review and update the "1. Technology Stack" and "2. Getting Started & Running Tests" sections of this file to reflect any changes to dependencies, build tools, or test commands.
-2.  **Update Documentation:** Review and update all other Markdown files (`.md`) to reflect the code changes you have made. This is critical for keeping the project documentation in sync with the codebase.
-3.  **Run Comprehensive Analysis:** Execute the following prompt to perform a full analysis of the codebase. This helps to identify any new issues or regressions introduced by your changes.
-
-    > You are acting as a combined Principal Software Engineer, Security Architect, and Senior Code Reviewer. Analyze the codebase in the main branch of the SpeakSharp GitHub repository. Your task is to identify and prioritize all known and likely issues in these categories:
-    >
-    > Bugs — incorrect logic, runtime errors, failing tests, regressions.
-    >
-    > Security issues — insecure API handling, unsafe data processing, vulnerabilities in dependencies, potential injection or XSS risks.
-    >
-    > Bad design or architecture — poor separation of concerns, anti-patterns, excessive coupling, scalability bottlenecks.
-    >
-    > Output format (grouped and ranked):
-    >
-    > Critical — Issues that break core functionality, cause security vulnerabilities, or block deployment.
-    >
-    > High — Significant usability, performance, or maintainability problems that could lead to bigger issues.
-    >
-    > Medium — Non-blocking issues that degrade UX, maintainability, or efficiency.
+1.  **Run All Tests:** Execute all relevant test suites (e.g., `pnpm test`) and ensure they pass.
+2.  **Verify Documentation:** Review all `.md` files. Update them to reflect your changes. If no updates are needed, you must still explicitly state that you checked and none were required.
+3.  **Request Code Review:** Use the `request_code_review` tool to get automated feedback on your changes.
