@@ -163,6 +163,7 @@ This simplified and robust approach allows us to maintain a fast and efficient d
     - `[ ]` **[M]** Implement automatic fallback from local to cloud STT based on performance.
     - `[ ]` **[M]** Build a comprehensive analytics dashboard for users.
 - **Should Have:**
+    - `[ ]` **[S]** Implement a fallback to the native Web Speech API if the primary transcription service fails to initialize, improving robustness.
     - `[ ]` **[S]** Implement weekly summary emails.
     - `[ ]` **[S]** Add in-app prompts to encourage users to upgrade.
     - `[ ]` **[S]** Conduct thorough cross-browser testing and bug fixing.
