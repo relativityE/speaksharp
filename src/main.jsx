@@ -43,16 +43,13 @@ try {
 }
 
 const rootElement = document.getElementById('root');
-// This check prevents the app from being mounted multiple times, which can cause issues with HMR.
-if (!rootElement._reactRootContainer) {
-  const root = ReactDOM.createRoot(rootElement);
-  root.render(
+if (rootElement) {
+  ReactDOM.createRoot(rootElement).render(
     <StrictMode>
       <BrowserRouter>
         <PostHogProvider client={posthog}>
           <AuthProvider>
             <Elements stripe={stripePromise}>
-              {/* The Sentry.ErrorBoundary wraps the entire App to catch all errors */}
               <Sentry.ErrorBoundary fallback={<div>An error has occurred. Please refresh the page.</div>}>
                 <App />
               </Sentry.ErrorBoundary>
