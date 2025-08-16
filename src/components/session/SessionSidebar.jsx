@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabaseClient';
 import { Mic, Square, Loader2, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { useStripe } from '@stripe/react-stripe-js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -12,7 +13,7 @@ import CircularTimer from './CircularTimer';
 import { ErrorDisplay } from '../ErrorDisplay';
 
 export const SessionSidebar = ({ isListening, error, startListening, stopListening, reset, mode, setMode, saveSession }) => {
-
+  
     const navigate = useNavigate();
     const { user, profile } = useAuth();
     const stripe = useStripe();
