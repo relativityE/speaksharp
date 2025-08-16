@@ -15,9 +15,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-serve(async (req) => {
+serve(async (_req) => {
   // Handle CORS preflight requests.
-  if (req.method === 'OPTIONS') {
+  if (_req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 

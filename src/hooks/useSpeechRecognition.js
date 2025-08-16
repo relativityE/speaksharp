@@ -43,9 +43,31 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
   const [interimTranscript, setInterimTranscript] = useState('');
   const [fillerData, setFillerData] = useState(getInitialFillerData(customWords));
   const [error, setError] = useState(null);
-  const [mode, setMode] = useState('cloud'); // 'local' or 'cloud'
-
+  const [mode, setMode] = useState('cloud'); // 'local' or 'cloud' or 'native'
   const transcriptionServiceRef = useRef(null);
+  const [isSupported, setIsSupported] = useState(true);
+
+  useEffect(() => {
+    const checkSupport = () => {
+      const isNativeSupported = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+      if (mode === 'native' && !isNativeSupported) {
+        setError("Native speech recognition is not supported in this browser.");
+        setIsSupported(false);
+        return false;
+      }
+      // For 'cloud' and 'local', we assume support is available until an error occurs during initialization.
+      setIsSupported(true);
+      return true;
+    };
+
+    checkSupport();
+
+    // Cleanup on unmount
+    return () => {
+      transcriptionServiceRef.current?.destroy();
+    };
+  }, [mode]);
+
 
   const processFinalChunk = useCallback((finalChunk) => {
     const newFinalChunk = finalChunk.trim();
@@ -86,23 +108,26 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
     }
   }, [processFinalChunk]);
 
-  useEffect(() => {
-    // This effect now only handles cleanup when the component unmounts.
-    return () => {
-      transcriptionServiceRef.current?.destroy();
-    };
-  }, []); // No dependencies needed anymore.
-
   const startListening = async () => {
-    // Defer initialization until the user clicks "start".
+    if (!isSupported) {
+      setError("Speech recognition is not supported on this device or browser.");
+      return;
+    }
+
     if (!transcriptionServiceRef.current) {
       try {
         const service = new TranscriptionService(mode, { onTranscriptUpdate });
         await service.init();
         transcriptionServiceRef.current = service;
+        // After init, the service might have fallen back to native.
+        // Update the mode to reflect the actual service mode.
+        if (service.mode !== mode) {
+          setMode(service.mode);
+        }
       } catch (err) {
         console.error("Failed to initialize transcription service", err);
-        setError("Failed to initialize transcription service. Please check microphone permissions.");
+        setError(err);
+        setIsSupported(false);
         return;
       }
     }
@@ -110,13 +135,14 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
     if (isListening) {
       return;
     }
+
     try {
       setError(null);
       await transcriptionServiceRef.current.startTranscription();
       setIsListening(true);
     } catch (err) {
       console.error('Error starting speech recognition:', err);
-      setError('Failed to start speech recognition');
+      setError(err);
     }
   };
 
@@ -149,7 +175,7 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
     interimTranscript,
     fillerData,
     error,
-    isSupported: true, // Assuming the service is supported
+    isSupported,
     startListening,
     stopListening,
     reset,
