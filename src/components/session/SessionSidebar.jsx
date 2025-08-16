@@ -133,7 +133,7 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
 
     return (
         <div className="flex flex-col gap-6">
-            <Card>
+            <Card className="w-full">
                 <CardHeader>
                     <CardTitle className="text-lg">Settings</CardTitle>
                 </CardHeader>
@@ -154,7 +154,7 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                 </CardContent>
             </Card>
 
-            <Card className="text-center">
+            <Card className="text-center w-full">
                 <CardContent className="p-2">
                     <div className="mb-1">
                         <CircularTimer elapsedTime={elapsedTime} />
@@ -174,7 +174,7 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                 </CardContent>
             </Card>
 
-            <Card>
+            <Card className="w-full">
                 <CardHeader>
                     <CardTitle className="text-lg">Upgrade to Pro</CardTitle>
                 </CardHeader>

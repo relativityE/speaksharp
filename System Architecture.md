@@ -127,8 +127,7 @@ This diagram offers a more detailed look at the application's architecture from 
 │                  │                            │ results to the UI without polling.                                   │                                                                                                │
 │                  │                            │ • `src/services/transcription`: Wrapper for STT providers.         │                                                                                                │
 │                  │                            │ • `modes/LocalWhisper.js`: On-device (planned).                    │                                                                                                │
-│                  │                            │ • `modes/CloudAssemblyAI.js`: Cloud-based, uses temporary tokens for │                                                                                                │
-│                  │                            │   secure, browser-based authentication via a Supabase function.      │                                                                                                │
+│                  │                            │ • `modes/CloudAssemblyAI.js`: Cloud-based, uses temporary tokens.    │                                                                                                │
 │                  │                            │ • `modes/NativeBrowser.js`: Fallback using the browser's native API. │                                                                                                │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Tailwind CSS     │ Utility-First CSS          │ Used for all styling, enabling rapid UI development.                 │ N/A                                                                                              │
@@ -182,17 +181,18 @@ This section details the step-by-step execution flow for both free and paid user
 
 ### Free User Flow
 
-The free tier is designed to be flexible, allowing users to choose between privacy-focused local processing and higher-accuracy cloud processing.
+This flow now applies to both anonymous and logged-in free users.
 
-1.  **Authentication**: A user with a `subscription_status` of `'free'` logs in.
-2.  **Speech Recognition (User's Choice)**: When the user starts a session, the `useSpeechRecognition.js` hook is activated, which in turn uses the `TranscriptionService`. The user can toggle between 'local' and 'cloud' modes. If both of these modes fail to initialize, the service will automatically fall back to using the browser's native SpeechRecognition API, and the user will be notified.
-3.  **Session Completion**: The user manually stops the session.
-4.  **Data Persistence (Metadata Only)**: The `useSessionManager.js` and `lib/storage.js` modules collaborate to save the session.
-    *   **API Hit**: An `insert` call is made to the Supabase `sessions` table.
-    *   **Data Stored**: Only session metadata is persisted (e.g., `duration`, `total_words`, `filler_words` JSON). The full transcript is discarded and **not** sent to the database, reinforcing privacy.
-5.  **Usage Tracking & Enforcement**: After a successful save, an RPC (Remote Procedure Call) is made to a Supabase function.
-    *   **API Hit**: `supabase.rpc('update_user_usage', ...)` is called.
-    *   **Action**: This secure backend function checks if the user is over their monthly limit. If they are not, it adds the `session_duration_seconds` to their total. If they are over the limit, it returns `false`, and the frontend displays a notification. This prevents any further usage until the next month or an upgrade.
+1.  **Speech Recognition (User's Choice)**: When the user starts a session, the `useSpeechRecognition.js` hook is activated. The user can toggle between 'local' and 'cloud' modes.
+    *   **Cloud Mode (Default):** This mode uses the `AssemblyAI` service and is available to all users, including anonymous ones. The request for a temporary token is handled by a Supabase function that does not require user authentication.
+    *   **Local Mode**: This mode uses a placeholder for the on-device `Whisper.cpp` engine.
+    *   **Automatic Fallback**: If the chosen mode fails for any reason (e.g., API error, browser not supported), the service will automatically fall back to using the browser's native SpeechRecognition API, and the user will be notified.
+2.  **Session Completion**: The user manually stops the session.
+3.  **Data Persistence (Metadata Only)**:
+    *   **For logged-in users**: The `useSessionManager.js` and `lib/storage.js` modules save the session metadata to the Supabase `sessions` table.
+    *   **For anonymous users**: Session data is stored in `sessionStorage` and displayed on the analytics page, but it is not persisted after the user closes the tab.
+4.  **Usage Tracking & Enforcement (For logged-in free users)**: After a successful save, an RPC is made to a Supabase function to update the user's usage.
+
 
 **Key Files & Components**: `SessionPage.jsx`, `SessionSidebar.jsx`, `useSpeechRecognition.js`, `useSessionManager.js`, `lib/storage.js`, `lib/supabaseClient.js`, `services/transcription/TranscriptionService.js`.
 

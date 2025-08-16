@@ -82,7 +82,14 @@ export default class TranscriptionService {
     if (!this.instance) throw new Error('TranscriptionService not initialized');
     this._lagStrikes = 0;
     this._fallbackArmed = true;
-    return this.instance.startTranscription(this.mic);
+    try {
+      await this.instance.startTranscription(this.mic);
+    } catch (error) {
+      console.warn(`Failed to start ${this.mode} mode. Falling back to native.`, error);
+      this.setMode('native');
+      await this._instantiate(this.instance?.performanceWatcher);
+      await this.instance.startTranscription(this.mic);
+    }
   }
 
   async stopTranscription() {
