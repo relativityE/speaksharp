@@ -126,7 +126,7 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
         }
       } catch (err) {
         console.error("Failed to initialize transcription service", err);
-        setError("Failed to initialize transcription service. Please check microphone permissions and browser support.");
+        setError(err);
         setIsSupported(false);
         return;
       }
@@ -142,7 +142,7 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
       setIsListening(true);
     } catch (err) {
       console.error('Error starting speech recognition:', err);
-      setError('Failed to start speech recognition. Please ensure microphone access is allowed.');
+      setError(err);
     }
   };
 
