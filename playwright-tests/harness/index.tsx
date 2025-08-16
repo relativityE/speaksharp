@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { useSpeechRecognition } from '../../src/hooks/useSpeechRecognition';
 
 function TestHarness() {
-  const { transcript, isListening, startListening } = useSpeechRecognition();
+  const { transcript, isListening, startListening } = useSpeechRecognition({ mode: 'native' });
 
   return (
     <div>
