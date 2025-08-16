@@ -32,8 +32,10 @@ test.describe('useSpeechRecognition in browser', () => {
   });
 
   test('starts listening, receives transcript, and stops', async ({ page }) => {
-    // Inject the mock using addInitScript BEFORE the page loads
-    await page.addInitScript(() => {
+    await page.goto(`http://localhost:${port}/`);
+
+    // Inject the mock using page.evaluate after the page is loaded
+    await page.evaluate(() => {
       class MockSpeechRecognition {
         continuous = false;
         interimResults = false;
@@ -41,38 +43,19 @@ test.describe('useSpeechRecognition in browser', () => {
         onstart = null;
         onresult = null;
         onend = null;
-        onerror = null;
 
         start() {
-          if (this.onstart) {
-            this.onstart(new Event('start'));
-          }
           setTimeout(() => {
-            if (this.onresult) {
-              const event = new Event('result') as any;
-              event.results = [[{ transcript: 'test phrase', confidence: 0.9 }]];
-              this.onresult(event);
-            }
-          }, 100);
+            this.onstart?.();
+            this.onresult?.({ results: [[{ transcript: 'test phrase' }]] });
+          }, 50);
         }
-
         stop() {
-          if (this.onend) {
-            this.onend(new Event('end'));
-          }
-        }
-
-        abort() {
-            if (this.onend) {
-                this.onend(new Event('end'));
-            }
+          setTimeout(() => this.onend?.(), 50);
         }
       }
-      // Make it available on the window object for the app to use
       (window as any).webkitSpeechRecognition = MockSpeechRecognition;
     });
-
-    await page.goto(`http://localhost:${port}/`);
 
     // Initial state check
     await expect(page.locator('#isListening')).toHaveText('false');
