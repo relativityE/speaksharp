@@ -2,9 +2,9 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
-const FillerWordAnalysis = ({ fillerWords }) => {
+const FillerWordAnalysis = ({ fillerWords = {} }) => {
   // Sort filler words by count in descending order
-  const sortedFillerWords = Object.entries(fillerWords).sort(([, a], [, b]) => b - a);
+  const sortedFillerWords = Object.entries(fillerWords || {}).sort(([, a], [, b]) => b - a);
 
   return (
     <Card>
