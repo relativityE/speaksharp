@@ -150,6 +150,15 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                             <Label htmlFor="transcription-mode" className="text-sm text-muted-foreground">Cloud</Label>
                         </div>
                     </div>
+                    <div className="text-center p-2 bg-secondary rounded-md">
+                        <p className="text-sm text-muted-foreground">
+                            {
+                                mode === 'cloud' ? 'Using Cloud Transcription (Highest Accuracy)' :
+                                mode === 'local' ? 'Using Local Transcription (Faster, Private)' :
+                                'Using Native Browser Fallback'
+                            }
+                        </p>
+                    </div>
                     <ErrorDisplay error={error} />
                 </CardContent>
             </Card>

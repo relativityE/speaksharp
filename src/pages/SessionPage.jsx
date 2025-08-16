@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { useSessionManager } from '../hooks/useSessionManager';
 import posthog from 'posthog-js';
+import { FILLER_WORD_KEYS } from '../config';
 import { TranscriptPanel } from '../components/session/TranscriptPanel';
 import FillerWordAnalysis from '../components/session/FillerWordAnalysis';
 import { SessionSidebar } from '../components/session/SessionSidebar';
@@ -26,12 +27,17 @@ export const SessionPage = () => {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 relative">
                 <div className="lg:col-span-2 space-y-8">
                     <TranscriptPanel {...speechRecognition} />
-                    <FillerWordAnalysis fillerWords={speechRecognition.fillerWords} />
+                    <FillerWordAnalysis
+                        fillerData={speechRecognition.fillerData}
+                        customWords={customWords}
+                        addCustomWord={(word) => setCustomWords(prev => [...prev, word])}
+                        defaultFillerWords={Object.values(FILLER_WORD_KEYS)}
+                    />
                 </div>
 
                 {/* Desktop Sidebar */}
                 <div className="hidden lg:block lg:col-span-1">
-                    <SessionSidebar {...speechRecognition} customWords={customWords} setCustomWords={setCustomWords} saveSession={saveSession} mode={mode} setMode={setMode} />
+                    <SessionSidebar {...speechRecognition} saveSession={saveSession} mode={mode} setMode={setMode} />
                 </div>
 
                 {/* Mobile Drawer */}
@@ -45,7 +51,7 @@ export const SessionPage = () => {
                         </DrawerTrigger>
                         <DrawerContent>
                             <div className="p-4 overflow-y-auto h-[80vh]">
-                                <SessionSidebar {...speechRecognition} customWords={customWords} setCustomWords={setCustomWords} saveSession={saveSession} mode={mode} setMode={setMode} />
+                                <SessionSidebar {...speechRecognition} saveSession={saveSession} mode={mode} setMode={setMode} />
                             </div>
                         </DrawerContent>
                     </Drawer>

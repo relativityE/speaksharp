@@ -12,7 +12,6 @@
     - **Phase 2 (Planned):** Will use Whisper.cpp for on-device, private transcription.
 - **UI for Mode Switching:** Added a toggle in the session sidebar to allow users to switch between "local" and "cloud" transcription modes.
 - **Documentation Overhaul:** Updated `README.md` and `System Architecture.md` to reflect the new transcription architecture, including updated diagrams, technology stack, and deployment instructions. Added a security alert for production keys.
-- **Native Fallback for Speech Recognition:** Implemented a fallback to the native Web Speech API. If the primary cloud or local transcription services fail to initialize, the application will now seamlessly fall back to the browser's built-in speech recognition, significantly improving the robustness of the core feature.
 
 ---
 
@@ -157,8 +156,6 @@ This simplified and robust approach allows us to maintain a fast and efficient d
     - `[ ]` **[C]** A/B testing setup with PostHog.
 - **Won't Have (for this phase):**
     - `[ ]` **[W]** On-device transcription (moved to Phase 2).
-- **Must Have:**
-    - `✅` **[S]** Implement a fallback to the native Web Speech API if the primary transcription service fails to initialize, improving robustness.
 
 ### PHASE 2 — PRIVACY & POLISH (Months 1-3) - 0% Complete
 - **Must Have:**
@@ -166,6 +163,7 @@ This simplified and robust approach allows us to maintain a fast and efficient d
     - `[ ]` **[M]** Implement automatic fallback from local to cloud STT based on performance.
     - `[ ]` **[M]** Build a comprehensive analytics dashboard for users.
 - **Should Have:**
+    - `[ ]` **[S]** Implement a fallback to the native Web Speech API if the primary transcription service fails to initialize, improving robustness.
     - `[ ]` **[S]** Implement weekly summary emails.
     - `[ ]` **[S]** Add in-app prompts to encourage users to upgrade.
     - `[ ]` **[S]** Conduct thorough cross-browser testing and bug fixing.
