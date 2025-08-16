@@ -13,8 +13,24 @@ export default class CloudAssemblyAI {
   async _getTemporaryToken() {
     try {
       // Use the Supabase client to invoke the edge function.
-      // This is the most robust method as it handles the URL and auth headers automatically.
-      const { data, error } = await supabase.functions.invoke('assemblyai-token');
+      // We explicitly pass the user's auth token to ensure the function is called
+      // with the correct permissions.
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+      if (sessionError) {
+        throw new Error(`Failed to get user session: ${sessionError.message}`);
+      }
+
+      if (!session) {
+        // This will be caught by the overall try-catch and result in a 401-like error.
+        throw new Error('User not authenticated. Please log in.');
+      }
+
+      const { data, error } = await supabase.functions.invoke('assemblyai-token', {
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+        }
+      });
 
       if (error) {
         throw error;
