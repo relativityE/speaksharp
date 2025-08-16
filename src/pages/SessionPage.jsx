@@ -4,6 +4,7 @@ import { useSessionManager } from '../hooks/useSessionManager';
 import posthog from 'posthog-js';
 import { TranscriptPanel } from '../components/session/TranscriptPanel';
 import { SessionSidebar } from '../components/session/SessionSidebar';
+import ErrorDisplay from '../components/ErrorDisplay';
 import { Button } from '@/components/ui/button';
 import { Drawer, DrawerContent, DrawerTrigger } from '@/components/ui/drawer';
 import { SlidersHorizontal } from 'lucide-react';
@@ -14,7 +15,7 @@ export const SessionPage = () => {
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
     const speechRecognition = useSpeechRecognition({ customWords });
-    const { mode, setMode } = speechRecognition;
+    const { mode, setMode, error } = speechRecognition;
 
     useEffect(() => {
         posthog.capture('session_page_viewed');
@@ -24,6 +25,7 @@ export const SessionPage = () => {
         <div className="container mx-auto px-4 py-10">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 relative">
                 <div className="lg:col-span-2">
+                    <ErrorDisplay error={error} />
                     <TranscriptPanel {...speechRecognition} />
                 </div>
 

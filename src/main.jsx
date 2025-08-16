@@ -43,27 +43,22 @@ try {
 }
 
 const rootElement = document.getElementById('root');
-
-// Check if a root has already been created on this element.
-// This is important for development with Hot Module Replacement (HMR).
-if (!rootElement._reactRoot) {
-  rootElement._reactRoot = ReactDOM.createRoot(rootElement);
+if (rootElement) {
+  const root = ReactDOM.createRoot(rootElement);
+  root.render(
+    <StrictMode>
+      <BrowserRouter>
+        <PostHogProvider client={posthog}>
+          <AuthProvider>
+            <Elements stripe={stripePromise}>
+              {/* The Sentry.ErrorBoundary wraps the entire App to catch all errors */}
+              <Sentry.ErrorBoundary fallback={<div>An error has occurred. Please refresh the page.</div>}>
+                <App />
+              </Sentry.ErrorBoundary>
+            </Elements>
+          </AuthProvider>
+        </PostHogProvider>
+      </BrowserRouter>
+    </StrictMode>
+  );
 }
-
-// Render the App component using the existing or new root.
-rootElement._reactRoot.render(
-  <StrictMode>
-    <BrowserRouter>
-      <PostHogProvider client={posthog}>
-        <AuthProvider>
-          <Elements stripe={stripePromise}>
-            {/* The Sentry.ErrorBoundary wraps the entire App to catch all errors */}
-            <Sentry.ErrorBoundary fallback={<div>An error has occurred. Please refresh the page.</div>}>
-              <App />
-            </Sentry.ErrorBoundary>
-          </Elements>
-        </AuthProvider>
-      </PostHogProvider>
-    </BrowserRouter>
-  </StrictMode>
-);
