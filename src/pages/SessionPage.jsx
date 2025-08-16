@@ -3,6 +3,7 @@ import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { useSessionManager } from '../hooks/useSessionManager';
 import posthog from 'posthog-js';
 import { TranscriptPanel } from '../components/session/TranscriptPanel';
+import FillerWordAnalysis from '../components/session/FillerWordAnalysis';
 import { SessionSidebar } from '../components/session/SessionSidebar';
 import { Button } from '@/components/ui/button';
 import { Drawer, DrawerContent, DrawerTrigger } from '@/components/ui/drawer';
@@ -23,8 +24,9 @@ export const SessionPage = () => {
     return (
         <div className="container mx-auto px-4 py-10">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 relative">
-                <div className="lg:col-span-2">
+                <div className="lg:col-span-2 space-y-8">
                     <TranscriptPanel {...speechRecognition} />
+                    <FillerWordAnalysis fillerWords={speechRecognition.fillerWords} />
                 </div>
 
                 {/* Desktop Sidebar */}
