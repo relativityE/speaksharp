@@ -8,9 +8,9 @@ const client = new AssemblyAI({
 });
 
 // Allow requests from any origin.
-// This is a temporary solution for development and should be reviewed for production.
+// This is a robust solution for development when the environment cannot be guaranteed.
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': 'http://localhost:5173',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
