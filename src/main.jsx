@@ -43,23 +43,27 @@ try {
 }
 
 const rootElement = document.getElementById('root');
-// This check prevents the app from being mounted multiple times, which can cause issues with HMR.
-if (!rootElement._reactRootContainer) {
-  const root = ReactDOM.createRoot(rootElement);
-  root.render(
-    <StrictMode>
-      <BrowserRouter>
-        <PostHogProvider client={posthog}>
-          <AuthProvider>
-            <Elements stripe={stripePromise}>
-              {/* The Sentry.ErrorBoundary wraps the entire App to catch all errors */}
-              <Sentry.ErrorBoundary fallback={<div>An error has occurred. Please refresh the page.</div>}>
-                <App />
-              </Sentry.ErrorBoundary>
-            </Elements>
-          </AuthProvider>
-        </PostHogProvider>
-      </BrowserRouter>
-    </StrictMode>
-  );
+
+// Check if a root has already been created on this element.
+// This is important for development with Hot Module Replacement (HMR).
+if (!rootElement._reactRoot) {
+  rootElement._reactRoot = ReactDOM.createRoot(rootElement);
 }
+
+// Render the App component using the existing or new root.
+rootElement._reactRoot.render(
+  <StrictMode>
+    <BrowserRouter>
+      <PostHogProvider client={posthog}>
+        <AuthProvider>
+          <Elements stripe={stripePromise}>
+            {/* The Sentry.ErrorBoundary wraps the entire App to catch all errors */}
+            <Sentry.ErrorBoundary fallback={<div>An error has occurred. Please refresh the page.</div>}>
+              <App />
+            </Sentry.ErrorBoundary>
+          </Elements>
+        </AuthProvider>
+      </PostHogProvider>
+    </BrowserRouter>
+  </StrictMode>
+);
