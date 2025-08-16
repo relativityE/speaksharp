@@ -43,6 +43,7 @@ try {
 }
 
 const rootElement = document.getElementById('root');
+
 if (rootElement && !rootElement.hasChildNodes()) {
   const root = ReactDOM.createRoot(rootElement);
   root.render(
