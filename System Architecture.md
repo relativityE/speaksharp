@@ -23,8 +23,10 @@ The architecture is designed around a modern, client-heavy Jamstack approach. Th
 |  |---------------------------|  |
 |  | if (mode === 'local') {   |  |
 |  |   Whisper.cpp (WASM)      |  |
-|  | } else {                  |  |
+|  | } else if (mode === 'cloud') { |  |
 |  |   AssemblyAI (via Token)  |  |
+|  | } else { // native fallback |  |
+|  |   NativeBrowserSpeechRecognition |  |
 |  | }                         |  |
 |  +---------------------------+  |
 +---------------------------------+
@@ -59,9 +61,11 @@ This diagram offers a more detailed look at the application's architecture from 
 | |  - `SessionPage.jsx`                   |  |---------------------------------| |
 | |  - `SessionSidebar.jsx`                |<--+ if (mode === 'local') {         | |
 | |  - `useSpeechRecognition.js`           |  |   LocalWhisper (On-Device)    | |
-| |    (Provides callback)                 |  | } else {                        | |
+| |    (Provides callback)                 |  | } else if (mode === 'cloud') {  | |
 | |  - `useSessionManager.js`              |  |   CloudAssemblyAI (via Supabase token fn) | |
-| +----------------------------------------+  | }                               | |
+| +----------------------------------------+  | } else { // native fallback   | |
+|                                          |  |   NativeBrowser               | |
+|                                          |  | }                               | |
 |                                          |  +---------------------------------+ |
 |                                          |                                    |
 +------------------------------------------+------------------------------------+
@@ -125,6 +129,7 @@ This diagram offers a more detailed look at the application's architecture from 
 │                  │                            │ • `modes/LocalWhisper.js`: On-device (planned).                    │                                                                                                │
 │                  │                            │ • `modes/CloudAssemblyAI.js`: Cloud-based, uses temporary tokens for │                                                                                                │
 │                  │                            │   secure, browser-based authentication via a Supabase function.      │                                                                                                │
+│                  │                            │ • `modes/NativeBrowser.js`: Fallback using the browser's native API. │                                                                                                │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Tailwind CSS     │ Utility-First CSS          │ Used for all styling, enabling rapid UI development.                 │ N/A                                                                                              │
 │                  │                            │ • `tailwind.config.cjs`: Configures the theme and font sizes.      │                                                                                                │
@@ -180,9 +185,7 @@ This section details the step-by-step execution flow for both free and paid user
 The free tier is designed to be flexible, allowing users to choose between privacy-focused local processing and higher-accuracy cloud processing.
 
 1.  **Authentication**: A user with a `subscription_status` of `'free'` logs in.
-2.  **Speech Recognition (User's Choice)**: When the user starts a session, the `useSpeechRecognition.js` hook is activated, which in turn uses the `TranscriptionService`. The user can toggle between two modes:
-    *   **Local Mode**: This mode is the default and uses a placeholder for the on-device `Whisper.cpp` engine. In this mode, no audio leaves the device, ensuring maximum privacy.
-    *   **Cloud Mode**: This mode uses the `AssemblyAI` service for transcription. Audio is streamed to the AssemblyAI servers for processing.
+2.  **Speech Recognition (User's Choice)**: When the user starts a session, the `useSpeechRecognition.js` hook is activated, which in turn uses the `TranscriptionService`. The user can toggle between 'local' and 'cloud' modes. If both of these modes fail to initialize, the service will automatically fall back to using the browser's native SpeechRecognition API, and the user will be notified.
 3.  **Session Completion**: The user manually stops the session.
 4.  **Data Persistence (Metadata Only)**: The `useSessionManager.js` and `lib/storage.js` modules collaborate to save the session.
     *   **API Hit**: An `insert` call is made to the Supabase `sessions` table.
@@ -199,7 +202,7 @@ The Pro tier removes limitations and adds features.
 
 1.  **Authentication**: A user with a `subscription_status` of `'pro'` or `'premium'` logs in.
 2.  **Unrestricted Usage**: Pro-specific features, like the "Custom Words" tracker, are enabled in the UI. There are no usage limits.
-3.  **Speech Recognition (User's Choice)**: The process is **identical to the free user flow**. The user can choose between `local` and `cloud` modes.
+3.  **Speech Recognition (User's Choice)**: The process is **identical to the free user flow**.
 4.  **Session Completion & Persistence**: This is identical to the free user flow. Session metadata (not the transcript) is saved to the `sessions` table. The `update_user_usage` RPC function is **not** called, as it is unnecessary for Pro users.
 
 **Key Files & Components**: The same as the free flow, with conditional logic in `SessionSidebar.jsx` unlocking the Pro features.
