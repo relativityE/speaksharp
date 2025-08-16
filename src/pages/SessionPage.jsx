@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { useSessionManager } from '../hooks/useSessionManager';
 import posthog from 'posthog-js';
+import { toast } from 'sonner';
 import { TranscriptPanel } from '../components/session/TranscriptPanel';
 import { SessionSidebar } from '../components/session/SessionSidebar';
-import ErrorDisplay from '../components/ErrorDisplay';
+import { ErrorDisplay } from '../components/ErrorDisplay';
 import { Button } from '@/components/ui/button';
 import { Drawer, DrawerContent, DrawerTrigger } from '@/components/ui/drawer';
 import { SlidersHorizontal } from 'lucide-react';
@@ -20,6 +21,12 @@ export const SessionPage = () => {
     useEffect(() => {
         posthog.capture('session_page_viewed');
     }, []);
+
+    useEffect(() => {
+        if (mode) {
+            toast.info(`Transcription mode: ${mode}`);
+        }
+    }, [mode]);
 
     return (
         <div className="container mx-auto px-4 py-10">
