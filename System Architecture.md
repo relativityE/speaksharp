@@ -185,10 +185,7 @@ This section details the step-by-step execution flow for both free and paid user
 The free tier is designed to be flexible, allowing users to choose between privacy-focused local processing and higher-accuracy cloud processing.
 
 1.  **Authentication**: A user with a `subscription_status` of `'free'` logs in.
-2.  **Speech Recognition (User's Choice)**: When the user starts a session, the `useSpeechRecognition.js` hook is activated, which in turn uses the `TranscriptionService`. The user can toggle between three modes:
-    *   **Local Mode**: This mode is the default and uses a placeholder for the on-device `Whisper.cpp` engine. In this mode, no audio leaves the device, ensuring maximum privacy.
-    *   **Cloud Mode**: This mode uses the `AssemblyAI` service for transcription. Audio is streamed to the AssemblyAI servers for processing.
-    *   **Native Mode**: This mode uses the browser's built-in `SpeechRecognition` API. It is used as a fallback if the other modes fail to initialize.
+2.  **Speech Recognition (User's Choice)**: When the user starts a session, the `useSpeechRecognition.js` hook is activated, which in turn uses the `TranscriptionService`. The user can toggle between 'local' and 'cloud' modes. If both of these modes fail to initialize, the service will automatically fall back to using the browser's native SpeechRecognition API, and the user will be notified.
 3.  **Session Completion**: The user manually stops the session.
 4.  **Data Persistence (Metadata Only)**: The `useSessionManager.js` and `lib/storage.js` modules collaborate to save the session.
     *   **API Hit**: An `insert` call is made to the Supabase `sessions` table.
@@ -205,7 +202,7 @@ The Pro tier removes limitations and adds features.
 
 1.  **Authentication**: A user with a `subscription_status` of `'pro'` or `'premium'` logs in.
 2.  **Unrestricted Usage**: Pro-specific features, like the "Custom Words" tracker, are enabled in the UI. There are no usage limits.
-3.  **Speech Recognition (User's Choice)**: The process is **identical to the free user flow**. The user can choose between `local`, `cloud`, and `native` modes.
+3.  **Speech Recognition (User's Choice)**: The process is **identical to the free user flow**.
 4.  **Session Completion & Persistence**: This is identical to the free user flow. Session metadata (not the transcript) is saved to the `sessions` table. The `update_user_usage` RPC function is **not** called, as it is unnecessary for Pro users.
 
 **Key Files & Components**: The same as the free flow, with conditional logic in `SessionSidebar.jsx` unlocking the Pro features.
