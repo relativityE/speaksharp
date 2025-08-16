@@ -13,6 +13,7 @@ import CircularTimer from './CircularTimer';
 import { ErrorDisplay } from '../ErrorDisplay';
 
 export const SessionSidebar = ({ isListening, error, startListening, stopListening, reset, mode, setMode, saveSession }) => {
+  
     const navigate = useNavigate();
     const { user, profile } = useAuth();
     const stripe = useStripe();
