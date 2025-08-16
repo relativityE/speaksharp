@@ -13,7 +13,6 @@ import CircularTimer from './CircularTimer';
 import { ErrorDisplay } from '../ErrorDisplay';
 
 export const SessionSidebar = ({ isListening, error, startListening, stopListening, reset, mode, setMode, saveSession }) => {
-  
     const navigate = useNavigate();
     const { user, profile } = useAuth();
     const stripe = useStripe();
@@ -140,36 +139,22 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                 </CardHeader>
                 <CardContent className="space-y-4">
                     <div className="flex items-center justify-between">
-                        <Label htmlFor="transcription-mode" className="text-base">Mode</Label>
-                        <div className="relative w-24 h-10">
-                            <div className="absolute inset-0 bg-muted rounded-full p-1 flex items-center transition-all duration-300">
-                                <div
-                                    className={`absolute bg-background h-8 w-1/2 rounded-full shadow-md transform transition-transform duration-300 ${mode === 'cloud' ? 'translate-x-full' : 'translate-x-0'}`}
-                                ></div>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="w-1/2 z-10"
-                                    onClick={() => setMode('local')}
-                                >
-                                    Local
-                                </Button>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="w-1/2 z-10"
-                                    onClick={() => setMode('cloud')}
-                                >
-                                    Cloud
-                                </Button>
-                            </div>
+                        <Label htmlFor="transcription-mode">Transcription Mode</Label>
+                        <div className="flex items-center gap-2">
+                            <Label htmlFor="transcription-mode" className="text-sm text-muted-foreground">Local</Label>
+                            <Switch
+                                id="transcription-mode"
+                                checked={mode === 'cloud'}
+                                onCheckedChange={(checked) => setMode(checked ? 'cloud' : 'local')}
+                            />
+                            <Label htmlFor="transcription-mode" className="text-sm text-muted-foreground">Cloud</Label>
                         </div>
                     </div>
                     <ErrorDisplay error={error} />
                 </CardContent>
             </Card>
 
-            <Card className="text-center max-w-xs mx-auto">
+            <Card className="text-center">
                 <CardContent className="p-2">
                     <div className="mb-1">
                         <CircularTimer elapsedTime={elapsedTime} />
