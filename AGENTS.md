@@ -57,6 +57,5 @@ This functionality within Jules simplifies the process of making changes, publis
 To ensure quality and consistency, the final steps of every work plan **must** include the following actions before using the `submit` tool:
 
 1.  **Run All Tests:** Execute all relevant test suites (e.g., `pnpm test`) and ensure they pass.
-2.  **Verify Documentation:** Review all `.md` files (`README.md`, `PRD.md`, `System Architecture.md`). Update them to reflect your changes. If no updates are needed, you must still explicitly state that you checked and none were required.
+2.  **Verify Documentation:** Review all `.md` files. Update them to reflect your changes. If no updates are needed, you must still explicitly state that you checked and none were required.
 3.  **Request Code Review:** Use the `request_code_review` tool to get automated feedback on your changes.
-4.  **Update Documentation:** When making changes to the codebase, you **must** review and update the following documentation files as appropriate: `PRD.md`, `System Architecture.md`, and `README.md`.

@@ -8,7 +8,7 @@ A mobile-first web application that detects and counts filler words in real time
 - **Color-Coded Highlighting**: Each filler word is assigned a unique color. Words are highlighted in the live transcript and color-coded in the analysis panel for immediate visual feedback.
 - **Dynamic Transcript Box**: The transcript panel starts small and grows as you speak, maximizing screen real estate.
 - **Live Analytics**: The sidebar provides a live-updating word count and frequency analysis.
-- **Hybrid Speech Processing**: Supports both local, in-browser speech recognition for privacy and a cloud-based option (AssemblyAI) for higher accuracy. It also includes an automatic fallback to the browser's native speech recognition for improved robustness.
+- **Hybrid Speech Processing**: Supports both local, in-browser speech recognition for privacy and a cloud-based option (AssemblyAI) for higher accuracy.
 - **Session Management**: Start, stop, and save practice sessions.
 - **Customizable Experience**: Add your own words to track and use a mobile-friendly, responsive interface.
 
@@ -22,7 +22,6 @@ A mobile-first web application that detects and counts filler words in real time
 - **Speech Processing**:
     - **Phase 1 (Current)**: AssemblyAI for cloud-based transcription.
     - **Phase 2 (Planned)**: Whisper.cpp for local, on-device transcription to ensure privacy.
-    - **Fallback**: Automatic fallback to the browser's native speech recognition API.
 
 ## Getting Started
 

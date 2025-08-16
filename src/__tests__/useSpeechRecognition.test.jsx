@@ -116,7 +116,7 @@ describe('useSpeechRecognition', () => {
       await result.current.startListening();
     });
 
-    expect(result.current.error).toBe('Failed to start speech recognition');
+    expect(result.current.error.message).toBe('Start failed');
     expect(result.current.isListening).toBe(false);
   });
 
@@ -129,7 +129,7 @@ describe('useSpeechRecognition', () => {
     });
 
     await waitFor(() => {
-      expect(result.current.error).toBe('Failed to initialize transcription service. Please check microphone permissions.');
+      expect(result.current.error.message).toBe('Init failed');
     });
   });
 
