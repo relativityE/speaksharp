@@ -2,20 +2,17 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabaseClient';
-import { Mic, Square, Plus, Trash2, Loader2, Zap } from 'lucide-react';
+import { Mic, Square, Loader2, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { useStripe } from '@stripe/react-stripe-js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Separator } from '@/components/ui/separator';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import CircularTimer from './CircularTimer';
 import { ErrorDisplay } from '../ErrorDisplay';
 
-export const SessionSidebar = ({ isListening, error, startListening, stopListening, reset, mode, setMode }) => {
+export const SessionSidebar = ({ isListening, error, startListening, stopListening, reset, mode, setMode, saveSession }) => {
+
     const navigate = useNavigate();
     const { user, profile } = useAuth();
     const stripe = useStripe();
@@ -60,8 +57,38 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
     };
 
     const endSessionAndSave = async () => {
-        stopListening();
-        // ... (save logic will be handled in useSessionManager)
+        const sessionData = await stopListening();
+
+        if (!user) {
+            sessionStorage.setItem('anonymousSession', JSON.stringify({
+                ...sessionData,
+                 created_at: new Date().toISOString()
+            }));
+            navigate('/analytics');
+            return;
+        }
+
+        if (elapsedTime > 0 && user && !isPro) {
+            const { data: updateSuccess, error: rpcError } = await supabase.rpc('update_user_usage', {
+                session_duration_seconds: Math.ceil(elapsedTime)
+            });
+
+            if (rpcError) {
+                console.error("Error updating user usage:", rpcError);
+                toast.error("Could not save session usage. Please contact support.");
+            } else if (!updateSuccess) {
+                toast.error("You've exceeded your free monthly limit.", {
+                    description: "Your session was saved, but usage could not be updated. Please upgrade to a Pro plan for unlimited practice.",
+                    action: {
+                        label: "Upgrade",
+                        onClick: () => handleUpgrade(),
+                    },
+                });
+            }
+        }
+
+        saveSession(sessionData);
+        navigate('/analytics');
     };
 
     useEffect(() => {

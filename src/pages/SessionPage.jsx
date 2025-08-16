@@ -5,7 +5,6 @@ import posthog from 'posthog-js';
 import { toast } from 'sonner';
 import { TranscriptPanel } from '../components/session/TranscriptPanel';
 import { SessionSidebar } from '../components/session/SessionSidebar';
-import { ErrorDisplay } from '../components/ErrorDisplay';
 import { FillerWordAnalysis } from '../components/session/FillerWordAnalysis';
 import { Button } from '@/components/ui/button';
 import { Drawer, DrawerContent, DrawerTrigger } from '@/components/ui/drawer';
@@ -17,7 +16,7 @@ export const SessionPage = () => {
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
     const speechRecognition = useSpeechRecognition({ customWords });
-    const { mode, setMode, error, fillerData } = speechRecognition;
+    const { mode, fillerData } = speechRecognition;
 
     useEffect(() => {
         posthog.capture('session_page_viewed');
