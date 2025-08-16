@@ -1,11 +1,12 @@
 // src/services/transcription/TranscriptionService.js
 import LocalWhisper from './modes/LocalWhisper';
 import CloudAssemblyAI from './modes/CloudAssemblyAI';
+import NativeBrowser from './modes/NativeBrowser';
 import { createMicStream } from './utils/audioUtils';
 
 export default class TranscriptionService {
   constructor(mode = 'local', { model = 'tiny.en.bin', onTranscriptUpdate } = {}) {
-    this.mode = mode;      // 'local' | 'cloud'
+    this.mode = mode;      // 'local' | 'cloud' | 'native'
     this.model = model;    // whisper model
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.instance = null;
@@ -15,8 +16,6 @@ export default class TranscriptionService {
   }
 
   async init() {
-    this.mic = await createMicStream({ sampleRate: 16000, frameSize: 1024 });
-
     const performanceWatcher = ({ provider, rtFactor }) => {
       // If local falls behind for several checks, failover
       if (provider === 'local') {
@@ -30,21 +29,42 @@ export default class TranscriptionService {
       }
     };
 
-    await this._instantiate(performanceWatcher);
+    try {
+      await this._instantiate(performanceWatcher);
+    } catch (error) {
+      console.warn(`Failed to initialize ${this.mode} mode. Falling back to native.`, error);
+      this.setMode('native');
+      await this._instantiate(performanceWatcher);
+    }
   }
 
   async _instantiate(performanceWatcher) {
     if (this.instance) {
       try { await this.instance.stopTranscription(); } catch {}
     }
+
+    if (this.mic && this.mode !== 'native') {
+      this.mic.stop();
+      this.mic = null;
+    }
+
+    if (!this.mic && this.mode !== 'native') {
+      this.mic = await createMicStream({ sampleRate: 16000, frameSize: 1024 });
+    }
+
     const providerConfig = {
       performanceWatcher,
       onTranscriptUpdate: this.onTranscriptUpdate,
     };
-    this.instance =
-      this.mode === 'local'
-        ? new LocalWhisper({ model: this.model, ...providerConfig })
-        : new CloudAssemblyAI(providerConfig);
+
+    if (this.mode === 'local') {
+      this.instance = new LocalWhisper({ model: this.model, ...providerConfig });
+    } else if (this.mode === 'cloud') {
+      this.instance = new CloudAssemblyAI(providerConfig);
+    } else {
+      this.instance = new NativeBrowser(providerConfig);
+    }
+
     await this.instance.init();
   }
 
@@ -52,7 +72,7 @@ export default class TranscriptionService {
     if (mode === this.mode) return;
     this.mode = mode;
     await this._instantiate(this.instance?.performanceWatcher);
-    if (hotSwitch && this.mic) {
+    if (hotSwitch) {
       // restart immediately on new backend
       await this.instance.startTranscription(this.mic);
     }
@@ -62,7 +82,14 @@ export default class TranscriptionService {
     if (!this.instance) throw new Error('TranscriptionService not initialized');
     this._lagStrikes = 0;
     this._fallbackArmed = true;
-    return this.instance.startTranscription(this.mic);
+    try {
+      await this.instance.startTranscription(this.mic);
+    } catch (error) {
+      console.warn(`Failed to start ${this.mode} mode. Falling back to native.`, error);
+      this.setMode('native');
+      await this._instantiate(this.instance?.performanceWatcher);
+      await this.instance.startTranscription(this.mic);
+    }
   }
 
   async stopTranscription() {
