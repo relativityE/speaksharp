@@ -193,6 +193,7 @@ This flow now applies to both anonymous and logged-in free users.
     *   **For anonymous users**: Session data is stored in `sessionStorage` and displayed on the analytics page, but it is not persisted after the user closes the tab.
 4.  **Usage Tracking & Enforcement (For logged-in free users)**: After a successful save, an RPC is made to a Supabase function to update the user's usage.
 
+
 **Key Files & Components**: `SessionPage.jsx`, `SessionSidebar.jsx`, `useSpeechRecognition.js`, `useSessionManager.js`, `lib/storage.js`, `lib/supabaseClient.js`, `services/transcription/TranscriptionService.js`.
 
 ### Paid (Pro) User Flow
