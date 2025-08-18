@@ -5,18 +5,21 @@
 ---
 
 ## 🔄 Recent Updates (v6.18)
-*August 14, 2025*
+*August 18, 2025*
 
-- **New Transcription Engine:** Implemented a new, flexible `TranscriptionService` to handle speech-to-text processing. This service is designed with a two-phase approach:
-    - **Phase 1 (Current):** Uses AssemblyAI for cloud-based transcription, enabling rapid development and testing.
-    - **Phase 2 (Planned):** Will use Whisper.cpp for on-device, private transcription.
-- **UI for Mode Switching:** Added a toggle in the session sidebar to allow users to switch between "local" and "cloud" transcription modes.
-- **Documentation Overhaul:** Updated `README.md` and `System Architecture.md` to reflect the new transcription architecture, including updated diagrams, technology stack, and deployment instructions. Added a security alert for production keys.
+- **Bug Fixes & Core Logic:**
+    - Fixed a critical bug where session data was not being saved after practice.
+    - Enabled disfluency detection in the cloud transcription service, allowing for the capture of filler words like "um," "ah," etc.
+- **Major UI/UX Overhaul:**
+    - **Analytics Page:** Completely redesigned the dashboard with improved visual hierarchy for stats, a more engaging empty state, and a card-based layout for session history.
+    - **Session Page:** Implemented a fixed-height transcript box, redesigned filler word cards with progress bars, and improved the layout of the recording controls and "Upgrade" CTA.
+- **Documentation:** Updated `README.md` to reflect the latest features and improvements.
 
 ---
 
 ## ⚠️ Known Issues
 - **On-Device Transcription is Not Yet Implemented:** The `LocalWhisper` provider in the `TranscriptionService` is currently a simulation. It does not perform real on-device speech-to-text. This is the top priority for Phase 2 of the roadmap.
+- **Test Suite Warnings:** The Vitest suite passes but logs some warnings related to `act()` and `recharts` rendering in JSDOM. These are non-critical and will be addressed in a future refactor.
 
 ---
 
@@ -157,11 +160,11 @@ This simplified and robust approach allows us to maintain a fast and efficient d
 - **Won't Have (for this phase):**
     - `[ ]` **[W]** On-device transcription (moved to Phase 2).
 
-### PHASE 2 — PRIVACY & POLISH (Months 1-3) - 0% Complete
+### PHASE 2 — PRIVACY & POLISH (Months 1-3) - 25% Complete
 - **Must Have:**
     - `[ ]` **[M]** Integrate Whisper.cpp into `TranscriptionService` for on-device transcription. (See "Known Issues")
     - `[ ]` **[M]** Implement automatic fallback from local to cloud STT based on performance.
-    - `[ ]` **[M]** Build a comprehensive analytics dashboard for users.
+    - `✅` **[M]** Build a comprehensive analytics dashboard for users.
 - **Should Have:**
     - `[ ]` **[S]** Implement a fallback to the native Web Speech API if the primary transcription service fails to initialize, improving robustness.
     - `[ ]` **[S]** Implement weekly summary emails.
