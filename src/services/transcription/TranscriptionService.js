@@ -40,7 +40,7 @@ export default class TranscriptionService {
 
   async _instantiate(performanceWatcher) {
     if (this.instance) {
-      try { await this.instance.stopTranscription(); } catch {}
+      try { await this.instance.stopTranscription(); } catch (e) { /* best effort */ }
     }
 
     if (this.mic && this.mode !== 'native') {
@@ -104,8 +104,8 @@ export default class TranscriptionService {
   }
 
   async destroy() {
-    try { await this.stopTranscription(); } catch {}
-    try { this.mic?.stop(); } catch {}
+    try { await this.stopTranscription(); } catch (e) { /* best effort */ }
+    try { this.mic?.stop(); } catch (e) { /* best effort */ }
     this.instance = null;
     this.mic = null;
   }

@@ -71,7 +71,7 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
   }, [mode]);
 
 
-  const countFillerWords = (text) => {
+  const countFillerWords = useCallback((text) => {
     const counts = getInitialFillerData(customWords);
     const allPatterns = { ...defaultFillerPatterns };
     customWords.forEach((word) => {
@@ -86,7 +86,7 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
       }
     }
     return counts;
-  };
+  }, [customWords]);
 
   const onTranscriptUpdate = useCallback((data) => {
     if (data.transcript?.partial) {
@@ -111,7 +111,7 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
     const finalTranscript = finalChunks.map(c => c.text).join(' ');
     const newFinalFillerData = countFillerWords(finalTranscript);
     setFinalFillerData(newFinalFillerData);
-  }, [finalChunks, interimTranscript, customWords]);
+  }, [finalChunks, interimTranscript, customWords, countFillerWords]);
 
   const startListening = async () => {
     if (!isSupported) {
