@@ -206,7 +206,7 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
   }, [customWords]);
 
   useEffect(() => {
-    const newTranscript = finalChunks.map(c => c.text).join('');
+    const newTranscript = finalChunks.map(c => c.text).join(' ');
     setTranscript(newTranscript);
   }, [finalChunks]);
 

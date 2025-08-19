@@ -15,7 +15,7 @@ const DigitalTimer = ({ elapsedTime }) => {
     const minutes = Math.floor(elapsedTime / 60);
     const seconds = elapsedTime % 60;
     const formattedTime = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-    return <div className="text-6xl font-mono font-bold text-foreground">{formattedTime}</div>;
+    return <div className="text-5xl font-mono font-bold text-foreground">{formattedTime}</div>;
 };
 
 export const SessionSidebar = ({ isListening, error, startListening, stopListening, reset, mode, setMode, saveSession }) => {
@@ -190,7 +190,7 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                     {import.meta.env.DEV && (
                         <div className="pt-4 border-t border-border/50">
                             <h4 className="text-xs font-medium text-muted-foreground mb-2">Developer Controls</h4>
-                            <Button variant="outline" size="sm" onClick={() => setMode('native')}>
+                            <Button variant="outline" size="sm" onClick={() => setMode('native')} className="h-auto whitespace-normal text-balance">
                                 Force Native Transcription
                             </Button>
                         </div>
@@ -200,7 +200,7 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
 
             <Card className="w-full">
                 <CardContent className="p-6 h-[250px]">
-                    <div className="flex flex-col items-center justify-around h-full">
+                    <div className="flex flex-col items-center justify-between h-full py-2">
                         <DigitalTimer elapsedTime={elapsedTime} />
                         <div className={`text-xl font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
                             {isLoading ? 'INITIALIZING...' : (isListening ? '● RECORDING' : 'Idle')}

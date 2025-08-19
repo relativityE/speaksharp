@@ -33,10 +33,13 @@ const MemoizedChunk = React.memo(Chunk);
 const HighlightedTranscript = ({ chunks, interimTranscript, fillerData }) => {
     return (
         <p className="text-lg leading-relaxed text-foreground">
-            {chunks.map((chunk) => (
-                <MemoizedChunk key={chunk.id} chunk={chunk.text} fillerData={fillerData} />
+            {chunks.map((chunk, index) => (
+                <React.Fragment key={chunk.id}>
+                    <MemoizedChunk chunk={chunk.text} fillerData={fillerData} />
+                    {index < chunks.length - 1 && ' '}
+                </React.Fragment>
             ))}
-            {interimTranscript && <span className="text-muted-foreground">{interimTranscript}</span>}
+            {interimTranscript && <span className="text-muted-foreground">{interimTranscript ? ` ${interimTranscript}` : ''}</span>}
         </p>
     );
 };
