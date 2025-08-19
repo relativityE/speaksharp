@@ -35,6 +35,12 @@ body {
     -moz-osx-font-smoothing: grayscale;
 }
 
+@media (max-width: 768px) {
+  html {
+    font-size: 18px; /* Increase base font size for smaller screens */
+  }
+}
+
 a {
     font-size: 1em; /* Inherit font size from parent */
     text-decoration: none;
