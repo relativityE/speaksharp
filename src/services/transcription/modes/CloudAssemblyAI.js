@@ -71,7 +71,10 @@ export default class CloudAssemblyAI {
 
       this.transcriber.on('transcript.final', (final) => {
           if (final.text && this.onTranscriptUpdate) {
-              this.onTranscriptUpdate({ transcript: { final: final.text } });
+              this.onTranscriptUpdate({
+                  transcript: { final: final.text },
+                  words: final.words
+              });
           }
       });
 

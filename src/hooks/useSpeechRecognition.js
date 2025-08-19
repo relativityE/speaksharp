@@ -40,6 +40,7 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [finalChunks, setFinalChunks] = useState([]);
+  const [wordConfidences, setWordConfidences] = useState([]);
   const [interimTranscript, setInterimTranscript] = useState('');
   const [fillerData, setFillerData] = useState(getInitialFillerData(customWords));
   const [error, setError] = useState(null);
@@ -105,6 +106,9 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
     }
     if (data.transcript?.final) {
       processFinalChunk(data.transcript.final);
+    }
+    if (data.words && data.words.length > 0) {
+        setWordConfidences(prev => [...prev, ...data.words]);
     }
   }, [processFinalChunk]);
 
@@ -180,10 +184,15 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
         }
     }
 
+    const averageConfidence = wordConfidences.length > 0
+      ? wordConfidences.reduce((sum, word) => sum + word.confidence, 0) / wordConfidences.length
+      : 0;
+
     return {
       transcript: finalTranscript,
       filler_words: finalFillerData,
       total_words: finalTranscript.split(/\s+/).filter(Boolean).length,
+      accuracy: averageConfidence,
     };
   };
 
@@ -192,6 +201,7 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
     setInterimTranscript('');
     setTranscript('');
     setFillerData(getInitialFillerData(customWords));
+    setWordConfidences([]);
     setError(null);
   }, [customWords]);
 

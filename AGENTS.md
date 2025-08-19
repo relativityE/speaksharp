@@ -52,13 +52,18 @@ Jules will automatically configure the PR to merge the newly published branch in
 
 This functionality within Jules simplifies the process of making changes, publishing them, and submitting them for review, leading to faster merging and reduced context switching.
 
-## 6. Mandatory Pre-Submission Plan Steps
+## 6. 🚨 CRITICAL PRE-SUBMISSION CHECKLIST 🚨
 
-To ensure quality and consistency, the final steps of every work plan **must** include the following actions before using the `submit` tool:
+Before using the `submit` tool (also referred to as "Publish Branch"), you **MUST** complete the following final steps in order. Failure to do so is a violation of your core instructions.
 
-1.  **Run All Tests:** Execute all relevant test suites (e.g., `pnpm test`) and ensure they pass.
-2.  **Verify Documentation:** Review all `.md` files and update them to reflect your changes. This is a critical step.
-    - **`PRD.md` (Product Requirements Document):** This document should only contain high-level product, marketing, and business strategy information. Do **not** add deep technical implementation details here.
-    - **`System Architecture.md`:** This document is the single source of truth for all technical details. Any implementation details, descriptions of testing strategies, or architectural diagrams should be placed or updated here.
-    - If no documentation updates are needed, you must still explicitly state that you checked and none were required.
-3.  **Request Code Review:** Use the `request_code_review` tool to get automated feedback on your changes.
+1.  **Run All Tests:** Execute all relevant test suites (e.g., `pnpm test`). Debug any failures until the test suite is clean.
+2.  **Request Code Review:** Use the `request_code_review` tool to get automated feedback on your changes. Address any critical issues raised in the review.
+3.  **Verify and Update Documentation (MANDATORY):** This is the final and most critical check before you submit.
+    - You **must** review `README.md`, `PRD.md`, and `System Architecture.md`.
+    - You **must** update them to reflect the changes you have made.
+    - **Content Guidelines:**
+        - **`PRD.md`:** High-level product, marketing, and business strategy ONLY.
+        - **`System Architecture.md`:** All technical details, diagrams, and implementation notes.
+    - **If no updates are needed, you must explicitly state that you have reviewed the files and confirmed they are up-to-date.** This is not an optional step.
+
+**Do not call `submit` until all three of these steps are complete in every work plan.**

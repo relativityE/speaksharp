@@ -23,7 +23,9 @@ const FillerWordCard = ({ word, count, colorClass, progress }) => (
   </div>
 );
 
-const FillerWordAnalysis = ({ fillerData, customWords, addCustomWord, defaultFillerWords }) => {
+import { cn } from '@/lib/utils';
+
+const FillerWordAnalysis = ({ fillerData, customWords, addCustomWord, defaultFillerWords, className }) => {
   const [newWord, setNewWord] = useState('');
 
   const handleAddWord = (e) => {
@@ -50,11 +52,11 @@ const FillerWordAnalysis = ({ fillerData, customWords, addCustomWord, defaultFil
   };
 
   return (
-    <Card>
+    <Card className={cn("flex flex-col", className)}>
       <CardHeader>
         <CardTitle>Filler Word Analysis</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex flex-col flex-grow">
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mb-6">
           {sortedWords.map(({ word, count }, index) => {
             const progress = maxCount > 0 ? (count / maxCount) * 100 : 0;

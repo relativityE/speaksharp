@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, LabelList } from 'recharts';
-import { TrendingUp, Clock, Layers, Sparkles, CheckCircle, Download } from 'lucide-react';
+import { TrendingUp, Clock, Layers, Sparkles, CheckCircle, Download, Target } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -25,16 +25,21 @@ export const calculateTrends = (history) => {
         return Object.values(fillerData).reduce((sum, data) => sum + (data.count || 0), 0);
     };
 
-    const { totalDuration, totalFillerWords } = history.reduce((acc, session) => {
+    const { totalDuration, totalFillerWords, totalAccuracy, sessionCountWithAccuracy } = history.reduce((acc, session) => {
         const duration = Number(session.duration);
         if (!isNaN(duration) && duration > 0) {
             acc.totalDuration += duration;
             acc.totalFillerWords += getFillersCount(session);
+            if (session.accuracy) {
+                acc.totalAccuracy += session.accuracy;
+                acc.sessionCountWithAccuracy++;
+            }
         }
         return acc;
-    }, { totalDuration: 0, totalFillerWords: 0 });
+    }, { totalDuration: 0, totalFillerWords: 0, totalAccuracy: 0, sessionCountWithAccuracy: 0 });
 
     const avgFillerWordsPerMin = totalDuration > 0 ? (totalFillerWords / (totalDuration / 60)) : 0;
+    const avgAccuracy = sessionCountWithAccuracy > 0 ? (totalAccuracy / sessionCountWithAccuracy) * 100 : 0;
 
     const chartData = history.map(s => {
         const duration = Number(s.duration);
@@ -63,6 +68,7 @@ export const calculateTrends = (history) => {
         avgFillerWordsPerMin: avgFillerWordsPerMin.toFixed(1),
         totalSessions,
         totalPracticeTime: Math.round(totalDuration / 60),
+        avgAccuracy: avgAccuracy.toFixed(1),
         chartData,
         topFillerWords
     };
@@ -113,6 +119,10 @@ const SessionHistoryItem = ({ session, isPro }) => {
                     </p>
                 </div>
                 <div className="flex items-center gap-6 text-right">
+                    <div>
+                        <p className="text-sm text-muted-foreground">Accuracy</p>
+                        <p className="font-bold text-lg text-foreground">{session.accuracy ? `${(session.accuracy * 100).toFixed(1)}%` : 'N/A'}</p>
+                    </div>
                     <div>
                         <p className="text-sm text-muted-foreground">Filler Words</p>
                         <p className="font-bold text-lg text-foreground">{totalFillers}</p>
@@ -220,10 +230,11 @@ export const AnalyticsDashboard = ({ sessionHistory, profile }) => {
 
     return (
         <div className="space-y-8">
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-                <StatCard icon={<Layers size={24} className="text-muted-foreground" />} label="Total Sessions" value={trends.totalSessions} className="sm:col-span-2 md:col-span-1" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                <StatCard icon={<Layers size={24} className="text-muted-foreground" />} label="Total Sessions" value={trends.totalSessions} />
                 <StatCard icon={<TrendingUp size={24} className="text-muted-foreground" />} label="Avg. Filler Words / Min" value={trends.avgFillerWordsPerMin} />
                 <StatCard icon={<Clock size={24} className="text-muted-foreground" />} label="Total Practice Time" value={trends.totalPracticeTime} unit="mins" />
+                <StatCard icon={<Target size={24} className="text-muted-foreground" />} label="Avg. Accuracy" value={trends.avgAccuracy} unit="%" />
             </div>
 
             <div className="grid grid-cols-1 gap-8 lg:grid-cols-5">
