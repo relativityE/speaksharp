@@ -59,16 +59,28 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
     const endSessionAndSave = async () => {
         const sessionData = await stopListening();
 
+        if (!sessionData || !sessionData.transcript) {
+            toast.error("Could not process session data. Please try again.");
+            return;
+        }
+
+        const completeSessionData = {
+            title: `Practice Session - ${new Date().toLocaleString()}`,
+            duration: Math.ceil(elapsedTime),
+            total_words: sessionData.total_words,
+            filler_words: sessionData.filler_words,
+        };
+
         if (!user) {
             sessionStorage.setItem('anonymousSession', JSON.stringify({
-                ...sessionData,
+                ...completeSessionData,
                  created_at: new Date().toISOString()
             }));
             navigate('/analytics');
             return;
         }
 
-        if (elapsedTime > 0 && user && !isPro) {
+        if (elapsedTime > 0 && !isPro) {
             const { data: updateSuccess, error: rpcError } = await supabase.rpc('update_user_usage', {
                 session_duration_seconds: Math.ceil(elapsedTime)
             });
@@ -87,7 +99,7 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
             }
         }
 
-        saveSession(sessionData);
+        saveSession(completeSessionData);
         navigate('/analytics');
     };
 
@@ -169,6 +181,14 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                         </p>
                     </div>
                     <ErrorDisplay error={error} />
+                    {import.meta.env.DEV && (
+                        <div className="pt-4 border-t border-border/50">
+                            <h4 className="text-sm font-medium text-muted-foreground mb-2">Developer Controls</h4>
+                            <Button variant="outline" size="sm" onClick={() => setMode('native')}>
+                                Force Native Transcription
+                            </Button>
+                        </div>
+                    )}
                 </CardContent>
             </Card>
 
