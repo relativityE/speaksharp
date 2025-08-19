@@ -8,7 +8,74 @@ import FillerWordAnalysis from '../components/session/FillerWordAnalysis';
 import { SessionSidebar } from '../components/session/SessionSidebar';
 import { Button } from '@/components/ui/button';
 import { Drawer, DrawerContent, DrawerTrigger } from '@/components/ui/drawer';
-import { SlidersHorizontal } from 'lucide-react';
+import { SlidersHorizontal, AlertTriangle, Loader } from 'lucide-react';
+import ErrorBoundary from '../components/ErrorBoundary';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+
+const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) => {
+    const { error, isSupported, isListening, transcript, interimTranscript } = speechRecognition;
+
+    if (error) {
+        return (
+            <Card className="flex-grow">
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                        <AlertTriangle className="text-red-500" /> Error
+                    </CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <p className="text-red-500">{error.message}</p>
+                    <p className="text-muted-foreground mt-2">
+                        Speech recognition could not be initialized. Please check your browser permissions and try refreshing the page.
+                    </p>
+                </CardContent>
+            </Card>
+        );
+    }
+
+    if (!isSupported) {
+        return (
+             <Card className="flex-grow">
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                        <AlertTriangle className="text-yellow-500" /> Browser Not Supported
+                    </CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <p>Your browser does not support the selected speech recognition engine. Please try a different browser like Google Chrome.</p>
+                </CardContent>
+            </Card>
+        );
+    }
+
+    // A simple loading state
+    if (isListening && !transcript && !interimTranscript) {
+        return (
+            <div className="flex items-center justify-center flex-grow">
+                <Loader className="animate-spin h-12 w-12 text-primary" />
+                <p className="ml-4 text-lg text-muted-foreground">Listening...</p>
+            </div>
+        )
+    }
+
+    return (
+        <div className="flex flex-col gap-8 h-full">
+            <div className="flex-shrink-0">
+                <TranscriptPanel {...speechRecognition} />
+            </div>
+            <div className="flex-grow flex flex-col">
+                <FillerWordAnalysis
+                    fillerData={speechRecognition.fillerData}
+                    customWords={customWords}
+                    addCustomWord={(word) => setCustomWords(prev => [...prev, word])}
+                    defaultFillerWords={Object.values(FILLER_WORD_KEYS)}
+                    className="flex-grow"
+                />
+            </div>
+        </div>
+    );
+};
+
 
 export const SessionPage = () => {
     const { saveSession } = useSessionManager();
@@ -27,18 +94,13 @@ export const SessionPage = () => {
             <div className="lg:flex lg:gap-8 relative lg:items-stretch">
                 {/* Left Column */}
                 <div className="lg:w-2/3 flex flex-col gap-8">
-                    <div className="flex-[2]">
-                        <TranscriptPanel {...speechRecognition} />
-                    </div>
-                    <div className="flex-[1] flex flex-col">
-                        <FillerWordAnalysis
-                            fillerData={speechRecognition.fillerData}
+                    <ErrorBoundary fallback={<p>Something went wrong in the session display.</p>}>
+                        <LeftColumnContent
+                            speechRecognition={speechRecognition}
                             customWords={customWords}
-                            addCustomWord={(word) => setCustomWords(prev => [...prev, word])}
-                            defaultFillerWords={Object.values(FILLER_WORD_KEYS)}
-                            className="flex-grow"
+                            setCustomWords={setCustomWords}
                         />
-                    </div>
+                    </ErrorBoundary>
                 </div>
 
                 {/* Desktop Sidebar (Right Column) */}
