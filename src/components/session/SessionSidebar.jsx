@@ -183,11 +183,11 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                     >
                         {getButtonContent()}
                     </Button>
-                    <div className="flex items-center justify-center mt-4 w-full">
-                        <div className="w-16">
+                    <div className="flex flex-col items-center justify-center mt-4 w-full gap-2">
+                        <div className="w-16 h-16">
                             <CircularTimer elapsedTime={elapsedTime} />
                         </div>
-                        <div className={`ml-4 text-lg font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
+                        <div className={`text-lg font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
                             {isLoading ? 'INITIALIZING...' : (isListening ? '● RECORDING' : 'Idle')}
                         </div>
                     </div>

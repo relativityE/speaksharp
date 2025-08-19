@@ -7,10 +7,10 @@ import { Plus } from 'lucide-react';
 
 // Severity-based palette with good contrast for black text (WCAG AA compliant)
 const SEVERITY_PALETTE = {
-  high: 'bg-red-200',    // For the most frequent word
-  medium: 'bg-orange-200', // For the next 2
-  low: 'bg-amber-200',   // For the next 2
-  default: 'bg-blue-100',  // For the rest
+  high: 'bg-red-300',
+  medium: 'bg-yellow-300',
+  low: 'bg-green-300',
+  default: 'bg-indigo-200',
 };
 
 const FillerWordCard = ({ word, count, colorClass, progress }) => (
