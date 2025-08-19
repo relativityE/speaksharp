@@ -32,7 +32,7 @@ const MemoizedChunk = React.memo(Chunk);
 
 const HighlightedTranscript = ({ chunks, interimTranscript, fillerData }) => {
     return (
-        <p className="text-xl leading-relaxed text-foreground">
+        <p className="text-lg leading-relaxed text-foreground">
             {chunks.map((chunk) => (
                 <MemoizedChunk key={chunk.id} chunk={chunk.text} fillerData={fillerData} />
             ))}
@@ -53,10 +53,10 @@ export const TranscriptPanel = ({ chunks = [], interimTranscript, fillerData }) 
     return (
         <div>
             <div className="mb-4">
-                 <h2 className="text-3xl font-bold text-foreground">
+                 <h2 className="text-2xl font-bold text-foreground">
                     Live Transcript
                 </h2>
-                <p className="text-muted-foreground">
+                <p className="text-base text-muted-foreground">
                     Your spoken words appear here. Filler words are highlighted.
                 </p>
             </div>

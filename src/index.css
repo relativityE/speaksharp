@@ -26,7 +26,7 @@
 }
 
 html {
-    font-size: 24px; /* Significantly increased base font size for readability */
+    font-size: 32px; /* Set base font size to 32px for all screens */
 }
 
 body {

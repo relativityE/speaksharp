@@ -15,8 +15,8 @@ const AuthenticatedAnalyticsView = () => {
         return (
             <div>
                 <div className="mb-8">
-                    <h1 className="text-4xl font-bold text-foreground">Your Dashboard</h1>
-                    <p className="mt-1 text-muted-foreground">Here's an overview of your progress. Keep it up!</p>
+                    <h1 className="text-3xl font-bold text-foreground">Your Dashboard</h1>
+                    <p className="mt-2 text-base text-muted-foreground">Here's an overview of your progress. Keep it up!</p>
                 </div>
                 <AnalyticsDashboardSkeleton />
             </div>
@@ -31,8 +31,8 @@ const AuthenticatedAnalyticsView = () => {
     return (
         <>
             <div className="mb-8">
-                <h1 className="text-4xl font-bold text-foreground">Your Dashboard</h1>
-                <p className="mt-1 text-muted-foreground">Here's an overview of your progress. Keep it up!</p>
+                <h1 className="text-3xl font-bold text-foreground">Your Dashboard</h1>
+                <p className="mt-2 text-base text-muted-foreground">Here's an overview of your progress. Keep it up!</p>
             </div>
             <AnalyticsDashboard sessionHistory={sessions} profile={profile} />
         </>

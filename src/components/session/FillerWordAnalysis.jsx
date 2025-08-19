@@ -16,8 +16,8 @@ const SEVERITY_PALETTE = {
 const FillerWordCard = ({ word, count, colorClass, progress }) => (
   <div className={`p-3 rounded-lg text-left ${colorClass}`}>
     <div className="flex justify-between items-center mb-2">
-      <span className="text-md font-semibold text-gray-800 capitalize">{word}</span>
-      <span className="text-xl font-bold text-gray-900">{count}</span>
+      <span className="text-sm font-semibold text-gray-800 capitalize">{word}</span>
+      <span className="text-lg font-bold text-gray-900">{count}</span>
     </div>
     <Progress value={progress} className="h-2 [&>*]:bg-gray-600" />
   </div>
@@ -74,7 +74,7 @@ const FillerWordAnalysis = ({ fillerData, customWords, addCustomWord, defaultFil
         </div>
 
         <form onSubmit={handleAddWord} className="flex items-center gap-2 mt-8">
-          <label htmlFor="custom-word" className="text-sm font-medium">
+          <label htmlFor="custom-word" className="text-xs font-medium">
             Custom Filler Word:
           </label>
           <Input
