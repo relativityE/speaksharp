@@ -7,6 +7,9 @@
 ## 🔄 Recent Updates (v6.18)
 *August 18, 2025*
 
+- **Feature: Transcript Accuracy Score:**
+  - Implemented a new feature to calculate and display the average confidence score from the AssemblyAI transcription.
+  - This "Transcript Accuracy" metric is now shown on the Analytics Dashboard, both as a summary stat and on individual session cards, giving users insight into the quality of their transcription.
 - **Critical Bug Fixes & Simulation Improvements:**
   - Repaired the session saving and data flow logic, ensuring user practice history is now correctly saved and displayed on the analytics page.
   - Improved the "Local" mode simulation to use a realistic sentence with filler words, and added a toast notification to clarify that it's a demo mode.

@@ -156,23 +156,23 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
         <div className="flex flex-col gap-6">
             <Card className="w-full">
                 <CardHeader>
-                    <CardTitle className="text-lg">Settings</CardTitle>
+                    <CardTitle className="text-base">Settings</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                     <div className="flex items-center justify-between">
-                        <Label htmlFor="transcription-mode">Transcription Mode</Label>
+                        <Label htmlFor="transcription-mode" className="text-sm">Transcription Mode</Label>
                         <div className="flex items-center gap-2">
-                            <Label htmlFor="transcription-mode" className="text-sm text-muted-foreground">Local</Label>
+                            <Label htmlFor="transcription-mode" className="text-xs text-muted-foreground">Local</Label>
                             <Switch
                                 id="transcription-mode"
                                 checked={mode === 'cloud'}
                                 onCheckedChange={(checked) => setMode(checked ? 'cloud' : 'local')}
                             />
-                            <Label htmlFor="transcription-mode" className="text-sm text-muted-foreground">Cloud</Label>
+                            <Label htmlFor="transcription-mode" className="text-xs text-muted-foreground">Cloud</Label>
                         </div>
                     </div>
                     <div className="text-center p-2 bg-secondary rounded-md">
-                        <p className="text-sm text-muted-foreground">
+                        <p className="text-xs text-muted-foreground">
                             {
                                 mode === 'cloud' ? 'Using Cloud Transcription (Highest Accuracy)' :
                                 mode === 'local' ? 'Using Local Transcription (Faster, Private)' :
@@ -183,7 +183,7 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                     <ErrorDisplay error={error} />
                     {import.meta.env.DEV && (
                         <div className="pt-4 border-t border-border/50">
-                            <h4 className="text-sm font-medium text-muted-foreground mb-2">Developer Controls</h4>
+                            <h4 className="text-xs font-medium text-muted-foreground mb-2">Developer Controls</h4>
                             <Button variant="outline" size="sm" onClick={() => setMode('native')}>
                                 Force Native Transcription
                             </Button>
@@ -198,7 +198,7 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                         onClick={handleStartStop}
                         size="lg"
                         variant={isListening ? 'destructive' : 'default'}
-                        className="w-full h-16 text-xl font-bold rounded-lg mb-4"
+                        className="w-full h-16 text-lg font-bold rounded-lg mb-4"
                         disabled={isLoading}
                     >
                         {getButtonContent()}
@@ -207,7 +207,7 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                         <div className="w-12 h-12">
                             <CircularTimer elapsedTime={elapsedTime} />
                         </div>
-                        <div className={`text-xl font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
+                        <div className={`text-lg font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
                             {isLoading ? 'INITIALIZING...' : (isListening ? '● RECORDING' : 'Idle')}
                         </div>
                     </div>
@@ -216,13 +216,13 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
 
             <Card className="w-full bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 border-purple-200">
                 <CardHeader>
-                    <CardTitle className="text-lg flex items-center gap-2">
+                    <CardTitle className="text-base flex items-center gap-2">
                         <Zap className="w-6 h-6 text-yellow-500" />
                         Upgrade to Pro
                     </CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <p className="text-muted-foreground mb-4">
+                    <p className="text-sm text-muted-foreground mb-4">
                         Get unlimited practice, advanced analytics, and priority support.
                     </p>
                     <Button className="w-full font-bold group" onClick={handleUpgrade} disabled={isUpgrading || !user || isPro}>
