@@ -8,6 +8,7 @@ import { Card, CardContent } from '@/components/ui/card';
 
 const AuthenticatedAnalyticsView = () => {
     const { sessions, loading } = useSessionManager();
+    const { profile } = useAuth();
     const navigate = useNavigate();
 
     if (loading) {
@@ -24,7 +25,7 @@ const AuthenticatedAnalyticsView = () => {
 
     // The empty state is now handled inside AnalyticsDashboard
     if (sessions.length === 0) {
-        return <AnalyticsDashboard sessionHistory={[]} />;
+        return <AnalyticsDashboard sessionHistory={[]} profile={profile} />;
     }
 
     return (
@@ -33,7 +34,7 @@ const AuthenticatedAnalyticsView = () => {
                 <h1 className="text-4xl font-bold text-foreground">Your Dashboard</h1>
                 <p className="mt-1 text-muted-foreground">Here's an overview of your progress. Keep it up!</p>
             </div>
-            <AnalyticsDashboard sessionHistory={sessions} />
+            <AnalyticsDashboard sessionHistory={sessions} profile={profile} />
         </>
     );
 };

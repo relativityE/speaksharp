@@ -1,11 +1,12 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, LabelList } from 'recharts';
-import { TrendingUp, Clock, Layers, Sparkles, CheckCircle } from 'lucide-react';
+import { TrendingUp, Clock, Layers, Sparkles, CheckCircle, Download } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { generateSessionPdf } from '../lib/pdfGenerator';
 
 export const calculateTrends = (history) => {
     if (!history || history.length === 0) {
@@ -98,28 +99,33 @@ const StatCard = ({ icon, label, value, unit, className }) => (
     </Card>
 );
 
-const SessionHistoryItem = ({ session }) => {
+const SessionHistoryItem = ({ session, isPro }) => {
     const totalFillers = Object.values(session.filler_words || {}).reduce((sum, data) => sum + (data.count || 0), 0);
     const durationMins = (session.duration / 60).toFixed(1);
 
     return (
         <Card className="p-4 transition-all duration-200 hover:bg-secondary/50">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div>
+                <div className="flex-grow">
                     <p className="font-semibold text-foreground text-lg">{session.title || `Session from ${new Date(session.created_at).toLocaleDateString()}`}</p>
                     <p className="text-sm text-muted-foreground">
                         {new Date(session.created_at).toLocaleString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
                     </p>
                 </div>
-                <div className="flex items-center gap-6 text-right w-full sm:w-auto">
-                    <div className="flex-1">
+                <div className="flex items-center gap-6 text-right">
+                    <div>
                         <p className="text-sm text-muted-foreground">Filler Words</p>
                         <p className="font-bold text-lg text-foreground">{totalFillers}</p>
                     </div>
-                    <div className="flex-1">
+                    <div>
                         <p className="text-sm text-muted-foreground">Duration</p>
                         <p className="font-bold text-lg text-foreground">{durationMins} min</p>
                     </div>
+                    {isPro && (
+                        <Button variant="outline" size="icon" onClick={() => generateSessionPdf(session)}>
+                            <Download className="h-4 w-4" />
+                        </Button>
+                    )}
                 </div>
             </div>
         </Card>
@@ -204,12 +210,13 @@ export const AnalyticsDashboardSkeleton = () => (
     </div>
 );
 
-export const AnalyticsDashboard = ({ sessionHistory }) => {
+export const AnalyticsDashboard = ({ sessionHistory, profile }) => {
     if (!sessionHistory || sessionHistory.length === 0) {
         return <EmptyState />;
     }
 
     const trends = calculateTrends(sessionHistory);
+    const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
 
     return (
         <div className="space-y-8">
@@ -287,9 +294,9 @@ export const AnalyticsDashboard = ({ sessionHistory }) => {
                 <CardHeader>
                     <CardTitle>Session History</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-2">
+                <CardContent className="space-y-4">
                     {sessionHistory.slice(0, 10).map(session => (
-                        <SessionHistoryItem key={session.id} session={session} />
+                        <SessionHistoryItem key={session.id} session={session} isPro={isPro} />
                     ))}
                 </CardContent>
             </Card>
