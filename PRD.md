@@ -1,6 +1,17 @@
 # SpeakSharp Product Requirements Document
 
-**Version 6.18** | **Last Updated: August 14, 2025**
+**Version 6.20** | **Last Updated: August 19, 2025**
+
+---
+
+## 🔄 Recent Updates (v6.20)
+*August 19, 2025*
+
+- **UI/UX Improvements (Based on User Feedback)**:
+  - **Global Font Sizing:** Removed hard-coded font sizes in the Session Sidebar to ensure all text correctly inherits the global base font size, improving readability and consistency.
+  - **Prominent Mode Notification:** The notification indicating the current transcription mode (Cloud vs. Local) is now more prominently displayed at the top of the settings panel.
+- **Bug Fixes:**
+  - **Filler Word Detection:** Improved the detection logic for common filler words like 'um', 'ah', and 'uh' to be more accurate.
 
 ---
 

@@ -54,7 +54,7 @@ This functionality within Jules simplifies the process of making changes, publis
 
 ## 6. 🚨 CRITICAL PRE-SUBMISSION CHECKLIST 🚨
 
-Before using the `submit` tool (also referred to as "Publish Branch"), you **MUST** complete the following final steps in order. Failure to do so is a violation of your core instructions.
+**Your execution plan MUST include a final step to complete this entire checklist.** Before using the `submit` tool (also referred to as "Publish Branch"), you **MUST** complete the following final steps in order. Failure to do so is a violation of your core instructions.
 
 1.  **Run All Tests:** Execute all relevant test suites (e.g., `pnpm test`). Debug any failures until the test suite is clean.
 2.  **Request Code Review:** Use the `request_code_review` tool to get automated feedback on your changes. Address any critical issues raised in the review.

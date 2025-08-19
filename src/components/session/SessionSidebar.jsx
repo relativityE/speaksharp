@@ -193,30 +193,30 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
             <div className="flex-grow flex flex-col gap-6">
                 <Card className="w-full">
                     <CardHeader>
-                        <CardTitle className="text-base">Settings</CardTitle>
+                        <CardTitle>Settings</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
+                        <div className={`text-center p-3 rounded-lg ${modeNotification.className}`}>
+                            <p>
+                                {modeNotification.text}
+                            </p>
+                        </div>
                         <div className="flex items-center justify-between">
-                            <Label htmlFor="transcription-mode" className="text-sm">Transcription Mode</Label>
+                            <Label htmlFor="transcription-mode">Transcription Mode</Label>
                             <div className="flex items-center gap-2">
-                                <Label htmlFor="transcription-mode" className="text-xs text-muted-foreground">Local</Label>
+                                <Label htmlFor="transcription-mode" className="text-muted-foreground">Local</Label>
                                 <Switch
                                     id="transcription-mode"
                                     checked={mode === 'cloud'}
                                     onCheckedChange={(checked) => setMode(checked ? 'cloud' : 'local')}
                                 />
-                                <Label htmlFor="transcription-mode" className="text-xs text-muted-foreground">Cloud</Label>
+                                <Label htmlFor="transcription-mode" className="text-muted-foreground">Cloud</Label>
                             </div>
-                        </div>
-                        <div className={`text-center p-3 rounded-lg ${modeNotification.className}`}>
-                            <p className="text-sm font-medium">
-                                {modeNotification.text}
-                            </p>
                         </div>
                         <ErrorDisplay error={error} />
                         {import.meta.env.DEV && (
                             <div className="pt-4 border-t border-border/50">
-                                <h4 className="text-xs font-medium text-muted-foreground mb-2">Developer Controls</h4>
+                                <h4 className="font-medium text-muted-foreground mb-2">Developer Controls</h4>
                                 <Button variant="outline" size="sm" onClick={() => setMode('native')} className="h-auto whitespace-normal text-balance">
                                     Force Native Transcription
                                 </Button>
