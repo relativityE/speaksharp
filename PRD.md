@@ -5,18 +5,20 @@
 ---
 
 ## 🔄 Recent Updates (v6.18)
-*August 14, 2025*
+*August 18, 2025*
 
-- **New Transcription Engine:** Implemented a new, flexible `TranscriptionService` to handle speech-to-text processing. This service is designed with a two-phase approach:
-    - **Phase 1 (Current):** Uses AssemblyAI for cloud-based transcription, enabling rapid development and testing.
-    - **Phase 2 (Planned):** Will use Whisper.cpp for on-device, private transcription.
-- **UI for Mode Switching:** Added a toggle in the session sidebar to allow users to switch between "local" and "cloud" transcription modes.
-- **Documentation Overhaul:** Updated `README.md` and `System Architecture.md` to reflect the new transcription architecture, including updated diagrams, technology stack, and deployment instructions. Added a security alert for production keys.
+- **Critical Bug Fixes & Simulation Improvements:**
+  - Repaired the session saving and data flow logic, ensuring user practice history is now correctly saved and displayed on the analytics page.
+  - Improved the "Local" mode simulation to use a realistic sentence with filler words, and added a toast notification to clarify that it's a demo mode.
+  - Enabled disfluency detection in the cloud transcription service to ensure common filler words (`um`, `ah`, etc.) are correctly identified.
+- **Major UI/UX Overhaul (Based on User Feedback):**
+  - **Analytics Page:** Redesigned the dashboard with a more engaging empty state, larger and clearer statistics, and a card-based layout for session history.
+  - **Session Page:** Rebuilt the filler word analysis section with a severity-based color palette and progress bars. Redesigned the recording controls for better usability and hierarchy. Fixed the layout of the transcript panel to prevent it from pushing down other content.
 
 ---
 
 ## ⚠️ Known Issues
-- **On-Device Transcription is Not Yet Implemented:** The `LocalWhisper` provider in the `TranscriptionService` is currently a simulation. It does not perform real on-device speech-to-text. This is the top priority for Phase 2 of the roadmap.
+- **On-Device Transcription is Not Yet Implemented:** The `LocalWhisper` provider in `TranscriptionService` is a non-functional simulation that uses sample text. The UI toggle remains enabled for demo purposes, with a toast notification to inform users. This is the top priority for Phase 2.
 
 ---
 
@@ -84,57 +86,16 @@ Growth     → SEO expansion, retargeting ads, coach partnerships
 
 ## 🛠️ Technology Stack
 
-### Core Technologies
-```
-Frontend        → React + Vite
-Styling         → Tailwind CSS + shadcn/ui  
-Auth/Database   → Supabase
-Speech API      → TranscriptionService (AssemblyAI SDK / Whisper.cpp)
-Payments        → Stripe
-Monitoring      → Sentry
-Analytics       → PostHog
-Hosting         → Vercel
-```
+Our technology choices prioritize development speed, scalability, and user experience.
 
-### Scalability Architecture
-**Speech Processing:**
-- **Phase 1 (Current):** AssemblyAI for cloud-based transcription.
-- **Phase 2 (Planned):** Whisper.cpp for local, on-device transcription to ensure privacy.
+- **Frontend:** React (Vite)
+- **Styling:** Tailwind CSS with shadcn/ui components
+- **Backend & Database:** Supabase (PostgreSQL, Auth, Edge Functions)
+- **Speech Recognition:** A custom `TranscriptionService` using AssemblyAI's cloud API.
+- **Payments:** Stripe
+- **Monitoring & Analytics:** Sentry & PostHog
 
-**Scaling Strategy:**
-- Client-heavy architecture minimizes server load
-- Serverless functions auto-scale for premium features
-- Managed services handle scaling automatically
-
----
-
-## Test Approach
-
-Our project employs a robust testing strategy centered on **Vitest**, a fast and modern test runner that integrates seamlessly with Vite.
-
-### The Main Test Suite: **Vitest + JSDOM**
-
-This is the primary testing stack for the entire application.
-
-*   **Vite**: Acts as the core build tool. When you run the tests, Vitest uses Vite's engine to compile and process the React code and tests.
-*   **Vitest**: Our main **test runner**. `pnpm test` executes all `*.test.jsx` files.
-*   **JSDOM**: Vitest runs its tests in a **simulated browser environment** called JSDOM. It's fast and suitable for testing all of our components and hooks.
-*   **Module Mocking**: For hooks with complex dependencies that interact with browser APIs (like `useSpeechRecognition`'s dependency on `TranscriptionService`), we use Vitest's powerful `vi.mock()` feature. This allows us to replace the real service with a mock, enabling stable and reliable testing of the hook's logic without needing a real browser.
-
-### End-to-End Testing: **Playwright**
-
-While most logic is covered by Vitest, we use **Playwright** for high-level, end-to-end smoke tests to ensure that critical user flows work correctly in a real browser environment.
-
-### Summary of Tools
-
-| Tool          | Role                                           | When It's Used                                               |
-| :------------ | :--------------------------------------------- | :----------------------------------------------------------- |
-| **Vite**      | Core build engine.                             | Used by `pnpm run dev` and Vitest.                           |
-| **Vitest**    | Main test runner for unit/integration tests.   | `pnpm test`                                                  |
-| **JSDOM**     | Simulated browser for Vitest.                  | The environment for all Vitest tests.                        |
-| **Playwright**| Secondary, end-to-end test runner.             | For high-level smoke tests (`npx playwright test`).          |
-
-This simplified and robust approach allows us to maintain a fast and efficient development cycle while ensuring all parts of the application are reliably tested.
+*A more detailed breakdown of the architecture, including diagrams and data flows, can be found in the `System Architecture.md` document.*
 
 ---
 
@@ -157,11 +118,11 @@ This simplified and robust approach allows us to maintain a fast and efficient d
 - **Won't Have (for this phase):**
     - `[ ]` **[W]** On-device transcription (moved to Phase 2).
 
-### PHASE 2 — PRIVACY & POLISH (Months 1-3) - 0% Complete
+### PHASE 2 — PRIVACY & POLISH (Months 1-3) - 25% Complete
 - **Must Have:**
     - `[ ]` **[M]** Integrate Whisper.cpp into `TranscriptionService` for on-device transcription. (See "Known Issues")
     - `[ ]` **[M]** Implement automatic fallback from local to cloud STT based on performance.
-    - `[ ]` **[M]** Build a comprehensive analytics dashboard for users.
+    - `✅` **[M]** Build a comprehensive analytics dashboard for users.
 - **Should Have:**
     - `[ ]` **[S]** Implement a fallback to the native Web Speech API if the primary transcription service fails to initialize, improving robustness.
     - `[ ]` **[S]** Implement weekly summary emails.
@@ -214,7 +175,8 @@ Calculation: $7.99/month × 12 months = $95.88
 **💸 CAC (Customer Acquisition Cost)**
 ```
 Formula: Total Marketing Spend ÷ New Paying Customers
-Calculation: $350 ÷ 35 customers = $10.00
+Example Calculation: $350 ÷ 35 customers = $10.00
+(Note: This is a sample calculation. Actual CAC will vary based on ad performance and conversion rates from the growth projection.)
 ```
 
 **🎯 LTV:CAC Ratio**

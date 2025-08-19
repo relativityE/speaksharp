@@ -43,6 +43,7 @@ export default class CloudAssemblyAI {
       this.transcriber = new AssemblyAI.StreamingTranscriber({
         token: token,
         sampleRate: 16000,
+        disfluencies: true,
       });
 
       this.transcriber.on('open', ({ sessionId }) => {

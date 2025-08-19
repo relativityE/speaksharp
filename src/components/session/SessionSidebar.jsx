@@ -108,7 +108,16 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
         if(!isListening) {
             setElapsedTime(0);
         }
-    }, [isListening])
+    }, [isListening]);
+
+    useEffect(() => {
+        if (mode === 'local') {
+            toast.info("Local Mode is a Demo", {
+                description: "This mode uses a sample sentence to demonstrate filler word detection and is not processing your live speech.",
+                duration: 8000,
+            });
+        }
+    }, [mode]);
 
     const handleStartStop = () => {
         if (isListening) {
@@ -163,36 +172,46 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                 </CardContent>
             </Card>
 
-            <Card className="text-center w-full">
-                <CardContent className="p-2">
-                    <div className="mb-1">
-                        <CircularTimer elapsedTime={elapsedTime} />
-                    </div>
-                    <div className={`mb-2 font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
-                        {isLoading ? 'INITIALIZING...' : (isListening ? '● RECORDING' : '')}
-                    </div>
-                    <Button
+            <Card className="w-full">
+                <CardContent className="p-4 flex flex-col items-center">
+                     <Button
                         onClick={handleStartStop}
                         size="lg"
                         variant={isListening ? 'destructive' : 'default'}
-                        className="w-full"
+                        className="w-full h-16 text-xl font-bold rounded-lg"
                         disabled={isLoading}
                     >
                         {getButtonContent()}
                     </Button>
+                    <div className="flex items-center justify-center mt-4 w-full">
+                        <div className="w-16">
+                            <CircularTimer elapsedTime={elapsedTime} />
+                        </div>
+                        <div className={`ml-4 text-lg font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
+                            {isLoading ? 'INITIALIZING...' : (isListening ? '● RECORDING' : 'Idle')}
+                        </div>
+                    </div>
                 </CardContent>
             </Card>
 
-            <Card className="w-full">
+            <Card className="w-full bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 border-purple-200">
                 <CardHeader>
-                    <CardTitle className="text-lg">Upgrade to Pro</CardTitle>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                        <Zap className="w-6 h-6 text-yellow-500" />
+                        Upgrade to Pro
+                    </CardTitle>
                 </CardHeader>
                 <CardContent>
                     <p className="text-muted-foreground mb-4">
-                        Unlock unlimited practice time, advanced analytics, and more.
+                        Get unlimited practice, advanced analytics, and priority support.
                     </p>
-                    <Button className="w-full" onClick={handleUpgrade} disabled={isUpgrading || !user || isPro}>
-                        {isUpgrading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Upgrading...</> : isPro ? 'You are a Pro!' : <><Zap className="w-4 h-4 mr-2" /> Upgrade Now</>}
+                    <Button className="w-full font-bold group" onClick={handleUpgrade} disabled={isUpgrading || !user || isPro}>
+                        {isUpgrading
+                            ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Upgrading...</>
+                            : isPro
+                                ? 'You are a Pro!'
+                                : <>Get Unlimited Practice <span className="ml-2 transition-transform duration-200 group-hover:translate-x-1">→</span></>
+                        }
                     </Button>
                 </CardContent>
             </Card>
