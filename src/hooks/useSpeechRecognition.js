@@ -148,11 +148,43 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
 
   const stopListening = async () => {
     if (!isListening || !transcriptionServiceRef.current) {
-      return;
+      return null;
     }
     await transcriptionServiceRef.current.stopTranscription();
     setIsListening(false);
+
+    // Process the final chunk to ensure the UI updates correctly
     processFinalChunk(interimTranscript);
+
+    // Manually calculate the final data to return immediately,
+    // without waiting for the next render cycle.
+    const newFinalChunkText = interimTranscript.trim();
+    const allFinalChunks = [...finalChunks.map(c => c.text), newFinalChunkText].filter(Boolean);
+    const finalTranscript = allFinalChunks.join(' ');
+
+    const finalFillerData = JSON.parse(JSON.stringify(fillerData)); // Deep copy
+    const allPatterns = { ...defaultFillerPatterns };
+    customWords.forEach((word) => {
+        allPatterns[word] = new RegExp(`\\b(${word})\\b`, 'gi');
+    });
+
+    for (const key in allPatterns) {
+        const pattern = allPatterns[key];
+        const matches = newFinalChunkText.match(pattern);
+        if (matches && matches.length > 0) {
+            if (!finalFillerData[key]) {
+                 const newIndex = Object.keys(finalFillerData).length;
+                 finalFillerData[key] = { count: 0, color: FILLER_WORD_COLORS[newIndex % FILLER_WORD_COLORS.length] };
+            }
+            finalFillerData[key].count += matches.length;
+        }
+    }
+
+    return {
+      transcript: finalTranscript,
+      filler_words: finalFillerData,
+      total_words: finalTranscript.split(/\s+/).filter(Boolean).length,
+    };
   };
 
   const reset = useCallback(() => {

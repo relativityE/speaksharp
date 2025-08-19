@@ -99,6 +99,34 @@ This diagram offers a more detailed look at the application's architecture from 
              |       +--> Verifies event, updates `user_profiles.subscription_status` to 'pro'|
              |                                                                               |
              +-------------------------------------------------------------------------------+
+
+## 6. Test Approach
+
+Our project employs a robust testing strategy centered on **Vitest**, a fast and modern test runner that integrates seamlessly with Vite.
+
+### The Main Test Suite: **Vitest + JSDOM**
+
+This is the primary testing stack for the entire application.
+
+*   **Vite**: Acts as the core build tool. When you run the tests, Vitest uses Vite's engine to compile and process the React code and tests.
+*   **Vitest**: Our main **test runner**. `pnpm test` executes all `*.test.jsx` files.
+*   **JSDOM**: Vitest runs its tests in a **simulated browser environment** called JSDOM. It's fast and suitable for testing all of our components and hooks.
+*   **Module Mocking**: For hooks with complex dependencies that interact with browser APIs (like `useSpeechRecognition`'s dependency on `TranscriptionService`), we use Vitest's powerful `vi.mock()` feature. This allows us to replace the real service with a mock, enabling stable and reliable testing of the hook's logic without needing a real browser.
+
+### End-to-End Testing: **Playwright**
+
+While most logic is covered by Vitest, we use **Playwright** for high-level, end-to-end smoke tests to ensure that critical user flows work correctly in a real browser environment.
+
+### Summary of Tools
+
+| Tool          | Role                                           | When It's Used                                               |
+| :------------ | :--------------------------------------------- | :----------------------------------------------------------- |
+| **Vite**      | Core build engine.                             | Used by `pnpm run dev` and Vitest.                           |
+| **Vitest**    | Main test runner for unit/integration tests.   | `pnpm test`                                                  |
+| **JSDOM**     | Simulated browser for Vitest.                  | The environment for all Vitest tests.                        |
+| **Playwright**| Secondary, end-to-end test runner.             | For high-level smoke tests (`npx playwright test`).          |
+
+This simplified and robust approach allows us to maintain a fast and efficient development cycle while ensuring all parts of the application are reliably tested.
 ```
 
 
