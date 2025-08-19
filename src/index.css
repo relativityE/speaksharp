@@ -1,7 +1,6 @@
 @import "tailwindcss";
 
 @theme {
-  /* Merged Theme: "Precision Light" + "Grayscale & Feedback" */
   --color-background: #FFFFFF; /* white */
   --color-foreground: #1C1C1E; /* dark charcoal */
   --color-card: #F7F9FB; /* soft gray */
@@ -26,7 +25,7 @@
 }
 
 html {
-    font-size: 24px; /* Set base font size to 24px for all screens */
+    font-size: 32px; /* Set base font size to 32px for all screens */
 }
 
 body {

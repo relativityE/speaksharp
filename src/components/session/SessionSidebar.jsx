@@ -9,8 +9,14 @@ import { useStripe } from '@stripe/react-stripe-js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import CircularTimer from './CircularTimer';
 import { ErrorDisplay } from '../ErrorDisplay';
+
+const DigitalTimer = ({ elapsedTime }) => {
+    const minutes = Math.floor(elapsedTime / 60);
+    const seconds = elapsedTime % 60;
+    const formattedTime = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    return <div className="text-6xl font-mono font-bold text-foreground">{formattedTime}</div>;
+};
 
 export const SessionSidebar = ({ isListening, error, startListening, stopListening, reset, mode, setMode, saveSession }) => {
     const navigate = useNavigate();
@@ -193,25 +199,21 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
             </Card>
 
             <Card className="w-full">
-                <CardContent className="p-4 h-[200px]">
-                    <div className="flex flex-col items-center justify-center h-full">
+                <CardContent className="p-6 h-[250px]">
+                    <div className="flex flex-col items-center justify-around h-full">
+                        <DigitalTimer elapsedTime={elapsedTime} />
+                        <div className={`text-xl font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
+                            {isLoading ? 'INITIALIZING...' : (isListening ? '● RECORDING' : 'Idle')}
+                        </div>
                         <Button
                             onClick={handleStartStop}
                             size="lg"
                             variant={isListening ? 'destructive' : 'default'}
-                            className="w-full h-16 text-lg font-bold rounded-lg mb-4"
+                            className="w-full h-16 text-xl font-bold rounded-lg"
                             disabled={isLoading}
                         >
                             {getButtonContent()}
                         </Button>
-                        <div className="flex items-center justify-center w-full gap-4">
-                            <div className="w-12 h-12">
-                                <CircularTimer elapsedTime={elapsedTime} />
-                            </div>
-                            <div className={`text-lg font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
-                                {isLoading ? 'INITIALIZING...' : (isListening ? '● RECORDING' : 'Idle')}
-                            </div>
-                        </div>
                     </div>
                 </CardContent>
             </Card>
