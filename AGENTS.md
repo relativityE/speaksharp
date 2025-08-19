@@ -63,8 +63,9 @@ This functionality within Jules simplifies the process of making changes, publis
 
 1.  **Run All Tests:** Execute all relevant test suites (e.g., `pnpm test`). Debug any failures until the test suite is clean.
     - **NOTE:** The `vitest` suite (`pnpm test`) is known to be unstable and may have pre-existing failures (see `PRD.md` for details). Your goal is to ensure your changes do not introduce *new* test failures. Document any pre-existing failures you encounter in your work log.
-2.  **Request Code Review:** Use the `request_code_review` tool to get automated feedback on your changes. Address any critical issues raised in the review.
-3.  **Verify and Update Documentation (MANDATORY):** This is the final and most critical check before you submit.
+2.  **Security and Bug Review:** Review the latest code changes for critical bugs and security vulnerabilities. List any findings in the pull request description.
+3.  **Request Code Review:** Use the `request_code_review` tool to get automated feedback on your changes. Address any critical issues raised in the review.
+4.  **Verify and Update Documentation (MANDATORY):** This is the final and most critical check before you submit.
     - You **must** review `README.md`, `PRD.md`, and `System Architecture.md`.
     - You **must** update them to reflect the changes you have made.
     - **Content Guidelines:**

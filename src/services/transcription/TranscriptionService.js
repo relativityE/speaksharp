@@ -1,5 +1,4 @@
 // src/services/transcription/TranscriptionService.js
-import LocalWhisper from './modes/LocalWhisper';
 import CloudAssemblyAI from './modes/CloudAssemblyAI';
 import NativeBrowser from './modes/NativeBrowser';
 import { createMicStream } from './utils/audioUtils';
@@ -58,6 +57,7 @@ export default class TranscriptionService {
     };
 
     if (this.mode === 'local') {
+      const { default: LocalWhisper } = await import('./modes/LocalWhisper.js');
       this.instance = new LocalWhisper({ model: this.model, ...providerConfig });
     } else if (this.mode === 'cloud') {
       this.instance = new CloudAssemblyAI(providerConfig);

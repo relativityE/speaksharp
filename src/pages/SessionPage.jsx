@@ -11,6 +11,7 @@ import { Drawer, DrawerContent, DrawerTrigger } from '@/components/ui/drawer';
 import { SlidersHorizontal, AlertTriangle, Loader } from 'lucide-react';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { UpgradePromptDialog } from '@/components/UpgradePromptDialog';
 
 const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) => {
     const { error, isSupported, isListening, transcript, interimTranscript } = speechRecognition;
@@ -70,7 +71,7 @@ const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) =
 
 
 export const SessionPage = () => {
-    const { saveSession } = useSessionManager();
+    const { saveSession, usageLimitExceeded, setUsageLimitExceeded } = useSessionManager();
     const [customWords, setCustomWords] = useState([]);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
@@ -83,6 +84,10 @@ export const SessionPage = () => {
 
     return (
         <div className="container mx-auto px-4 py-10">
+            <UpgradePromptDialog
+                open={usageLimitExceeded}
+                onOpenChange={setUsageLimitExceeded}
+            />
             <div className="lg:flex lg:gap-8 relative lg:items-stretch">
                 {/* Left Column */}
                 <div className="lg:w-2/3 flex flex-col gap-8">

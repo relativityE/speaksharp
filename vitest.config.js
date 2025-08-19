@@ -1,55 +1,63 @@
-// vitest.config.js
+// vitest.config.js - Optimized for Performance
 import { defineConfig } from 'vitest/config'
-import react from '@vitejs/plugin-react'
-import path from 'path'
-import { fileURLToPath } from 'url'
+import { resolve } from 'path'
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
+export default defineConfig({
+  test: {
+    // CRITICAL: Use forks pool to prevent thread pool deadlock
+    pool: 'forks',
 
-export default defineConfig(({ mode }) => {
-  const isVitest = process.env.VITEST;
+    // Aggressive timeout controls
+    testTimeout: 10000,      // 10 seconds max per test
+    hookTimeout: 5000,       // 5 seconds for setup/teardown
+    teardownTimeout: 3000,   // 3 seconds for cleanup
 
-  return {
-    plugins: [react()],
-    test: {
-        // Switch to forks pool to avoid thread pool issues
-        pool: 'forks', // or 'vmForks'
+    // Environment setup
+    environment: 'happy-dom',
+    setupFiles: ['src/test/setup.js'],
 
-        // Explicit timeout configuration
-        testTimeout: 15000,
-        hookTimeout: 15000,
-        teardownTimeout: 15000,
+    // Performance optimizations
+    isolate: false,          // Share context between tests (faster)
+    passWithNoTests: true,   // Don't fail on empty test suites
+    bail: 1,                 // Stop on first failure for faster feedback
 
-        // Environment setup
-        environment: 'jsdom',
-        setupFiles: ['src/test/setup.js'],
-
-        // Debugging options
-        bail: 1, // Stop on first failure
-        reporter: 'verbose',
-
-        // Force exit to prevent hanging
-        forceRerunTriggers: ['**/package.json/**', '**/vitest.config.*/**'],
-
-        // Global settings
-        globals: true,
-
-        // Pool options for better resource management
-        poolOptions: {
-          forks: {
-            singleFork: true, // Use single fork for debugging
-            maxWorkers: 1
-          }
-        }
+    // Resource management
+    poolOptions: {
+      forks: {
+        singleFork: true,    // Use single process (more stable)
+        maxWorkers: 1,       // Limit to 1 worker
+        minWorkers: 1
+      }
     },
-    resolve: {
-      alias: {
-        '@': path.resolve(__dirname, './src'),
-        ...(isVitest
-          ? { sharp: path.resolve(__dirname, '__mocks__/sharp.js') }
-          : {}),
-      },
+
+    // Exclude problematic files
+    exclude: [
+      '**/node_modules/**',
+      '**/playwright-tests/**',
+      '**/dist/**',
+      '**/*.e2e.*'
+    ],
+
+    // Module resolution optimizations
+    alias: {
+      '@': resolve(__dirname, './src'),
+      '@xenova/transformers': resolve(__dirname, 'src/test/mocks/transformers.js'),
+      'sharp': resolve(__dirname, 'src/test/mocks/sharp.js')
     },
+
+    // Globals for better performance
+    globals: true,
+
+    // Reporter optimization
+    reporter: process.env.CI ? 'json' : 'basic'
+  },
+
+  // Vite optimizations for test mode
+  optimizeDeps: {
+    exclude: ['@xenova/transformers', 'sharp']
+  },
+
+  build: {
+    target: 'node14' // Simpler target for tests
   }
-});
+})

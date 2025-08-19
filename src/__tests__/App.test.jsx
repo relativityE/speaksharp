@@ -1,8 +1,13 @@
+import React from 'react';
 import { render, screen, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import App from '../App';
 import { useAuth } from '../contexts/AuthContext';
+
+vi.mock('@xenova/transformers', () => ({
+  pipeline: vi.fn(),
+}));
 
 // Mock the useAuth hook
 vi.mock('../contexts/AuthContext', () => ({
