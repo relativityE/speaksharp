@@ -63,7 +63,7 @@ export const TranscriptPanel = ({ chunks = [], interimTranscript, fillerData }) 
                     Your spoken words appear here. Filler words are highlighted.
                 </p>
             </div>
-            <div ref={scrollContainerRef} className="p-6 rounded-lg bg-secondary/30 border border-border/50 h-[24rem] overflow-y-auto transition-all duration-300 ease-in-out">
+            <div ref={scrollContainerRef} className="p-6 rounded-lg bg-secondary/30 border border-border/50 h-[18rem] overflow-y-auto transition-all duration-300 ease-in-out">
                 <HighlightedTranscript chunks={chunks} interimTranscript={interimTranscript} fillerData={fillerData} />
             </div>
         </div>

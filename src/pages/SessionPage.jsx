@@ -59,11 +59,11 @@ const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) =
     }
 
     return (
-        <>
-            <div className="flex-[2]">
+        <div className="flex flex-col gap-8 h-full">
+            <div className="flex-shrink-0">
                 <TranscriptPanel {...speechRecognition} />
             </div>
-            <div className="flex-[1] flex flex-col">
+            <div className="flex-grow flex flex-col">
                 <FillerWordAnalysis
                     fillerData={speechRecognition.fillerData}
                     customWords={customWords}
@@ -72,7 +72,7 @@ const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) =
                     className="flex-grow"
                 />
             </div>
-        </>
+        </div>
     );
 };
 
