@@ -86,57 +86,16 @@ Growth     → SEO expansion, retargeting ads, coach partnerships
 
 ## 🛠️ Technology Stack
 
-### Core Technologies
-```
-Frontend        → React + Vite
-Styling         → Tailwind CSS + shadcn/ui  
-Auth/Database   → Supabase
-Speech API      → TranscriptionService (AssemblyAI SDK / Whisper.cpp)
-Payments        → Stripe
-Monitoring      → Sentry
-Analytics       → PostHog
-Hosting         → Vercel
-```
+Our technology choices prioritize development speed, scalability, and user experience.
 
-### Scalability Architecture
-**Speech Processing:**
-- **Phase 1 (Current):** AssemblyAI for cloud-based transcription.
-- **Phase 2 (Planned):** Whisper.cpp for local, on-device transcription to ensure privacy.
+- **Frontend:** React (Vite)
+- **Styling:** Tailwind CSS with shadcn/ui components
+- **Backend & Database:** Supabase (PostgreSQL, Auth, Edge Functions)
+- **Speech Recognition:** A custom `TranscriptionService` using AssemblyAI's cloud API.
+- **Payments:** Stripe
+- **Monitoring & Analytics:** Sentry & PostHog
 
-**Scaling Strategy:**
-- Client-heavy architecture minimizes server load
-- Serverless functions auto-scale for premium features
-- Managed services handle scaling automatically
-
----
-
-## Test Approach
-
-Our project employs a robust testing strategy centered on **Vitest**, a fast and modern test runner that integrates seamlessly with Vite.
-
-### The Main Test Suite: **Vitest + JSDOM**
-
-This is the primary testing stack for the entire application.
-
-*   **Vite**: Acts as the core build tool. When you run the tests, Vitest uses Vite's engine to compile and process the React code and tests.
-*   **Vitest**: Our main **test runner**. `pnpm test` executes all `*.test.jsx` files.
-*   **JSDOM**: Vitest runs its tests in a **simulated browser environment** called JSDOM. It's fast and suitable for testing all of our components and hooks.
-*   **Module Mocking**: For hooks with complex dependencies that interact with browser APIs (like `useSpeechRecognition`'s dependency on `TranscriptionService`), we use Vitest's powerful `vi.mock()` feature. This allows us to replace the real service with a mock, enabling stable and reliable testing of the hook's logic without needing a real browser.
-
-### End-to-End Testing: **Playwright**
-
-While most logic is covered by Vitest, we use **Playwright** for high-level, end-to-end smoke tests to ensure that critical user flows work correctly in a real browser environment.
-
-### Summary of Tools
-
-| Tool          | Role                                           | When It's Used                                               |
-| :------------ | :--------------------------------------------- | :----------------------------------------------------------- |
-| **Vite**      | Core build engine.                             | Used by `pnpm run dev` and Vitest.                           |
-| **Vitest**    | Main test runner for unit/integration tests.   | `pnpm test`                                                  |
-| **JSDOM**     | Simulated browser for Vitest.                  | The environment for all Vitest tests.                        |
-| **Playwright**| Secondary, end-to-end test runner.             | For high-level smoke tests (`npx playwright test`).          |
-
-This simplified and robust approach allows us to maintain a fast and efficient development cycle while ensuring all parts of the application are reliably tested.
+*A more detailed breakdown of the architecture, including diagrams and data flows, can be found in the `System Architecture.md` document.*
 
 ---
 
@@ -216,7 +175,8 @@ Calculation: $7.99/month × 12 months = $95.88
 **💸 CAC (Customer Acquisition Cost)**
 ```
 Formula: Total Marketing Spend ÷ New Paying Customers
-Calculation: $350 ÷ 35 customers = $10.00
+Example Calculation: $350 ÷ 35 customers = $10.00
+(Note: This is a sample calculation. Actual CAC will vary based on ad performance and conversion rates from the growth projection.)
 ```
 
 **🎯 LTV:CAC Ratio**
