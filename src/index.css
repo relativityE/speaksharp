@@ -26,13 +26,19 @@
 }
 
 html {
-    font-size: 24px; /* Significantly increased base font size for readability */
+    font-size: 16px; /* Set base font size to 16px for standard rem units */
 }
 
 body {
     font-family: theme(font.sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+}
+
+@media (max-width: 768px) {
+  html {
+    font-size: 18px; /* Increase base font size for smaller screens */
+  }
 }
 
 a {
