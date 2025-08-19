@@ -3,14 +3,14 @@ import TranscriptionService from '../services/transcription/TranscriptionService
 import { FILLER_WORD_KEYS } from '../config';
 
 const defaultFillerPatterns = {
-  [FILLER_WORD_KEYS.UM]: /\b(um|umm|ummm)\b/gi,
-  [FILLER_WORD_KEYS.UH]: /\b(uh|uhh|uhhh|er|err|erh|uhm)\b/gi,
-  [FILLER_WORD_KEYS.AH]: /\b(ah|ahm)\b/gi,
+  [FILLER_WORD_KEYS.UM]: /\b(um|umm|ummm|uhm)\b/gi,
+  [FILLER_WORD_KEYS.UH]: /\b(uh|uhh|uhhh|er|err|erh)\b/gi,
+  [FILLER_WORD_KEYS.AH]: /\b(ah|ahm|ahhh)\b/gi,
   [FILLER_WORD_KEYS.LIKE]: /\b(like)\b/gi,
   [FILLER_WORD_KEYS.YOU_KNOW]: /\b(you know|y'know|ya know)\b/gi,
   [FILLER_WORD_KEYS.SO]: /\b(so)\b/gi,
   [FILLER_WORD_KEYS.ACTUALLY]: /\b(actually)\b/gi,
-  [FILLER_WORD_KEYS.OH]: /\b(oh|ooh)\b/gi,
+  [FILLER_WORD_KEYS.OH]: /\b(oh|ooh|ohh)\b/gi,
   [FILLER_WORD_KEYS.I_MEAN]: /\b(i mean)\b/gi,
 };
 
@@ -91,31 +91,27 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
   const onTranscriptUpdate = useCallback((data) => {
     if (data.transcript?.partial) {
       setInterimTranscript(data.transcript.partial);
-      const interimCounts = countFillerWords(data.transcript.partial);
-      const combinedData = getInitialFillerData(customWords);
-      for (const key in combinedData) {
-        combinedData[key].count = (finalFillerData[key]?.count || 0) + (interimCounts[key]?.count || 0);
-      }
-      setFillerData(combinedData);
     }
 
     if (data.transcript?.final) {
       setFinalChunks(prev => [...prev, { text: data.transcript.final, id: Math.random() }]);
-
-      const finalCounts = countFillerWords(data.transcript.final);
-      const newFinalFillerData = { ...finalFillerData };
-      for (const key in newFinalFillerData) {
-        newFinalFillerData[key].count += finalCounts[key]?.count || 0;
-      }
-      setFinalFillerData(newFinalFillerData);
-      setFillerData(newFinalFillerData);
       setInterimTranscript('');
     }
 
     if (data.words && data.words.length > 0) {
         setWordConfidences(prev => [...prev, ...data.words]);
     }
-  }, [customWords, finalFillerData]);
+  }, []);
+
+  useEffect(() => {
+    const fullTranscript = finalChunks.map(c => c.text).join(' ') + ' ' + interimTranscript;
+    const newFillerData = countFillerWords(fullTranscript);
+    setFillerData(newFillerData);
+
+    const finalTranscript = finalChunks.map(c => c.text).join(' ');
+    const newFinalFillerData = countFillerWords(finalTranscript);
+    setFinalFillerData(newFinalFillerData);
+  }, [finalChunks, interimTranscript, customWords]);
 
   const startListening = async () => {
     if (!isSupported) {

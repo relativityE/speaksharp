@@ -44,6 +44,8 @@ export default class CloudAssemblyAI {
         token: token,
         sampleRate: 16000,
         disfluencies: true,
+        punctuate: true,
+        end_utterance_silence_threshold: 1000,
       });
 
       this.transcriber.on('open', ({ sessionId }) => {
