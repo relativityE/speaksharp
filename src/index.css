@@ -1,7 +1,6 @@
 @import "tailwindcss";
 
 @theme {
-  /* Merged Theme: "Precision Light" + "Grayscale & Feedback" */
   --color-background: #FFFFFF; /* white */
   --color-foreground: #1C1C1E; /* dark charcoal */
   --color-card: #F7F9FB; /* soft gray */
@@ -33,6 +32,12 @@ body {
     font-family: theme(font.sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+}
+
+@media (max-width: 768px) {
+  html {
+    font-size: 18px; /* Increase base font size for smaller screens */
+  }
 }
 
 a {
