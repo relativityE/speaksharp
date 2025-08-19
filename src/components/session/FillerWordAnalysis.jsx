@@ -5,16 +5,19 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Plus } from 'lucide-react';
 
-const COOL_TONE_PALETTE = [
-  'bg-blue-100', 'bg-indigo-100', 'bg-purple-100',
-  'bg-blue-200', 'bg-indigo-200', 'bg-purple-200',
-];
+// Severity-based palette with good contrast for black text (WCAG AA compliant)
+const SEVERITY_PALETTE = {
+  high: 'bg-red-200',    // For the most frequent word
+  medium: 'bg-orange-200', // For the next 2
+  low: 'bg-amber-200',   // For the next 2
+  default: 'bg-blue-100',  // For the rest
+};
 
 const FillerWordCard = ({ word, count, colorClass, progress }) => (
-  <div className={`p-4 rounded-lg text-left ${colorClass}`}>
+  <div className={`p-3 rounded-lg text-left ${colorClass}`}>
     <div className="flex justify-between items-center mb-2">
-      <span className="text-lg font-semibold text-gray-800 capitalize">{word}</span>
-      <span className="text-2xl font-bold text-gray-900">{count}</span>
+      <span className="text-md font-semibold text-gray-800 capitalize">{word}</span>
+      <span className="text-xl font-bold text-gray-900">{count}</span>
     </div>
     <Progress value={progress} className="h-2 [&>*]:bg-gray-600" />
   </div>
@@ -32,7 +35,19 @@ const FillerWordAnalysis = ({ fillerData, customWords, addCustomWord, defaultFil
   };
 
   const allWords = [...defaultFillerWords, ...customWords];
-  const maxCount = Math.max(10, ...allWords.map(word => (fillerData[word] ? fillerData[word].count : 0)));
+
+  const sortedWords = allWords
+    .map(word => ({ word, count: fillerData[word] ? fillerData[word].count : 0 }))
+    .sort((a, b) => b.count - a.count);
+
+  const maxCount = Math.max(10, sortedWords.length > 0 ? sortedWords[0].count : 0);
+
+  const getSeverityColor = (index) => {
+    if (index === 0) return SEVERITY_PALETTE.high;
+    if (index <= 2) return SEVERITY_PALETTE.medium;
+    if (index <= 4) return SEVERITY_PALETTE.low;
+    return SEVERITY_PALETTE.default;
+  };
 
   return (
     <Card>
@@ -41,15 +56,14 @@ const FillerWordAnalysis = ({ fillerData, customWords, addCustomWord, defaultFil
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mb-6">
-          {allWords.map((word, index) => {
-            const data = fillerData[word] || { count: 0 };
-            const progress = maxCount > 0 ? (data.count / maxCount) * 100 : 0;
-            const colorClass = COOL_TONE_PALETTE[index % COOL_TONE_PALETTE.length];
+          {sortedWords.map(({ word, count }, index) => {
+            const progress = maxCount > 0 ? (count / maxCount) * 100 : 0;
+            const colorClass = getSeverityColor(index);
             return (
               <FillerWordCard
                 key={word}
                 word={word}
-                count={data.count}
+                count={count}
                 colorClass={colorClass}
                 progress={progress}
               />

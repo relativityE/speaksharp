@@ -32,7 +32,7 @@ export default class LocalWhisper {
     // In a real implementation, the onFrame handler would call onTranscriptUpdate.
     if (this.onTranscriptUpdate) {
       this.onTranscriptUpdate({ transcript: { partial: '' } });
-      const simulatedWords = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.".split(" ");
+      const simulatedWords = "Um, I think, like, you know, this is a test of the, uh, local transcription simulation. So, it should, actually, show some filler words.".split(" ");
       let wordIndex = 0;
       this._simulationInterval = setInterval(() => {
         if (wordIndex < simulatedWords.length) {

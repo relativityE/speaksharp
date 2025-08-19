@@ -6,12 +6,11 @@ A mobile-first web application that detects and counts filler words in real time
 
 - **Real-time Filler Word Detection**: Counts common filler words (e.g., "um", "like") and custom words in real-time.
 - **Color-Coded Highlighting**: Each filler word is assigned a unique color. Words are highlighted in the live transcript and color-coded in the analysis panel for immediate visual feedback.
-- **Fixed-Height Transcript Box**: The transcript panel has a fixed height and scrolls internally, providing a stable and predictable layout.
-- **Engaging Filler Word Analysis**: View your filler word counts with a clean, card-based layout, complete with progress bars for easy visual scanning.
+- **Engaging Filler Word Analysis**: View your filler word counts with a clean, card-based layout using a severity-based color palette and progress bars for easy visual scanning.
 - **Redesigned Controls**: The session page features a clear and focused control area, with a prominent record button and a streamlined "Upgrade to Pro" card.
 - **Comprehensive Analytics Dashboard**: Track your progress over time with an improved dashboard that features clearer stats, better visual hierarchy, and a card-based session history.
-- **Hybrid Speech Processing**: Supports both local, in-browser speech recognition for privacy and a cloud-based option (AssemblyAI) for higher accuracy. Now captures filler words like "um" and "ah" for more precise analysis.
-- **Session Management**: Start, stop, and save practice sessions to track your improvement.
+- **Reliable Cloud-Based Speech Processing**: Uses AssemblyAI for high-accuracy transcription, now configured to capture filler words like "um" and "ah" for more precise analysis. On-device processing is planned for a future release.
+- **Robust Session Management**: Start, stop, and save practice sessions to track your improvement over time.
 - **Customizable Experience**: Add your own words to track and use a mobile-friendly, responsive interface.
 
 ## Technology Stack
@@ -22,7 +21,7 @@ A mobile-first web application that detects and counts filler words in real time
 - **Icons**: Lucide React
 - **Authentication & DB**: Supabase
 - **Speech Processing**:
-    - **Phase 1 (Current)**: AssemblyAI for cloud-based transcription (now configured to capture disfluencies/filler words).
+    - **Phase 1 (Current)**: AssemblyAI for cloud-based transcription (now configured to capture disfluencies/filler words). On-device transcription is disabled pending future implementation.
     - **Phase 2 (Planned)**: Whisper.cpp for local, on-device transcription to ensure privacy.
 
 ## Getting Started

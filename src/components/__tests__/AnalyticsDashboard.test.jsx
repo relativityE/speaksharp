@@ -24,15 +24,15 @@ describe('calculateTrends', () => {
             id: 1,
             created_at: new Date().toISOString(),
             duration: 120, // 2 minutes
-            filler_counts: { 'um': 5, 'like': 5 },
+            filler_words: { 'um': { count: 5 }, 'like': { count: 5 } },
         }];
         const trends = calculateTrends(history);
         expect(trends.totalSessions).toBe(1);
         expect(trends.totalPracticeTime).toBe(2); // 2 minutes
         expect(trends.avgFillerWordsPerMin).toBe("5.0"); // 10 fillers / 2 mins
         expect(trends.topFillerWords).toEqual([
-            { name: 'like', value: 5 },
             { name: 'um', value: 5 },
+            { name: 'like', value: 5 },
         ]);
     });
 
@@ -41,17 +41,17 @@ describe('calculateTrends', () => {
             id: 1,
             created_at: new Date().toISOString(),
             duration: 'not-a-number',
-            filler_counts: { 'so': 10 },
+            filler_words: { 'so': { count: 10 } },
         }, {
             id: 2,
             created_at: new Date().toISOString(),
             duration: null,
-            filler_counts: { 'so': 5 },
+            filler_words: { 'so': { count: 5 } },
         }, {
             id: 3,
             created_at: new Date().toISOString(),
             duration: 60, // 1 minute
-            filler_counts: { 'so': 15 },
+            filler_words: { 'so': { count: 15 } },
         }];
         const trends = calculateTrends(history);
         expect(trends.totalSessions).toBe(3);
@@ -60,12 +60,12 @@ describe('calculateTrends', () => {
         expect(trends.avgFillerWordsPerMin).toBe("15.0");
     });
 
-    it('should handle the "filler_data" schema', () => {
+    it('should handle the new "filler_words" object schema', () => {
         const history = [{
             id: 1,
             created_at: new Date().toISOString(),
             duration: 60,
-            filler_data: { 'uh': { count: 3, color: 'red' }, 'so': { count: 7, color: 'blue' } },
+            filler_words: { 'uh': { count: 3 }, 'so': { count: 7 } },
         }];
         const trends = calculateTrends(history);
         expect(trends.avgFillerWordsPerMin).toBe("10.0");
@@ -73,37 +73,22 @@ describe('calculateTrends', () => {
         expect(trends.topFillerWords).toContainEqual({ name: 'uh', value: 3 });
     });
 
-    it('should handle the array-based "filler_words" schema and prevent [object Object] bug', () => {
-        const history = [{
-            id: 1,
-            created_at: new Date().toISOString(),
-            duration: 60,
-            filler_words: [{ word: 'like', count: 12 }, { word: 'right', count: 8 }],
-        }];
-        const trends = calculateTrends(history);
-        expect(trends.avgFillerWordsPerMin).toBe("20.0");
-        expect(trends.topFillerWords).toEqual([
-            { name: 'like', value: 12 },
-            { name: 'right', value: 8 },
-        ]);
-    });
-
-    it('should correctly aggregate data from sessions with mixed schemas', () => {
+    it('should correctly aggregate data from multiple sessions', () => {
         const history = [{
             id: 1,
             duration: 60,
             created_at: new Date().toISOString(),
-            filler_counts: { 'like': 5 },
+            filler_words: { 'like': { count: 5 } },
         }, {
             id: 2,
             duration: 60,
             created_at: new Date().toISOString(),
-            filler_data: { 'like': { count: 5 }, 'so': { count: 10 } },
+            filler_words: { 'like': { count: 5 }, 'so': { count: 10 } },
         }, {
             id: 3,
             duration: 60,
             created_at: new Date().toISOString(),
-            filler_words: [{ word: 'so', count: 10 }, { word: 'um', count: 20 }],
+            filler_words: { 'so': { count: 10 }, 'um': { count: 20 } },
         }];
         const trends = calculateTrends(history);
         // total duration = 3 mins. total fillers = 5 + (5+10) + (10+20) = 50
@@ -111,8 +96,8 @@ describe('calculateTrends', () => {
         // total fillers = 5 + 15 + 30 = 50. 50/3 = 16.666...
         expect(trends.avgFillerWordsPerMin).toBe("16.7");
         expect(trends.topFillerWords).toEqual([
-            { name: 'so', value: 20 },
             { name: 'um', value: 20 },
+            { name: 'so', value: 20 },
             { name: 'like', value: 10 },
         ]);
     });
@@ -122,12 +107,12 @@ describe('calculateTrends', () => {
             id: 1,
             created_at: '2025-08-11T10:00:00Z',
             duration: 60, // 1 min
-            filler_counts: { 'um': 6 },
+            filler_words: { 'um': { count: 6 } },
         }, {
             id: 2,
             created_at: '2025-08-12T10:00:00Z',
             duration: 120, // 2 mins
-            filler_counts: { 'um': 6 },
+            filler_words: { 'um': { count: 6 } },
         }];
         const trends = calculateTrends(history);
         const expectedDate1 = new Date('2025-08-11T10:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });

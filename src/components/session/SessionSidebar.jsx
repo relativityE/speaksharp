@@ -59,31 +59,16 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
     const endSessionAndSave = async () => {
         const sessionData = await stopListening();
 
-        if (!sessionData) {
-            toast.error("Could not process session data. Please try again.");
-            return;
-        }
-
-        const completeSessionData = {
-            ...sessionData,
-            duration: Math.ceil(elapsedTime),
-            // The transcript is already in sessionData, so we don't need to add it here.
-            // However, we might want to give the session a title.
-            title: `Session on ${new Date().toLocaleDateString()}`,
-        };
-
         if (!user) {
-            // Handle anonymous user session
             sessionStorage.setItem('anonymousSession', JSON.stringify({
-                ...completeSessionData,
+                ...sessionData,
                  created_at: new Date().toISOString()
             }));
             navigate('/analytics');
             return;
         }
 
-        // Handle authenticated user session
-        if (elapsedTime > 0 && !isPro) {
+        if (elapsedTime > 0 && user && !isPro) {
             const { data: updateSuccess, error: rpcError } = await supabase.rpc('update_user_usage', {
                 session_duration_seconds: Math.ceil(elapsedTime)
             });
@@ -102,7 +87,7 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
             }
         }
 
-        saveSession(completeSessionData);
+        saveSession(sessionData);
         navigate('/analytics');
     };
 
@@ -123,7 +108,16 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
         if(!isListening) {
             setElapsedTime(0);
         }
-    }, [isListening])
+    }, [isListening]);
+
+    useEffect(() => {
+        if (mode === 'local') {
+            toast.info("Local Mode is a Demo", {
+                description: "This mode uses a sample sentence to demonstrate filler word detection and is not processing your live speech.",
+                duration: 8000,
+            });
+        }
+    }, [mode]);
 
     const handleStartStop = () => {
         if (isListening) {

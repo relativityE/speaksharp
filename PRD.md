@@ -7,19 +7,18 @@
 ## 🔄 Recent Updates (v6.18)
 *August 18, 2025*
 
-- **Bug Fixes & Core Logic:**
-    - Fixed a critical bug where session data was not being saved after practice.
-    - Enabled disfluency detection in the cloud transcription service, allowing for the capture of filler words like "um," "ah," etc.
-- **Major UI/UX Overhaul:**
-    - **Analytics Page:** Completely redesigned the dashboard with improved visual hierarchy for stats, a more engaging empty state, and a card-based layout for session history.
-    - **Session Page:** Implemented a fixed-height transcript box, redesigned filler word cards with progress bars, and improved the layout of the recording controls and "Upgrade" CTA.
-- **Documentation:** Updated `README.md` to reflect the latest features and improvements.
+- **Critical Bug Fixes & Simulation Improvements:**
+  - Repaired the session saving and data flow logic, ensuring user practice history is now correctly saved and displayed on the analytics page.
+  - Improved the "Local" mode simulation to use a realistic sentence with filler words, and added a toast notification to clarify that it's a demo mode.
+  - Enabled disfluency detection in the cloud transcription service to ensure common filler words (`um`, `ah`, etc.) are correctly identified.
+- **Major UI/UX Overhaul (Based on User Feedback):**
+  - **Analytics Page:** Redesigned the dashboard with a more engaging empty state, larger and clearer statistics, and a card-based layout for session history.
+  - **Session Page:** Rebuilt the filler word analysis section with a severity-based color palette and progress bars. Redesigned the recording controls for better usability and hierarchy. Fixed the layout of the transcript panel to prevent it from pushing down other content.
 
 ---
 
 ## ⚠️ Known Issues
-- **On-Device Transcription is Not Yet Implemented:** The `LocalWhisper` provider in the `TranscriptionService` is currently a simulation. It does not perform real on-device speech-to-text. This is the top priority for Phase 2 of the roadmap.
-- **Test Suite Warnings:** The Vitest suite passes but logs some warnings related to `act()` and `recharts` rendering in JSDOM. These are non-critical and will be addressed in a future refactor.
+- **On-Device Transcription is Not Yet Implemented:** The `LocalWhisper` provider in `TranscriptionService` is a non-functional simulation that uses sample text. The UI toggle remains enabled for demo purposes, with a toast notification to inform users. This is the top priority for Phase 2.
 
 ---
 

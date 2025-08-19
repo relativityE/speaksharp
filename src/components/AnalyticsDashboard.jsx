@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, LabelList } from 'recharts';
-import { TrendingUp, Clock, CheckCircle } from 'lucide-react';
+import { TrendingUp, Clock, Layers, Sparkles, CheckCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -20,47 +20,25 @@ export const calculateTrends = (history) => {
 
     const totalSessions = history.length;
     const getFillersCount = (session) => {
-        const safeSum = (values) => {
-            return values.reduce((sum, value) => {
-                const num = Number(value);
-                return sum + (isNaN(num) ? 0 : num);
-            }, 0);
-        };
-
-        const fillerData = session.filler_words || session.filler_data;
-        if (!fillerData) {
-            if (session.filler_counts) { // Backwards compatibility for old schema
-                return safeSum(Object.values(session.filler_counts));
-            }
-            return 0;
-        }
-
-        if (Array.isArray(fillerData)) { // Handles { word: 'like', count: 12 }
-            return safeSum(fillerData.map(item => item.count));
-        }
-
-        // Handles { 'like': { count: 5 } } or { 'like': 5 }
-        const counts = Object.values(fillerData).map(data => (data && data.count) || data);
-        return safeSum(counts);
+        const fillerData = session.filler_words || {};
+        return Object.values(fillerData).reduce((sum, data) => sum + (data.count || 0), 0);
     };
 
     const { totalDuration, totalFillerWords } = history.reduce((acc, session) => {
         const duration = Number(session.duration);
-        // Only include sessions with a valid, positive duration in calculations
         if (!isNaN(duration) && duration > 0) {
             acc.totalDuration += duration;
             acc.totalFillerWords += getFillersCount(session);
         }
         return acc;
     }, { totalDuration: 0, totalFillerWords: 0 });
+
     const avgFillerWordsPerMin = totalDuration > 0 ? (totalFillerWords / (totalDuration / 60)) : 0;
 
     const chartData = history.map(s => {
-        // FIX: Ensure duration is a number for this calculation as well.
         const duration = Number(s.duration);
-        const validDuration = isNaN(duration) ? 0 : duration;
         const fillerCount = getFillersCount(s);
-        const fwPerMin = validDuration > 0 ? (fillerCount / (validDuration / 60)).toFixed(1) : "0.0";
+        const fwPerMin = duration > 0 ? (fillerCount / (duration / 60)).toFixed(1) : "0.0";
         return {
             date: new Date(s.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
             'FW/min': fwPerMin,
@@ -68,31 +46,17 @@ export const calculateTrends = (history) => {
     }).reverse();
 
     const allFillerCounts = history.reduce((acc, session) => {
-        const fillerData = session.filler_words || session.filler_data || session.filler_counts;
-        if (!fillerData) return acc;
-
-        // FIX: Handle array-based filler_words schema to prevent [object Object] bug
-        if (Array.isArray(fillerData)) {
-            for (const item of fillerData) {
-                if (item.word && typeof item.count === 'number') {
-                    acc[item.word] = (acc[item.word] || 0) + item.count;
-                }
-            }
-        } else { // Handle object-based schemas
-            for (const word in fillerData) {
-                const count = (typeof fillerData[word] === 'object' && fillerData[word] !== null)
-                    ? fillerData[word].count
-                    : fillerData[word];
-
-                if (typeof count === 'number') {
-                  acc[word] = (acc[word] || 0) + count;
-                }
-            }
+        const fillerData = session.filler_words || {};
+        for (const word in fillerData) {
+            acc[word] = (acc[word] || 0) + (fillerData[word].count || 0);
         }
         return acc;
     }, {});
 
-    const topFillerWords = Object.entries(allFillerCounts).sort(([keyA, a], [keyB, b]) => b - a || keyA.localeCompare(keyB)).slice(0, 5).map(([name, value]) => ({ name, value }));
+    const topFillerWords = Object.entries(allFillerCounts)
+        .sort(([keyA, a], [keyB, b]) => b - a || keyB.localeCompare(keyA))
+        .slice(0, 5)
+        .map(([name, value]) => ({ name, value }));
 
     return {
         avgFillerWordsPerMin: avgFillerWordsPerMin.toFixed(1),
@@ -103,18 +67,16 @@ export const calculateTrends = (history) => {
     };
 };
 
-import { Sparkles, Layers } from 'lucide-react';
-
 const EmptyState = () => {
     const navigate = useNavigate();
     return (
         <Card className="flex flex-col items-center justify-center p-12 text-center border-dashed">
             <Sparkles className="w-12 h-12 text-yellow-400 mb-4" />
             <h2 className="text-2xl font-bold text-foreground">Your Dashboard Awaits!</h2>
-            <p className="max-w-md mx-auto my-4 text-muted-foreground text-base">
-                Your speaking insights will appear here once you complete a session. Let's get started!
+            <p className="max-w-md mx-auto my-4 text-muted-foreground">
+                Record your next session to unlock your progress trends and full analytics!
             </p>
-            <Button onClick={() => navigate('/session')}>
+            <Button onClick={() => navigate('/session')} size="lg">
                 Start a New Session →
             </Button>
         </Card>
@@ -137,15 +99,7 @@ const StatCard = ({ icon, label, value, unit, className }) => (
 );
 
 const SessionHistoryItem = ({ session }) => {
-    const getFillersCount = (s) => {
-        const fillerData = s.filler_words || s.filler_data || s.filler_counts;
-        if (!fillerData) return 0;
-        if (Array.isArray(fillerData)) {
-            return fillerData.reduce((sum, item) => sum + (item.count || 0), 0);
-        }
-        return Object.values(fillerData).reduce((sum, data) => sum + (data.count || data || 0), 0);
-    };
-    const totalFillers = getFillersCount(session);
+    const totalFillers = Object.values(session.filler_words || {}).reduce((sum, data) => sum + (data.count || 0), 0);
     const durationMins = (session.duration / 60).toFixed(1);
 
     return (
