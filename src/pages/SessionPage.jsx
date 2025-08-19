@@ -24,7 +24,7 @@ export const SessionPage = () => {
 
     return (
         <div className="container mx-auto px-4 py-10">
-            <div className="lg:flex lg:gap-8 relative">
+            <div className="lg:flex lg:gap-8 relative lg:items-stretch">
                 {/* Left Column */}
                 <div className="lg:w-2/3 flex flex-col gap-8">
                     <TranscriptPanel {...speechRecognition} />

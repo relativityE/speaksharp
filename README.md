@@ -9,7 +9,7 @@ A mobile-first web application that detects and counts filler words in real time
 - **Engaging Filler Word Analysis**: View your filler word counts with a clean, card-based layout using a severity-based color palette and progress bars for easy visual scanning.
 - **Redesigned Controls**: The session page features a clear and focused control area, with a prominent record button and a streamlined "Upgrade to Pro" card.
 - **Comprehensive Analytics Dashboard**: Track your progress over time with an improved dashboard that features clearer stats, better visual hierarchy, and a card-based session history.
-- **Reliable Cloud-Based Speech Processing**: Uses AssemblyAI for high-accuracy transcription. Now captures filler words like "um" and "ah", and provides a confidence score for each session. On-device processing is planned for a future release.
+- **Reliable Cloud-Based Speech Processing**: Uses AssemblyAI for high-accuracy transcription. This service now provides a session-wide "Transcript Accuracy" score, which is the average of the confidence level for all words spoken. This score is displayed on your analytics page to help you gauge the quality of the transcription.
 - **Robust Session Management**: Start, stop, and save practice sessions to track your improvement over time.
 - **PDF Export (Pro Feature)**: Pro users can download a detailed PDF report for any of their past sessions.
 - **Customizable Experience**: Add your own words to track and use a mobile-friendly, responsive interface.

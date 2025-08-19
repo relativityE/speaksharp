@@ -79,8 +79,8 @@ const EmptyState = () => {
     return (
         <Card className="flex flex-col items-center justify-center p-12 text-center border-dashed">
             <Sparkles className="w-12 h-12 text-yellow-400 mb-4" />
-            <h2 className="text-2xl font-bold text-foreground">Your Dashboard Awaits!</h2>
-            <p className="max-w-md mx-auto my-4 text-muted-foreground">
+            <h2 className="text-xl font-bold text-foreground">Your Dashboard Awaits!</h2>
+            <p className="max-w-md mx-auto my-4 text-base text-muted-foreground">
                 Record your next session to unlock your progress trends and full analytics!
             </p>
             <Button onClick={() => navigate('/session')} size="lg">
@@ -93,13 +93,13 @@ const EmptyState = () => {
 const StatCard = ({ icon, label, value, unit, className }) => (
     <Card className={className}>
         <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <CardTitle className="text-base font-medium text-muted-foreground">{label}</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
             {icon}
         </CardHeader>
         <CardContent>
-            <div className="text-5xl font-bold text-foreground">
+            <div className="text-4xl font-bold text-foreground">
                 {value}
-                {unit && <span className="ml-2 text-2xl font-normal text-muted-foreground">{unit}</span>}
+                {unit && <span className="ml-2 text-xl font-normal text-muted-foreground">{unit}</span>}
             </div>
         </CardContent>
     </Card>
@@ -113,23 +113,23 @@ const SessionHistoryItem = ({ session, isPro }) => {
         <Card className="p-4 transition-all duration-200 hover:bg-secondary/50">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div className="flex-grow">
-                    <p className="font-semibold text-foreground text-lg">{session.title || `Session from ${new Date(session.created_at).toLocaleDateString()}`}</p>
-                    <p className="text-sm text-muted-foreground">
+                    <p className="font-semibold text-foreground text-base">{session.title || `Session from ${new Date(session.created_at).toLocaleDateString()}`}</p>
+                    <p className="text-xs text-muted-foreground">
                         {new Date(session.created_at).toLocaleString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
                     </p>
                 </div>
                 <div className="flex items-center gap-6 text-right">
                     <div>
-                        <p className="text-sm text-muted-foreground">Accuracy</p>
-                        <p className="font-bold text-lg text-foreground">{session.accuracy ? `${(session.accuracy * 100).toFixed(1)}%` : 'N/A'}</p>
+                        <p className="text-xs text-muted-foreground">Accuracy</p>
+                        <p className="font-bold text-base text-foreground">{session.accuracy ? `${(session.accuracy * 100).toFixed(1)}%` : 'N/A'}</p>
                     </div>
                     <div>
-                        <p className="text-sm text-muted-foreground">Filler Words</p>
-                        <p className="font-bold text-lg text-foreground">{totalFillers}</p>
+                        <p className="text-xs text-muted-foreground">Filler Words</p>
+                        <p className="font-bold text-base text-foreground">{totalFillers}</p>
                     </div>
                     <div>
-                        <p className="text-sm text-muted-foreground">Duration</p>
-                        <p className="font-bold text-lg text-foreground">{durationMins} min</p>
+                        <p className="text-xs text-muted-foreground">Duration</p>
+                        <p className="font-bold text-base text-foreground">{durationMins} min</p>
                     </div>
                     {isPro && (
                         <Button variant="outline" size="icon" onClick={() => generateSessionPdf(session)}>
@@ -247,8 +247,8 @@ export const AnalyticsDashboard = ({ sessionHistory, profile }) => {
                             <ResponsiveContainer width="100%" height={300}>
                                 <LineChart data={trends.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                                     <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
-                                    <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={14} tickLine={false} axisLine={false} />
-                                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize={14} tickLine={false} axisLine={false} />
+                                    <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
+                                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
                                     <Tooltip
                                         cursor={{ fill: 'hsla(var(--secondary))' }}
                                         contentStyle={{
@@ -278,7 +278,7 @@ export const AnalyticsDashboard = ({ sessionHistory, profile }) => {
                                 <BarChart data={trends.topFillerWords} layout="vertical" margin={{ top: 0, right: 20, left: 10, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
                                     <XAxis type="number" hide />
-                                    <YAxis type="category" dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={16} tickLine={false} axisLine={false} width={80} />
+                                    <YAxis type="category" dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} width={80} />
                                     <Tooltip
                                         cursor={{ fill: 'hsla(var(--secondary))' }}
                                         contentStyle={{

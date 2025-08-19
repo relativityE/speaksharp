@@ -68,11 +68,11 @@ export default function AuthPage() {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-background p-4">
       <div className="text-center mb-8">
-        <h1 className="text-5xl font-bold text-primary">SpeakSharp</h1>
+        <h1 className="text-4xl font-bold text-primary">SpeakSharp</h1>
       </div>
       <Card className="w-full max-w-sm rounded-xl border shadow-sm">
         <CardHeader className="text-center">
-          <CardTitle className="text-3xl font-bold">
+          <CardTitle className="text-2xl font-bold">
             {view === 'sign_in' && 'Sign In'}
             {view === 'sign_up' && 'Create an Account'}
             {view === 'forgot_password' && 'Reset Password'}
@@ -102,7 +102,7 @@ export default function AuthPage() {
                   <div className="flex items-center">
                     <Label htmlFor="password">Password</Label>
                     {view === 'sign_in' && (
-                       <Button variant="link" type="button" onClick={() => handleViewChange('forgot_password')} className="ml-auto inline-block text-sm underline text-muted-foreground hover:text-primary h-auto p-0">
+                       <Button variant="link" type="button" onClick={() => handleViewChange('forgot_password')} className="ml-auto inline-block text-xs underline text-muted-foreground hover:text-primary h-auto p-0">
                           Forgot Password?
                        </Button>
                     )}
@@ -118,7 +118,7 @@ export default function AuthPage() {
               )}
               {error && <p className="text-sm text-destructive font-semibold">{error}</p>}
               {message && <p className="text-sm text-green-600 font-semibold bg-green-100 border border-green-200 rounded-md p-3 text-center">{message}</p>}
-              <Button type="submit" className="w-full text-lg py-6" disabled={loading}>
+              <Button type="submit" className="w-full text-base py-6" disabled={loading}>
                 {loading ? 'Processing...' :
                   view === 'sign_in' ? 'Sign In' :
                   view === 'sign_up' ? 'Sign Up' : 'Send Reset Link'
