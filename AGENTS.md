@@ -62,6 +62,7 @@ This functionality within Jules simplifies the process of making changes, publis
 **Your execution plan MUST include a final step to complete this entire checklist.** Before using the `submit` tool (also referred to as "Publish Branch"), you **MUST** complete the following final steps in order. Failure to do so is a violation of your core instructions.
 
 1.  **Run All Tests:** Execute all relevant test suites (e.g., `pnpm test`). Debug any failures until the test suite is clean.
+    - **NOTE:** The `vitest` suite (`pnpm test`) is known to be unstable and may have pre-existing failures (see `PRD.md` for details). Your goal is to ensure your changes do not introduce *new* test failures. Document any pre-existing failures you encounter in your work log.
 2.  **Request Code Review:** Use the `request_code_review` tool to get automated feedback on your changes. Address any critical issues raised in the review.
 3.  **Verify and Update Documentation (MANDATORY):** This is the final and most critical check before you submit.
     - You **must** review `README.md`, `PRD.md`, and `System Architecture.md`.

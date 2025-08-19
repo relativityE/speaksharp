@@ -10,7 +10,7 @@ import TestPage from './pages/TestPage';
 
 
 function App() {
-  const { user } = useAuth();
+  useAuth();
 
   return (
     <div>

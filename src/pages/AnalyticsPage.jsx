@@ -9,7 +9,6 @@ import { Card, CardContent } from '@/components/ui/card';
 const AuthenticatedAnalyticsView = () => {
     const { sessions, loading } = useSessionManager();
     const { profile } = useAuth();
-    const navigate = useNavigate();
 
     if (loading) {
         return (
