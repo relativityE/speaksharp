@@ -46,7 +46,8 @@
 ---
 
 ## ⚠️ Known Issues
-- **On-Device Transcription is Not Yet Implemented:** The `LocalWhisper` provider in `TranscriptionService` is a non-functional simulation that uses sample text. The UI toggle remains enabled for demo purposes, with a toast notification to inform users. This is the top priority for Phase 2.
+- **On-Device Transcription is Not Yet Implemented:** The `LocalWhisper` provider in `TranscriptionService` is a non-functional simulation. The UI toggle remains enabled for demo purposes. This is the top priority for Phase 2 and will be implemented using the Transformers.js library.
+- **Test Suite Instability:** The `vitest` test suite is currently experiencing persistent timeout issues (~400s), making it unreliable for automated testing. This occurs even when running a single test file with debugging configurations (`pool: 'forks'`). The root cause is suspected to be a deep environmental issue with the test runner's interaction with JSDOM. This is a critical issue to resolve to ensure code quality. A fix is being investigated by the user.
 
 ---
 
@@ -129,46 +130,38 @@ Our technology choices prioritize development speed, scalability, and user exper
 
 ## 🗓️ Development Roadmap
 
-### PHASE 1 — MVP FOUNDATION (Weeks 1-3) - 90% Complete
-- **Must Have:**
-    - `✅` **[M]** Implement core backend services (Supabase Auth & DB).
-    - `✅` **[M]** Implement `TranscriptionService` with AssemblyAI provider.
-    - `✅` **[M]** Integrate `TranscriptionService` into the main session page.
-    - `✅` **[M]** Implement Stripe payment flow for Pro tier.
-    - `[ ]` **[M]** Configure production Price ID for Stripe checkout.
-    - `✅` **[M]** Set up Sentry for error monitoring.
-    - `✅` **[M]** Set up PostHog for product analytics.
-- **Should Have:**
-    - `✅` **[S]** Develop a responsive UI with a professional light theme.
-    - `[ ]` **[S]** Comprehensive QA and performance tuning.
-- **Could Have:**
-    - `[ ]` **[C]** A/B testing setup with PostHog.
-- **Won't Have (for this phase):**
-    - `[ ]` **[W]** On-device transcription (moved to Phase 2).
+### PHASE 1 — MVP FOUNDATION (Weeks 1-3) - ~80% Complete
+- **[DONE]** `[M]` Implement core backend services (Supabase Auth & DB).
+- **[DONE]** `[M]` Implement `TranscriptionService` with AssemblyAI provider.
+- **[DONE]** `[M]` Integrate `TranscriptionService` into the main session page.
+- **[DONE]** `[M]` Implement Stripe payment flow for Pro tier.
+- **[DONE]** `[M]` Configure production Price ID for Stripe checkout (via environment variable).
+- **[DONE]** `[M]` Set up Sentry for error monitoring.
+- **[DONE]** `[M]` Set up PostHog for product analytics.
+- **[DONE]** `[S]` Develop a responsive UI with a professional light theme.
+- **[BLOCKED]** `[S]` Comprehensive QA and performance tuning (blocked by test suite performance).
+- **[DEFERRED]** `[C]` A/B testing setup with PostHog.
 
-### PHASE 2 — PRIVACY & POLISH (Months 1-3) - 25% Complete
-- **Must Have:**
-    - `[ ]` **[M]** Integrate Whisper.cpp into `TranscriptionService` for on-device transcription. (See "Known Issues")
-    - `[ ]` **[M]** Implement automatic fallback from local to cloud STT based on performance.
-    - `✅` **[M]** Build a comprehensive analytics dashboard for users.
-- **Should Have:**
-    - `✅` **[S]** Re-evaluated fallback to native Web Speech API. The automatic fallback was removed to prevent silent failures and provide clearer error messages.
-    - `[ ]` **[S]** Implement weekly summary emails.
-    - `[ ]` **[S]** Add in-app prompts to encourage users to upgrade.
-    - `[ ]` **[S]** Conduct thorough cross-browser testing and bug fixing.
-- **Could Have:**
-    - `[ ]` **[C]** A/B test different UI elements and user flows.
-    - `[ ]` **[C]** Optimize funnels based on PostHog data.
+### PHASE 2 — PRIVACY & POLISH (Months 1-3) - ~30% Complete
+- **[DONE]** `[M]` Build a comprehensive analytics dashboard for users.
+- **[DONE]** `[S]` Re-evaluated fallback to native Web Speech API (removed as a feature).
+- **[BLOCKED]** `[M]` Integrate On-Device Transcription (using **Transformers.js**).
+- **[BLOCKED]** `[M]` Implement automatic fallback from local to cloud STT based on performance.
+- **[OUTSTANDING]** `[S]` Implement weekly summary emails.
+- **[OUTSTANDING]** `[S]` Add in-app prompts to encourage users to upgrade.
+- **[OUTSTANDING]** `[S]` Conduct thorough cross-browser testing and bug fixing.
+- **[DEFERRED]** `[C]` A/B test different UI elements and user flows.
+- **[DEFERRED]** `[C]` Optimize funnels based on PostHog data.
 
 ### PHASE 3 — SCALE & EXPANSION (Months 6-12) - 0% Complete
-- **Must Have:**
-    - `[ ]` **[M]** Implement team accounts and billing.
-- **Should Have:**
-    - `[ ]` **[S]** Add support for more languages.
-    - `[ ]` **[S]** Develop AI-powered suggestions for improving speech.
-- **Could Have:**
-    - `[ ]` **[C]** Full offline mode for the application.
-    - `[ ]` **[C]** Case studies and advanced content marketing.
+- **[OUTSTANDING]** `[M]` Implement team accounts and billing.
+- **[OUTSTANDING]** `[S]` Add support for more languages.
+- **[OUTSTANDING]** `[S]` Develop AI-powered suggestions for improving speech.
+- **[DEFERRED]** `[C]` Full offline mode for the application.
+- **[DEFERRED]** `[C]` Case studies and advanced content marketing.
+
+### NEW: DEPLOYMENT
+- **[OUTSTANDING]** `[M]` Set up production deployment on Vercel (includes config and environment variables).
 
 ---
 

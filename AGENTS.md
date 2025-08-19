@@ -29,6 +29,11 @@ This document provides guidance for AI software engineering agents working on th
 -   **Environment Variables:** All secret keys and environment-specific configurations **must** be loaded from environment variables (e.g., `import.meta.env.VITE_...`). Do **not** hardcode keys in the source code. The Vitest environment is configured to use `.env.test` for its variables.
 -   **Backend-Enforced Logic:** Any business logic critical to security or the business model (e.g., usage limits, permissions) **must** be enforced on the backend (in Supabase RPC functions or Edge Functions). Do not rely on client-side checks for security.
 -   **Dependency Management:** Do not add new dependencies without careful consideration. Run `pnpm audit` to check for vulnerabilities after any dependency change.
+-   **Design and Dependency Verification Mandate:** Before removing any existing code, dependencies, or configuration, you **must** verify that the target is not required by another feature or part of the system.
+    -   **Procedure:**
+        1.  **Consult Documentation:** Review `PRD.md` and `System Architecture.md` to understand the full scope of the product's features.
+        2.  **Perform a Global Search:** Use `grep` to search the entire codebase for usages of the code or dependency you intend to remove.
+        3.  **Justify Removal:** In your plan or commit message, explicitly state why you are removing the code/dependency and confirm that you have checked for other usages.
 -   **Testing `useSpeechRecognition`:** The `useSpeechRecognition` hook has a complex dependency on the `TranscriptionService`. The Vitest tests for this hook (`src/__tests__/useSpeechRecognition.test.jsx`) use `vi.mock()` to mock this service at the module level. This is the preferred way to test the hook's logic. Do not attempt to mock the service in Playwright unless absolutely necessary, as it is significantly more complex.
 
 ## 4. Code Style & Linting

@@ -45,7 +45,7 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
         try {
             const { data, error } = await supabase.functions.invoke('stripe-checkout', {
                 body: {
-                    priceId: 'price_1PLaAkG16YUfbOlV9Vp2I50b'
+                    priceId: import.meta.env.VITE_STRIPE_PRICE_ID
                 },
             });
 

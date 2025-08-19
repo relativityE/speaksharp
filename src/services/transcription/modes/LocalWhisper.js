@@ -1,68 +1,52 @@
-// src/services/transcription/modes/LocalWhisper.js
-// EXPECTS: model files in /models/whisper/ (public path), e.g. tiny.en.bin / base.en.bin
+import { pipeline } from '@xenova/transformers';
 
 export default class LocalWhisper {
-  constructor({ model = 'tiny.en.bin', performanceWatcher, onTranscriptUpdate } = {}) {
+  constructor({ model = 'Xenova/whisper-tiny.en', performanceWatcher, onTranscriptUpdate } = {}) {
     this.model = model;
     this.performanceWatcher = performanceWatcher;
     this.onTranscriptUpdate = onTranscriptUpdate;
-    this.transcript = '';
+    this.transcriber = null;
     this.ready = false;
+    this.audioChunks = [];
     this._stop = null;
     this._frameCount = 0;
     this._t0 = 0;
   }
 
   async init() {
-    // TODO(1): Load WASM + model (whisper.cpp browser build)
-    // Example shape (pseudo):
-    // this.whisper = await Whisper.init({ wasmPath: '/whisper/whisper.wasm' });
-    // await this.whisper.loadModel(`/models/whisper/${this.model}`);
-    this.ready = true;
+    try {
+      console.log('Initializing local whisper model...');
+      this.transcriber = await pipeline('automatic-speech-recognition', this.model, {
+        dtype: 'fp32',
+      });
+      this.ready = true;
+      console.log('Local whisper model initialized.');
+    } catch (error) {
+      console.error('Failed to initialize local whisper model:', error);
+      this.ready = false;
+      throw error;
+    }
   }
 
   async startTranscription(mic) {
     if (!this.ready) throw new Error('LocalWhisper not initialized');
-    this.transcript = '';
+
+    this.audioChunks = [];
     this._frameCount = 0;
     this._t0 = performance.now();
 
-    // --- SIMULATION ---
-    // This is a temporary simulation to demonstrate the callback mechanism.
-    // In a real implementation, the onFrame handler would call onTranscriptUpdate.
     if (this.onTranscriptUpdate) {
-      this.onTranscriptUpdate({ transcript: { partial: '' } });
-      const simulatedWords = "Um, I think, like, you know, this is a test of the, uh, local transcription simulation. So, it should, actually, show some filler words.".split(" ");
-      let wordIndex = 0;
-      this._simulationInterval = setInterval(() => {
-        if (wordIndex < simulatedWords.length) {
-          const partial = simulatedWords.slice(0, wordIndex + 1).join(" ");
-          this.transcript = partial;
-          this.onTranscriptUpdate({ transcript: { partial } });
-          wordIndex++;
-        } else {
-          clearInterval(this._simulationInterval);
-        }
-      }, 500);
+      this.onTranscriptUpdate({ transcript: { partial: '...' } }); // Indicate that we are listening
     }
-    // --- END SIMULATION ---
 
-    const onFrame = async (f32) => {
-      // TODO(2): Feed PCM f32 (16k mono) to whisper.cpp incremental API
-      // const partial = await this.whisper.processFrame(f32);
-      // if (partial?.text) {
-      //   this.transcript = partial.text;
-      //   if (this.onTranscriptUpdate) {
-      //     this.onTranscriptUpdate({ transcript: { partial: partial.text } });
-      //   }
-      // }
+    const onFrame = (f32) => {
+      this.audioChunks.push(f32);
 
-      // PERF: crude realtime check (frames are 1024 @ 16kHz ≈ 64ms of audio)
       this._frameCount++;
       if (this._frameCount % 10 === 0 && this.performanceWatcher) {
         const elapsedMs = performance.now() - this._t0;
         const audioMs = (this._frameCount * 1024) / 16000 * 1000;
-        const rtFactor = elapsedMs / audioMs; // < 1 means faster than realtime
+        const rtFactor = elapsedMs / audioMs;
         this.performanceWatcher({ provider: 'local', rtFactor, elapsedMs, audioMs });
       }
     };
@@ -75,21 +59,44 @@ export default class LocalWhisper {
     if (this._stop) this._stop();
     this._stop = null;
 
-    // --- SIMULATION CLEANUP ---
-    if (this._simulationInterval) {
-      clearInterval(this._simulationInterval);
-      this._simulationInterval = null;
+    if (!this.transcriber || this.audioChunks.length === 0) {
+      return '';
     }
-    // --- END SIMULATION ---
 
-    // TODO(3): Optionally flush to get final text
-    // const finalText = await this.whisper.flush();
-    // if (finalText) this.transcript = finalText;
+    try {
+      // Combine all audio chunks into a single Float32Array
+      const totalLength = this.audioChunks.reduce((acc, chunk) => acc + chunk.length, 0);
+      const combined = new Float32Array(totalLength);
+      let offset = 0;
+      for (const chunk of this.audioChunks) {
+        combined.set(chunk, offset);
+        offset += chunk.length;
+      }
 
-    return this.transcript;
+      console.log(`Processing ${combined.length / 16000}s of audio...`);
+      const result = await this.transcriber(combined);
+      const finalText = result.text;
+
+      if (this.onTranscriptUpdate) {
+        this.onTranscriptUpdate({ transcript: { final: finalText, partial: '' } });
+      }
+
+      return finalText;
+
+    } catch (error) {
+      console.error('Transcription failed:', error);
+      if (this.onTranscriptUpdate) {
+        this.onTranscriptUpdate({ transcript: { final: 'Error transcribing audio.', partial: '' } });
+      }
+      return 'Error transcribing audio.';
+    } finally {
+      this.audioChunks = [];
+    }
   }
 
   async getTranscript() {
-    return this.transcript;
+    // This method is less relevant in a non-streaming implementation
+    // but we return an empty string for consistency.
+    return '';
   }
 }
