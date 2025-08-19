@@ -1,6 +1,6 @@
 // src/__tests__/SessionSidebar.test.jsx
 import React from 'react';
-import { render, screen, act, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { SessionSidebar } from '../components/session/SessionSidebar';
 import { useAuth } from '../contexts/AuthContext';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';

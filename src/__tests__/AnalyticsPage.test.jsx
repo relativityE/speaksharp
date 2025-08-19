@@ -2,7 +2,6 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { AnalyticsPage } from '../pages/AnalyticsPage';
-import { useAuth } from '../contexts/AuthContext';
 import { useSessionManager } from '../hooks/useSessionManager';
 
 // Mock the AnalyticsDashboard module with both exports
