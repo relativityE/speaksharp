@@ -59,16 +59,28 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
     const endSessionAndSave = async () => {
         const sessionData = await stopListening();
 
+        if (!sessionData || !sessionData.transcript) {
+            toast.error("Could not process session data. Please try again.");
+            return;
+        }
+
+        const completeSessionData = {
+            title: `Practice Session - ${new Date().toLocaleString()}`,
+            duration: Math.ceil(elapsedTime),
+            total_words: sessionData.total_words,
+            filler_words: sessionData.filler_words,
+        };
+
         if (!user) {
             sessionStorage.setItem('anonymousSession', JSON.stringify({
-                ...sessionData,
+                ...completeSessionData,
                  created_at: new Date().toISOString()
             }));
             navigate('/analytics');
             return;
         }
 
-        if (elapsedTime > 0 && user && !isPro) {
+        if (elapsedTime > 0 && !isPro) {
             const { data: updateSuccess, error: rpcError } = await supabase.rpc('update_user_usage', {
                 session_duration_seconds: Math.ceil(elapsedTime)
             });
@@ -87,7 +99,7 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
             }
         }
 
-        saveSession(sessionData);
+        saveSession(completeSessionData);
         navigate('/analytics');
     };
 
@@ -108,7 +120,16 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
         if(!isListening) {
             setElapsedTime(0);
         }
-    }, [isListening])
+    }, [isListening]);
+
+    useEffect(() => {
+        if (mode === 'local') {
+            toast.info("Local Mode is a Demo", {
+                description: "This mode uses a sample sentence to demonstrate filler word detection and is not processing your live speech.",
+                duration: 8000,
+            });
+        }
+    }, [mode]);
 
     const handleStartStop = () => {
         if (isListening) {
@@ -160,39 +181,57 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                         </p>
                     </div>
                     <ErrorDisplay error={error} />
-                </CardContent>
-            </Card>
-
-            <Card className="text-center w-full">
-                <CardContent className="p-2">
-                    <div className="mb-1">
-                        <CircularTimer elapsedTime={elapsedTime} />
-                    </div>
-                    <div className={`mb-2 font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
-                        {isLoading ? 'INITIALIZING...' : (isListening ? '● RECORDING' : '')}
-                    </div>
-                    <Button
-                        onClick={handleStartStop}
-                        size="lg"
-                        variant={isListening ? 'destructive' : 'default'}
-                        className="w-full"
-                        disabled={isLoading}
-                    >
-                        {getButtonContent()}
-                    </Button>
+                    {import.meta.env.DEV && (
+                        <div className="pt-4 border-t border-border/50">
+                            <h4 className="text-sm font-medium text-muted-foreground mb-2">Developer Controls</h4>
+                            <Button variant="outline" size="sm" onClick={() => setMode('native')}>
+                                Force Native Transcription
+                            </Button>
+                        </div>
+                    )}
                 </CardContent>
             </Card>
 
             <Card className="w-full">
+                <CardContent className="p-4 flex flex-col items-center">
+                     <Button
+                        onClick={handleStartStop}
+                        size="lg"
+                        variant={isListening ? 'destructive' : 'default'}
+                        className="w-full h-16 text-xl font-bold rounded-lg"
+                        disabled={isLoading}
+                    >
+                        {getButtonContent()}
+                    </Button>
+                    <div className="flex flex-col items-center justify-center mt-4 w-full gap-2">
+                        <div className="w-16 h-16">
+                            <CircularTimer elapsedTime={elapsedTime} />
+                        </div>
+                        <div className={`text-lg font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
+                            {isLoading ? 'INITIALIZING...' : (isListening ? '● RECORDING' : 'Idle')}
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
+
+            <Card className="w-full bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 border-purple-200">
                 <CardHeader>
-                    <CardTitle className="text-lg">Upgrade to Pro</CardTitle>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                        <Zap className="w-6 h-6 text-yellow-500" />
+                        Upgrade to Pro
+                    </CardTitle>
                 </CardHeader>
                 <CardContent>
                     <p className="text-muted-foreground mb-4">
-                        Unlock unlimited practice time, advanced analytics, and more.
+                        Get unlimited practice, advanced analytics, and priority support.
                     </p>
-                    <Button className="w-full" onClick={handleUpgrade} disabled={isUpgrading || !user || isPro}>
-                        {isUpgrading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Upgrading...</> : isPro ? 'You are a Pro!' : <><Zap className="w-4 h-4 mr-2" /> Upgrade Now</>}
+                    <Button className="w-full font-bold group" onClick={handleUpgrade} disabled={isUpgrading || !user || isPro}>
+                        {isUpgrading
+                            ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Upgrading...</>
+                            : isPro
+                                ? 'You are a Pro!'
+                                : <>Get Unlimited Practice <span className="ml-2 transition-transform duration-200 group-hover:translate-x-1">→</span></>
+                        }
                     </Button>
                 </CardContent>
             </Card>
