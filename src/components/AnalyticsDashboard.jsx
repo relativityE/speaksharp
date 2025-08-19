@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, LabelList } from 'recharts';
-import { TrendingUp, Clock, Hash, CheckCircle } from 'lucide-react';
+import { TrendingUp, Clock, CheckCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -103,16 +103,19 @@ export const calculateTrends = (history) => {
     };
 };
 
+import { Sparkles, Layers } from 'lucide-react';
+
 const EmptyState = () => {
     const navigate = useNavigate();
     return (
-        <Card className="flex flex-col items-center justify-center p-12 text-center">
-            <h2 className="text-2xl font-bold text-foreground">Ready to See Your Progress?</h2>
+        <Card className="flex flex-col items-center justify-center p-12 text-center border-dashed">
+            <Sparkles className="w-12 h-12 text-yellow-400 mb-4" />
+            <h2 className="text-2xl font-bold text-foreground">Your Dashboard Awaits!</h2>
             <p className="max-w-md mx-auto my-4 text-muted-foreground text-base">
-                Complete a session to start tracking your journey to confident speaking.
+                Your speaking insights will appear here once you complete a session. Let's get started!
             </p>
             <Button onClick={() => navigate('/session')}>
-                Start Your First Session
+                Start a New Session →
             </Button>
         </Card>
     );
@@ -125,9 +128,9 @@ const StatCard = ({ icon, label, value, unit, className }) => (
             {icon}
         </CardHeader>
         <CardContent>
-            <div className="text-4xl font-bold text-foreground">
+            <div className="text-5xl font-bold text-foreground">
                 {value}
-                {unit && <span className="ml-2 text-xl font-normal text-muted-foreground">{unit}</span>}
+                {unit && <span className="ml-2 text-2xl font-normal text-muted-foreground">{unit}</span>}
             </div>
         </CardContent>
     </Card>
@@ -135,34 +138,37 @@ const StatCard = ({ icon, label, value, unit, className }) => (
 
 const SessionHistoryItem = ({ session }) => {
     const getFillersCount = (s) => {
-        if (s.filler_data) return Object.values(s.filler_data).reduce((sum, data) => sum + data.count, 0);
-        if (s.filler_counts) return Object.values(s.filler_counts).reduce((a, b) => a + b, 0);
-        return 0;
+        const fillerData = s.filler_words || s.filler_data || s.filler_counts;
+        if (!fillerData) return 0;
+        if (Array.isArray(fillerData)) {
+            return fillerData.reduce((sum, item) => sum + (item.count || 0), 0);
+        }
+        return Object.values(fillerData).reduce((sum, data) => sum + (data.count || data || 0), 0);
     };
     const totalFillers = getFillersCount(session);
     const durationMins = (session.duration / 60).toFixed(1);
 
     return (
-        <div className="p-4 transition-all duration-200 rounded-lg hover:bg-secondary">
-            <div className="flex items-center justify-between">
+        <Card className="p-4 transition-all duration-200 hover:bg-secondary/50">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
-                    <p className="font-semibold text-foreground text-base">{new Date(session.created_at).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
-                    <p className="text-base text-muted-foreground">{new Date(session.created_at).toLocaleTimeString()}</p>
+                    <p className="font-semibold text-foreground text-lg">{session.title || `Session from ${new Date(session.created_at).toLocaleDateString()}`}</p>
+                    <p className="text-sm text-muted-foreground">
+                        {new Date(session.created_at).toLocaleString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                    </p>
                 </div>
-                <div className="text-right">
-                    <div className="flex items-center justify-end gap-4">
-                        <div>
-                            <p className="font-semibold text-foreground text-base">{totalFillers} filler words</p>
-                            <p className="text-base text-muted-foreground">{durationMins} min duration</p>
-                        </div>
-                        <Badge variant="secondary" className="hidden sm:flex items-center gap-1.5">
-                            <CheckCircle className="h-3.5 w-3.5" />
-                            Completed
-                        </Badge>
+                <div className="flex items-center gap-6 text-right w-full sm:w-auto">
+                    <div className="flex-1">
+                        <p className="text-sm text-muted-foreground">Filler Words</p>
+                        <p className="font-bold text-lg text-foreground">{totalFillers}</p>
+                    </div>
+                    <div className="flex-1">
+                        <p className="text-sm text-muted-foreground">Duration</p>
+                        <p className="font-bold text-lg text-foreground">{durationMins} min</p>
                     </div>
                 </div>
             </div>
-        </div>
+        </Card>
     );
 };
 
@@ -254,9 +260,9 @@ export const AnalyticsDashboard = ({ sessionHistory }) => {
     return (
         <div className="space-y-8">
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-                <StatCard icon={<Hash size={20} className="text-muted-foreground" />} label="Total Sessions" value={trends.totalSessions} className="sm:col-span-2 md:col-span-1" />
-                <StatCard icon={<TrendingUp size={20} className="text-muted-foreground" />} label="Avg. Filler Words / Min" value={trends.avgFillerWordsPerMin} />
-                <StatCard icon={<Clock size={20} className="text-muted-foreground" />} label="Total Practice Time" value={trends.totalPracticeTime} unit="mins" />
+                <StatCard icon={<Layers size={24} className="text-muted-foreground" />} label="Total Sessions" value={trends.totalSessions} className="sm:col-span-2 md:col-span-1" />
+                <StatCard icon={<TrendingUp size={24} className="text-muted-foreground" />} label="Avg. Filler Words / Min" value={trends.avgFillerWordsPerMin} />
+                <StatCard icon={<Clock size={24} className="text-muted-foreground" />} label="Total Practice Time" value={trends.totalPracticeTime} unit="mins" />
             </div>
 
             <div className="grid grid-cols-1 gap-8 lg:grid-cols-5">
