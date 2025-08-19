@@ -27,7 +27,7 @@ export const SessionPage = () => {
             <div className="lg:flex lg:gap-8 relative lg:items-stretch">
                 {/* Left Column */}
                 <div className="lg:w-2/3 flex flex-col gap-8">
-                    <div className="flex-[3]">
+                    <div className="flex-[2]">
                         <TranscriptPanel {...speechRecognition} />
                     </div>
                     <div className="flex-[1] flex flex-col">
