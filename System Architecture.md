@@ -8,7 +8,7 @@ The system is built for speed, both in user experience and development velocity.
 
 ## 2. System Architecture & Technology Stack
 
-The architecture is designed around a modern, client-heavy Jamstack approach. The frontend is a sophisticated single-page application that handles most of the business logic, including the transcription via a flexible `TranscriptionService` wrapper. This service can toggle between a cloud provider (AssemblyAI) and a local, in-browser engine (Whisper.cpp), providing a seamless path from a rapid MVP to a privacy-focused production system.
+The architecture is designed around a modern, client-heavy Jamstack approach. The frontend is a sophisticated single-page application that handles most of the business logic, including the transcription via a flexible `TranscriptionService` wrapper. This service can toggle between a cloud provider (AssemblyAI) and a local, in-browser engine (using **Transformers.js**), providing a seamless path from a rapid MVP to a privacy-focused production system.
 
 ### High-Level Overview
 ```text
@@ -22,7 +22,7 @@ The architecture is designed around a modern, client-heavy Jamstack approach. Th
 |  |  onTranscriptUpdate)      |  |
 |  |---------------------------|  |
 |  | if (mode === 'local') {   |  |
-|  |   Whisper.cpp (WASM)      |  |
+|  |   Transformers.js (WASM)  |  |
 |  | } else {                  |  |
 |  |   AssemblyAI (via Token)  |  |
 |  | }                         |  |
@@ -150,7 +150,7 @@ This simplified and robust approach allows us to maintain a fast and efficient d
 │ Service          │                            │ approach via an `onTranscriptUpdate` callback to provide real-time   │   (Set in Supabase project secrets)                                                          │
 │                  │                            │ results to the UI without polling.                                   │                                                                                                │
 │                  │                            │ • `src/services/transcription`: Wrapper for STT providers.         │                                                                                                │
-│                  │                            │ • `modes/LocalWhisper.js`: On-device (planned).                    │                                                                                                │
+│                  │                            │ • `modes/LocalWhisper.js`: On-device via **Transformers.js**.      │                                                                                                │
 │                  │                            │ • `modes/CloudAssemblyAI.js`: Cloud-based, uses temporary tokens for │                                                                                                │
 │                  │                            │   secure, browser-based authentication via a Supabase function.      │                                                                                                │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
@@ -187,7 +187,7 @@ The testing strategy is designed for rapid feedback and reliability, directly su
 The entire system architecture is a direct reflection of the goals outlined in the **SpeakSharp PRD**.
 
 *   **Goal: "Privacy-First, Real-Time Analysis"**:
-    *   **Architecture**: The `TranscriptionService` wrapper is the cornerstone of the privacy strategy. It allows for a fast MVP using a cloud service (AssemblyAI) while providing a clear, low-effort path to a fully on-device solution (Whisper.cpp) for the production release. This two-phase approach balances speed with the long-term privacy promise.
+    *   **Architecture**: The `TranscriptionService` wrapper is the cornerstone of the privacy strategy. It allows for a fast MVP using a cloud service (AssemblyAI) while providing a clear path to a fully on-device solution (**Transformers.js**) for the production release. This two-phase approach balances speed with the long-term privacy promise.
 
 *   **Goal: "Rapid MVP Launch" (3-Week Target)**:
     *   **Architecture**: The technology choices are optimized for development speed to meet the aggressive **3-week MVP timeline** defined in the PRD.
@@ -210,7 +210,7 @@ The free tier is designed to be flexible, allowing users to choose between priva
 
 1.  **Authentication**: A user with a `subscription_status` of `'free'` logs in.
 2.  **Speech Recognition (User's Choice)**: When the user starts a session, the `useSpeechRecognition.js` hook is activated, which in turn uses the `TranscriptionService`. The user can toggle between two modes:
-    *   **Local Mode**: This mode is the default and uses a placeholder for the on-device `Whisper.cpp` engine. In this mode, no audio leaves the device, ensuring maximum privacy.
+    *   **Local Mode**: This mode is the default and will use the **Transformers.js** library for on-device speech recognition. In this mode, no audio leaves the device, ensuring maximum privacy.
     *   **Cloud Mode**: This mode uses the `AssemblyAI` service for transcription. Audio is streamed to the AssemblyAI servers for processing.
 3.  **Session Completion**: The user manually stops the session.
 4.  **Data Persistence (Metadata Only)**: The `useSessionManager.js` and `lib/storage.js` modules collaborate to save the session.
