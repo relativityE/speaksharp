@@ -15,7 +15,13 @@ const DigitalTimer = ({ elapsedTime }) => {
     const minutes = Math.floor(elapsedTime / 60);
     const seconds = elapsedTime % 60;
     const formattedTime = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-    return <div className="text-5xl font-mono font-bold text-foreground">{formattedTime}</div>;
+    return (
+        <div className="bg-primary text-primary-foreground px-8 py-3 rounded-full shadow-lg">
+            <div className="text-5xl font-mono font-bold tracking-widest">
+                {formattedTime}
+            </div>
+        </div>
+    );
 };
 
 export const SessionSidebar = ({ isListening, error, startListening, stopListening, reset, mode, setMode, saveSession }) => {
@@ -158,67 +164,89 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
         return <><Mic className="w-4 h-4 mr-2" /> Start Recording</>;
     };
 
+    const getModeNotification = () => {
+        switch (mode) {
+            case 'cloud':
+                return {
+                    text: 'Cloud Transcription (Highest Accuracy)',
+                    className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
+                };
+            case 'local':
+                return {
+                    text: 'Local Transcription (Faster, Private)',
+                    className: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+                };
+            case 'native':
+                return {
+                    text: 'Native Browser Fallback (Lower Accuracy)',
+                    className: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300'
+                };
+            default:
+                return { text: '', className: '' };
+        }
+    };
+
+    const modeNotification = getModeNotification();
+
     return (
-        <div className="flex flex-col gap-6">
-            <Card className="w-full">
-                <CardHeader>
-                    <CardTitle className="text-base">Settings</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="flex items-center justify-between">
-                        <Label htmlFor="transcription-mode" className="text-sm">Transcription Mode</Label>
-                        <div className="flex items-center gap-2">
-                            <Label htmlFor="transcription-mode" className="text-xs text-muted-foreground">Local</Label>
-                            <Switch
-                                id="transcription-mode"
-                                checked={mode === 'cloud'}
-                                onCheckedChange={(checked) => setMode(checked ? 'cloud' : 'local')}
-                            />
-                            <Label htmlFor="transcription-mode" className="text-xs text-muted-foreground">Cloud</Label>
+        <div className="flex flex-col gap-6 h-full">
+            <div className="flex-grow flex flex-col gap-6">
+                <Card className="w-full">
+                    <CardHeader>
+                        <CardTitle className="text-base">Settings</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="flex items-center justify-between">
+                            <Label htmlFor="transcription-mode" className="text-sm">Transcription Mode</Label>
+                            <div className="flex items-center gap-2">
+                                <Label htmlFor="transcription-mode" className="text-xs text-muted-foreground">Local</Label>
+                                <Switch
+                                    id="transcription-mode"
+                                    checked={mode === 'cloud'}
+                                    onCheckedChange={(checked) => setMode(checked ? 'cloud' : 'local')}
+                                />
+                                <Label htmlFor="transcription-mode" className="text-xs text-muted-foreground">Cloud</Label>
+                            </div>
                         </div>
-                    </div>
-                    <div className="text-center p-2 bg-secondary rounded-md">
-                        <p className="text-xs text-muted-foreground">
-                            {
-                                mode === 'cloud' ? 'Using Cloud Transcription (Highest Accuracy)' :
-                                mode === 'local' ? 'Using Local Transcription (Faster, Private)' :
-                                'Using Native Browser Fallback'
-                            }
-                        </p>
-                    </div>
-                    <ErrorDisplay error={error} />
-                    {import.meta.env.DEV && (
-                        <div className="pt-4 border-t border-border/50">
-                            <h4 className="text-xs font-medium text-muted-foreground mb-2">Developer Controls</h4>
-                            <Button variant="outline" size="sm" onClick={() => setMode('native')} className="h-auto whitespace-normal text-balance">
-                                Force Native Transcription
+                        <div className={`text-center p-3 rounded-lg ${modeNotification.className}`}>
+                            <p className="text-sm font-medium">
+                                {modeNotification.text}
+                            </p>
+                        </div>
+                        <ErrorDisplay error={error} />
+                        {import.meta.env.DEV && (
+                            <div className="pt-4 border-t border-border/50">
+                                <h4 className="text-xs font-medium text-muted-foreground mb-2">Developer Controls</h4>
+                                <Button variant="outline" size="sm" onClick={() => setMode('native')} className="h-auto whitespace-normal text-balance">
+                                    Force Native Transcription
+                                </Button>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+
+                <Card className="w-full">
+                    <CardContent className="p-6">
+                        <div className="flex flex-col items-center justify-center gap-6 py-2">
+                            <DigitalTimer elapsedTime={elapsedTime} />
+                            <div className={`text-xl font-semibold ${isListening ? 'text-red-500 animate-pulse' : 'text-muted-foreground'}`}>
+                                {isLoading ? 'INITIALIZING...' : (isListening ? '● RECORDING' : 'Idle')}
+                            </div>
+                            <Button
+                                onClick={handleStartStop}
+                                size="lg"
+                                variant={isListening ? 'destructive' : 'default'}
+                                className="w-full h-16 text-xl font-bold rounded-lg"
+                                disabled={isLoading}
+                            >
+                                {getButtonContent()}
                             </Button>
                         </div>
-                    )}
-                </CardContent>
-            </Card>
+                    </CardContent>
+                </Card>
+            </div>
 
-            <Card className="w-full">
-                <CardContent className="p-6 h-[250px]">
-                    <div className="flex flex-col items-center justify-between h-full py-2">
-                        <DigitalTimer elapsedTime={elapsedTime} />
-                        <div className={`text-xl font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
-                            {isLoading ? 'INITIALIZING...' : (isListening ? '● RECORDING' : 'Idle')}
-                        </div>
-                        <Button
-                            onClick={handleStartStop}
-                            size="lg"
-                            variant={isListening ? 'destructive' : 'default'}
-                            className="w-full h-16 text-xl font-bold rounded-lg"
-                            disabled={isLoading}
-                        >
-                            {getButtonContent()}
-                        </Button>
-                    </div>
-                </CardContent>
-            </Card>
-
-            <Card className="w-full bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 border-purple-200">
+            <Card className="w-full bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 border-purple-200 flex-shrink-0">
                 <CardHeader>
                     <CardTitle className="text-base flex items-center gap-2">
                         <Zap className="w-6 h-6 text-yellow-500" />

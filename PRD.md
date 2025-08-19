@@ -4,6 +4,20 @@
 
 ---
 
+## 🔄 Recent Updates (v6.19)
+*August 19, 2025*
+
+- **Feature: Improved Real-time Feedback and UI**:
+  - Implemented a new pill-shaped timer for a clearer session interface.
+  - Reworked the filler word detection to provide more accurate, real-time updates during a session.
+  - Improved the loading state to be less disruptive.
+- **Critical Bug Fixes & Robustness**:
+  - Fixed layout issues with column alignment and transcript panel sizing.
+  - Improved error handling for transcription service connection failures, providing clearer feedback to the user.
+  - Removed the automatic fallback to the native browser speech recognition to prevent silent failures and confusion.
+
+---
+
 ## 🔄 Recent Updates (v6.18)
 *August 18, 2025*
 
@@ -127,7 +141,7 @@ Our technology choices prioritize development speed, scalability, and user exper
     - `[ ]` **[M]** Implement automatic fallback from local to cloud STT based on performance.
     - `✅` **[M]** Build a comprehensive analytics dashboard for users.
 - **Should Have:**
-    - `[ ]` **[S]** Implement a fallback to the native Web Speech API if the primary transcription service fails to initialize, improving robustness.
+    - `✅` **[S]** Re-evaluated fallback to native Web Speech API. The automatic fallback was removed to prevent silent failures and provide clearer error messages.
     - `[ ]` **[S]** Implement weekly summary emails.
     - `[ ]` **[S]** Add in-app prompts to encourage users to upgrade.
     - `[ ]` **[S]** Conduct thorough cross-browser testing and bug fixing.
