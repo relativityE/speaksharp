@@ -193,22 +193,24 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
             </Card>
 
             <Card className="w-full">
-                <CardContent className="p-4 flex flex-col items-center justify-center h-[200px]">
-                     <Button
-                        onClick={handleStartStop}
-                        size="lg"
-                        variant={isListening ? 'destructive' : 'default'}
-                        className="w-full h-16 text-lg font-bold rounded-lg mb-4"
-                        disabled={isLoading}
-                    >
-                        {getButtonContent()}
-                    </Button>
-                    <div className="flex items-center justify-center w-full gap-4">
-                        <div className="w-12 h-12">
-                            <CircularTimer elapsedTime={elapsedTime} />
-                        </div>
-                        <div className={`text-lg font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
-                            {isLoading ? 'INITIALIZING...' : (isListening ? '● RECORDING' : 'Idle')}
+                <CardContent className="p-4 h-[200px]">
+                    <div className="flex flex-col items-center justify-center h-full">
+                        <Button
+                            onClick={handleStartStop}
+                            size="lg"
+                            variant={isListening ? 'destructive' : 'default'}
+                            className="w-full h-16 text-lg font-bold rounded-lg mb-4"
+                            disabled={isLoading}
+                        >
+                            {getButtonContent()}
+                        </Button>
+                        <div className="flex items-center justify-center w-full gap-4">
+                            <div className="w-12 h-12">
+                                <CircularTimer elapsedTime={elapsedTime} />
+                            </div>
+                            <div className={`text-lg font-semibold ${isListening ? 'text-primary' : 'text-muted-foreground'}`}>
+                                {isLoading ? 'INITIALIZING...' : (isListening ? '● RECORDING' : 'Idle')}
+                            </div>
                         </div>
                     </div>
                 </CardContent>
