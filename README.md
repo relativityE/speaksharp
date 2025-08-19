@@ -7,12 +7,13 @@ A mobile-first web application that detects and counts filler words in real time
 - **Real-time Filler Word Detection**: Counts common filler words (e.g., "um", "like") and custom words in real-time.
 - **Color-Coded Highlighting**: Each filler word is assigned a unique color. Words are highlighted in the live transcript and color-coded in the analysis panel for immediate visual feedback.
 - **Engaging Filler Word Analysis**: View your filler word counts with a clean, card-based layout using a severity-based color palette and progress bars for easy visual scanning.
-- **Redesigned Controls**: The session page features a clear and focused control area, with a prominent record button and a streamlined "Upgrade to Pro" card.
+- **Redesigned Controls**: The session page features a clear and focused control area, with a prominent pill-shaped timer, record button, and a streamlined "Upgrade to Pro" card.
 - **Comprehensive Analytics Dashboard**: Track your progress over time with an improved dashboard that features clearer stats, better visual hierarchy, and a card-based session history.
 - **Reliable Cloud-Based Speech Processing**: Uses AssemblyAI for high-accuracy transcription. This service now provides a session-wide "Transcript Accuracy" score, which is the average of the confidence level for all words spoken. This score is displayed on your analytics page to help you gauge the quality of the transcription.
 - **Robust Session Management**: Start, stop, and save practice sessions to track your improvement over time.
 - **PDF Export (Pro Feature)**: Pro users can download a detailed PDF report for any of their past sessions.
 - **Customizable Experience**: Add your own words to track and use a mobile-friendly, responsive interface.
+- **Choice of Transcription Mode**: Users can switch between high-accuracy cloud transcription and private on-device transcription.
 
 ## Technology Stack
 
@@ -144,6 +145,7 @@ SpeakSharp uses a "progressive reveal" model. All pages are accessible to everyo
 -   **Start a Session**: Anyone can start a recording session from the main page.
 -   **2-Minute Limit**: Trial sessions are limited to 2 minutes. A checkbox is available for developers to override this limit.
 -   **View Analytics Page**: You can view the Analytics page, but it will show a demo and a prompt to sign up to save and view your history.
+-   **Choice of Transcription Mode**: Users can switch between high-accuracy cloud transcription and private on-device transcription.
 
 ### Authenticated Users (Free Tier)
 -   **Sign Up / Login**: Create a free account to unlock more features.
@@ -151,6 +153,7 @@ SpeakSharp uses a "progressive reveal" model. All pages are accessible to everyo
 -   **Track Progress**: The Analytics page will show your full session history and progress charts.
 -   **Unlimited Session Length**: The 2-minute limit is removed.
 -   **Custom Filler Words**: Add and track your own list of custom filler words.
+-   **Choice of Transcription Mode**: Users can switch between high-accuracy cloud transcription and private on-device transcription.
 
 ## User Tiers & Authentication
 

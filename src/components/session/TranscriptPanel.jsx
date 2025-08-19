@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { Loader } from 'lucide-react';
 
 const Chunk = ({ chunk, fillerData }) => {
     const fillerWords = Object.keys(fillerData);
@@ -44,7 +45,7 @@ const HighlightedTranscript = ({ chunks, interimTranscript, fillerData }) => {
     );
 };
 
-export const TranscriptPanel = ({ chunks = [], interimTranscript, fillerData }) => {
+export const TranscriptPanel = ({ chunks = [], interimTranscript, fillerData, isLoading = false }) => {
     const scrollContainerRef = useRef(null);
 
     useEffect(() => {
@@ -63,7 +64,13 @@ export const TranscriptPanel = ({ chunks = [], interimTranscript, fillerData }) 
                     Your spoken words appear here. Filler words are highlighted.
                 </p>
             </div>
-            <div ref={scrollContainerRef} className="p-6 rounded-lg bg-secondary/30 border border-border/50 h-[18rem] overflow-y-auto transition-all duration-300 ease-in-out">
+            <div ref={scrollContainerRef} className="relative p-6 rounded-lg bg-secondary/30 border border-border/50 h-[18rem] overflow-y-auto transition-all duration-300 ease-in-out">
+                {isLoading && (
+                    <div className="absolute inset-0 bg-secondary/80 flex flex-col items-center justify-center z-10">
+                        <Loader className="animate-spin h-12 w-12 text-primary" />
+                        <p className="mt-4 text-lg text-muted-foreground">Initializing session...</p>
+                    </div>
+                )}
                 <HighlightedTranscript chunks={chunks} interimTranscript={interimTranscript} fillerData={fillerData} />
             </div>
         </div>

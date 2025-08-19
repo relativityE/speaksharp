@@ -48,20 +48,12 @@ const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) =
         );
     }
 
-    // A simple loading state
-    if (isListening && !transcript && !interimTranscript) {
-        return (
-            <div className="flex items-center justify-center flex-grow">
-                <Loader className="animate-spin h-12 w-12 text-primary" />
-                <p className="ml-4 text-lg text-muted-foreground">Listening...</p>
-            </div>
-        )
-    }
+    const isLoading = isListening && !transcript && !interimTranscript;
 
     return (
         <div className="flex flex-col gap-8 h-full">
             <div className="flex-shrink-0">
-                <TranscriptPanel {...speechRecognition} />
+                <TranscriptPanel {...speechRecognition} isLoading={isLoading} />
             </div>
             <div className="flex-grow flex flex-col">
                 <FillerWordAnalysis

@@ -164,6 +164,30 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
         return <><Mic className="w-4 h-4 mr-2" /> Start Recording</>;
     };
 
+    const getModeNotification = () => {
+        switch (mode) {
+            case 'cloud':
+                return {
+                    text: 'Cloud Transcription (Highest Accuracy)',
+                    className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
+                };
+            case 'local':
+                return {
+                    text: 'Local Transcription (Faster, Private)',
+                    className: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+                };
+            case 'native':
+                return {
+                    text: 'Native Browser Fallback (Lower Accuracy)',
+                    className: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300'
+                };
+            default:
+                return { text: '', className: '' };
+        }
+    };
+
+    const modeNotification = getModeNotification();
+
     return (
         <div className="flex flex-col gap-6 h-full">
             <div className="flex-grow flex flex-col gap-6">
@@ -184,13 +208,9 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                                 <Label htmlFor="transcription-mode" className="text-xs text-muted-foreground">Cloud</Label>
                             </div>
                         </div>
-                        <div className="text-center p-2 bg-secondary rounded-md">
-                            <p className="text-xs text-muted-foreground">
-                                {
-                                    mode === 'cloud' ? 'Using Cloud Transcription (Highest Accuracy)' :
-                                    mode === 'local' ? 'Using Local Transcription (Faster, Private)' :
-                                    'Using Native Browser Fallback'
-                                }
+                        <div className={`text-center p-3 rounded-lg ${modeNotification.className}`}>
+                            <p className="text-sm font-medium">
+                                {modeNotification.text}
                             </p>
                         </div>
                         <ErrorDisplay error={error} />
