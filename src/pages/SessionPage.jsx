@@ -24,19 +24,23 @@ export const SessionPage = () => {
 
     return (
         <div className="container mx-auto px-4 py-10">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 relative">
-                <div className="lg:col-span-2 space-y-8">
+            <div className="lg:flex lg:gap-8 relative">
+                {/* Left Column */}
+                <div className="lg:w-2/3 flex flex-col gap-8">
                     <TranscriptPanel {...speechRecognition} />
-                    <FillerWordAnalysis
-                        fillerData={speechRecognition.fillerData}
-                        customWords={customWords}
-                        addCustomWord={(word) => setCustomWords(prev => [...prev, word])}
-                        defaultFillerWords={Object.values(FILLER_WORD_KEYS)}
-                    />
+                    <div className="flex-grow flex flex-col">
+                        <FillerWordAnalysis
+                            fillerData={speechRecognition.fillerData}
+                            customWords={customWords}
+                            addCustomWord={(word) => setCustomWords(prev => [...prev, word])}
+                            defaultFillerWords={Object.values(FILLER_WORD_KEYS)}
+                            className="flex-grow"
+                        />
+                    </div>
                 </div>
 
-                {/* Desktop Sidebar */}
-                <div className="hidden lg:block lg:col-span-1">
+                {/* Desktop Sidebar (Right Column) */}
+                <div className="hidden lg:block lg:w-1/3">
                     <SessionSidebar {...speechRecognition} saveSession={saveSession} mode={mode} setMode={setMode} />
                 </div>
 

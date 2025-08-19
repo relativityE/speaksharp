@@ -169,7 +169,7 @@ This simplified and robust approach allows us to maintain a fast and efficient d
 │                  │                            │ • `supabase/functions/stripe-webhook`: Handles payment events.       │ • `STRIPE_WEBHOOK_SECRET`: Secret to verify webhooks are from Stripe.                            │
 └──────────────────┴────────────────────────────┴──────────────────────────────────────────────────────────────────────┴────────────────────────────────────────────────────────────────────────────────────────────────┘
 
-## 3. The Test Environment and Suite
+## 3. The Test Environment and Developer Controls
 
 The testing strategy is designed for rapid feedback and reliability, directly supporting the goal of launching a stable MVP quickly.
 
@@ -180,6 +180,7 @@ The testing strategy is designed for rapid feedback and reliability, directly su
 *   **Rationale vs. Alternatives**:
     *   **vs. Jest**: Vitest is faster and requires less configuration in a Vite project.
     *   **vs. Cypress/Playwright for everything**: While Playwright is used, relying on it for all tests would be too slow for rapid development. The hybrid approach provides the best of both worlds.
+*   **Developer Controls**: To facilitate testing of different transcription modes without cluttering the user interface, a "Developer Controls" section is available in the Session Sidebar. This section is only rendered when the application is running in a development environment (`import.meta.env.DEV`). It currently contains a button to force the use of the `native` browser SpeechRecognition API for direct comparison with the cloud-based service.
 
 ## 4. Alignment with PRD Goals
 
