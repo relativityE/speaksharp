@@ -158,4 +158,22 @@ describe('useSpeechRecognition', () => {
     expect(result.current.transcript).toBe('');
     expect(result.current.fillerData.um.count).toBe(0);
   });
+
+  it('should not count "a" as a filler word for "ah"', async () => {
+    const { result } = renderHook(() => useSpeechRecognition());
+
+    await act(async () => {
+      await result.current.startListening();
+    });
+
+    act(() => {
+      mockServiceInstance.simulateTranscriptUpdate({ transcript: { final: 'this is a test' } });
+    });
+
+    await act(async () => {
+      await result.current.stopListening();
+    });
+
+    expect(result.current.fillerData.ah.count).toBe(0);
+  });
 });
