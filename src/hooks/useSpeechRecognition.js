@@ -43,6 +43,7 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
   const [wordConfidences, setWordConfidences] = useState([]);
   const [interimTranscript, setInterimTranscript] = useState('');
   const [fillerData, setFillerData] = useState(getInitialFillerData(customWords));
+  const [finalFillerData, setFinalFillerData] = useState(getInitialFillerData(customWords));
   const [error, setError] = useState(null);
   const [mode, setMode] = useState('cloud'); // 'local' or 'cloud' or 'native'
   const transcriptionServiceRef = useRef(null);
@@ -70,47 +71,51 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
   }, [mode]);
 
 
-  const processFinalChunk = useCallback((finalChunk) => {
-    const newFinalChunk = finalChunk.trim();
-    if (newFinalChunk) {
-      setFinalChunks(prev => [...prev, { text: newFinalChunk, id: Math.random() }]);
+  const countFillerWords = (text) => {
+    const counts = getInitialFillerData(customWords);
+    const allPatterns = { ...defaultFillerPatterns };
+    customWords.forEach((word) => {
+      allPatterns[word] = new RegExp(`\\b(${word})\\b`, 'gi');
+    });
 
-      const allPatterns = { ...defaultFillerPatterns };
-      customWords.forEach((word) => {
-          allPatterns[word] = new RegExp(`\\b(${word})\\b`, 'gi');
-      });
-      setFillerData((prevData) => {
-          const newData = { ...prevData };
-          let changed = false;
-          for (const key in allPatterns) {
-              const pattern = allPatterns[key];
-              const matches = newFinalChunk.match(pattern);
-              if (matches && matches.length > 0) {
-                  if (!newData[key]) {
-                      const newIndex = Object.keys(newData).length;
-                      newData[key] = { count: 0, color: FILLER_WORD_COLORS[newIndex % FILLER_WORD_COLORS.length] };
-                  }
-                  newData[key] = { ...newData[key], count: newData[key].count + matches.length };
-                  changed = true;
-              }
-          }
-          return changed ? newData : prevData;
-      });
+    for (const key in allPatterns) {
+      const pattern = allPatterns[key];
+      const matches = text.match(pattern);
+      if (matches) {
+        counts[key].count = matches.length;
+      }
     }
-    setInterimTranscript('');
-  }, [customWords]);
+    return counts;
+  };
 
   const onTranscriptUpdate = useCallback((data) => {
     if (data.transcript?.partial) {
       setInterimTranscript(data.transcript.partial);
+      const interimCounts = countFillerWords(data.transcript.partial);
+      const combinedData = getInitialFillerData(customWords);
+      for (const key in combinedData) {
+        combinedData[key].count = (finalFillerData[key]?.count || 0) + (interimCounts[key]?.count || 0);
+      }
+      setFillerData(combinedData);
     }
+
     if (data.transcript?.final) {
-      processFinalChunk(data.transcript.final);
+      setFinalChunks(prev => [...prev, { text: data.transcript.final, id: Math.random() }]);
+
+      const finalCounts = countFillerWords(data.transcript.final);
+      const newFinalFillerData = { ...finalFillerData };
+      for (const key in newFinalFillerData) {
+        newFinalFillerData[key].count += finalCounts[key]?.count || 0;
+      }
+      setFinalFillerData(newFinalFillerData);
+      setFillerData(newFinalFillerData);
+      setInterimTranscript('');
     }
+
     if (data.words && data.words.length > 0) {
         setWordConfidences(prev => [...prev, ...data.words]);
     }
-  }, [processFinalChunk]);
+  }, [customWords, finalFillerData]);
 
   const startListening = async () => {
     if (!isSupported) {
@@ -157,41 +162,19 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
     await transcriptionServiceRef.current.stopTranscription();
     setIsListening(false);
 
-    // Process the final chunk to ensure the UI updates correctly
-    processFinalChunk(interimTranscript);
+    // Manually trigger a final update with the last interim transcript
+    // to ensure everything is counted.
+    onTranscriptUpdate({ transcript: { final: interimTranscript } });
 
-    // Manually calculate the final data to return immediately,
-    // without waiting for the next render cycle.
-    const newFinalChunkText = interimTranscript.trim();
-    const allFinalChunks = [...finalChunks.map(c => c.text), newFinalChunkText].filter(Boolean);
-    const finalTranscript = allFinalChunks.join(' ');
-
-    const finalFillerData = JSON.parse(JSON.stringify(fillerData)); // Deep copy
-    const allPatterns = { ...defaultFillerPatterns };
-    customWords.forEach((word) => {
-        allPatterns[word] = new RegExp(`\\b(${word})\\b`, 'gi');
-    });
-
-    for (const key in allPatterns) {
-        const pattern = allPatterns[key];
-        const matches = newFinalChunkText.match(pattern);
-        if (matches && matches.length > 0) {
-            if (!finalFillerData[key]) {
-                 const newIndex = Object.keys(finalFillerData).length;
-                 finalFillerData[key] = { count: 0, color: FILLER_WORD_COLORS[newIndex % FILLER_WORD_COLORS.length] };
-            }
-            finalFillerData[key].count += matches.length;
-        }
-    }
-
+    const finalTranscriptText = [...finalChunks.map(c => c.text), interimTranscript].join(' ').trim();
     const averageConfidence = wordConfidences.length > 0
       ? wordConfidences.reduce((sum, word) => sum + word.confidence, 0) / wordConfidences.length
       : 0;
 
     return {
-      transcript: finalTranscript,
+      transcript: finalTranscriptText,
       filler_words: finalFillerData,
-      total_words: finalTranscript.split(/\s+/).filter(Boolean).length,
+      total_words: finalTranscriptText.split(/\s+/).filter(Boolean).length,
       accuracy: averageConfidence,
     };
   };
@@ -201,6 +184,7 @@ export const useSpeechRecognition = ({ customWords = [] } = {}) => {
     setInterimTranscript('');
     setTranscript('');
     setFillerData(getInitialFillerData(customWords));
+    setFinalFillerData(getInitialFillerData(customWords));
     setWordConfidences([]);
     setError(null);
   }, [customWords]);
