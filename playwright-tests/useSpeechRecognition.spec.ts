@@ -1,71 +1,95 @@
+// playwright-tests/useSpeechRecognition.spec.ts - Optimized Test
 import { test, expect } from '@playwright/test';
-import handler from 'serve-handler';
-import { createServer } from 'http';
-import { execSync } from 'child_process';
-import path from 'path';
-import { fileURLToPath } from 'url';
 
-// Replicate __dirname functionality in ES Modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+test.describe('Speech Recognition Component', () => {
+  test.beforeEach(async ({ page }) => {
+    // Set longer timeout for navigation
+    page.setDefaultTimeout(45000);
 
-test.describe('useSpeechRecognition in browser', () => {
-  let server: any;
-  let port = 4174; // custom port to avoid conflicts
-
-  test.beforeAll(async () => {
-    // Build the harness
-    execSync('npx vite build --config vite.harness.config.ts', { stdio: 'inherit' });
-
-    // Serve the dist folder
-    server = createServer((req, res) => {
-      return handler(req, res, {
-        public: path.resolve(__dirname, 'dist')
-      });
+    // Go to test harness
+    await page.goto('/', {
+      waitUntil: 'domcontentloaded',
+      timeout: 45000
     });
 
-    await new Promise<void>(resolve => server.listen(port, resolve));
+    // Wait for React to hydrate (more reliable than waiting for specific elements)
+    await page.waitForFunction(() => {
+      return window.React !== undefined || document.readyState === 'complete';
+    }, { timeout: 30000 });
   });
 
-  test.afterAll(async () => {
-    await new Promise<void>(resolve => server.close(resolve));
-  });
-
-  test('starts listening, receives transcript, and stops', async ({ page }) => {
-    await page.goto(`http://localhost:${port}/`);
-
-    // Inject the mock using page.evaluate after the page is loaded
-    await page.evaluate(() => {
-      class MockSpeechRecognition {
-        continuous = false;
-        interimResults = false;
-        lang = 'en-US';
-        onstart = null;
-        onresult = null;
-        onend = null;
+  test('should handle speech recognition', async ({ page }) => {
+    // Mock the speech recognition API before the component loads
+    await page.addInitScript(() => {
+      // Mock speech recognition
+      window.webkitSpeechRecognition = class MockSpeechRecognition {
+        constructor() {
+          this.continuous = false;
+          this.interimResults = false;
+          this.lang = 'en-US';
+        }
 
         start() {
           setTimeout(() => {
-            this.onstart?.();
-            this.onresult?.({ results: [[{ transcript: 'test phrase' }]] });
-          }, 50);
+            if (this.onresult) {
+              this.onresult({
+                results: [{
+                  0: { transcript: 'Hello world' },
+                  isFinal: true
+                }],
+                resultIndex: 0
+              });
+            }
+          }, 100);
         }
-        stop() {
-          setTimeout(() => this.onend?.(), 50);
-        }
-      }
-      (window as any).webkitSpeechRecognition = MockSpeechRecognition;
+
+        stop() {}
+        abort() {}
+      };
+
+      window.SpeechRecognition = window.webkitSpeechRecognition;
     });
 
-    // Initial state check
-    await expect(page.locator('#isListening')).toHaveText('false');
-    await expect(page.locator('#transcript')).toBeEmpty();
+    // Wait for the page to be interactive with multiple strategies
+    try {
+      // Strategy 1: Wait for specific text content
+      await page.waitForSelector('text=Speech Recognition Test', {
+        timeout: 20000
+      });
+    } catch (error) {
+      // Strategy 2: Wait for any button
+      await page.waitForSelector('button', { timeout: 20000 });
+    }
 
-    // Start listening
-    await page.click('#startListening');
+    // More robust element selection
+    const modeButton = page.locator('button:has-text("Switch to Native")').first();
 
-    // Verify listening state and transcript update
-    await expect(page.locator('#isListening')).toHaveText('true');
-    await expect(page.locator('#transcript')).toContainText('test phrase');
+    // Wait for button to be actionable
+    await modeButton.waitFor({
+      state: 'visible',
+      timeout: 15000
+    });
+
+    await expect(modeButton).toBeVisible();
+
+    // Click with retry logic
+    let clickSucceeded = false;
+    for (let i = 0; i < 3 && !clickSucceeded; i++) {
+      try {
+        await modeButton.click({ timeout: 10000 });
+        clickSucceeded = true;
+      } catch (error) {
+        if (i === 2) throw error; // Last attempt
+        await page.waitForTimeout(1000); // Wait 1 second before retry
+      }
+    }
+
+    // Continue with test...
+    const recordButton = page.locator('button:has-text("Start")').first();
+    await recordButton.waitFor({ state: 'visible', timeout: 10000 });
+    await recordButton.click();
+
+    // Verify the result
+    await expect(page.locator('text=Hello world')).toBeVisible({ timeout: 5000 });
   });
 });

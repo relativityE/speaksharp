@@ -16,10 +16,12 @@ const mockSessions = [
   { id: 'session-2', user_id: mockUser.id, duration: 180 },
 ];
 
+const mockProfile = { id: 'user-123', subscription_status: 'free' };
+
 describe('useSessionManager', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useAuth.mockReturnValue({ user: mockUser });
+    useAuth.mockReturnValue({ user: mockUser, profile: mockProfile });
   });
 
   it('should be in a loading state initially', () => {
@@ -43,7 +45,7 @@ describe('useSessionManager', () => {
     storage.getSessionHistory.mockResolvedValue(mockSessions);
     const newSessionData = { duration: 90, total_words: 150 };
     const savedSession = { id: 'session-3', ...newSessionData, user_id: mockUser.id };
-    storage.saveSession.mockResolvedValue(savedSession);
+    storage.saveSession.mockResolvedValue({ session: savedSession, usageExceeded: false });
 
     const { result } = renderHook(() => useSessionManager());
 
@@ -54,10 +56,10 @@ describe('useSessionManager', () => {
       await result.current.saveSession(newSessionData);
     });
 
-    expect(storage.saveSession).toHaveBeenCalledWith({
-      ...newSessionData,
-      user_id: mockUser.id,
-    });
+    expect(storage.saveSession).toHaveBeenCalledWith(
+      { ...newSessionData, user_id: mockUser.id },
+      mockProfile
+    );
     expect(result.current.sessions).toEqual([savedSession, ...mockSessions]);
   });
 

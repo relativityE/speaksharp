@@ -5,6 +5,9 @@ import TranscriptionService from '../services/transcription/TranscriptionService
 
 // Mock the TranscriptionService module
 vi.mock('../services/transcription/TranscriptionService');
+vi.mock('@xenova/transformers', () => ({
+  pipeline: vi.fn().mockResolvedValue(() => Promise.resolve({ text: 'mocked transcription' })),
+}));
 
 describe('useSpeechRecognition', () => {
   let mockServiceInstance;

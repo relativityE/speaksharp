@@ -3,9 +3,10 @@ import { useAuth } from '../contexts/AuthContext';
 import { getSessionHistory, saveSession as saveSessionToDb, deleteSession as deleteSessionFromDb, exportData } from '../lib/storage';
 
 export const useSessionManager = () => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [usageLimitExceeded, setUsageLimitExceeded] = useState(false);
 
   const loadSessions = useCallback(async () => {
     setLoading(true);
@@ -28,12 +29,17 @@ export const useSessionManager = () => {
   }, [loadSessions]);
 
   const saveSession = async (sessionData) => {
-    if (!user) {
-      console.error("Cannot save session: no user logged in.");
+    if (!user || !profile) {
+      console.error("Cannot save session: no user or profile available.");
       return null;
     }
     const sessionWithUser = { ...sessionData, user_id: user.id };
-    const newSession = await saveSessionToDb(sessionWithUser);
+    const { session: newSession, usageExceeded } = await saveSessionToDb(sessionWithUser, profile);
+
+    if (usageExceeded) {
+      setUsageLimitExceeded(true);
+    }
+
     if (newSession) {
       setSessions(prevSessions => [newSession, ...prevSessions]);
       return newSession.id;
@@ -77,6 +83,8 @@ export const useSessionManager = () => {
     saveSession,
     deleteSession,
     exportSessions,
-    refreshSessions: loadSessions
+    refreshSessions: loadSessions,
+    usageLimitExceeded,
+    setUsageLimitExceeded
   };
 };

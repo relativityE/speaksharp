@@ -24,14 +24,15 @@ export const getSessionHistory = async (userId) => {
 };
 
 /**
- * Saves a new session to the database.
+ * Saves a new session to the database and checks usage limits for free users.
  * @param {object} sessionData - The session data to save.
- * @returns {Promise<object|null>} A promise that resolves to the saved session object or null.
+ * @param {object} profile - The user's profile.
+ * @returns {Promise<{session: object|null, usageExceeded: boolean}>} A promise that resolves to an object containing the saved session and a flag for usage limit.
  */
-export const saveSession = async (sessionData) => {
+export const saveSession = async (sessionData, profile) => {
   if (!sessionData || !sessionData.user_id) {
     console.error('Save Session: Session data and user ID are required.');
-    return null;
+    return { session: null, usageExceeded: false };
   }
   const { data, error } = await supabase
     .from('sessions')
@@ -41,9 +42,28 @@ export const saveSession = async (sessionData) => {
 
   if (error) {
     console.error('Error saving session:', error);
-    return null;
+    return { session: null, usageExceeded: false };
   }
-  return data;
+
+  // After saving, check usage for free tier users
+  if (profile.subscription_status === 'free') {
+    const { data: usageData, error: rpcError } = await supabase.rpc('update_user_usage', {
+      user_id: profile.id,
+      duration_seconds: sessionData.duration || 0,
+    });
+
+    if (rpcError) {
+      console.error('Error updating user usage:', rpcError);
+      // Proceed even if RPC fails, not a critical failure
+    }
+
+    // The RPC function returns `true` if the limit is exceeded
+    if (usageData === true) {
+      return { session: data, usageExceeded: true };
+    }
+  }
+
+  return { session: data, usageExceeded: false };
 };
 
 /**

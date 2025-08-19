@@ -1,5 +1,6 @@
 // src/test/setup.js
 import { beforeEach, afterEach, vi } from 'vitest'
+import '@testing-library/jest-dom'
 
 // Global cleanup to prevent memory leaks
 beforeEach(() => {
@@ -222,6 +223,19 @@ global.cleanupTestMocks = () => {
 }
 
 // Mock Supabase client to prevent multiple GoTrue instances during tests
+vi.mock('sharp', () => {
+  return {
+    default: vi.fn(() => ({
+      resize: vi.fn().mockReturnThis(),
+      toBuffer: vi.fn().mockResolvedValue(Buffer.from([])),
+      toFile: vi.fn().mockResolvedValue({}),
+      jpeg: vi.fn().mockReturnThis(),
+      png: vi.fn().mockReturnThis(),
+      webp: vi.fn().mockReturnThis(),
+    })),
+  };
+});
+
 vi.mock('./lib/supabaseClient', () => ({
   supabase: {
     from: vi.fn(() => ({

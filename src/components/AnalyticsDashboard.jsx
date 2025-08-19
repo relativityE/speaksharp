@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { generateSessionPdf } from '../lib/pdfGenerator';
 import { calculateTrends } from '../lib/analyticsUtils';
+import { supabase } from '@/lib/supabaseClient';
 
 const EmptyState = () => {
     const navigate = useNavigate();
@@ -163,8 +164,32 @@ export const AnalyticsDashboard = ({ sessionHistory, profile }) => {
     const trends = calculateTrends(sessionHistory);
     const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
 
+    const handleUpgrade = async () => {
+        try {
+            const { data, error } = await supabase.functions.invoke('stripe-checkout');
+            if (error) throw error;
+            window.location.href = data.checkoutUrl;
+        } catch (error) {
+            console.error('Error creating Stripe checkout session:', error);
+        }
+    };
+
     return (
         <div className="space-y-8">
+            {!isPro && (
+                <Card className="bg-gradient-to-r from-primary/80 to-primary text-primary-foreground p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div className="flex items-center gap-4">
+                        <Sparkles className="h-8 w-8" />
+                        <div>
+                            <h3 className="font-bold text-lg">Unlock Your Full Potential</h3>
+                            <p className="text-sm opacity-90">Upgrade to Pro to get unlimited practice time, PDF exports, and more detailed analytics.</p>
+                        </div>
+                    </div>
+                    <Button variant="secondary" className="w-full sm:w-auto flex-shrink-0" onClick={handleUpgrade}>
+                        Upgrade Now
+                    </Button>
+                </Card>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 <StatCard icon={<Layers size={24} className="text-muted-foreground" />} label="Total Sessions" value={trends.totalSessions} />
                 <StatCard icon={<TrendingUp size={24} className="text-muted-foreground" />} label="Avg. Filler Words / Min" value={trends.avgFillerWordsPerMin} />
