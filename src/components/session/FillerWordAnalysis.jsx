@@ -25,7 +25,7 @@ const FillerWordCard = ({ word, count, colorClass, progress }) => (
 
 import { cn } from '@/lib/utils';
 
-const FillerWordAnalysis = ({ fillerData, customWords, addCustomWord, defaultFillerWords, className }) => {
+const FillerWordAnalysis = ({ fillerData = {}, customWords, addCustomWord, defaultFillerWords, className }) => {
   const [newWord, setNewWord] = useState('');
 
   const handleAddWord = (e) => {
