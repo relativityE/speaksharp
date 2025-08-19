@@ -68,7 +68,7 @@ class MockMediaRecorder {
     // Call onstop with final blob
     if (this.onstop) {
       setTimeout(() => {
-        const finalBlob = new Blob(this.chunks, { type: 'audio/webm' })
+        new Blob(this.chunks, { type: 'audio/webm' })
         this.onstop()
       }, 0)
     }
@@ -142,7 +142,7 @@ class MockMediaStream {
 
 // Enhanced navigator.mediaDevices mock
 const mockMediaDevices = {
-  getUserMedia: vi.fn().mockImplementation((constraints) => {
+  getUserMedia: vi.fn().mockImplementation(() => {
     return Promise.resolve(new MockMediaStream())
   }),
 
@@ -220,3 +220,27 @@ global.cleanupTestMocks = () => {
     global.MediaRecorder.prototype.cleanup()
   }
 }
+
+// Mock Supabase client to prevent multiple GoTrue instances during tests
+vi.mock('./lib/supabaseClient', () => ({
+  supabase: {
+    from: vi.fn(() => ({
+      select: vi.fn().mockResolvedValue({ data: [], error: null }),
+      insert: vi.fn().mockResolvedValue({ data: [{}], error: null }),
+      delete: vi.fn().mockResolvedValue({ data: {}, error: null }),
+    })),
+    rpc: vi.fn().mockResolvedValue({ data: true, error: null }),
+    auth: {
+      onAuthStateChange: vi.fn(() => ({
+        data: { subscription: { unsubscribe: vi.fn() } },
+      })),
+      signInWithPassword: vi.fn().mockResolvedValue({ data: {}, error: null }),
+      signUp: vi.fn().mockResolvedValue({ data: {}, error: null }),
+      signOut: vi.fn().mockResolvedValue({ error: null }),
+      getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
+    },
+    functions: {
+        invoke: vi.fn().mockResolvedValue({ data: {}, error: null }),
+    }
+  },
+}));

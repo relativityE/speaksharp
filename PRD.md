@@ -82,10 +82,8 @@ Growth     → SEO expansion, retargeting ads, coach partnerships
 ┌─────────────┬──────────────┬───────────────────────────────────────┐
 │    TIER     │    PRICE     │               FEATURES                │
 ├─────────────┼──────────────┼───────────────────────────────────────┤
-│    FREE     │     $0       │ • 2-min trial session                 │
-│             │              │ • 10 mins/month logged in             │
-│             │              │ • Last 3 sessions saved               │
-│             │              │ • 5 custom words                      │
+│    FREE     │     $0       │ • 10 mins/month logged in             │
+│             │              │ • Unlimited custom words              │
 │             │              │ • Basic analytics                     │
 ├─────────────┼──────────────┼───────────────────────────────────────┤
 │    PRO      │   $7.99      │ • Unlimited sessions                  │
