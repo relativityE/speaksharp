@@ -15,7 +15,13 @@ const DigitalTimer = ({ elapsedTime }) => {
     const minutes = Math.floor(elapsedTime / 60);
     const seconds = elapsedTime % 60;
     const formattedTime = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-    return <div className="text-5xl font-mono font-bold text-foreground">{formattedTime}</div>;
+    return (
+        <div className="bg-muted px-6 py-2 rounded-full">
+            <div className="text-4xl font-mono font-bold text-foreground tracking-widest">
+                {formattedTime}
+            </div>
+        </div>
+    );
 };
 
 export const SessionSidebar = ({ isListening, error, startListening, stopListening, reset, mode, setMode, saveSession }) => {
