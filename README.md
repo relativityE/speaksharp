@@ -12,7 +12,7 @@ A mobile-first web application that detects and counts filler words in real time
 - **Reliable Cloud-Based Speech Processing**: Uses AssemblyAI for high-accuracy transcription. This service now provides a session-wide "Transcript Accuracy" score, which is the average of the confidence level for all words spoken. This score is displayed on your analytics page to help you gauge the quality of the transcription.
 - **Robust Session Management**: Start, stop, and save practice sessions to track your improvement over time.
 - **PDF Export (Pro Feature)**: Pro users can download a detailed PDF report for any of their past sessions.
-- **Customizable Experience**: Add your own words to track and use a mobile-friendly, responsive interface.
+- **Customizable Experience**: Add your own words to track, provide custom regex patterns for more flexible filler word detection, and use a mobile-friendly, responsive interface.
 - **Choice of Transcription Mode**: Users can switch between high-accuracy cloud transcription and private on-device transcription.
 
 ## Technology Stack
@@ -23,8 +23,8 @@ A mobile-first web application that detects and counts filler words in real time
 - **Icons**: Lucide React
 - **Authentication & DB**: Supabase
 - **Speech Processing**:
-    - **Phase 1 (Current)**: AssemblyAI for cloud-based transcription (now configured to capture disfluencies/filler words). On-device transcription is disabled pending future implementation.
-    - **Phase 2 (Planned)**: Whisper.cpp for local, on-device transcription to ensure privacy.
+    - **Cloud-Based Transcription**: Uses AssemblyAI for high-accuracy transcription and disfluency detection.
+    - **On-Device Transcription**: Uses `@xenova/transformers` (Whisper) to perform transcription directly in the browser, ensuring user privacy.
 
 ## Getting Started
 

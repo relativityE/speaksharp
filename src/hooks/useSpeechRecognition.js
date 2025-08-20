@@ -1,26 +1,21 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import TranscriptionService from '../services/transcription/TranscriptionService';
-import { FILLER_WORD_KEYS } from '../config';
+import { FILLER_WORD_KEYS, defaultFillerPatterns } from '../config';
 
 // --- Default configurations ---
-const defaultFillerPatterns = {
-    [FILLER_WORD_KEYS.UM]: /\b(um|umm|ummm|uhm)\b/gi,
-    [FILLER_WORD_KEYS.UH]: /\b(uh|uhh|uhhh|er|err|erh)\b/gi,
-    [FILLER_WORD_KEYS.AH]: /\b(ah|ahm|ahhh)\b/gi,
-    [FILLER_WORD_KEYS.LIKE]: /\b(like)\b/gi,
-    [FILLER_WORD_KEYS.YOU_KNOW]: /\b(you know|y'know|ya know)\b/gi,
-    [FILLER_WORD_KEYS.SO]: /\b(so)\b/gi,
-    [FILLER_WORD_KEYS.ACTUALLY]: /\b(actually)\b/gi,
-    [FILLER_WORD_KEYS.OH]: /\b(oh|ooh|ohh)\b/gi,
-    [FILLER_WORD_KEYS.I_MEAN]: /\b(i mean)\b/gi,
-};
 
 const FILLER_WORD_COLORS = ['#BFDBFE', '#FCA5A5', '#FDE68A', '#86EFAC', '#FDBA74', '#C4B5FD', '#6EE7B7'];
 
-const getInitialFillerData = (customWords = []) => {
+const getInitialFillerData = (customWords = [], fillerPatterns = {}) => {
     const initial = {};
-    const allFillerKeys = [...Object.values(FILLER_WORD_KEYS), ...customWords];
-    allFillerKeys.forEach((key, index) => {
+    const allFillerKeys = [
+        ...Object.values(FILLER_WORD_KEYS),
+        ...customWords,
+        ...Object.keys(fillerPatterns),
+    ];
+    // Use a Set to get unique keys, then convert back to an array
+    const uniqueKeys = [...new Set(allFillerKeys)];
+    uniqueKeys.forEach((key, index) => {
         initial[key] = { count: 0, color: FILLER_WORD_COLORS[index % FILLER_WORD_COLORS.length] };
     });
     return initial;
@@ -29,6 +24,7 @@ const getInitialFillerData = (customWords = []) => {
 // --- The Hook ---
 export const useSpeechRecognition = ({
     customWords = [],
+    fillerPatterns = {}, // Allow custom filler patterns
     mode = 'native', // Make mode a prop, defaulting to 'native'
     model = 'Xenova/whisper-tiny.en' // Make model a prop for local mode
 } = {}) => {
@@ -40,8 +36,8 @@ export const useSpeechRecognition = ({
     const [finalChunks, setFinalChunks] = useState([]);
     const [wordConfidences, setWordConfidences] = useState([]);
     const [interimTranscript, setInterimTranscript] = useState('');
-    const [fillerData, setFillerData] = useState(getInitialFillerData(customWords));
-    const [finalFillerData, setFinalFillerData] = useState(getInitialFillerData(customWords));
+    const [fillerData, setFillerData] = useState(() => getInitialFillerData(customWords, fillerPatterns));
+    const [finalFillerData, setFinalFillerData] = useState(() => getInitialFillerData(customWords, fillerPatterns));
     const [error, setError] = useState(null);
     const [isSupported, setIsSupported] = useState(true);
     const [currentMode, setCurrentMode] = useState(mode);
@@ -102,21 +98,29 @@ export const useSpeechRecognition = ({
 
     // --- Transcript and Filler Word Processing ---
     const countFillerWords = useCallback((text) => {
-        const counts = getInitialFillerData(customWords);
-        const allPatterns = { ...defaultFillerPatterns };
+        const counts = getInitialFillerData(customWords, fillerPatterns);
+        // Merge default patterns with custom ones, with custom ones taking precedence
+        const allPatterns = { ...defaultFillerPatterns, ...fillerPatterns };
+
+        // Add patterns for simple custom words if they don't have a custom pattern
         customWords.forEach((word) => {
-            allPatterns[word] = new RegExp(`\\b(${word})\\b`, 'gi');
+            if (!allPatterns[word]) {
+                allPatterns[word] = new RegExp(`\\b(${word})\\b`, 'gi');
+            }
         });
 
         for (const key in allPatterns) {
-            const pattern = allPatterns[key];
-            const matches = text.match(pattern);
-            if (matches) {
-                counts[key].count = matches.length;
+            // Ensure the key exists in counts before processing
+            if (counts[key]) {
+                const pattern = allPatterns[key];
+                const matches = text.match(pattern);
+                if (matches) {
+                    counts[key].count = matches.length;
+                }
             }
         }
         return counts;
-    }, [customWords]);
+    }, [customWords, fillerPatterns]);
 
     const onTranscriptUpdate = useCallback((data) => {
         // console.log('[useSpeechRecognition] onTranscriptUpdate:', data);
@@ -206,11 +210,11 @@ export const useSpeechRecognition = ({
         setFinalChunks([]);
         setInterimTranscript('');
         setTranscript('');
-        setFillerData(getInitialFillerData(customWords));
-        setFinalFillerData(getInitialFillerData(customWords));
+        setFillerData(getInitialFillerData(customWords, fillerPatterns));
+        setFinalFillerData(getInitialFillerData(customWords, fillerPatterns));
         setWordConfidences([]);
         setError(null);
-    }, [customWords]);
+    }, [customWords, fillerPatterns]);
 
     return {
         isListening,

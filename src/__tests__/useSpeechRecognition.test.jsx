@@ -43,7 +43,7 @@ describe('useSpeechRecognition', () => {
   });
 
   it('should not initialize on render, but on startListening', async () => {
-    const { result } = renderHook(() => useSpeechRecognition());
+    const { result, unmount } = renderHook(() => useSpeechRecognition());
     expect(TranscriptionService).not.toHaveBeenCalled();
     expect(result.current.isListening).toBe(false);
 
@@ -53,10 +53,11 @@ describe('useSpeechRecognition', () => {
 
     expect(TranscriptionService).toHaveBeenCalledTimes(1);
     expect(mockServiceInstance.init).toHaveBeenCalledTimes(1);
+    unmount();
   });
 
   it('should start and stop listening', async () => {
-    const { result } = renderHook(() => useSpeechRecognition());
+    const { result, unmount } = renderHook(() => useSpeechRecognition());
 
     await act(async () => {
       await result.current.startListening();
@@ -69,10 +70,11 @@ describe('useSpeechRecognition', () => {
     });
     expect(result.current.isListening).toBe(false);
     expect(mockServiceInstance.stopTranscription).toHaveBeenCalledTimes(1);
+    unmount();
   });
 
   it('should handle transcript results and count filler words', async () => {
-    const { result } = renderHook(() => useSpeechRecognition());
+    const { result, unmount } = renderHook(() => useSpeechRecognition());
 
     await act(async () => {
       await result.current.startListening();
@@ -90,10 +92,11 @@ describe('useSpeechRecognition', () => {
     expect(result.current.transcript).toContain('um, like, this is a test');
     expect(result.current.fillerData.um.count).toBe(1);
     expect(result.current.fillerData.like.count).toBe(1);
+    unmount();
   });
 
   it('should count custom filler words', async () => {
-    const { result } = renderHook(() => useSpeechRecognition({ customWords: ['actually'] }));
+    const { result, unmount } = renderHook(() => useSpeechRecognition({ customWords: ['actually'] }));
 
     await act(async () => {
       await result.current.startListening();
@@ -109,10 +112,33 @@ describe('useSpeechRecognition', () => {
 
     expect(result.current.fillerData.actually.count).toBe(1);
     expect(result.current.fillerData.so.count).toBe(1);
+    unmount();
+  });
+
+  it('should use custom filler patterns when provided', async () => {
+    const customPatterns = {
+      like: /\b(like|like-you-know)\b/gi, // custom pattern for "like"
+    };
+    const { result, unmount } = renderHook(() => useSpeechRecognition({ fillerPatterns: customPatterns }));
+
+    await act(async () => {
+      await result.current.startListening();
+    });
+
+    act(() => {
+      mockServiceInstance.simulateTranscriptUpdate({ transcript: { partial: 'this is like-you-know a test' } });
+    });
+
+    await act(async () => {
+      await result.current.stopListening();
+    });
+
+    expect(result.current.fillerData.like.count).toBe(1);
+    unmount();
   });
 
   it('should handle errors during start', async () => {
-    const { result } = renderHook(() => useSpeechRecognition());
+    const { result, unmount } = renderHook(() => useSpeechRecognition());
     mockServiceInstance.startTranscription.mockRejectedValue(new Error('Start failed'));
 
     await act(async () => {
@@ -121,11 +147,12 @@ describe('useSpeechRecognition', () => {
 
     expect(result.current.error.message).toBe('Start failed');
     expect(result.current.isListening).toBe(false);
+    unmount();
   });
 
   it('should handle errors during initialization', async () => {
     mockServiceInstance.init.mockRejectedValue(new Error('Init failed'));
-    const { result } = renderHook(() => useSpeechRecognition());
+    const { result, unmount } = renderHook(() => useSpeechRecognition());
 
     await act(async () => {
         await result.current.startListening();
@@ -134,10 +161,11 @@ describe('useSpeechRecognition', () => {
     await waitFor(() => {
       expect(result.current.error.message).toBe('Init failed');
     });
+    unmount();
   });
 
   it('should reset the state', async () => {
-    const { result } = renderHook(() => useSpeechRecognition());
+    const { result, unmount } = renderHook(() => useSpeechRecognition());
 
     await act(async () => {
       await result.current.startListening();
@@ -160,10 +188,11 @@ describe('useSpeechRecognition', () => {
 
     expect(result.current.transcript).toBe('');
     expect(result.current.fillerData.um.count).toBe(0);
+    unmount();
   });
 
   it('should not count "a" as a filler word for "ah"', async () => {
-    const { result } = renderHook(() => useSpeechRecognition());
+    const { result, unmount } = renderHook(() => useSpeechRecognition());
 
     await act(async () => {
       await result.current.startListening();
@@ -178,5 +207,6 @@ describe('useSpeechRecognition', () => {
     });
 
     expect(result.current.fillerData.ah.count).toBe(0);
+    unmount();
   });
 });
