@@ -170,19 +170,21 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                     <CardTitle>Settings</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                    <div className={`text-center p-3 rounded-lg text-sm font-medium ${modeNotification.className}`}>
-                        <p>{modeNotification.text}</p>
-                    </div>
-                    <div className="flex items-center justify-between">
-                        <Label htmlFor="transcription-mode" className="font-semibold">Transcription Mode</Label>
-                        <div className="flex items-center gap-2">
-                            <Label htmlFor="transcription-mode" className="text-muted-foreground text-sm">Local</Label>
-                            <Switch
-                                id="transcription-mode"
-                                checked={mode === 'cloud'}
-                                onCheckedChange={(checked) => setMode(checked ? 'cloud' : 'local')}
-                            />
-                            <Label htmlFor="transcription-mode" className="text-muted-foreground text-sm">Cloud</Label>
+                    <div className="p-4 border rounded-lg bg-background/50 space-y-4">
+                        <div className={`text-center p-3 rounded-lg text-sm font-medium ${modeNotification.className}`}>
+                            <p>{modeNotification.text}</p>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <Label htmlFor="transcription-mode" className="font-semibold">Transcription Mode</Label>
+                            <div className="flex items-center gap-2">
+                                <Label htmlFor="transcription-mode" className="text-muted-foreground text-sm">Local</Label>
+                                <Switch
+                                    id="transcription-mode"
+                                    checked={mode === 'cloud'}
+                                    onCheckedChange={(checked) => setMode(checked ? 'cloud' : 'local')}
+                                />
+                                <Label htmlFor="transcription-mode" className="text-muted-foreground text-sm">Cloud</Label>
+                            </div>
                         </div>
                     </div>
                     <ErrorDisplay error={error} />

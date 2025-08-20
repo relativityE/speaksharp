@@ -25,12 +25,13 @@ const getInitialFillerData = (customWords = [], fillerPatterns = {}) => {
 export const useSpeechRecognition = ({
     customWords = [],
     fillerPatterns = {}, // Allow custom filler patterns
-    mode = 'native', // Make mode a prop, defaulting to 'native'
+    initialMode = 'cloud', // Default to 'cloud'
     model = 'Xenova/whisper-tiny.en' // Make model a prop for local mode
 } = {}) => {
-    console.log(`[useSpeechRecognition] Hook initialized with mode: ${mode}, model: ${model}`);
+    console.log(`[useSpeechRecognition] Hook initialized with initialMode: ${initialMode}, model: ${model}`);
 
     // --- State Management ---
+    const [mode, setMode] = useState(initialMode);
     const [isListening, setIsListening] = useState(false);
     const [transcript, setTranscript] = useState('');
     const [finalChunks, setFinalChunks] = useState([]);
@@ -228,5 +229,6 @@ export const useSpeechRecognition = ({
         stopListening,
         reset,
         mode: currentMode, // Return the *actual* current mode
+        setMode, // Return the setter
     };
 };
