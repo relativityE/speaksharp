@@ -11,7 +11,7 @@ export default defineConfig({
   workers: 1,
   reporter: 'line',
   use: {
-    viewport: { width: 1280, height: 720 },
+    viewport: { width: 1920, height: 1080 },
     navigationTimeout: 45000,
     actionTimeout: 15000,
     video: 'retain-on-failure',

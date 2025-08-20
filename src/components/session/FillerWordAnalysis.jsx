@@ -13,13 +13,10 @@ const SEVERITY_PALETTE = {
   default: 'bg-indigo-200',
 };
 
-const FillerWordCard = ({ word, count, colorClass, progress }) => (
-  <div className={`p-3 rounded-lg text-left ${colorClass}`}>
-    <div className="flex justify-between items-center mb-2">
-      <span className="text-sm font-semibold text-gray-800 capitalize">{word}</span>
-      <span className="text-lg font-bold text-gray-900">{count}</span>
-    </div>
-    <Progress value={progress} className="h-2 [&>*]:bg-gray-600" />
+const FillerWordCard = ({ word, count, colorClass }) => (
+  <div className={`p-4 rounded-lg text-center ${colorClass} transition-transform hover:scale-105`}>
+    <div className="text-3xl font-bold text-gray-800">{count}</div>
+    <div className="text-sm font-semibold text-gray-700 capitalize mt-1">{word}</div>
   </div>
 );
 
@@ -60,11 +57,10 @@ const FillerWordAnalysis = ({ fillerData = {}, customWords, addCustomWord, defau
         <CardTitle>Filler Word Analysis</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col flex-grow">
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3 mb-6">
           {hasData ? (
             sortedWords.map(({ word, count }, index) => {
               if (count === 0) return null; // Don't render cards for words with 0 count
-              const progress = maxCount > 0 ? (count / maxCount) * 100 : 0;
               const colorClass = getSeverityColor(index);
               return (
                 <FillerWordCard
@@ -72,7 +68,6 @@ const FillerWordAnalysis = ({ fillerData = {}, customWords, addCustomWord, defau
                   word={word}
                   count={count}
                   colorClass={colorClass}
-                  progress={progress}
                 />
               );
             })

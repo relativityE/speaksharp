@@ -25,7 +25,7 @@ export const Header = () => {
                             {/* Desktop Navigation */}
                             <nav className="hidden md:flex items-center gap-2">
                                 <NavLink to="/" className={getNavLinkClass} end>Home</NavLink>
-                                <NavLink to="/" className={getNavLinkClass}>New Session</NavLink>
+                                <NavLink to="/session" className={getNavLinkClass}>New Session</NavLink>
                                 <NavLink to="/analytics" className={getNavLinkClass}>Analytics</NavLink>
                             </nav>
                             <div className="hidden md:flex items-center gap-2">
@@ -45,7 +45,7 @@ export const Header = () => {
                                 <SheetContent>
                                     <nav className="flex flex-col gap-4 mt-8">
                                         <NavLink to="/" className={getNavLinkClass} end>Home</NavLink>
-                                        <NavLink to="/" className={getNavLinkClass}>New Session</NavLink>
+                                        <NavLink to="/session" className={getNavLinkClass}>New Session</NavLink>
                                         <NavLink to="/analytics" className={getNavLinkClass}>Analytics</NavLink>
                                         <Button variant="ghost" onClick={signOut} className="justify-start gap-2 px-3 py-2 text-base font-semibold text-muted-foreground">
                                             <LogOut size={20} />

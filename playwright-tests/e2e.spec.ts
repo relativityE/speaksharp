@@ -26,41 +26,19 @@ test.describe('End-to-End Speech Recognition', () => {
     await expect(page.getByTestId('app-main')).toBeVisible();
   });
 
-  // Test case for 'native' speech recognition mode
-  test('should handle native speech recognition', async ({ page }) => {
-    // Wait for the initial mode notification to be visible
-    await expect(page.getByText('Native Browser Fallback')).toBeVisible();
+  // Test case for a full speech recognition session, starting with cloud and switching to local
+  test('should handle speech recognition session', async ({ page }) => {
+    await page.getByRole('button', { name: /Start Your Free Session/i }).click();
 
-    // Find and click the main start/stop button
-    const mainButton = page.getByRole('button', { name: /Start Recording/i });
-    await mainButton.click();
+    // Wait for navigation to the session page and for the sidebar to be visible.
+    await page.waitForURL('**/session');
+    await page.waitForSelector('#session-sidebar', { state: 'visible' });
 
-    // The button text changes to "End Session", and a "RECORDING" status appears
-    await expect(page.getByRole('button', { name: /End Session/i })).toBeVisible();
-    await expect(page.getByText('● RECORDING')).toBeVisible();
+    // Check that the initial mode is Cloud Transcription
+    await expect(page.getByText('Cloud Transcription (Highest Accuracy)')).toBeVisible();
 
-    // Wait for a few seconds to simulate speaking
-    await page.waitForTimeout(5000);
-
-    // Click the button again to stop the session
-    await page.getByRole('button', { name: /End Session/i }).click();
-
-    // After stopping, we should be redirected to the analytics page
-    await expect(page).toHaveURL(/.*\/analytics/);
-
-    // Check for the presence of the transcript panel and a plausible word count
-    await expect(page.getByText('Transcript')).toBeVisible();
-    const wordCount = await page.getByText(/Total Words: \d+/).textContent();
-    const count = parseInt(wordCount?.match(/\d+/)?.[0] || '0', 10);
-    // In the fake media stream, the transcript is usually non-empty
-    expect(count).toBeGreaterThan(0);
-  });
-
-  // Test case for 'local' speech recognition mode (Whisper model)
-  test('should handle local speech recognition', async ({ page }) => {
     // Switch to local mode
-    // The switch is associated with a label "Transcription Mode"
-    const modeSwitch = page.getByLabel('Transcription Mode').locator('..').getByRole('switch');
+    const modeSwitch = page.locator('#transcription-mode');
     await modeSwitch.click();
 
     // A notification should appear confirming the switch to local mode

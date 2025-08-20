@@ -17,6 +17,17 @@ module.exports = {
       },
     },
     extend: {
+      fontSize: {
+        'xs': '0.875rem', // 14px
+        'sm': '0.875rem', // 14px
+        'base': '1rem',    // 16px
+        'lg': '1.125rem',
+        'xl': '1.25rem',
+        '2xl': '1.5rem',   // 24px
+        '3xl': '2rem',     // 32px
+        '4xl': '2.5rem',   // 40px
+        '5xl': '3rem',
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -53,9 +64,13 @@ module.exports = {
         },
       },
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        lg: "1.25rem", // 20px
+        md: "calc(1.25rem - 4px)",
+        sm: "calc(1.25rem - 8px)",
+        button: "0.75rem", // 12px
+      },
+      boxShadow: {
+        'card': '0px 4px 12px rgba(0,0,0,0.2)',
       },
       keyframes: {
         "accordion-down": {
