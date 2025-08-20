@@ -8,7 +8,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest"
+    "test": "vitest",
+    "test:e2e": "./node_modules/@playwright/test/cli.js test"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.0.1",
