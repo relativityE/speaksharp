@@ -46,7 +46,6 @@
 ---
 
 ## ⚠️ Known Issues
-- **On-Device Transcription is Not Yet Implemented:** The `LocalWhisper` provider in `TranscriptionService` is a non-functional simulation. The UI toggle remains enabled for demo purposes. This is the top priority for Phase 2 and will be implemented using the Transformers.js library.
 - **Test Suite Instability:** The `vitest` test suite is currently experiencing persistent timeout issues (~400s), making it unreliable for automated testing. This occurs even when running a single test file with debugging configurations (`pool: 'forks'`). The root cause is suspected to be a deep environmental issue with the test runner's interaction with JSDOM. This is a critical issue to resolve to ensure code quality. A fix is being investigated by the user.
 
 ---
@@ -143,8 +142,8 @@ Our technology choices prioritize development speed, scalability, and user exper
 ### PHASE 2 — PRIVACY & POLISH (Months 1-3) - ~30% Complete
 - **[DONE]** `[M]` Build a comprehensive analytics dashboard for users.
 - **[DONE]** `[S]` Re-evaluated fallback to native Web Speech API (removed as a feature).
-- **[BLOCKED]** `[M]` Integrate On-Device Transcription (using **Transformers.js**).
-- **[BLOCKED]** `[M]` Implement automatic fallback from local to cloud STT based on performance.
+- **[DONE]** `[M]` Integrate On-Device Transcription (using **Transformers.js**).
+- **[DONE]** `[M]` Implement automatic fallback from local to cloud STT based on performance.
 - **[OUTSTANDING]** `[S]` Implement weekly summary emails.
 - **[OUTSTANDING]** `[S]` Add in-app prompts to encourage users to upgrade.
 - **[OUTSTANDING]** `[S]` Conduct thorough cross-browser testing and bug fixing.
