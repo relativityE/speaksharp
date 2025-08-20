@@ -71,7 +71,7 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
     const endSessionAndSave = async () => {
         const sessionData = await stopListening();
 
-        if (!sessionData || !sessionData.transcript) {
+        if (!sessionData) {
             toast.error("Could not process session data. Please try again.");
             return;
         }
