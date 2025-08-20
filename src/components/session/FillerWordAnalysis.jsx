@@ -24,6 +24,7 @@ const FillerWordCard = ({ word, count, colorClass, progress }) => (
 );
 
 import { cn } from '@/lib/utils';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 const FillerWordAnalysis = ({ fillerData = {}, customWords, addCustomWord, defaultFillerWords, className }) => {
   const [newWord, setNewWord] = useState('');
@@ -42,7 +43,9 @@ const FillerWordAnalysis = ({ fillerData = {}, customWords, addCustomWord, defau
     .map(word => ({ word, count: fillerData[word] ? fillerData[word].count : 0 }))
     .sort((a, b) => b.count - a.count);
 
-  const maxCount = Math.max(10, sortedWords.length > 0 ? sortedWords[0].count : 0);
+  const hasData = sortedWords.some(word => word.count > 0);
+
+  const maxCount = Math.max(10, hasData ? sortedWords[0].count : 0);
 
   const getSeverityColor = (index) => {
     if (index === 0) return SEVERITY_PALETTE.high;
@@ -58,22 +61,32 @@ const FillerWordAnalysis = ({ fillerData = {}, customWords, addCustomWord, defau
       </CardHeader>
       <CardContent className="flex flex-col flex-grow">
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mb-6">
-          {sortedWords.map(({ word, count }, index) => {
-            const progress = maxCount > 0 ? (count / maxCount) * 100 : 0;
-            const colorClass = getSeverityColor(index);
-            return (
-              <FillerWordCard
-                key={word}
-                word={word}
-                count={count}
-                colorClass={colorClass}
-                progress={progress}
+          {hasData ? (
+            sortedWords.map(({ word, count }, index) => {
+              if (count === 0) return null; // Don't render cards for words with 0 count
+              const progress = maxCount > 0 ? (count / maxCount) * 100 : 0;
+              const colorClass = getSeverityColor(index);
+              return (
+                <FillerWordCard
+                  key={word}
+                  word={word}
+                  count={count}
+                  colorClass={colorClass}
+                  progress={progress}
+                />
+              );
+            })
+          ) : (
+            <div className="col-span-full">
+              <EmptyState
+                title="No Filler Words Detected Yet"
+                description="Start speaking to see your filler word analysis here. Your most frequent words will appear at the top."
               />
-            );
-          })}
+            </div>
+          )}
         </div>
 
-        <form onSubmit={handleAddWord} className="flex items-center gap-2 mt-8">
+        <form onSubmit={handleAddWord} className="flex items-center gap-2 mt-auto pt-4">
           <label htmlFor="custom-word" className="text-xs font-medium">
             Custom Filler Word:
           </label>

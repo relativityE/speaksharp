@@ -83,14 +83,14 @@ export const SessionPage = () => {
     }, []);
 
     return (
-        <div className="container mx-auto px-4 py-10">
+        <div className="container mx-auto max-w-7xl px-4 py-10">
             <UpgradePromptDialog
                 open={usageLimitExceeded}
                 onOpenChange={setUsageLimitExceeded}
             />
-            <div className="lg:flex lg:gap-8 relative lg:items-stretch">
-                {/* Left Column */}
-                <div className="lg:w-2/3 flex flex-col gap-8">
+            <div className="grid grid-cols-1 lg:grid-cols-3 lg:gap-8">
+                {/* Main Content (Left Column on Desktop) */}
+                <div className="lg:col-span-2 flex flex-col gap-8">
                     <ErrorBoundary fallback={<p>Something went wrong in the session display.</p>}>
                         <LeftColumnContent
                             speechRecognition={speechRecognition}
@@ -101,21 +101,23 @@ export const SessionPage = () => {
                 </div>
 
                 {/* Desktop Sidebar (Right Column) */}
-                <div className="hidden lg:block lg:w-1/3">
-                    <SessionSidebar {...speechRecognition} saveSession={saveSession} mode={mode} setMode={setMode} />
-                </div>
+                <aside className="hidden lg:block lg:col-span-1">
+                    <div className="sticky top-24">
+                        <SessionSidebar {...speechRecognition} saveSession={saveSession} mode={mode} setMode={setMode} />
+                    </div>
+                </aside>
 
-                {/* Mobile Drawer */}
+                {/* Mobile Drawer for Sidebar */}
                 <div className="block lg:hidden">
                     <Drawer open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
                         <DrawerTrigger asChild>
-                            <Button variant="outline" size="icon" className="fixed bottom-6 right-6 z-50 h-16 w-16 rounded-full shadow-lg flex items-center justify-center">
+                            <Button variant="default" size="icon" className="fixed bottom-6 right-6 z-50 h-16 w-16 rounded-full shadow-lg flex items-center justify-center">
                                 <SlidersHorizontal className="h-8 w-8" />
                                 <span className="sr-only">Open session controls</span>
                             </Button>
                         </DrawerTrigger>
                         <DrawerContent>
-                            <div className="p-4 overflow-y-auto h-[80vh]">
+                            <div className="p-4 pt-8 overflow-y-auto h-[85vh] bg-background">
                                 <SessionSidebar {...speechRecognition} saveSession={saveSession} mode={mode} setMode={setMode} />
                             </div>
                         </DrawerContent>
