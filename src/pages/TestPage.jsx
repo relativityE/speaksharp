@@ -14,13 +14,5 @@ function TestPage() {
   );
 }
 
-// This part is for standalone rendering, which we might not need if we use a route.
-// However, it's good practice to have it.
-const container = document.getElementById('root');
-if (container) {
-  const root = createRoot(container);
-  root.render(<TestPage />);
-}
-
 // Export the component for use in the router
 export default TestPage;

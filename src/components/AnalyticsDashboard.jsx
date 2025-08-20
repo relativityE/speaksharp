@@ -13,16 +13,18 @@ import { supabase } from '@/lib/supabaseClient';
 const EmptyState = () => {
     const navigate = useNavigate();
     return (
-        <Card className="flex flex-col items-center justify-center p-12 text-center border-dashed">
-            <Sparkles className="w-12 h-12 text-yellow-400 mb-4" />
-            <h2 className="text-xl font-bold text-foreground">Your Dashboard Awaits!</h2>
-            <p className="max-w-md mx-auto my-4 text-base text-muted-foreground">
-                Record your next session to unlock your progress trends and full analytics!
+        <div className="text-center py-20">
+            <div className="inline-block bg-primary/10 p-6 rounded-full mb-6">
+                <Sparkles className="w-16 h-16 text-primary" />
+            </div>
+            <h2 className="text-3xl font-bold text-foreground mb-4">Your Dashboard Awaits!</h2>
+            <p className="max-w-md mx-auto mb-8 text-lg text-muted-foreground">
+                Complete your first session to unlock powerful analytics and track your progress.
             </p>
-            <Button onClick={() => navigate('/session')} size="lg">
-                Start a New Session →
+            <Button onClick={() => navigate('/session')} size="lg" className="text-lg font-bold">
+                Start a New Session
             </Button>
-        </Card>
+        </div>
     );
 };
 
@@ -206,22 +208,25 @@ export const AnalyticsDashboard = ({ sessionHistory, profile }) => {
                         {trends.chartData.length > 1 ? (
                             <ResponsiveContainer width="100%" height={300}>
                                 <LineChart data={trends.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                                    <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
+                                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                                     <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
                                     <YAxis stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
                                     <Tooltip
-                                        cursor={{ fill: 'hsla(var(--secondary))' }}
+                                        cursor={{ fill: 'hsl(var(--secondary))' }}
                                         contentStyle={{
-                                            backgroundColor: 'hsl(var(--card))',
+                                            backgroundColor: 'hsl(var(--popover))',
                                             borderColor: 'hsl(var(--border))',
-                                            color: 'hsl(var(--foreground))'
+                                            color: 'hsl(var(--popover-foreground))',
+                                            borderRadius: 'var(--radius)',
                                         }}
                                     />
-                                    <Line type="monotone" dataKey="FW/min" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                                    <Line type="monotone" dataKey="FW/min" stroke="hsl(var(--primary))" strokeWidth={3} dot={{ r: 5, fill: 'hsl(var(--primary))' }} activeDot={{ r: 8, fill: 'hsl(var(--primary))' }} />
                                 </LineChart>
                             </ResponsiveContainer>
                         ) : (
-                            <div className="flex items-center justify-center h-[300px] text-center text-muted-foreground">
+                            <div className="flex flex-col items-center justify-center h-[300px] text-center text-muted-foreground bg-secondary/50 rounded-lg">
+                                <TrendingUp className="w-12 h-12 mb-4 text-primary/50" />
+                                <h3 className="text-lg font-semibold text-foreground">Not Enough Data Yet</h3>
                                 <p>Complete at least two sessions to see your progress trend.</p>
                             </div>
                         )}
@@ -235,26 +240,29 @@ export const AnalyticsDashboard = ({ sessionHistory, profile }) => {
                     <CardContent>
                         {trends.topFillerWords.length > 0 ? (
                             <ResponsiveContainer width="100%" height={300}>
-                                <BarChart data={trends.topFillerWords} layout="vertical" margin={{ top: 0, right: 20, left: 10, bottom: 0 }}>
-                                    <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
+                                <BarChart data={trends.topFillerWords} layout="vertical" margin={{ top: 0, right: 40, left: 10, bottom: 0 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                                     <XAxis type="number" hide />
-                                    <YAxis type="category" dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} width={80} />
+                                    <YAxis type="category" dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} width={80} dx={-10} />
                                     <Tooltip
-                                        cursor={{ fill: 'hsla(var(--secondary))' }}
+                                        cursor={{ fill: 'hsl(var(--secondary))' }}
                                         contentStyle={{
-                                            backgroundColor: 'hsl(var(--card))',
+                                            backgroundColor: 'hsl(var(--popover))',
                                             borderColor: 'hsl(var(--border))',
-                                            color: 'hsl(var(--foreground))'
+                                            color: 'hsl(var(--popover-foreground))',
+                                            borderRadius: 'var(--radius)',
                                         }}
                                     />
                                     <Bar dataKey="value" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]}>
-                                        <LabelList dataKey="value" position="right" className="fill-white" />
+                                        <LabelList dataKey="value" position="right" offset={10} className="fill-foreground font-semibold" />
                                     </Bar>
                                 </BarChart>
                             </ResponsiveContainer>
                         ) : (
-                            <div className="flex items-center justify-center h-[300px] text-muted-foreground">
-                                <p>No filler words detected yet. Keep practicing!</p>
+                            <div className="flex flex-col items-center justify-center h-[300px] text-center text-muted-foreground bg-secondary/50 rounded-lg">
+                                <CheckCircle className="w-12 h-12 mb-4 text-primary/50" />
+                                <h3 className="text-lg font-semibold text-foreground">Great Job!</h3>
+                                <p>No filler words detected in your recent sessions.</p>
                             </div>
                         )}
                     </CardContent>

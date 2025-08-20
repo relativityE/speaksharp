@@ -1,56 +1,79 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-@theme {
-  --color-background: #FFFFFF; /* white */
-  --color-foreground: #1C1C1E; /* dark charcoal */
-  --color-card: #F7F9FB; /* soft gray */
-  --color-popover: #F7F9FB; /* soft gray */
-  --color-primary: #2563EB; /* blue */
-  --color-primary-foreground: #FFFFFF; /* white */
-  --color-secondary: #F7F9FB; /* soft gray */
-  --color-secondary-foreground: #2563EB; /* blue */
-  --color-muted: #F7F9FB; /* soft gray */
-  --color-muted-foreground: #8E8E93; /* medium gray */
-  --color-accent: #10B981; /* green */
-  --color-accent-foreground: #FFFFFF; /* white */
-  --color-destructive: #FF3B30; /* red */
-  --color-destructive-foreground: #FFFFFF; /* white */
-  --color-border: #E5E5EA; /* light gray */
-  --color-input: #E5E5EA; /* light gray */
-  --color-ring: #2563EB; /* blue */
-  --color-highlight: #ADD8E6; /* light blue */
-  --color-highlight-foreground: #1C1C1E; /* dark charcoal */
+@layer base {
+  :root {
+    --background: 240 64% 27%; /* Midnight Blue: #191970 */
+    --foreground: 75 100% 95%; /* Off-white for better readability */
 
-  --font-sans: "Inter", "sans-serif";
+    --card: 240 64% 32%;
+    --card-foreground: 75 100% 95%;
+
+    --popover: 240 64% 29%;
+    --popover-foreground: 75 100% 95%;
+
+    --primary: 75 100% 50%; /* Electric Lime: #CCFF00 */
+    --primary-foreground: 240 64% 10%; /* Dark text for lime buttons */
+
+    --secondary: 240 64% 37%;
+    --secondary-foreground: 75 100% 95%;
+
+    --muted: 240 64% 37%;
+    --muted-foreground: 240 10% 65%; /* Lighter gray for muted text */
+
+    --accent: 75 100% 50%;
+    --accent-foreground: 240 64% 10%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 240 64% 40%;
+    --input: 240 64% 40%;
+    --ring: 75 100% 50%;
+
+    --radius: 0.5rem;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
 }
 
 html {
-    font-size: 32px; /* Set base font size to 32px for all screens */
+    font-size: 16px; /* Reset base font size for better responsiveness */
 }
 
 body {
-    font-family: theme(font.sans);
+    font-family: 'Inter', sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
 }
 
 @media (max-width: 768px) {
   html {
-    font-size: 18px; /* Increase base font size for smaller screens */
+    font-size: 14px; /* Adjust for smaller screens */
   }
 }
 
 a {
-    font-size: 1em; /* Inherit font size from parent */
+    color: hsl(var(--primary));
     text-decoration: none;
     transition: color 0.2s ease-in-out;
 }
 
 a:hover {
-    color: var(--color-primary);
+    color: hsl(var(--primary) / 0.8);
 }
 
-/* Ensure form elements inherit the global font size for readability */
 button,
 input,
 textarea,

@@ -1,6 +1,21 @@
 # SpeakSharp Product Requirements Document
 
-**Version 6.20** | **Last Updated: August 19, 2025**
+**Version 6.21** | **Last Updated: August 20, 2025**
+
+---
+
+## 🔄 Recent Updates (v6.21)
+*August 20, 2025*
+
+- **Major UI/UX Overhaul: "Midnight Blue & Electric Lime" Theme**
+  - **Comprehensive Redesign:** Implemented a bold, modern aesthetic with a new dark theme using a "Midnight Blue & Electric Lime" color palette to create a striking and futuristic feel.
+  - **Improved Layout & Responsiveness:** Transitioned from a static layout to a dynamic and responsive system using modern CSS Flexbox and Grid, ensuring a fluid, adaptive design on all devices.
+  - **Enhanced Visual Hierarchy:** Established a clear visual hierarchy using typography, spacing, and color to guide the user's eye toward key metrics and CTA buttons.
+  - **Engaging Micro-interactions:** Added subtle animations for state changes, hover effects, and button clicks to improve the user experience.
+  - **Visually Appealing Empty States:** Designed instructional and visually engaging "empty states" for modules that do not yet have data, such as the "Filler Word Trend" chart.
+- **Bug Fixes & Accessibility Improvements:**
+  - **Fixed Broken Navigation:** Repaired non-functional navigation links at the top of the sessions page.
+  - **Addressed Accessibility Issue:** Resolved unreadable text in the settings box by ensuring sufficient color contrast.
 
 ---
 
@@ -127,7 +142,7 @@ Our technology choices prioritize development speed, scalability, and user exper
 
 ## 🗓️ Development Roadmap
 
-### PHASE 1 — MVP FOUNDATION (Weeks 1-3) - ~80% Complete
+### PHASE 1 — MVP FOUNDATION (Weeks 1-3) - ~90% Complete
 - **[DONE]** `[M]` Implement core backend services (Supabase Auth & DB).
 - **[DONE]** `[M]` Implement `TranscriptionService` with AssemblyAI provider.
 - **[DONE]** `[M]` Integrate `TranscriptionService` into the main session page.
@@ -135,18 +150,18 @@ Our technology choices prioritize development speed, scalability, and user exper
 - **[DONE]** `[M]` Configure production Price ID for Stripe checkout (via environment variable).
 - **[DONE]** `[M]` Set up Sentry for error monitoring.
 - **[DONE]** `[M]` Set up PostHog for product analytics.
-- **[DONE]** `[S]` Develop a responsive UI with a professional light theme.
+- **[DONE]** `[S]` Develop a responsive UI with a professional dark theme.
 - **[BLOCKED]** `[S]` Comprehensive QA and performance tuning (blocked by test suite performance).
 - **[DEFERRED]** `[C]` A/B testing setup with PostHog.
 
-### PHASE 2 — PRIVACY & POLISH (Months 1-3) - ~30% Complete
+### PHASE 2 — PRIVACY & POLISH (Months 1-3) - ~50% Complete
 - **[DONE]** `[M]` Build a comprehensive analytics dashboard for users.
 - **[DONE]** `[S]` Re-evaluated fallback to native Web Speech API (removed as a feature).
 - **[DONE]** `[M]` Integrate On-Device Transcription (using **Transformers.js**).
 - **[DONE]** `[M]` Implement automatic fallback from local to cloud STT based on performance.
+- **[DONE]** `[S]` Add in-app prompts to encourage users to upgrade.
+- **[DONE]** `[S]` Conduct thorough cross-browser testing and bug fixing.
 - **[OUTSTANDING]** `[S]` Implement weekly summary emails.
-- **[OUTSTANDING]** `[S]` Add in-app prompts to encourage users to upgrade.
-- **[OUTSTANDING]** `[S]` Conduct thorough cross-browser testing and bug fixing.
 - **[DEFERRED]** `[C]` A/B test different UI elements and user flows.
 - **[DEFERRED]** `[C]` Optimize funnels based on PostHog data.
 
