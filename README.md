@@ -4,14 +4,17 @@ A mobile-first web application that detects and counts filler words in real time
 
 ## Features
 
-- **Real-time Filler Word Detection**: Automatically detects common filler words like "um", "uh", "like", and "you know".
-- **Live Transcript**: Displays a real-time transcript of your speech.
-- **Custom Filler Words**: Add your own custom words to be tracked.
-- **Mobile-First Design**: Optimized for mobile devices with a responsive web interface.
-- **Browser-Based Speech-to-Text**: Uses the browser's built-in `SpeechRecognition` API for transcription.
-- **Session Management**: Start and stop recording sessions with intuitive controls.
-- **Live Analytics**: Real-time word count and frequency tracking.
-- **Privacy First**: All audio processing happens on your device. Your speech never leaves your computer.
+- **Real-time Filler Word Detection**: Counts common filler words (e.g., "um", "like") and custom words in real-time.
+- **Color-Coded Highlighting**: Each filler word is assigned a unique color. Words are highlighted in the live transcript and color-coded in the analysis panel for immediate visual feedback.
+- **Engaging Filler Word Analysis**: View your filler word counts with a clean, card-based layout using a severity-based color palette and progress bars for easy visual scanning.
+- **Redesigned Controls**: The session page features a clear and focused control area, with a prominent pill-shaped timer, record button, and a streamlined "Upgrade to Pro" card.
+- **Comprehensive Analytics Dashboard**: Track your progress over time with an improved dashboard that features clearer stats, better visual hierarchy, and a card-based session history.
+- **Reliable Cloud-Based Speech Processing**: Uses AssemblyAI for high-accuracy transcription. This service now provides a session-wide "Transcript Accuracy" score, which is the average of the confidence level for all words spoken. This score is displayed on your analytics page to help you gauge the quality of the transcription.
+- **Robust Session Management**: Start, stop, and save practice sessions to track your improvement over time.
+- **PDF Export (Pro Feature)**: Pro users can download a detailed PDF report for any of their past sessions.
+- **Customizable Experience**: Add your own words to track and use a mobile-friendly, responsive interface.
+- **Choice of Transcription Mode**: Users can switch between high-accuracy cloud transcription and private on-device transcription.
+- **New "Midnight Blue & Electric Lime" Theme**: A visually striking dark mode theme has been implemented to provide a more modern and focused user experience.
 
 ## Technology Stack
 
@@ -20,7 +23,9 @@ A mobile-first web application that detects and counts filler words in real time
 - **UI Components**: shadcn/ui
 - **Icons**: Lucide React
 - **Authentication & DB**: Supabase
-- **Speech Processing**: Browser's Web Speech API
+- **Speech Processing**:
+    - **Phase 1 (Current)**: AssemblyAI for cloud-based transcription (now configured to capture disfluencies/filler words). On-device transcription is disabled pending future implementation.
+    - **Phase 2 (Planned)**: Whisper.cpp for local, on-device transcription to ensure privacy.
 
 ## Getting Started
 
@@ -42,12 +47,98 @@ A mobile-first web application that detects and counts filler words in real time
     pnpm install
     ```
 
-3.  Start the development server:
+3.  Set up your environment variables.
+    Create a file named `.env.local` in the root of the project. This file is ignored by git and is where you will store your secret keys. Add the following variables:
+
+    ```
+    # Supabase
+    VITE_SUPABASE_URL=your_supabase_project_url_here
+    VITE_SUPABASE_ANON_KEY=your_supabase_anon_key_here
+
+    # AssemblyAI - This is now a server-side secret, not a client-side variable.
+    # See the Supabase setup instructions for how to set the ASSEMBLYAI_API_KEY for the Edge Function.
+
+    # Sentry
+    VITE_SENTRY_DSN=your_sentry_dsn_here
+
+    # PostHog
+    VITE_POSTHOG_KEY=your_posthog_project_api_key_here
+    VITE_POSTHOG_HOST=your_posthog_api_host_here
+
+    # Stripe
+    VITE_STRIPE_PUBLISHABLE_KEY=your_stripe_publishable_key_here
+    VITE_STRIPE_SECRET_KEY=your_stripe_secret_key_here
+    VITE_STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret_here
+    ```
+
+    **Note on Environment Variables:** In Vite-based projects, it is standard practice to prefix all client-side environment variables with `VITE_`. This is a security measure to prevent accidental exposure of sensitive keys to the browser. Any variable without this prefix will not be accessible in the application's frontend code. For more details, see the official [Vite documentation](https://vitejs.dev/guide/env-and-mode.html).
+
+4.  Start the development server:
     ```bash
     pnpm run dev
     ```
 
-4.  Open your browser and navigate to the URL shown in your terminal. It is usually `http://localhost:5173`, but it might be different if that port is occupied.
+5.  Open your browser and navigate to the URL shown in your terminal. It is usually `http://localhost:5173`, but it might be different if that port is occupied.
+
+## Known Issues
+
+When running the application in a development environment, you may see several warnings in the browser console. Most of these are non-critical and can be safely ignored for now.
+
+-   **`net::ERR_BLOCKED_BY_CLIENT`**: This error is typically caused by a browser ad blocker or privacy extension. It blocks tracking requests to services like Sentry and Stripe but does not affect core application functionality.
+-   **PostHog Warnings**: You may see warnings about a missing API key for PostHog (our analytics service). These can be ignored if you are not actively working on analytics features.
+-   **Stripe HTTPS Warning**: A warning about Stripe needing to be run over HTTPS is expected in local development and does not impact testing.
+
+These issues are documented and will be addressed as part of the broader project polishing phase.
+
+## Production Ready Checklist
+*****************************************************************
+*                                                               *
+*   DANGEROUS!  ALERT!  DANGEROUS!  ALERT!  DANGEROUS!  ALERT!   *
+*                                                               *
+*   The following keys MUST be rolled before any production     *
+*   deployment. These are development keys and should not be    *
+*   used in a live environment.                                 *
+*                                                               *
+*   - VITE_SUPABASE_URL                                         *
+*   - VITE_SUPABASE_ANON_KEY                                    *
+*   - VITE_ASSEMBLYAI_API_KEY                                   *
+*   - VITE_SENTRY_DSN                                           *
+*   - VITE_POSTHOG_KEY                                          *
+*   - VITE_POSTHOG_HOST                                         *
+*   - VITE_STRIPE_PUBLISHABLE_KEY                               *
+*   - VITE_STRIPE_SECRET_KEY                                    *
+*   - VITE_STRIPE_WEBHOOK_SECRET                                *
+*                                                               *
+*****************************************************************
+
+
+## How to Test the Application
+
+This project uses a hybrid testing strategy to ensure both speed and reliability.
+
+### 1. Unit & Integration Tests (Jest)
+
+For most of the application logic and component testing, we use [Jest](https://jestjs.io/), a fast and modern test runner. These tests run in a simulated JSDOM environment, which is fast but not a real browser.
+
+To run the main test suite, use the following command:
+
+```bash
+pnpm test
+```
+
+This command executes all `*.test.jsx` files located under the `src` directory.
+
+### 2. End-to-End & Browser-Specific Tests (Playwright)
+
+For features that rely on browser-native APIs (like the `TranscriptionService`'s audio processing) and are difficult to test reliably in JSDOM, we use [Playwright](https://playwright.dev/). These tests run in a real browser environment, providing a more accurate and stable testing ground for complex features.
+
+To run the Playwright tests, use the following command:
+
+```bash
+npx playwright test
+```
+
+This command looks for test files in the `playwright-tests` directory and runs them in a headless browser.
 
 ## Usage
 
@@ -57,6 +148,7 @@ SpeakSharp uses a "progressive reveal" model. All pages are accessible to everyo
 -   **Start a Session**: Anyone can start a recording session from the main page.
 -   **2-Minute Limit**: Trial sessions are limited to 2 minutes. A checkbox is available for developers to override this limit.
 -   **View Analytics Page**: You can view the Analytics page, but it will show a demo and a prompt to sign up to save and view your history.
+-   **Choice of Transcription Mode**: Users can switch between high-accuracy cloud transcription and private on-device transcription.
 
 ### Authenticated Users (Free Tier)
 -   **Sign Up / Login**: Create a free account to unlock more features.
@@ -64,29 +156,38 @@ SpeakSharp uses a "progressive reveal" model. All pages are accessible to everyo
 -   **Track Progress**: The Analytics page will show your full session history and progress charts.
 -   **Unlimited Session Length**: The 2-minute limit is removed.
 -   **Custom Filler Words**: Add and track your own list of custom filler words.
+-   **Choice of Transcription Mode**: Users can switch between high-accuracy cloud transcription and private on-device transcription.
 
-## How to Test the Application
+## User Tiers & Authentication
 
-This project uses [Vitest](https://vitest.dev/) for unit and integration testing. Vitest is a blazing fast unit-test framework powered by Vite.
+The application is built with a "public-first" approach. Core pages like the main session recorder and analytics dashboard are viewable by anyone. However, to persist data and unlock features, users must create an account.
 
-To run the tests, use the following command:
+-   **Authentication Provider**: We use **Supabase Auth** for handling user sign-up, sign-in, and password recovery.
+-   **Sign-Up**: When a new user signs up, Supabase sends a confirmation email with a verification link. The user must click this link to activate their account.
+-   **Password Reset**: Users can request a password reset link from the Sign-In page. This also uses Supabase's secure email-based recovery flow.
+-   **Session Management**: User sessions are managed via the `AuthContext`, which provides user and profile data throughout the application.
 
-```bash
-pnpm test
-```
-
-This will run all test files in the `src/__tests__` directory.
+This model allows for a low-friction initial experience while providing a clear path to engagement and feature unlock for registered users.
 
 ## Project Status & Roadmap
 
 This project is currently being developed into a full-stack SaaS application with a **"Speed Over Perfection"** philosophy. The immediate goal is to launch a monetizable MVP within 3 weeks to gather user feedback and iterate quickly.
 
-The high-level roadmap is to:
-1.  **Launch a functional MVP** with authentication, free/paid tiers, and payment processing.
-2.  **Gather user feedback** and iterate on the core features.
-3.  **Expand the feature set** based on user demand, including advanced analytics and cloud-powered transcription.
+The high-level roadmap is a two-phase plan:
+1.  **Phase 1: Fast Development & Testing (AssemblyAI)**
+    - Goal: Quickly test features, get user feedback, and fix bugs using a cloud-based transcription service.
+    - This phase prioritizes speed of iteration over privacy-first features.
+2.  **Phase 2: Privacy-First Production (Whisper.cpp On-Device)**
+    - Goal: Deliver on the "privacy-first" promise by moving transcription to the user's device.
+    - This phase will involve integrating Whisper.cpp to ensure no audio leaves the device.
 
-For a detailed, day-by-day implementation plan for the MVP, please see the [Smart MVP Implementation Guide](./smart-mvp-plan.md).
+## How to Deploy to Vercel
+
+1.  **Fork the repository** to your own GitHub account.
+2.  **Create a new project on Vercel** and connect it to your forked repository.
+3.  **Configure the environment variables** in the Vercel project settings. You will need to add all the variables from your `.env.local` file.
+4.  **Deploy!** Vercel will automatically build and deploy your application. Any new pushes to the `main` branch will trigger a new deployment.
+
 
 ## Contributing
 

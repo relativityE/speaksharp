@@ -1,5 +1,31 @@
 # SpeakSharp Product Requirements Document
-**Version 6.11** | **Last Updated: August 12, 2025**
+
+**Version 6.21** | **Last Updated: August 21, 2025**
+
+---
+
+## 🔄 Recent Updates (v6.21)
+*August 21, 2025*
+
+- **New Theme: "Midnight Blue & Electric Lime"**: Implemented a new dark mode theme to provide a more modern and focused user experience. The theme features a midnight blue background with electric lime accents.
+- **Test Suite Overhaul**: Migrated the entire unit and integration test suite from Vitest to Jest to resolve persistent stability issues and improve the reliability of the development process.
+
+---
+
+## 🔄 Recent Updates (v6.20)
+*August 19, 2025*
+
+- **UI/UX Improvements (Based on User Feedback)**:
+  - **Global Font Sizing:** Removed hard-coded font sizes in the Session Sidebar to ensure all text correctly inherits the global base font size, improving readability and consistency.
+  - **Prominent Mode Notification:** The notification indicating the current transcription mode (Cloud vs. Local) is now more prominently displayed at the top of the settings panel.
+- **Bug Fixes:**
+  - **Filler Word Detection:** Improved the detection logic for common filler words like 'um', 'ah', and 'uh' to be more accurate.
+
+---
+
+## ⚠️ Known Issues
+- **On-Device Transcription is Not Yet Implemented:** The `LocalWhisper` provider in `TranscriptionService` is a non-functional simulation. The UI toggle remains enabled for demo purposes. This is the top priority for Phase 2 and will be implemented using the Transformers.js library.
+- **Test Suite Migration:** The project has migrated from `Vitest` to `Jest` to resolve persistent timeout issues and improve test reliability. This work is now complete.
 
 ---
 
@@ -34,10 +60,8 @@ Growth     → SEO expansion, retargeting ads, coach partnerships
 ┌─────────────┬──────────────┬───────────────────────────────────────┐
 │    TIER     │    PRICE     │               FEATURES                │
 ├─────────────┼──────────────┼───────────────────────────────────────┤
-│    FREE     │     $0       │ • 2-min trial session                 │
-│             │              │ • 10 mins/month logged in             │
-│             │              │ • Last 3 sessions saved               │
-│             │              │ • 5 custom words                      │
+│    FREE     │     $0       │ • 10 mins/month logged in             │
+│             │              │ • Unlimited custom words              │
 │             │              │ • Basic analytics                     │
 ├─────────────┼──────────────┼───────────────────────────────────────┤
 │    PRO      │   $7.99      │ • Unlimited sessions                  │
@@ -67,82 +91,54 @@ Growth     → SEO expansion, retargeting ads, coach partnerships
 
 ## 🛠️ Technology Stack
 
-### Core Technologies
-```
-Frontend        → React + Vite
-Styling         → Tailwind CSS + shadcn/ui  
-Auth/Database   → Supabase
-Speech API      → Web Speech API (MVP) + Whisper API (Pro)
-Payments        → Stripe
-Monitoring      → Sentry
-Analytics       → PostHog
-Hosting         → Vercel
-```
+Our technology choices prioritize development speed, scalability, and user experience.
 
-### Scalability Architecture
-**Speech Processing:**
-- **Free Users:** Browser Web Speech API (unlimited concurrent users)
-- **Pro Users:** Optional Whisper API via serverless functions
+- **Frontend:** React (Vite)
+- **Styling:** Tailwind CSS with shadcn/ui components
+- **Backend & Database:** Supabase (PostgreSQL, Auth, Edge Functions)
+- **Speech Recognition:** A custom `TranscriptionService` using AssemblyAI's cloud API.
+- **Payments:** Stripe
+- **Monitoring & Analytics:** Sentry & PostHog
 
-**Scaling Strategy:**
-- Client-heavy architecture minimizes server load
-- Serverless functions auto-scale for premium features
-- Managed services handle scaling automatically
+*A more detailed breakdown of the architecture, including diagrams and data flows, can be found in the `System Architecture.md` document.*
 
 ---
 
 ## 🗓️ Development Roadmap
 
-### PHASE 1 — MVP (Weeks 1-3)
+### PHASE 1 — MVP FOUNDATION (Weeks 1-3) - ~95% Complete
+- **[DONE]** `[M]` Implement core backend services (Supabase Auth & DB).
+- **[DONE]** `[M]` Implement `TranscriptionService` with AssemblyAI provider.
+- **[DONE]** `[M]` Integrate `TranscriptionService` into the main session page.
+- **[DONE]** `[M]` Implement Stripe payment flow for Pro tier.
+- **[DONE]** `[M]` Configure production Price ID for Stripe checkout (via environment variable).
+- **[DONE]** `[M]` Set up Sentry for error monitoring.
+- **[DONE]** `[M]` Set up PostHog for product analytics.
+- **[DONE]** `[S]` Develop a responsive UI with a professional light theme.
+- **[DONE]** `[S]` Migrate test suite from Vitest to Jest to stabilize the testing environment.
+- **[DONE]** `[S]` Implement "Midnight Blue & Electric Lime" theme.
+- **[DEFERRED]** `[C]` A/B testing setup with PostHog.
 
-```
-┌─────────────┬──────────────────────────────┬─────────────────────────────────┐
-│    WEEK     │          ENGINEERING         │       MARKETING & GROWTH        │
-├─────────────┼──────────────────────────────┼─────────────────────────────────┤
-│   Week 1    │ ✅ Finalize filler detection  │ • Launch email capture page    │
-│             │ ✅ Supabase auth & limits     │ • Begin Reddit engagement      │
-│             │ ⏳ Stripe payments            │                                │
-│             │ ⏳ PostHog setup (KPI + A/B)  │                                │
-├─────────────┼───────────────────────────────┼────────────────────────────────┤
-│   Week 2    │ ✅ Landing page w/ real UX    │ • Publish 1 SEO article        │
-│             │ ⏳ Sentry error logging       │ • Social handles + demo video  │
-├─────────────┼───────────────────────────────┼────────────────────────────────┤
-│   Week 3    │ ✅ QA & performance tuning    │ • Publish 2nd SEO article      │
-│             │ • Launch MVP                  │ • Announce beta on Reddit      │
-└─────────────┴───────────────────────────────┴────────────────────────────────┘
-```
+### PHASE 2 — PRIVACY & POLISH (Months 1-3) - ~30% Complete
+- **[DONE]** `[M]` Build a comprehensive analytics dashboard for users.
+- **[DONE]** `[S]` Re-evaluated fallback to native Web Speech API (removed as a feature).
+- **[BLOCKED]** `[M]` Integrate On-Device Transcription (using **Transformers.js**).
+- **[BLOCKED]** `[M]` Implement automatic fallback from local to cloud STT based on performance.
+- **[OUTSTANDING]** `[S]` Implement weekly summary emails.
+- **[OUTSTANDING]** `[S]` Add in-app prompts to encourage users to upgrade.
+- **[OUTSTANDING]** `[S]` Conduct thorough cross-browser testing and bug fixing.
+- **[DEFERRED]** `[C]` A/B test different UI elements and user flows.
+- **[DEFERRED]** `[C]` Optimize funnels based on PostHog data.
 
-### PHASE 2 — GROWTH (Months 1-3)
+### PHASE 3 — SCALE & EXPANSION (Months 6-12) - 0% Complete
+- **[OUTSTANDING]** `[M]` Implement team accounts and billing.
+- **[OUTSTANDING]** `[S]` Add support for more languages.
+- **[OUTSTANDING]** `[S]` Develop AI-powered suggestions for improving speech.
+- **[DEFERRED]** `[C]` Full offline mode for the application.
+- **[DEFERRED]** `[C]` Case studies and advanced content marketing.
 
-```
-┌─────────────┬─────────────────────────────────┬─────────────────────────────────┐
-│    MONTH    │          ENGINEERING            │       MARKETING & GROWTH        │
-├─────────────┼─────────────────────────────────┼─────────────────────────────────┤
-│   Month 1   │ • Progress dashboard            │ • Product Hunt launch           │
-│             │ • Upgrade prompts               │ • Start Google Ads campaign     │
-│             │ • Cross-browser QA              │ • Retargeting via FB/IG         │
-│             │ • A/B test landing page         │ • Continue Reddit outreach      │
-├─────────────┼─────────────────────────────────┼─────────────────────────────────┤
-│   Month 2   │ • Weekly summary emails         │ • Publish 2 SEO posts/month     │
-│             │ • Funnel optimization           │ • Optimize Google Ads keywords  │
-├─────────────┼─────────────────────────────────┼─────────────────────────────────┤
-│   Month 3   │ • Performance monitoring        │ • Content marketing expansion   │
-│             │ • User feedback implementation  │ • Partnership outreach          │
-└─────────────┴─────────────────────────────────┴─────────────────────────────────┘
-```
-
-### PHASE 3 — SCALE (Months 6-12)
-
-```
-┌─────────────┬─────────────────────────────────┬─────────────────────────────────┐
-│ TIMEFRAME   │          ENGINEERING            │       MARKETING & GROWTH        │
-├─────────────┼─────────────────────────────────┼─────────────────────────────────┤
-│ Months 6-12 │ • Offline mode                  │ • Paid partnerships             │
-│             │ • AI suggestions                │ • International SEO             │
-│             │ • Team accounts                 │ • Case studies                  │
-│             │ • Language support              │ • Content scaling               │
-└─────────────┴─────────────────────────────────┴─────────────────────────────────┘
-```
+### NEW: DEPLOYMENT
+- **[OUTSTANDING]** `[M]` Set up production deployment on Vercel (includes config and environment variables).
 
 ---
 
@@ -177,7 +173,8 @@ Calculation: $7.99/month × 12 months = $95.88
 **💸 CAC (Customer Acquisition Cost)**
 ```
 Formula: Total Marketing Spend ÷ New Paying Customers
-Calculation: $350 ÷ 35 customers = $10.00
+Example Calculation: $350 ÷ 35 customers = $10.00
+(Note: This is a sample calculation. Actual CAC will vary based on ad performance and conversion rates from the growth projection.)
 ```
 
 **🎯 LTV:CAC Ratio**
@@ -223,3 +220,5 @@ Target: 3:1+ (Highly favorable ✅)
 ---
 
 *Ready to help users speak with confidence while keeping their privacy protected.* 🎤🔒
+
+---

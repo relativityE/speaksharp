@@ -1,33 +1,61 @@
 @import "tailwindcss";
 
 @theme {
-  /* Design System v1 Colors */
-  --color-background: #0D0C1D; /* Dark Blue/Purple */
-  --color-foreground: #FFFFFF; /* White */
-  --color-card: #1A192D; /* Lighter Dark */
-  --color-popover: #1A192D; /* Lighter Dark */
-  --color-primary: #7C3AED; /* Purple - Darker for better contrast */
-  --color-primary-foreground: #FFFFFF;
-  --color-secondary: #1A192D; /* Lighter Dark */
-  --color-secondary-foreground: #FFFFFF;
-  --color-muted: #1A192D; /* Lighter Dark */
-  --color-muted-foreground: #A0A0B0; /* Light Gray */
-  --color-accent: #8B5CF6; /* Purple */
-  --color-accent-foreground: #FFFFFF;
-  --color-destructive: #EF4444; /* Red */
+  /* Midnight Blue & Electric Lime Theme */
+  --color-background: #0A0F1E;
+  --color-foreground: #E0E0E0;
+  --color-card: #141A2C;
+  --color-popover: #141A2C;
+  --color-primary: #39FF14;
+  --color-primary-foreground: #0A0F1E;
+  --color-secondary: #1D243A;
+  --color-secondary-foreground: #E0E0E0;
+  --color-muted: #1D243A;
+  --color-muted-foreground: #A0A0A0;
+  --color-accent: #39FF14;
+  --color-accent-foreground: #0A0F1E;
+  --color-destructive: #FF4500;
   --color-destructive-foreground: #FFFFFF;
-  --color-border: #2A293D; /* Subtle Dark */
-  --color-input: #1A192D; /* Lighter Dark */
-  --color-ring: #8B5CF6; /* Purple */
-  --color-highlight: #10B981; /* Green */
-  --color-highlight-foreground: #FFFFFF;
+  --color-border: #2A3457;
+  --color-input: #2A3457;
+  --color-ring: #39FF14;
+
+  /* Custom Variables */
+  --color-highlight: rgba(57, 255, 20, 0.1);
+  --color-highlight-foreground: #39FF14;
 
   --font-sans: "Inter", "sans-serif";
 }
 
+html {
+    font-size: 32px;
+}
+
 body {
     font-family: theme(font.sans);
-    font-size: 16px; /* Base font size from Design System */
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+}
+
+@media (max-width: 768px) {
+  html {
+    font-size: 18px;
+  }
+}
+
+a {
+    font-size: 1em;
+    text-decoration: none;
+    transition: color 0.2s ease-in-out;
+}
+
+a:hover {
+    color: var(--color-primary);
+}
+
+button,
+input,
+textarea,
+select {
+    font-size: inherit;
 }
