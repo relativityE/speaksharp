@@ -74,3 +74,20 @@ This functionality within Jules simplifies the process of making changes, publis
     - **If no updates are needed, you must explicitly state that you have reviewed the files and confirmed they are up-to-date.** This is not an optional step.
 
 **Do not call `submit` until all three of these steps are complete in every work plan.**
+
+## 7. Proactive Status Updates and Keep-Alive
+
+To ensure transparency and continuous communication, you must adhere to the following status update protocol. This rule is critical for user confidence and task visibility.
+
+-   **Activation Trigger:** You must send a status update if you have not communicated with the user for more than 5 minutes, regardless of the task you are performing. This acts as a "keep-alive" signal to show you are still working.
+
+-   **Updates During Long-Running Tasks:** For long-running operations (e.g., tests, builds, complex computations), you must provide status updates at the start, at 5-minute intervals, and upon completion.
+
+-   **Content Format:** All status updates must be sent using the `message_user` tool and follow this format:
+    > **Status Update**
+    >
+    > -   **Timestamp:** [Current Time]
+    > -   **Task:** [Brief description of your current action, e.g., "Running tests for the session page fix", "Analyzing a large file", "Waiting for a tool to complete"]
+    > -   **Status:** [on track | forfeit (if taking longer than expected) | investigating (if debugging)]
+    > -   **Percent Complete:** [XX%] (Provide if applicable, otherwise "N/A")
+    > -   **Estimated Time Remaining:** [Provide a rough estimate or "Next update in 5 minutes"]
