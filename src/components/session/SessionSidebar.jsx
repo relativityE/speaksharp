@@ -1,226 +1,81 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
-import { supabase } from '../../lib/supabaseClient';
-import { Mic, Square, Loader2, Zap } from 'lucide-react';
-import { toast } from 'sonner';
+import React from 'react';
 import { Button } from '@/components/ui/button';
-import { useStripe } from '@stripe/react-stripe-js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { ErrorDisplay } from '../ErrorDisplay';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { Zap, Cpu, Save, Trash2, Play, StopCircle } from 'lucide-react';
 
-const DigitalTimer = ({ elapsedTime }) => {
-    const minutes = Math.floor(elapsedTime / 60);
-    const seconds = elapsedTime % 60;
-    const formattedTime = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-    return (
-        <div className="bg-primary text-primary-foreground px-8 py-3 rounded-full shadow-lg">
-            <div className="text-5xl font-mono font-bold tracking-widest">
-                {formattedTime}
-            </div>
-        </div>
-    );
+const SessionSidebar = ({ isListening, startListening, stopListening, reset, mode, setMode, saveSession }) => {
+
+  const handleStopAndSave = async () => {
+    const sessionData = await stopListening();
+    if (sessionData) {
+      saveSession(sessionData);
+    }
+  };
+
+  const handleModeChange = (newMode) => {
+    // Only update if a new mode is selected.
+    if (newMode) {
+      setMode(newMode);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Session Controls</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!isListening ? (
+            <Button onClick={startListening} className="w-full" size="lg">
+              <Play className="mr-2 h-5 w-5" /> Start Recording
+            </Button>
+          ) : (
+            <Button onClick={handleStopAndSave} className="w-full" variant="destructive" size="lg">
+              <StopCircle className="mr-2 h-5 w-5" /> Stop & Save
+            </Button>
+          )}
+          <Button onClick={reset} disabled={isListening} className="w-full" variant="outline">
+            <Trash2 className="mr-2 h-5 w-5" /> Reset Transcript
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Transcription Mode</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Label htmlFor="transcription-mode">Select Engine</Label>
+          <ToggleGroup
+            id="transcription-mode"
+            type="single"
+            value={mode}
+            onValueChange={handleModeChange}
+            disabled={isListening} // The toggle is locked when a session is active.
+            className="grid grid-cols-2 gap-2 mt-2"
+          >
+            <ToggleGroupItem value="cloud" aria-label="Cloud Mode" className="flex flex-col h-auto py-2">
+              <Zap className="h-5 w-5 mb-1" />
+              <span>Cloud</span>
+            </ToggleGroupItem>
+            <ToggleGroupItem value="local" aria-label="Local Mode" className="flex flex-col h-auto py-2">
+              <Cpu className="h-5 w-5 mb-1" />
+              <span>Local</span>
+            </ToggleGroupItem>
+            {/* The 'native' option has been removed from the UI to prevent selection. */}
+          </ToggleGroup>
+          <p className="text-xs text-muted-foreground mt-2">
+            {mode === 'cloud'
+              ? 'Faster, higher accuracy. Requires internet.'
+              : 'Runs entirely in your browser. Slower, but privacy-focused.'}
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
 };
 
-export const SessionSidebar = ({ isListening, error, startListening, stopListening, reset, mode, setMode, saveSession }) => {
-    const navigate = useNavigate();
-    const { user, profile } = useAuth();
-    const stripe = useStripe();
-    const [elapsedTime, setElapsedTime] = useState(0);
-    const [isLoading, setIsLoading] = useState(false);
-    const [isUpgrading, setIsUpgrading] = useState(false);
-    const timerIntervalRef = useRef(null);
-
-    const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
-
-    const handleUpgrade = async () => {
-        if (!user) {
-            navigate('/auth');
-            return;
-        }
-
-        setIsUpgrading(true);
-        try {
-            const { data, error } = await supabase.functions.invoke('stripe-checkout', {
-                body: { priceId: import.meta.env.VITE_STRIPE_PRICE_ID },
-            });
-            if (error) throw new Error(`Function Error: ${error.message}`);
-
-            const { sessionId } = data;
-            const { error: stripeError } = await stripe.redirectToCheckout({ sessionId });
-            if (stripeError) {
-                toast.error(`Error: ${stripeError.message}`);
-            }
-        } catch (e) {
-            toast.error("Could not initiate the upgrade process. Please try again later.");
-        } finally {
-            setIsUpgrading(false);
-        }
-    };
-
-    const endSessionAndSave = async () => {
-        const sessionData = await stopListening();
-        if (!sessionData) {
-            toast.error("Could not process session data. Please try again.");
-            return;
-        }
-        const completeSessionData = {
-            title: `Practice Session - ${new Date().toLocaleString()}`,
-            duration: Math.ceil(elapsedTime),
-            total_words: sessionData.total_words,
-            filler_words: sessionData.filler_words,
-        };
-
-        if (!user) {
-            sessionStorage.setItem('anonymousSession', JSON.stringify({ ...completeSessionData, created_at: new Date().toISOString() }));
-            navigate('/analytics');
-            return;
-        }
-
-        if (elapsedTime > 0 && !isPro) {
-            const { data: updateSuccess, error: rpcError } = await supabase.rpc('update_user_usage', {
-                session_duration_seconds: Math.ceil(elapsedTime)
-            });
-            if (rpcError) {
-                toast.error("Could not save session usage. Please contact support.");
-            } else if (!updateSuccess) {
-                toast.error("You've exceeded your free monthly limit.", {
-                    description: "Your session was saved, but usage could not be updated. Please upgrade.",
-                    action: { label: "Upgrade", onClick: handleUpgrade },
-                });
-            }
-        }
-        saveSession(completeSessionData);
-        navigate('/analytics');
-    };
-
-    useEffect(() => {
-        if (isListening) {
-            setIsLoading(false);
-            timerIntervalRef.current = setInterval(() => setElapsedTime(prev => prev + 1), 1000);
-        } else {
-            if (error) setIsLoading(false);
-            clearInterval(timerIntervalRef.current);
-        }
-        return () => clearInterval(timerIntervalRef.current);
-    }, [isListening, error]);
-
-    useEffect(() => {
-        if (!isListening) setElapsedTime(0);
-    }, [isListening]);
-
-    const handleStartStop = () => {
-        if (isListening) {
-            endSessionAndSave();
-        } else {
-            setIsLoading(true);
-            reset();
-            setElapsedTime(0);
-            startListening();
-        }
-    };
-
-    const getButtonContent = () => {
-        if (isLoading) return <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Starting...</>;
-        if (isListening) return <><Square className="w-5 h-5 mr-2" /> End Session</>;
-        return <><Mic className="w-5 h-5 mr-2" /> Start Recording</>;
-    };
-
-    const getModeNotification = () => {
-        switch (mode) {
-            case 'cloud':
-                return { text: 'Cloud Transcription (Highest Accuracy)', className: 'bg-primary/10 text-primary' };
-            case 'local':
-                return { text: 'Local Transcription (Faster, Private)', className: 'bg-green-500/10 text-green-400' };
-            case 'native':
-                return { text: 'Native Browser Fallback (Lower Accuracy)', className: 'bg-yellow-500/10 text-yellow-400' };
-            default:
-                return { text: '', className: '' };
-        }
-    };
-    const modeNotification = getModeNotification();
-
-    return (
-        <div className="flex flex-col gap-6 h-full">
-            {/* Main Controls */}
-            <Card className="w-full">
-                <CardContent className="p-6">
-                    <div className="flex flex-col items-center justify-center gap-6">
-                        <div className={`text-xl font-semibold ${isListening ? 'text-destructive animate-pulse' : 'text-muted-foreground'}`}>
-                            {isLoading ? 'INITIALIZING...' : (isListening ? '● RECORDING' : 'Idle')}
-                        </div>
-                        <Button
-                            onClick={handleStartStop}
-                            size="lg"
-                            variant={isListening ? 'destructive' : 'default'}
-                            className="w-full h-20 text-2xl font-bold rounded-lg shadow-lg transition-transform hover:scale-105"
-                            disabled={isLoading}
-                        >
-                            {getButtonContent()}
-                        </Button>
-                    </div>
-                </CardContent>
-            </Card>
-
-            {/* Settings */}
-            <Card className="w-full">
-                <CardHeader>
-                    <CardTitle>Settings</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                    <div className="p-4 border rounded-lg bg-background/50 space-y-4">
-                        <div className={`text-center p-3 rounded-lg text-sm font-medium ${modeNotification.className}`}>
-                            <p>{modeNotification.text}</p>
-                        </div>
-                        <div className="flex items-center justify-between">
-                            <Label htmlFor="transcription-mode" className="font-semibold">Transcription Mode</Label>
-                            <div className="flex items-center gap-2">
-                                <Label htmlFor="transcription-mode" className="text-muted-foreground text-sm">Local</Label>
-                                <Switch
-                                    id="transcription-mode"
-                                    checked={mode === 'cloud'}
-                                    onCheckedChange={(checked) => setMode(checked ? 'cloud' : 'local')}
-                                />
-                                <Label htmlFor="transcription-mode" className="text-muted-foreground text-sm">Cloud</Label>
-                            </div>
-                        </div>
-                    </div>
-                    <ErrorDisplay error={error} />
-                    {import.meta.env.DEV && (
-                        <div className="pt-4 border-t border-border/50">
-                            <h4 className="font-medium text-muted-foreground mb-2 text-sm">Developer Controls</h4>
-                            <Button variant="outline" size="sm" onClick={() => setMode('native')} className="h-auto whitespace-normal text-balance">
-                                Force Native Transcription
-                            </Button>
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
-
-            {/* Upgrade Prompt */}
-            {!isPro && (
-                 <Card className="w-full bg-gradient-to-br from-primary/10 via-background to-background border-primary/20 flex-shrink-0">
-                    <CardHeader>
-                        <CardTitle className="text-lg flex items-center gap-2">
-                            <Zap className="w-6 h-6 text-primary" />
-                            Upgrade to Pro
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <p className="text-sm text-muted-foreground mb-4">
-                            Get unlimited practice, advanced analytics, and priority support.
-                        </p>
-                        <Button className="w-full font-bold group" onClick={handleUpgrade} disabled={isUpgrading || !user}>
-                            {isUpgrading
-                                ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Upgrading...</>
-                                : <>Get Unlimited Practice <span className="ml-2 transition-transform duration-200 group-hover:translate-x-1">→</span></>
-                            }
-                        </Button>
-                    </CardContent>
-                </Card>
-            )}
-        </div>
-    );
-};
+export default SessionSidebar;

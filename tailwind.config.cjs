@@ -18,15 +18,17 @@ module.exports = {
     },
     extend: {
       fontSize: {
-        'xs': '0.875rem', // 14px
-        'sm': '0.875rem', // 14px
-        'base': '1rem',    // 16px
-        'lg': '1.125rem',
-        'xl': '1.25rem',
-        '2xl': '1.5rem',   // 24px
-        '3xl': '2rem',     // 32px
-        '4xl': '2.5rem',   // 40px
-        '5xl': '3rem',
+        // New scale based on 24px root font size.
+        // min-size: 16px -> 16/24 = 0.67rem
+        'xs': '0.67rem',   // ~16px
+        'sm': '0.83rem',   // ~20px
+        'base': '1rem',    // 24px (body)
+        'lg': '1.25rem',   // 30px
+        'xl': '1.5rem',    // 36px (h3)
+        '2xl': '2rem',     // 48px (h2)
+        '3xl': '2.5rem',   // 60px (h1)
+        '4xl': '3.5rem',   // 84px
+        '5xl': '4rem',     // 96px
       },
       colors: {
         border: "hsl(var(--border))",

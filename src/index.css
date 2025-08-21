@@ -4,50 +4,46 @@
 
 @layer base {
   :root {
-    --background: 240 64% 27%; /* Midnight Blue: #191970 */
-    --foreground: 75 100% 95%; /* Off-white for better readability */
+    /* New Color Palette: Midnight Blue & Electric Lime */
+    --background: 240 44% 9%;      /* Midnight Blue */
+    --foreground: 120 100% 95%;    /* Text Primary */
 
-    --card: 240 64% 32%;
-    --card-foreground: 75 100% 95%;
+    --card: 240 30% 15%;           /* Card Background */
+    --card-foreground: 120 100% 95%;
 
-    --popover: 240 64% 29%;
-    --popover-foreground: 75 100% 95%;
+    --popover: 240 30% 15%;         /* Popover Background */
+    --popover-foreground: 120 100% 95%;
 
-    --primary: 75 100% 50%; /* Electric Lime: #CCFF00 */
-    --primary-foreground: 240 64% 10%; /* Dark text for lime buttons */
+    --primary: 72 100% 50%;        /* Electric Lime (#CCFF00) */
+    --primary-foreground: 240 44% 9%; /* Midnight Blue for high contrast */
 
-    --secondary: 240 64% 37%;
-    --secondary-foreground: 75 100% 95%;
+    --secondary: 218 40% 18%;      /* Secondary Background */
+    --secondary-foreground: 120 100% 95%;
 
-    --muted: 240 64% 37%;
-    --muted-foreground: 240 10% 65%; /* Lighter gray for muted text */
+    --muted: 240 15% 58%;          /* Text Muted */
+    --muted-foreground: 240 25% 75%; /* Text Secondary */
 
-    --accent: 75 100% 50%;
-    --accent-foreground: 240 64% 10%;
+    --accent: 72 100% 50%;         /* Electric Lime */
+    --accent-foreground: 240 44% 9%;
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 240 64% 40%;
-    --input: 240 64% 40%;
-    --ring: 75 100% 50%;
+    --border: 240 38% 25%;         /* Border */
+    --input: 240 38% 25%;          /* Input Background */
+    --ring: 72 100% 50%;           /* Electric Lime for focus rings */
 
-    --radius: 0.5rem;
+    --radius: 0.75rem;
   }
 
   * {
     border-color: hsl(var(--border));
   }
-
-  body {
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
-    font-feature-settings: "rlig" 1, "calt" 1;
-  }
 }
 
 html {
-    font-size: 24px; /* Reset base font size for better responsiveness */
+    /* Set root font size for REM-based scaling, per accessibility request */
+    font-size: 24px;
 }
 
 body {
@@ -58,9 +54,10 @@ body {
     color: hsl(var(--foreground));
 }
 
+/* Responsive font size adjustment */
 @media (max-width: 768px) {
   html {
-    font-size: 14px; /* Adjust for smaller screens */
+    font-size: 20px; /* Adjust for smaller screens, keeping text readable */
   }
 }
 

@@ -57,8 +57,8 @@ export const saveSession = async (sessionData, profile) => {
       // Proceed even if RPC fails, not a critical failure
     }
 
-    // The RPC function returns `true` if the limit is exceeded
-    if (usageData === true) {
+    // The RPC function returns `false` if the limit is exceeded.
+    if (usageData === false) {
       return { session: data, usageExceeded: true };
     }
   }

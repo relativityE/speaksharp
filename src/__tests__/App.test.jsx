@@ -1,64 +1,71 @@
-import React from 'react';
-import { render, screen, cleanup } from '@testing-library/react';
+import React from 'react'; // <-- FIX: Added this import
+import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import App from '../App';
-import { useAuth } from '../contexts/AuthContext';
-
-vi.mock('@xenova/transformers', () => ({
-  pipeline: vi.fn(),
-}));
 
 // Mock the useAuth hook
 vi.mock('../contexts/AuthContext', () => ({
-  useAuth: vi.fn(),
+  useAuth: () => ({
+    user: null,
+    loading: false,
+  }),
 }));
 
-// Mock child components to isolate the App component's routing logic
-vi.mock('../pages/MainPage', () => ({ MainPage: () => <div>Main Page</div> }));
-vi.mock('../pages/SessionPage', () => ({ SessionPage: () => <div>Session Page</div> }));
-vi.mock('../pages/AnalyticsPage', () => ({ AnalyticsPage: () => <div>Analytics Page</div> }));
-vi.mock('../pages/AuthPage', () => ({ default: () => <div>Auth Page</div> }));
-vi.mock('../components/Header', () => ({ Header: () => <header>Header</header> }));
-
-const renderWithRouter = (route) => {
-    // Set a default mock return value for useAuth
-    useAuth.mockReturnValue({ user: null, session: null });
-    return render(
-        <MemoryRouter initialEntries={[route]}>
-            <App />
-        </MemoryRouter>
-    );
-};
+// Mock the Header component to simplify App tests
+vi.mock('../components/Header', () => ({
+  Header: () => <header>Mock Header</header>,
+}));
 
 describe('App Routing', () => {
-    afterEach(() => {
-        vi.clearAllMocks();
-        cleanup();
-    });
+  it('renders the main page for the root route', () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <App />
+      </MemoryRouter>
+    );
+    // After the redesign, the text "Speak with" is gone.
+    // Let's check for the new content.
+    expect(screen.getByText(/Full Stack Developer/i)).toBeInTheDocument();
+  });
 
-    it('renders the main page for the root route', () => {
-        renderWithRouter('/');
-        expect(screen.getByText('Main Page')).toBeInTheDocument();
-    });
+  it('renders the session page for the /session route', () => {
+    render(
+      <MemoryRouter initialEntries={['/session']}>
+        <App />
+      </MemoryRouter>
+    );
+    // Check for a unique element on the session page
+    expect(screen.getByText(/Session Controls/i)).toBeInTheDocument();
+  });
 
-    it('renders the session page for the /session route', () => {
-        renderWithRouter('/session');
-        expect(screen.getByText('Session Page')).toBeInTheDocument();
-    });
+  it('renders the analytics page for the /analytics route', () => {
+    render(
+      <MemoryRouter initialEntries={['/analytics']}>
+        <App />
+      </MemoryRouter>
+    );
+    // Check for a unique element on the analytics page
+    expect(screen.getByText(/Analytics/i)).toBeInTheDocument();
+  });
 
-    it('renders the analytics page for the /analytics route', () => {
-        renderWithRouter('/analytics');
-        expect(screen.getByText('Analytics Page')).toBeInTheDocument();
-    });
+  it('renders the auth page for the /auth route', () => {
+    render(
+      <MemoryRouter initialEntries={['/auth']}>
+        <App />
+      </MemoryRouter>
+    );
+    // Check for a unique element on the auth page
+    expect(screen.getByText(/Sign in/i)).toBeInTheDocument();
+  });
 
-    it('renders the auth page for the /auth route', () => {
-        renderWithRouter('/auth');
-        expect(screen.getByText('Auth Page')).toBeInTheDocument();
-    });
-
-    it('always renders the header', () => {
-        renderWithRouter('/');
-        expect(screen.getByText('Header')).toBeInTheDocument();
-    });
+  it('always renders the sidebar', () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <App />
+      </MemoryRouter>
+    );
+    // The sidebar has a unique title
+    expect(screen.getByText(/DevFolio/i)).toBeInTheDocument();
+  });
 });

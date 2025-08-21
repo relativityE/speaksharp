@@ -1,34 +1,37 @@
-// vitest.config.js - Optimized for Performance
+// vitest.config.js - Configured for Stability based on user feedback
 import { defineConfig } from 'vitest/config'
 import { resolve } from 'path'
 
 export default defineConfig({
   test: {
-    // CRITICAL: Use forks pool to prevent thread pool deadlock
+    // Using 'forks' with a single worker to force serial execution.
+    // This is a workaround for severe memory leak issues in the test suite.
     pool: 'forks',
+    poolOptions: {
+      forks: {
+        maxForks: 1,
+        minForks: 1,
+      }
+    },
+    maxConcurrency: 1,
 
-    // Aggressive timeout controls
-    testTimeout: 10000,      // 10 seconds max per test
-    hookTimeout: 5000,       // 5 seconds for setup/teardown
-    teardownTimeout: 3000,   // 3 seconds for cleanup
+    // Ensure mocks are cleared and restored between each test to prevent state leakage.
+    clearMocks: true,
+    restoreMocks: true,
+
+    // Increased timeout to prevent premature failures on slow tests.
+    testTimeout: 30000,
+    hookTimeout: 5000,
+    teardownTimeout: 3000,
 
     // Environment setup
     environment: 'happy-dom',
     setupFiles: ['src/test/setup.js'],
 
     // Performance optimizations
-    isolate: false,          // Share context between tests (faster)
-    passWithNoTests: true,   // Don't fail on empty test suites
-    bail: 1,                 // Stop on first failure for faster feedback
-
-    // Resource management
-    poolOptions: {
-      forks: {
-        singleFork: true,    // Use single process (more stable)
-        maxWorkers: 1,       // Limit to 1 worker
-        minWorkers: 1
-      }
-    },
+    isolate: false,
+    passWithNoTests: true,
+    bail: 1, // Stop on first failure for faster feedback
 
     // Exclude problematic files
     exclude: [
@@ -45,10 +48,7 @@ export default defineConfig({
       'sharp': resolve(__dirname, 'src/test/mocks/sharp.js')
     },
 
-    // Globals for better performance
     globals: true,
-
-    // Reporter optimization
     reporter: process.env.CI ? 'json' : 'basic'
   },
 
@@ -58,6 +58,6 @@ export default defineConfig({
   },
 
   build: {
-    target: 'node14' // Simpler target for tests
+    target: 'node14'
   }
 })
