@@ -1,29 +1,29 @@
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, jest } from '@jest/globals';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import TranscriptionService from '../services/transcription/TranscriptionService';
 
 // Mock the TranscriptionService module
-vi.mock('../services/transcription/TranscriptionService');
-vi.mock('@xenova/transformers', () => ({
-  pipeline: vi.fn().mockResolvedValue(() => Promise.resolve({ text: 'mocked transcription' })),
+jest.mock('../services/transcription/TranscriptionService');
+jest.mock('@xenova/transformers', () => ({
+  pipeline: jest.fn().mockResolvedValue(() => Promise.resolve({ text: 'mocked transcription' })),
 }));
 
 describe('useSpeechRecognition', () => {
   let mockServiceInstance;
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    jest.clearAllMocks();
 
     // This will hold the callback passed to the service
     let onTranscriptUpdateCallback = null;
 
     mockServiceInstance = {
-      init: vi.fn().mockResolvedValue(undefined),
-      startTranscription: vi.fn().mockResolvedValue(undefined),
-      stopTranscription: vi.fn().mockResolvedValue(undefined),
-      getTranscript: vi.fn().mockResolvedValue(''), // Kept for non-event-driven tests if any
-      destroy: vi.fn(),
+      init: jest.fn().mockResolvedValue(undefined),
+      startTranscription: jest.fn().mockResolvedValue(undefined),
+      stopTranscription: jest.fn().mockResolvedValue(undefined),
+      getTranscript: jest.fn().mockResolvedValue(''), // Kept for non-event-driven tests if any
+      destroy: jest.fn(),
       // A helper to simulate the service pushing a transcript update
       simulateTranscriptUpdate: (data) => {
         if (onTranscriptUpdateCallback) {

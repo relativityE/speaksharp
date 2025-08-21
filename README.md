@@ -14,6 +14,7 @@ A mobile-first web application that detects and counts filler words in real time
 - **PDF Export (Pro Feature)**: Pro users can download a detailed PDF report for any of their past sessions.
 - **Customizable Experience**: Add your own words to track and use a mobile-friendly, responsive interface.
 - **Choice of Transcription Mode**: Users can switch between high-accuracy cloud transcription and private on-device transcription.
+- **New "Midnight Blue & Electric Lime" Theme**: A visually striking dark mode theme has been implemented to provide a more modern and focused user experience.
 
 ## Technology Stack
 
@@ -70,6 +71,8 @@ A mobile-first web application that detects and counts filler words in real time
     VITE_STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret_here
     ```
 
+    **Note on Environment Variables:** In Vite-based projects, it is standard practice to prefix all client-side environment variables with `VITE_`. This is a security measure to prevent accidental exposure of sensitive keys to the browser. Any variable without this prefix will not be accessible in the application's frontend code. For more details, see the official [Vite documentation](https://vitejs.dev/guide/env-and-mode.html).
+
 4.  Start the development server:
     ```bash
     pnpm run dev
@@ -113,9 +116,9 @@ These issues are documented and will be addressed as part of the broader project
 
 This project uses a hybrid testing strategy to ensure both speed and reliability.
 
-### 1. Unit & Integration Tests (Vitest)
+### 1. Unit & Integration Tests (Jest)
 
-For most of the application logic and component testing, we use [Vitest](https://vitest.dev/), a fast and modern test runner that works seamlessly with Vite. These tests run in a simulated JSDOM environment, which is fast but not a real browser.
+For most of the application logic and component testing, we use [Jest](https://jestjs.io/), a fast and modern test runner. These tests run in a simulated JSDOM environment, which is fast but not a real browser.
 
 To run the main test suite, use the following command:
 

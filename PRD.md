@@ -1,6 +1,14 @@
 # SpeakSharp Product Requirements Document
 
-**Version 6.20** | **Last Updated: August 19, 2025**
+**Version 6.21** | **Last Updated: August 21, 2025**
+
+---
+
+## 🔄 Recent Updates (v6.21)
+*August 21, 2025*
+
+- **New Theme: "Midnight Blue & Electric Lime"**: Implemented a new dark mode theme to provide a more modern and focused user experience. The theme features a midnight blue background with electric lime accents.
+- **Test Suite Overhaul**: Migrated the entire unit and integration test suite from Vitest to Jest to resolve persistent stability issues and improve the reliability of the development process.
 
 ---
 
@@ -15,39 +23,9 @@
 
 ---
 
-## 🔄 Recent Updates (v6.19)
-*August 19, 2025*
-
-- **Feature: Improved Real-time Feedback and UI**:
-  - Implemented a new pill-shaped timer for a clearer session interface.
-  - Reworked the filler word detection to provide more accurate, real-time updates during a session.
-  - Improved the loading state to be less disruptive.
-- **Critical Bug Fixes & Robustness**:
-  - Fixed layout issues with column alignment and transcript panel sizing.
-  - Improved error handling for transcription service connection failures, providing clearer feedback to the user.
-  - Removed the automatic fallback to the native browser speech recognition to prevent silent failures and confusion.
-
----
-
-## 🔄 Recent Updates (v6.18)
-*August 18, 2025*
-
-- **Feature: Transcript Accuracy Score:**
-  - Implemented a new feature to calculate and display the average confidence score from the AssemblyAI transcription.
-  - This "Transcript Accuracy" metric is now shown on the Analytics Dashboard, both as a summary stat and on individual session cards, giving users insight into the quality of their transcription.
-- **Critical Bug Fixes & Simulation Improvements:**
-  - Repaired the session saving and data flow logic, ensuring user practice history is now correctly saved and displayed on the analytics page.
-  - Improved the "Local" mode simulation to use a realistic sentence with filler words, and added a toast notification to clarify that it's a demo mode.
-  - Enabled disfluency detection in the cloud transcription service to ensure common filler words (`um`, `ah`, etc.) are correctly identified.
-- **Major UI/UX Overhaul (Based on User Feedback):**
-  - **Analytics Page:** Redesigned the dashboard with a more engaging empty state, larger and clearer statistics, and a card-based layout for session history.
-  - **Session Page:** Rebuilt the filler word analysis section with a severity-based color palette and progress bars. Redesigned the recording controls for better usability and hierarchy. Fixed the layout of the transcript panel to prevent it from pushing down other content.
-
----
-
 ## ⚠️ Known Issues
 - **On-Device Transcription is Not Yet Implemented:** The `LocalWhisper` provider in `TranscriptionService` is a non-functional simulation. The UI toggle remains enabled for demo purposes. This is the top priority for Phase 2 and will be implemented using the Transformers.js library.
-- **Test Suite Instability:** The `vitest` test suite is currently experiencing persistent timeout issues (~400s), making it unreliable for automated testing. This occurs even when running a single test file with debugging configurations (`pool: 'forks'`). The root cause is suspected to be a deep environmental issue with the test runner's interaction with JSDOM. This is a critical issue to resolve to ensure code quality. A fix is being investigated by the user.
+- **Test Suite Migration:** The project has migrated from `Vitest` to `Jest` to resolve persistent timeout issues and improve test reliability. This work is now complete.
 
 ---
 
@@ -128,7 +106,7 @@ Our technology choices prioritize development speed, scalability, and user exper
 
 ## 🗓️ Development Roadmap
 
-### PHASE 1 — MVP FOUNDATION (Weeks 1-3) - ~80% Complete
+### PHASE 1 — MVP FOUNDATION (Weeks 1-3) - ~95% Complete
 - **[DONE]** `[M]` Implement core backend services (Supabase Auth & DB).
 - **[DONE]** `[M]` Implement `TranscriptionService` with AssemblyAI provider.
 - **[DONE]** `[M]` Integrate `TranscriptionService` into the main session page.
@@ -137,7 +115,8 @@ Our technology choices prioritize development speed, scalability, and user exper
 - **[DONE]** `[M]` Set up Sentry for error monitoring.
 - **[DONE]** `[M]` Set up PostHog for product analytics.
 - **[DONE]** `[S]` Develop a responsive UI with a professional light theme.
-- **[BLOCKED]** `[S]` Comprehensive QA and performance tuning (blocked by test suite performance).
+- **[DONE]** `[S]` Migrate test suite from Vitest to Jest to stabilize the testing environment.
+- **[DONE]** `[S]` Implement "Midnight Blue & Electric Lime" theme.
 - **[DEFERRED]** `[C]` A/B testing setup with PostHog.
 
 ### PHASE 2 — PRIVACY & POLISH (Months 1-3) - ~30% Complete

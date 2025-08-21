@@ -8,7 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "NODE_OPTIONS='--max-old-space-size=8192' vitest --run",
+    "test": "NODE_OPTIONS='--max-old-space-size=8192' jest",
     "test:e2e": "./node_modules/@playwright/test/cli.js test"
   },
   "dependencies": {
@@ -73,29 +73,36 @@
     "zod": "^3.24.4"
   },
   "devDependencies": {
+    "@babel/preset-env": "^7.28.3",
+    "@babel/preset-react": "^7.27.1",
     "@eslint/js": "^9.25.0",
     "@playwright/test": "^1.54.2",
     "@testing-library/dom": "^10.4.1",
-    "@testing-library/jest-dom": "^6.6.4",
+    "@testing-library/jest-dom": "^6.7.0",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
     "@vitejs/plugin-react": "^4.4.1",
     "autoprefixer": "^10.4.21",
+    "babel-jest": "^30.0.5",
+    "babel-plugin-transform-import-meta": "^2.3.3",
     "eslint": "^9.25.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.19",
     "globals": "^16.0.0",
     "happy-dom": "^18.0.1",
+    "jest": "^30.0.5",
+    "jest-environment-jsdom": "^30.0.5",
     "jsdom": "^26.1.0",
     "postcss": "^8.5.6",
     "serve-handler": "^6.1.6",
     "sharp": "^0.32.6",
     "tailwindcss-animate": "^1.0.7",
+    "text-encoding": "^0.7.0",
     "tw-animate-css": "^1.2.9",
     "vite": "^6.3.5",
-    "vitest": "^3.2.4"
+    "whatwg-fetch": "^3.6.20"
   },
   "packageManager": "pnpm@10.4.1+sha512.c753b6c3ad7afa13af388fa6d808035a008e30ea9993f58c6663e2bc5ff21679aa834db094987129aa4d488b86df57f7b634981b2f827cdcacc698cc0cfb88af"
 }

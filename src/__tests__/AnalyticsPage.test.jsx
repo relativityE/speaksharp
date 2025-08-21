@@ -1,24 +1,24 @@
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { AnalyticsPage } from '../pages/AnalyticsPage';
 import { useSessionManager } from '../hooks/useSessionManager';
 
 // Mock the AnalyticsDashboard module with both exports
-vi.mock('../components/AnalyticsDashboard', () => ({
+jest.mock('../components/AnalyticsDashboard', () => ({
   AnalyticsDashboard: () => <div data-testid="analytics-dashboard" />,
   AnalyticsDashboardSkeleton: () => <div data-testid="analytics-dashboard-skeleton" />,
 }));
 
 // Mock the auth hook
-vi.mock('../contexts/AuthContext', () => ({
+jest.mock('../contexts/AuthContext', () => ({
   useAuth: () => ({
     user: { id: 1, name: 'Test User' },
   }),
 }));
 
-vi.mock('../hooks/useSessionManager');
+jest.mock('../hooks/useSessionManager');
 
 const renderWithRouter = (component) => {
   return render(
@@ -30,7 +30,7 @@ const renderWithRouter = (component) => {
 
 describe('AnalyticsPage', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    jest.clearAllMocks();
   });
 
   it('should display loading skeleton while analytics are loading', () => {

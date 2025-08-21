@@ -1,23 +1,23 @@
 import React from 'react';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 import AuthPage from '../pages/AuthPage';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabaseClient';
 import { BrowserRouter, MemoryRouter, Routes, Route } from 'react-router-dom';
 
 // Mock the context
-vi.mock('../contexts/AuthContext', () => ({
-  useAuth: vi.fn(),
+jest.mock('../contexts/AuthContext', () => ({
+  useAuth: jest.fn(),
 }));
 
 // Mock the supabase client
-vi.mock('../lib/supabaseClient', () => ({
+jest.mock('../lib/supabaseClient', () => ({
   supabase: {
     auth: {
-      signUp: vi.fn(),
-      signInWithPassword: vi.fn(),
-      resetPasswordForEmail: vi.fn(),
+      signUp: jest.fn(),
+      signInWithPassword: jest.fn(),
+      resetPasswordForEmail: jest.fn(),
     },
   },
 }));
@@ -28,7 +28,7 @@ describe('AuthPage', () => {
     supabase.auth.signUp.mockResolvedValue({ error: null });
     supabase.auth.signInWithPassword.mockResolvedValue({ error: null });
     supabase.auth.resetPasswordForEmail.mockResolvedValue({ error: null });
-    vi.clearAllMocks();
+    jest.clearAllMocks();
   });
 
   afterEach(() => {

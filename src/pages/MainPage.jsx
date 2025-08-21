@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 
 export const MainPage = () => {
     const navigate = useNavigate();
-    const { isSupported, error } = useBrowserSupport();
+    const { isSupported, error: supportError } = useBrowserSupport();
 
     const handleStartSession = () => {
         navigate('/session');
@@ -17,7 +17,7 @@ export const MainPage = () => {
             <main className="flex-grow">
                 {/* Hero Section */}
                 <section className="container mx-auto px-4 py-24 text-center">
-                    <h1 className="text-5xl md:text-6xl font-bold mb-4">
+                    <h1 className="text-5xl md:text-7xl font-bold mb-4 text-glow">
                         Speak with confidence.
                     </h1>
                     <p className="max-w-3xl mx-auto mb-8 text-lg text-muted-foreground">
@@ -25,10 +25,10 @@ export const MainPage = () => {
                     </p>
                     <div className="flex flex-col items-center gap-4">
                         <Button size="lg" className="text-lg font-semibold py-8 px-10" onClick={handleStartSession}>
-                            Start Your Free Session
+                            Start Your Free Session Now
                         </Button>
-                        <p className="mt-2 text-sm text-muted-foreground">
-                            No account required. Get started in seconds.
+                        <p className="mt-2 text-sm text-muted-foreground/80">
+                            100% free. No account required.
                         </p>
                     </div>
                 </section>
@@ -50,7 +50,7 @@ export const MainPage = () => {
 
                 {/* Browser Warning Section */}
                 <section className="container mx-auto px-4 py-10">
-                    <BrowserWarning isSupported={isSupported} supportError={error} />
+                    <BrowserWarning isSupported={isSupported} supportError={supportError} />
                 </section>
             </main>
 

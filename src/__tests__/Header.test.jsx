@@ -1,20 +1,20 @@
 import React from 'react';
 import { render, screen, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
+import { describe, it, expect, jest, afterEach, beforeEach } from '@jest/globals';
 import { Header } from '../components/Header';
 import { useAuth } from '../contexts/AuthContext';
 
 // Mock the useAuth hook
-vi.mock('../contexts/AuthContext');
+jest.mock('../contexts/AuthContext');
 
 describe('Header Component', () => {
     beforeEach(() => {
-        useAuth.mockReturnValue({ user: null, signOut: vi.fn() });
+        useAuth.mockReturnValue({ user: null, signOut: jest.fn() });
     });
 
     afterEach(() => {
-        vi.clearAllMocks();
+        jest.clearAllMocks();
         cleanup();
     });
 

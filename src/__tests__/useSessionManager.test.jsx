@@ -1,14 +1,14 @@
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import { useSessionManager } from '../hooks/useSessionManager';
 import { useAuth } from '../contexts/AuthContext';
 import * as storage from '../lib/storage';
 
 // Mock the context
-vi.mock('../contexts/AuthContext');
+jest.mock('../contexts/AuthContext');
 
 // Mock the storage module
-vi.mock('../lib/storage');
+jest.mock('../lib/storage');
 
 const mockUser = { id: 'user-123', email: 'test@example.com' };
 const mockSessions = [
@@ -20,7 +20,7 @@ const mockProfile = { id: 'user-123', subscription_status: 'free' };
 
 describe('useSessionManager', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    jest.clearAllMocks();
     useAuth.mockReturnValue({ user: mockUser, profile: mockProfile });
   });
 
@@ -32,7 +32,11 @@ describe('useSessionManager', () => {
 
   it('should load sessions on mount and set loading to false', async () => {
     storage.getSessionHistory.mockResolvedValue(mockSessions);
-    const { result } = renderHook(() => useSessionManager());
+    let result;
+    await act(async () => {
+      const { result: r } = renderHook(() => useSessionManager());
+      result = r;
+    });
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
@@ -83,7 +87,11 @@ describe('useSessionManager', () => {
 
   it('should not fetch sessions if there is no user', async () => {
     useAuth.mockReturnValue({ user: null });
-    const { result } = renderHook(() => useSessionManager());
+    let result;
+    await act(async () => {
+      const { result: r } = renderHook(() => useSessionManager());
+      result = r;
+    });
 
     await waitFor(() => {
         expect(result.current.loading).toBe(false);

@@ -3,20 +3,20 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { SessionSidebar } from '../components/session/SessionSidebar';
 import { useAuth } from '../contexts/AuthContext';
-import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { Elements } from '@stripe/react-stripe-js';
 import { loadStripe } from '@stripe/stripe-js';
 
 // Mock dependencies
-vi.mock('../contexts/AuthContext', () => ({
-  useAuth: vi.fn(),
+jest.mock('../contexts/AuthContext', () => ({
+  useAuth: jest.fn(),
 }));
-vi.mock('react-router-dom', () => ({
-  useNavigate: () => vi.fn(),
+jest.mock('react-router-dom', () => ({
+  useNavigate: () => jest.fn(),
 }));
-vi.mock('../hooks/useSessionManager', () => ({
+jest.mock('../hooks/useSessionManager', () => ({
     useSessionManager: () => ({
-        saveSession: vi.fn(),
+        saveSession: jest.fn(),
     }),
 }));
 
@@ -26,7 +26,7 @@ describe('SessionSidebar component', () => {
   const mockUseAuth = useAuth;
 
   beforeEach(() => {
-    vi.useFakeTimers();
+    jest.useFakeTimers();
     mockUseAuth.mockReturnValue({
       user: { id: 'test-user' },
       profile: { subscription_status: 'free', usage_seconds: 0 },
@@ -34,8 +34,8 @@ describe('SessionSidebar component', () => {
   });
 
   afterEach(() => {
-    vi.useRealTimers();
-    vi.clearAllMocks();
+    jest.useRealTimers();
+    jest.clearAllMocks();
   });
 
   it('transitions UI from idle -> initializing -> recording -> idle', () => {
@@ -45,12 +45,12 @@ describe('SessionSidebar component', () => {
       fillerData: {},
       error: null,
       isSupported: true,
-      startListening: vi.fn(),
-      stopListening: vi.fn(),
-      reset: vi.fn(),
+      startListening: jest.fn(),
+      stopListening: jest.fn(),
+      reset: jest.fn(),
       customWords: [],
-      setCustomWords: vi.fn(),
-      saveSession: vi.fn(),
+      setCustomWords: jest.fn(),
+      saveSession: jest.fn(),
     };
 
     const { rerender } = render(

@@ -14,7 +14,7 @@ The architecture is designed around a modern, client-heavy Jamstack approach. Th
 ```text
 +---------------------------------+      +---------------------------------+
 |      React SPA (`src`)          |----->|      Development & Build        |
-|    (in User's Browser)          |      |        (Vite, Vitest)           |
+|    (in User's Browser)          |      |        (Vite, Jest)             |
 |                                 |      +---------------------------------+
 |  +---------------------------+  |
 |  |  TranscriptionService     |  |
@@ -102,28 +102,28 @@ This diagram offers a more detailed look at the application's architecture from 
 
 ## 6. Test Approach
 
-Our project employs a robust testing strategy centered on **Vitest**, a fast and modern test runner that integrates seamlessly with Vite.
+Our project employs a robust testing strategy centered on **Jest**, a fast and modern test runner that integrates seamlessly with Vite.
 
-### The Main Test Suite: **Vitest + JSDOM**
+### The Main Test Suite: **Jest + JSDOM**
 
 This is the primary testing stack for the entire application.
 
-*   **Vite**: Acts as the core build tool. When you run the tests, Vitest uses Vite's engine to compile and process the React code and tests.
-*   **Vitest**: Our main **test runner**. `pnpm test` executes all `*.test.jsx` files.
-*   **JSDOM**: Vitest runs its tests in a **simulated browser environment** called JSDOM. It's fast and suitable for testing all of our components and hooks.
-*   **Module Mocking**: For hooks with complex dependencies that interact with browser APIs (like `useSpeechRecognition`'s dependency on `TranscriptionService`), we use Vitest's powerful `vi.mock()` feature. This allows us to replace the real service with a mock, enabling stable and reliable testing of the hook's logic without needing a real browser.
+*   **Vite**: Acts as the core build tool. When you run the tests, Jest uses Vite's engine to compile and process the React code and tests.
+*   **Jest**: Our main **test runner**. `pnpm test` executes all `*.test.jsx` files.
+*   **JSDOM**: Jest runs its tests in a **simulated browser environment** called JSDOM. It's fast and suitable for testing all of our components and hooks.
+*   **Module Mocking**: For hooks with complex dependencies that interact with browser APIs (like `useSpeechRecognition`'s dependency on `TranscriptionService`), we use Jest's powerful `jest.mock()` feature. This allows us to replace the real service with a mock, enabling stable and reliable testing of the hook's logic without needing a real browser.
 
 ### End-to-End Testing: **Playwright**
 
-While most logic is covered by Vitest, we use **Playwright** for high-level, end-to-end smoke tests to ensure that critical user flows work correctly in a real browser environment.
+While most logic is covered by Jest, we use **Playwright** for high-level, end-to-end smoke tests to ensure that critical user flows work correctly in a real browser environment.
 
 ### Summary of Tools
 
 | Tool          | Role                                           | When It's Used                                               |
 | :------------ | :--------------------------------------------- | :----------------------------------------------------------- |
-| **Vite**      | Core build engine.                             | Used by `pnpm run dev` and Vitest.                           |
-| **Vitest**    | Main test runner for unit/integration tests.   | `pnpm test`                                                  |
-| **JSDOM**     | Simulated browser for Vitest.                  | The environment for all Vitest tests.                        |
+| **Vite**      | Core build engine.                             | Used by `pnpm run dev` and Jest.                           |
+| **Jest**    | Main test runner for unit/integration tests.   | `pnpm test`                                                  |
+| **JSDOM**     | Simulated browser for Jest.                  | The environment for all Jest tests.                        |
 | **Playwright**| Secondary, end-to-end test runner.             | For high-level smoke tests (`npx playwright test`).          |
 
 This simplified and robust approach allows us to maintain a fast and efficient development cycle while ensuring all parts of the application are reliably tested.
@@ -156,8 +156,8 @@ This simplified and robust approach allows us to maintain a fast and efficient d
 │                  │                            │   secure, browser-based authentication via a Supabase function.      │                                                                                                │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Tailwind CSS     │ Utility-First CSS          │ Used for all styling, enabling rapid UI development.                 │ N/A                                                                                              │
-│                  │                            │ • `tailwind.config.cjs`: Configures the theme and font sizes.      │                                                                                                │
-│                  │                            │ • `src/index.css`: Defines global styles and HSL color variables.  │                                                                                                │
+│                  │                            │ • `tailwind.config.cjs`: Configures the theme, font sizes, and custom effects like glows. │                                                                                                │
+│                  │                            │ • `src/index.css`: Defines global styles and the new "Midnight Blue & Electric Lime" color variables. │                                                                                                │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Sentry           │ Error Monitoring           │ Captures runtime errors and performance data to ensure a stable MVP. │ • `VITE_SENTRY_DSN`: Public key for sending error data to Sentry.                                │
 │                  │                            │ • `src/main.jsx`: Sentry is initialized and wraps the App.         │                                                                                                │
@@ -174,12 +174,12 @@ This simplified and robust approach allows us to maintain a fast and efficient d
 
 The testing strategy is designed for rapid feedback and reliability, directly supporting the goal of launching a stable MVP quickly.
 
-*   **Framework**: The project uses **Vitest**, a modern test runner built on top of Vite. This choice is strategic: it shares the same configuration as the development server, making it exceptionally fast and simple to maintain. This speed is critical for a fast-paced MVP development cycle.
+*   **Framework**: The project uses **Jest**, a modern test runner. This choice is strategic: it is the industry standard and has a massive ecosystem of tools and support. This speed is critical for a fast-paced MVP development cycle.
 *   **Test Organization**: Tests are co-located with the code they validate (e.g., `src/__tests__`, `src/components/__tests__`), making them easy to find and run. They focus on testing individual components and hooks.
-*   **Mocking (`src/test/setup.js`)**: For the Vitest suite, a key part of the strategy is the robust mocking of browser-only APIs like `MediaRecorder` and dependencies of the `TranscriptionService`. This allows the core application logic to be tested quickly in a simulated `jsdom` environment.
+*   **Mocking (`src/setupTests.js`)**: For the Jest suite, a key part of the strategy is the robust mocking of browser-only APIs like `MediaRecorder` and dependencies of the `TranscriptionService`. This allows the core application logic to be tested quickly in a simulated `jsdom` environment.
 *   **Playwright for Real Browser Testing**: For features that are inherently difficult to mock or require a true browser environment (like the `TranscriptionService`'s audio processing), the project uses **Playwright**. This secondary test suite runs in a real browser, providing a higher level of confidence for critical, browser-dependent features. This hybrid approach balances the speed of JSDOM with the accuracy of a real browser.
 *   **Rationale vs. Alternatives**:
-    *   **vs. Jest**: Vitest is faster and requires less configuration in a Vite project.
+    *   **vs. Vitest**: While Vitest is fast, Jest has a more mature ecosystem and wider adoption, making it a more robust choice for this project.
     *   **vs. Cypress/Playwright for everything**: While Playwright is used, relying on it for all tests would be too slow for rapid development. The hybrid approach provides the best of both worlds.
 *   **Developer Controls**: To facilitate testing of different transcription modes without cluttering the user interface, a "Developer Controls" section is available in the Session Sidebar. This section is only rendered when the application is running in a development environment (`import.meta.env.DEV`). It currently contains a button to force the use of the `native` browser SpeechRecognition API for direct comparison with the cloud-based service.
 

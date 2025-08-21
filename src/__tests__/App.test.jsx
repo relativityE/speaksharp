@@ -1,25 +1,40 @@
 import React from 'react';
 import { render, screen, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, jest, afterEach } from '@jest/globals';
 import App from '../App';
 import { useAuth } from '../contexts/AuthContext';
 
-vi.mock('@xenova/transformers', () => ({
-  pipeline: vi.fn(),
+jest.mock('@xenova/transformers', () => ({
+  pipeline: jest.fn(),
 }));
 
 // Mock the useAuth hook
-vi.mock('../contexts/AuthContext', () => ({
-  useAuth: vi.fn(),
+jest.mock('../contexts/AuthContext', () => ({
+  useAuth: jest.fn(),
 }));
 
 // Mock child components to isolate the App component's routing logic
-vi.mock('../pages/MainPage', () => ({ MainPage: () => <div>Main Page</div> }));
-vi.mock('../pages/SessionPage', () => ({ SessionPage: () => <div>Session Page</div> }));
-vi.mock('../pages/AnalyticsPage', () => ({ AnalyticsPage: () => <div>Analytics Page</div> }));
-vi.mock('../pages/AuthPage', () => ({ default: () => <div>Auth Page</div> }));
-vi.mock('../components/Header', () => ({ Header: () => <header>Header</header> }));
+jest.mock('../pages/MainPage', () => ({
+  __esModule: true,
+  MainPage: () => <div>Main Page</div>
+}));
+jest.mock('../pages/SessionPage', () => ({
+  __esModule: true,
+  SessionPage: () => <div>Session Page</div>
+}));
+jest.mock('../pages/AnalyticsPage', () => ({
+  __esModule: true,
+  AnalyticsPage: () => <div>Analytics Page</div>
+}));
+jest.mock('../pages/AuthPage', () => ({
+  __esModule: true,
+  default: () => <div>Auth Page</div>
+}));
+jest.mock('../components/Header', () => ({
+  __esModule: true,
+  Header: () => <header>Header</header>
+}));
 
 const renderWithRouter = (route) => {
     // Set a default mock return value for useAuth
@@ -33,7 +48,7 @@ const renderWithRouter = (route) => {
 
 describe('App Routing', () => {
     afterEach(() => {
-        vi.clearAllMocks();
+        jest.clearAllMocks();
         cleanup();
     });
 
