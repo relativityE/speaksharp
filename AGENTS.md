@@ -74,3 +74,27 @@ This functionality within Jules simplifies the process of making changes, publis
     - **If no updates are needed, you must explicitly state that you have reviewed the files and confirmed they are up-to-date.** This is not an optional step.
 
 **Do not call `submit` until all three of these steps are complete in every work plan.**
+
+
+## 7. Proactive Status Updates
+
+**This section is a prerequisite and must be reviewed at the start of any new task.**
+
+To ensure transparency and keep the user informed during long-running tasks, you must provide proactive status updates.
+
+*   **Trigger:** If a single task or plan step is taking longer than 5 minutes to complete, you must send a status update.
+*   **Frequency:** After the initial update, continue to send updates approximately every 5-10 minutes until the task is complete.
+*   **Format:** The update message should be concise and follow this format:
+
+    ```
+    Status Update:
+    - Timestamp: [Current time, e.g., 10:35 AM]
+    - Task: [Briefly describe the current task, e.g., "Running security audit on backend functions."]
+    - Status: [Choose one: "In Progress", "Stuck", "Workable"]
+    - Progress: [A percentage estimate, e.g., "25% complete"]
+    - Next Update: [Estimate for the next update or task completion, e.g., "Next update in ~5 minutes." or "Estimated completion in ~10 minutes."]
+    ```
+*   **Status Definitions:**
+    *   **In Progress:** The task is proceeding as expected.
+    *   **Stuck:** The task is taking significantly longer than expected, and I am investigating the cause.
+    *   **Workable:** The task has encountered a minor issue, but I have a clear path to resolving it.
