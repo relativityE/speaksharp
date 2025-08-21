@@ -74,3 +74,23 @@ This functionality within Jules simplifies the process of making changes, publis
     - **If no updates are needed, you must explicitly state that you have reviewed the files and confirmed they are up-to-date.** This is not an optional step.
 
 **Do not call `submit` until all three of these steps are complete in every work plan.**
+
+## 7. Proactive Status Updates and Handling Long-Running Tasks
+
+To ensure transparency and continuous communication, you must adhere to the following protocol.
+
+-   **Activation Trigger:** You must send a status update if you have not communicated with the user for more than 5 minutes.
+
+-   **CRITICAL: Handling Long-Running Tasks:** To avoid being blocked and to enable periodic updates, you **must** run any potentially long-running command (e.g., tests, builds, servers) as a background process.
+    -   **Method:** Append `&` to the command.
+    -   **Output Redirection:** Redirect the command's output to a log file (e.g., `npm start > server.log &`).
+    -   **Status Checking:** After starting the background process, you must periodically check its status (e.g., with `jobs`) and read the log file to provide meaningful updates.
+
+-   **Content Format:** All status updates must follow this format:
+    > **Status Update**
+    >
+    > -   **Timestamp:** [Current Time]
+    > -   **Task:** [Brief description of your current action]
+    > -   **Status:** [on track | forfeit | investigating]
+    > -   **Percent Complete:** [XX%]
+    > -   **Estimated Time Remaining:** [Estimate or "Next update in 5 minutes"]

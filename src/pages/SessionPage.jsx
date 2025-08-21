@@ -74,9 +74,9 @@ export const SessionPage = () => {
     const { saveSession, usageLimitExceeded, setUsageLimitExceeded } = useSessionManager();
     const [customWords, setCustomWords] = useState([]);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+    const [mode, setMode] = useState('cloud');
 
-    const speechRecognition = useSpeechRecognition({ customWords });
-    const { mode, setMode } = speechRecognition;
+    const speechRecognition = useSpeechRecognition({ customWords, mode });
 
     useEffect(() => {
         posthog.capture('session_page_viewed');
@@ -102,7 +102,7 @@ export const SessionPage = () => {
 
                 {/* Desktop Sidebar (Right Column) */}
                 <div className="hidden lg:block lg:w-1/3">
-                    <SessionSidebar {...speechRecognition} saveSession={saveSession} mode={mode} setMode={setMode} />
+                    <SessionSidebar {...speechRecognition} saveSession={saveSession} desiredMode={mode} setMode={setMode} actualMode={speechRecognition.mode} />
                 </div>
 
                 {/* Mobile Drawer */}
@@ -116,7 +116,7 @@ export const SessionPage = () => {
                         </DrawerTrigger>
                         <DrawerContent>
                             <div className="p-4 overflow-y-auto h-[80vh]">
-                                <SessionSidebar {...speechRecognition} saveSession={saveSession} mode={mode} setMode={setMode} />
+                                <SessionSidebar {...speechRecognition} saveSession={saveSession} desiredMode={mode} setMode={setMode} actualMode={speechRecognition.mode} />
                             </div>
                         </DrawerContent>
                     </Drawer>
