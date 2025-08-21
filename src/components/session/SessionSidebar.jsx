@@ -24,7 +24,7 @@ const DigitalTimer = ({ elapsedTime }) => {
     );
 };
 
-export const SessionSidebar = ({ isListening, error, startListening, stopListening, reset, mode, setMode, saveSession }) => {
+export const SessionSidebar = ({ isListening, error, startListening, stopListening, reset, desiredMode, setMode, actualMode, saveSession }) => {
     const navigate = useNavigate();
     const { user, profile } = useAuth();
     const stripe = useStripe();
@@ -135,13 +135,13 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
     }, [isListening]);
 
     useEffect(() => {
-        if (mode === 'local') {
+        if (actualMode === 'local') {
             toast.info("Local Mode is a Demo", {
                 description: "This mode uses a sample sentence to demonstrate filler word detection and is not processing your live speech.",
                 duration: 8000,
             });
         }
-    }, [mode]);
+    }, [actualMode]);
 
     const handleStartStop = () => {
         if (isListening) {
@@ -165,7 +165,7 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
     };
 
     const getModeNotification = () => {
-        switch (mode) {
+        switch (actualMode) {
             case 'cloud':
                 return {
                     text: 'Cloud Transcription (Highest Accuracy)',
@@ -207,7 +207,7 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                                 <Label htmlFor="transcription-mode" className="text-muted-foreground">Local</Label>
                                 <Switch
                                     id="transcription-mode"
-                                    checked={mode === 'cloud'}
+                                    checked={desiredMode === 'cloud'}
                                     onCheckedChange={(checked) => setMode(checked ? 'cloud' : 'local')}
                                 />
                                 <Label htmlFor="transcription-mode" className="text-muted-foreground">Cloud</Label>

@@ -14,6 +14,9 @@ afterEach(() => {
   // Force cleanup of any pending operations
   vi.clearAllTimers()
   vi.restoreAllMocks()
+  if (global.cleanupTestMocks) {
+    global.cleanupTestMocks();
+  }
 })
 
 // Enhanced MediaRecorder mock with proper lifecycle

@@ -29,8 +29,8 @@ const getInitialFillerData = (customWords = []) => {
 // --- The Hook ---
 export const useSpeechRecognition = ({
     customWords = [],
-    mode = 'native', // Make mode a prop, defaulting to 'native'
-    model = 'Xenova/whisper-tiny.en' // Make model a prop for local mode
+    mode,
+    model = 'Xenova/whisper-tiny.en'
 } = {}) => {
     console.log(`[useSpeechRecognition] Hook initialized with mode: ${mode}, model: ${model}`);
 
