@@ -75,19 +75,22 @@ This functionality within Jules simplifies the process of making changes, publis
 
 **Do not call `submit` until all three of these steps are complete in every work plan.**
 
-## 7. Proactive Status Updates and Keep-Alive
+## 7. Proactive Status Updates and Handling Long-Running Tasks
 
-To ensure transparency and continuous communication, you must adhere to the following status update protocol. This rule is critical for user confidence and task visibility.
+To ensure transparency and continuous communication, you must adhere to the following protocol.
 
--   **Activation Trigger:** You must send a status update if you have not communicated with the user for more than 5 minutes, regardless of the task you are performing. This acts as a "keep-alive" signal to show you are still working.
+-   **Activation Trigger:** You must send a status update if you have not communicated with the user for more than 5 minutes.
 
--   **Updates During Long-Running Tasks:** For long-running operations (e.g., tests, builds, complex computations), you must provide status updates at the start, at 5-minute intervals, and upon completion.
+-   **CRITICAL: Handling Long-Running Tasks:** To avoid being blocked and to enable periodic updates, you **must** run any potentially long-running command (e.g., tests, builds, servers) as a background process.
+    -   **Method:** Append `&` to the command.
+    -   **Output Redirection:** Redirect the command's output to a log file (e.g., `npm start > server.log &`).
+    -   **Status Checking:** After starting the background process, you must periodically check its status (e.g., with `jobs`) and read the log file to provide meaningful updates.
 
--   **Content Format:** All status updates must be sent using the `message_user` tool and follow this format:
+-   **Content Format:** All status updates must follow this format:
     > **Status Update**
     >
     > -   **Timestamp:** [Current Time]
-    > -   **Task:** [Brief description of your current action, e.g., "Running tests for the session page fix", "Analyzing a large file", "Waiting for a tool to complete"]
-    > -   **Status:** [on track | forfeit (if taking longer than expected) | investigating (if debugging)]
-    > -   **Percent Complete:** [XX%] (Provide if applicable, otherwise "N/A")
-    > -   **Estimated Time Remaining:** [Provide a rough estimate or "Next update in 5 minutes"]
+    > -   **Task:** [Brief description of your current action]
+    > -   **Status:** [on track | forfeit | investigating]
+    > -   **Percent Complete:** [XX%]
+    > -   **Estimated Time Remaining:** [Estimate or "Next update in 5 minutes"]
