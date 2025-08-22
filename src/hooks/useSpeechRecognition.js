@@ -49,56 +49,15 @@ export const useSpeechRecognition = ({
     const transcriptionServiceRef = useRef(null);
 
     // --- Service Initialization and Management ---
+    // Cleanup effect to destroy the service on unmount
     useEffect(() => {
-        console.log(`[useSpeechRecognition] Effect to initialize service for mode: ${mode}`);
-
-        const initializeService = async () => {
-            // 1. Cleanup previous instance if it exists
-            if (transcriptionServiceRef.current) {
-                console.log('[useSpeechRecognition] Destroying previous transcription service instance.');
-                transcriptionServiceRef.current.destroy();
-                transcriptionServiceRef.current = null;
-            }
-
-            // 2. Check for native support if requested
-            const isNativeSupported = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
-            if (mode === 'native' && !isNativeSupported) {
-                console.error('[useSpeechRecognition] Native speech recognition not supported.');
-                setError("Native speech recognition is not supported in this browser.");
-                setIsSupported(false);
-                return;
-            }
-            setIsSupported(true);
-            setError(null);
-
-            // 3. Create and initialize the new service instance
-            try {
-                console.log(`[useSpeechRecognition] Creating TranscriptionService with mode: ${mode}`);
-                const service = new TranscriptionService(mode, {
-                    onTranscriptUpdate,
-                    model // Pass model to the service
-                });
-                await service.init();
-                transcriptionServiceRef.current = service;
-                setCurrentMode(service.mode); // Reflect the actual mode used (e.g., fallback)
-                console.log(`[useSpeechRecognition] Transcription service initialized. Actual mode: ${service.mode}`);
-            } catch (err) {
-                console.error("[useSpeechRecognition] Failed to initialize transcription service:", err);
-                setError(err);
-                setIsSupported(false);
-            }
-        };
-
-        initializeService();
-
-        // 4. Cleanup on unmount or when mode/model changes
         return () => {
             if (transcriptionServiceRef.current) {
                 console.log('[useSpeechRecognition] Cleanup: Destroying transcription service instance.');
                 transcriptionServiceRef.current.destroy();
             }
         };
-    }, [mode, model]); // Re-run this effect if the mode or model prop changes
+    }, []); // Empty dependency array ensures this runs only on mount and unmount
 
     // --- Transcript and Filler Word Processing ---
     const countFillerWords = useCallback((text) => {
@@ -152,12 +111,6 @@ export const useSpeechRecognition = ({
     // --- Control Functions ---
     const startListening = async () => {
         console.log('[useSpeechRecognition] startListening called.');
-        if (!isSupported || !transcriptionServiceRef.current) {
-            const message = `Cannot start listening. Supported: ${isSupported}, Service ready: ${!!transcriptionServiceRef.current}`;
-            console.error(`[useSpeechRecognition] ${message}`);
-            setError(message);
-            return;
-        }
 
         if (isListening) {
             console.warn('[useSpeechRecognition] Already listening.');
@@ -166,18 +119,40 @@ export const useSpeechRecognition = ({
 
         try {
             setError(null);
+
+            if (!transcriptionServiceRef.current) {
+                console.log('[useSpeechRecognition] Service not initialized. Initializing now...');
+                const isNativeSupported = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+                if (mode === 'native' && !isNativeSupported) {
+                    throw new Error("Native speech recognition is not supported in this browser.");
+                }
+                setIsSupported(true);
+
+                const service = new TranscriptionService(mode, {
+                    onTranscriptUpdate,
+                    model
+                });
+                await service.init();
+                transcriptionServiceRef.current = service;
+                setCurrentMode(service.mode);
+                console.log(`[useSpeechRecognition] Transcription service initialized. Actual mode: ${service.mode}`);
+            }
+
             await transcriptionServiceRef.current.startTranscription();
             setIsListening(true);
             console.log('[useSpeechRecognition] Started listening successfully.');
         } catch (err) {
             console.error('[useSpeechRecognition] Error starting speech recognition:', err);
             setError(err);
+            setIsListening(false); // Ensure listening state is false on error
+            setIsSupported(err.message.includes('not supported') ? false : true);
         }
     };
 
     const stopListening = async () => {
         console.log('[useSpeechRecognition] stopListening called.');
         if (!isListening || !transcriptionServiceRef.current) {
+            console.log('[useSpeechRecognition] Not listening or service not available, cannot stop.');
             return null;
         }
 
