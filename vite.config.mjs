@@ -38,10 +38,11 @@ export default defineConfig({
     // [JULES] Use forks to run tests in a separate process, per user suggestion.
     // This provides better isolation and prevents memory leaks between test files,
     // which was causing the 'heap out of memory' error.
-    pool: 'forks',
+    pool: 'threads',
     poolOptions: {
-      forks: {
-        singleFork: true,
+      threads: {
+        maxThreads: 1,
+        minThreads: 1,
       },
     },
     setupFiles: './src/test/setup.ts',
