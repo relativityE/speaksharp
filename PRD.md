@@ -105,7 +105,7 @@ Our technology choices prioritize development speed, scalability, and user exper
 
 ## 🗓️ Development Roadmap
 
-### PHASE 1 — MVP FOUNDATION (Weeks 1-3) - ~80% Complete
+### PHASE 1 — MVP FOUNDATION (Weeks 1-3) - 100% Complete
 - **[DONE]** `[M]` Implement core backend services (Supabase Auth & DB).
 - **[DONE]** `[M]` Implement `TranscriptionService` with AssemblyAI provider.
 - **[DONE]** `[M]` Integrate `TranscriptionService` into the main session page.
@@ -114,7 +114,7 @@ Our technology choices prioritize development speed, scalability, and user exper
 - **[DONE]** `[M]` Set up Sentry for error monitoring.
 - **[DONE]** `[M]` Set up PostHog for product analytics.
 - **[DONE]** `[S]` Develop a responsive UI with a professional light theme.
-- **[BROKEN]** `[S]` Migrate test suite from Vitest to Jest to stabilize the testing environment.
+- **[DONE]** `[S]` Stabilize test suite with Vitest, removing Jest and Babel.
 - **[DONE]** `[S]` Implement "Midnight Blue & Electric Lime" theme.
 - **[DEFERRED]** `[C]` A/B testing setup with PostHog.
 
@@ -122,7 +122,7 @@ Our technology choices prioritize development speed, scalability, and user exper
 - **[DONE]** `[M]` Build a comprehensive analytics dashboard for users.
 - **[DONE]** `[S]` Re-evaluated fallback to native Web Speech API (removed as a feature).
 - **[DONE]** `[M]` Integrate On-Device Transcription (using **Transformers.js**).
-- **[BLOCKED]** `[M]` Implement automatic fallback from local to cloud STT based on performance.
+- **[OUTSTANDING]** `[M]` Implement automatic fallback from local to cloud STT based on performance.
 - **[OUTSTANDING]** `[S]` Implement weekly summary emails.
 - **[OUTSTANDING]** `[S]` Add in-app prompts to encourage users to upgrade.
 - **[OUTSTANDING]** `[S]` Conduct thorough cross-browser testing and bug fixing.

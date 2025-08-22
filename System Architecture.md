@@ -14,7 +14,7 @@ The architecture is designed around a modern, client-heavy Jamstack approach. Th
 ```text
 +---------------------------------+      +---------------------------------+
 |      React SPA (`src`)          |----->|      Development & Build        |
-|    (in User's Browser)          |      |        (Vite, Jest)             |
+|    (in User's Browser)          |      |        (Vite, Vitest)           |
 |                                 |      +---------------------------------+
 |  +---------------------------+  |
 |  |  TranscriptionService     |  |
@@ -102,30 +102,31 @@ This diagram offers a more detailed look at the application's architecture from 
 
 ## 6. Test Approach
 
-Our project employs a robust testing strategy centered on **Jest**, a fast and modern test runner that integrates seamlessly with Vite.
+Our project employs a robust and stable testing strategy centered on **Vitest**, a modern test runner that integrates seamlessly with Vite.
 
-### The Main Test Suite: **Jest + JSDOM** (Currently Unstable)
+### Unit & Integration Testing: **Vitest + happy-dom**
 
-This is the primary testing stack for the entire application. **Note: This test suite is currently unstable and non-functional.**
+This is the primary testing stack for the application. It provides a fast and reliable way to test components and logic.
 
-*   **Vite**: Acts as the core build tool.
-*   **Jest**: The designated **test runner**. `pnpm test` is configured to execute all `*.test.jsx` files.
-*   **Problem Statement**: The recent migration from Vitest to Jest has introduced critical configuration issues, primarily conflicts between ES Module (`import`) and CommonJS (`require`) syntax. This results in parse errors that prevent the test suite from running. Additionally, at least one test suite (`useSpeechRecognition.test.jsx`) suffers from an indefinite hang, likely due to unmocked browser APIs or unhandled promises. A significant, dedicated effort is required to stabilize the test environment.
+*   **Vite**: Acts as the core build and test orchestration engine.
+*   **Vitest**: The designated **test runner**. `pnpm test` is configured to execute all `*.test.jsx` files located in `src/__tests__`.
+*   **happy-dom**: A lightweight, simulated browser environment for tests that need to interact with a DOM.
+*   **Mocking**: The test environment is configured with advanced mocking (hoisting, dynamic imports, and bundler-level aliasing) to handle complex dependencies like `@xenova/transformers` and prevent memory leaks.
 
 ### End-to-End Testing: **Playwright**
 
-While Jest is broken, we can still rely on **Playwright** for high-level, end-to-end smoke tests to ensure that critical user flows work correctly in a real browser environment.
+For features that rely heavily on browser-native APIs (like the `TranscriptionService`'s audio processing), we use **Playwright**. These tests run in a real browser environment, providing a higher level of confidence for critical user flows.
 
 ### Summary of Tools
 
-| Tool          | Role                                           | When It's Used                                               |
-| :------------ | :--------------------------------------------- | :----------------------------------------------------------- |
-| **Vite**      | Core build engine.                             | Used by `pnpm run dev`.                                    |
-| **Jest**    | Main test runner (NEEDS REPAIR).                 | `pnpm test` (Currently Failing)                              |
-| **JSDOM**     | Simulated browser for Jest.                  | The environment for all Jest tests.                        |
-| **Playwright**| Secondary, end-to-end test runner.             | For high-level smoke tests (`npx playwright test`).          |
+| Tool          | Role                               | When It's Used                                      |
+| :------------ | :--------------------------------- | :-------------------------------------------------- |
+| **Vite**      | Core build & test engine.          | Used by `pnpm run dev` and `pnpm test`.             |
+| **Vitest**    | Main test runner.                  | `pnpm test`                                         |
+| **happy-dom** | Simulated browser for Vitest.      | The environment for all Vitest tests.               |
+| **Playwright**| Secondary, end-to-end test runner. | For high-level smoke tests (`npx playwright test`). |
 
-This approach is currently compromised. The immediate priority after any feature work is to repair the Jest test suite to restore a fast and reliable development cycle.
+This hybrid approach provides a fast, reliable, and comprehensive testing strategy for the project.
 ```
 
 
@@ -139,9 +140,8 @@ This approach is currently compromised. The immediate priority after any feature
 │                  │                            │ • `src/`: Entire frontend application source.                      │                                                                                                │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Vite             │ Build Tool & Dev Server    │ Provides a fast dev experience and bundles the app for production.   │ N/A                                                                                              │
-│                  │                            │ • `vite.config.js`: Main configuration file.                       │                                                                                                │
+│                  │                            │ • `vite.config.mjs`: Main configuration file for Vite and Vitest.  │                                                                                                │
 │                  │                            │ • `.npmrc`: Ensures `pnpm` creates a flat `node_modules` structure.│                                                                                                │
-│                  │                            │ • `babel.config.cjs`: Isolates Babel config for the Jest env.      │                                                                                                │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Supabase         │ Backend-as-a-Service       │ Provides DB, auth, & APIs, reducing backend work for the MVP.        │ • `VITE_SUPABASE_URL`: Public URL for the project.                                               │
 │                  │                            │ • `src/lib/supabaseClient.js`: Client initialization.              │ • `VITE_SUPABASE_ANON_KEY`: Public key for client-side access.                                   │
