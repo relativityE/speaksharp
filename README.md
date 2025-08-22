@@ -126,7 +126,9 @@ To run the main test suite, use the following command:
 pnpm test
 ```
 
-This command executes all `*.test.jsx` files located under the `src` directory.
+This command is configured to execute all `*.test.jsx` files located under the `src` directory.
+
+**NOTE: The Jest test suite is currently unstable due to a recent migration. See the "Known Issues" section in `PRD.md` for details. This is a high-priority item to be fixed.**
 
 ### 2. End-to-End & Browser-Specific Tests (Playwright)
 
