@@ -59,7 +59,7 @@ This diagram offers a more detailed look at the application's architecture from 
 | |  - `SessionPage.jsx`                   |  |---------------------------------| |
 | |  - `SessionSidebar.jsx`                |<--+ if (mode === 'local') {         | |
 | |  - `useSpeechRecognition.js`           |  |   LocalWhisper (On-Device)    | |
-| |    (Provides callback)                 |  | } else {                        | |
+|    (Initializes service on-demand)     |  | } else {                        | |
 | |  - `useSessionManager.js`              |  |   CloudAssemblyAI (via Supabase token fn) | |
 | +----------------------------------------+  | }                               | |
 |                                          |  +---------------------------------+ |
@@ -104,29 +104,28 @@ This diagram offers a more detailed look at the application's architecture from 
 
 Our project employs a robust testing strategy centered on **Jest**, a fast and modern test runner that integrates seamlessly with Vite.
 
-### The Main Test Suite: **Jest + JSDOM**
+### The Main Test Suite: **Jest + JSDOM** (Currently Unstable)
 
-This is the primary testing stack for the entire application.
+This is the primary testing stack for the entire application. **Note: This test suite is currently unstable and non-functional.**
 
-*   **Vite**: Acts as the core build tool. When you run the tests, Jest uses Vite's engine to compile and process the React code and tests.
-*   **Jest**: Our main **test runner**. `pnpm test` executes all `*.test.jsx` files.
-*   **JSDOM**: Jest runs its tests in a **simulated browser environment** called JSDOM. It's fast and suitable for testing all of our components and hooks.
-*   **Module Mocking**: For hooks with complex dependencies that interact with browser APIs (like `useSpeechRecognition`'s dependency on `TranscriptionService`), we use Jest's powerful `jest.mock()` feature. This allows us to replace the real service with a mock, enabling stable and reliable testing of the hook's logic without needing a real browser.
+*   **Vite**: Acts as the core build tool.
+*   **Jest**: The designated **test runner**. `pnpm test` is configured to execute all `*.test.jsx` files.
+*   **Problem Statement**: The recent migration from Vitest to Jest has introduced critical configuration issues, primarily conflicts between ES Module (`import`) and CommonJS (`require`) syntax. This results in parse errors that prevent the test suite from running. Additionally, at least one test suite (`useSpeechRecognition.test.jsx`) suffers from an indefinite hang, likely due to unmocked browser APIs or unhandled promises. A significant, dedicated effort is required to stabilize the test environment.
 
 ### End-to-End Testing: **Playwright**
 
-While most logic is covered by Jest, we use **Playwright** for high-level, end-to-end smoke tests to ensure that critical user flows work correctly in a real browser environment.
+While Jest is broken, we can still rely on **Playwright** for high-level, end-to-end smoke tests to ensure that critical user flows work correctly in a real browser environment.
 
 ### Summary of Tools
 
 | Tool          | Role                                           | When It's Used                                               |
 | :------------ | :--------------------------------------------- | :----------------------------------------------------------- |
-| **Vite**      | Core build engine.                             | Used by `pnpm run dev` and Jest.                           |
-| **Jest**    | Main test runner for unit/integration tests.   | `pnpm test`                                                  |
+| **Vite**      | Core build engine.                             | Used by `pnpm run dev`.                                    |
+| **Jest**    | Main test runner (NEEDS REPAIR).                 | `pnpm test` (Currently Failing)                              |
 | **JSDOM**     | Simulated browser for Jest.                  | The environment for all Jest tests.                        |
 | **Playwright**| Secondary, end-to-end test runner.             | For high-level smoke tests (`npx playwright test`).          |
 
-This simplified and robust approach allows us to maintain a fast and efficient development cycle while ensuring all parts of the application are reliably tested.
+This approach is currently compromised. The immediate priority after any feature work is to repair the Jest test suite to restore a fast and reliable development cycle.
 ```
 
 
@@ -141,6 +140,8 @@ This simplified and robust approach allows us to maintain a fast and efficient d
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Vite             │ Build Tool & Dev Server    │ Provides a fast dev experience and bundles the app for production.   │ N/A                                                                                              │
 │                  │                            │ • `vite.config.js`: Main configuration file.                       │                                                                                                │
+│                  │                            │ • `.npmrc`: Ensures `pnpm` creates a flat `node_modules` structure.│                                                                                                │
+│                  │                            │ • `babel.config.cjs`: Isolates Babel config for the Jest env.      │                                                                                                │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Supabase         │ Backend-as-a-Service       │ Provides DB, auth, & APIs, reducing backend work for the MVP.        │ • `VITE_SUPABASE_URL`: Public URL for the project.                                               │
 │                  │                            │ • `src/lib/supabaseClient.js`: Client initialization.              │ • `VITE_SUPABASE_ANON_KEY`: Public key for client-side access.                                   │

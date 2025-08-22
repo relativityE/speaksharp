@@ -25,7 +25,7 @@
 
 ## ⚠️ Known Issues
 - **On-Device Transcription is Not Yet Implemented:** The `LocalWhisper` provider in `TranscriptionService` is a non-functional simulation. The UI toggle remains enabled for demo purposes. This is the top priority for Phase 2 and will be implemented using the Transformers.js library.
-- **Test Suite Migration:** The project has migrated from `Vitest` to `Jest` to resolve persistent timeout issues and improve test reliability. This work is now complete.
+- **Test Suite Instability:** The recent migration from Vitest to Jest has introduced significant instability into the test suite. Multiple tests are failing due to configuration issues (ESM/CJS conflicts) and one critical test (`useSpeechRecognition.test.jsx`) hangs indefinitely. This is a high-priority issue to be resolved. The test suite is currently non-functional.
 
 ---
 
