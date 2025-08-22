@@ -14,7 +14,7 @@ The architecture is designed around a modern, client-heavy Jamstack approach. Th
 ```text
 +---------------------------------+      +---------------------------------+
 |      React SPA (`src`)          |----->|      Development & Build        |
-|    (in User's Browser)          |      |        (Vite, Jest)             |
+|    (in User's Browser)          |      |        (Vite, Vitest)           |
 |                                 |      +---------------------------------+
 |  +---------------------------+  |
 |  |  TranscriptionService     |  |
@@ -59,7 +59,7 @@ This diagram offers a more detailed look at the application's architecture from 
 | |  - `SessionPage.jsx`                   |  |---------------------------------| |
 | |  - `SessionSidebar.jsx`                |<--+ if (mode === 'local') {         | |
 | |  - `useSpeechRecognition.js`           |  |   LocalWhisper (On-Device)    | |
-| |    (Provides callback)                 |  | } else {                        | |
+|    (Initializes service on-demand)     |  | } else {                        | |
 | |  - `useSessionManager.js`              |  |   CloudAssemblyAI (via Supabase token fn) | |
 | +----------------------------------------+  | }                               | |
 |                                          |  +---------------------------------+ |
@@ -102,31 +102,34 @@ This diagram offers a more detailed look at the application's architecture from 
 
 ## 6. Test Approach
 
-Our project employs a robust testing strategy centered on **Jest**, a fast and modern test runner that integrates seamlessly with Vite.
+Our project employs a robust and stable testing strategy centered on **Vitest**, a modern test runner that integrates seamlessly with Vite.
 
-### The Main Test Suite: **Jest + JSDOM**
+### Unit & Integration Testing: **Vitest + happy-dom**
 
-This is the primary testing stack for the entire application.
+This is the primary testing stack for the application. It provides a fast and reliable way to test components and logic.
 
-*   **Vite**: Acts as the core build tool. When you run the tests, Jest uses Vite's engine to compile and process the React code and tests.
-*   **Jest**: Our main **test runner**. `pnpm test` executes all `*.test.jsx` files.
-*   **JSDOM**: Jest runs its tests in a **simulated browser environment** called JSDOM. It's fast and suitable for testing all of our components and hooks.
-*   **Module Mocking**: For hooks with complex dependencies that interact with browser APIs (like `useSpeechRecognition`'s dependency on `TranscriptionService`), we use Jest's powerful `jest.mock()` feature. This allows us to replace the real service with a mock, enabling stable and reliable testing of the hook's logic without needing a real browser.
+*   **Vite**: Acts as the core build and test orchestration engine.
+*   **Vitest**: The designated **test runner**. `pnpm test` is configured to execute all `*.test.jsx` files located in `src/__tests__`.
+*   **happy-dom**: A lightweight, simulated browser environment for tests that need to interact with a DOM.
+*   **Mocking**: The test environment is configured with advanced mocking to handle complex dependencies like `@xenova/transformers` and prevent memory leaks. The key to solving the memory issue was to control the module import order in the test file (`useSpeechRecognition.test.jsx`):
+    1.  **Mocks are established first:** `vi.mock()` is called at the top level of the test file, before any imports. This tells Vitest to replace the real modules with our mocks.
+    2.  **The hook is imported dynamically:** The `useSpeechRecognition` hook is imported using a top-level `await import(...)` *after* the mocks are defined.
+    3.  **Result:** When the hook is imported, it receives the mocked versions of its dependencies instead of the real ones. This prevents the large machine learning models from being loaded into memory during the test run and keeps the memory footprint low.
 
 ### End-to-End Testing: **Playwright**
 
-While most logic is covered by Jest, we use **Playwright** for high-level, end-to-end smoke tests to ensure that critical user flows work correctly in a real browser environment.
+For features that rely heavily on browser-native APIs (like the `TranscriptionService`'s audio processing), we use **Playwright**. These tests run in a real browser environment, providing a higher level of confidence for critical user flows.
 
 ### Summary of Tools
 
-| Tool          | Role                                           | When It's Used                                               |
-| :------------ | :--------------------------------------------- | :----------------------------------------------------------- |
-| **Vite**      | Core build engine.                             | Used by `pnpm run dev` and Jest.                           |
-| **Jest**    | Main test runner for unit/integration tests.   | `pnpm test`                                                  |
-| **JSDOM**     | Simulated browser for Jest.                  | The environment for all Jest tests.                        |
-| **Playwright**| Secondary, end-to-end test runner.             | For high-level smoke tests (`npx playwright test`).          |
+| Tool          | Role                               | When It's Used                                      |
+| :------------ | :--------------------------------- | :-------------------------------------------------- |
+| **Vite**      | Core build & test engine.          | Used by `pnpm run dev` and `pnpm test`.             |
+| **Vitest**    | Main test runner.                  | `pnpm test`                                         |
+| **happy-dom** | Simulated browser for Vitest.      | The environment for all Vitest tests.               |
+| **Playwright**| Secondary, end-to-end test runner. | For high-level smoke tests (`npx playwright test`). |
 
-This simplified and robust approach allows us to maintain a fast and efficient development cycle while ensuring all parts of the application are reliably tested.
+This hybrid approach provides a fast, reliable, and comprehensive testing strategy for the project.
 ```
 
 
@@ -140,7 +143,8 @@ This simplified and robust approach allows us to maintain a fast and efficient d
 │                  │                            │ • `src/`: Entire frontend application source.                      │                                                                                                │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Vite             │ Build Tool & Dev Server    │ Provides a fast dev experience and bundles the app for production.   │ N/A                                                                                              │
-│                  │                            │ • `vite.config.js`: Main configuration file.                       │                                                                                                │
+│                  │                            │ • `vite.config.mjs`: Main configuration file for Vite and Vitest.  │                                                                                                │
+│                  │                            │ • `.npmrc`: Ensures `pnpm` creates a flat `node_modules` structure.│                                                                                                │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Supabase         │ Backend-as-a-Service       │ Provides DB, auth, & APIs, reducing backend work for the MVP.        │ • `VITE_SUPABASE_URL`: Public URL for the project.                                               │
 │                  │                            │ • `src/lib/supabaseClient.js`: Client initialization.              │ • `VITE_SUPABASE_ANON_KEY`: Public key for client-side access.                                   │
@@ -150,10 +154,9 @@ This simplified and robust approach allows us to maintain a fast and efficient d
 │ Service          │                            │ approach via an `onTranscriptUpdate` callback to provide real-time   │   (Set in Supabase project secrets)                                                          │
 │                  │                            │ results to the UI without polling.                                   │                                                                                                │
 │                  │                            │ • `src/services/transcription`: Wrapper for STT providers.         │                                                                                                │
-│                  │                            │ • `modes/LocalWhisper.js`: On-device via **Transformers.js**, a      │                                                                                                │
-│                  │                            │   library from **Hugging Face** that runs AI models in the browser.  │                                                                                                │
-│                  │                            │ • `modes/CloudAssemblyAI.js`: Cloud-based, uses temporary tokens for │                                                                                                │
-│                  │                            │   secure, browser-based authentication via a Supabase function.      │                                                                                                │
+│                  │                            │ • `modes/LocalWhisper.js`: On-device via **Transformers.js**. This is│                                                                                                │
+│                  │                            │   the default for Free users to ensure privacy.                      │                                                                                                │
+│                  │                            │ • `modes/CloudAssemblyAI.js`: Premium cloud-based mode for Pro users.│                                                                                                │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Tailwind CSS     │ Utility-First CSS          │ Used for all styling, enabling rapid UI development.                 │ N/A                                                                                              │
 │                  │                            │ • `tailwind.config.cjs`: Configures the theme, font sizes, and custom effects like glows. │                                                                                                │
@@ -207,12 +210,10 @@ This section details the step-by-step execution flow for both free and paid user
 
 ### Free User Flow
 
-The free tier is designed to be flexible, allowing users to choose between privacy-focused local processing and higher-accuracy cloud processing.
+The free tier is designed to build a habit around practice and reinforce our privacy-first value proposition.
 
 1.  **Authentication**: A user with a `subscription_status` of `'free'` logs in.
-2.  **Speech Recognition (User's Choice)**: When the user starts a session, the `useSpeechRecognition.js` hook is activated, which in turn uses the `TranscriptionService`. The user can toggle between two modes:
-    *   **Local Mode**: This mode is the default and will use the **Transformers.js** library for on-device speech recognition. In this mode, no audio leaves the device, ensuring maximum privacy.
-    *   **Cloud Mode**: This mode uses the `AssemblyAI` service for transcription. Audio is streamed to the AssemblyAI servers for processing.
+2.  **Speech Recognition (Local-Only)**: When the user starts a session, the `useSpeechRecognition.js` hook is activated. For Free users, this **defaults to and is locked to the local on-device mode** using **Transformers.js**. This ensures the core promise of privacy is met for all free users.
 3.  **Session Completion**: The user manually stops the session.
 4.  **Data Persistence (Metadata Only)**: The `useSessionManager.js` and `lib/storage.js` modules collaborate to save the session.
     *   **API Hit**: An `insert` call is made to the Supabase `sessions` table.
@@ -225,11 +226,11 @@ The free tier is designed to be flexible, allowing users to choose between priva
 
 ### Paid (Pro) User Flow
 
-The Pro tier removes limitations and adds features.
+The Pro tier removes limitations and adds premium features, including higher-accuracy transcription.
 
 1.  **Authentication**: A user with a `subscription_status` of `'pro'` or `'premium'` logs in.
-2.  **Unrestricted Usage**: Pro-specific features, like the "Custom Words" tracker, are enabled in the UI. There are no usage limits.
-3.  **Speech Recognition (User's Choice)**: The process is **identical to the free user flow**. The user can choose between `local` and `cloud` modes.
+2.  **Unrestricted Usage**: Pro-specific features, like unlimited custom words and full analytics history, are enabled in the UI.
+3.  **Speech Recognition (User's Choice)**: Pro users have the choice between the standard `local` mode and the premium `cloud` mode (using AssemblyAI) for higher accuracy.
 4.  **Session Completion & Persistence**: This is identical to the free user flow. Session metadata (not the transcript) is saved to the `sessions` table. The `update_user_usage` RPC function is **not** called, as it is unnecessary for Pro users.
 
 **Key Files & Components**: The same as the free flow, with conditional logic in `SessionSidebar.jsx` unlocking the Pro features.

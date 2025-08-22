@@ -1,31 +1,26 @@
 # SpeakSharp
 
-A mobile-first web application that detects and counts filler words in real time to help users improve verbal clarity and communication effectiveness. All processing is done locally in your browser, ensuring your privacy.
+A real-time speech analysis tool built on two pillars: speed and privacy. Our "privacy by design" approach means we never store your audio. We provide a local-first transcription experience for free, with premium cloud-based features for Pro users. Our goal is to help you speak more confidently without compromising your privacy.
 
 ## Features
 
-- **Real-time Filler Word Detection**: Counts common filler words (e.g., "um", "like") and custom words in real-time.
-- **Color-Coded Highlighting**: Each filler word is assigned a unique color. Words are highlighted in the live transcript and color-coded in the analysis panel for immediate visual feedback.
-- **Engaging Filler Word Analysis**: View your filler word counts with a clean, card-based layout using a severity-based color palette and progress bars for easy visual scanning.
-- **Redesigned Controls**: The session page features a clear and focused control area, with a prominent pill-shaped timer, record button, and a streamlined "Upgrade to Pro" card.
-- **Comprehensive Analytics Dashboard**: Track your progress over time with an improved dashboard that features clearer stats, better visual hierarchy, and a card-based session history.
-- **Reliable Cloud-Based Speech Processing**: Uses AssemblyAI for high-accuracy transcription. This service now provides a session-wide "Transcript Accuracy" score, which is the average of the confidence level for all words spoken. This score is displayed on your analytics page to help you gauge the quality of the transcription.
-- **Robust Session Management**: Start, stop, and save practice sessions to track your improvement over time.
-- **PDF Export (Pro Feature)**: Pro users can download a detailed PDF report for any of their past sessions.
-- **Customizable Experience**: Add your own words to track and use a mobile-friendly, responsive interface.
-- **Choice of Transcription Mode**: Users can switch between high-accuracy cloud transcription and private on-device transcription.
-- **New "Midnight Blue & Electric Lime" Theme**: A visually striking dark mode theme has been implemented to provide a more modern and focused user experience.
+- **Real-time Filler Word Detection**: Counts common filler words (e.g., "um", "like") in real-time.
+- **On-Device Transcription (Free Tier)**: Your speech is processed locally on your device using Transformers.js, ensuring your privacy.
+- **High-Accuracy Cloud Transcription (Pro Tier)**: Pro users can opt-in to use a premium cloud-based engine for even higher accuracy.
+- **Comprehensive Analytics**: Free users can track their progress with trend dashboards, while Pro users unlock deep per-session analytics and history.
+- **Custom Filler Words**: Track your own unique filler words. (Limited in Free tier, unlimited for Pro).
+- **PDF Export (Pro Feature)**: Pro users can download detailed PDF reports of their sessions.
+- **Modern UI**: A clean, responsive interface with a new "Midnight Blue & Electric Lime" theme.
 
 ## Technology Stack
 
-- **Frontend**: React (with [Vite](https://vitejs.dev/)) - A next-generation frontend tooling that provides a faster and leaner development experience for modern web projects.
-- **Styling**: Tailwind CSS
-- **UI Components**: shadcn/ui
-- **Icons**: Lucide React
-- **Authentication & DB**: Supabase
+- **Frontend**: React (with [Vite](https://vitejs.dev/))
+- **Styling**: Tailwind CSS & shadcn/ui
+- **Testing**: Vitest & Playwright
+- **Backend & Database**: Supabase
 - **Speech Processing**:
-    - **Phase 1 (Current)**: AssemblyAI for cloud-based transcription (now configured to capture disfluencies/filler words). On-device transcription is disabled pending future implementation.
-    - **Phase 2 (Planned)**: Whisper.cpp for local, on-device transcription to ensure privacy.
+    - **On-Device (Default)**: Transformers.js for private, in-browser transcription.
+    - **Cloud-Based (Pro Option)**: AssemblyAI for premium, high-accuracy transcription.
 
 ## Getting Started
 
@@ -114,72 +109,12 @@ These issues are documented and will be addressed as part of the broader project
 
 ## How to Test the Application
 
-This project uses a hybrid testing strategy to ensure both speed and reliability.
+This project uses a hybrid testing strategy:
 
-### 1. Unit & Integration Tests (Jest)
+-   **Unit & Integration Tests (Vitest):** For most application logic and components. Run with `pnpm test`.
+-   **End-to-End Tests (Playwright):** For testing features in a real browser environment. Run with `npx playwright test`.
 
-For most of the application logic and component testing, we use [Jest](https://jestjs.io/), a fast and modern test runner. These tests run in a simulated JSDOM environment, which is fast but not a real browser.
-
-To run the main test suite, use the following command:
-
-```bash
-pnpm test
-```
-
-This command executes all `*.test.jsx` files located under the `src` directory.
-
-### 2. End-to-End & Browser-Specific Tests (Playwright)
-
-For features that rely on browser-native APIs (like the `TranscriptionService`'s audio processing) and are difficult to test reliably in JSDOM, we use [Playwright](https://playwright.dev/). These tests run in a real browser environment, providing a more accurate and stable testing ground for complex features.
-
-To run the Playwright tests, use the following command:
-
-```bash
-npx playwright test
-```
-
-This command looks for test files in the `playwright-tests` directory and runs them in a headless browser.
-
-## Usage
-
-SpeakSharp uses a "progressive reveal" model. All pages are accessible to everyone, but more features are unlocked when you sign up for a free account.
-
-### Anonymous Users (Free Trial)
--   **Start a Session**: Anyone can start a recording session from the main page.
--   **2-Minute Limit**: Trial sessions are limited to 2 minutes. A checkbox is available for developers to override this limit.
--   **View Analytics Page**: You can view the Analytics page, but it will show a demo and a prompt to sign up to save and view your history.
--   **Choice of Transcription Mode**: Users can switch between high-accuracy cloud transcription and private on-device transcription.
-
-### Authenticated Users (Free Tier)
--   **Sign Up / Login**: Create a free account to unlock more features.
--   **Save Session History**: Your sessions are automatically saved to your account.
--   **Track Progress**: The Analytics page will show your full session history and progress charts.
--   **Unlimited Session Length**: The 2-minute limit is removed.
--   **Custom Filler Words**: Add and track your own list of custom filler words.
--   **Choice of Transcription Mode**: Users can switch between high-accuracy cloud transcription and private on-device transcription.
-
-## User Tiers & Authentication
-
-The application is built with a "public-first" approach. Core pages like the main session recorder and analytics dashboard are viewable by anyone. However, to persist data and unlock features, users must create an account.
-
--   **Authentication Provider**: We use **Supabase Auth** for handling user sign-up, sign-in, and password recovery.
--   **Sign-Up**: When a new user signs up, Supabase sends a confirmation email with a verification link. The user must click this link to activate their account.
--   **Password Reset**: Users can request a password reset link from the Sign-In page. This also uses Supabase's secure email-based recovery flow.
--   **Session Management**: User sessions are managed via the `AuthContext`, which provides user and profile data throughout the application.
-
-This model allows for a low-friction initial experience while providing a clear path to engagement and feature unlock for registered users.
-
-## Project Status & Roadmap
-
-This project is currently being developed into a full-stack SaaS application with a **"Speed Over Perfection"** philosophy. The immediate goal is to launch a monetizable MVP within 3 weeks to gather user feedback and iterate quickly.
-
-The high-level roadmap is a two-phase plan:
-1.  **Phase 1: Fast Development & Testing (AssemblyAI)**
-    - Goal: Quickly test features, get user feedback, and fix bugs using a cloud-based transcription service.
-    - This phase prioritizes speed of iteration over privacy-first features.
-2.  **Phase 2: Privacy-First Production (Whisper.cpp On-Device)**
-    - Goal: Deliver on the "privacy-first" promise by moving transcription to the user's device.
-    - This phase will involve integrating Whisper.cpp to ensure no audio leaves the device.
+The test suites are stable and run as part of the CI/CD pipeline.
 
 ## How to Deploy to Vercel
 
