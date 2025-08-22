@@ -114,7 +114,69 @@ This project uses a hybrid testing strategy:
 -   **Unit & Integration Tests (Vitest):** For most application logic and components. Run with `pnpm test`.
 -   **End-to-End Tests (Playwright):** For testing features in a real browser environment. Run with `npx playwright test`.
 
-The test suites are stable and run as part of the CI/CD pipeline.
+
+For most of the application logic and component testing, we use Vitest, a fast and modern test runner. These tests run in a simulated JSDOM environment, which is fast but not a real browser.
+
+To run the main test suite, use the following command:
+
+```bash
+pnpm test
+```
+
+This command is configured to execute all `*.test.jsx` files located under the `src` directory.
+
+### 2. End-to-End & Browser-Specific Tests (Playwright)
+
+For features that rely on browser-native APIs (like the `TranscriptionService`'s audio processing) and are difficult to test reliably in JSDOM, we use [Playwright](https://playwright.dev/). These tests run in a real browser environment, providing a more accurate and stable testing ground for complex features.
+
+To run the Playwright tests, use the following command:
+
+```bash
+npx playwright test
+```
+
+This command looks for test files in the `playwright-tests` directory and runs them in a headless browser.
+
+## Usage
+
+SpeakSharp uses a "progressive reveal" model. All pages are accessible to everyone, but more features are unlocked when you sign up for a free account.
+
+### Anonymous Users (Free Trial)
+-   **Start a Session**: Anyone can start a recording session from the main page.
+-   **2-Minute Limit**: Trial sessions are limited to 2 minutes. A checkbox is available for developers to override this limit.
+-   **View Analytics Page**: You can view the Analytics page, but it will show a demo and a prompt to sign up to save and view your history.
+-   **Choice of Transcription Mode**: Users can switch between high-accuracy cloud transcription and private on-device transcription.
+
+### Authenticated Users (Free Tier)
+-   **Sign Up / Login**: Create a free account to unlock more features.
+-   **Save Session History**: Your sessions are automatically saved to your account.
+-   **Track Progress**: The Analytics page will show your full session history and progress charts.
+-   **Unlimited Session Length**: The 2-minute limit is removed.
+-   **Custom Filler Words**: Add and track your own list of custom filler words.
+-   **Choice of Transcription Mode**: Users can switch between high-accuracy cloud transcription and private on-device transcription.
+
+## User Tiers & Authentication
+
+The application is built with a "public-first" approach. Core pages like the main session recorder and analytics dashboard are viewable by anyone. However, to persist data and unlock features, users must create an account.
+
+-   **Authentication Provider**: We use **Supabase Auth** for handling user sign-up, sign-in, and password recovery.
+-   **Sign-Up**: When a new user signs up, Supabase sends a confirmation email with a verification link. The user must click this link to activate their account.
+-   **Password Reset**: Users can request a password reset link from the Sign-In page. This also uses Supabase's secure email-based recovery flow.
+-   **Session Management**: User sessions are managed via the `AuthContext`, which provides user and profile data throughout the application.
+
+This model allows for a low-friction initial experience while providing a clear path to engagement and feature unlock for registered users.
+
+## Project Status & Roadmap
+
+This project is currently being developed into a full-stack SaaS application with a **"Speed Over Perfection"** philosophy. The immediate goal is to launch a monetizable MVP within 3 weeks to gather user feedback and iterate quickly.
+
+The high-level roadmap is a two-phase plan:
+1.  **Phase 1: Fast Development & Testing (AssemblyAI)**
+    - Goal: Quickly test features, get user feedback, and fix bugs using a cloud-based transcription service.
+    - This phase prioritizes speed of iteration over privacy-first features.
+2.  **Phase 2: Privacy-First Production (Whisper.cpp On-Device)**
+    - Goal: Deliver on the "privacy-first" promise by moving transcription to the user's device.
+    - This phase will involve integrating Whisper.cpp to ensure no audio leaves the device.
 
 ## How to Deploy to Vercel
 
