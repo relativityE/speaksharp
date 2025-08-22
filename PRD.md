@@ -114,7 +114,7 @@ Our technology choices prioritize development speed, scalability, and user exper
 - **[DONE]** `[M]` Set up Sentry for error monitoring.
 - **[DONE]** `[M]` Set up PostHog for product analytics.
 - **[DONE]** `[S]` Develop a responsive UI with a professional light theme.
-- **[DONE]** `[S]` Migrate test suite from Vitest to Jest to stabilize the testing environment.
+- **[BROKEN]** `[S]` Migrate test suite from Vitest to Jest to stabilize the testing environment.
 - **[DONE]** `[S]` Implement "Midnight Blue & Electric Lime" theme.
 - **[DEFERRED]** `[C]` A/B testing setup with PostHog.
 
