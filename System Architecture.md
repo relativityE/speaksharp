@@ -154,10 +154,9 @@ This hybrid approach provides a fast, reliable, and comprehensive testing strate
 │ Service          │                            │ approach via an `onTranscriptUpdate` callback to provide real-time   │   (Set in Supabase project secrets)                                                          │
 │                  │                            │ results to the UI without polling.                                   │                                                                                                │
 │                  │                            │ • `src/services/transcription`: Wrapper for STT providers.         │                                                                                                │
-│                  │                            │ • `modes/LocalWhisper.js`: On-device via **Transformers.js**, a      │                                                                                                │
-│                  │                            │   library from **Hugging Face** that runs AI models in the browser.  │                                                                                                │
-│                  │                            │ • `modes/CloudAssemblyAI.js`: Cloud-based, uses temporary tokens for │                                                                                                │
-│                  │                            │   secure, browser-based authentication via a Supabase function.      │                                                                                                │
+│                  │                            │ • `modes/LocalWhisper.js`: On-device via **Transformers.js**. This is│                                                                                                │
+│                  │                            │   the default for Free users to ensure privacy.                      │                                                                                                │
+│                  │                            │ • `modes/CloudAssemblyAI.js`: Premium cloud-based mode for Pro users.│                                                                                                │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Tailwind CSS     │ Utility-First CSS          │ Used for all styling, enabling rapid UI development.                 │ N/A                                                                                              │
 │                  │                            │ • `tailwind.config.cjs`: Configures the theme, font sizes, and custom effects like glows. │                                                                                                │
@@ -211,12 +210,10 @@ This section details the step-by-step execution flow for both free and paid user
 
 ### Free User Flow
 
-The free tier is designed to be flexible, allowing users to choose between privacy-focused local processing and higher-accuracy cloud processing.
+The free tier is designed to build a habit around practice and reinforce our privacy-first value proposition.
 
 1.  **Authentication**: A user with a `subscription_status` of `'free'` logs in.
-2.  **Speech Recognition (User's Choice)**: When the user starts a session, the `useSpeechRecognition.js` hook is activated, which in turn uses the `TranscriptionService`. The user can toggle between two modes:
-    *   **Local Mode**: This mode is the default and will use the **Transformers.js** library for on-device speech recognition. In this mode, no audio leaves the device, ensuring maximum privacy.
-    *   **Cloud Mode**: This mode uses the `AssemblyAI` service for transcription. Audio is streamed to the AssemblyAI servers for processing.
+2.  **Speech Recognition (Local-Only)**: When the user starts a session, the `useSpeechRecognition.js` hook is activated. For Free users, this **defaults to and is locked to the local on-device mode** using **Transformers.js**. This ensures the core promise of privacy is met for all free users.
 3.  **Session Completion**: The user manually stops the session.
 4.  **Data Persistence (Metadata Only)**: The `useSessionManager.js` and `lib/storage.js` modules collaborate to save the session.
     *   **API Hit**: An `insert` call is made to the Supabase `sessions` table.
@@ -229,11 +226,11 @@ The free tier is designed to be flexible, allowing users to choose between priva
 
 ### Paid (Pro) User Flow
 
-The Pro tier removes limitations and adds features.
+The Pro tier removes limitations and adds premium features, including higher-accuracy transcription.
 
 1.  **Authentication**: A user with a `subscription_status` of `'pro'` or `'premium'` logs in.
-2.  **Unrestricted Usage**: Pro-specific features, like the "Custom Words" tracker, are enabled in the UI. There are no usage limits.
-3.  **Speech Recognition (User's Choice)**: The process is **identical to the free user flow**. The user can choose between `local` and `cloud` modes.
+2.  **Unrestricted Usage**: Pro-specific features, like unlimited custom words and full analytics history, are enabled in the UI.
+3.  **Speech Recognition (User's Choice)**: Pro users have the choice between the standard `local` mode and the premium `cloud` mode (using AssemblyAI) for higher accuracy.
 4.  **Session Completion & Persistence**: This is identical to the free user flow. Session metadata (not the transcript) is saved to the `sessions` table. The `update_user_usage` RPC function is **not** called, as it is unnecessary for Pro users.
 
 **Key Files & Components**: The same as the free flow, with conditional logic in `SessionSidebar.jsx` unlocking the Pro features.

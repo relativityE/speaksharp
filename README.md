@@ -1,31 +1,26 @@
 # SpeakSharp
 
-A mobile-first web application that detects and counts filler words in real time to help users improve verbal clarity and communication effectiveness. All processing is done locally in your browser, ensuring your privacy.
+A real-time speech analysis tool built on two pillars: speed and privacy. Our "privacy by design" approach means we never store your audio. We provide a local-first transcription experience for free, with premium cloud-based features for Pro users. Our goal is to help you speak more confidently without compromising your privacy.
 
 ## Features
 
-- **Real-time Filler Word Detection**: Counts common filler words (e.g., "um", "like") and custom words in real-time.
-- **Color-Coded Highlighting**: Each filler word is assigned a unique color. Words are highlighted in the live transcript and color-coded in the analysis panel for immediate visual feedback.
-- **Engaging Filler Word Analysis**: View your filler word counts with a clean, card-based layout using a severity-based color palette and progress bars for easy visual scanning.
-- **Redesigned Controls**: The session page features a clear and focused control area, with a prominent pill-shaped timer, record button, and a streamlined "Upgrade to Pro" card.
-- **Comprehensive Analytics Dashboard**: Track your progress over time with an improved dashboard that features clearer stats, better visual hierarchy, and a card-based session history.
-- **Reliable Cloud-Based Speech Processing**: Uses AssemblyAI for high-accuracy transcription. This service now provides a session-wide "Transcript Accuracy" score, which is the average of the confidence level for all words spoken. This score is displayed on your analytics page to help you gauge the quality of the transcription.
-- **Robust Session Management**: Start, stop, and save practice sessions to track your improvement over time.
-- **PDF Export (Pro Feature)**: Pro users can download a detailed PDF report for any of their past sessions.
-- **Customizable Experience**: Add your own words to track and use a mobile-friendly, responsive interface.
-- **Choice of Transcription Mode**: Users can switch between high-accuracy cloud transcription and private on-device transcription.
-- **New "Midnight Blue & Electric Lime" Theme**: A visually striking dark mode theme has been implemented to provide a more modern and focused user experience.
+- **Real-time Filler Word Detection**: Counts common filler words (e.g., "um", "like") in real-time.
+- **On-Device Transcription (Free Tier)**: Your speech is processed locally on your device using Transformers.js, ensuring your privacy.
+- **High-Accuracy Cloud Transcription (Pro Tier)**: Pro users can opt-in to use a premium cloud-based engine for even higher accuracy.
+- **Comprehensive Analytics**: Free users can track their progress with trend dashboards, while Pro users unlock deep per-session analytics and history.
+- **Custom Filler Words**: Track your own unique filler words. (Limited in Free tier, unlimited for Pro).
+- **PDF Export (Pro Feature)**: Pro users can download detailed PDF reports of their sessions.
+- **Modern UI**: A clean, responsive interface with a new "Midnight Blue & Electric Lime" theme.
 
 ## Technology Stack
 
-- **Frontend**: React (with [Vite](https://vitejs.dev/)) - A next-generation frontend tooling that provides a faster and leaner development experience for modern web projects.
-- **Styling**: Tailwind CSS
-- **UI Components**: shadcn/ui
-- **Icons**: Lucide React
-- **Authentication & DB**: Supabase
+- **Frontend**: React (with [Vite](https://vitejs.dev/))
+- **Styling**: Tailwind CSS & shadcn/ui
+- **Testing**: Vitest & Playwright
+- **Backend & Database**: Supabase
 - **Speech Processing**:
-    - **Phase 1 (Current)**: AssemblyAI for cloud-based transcription (now configured to capture disfluencies/filler words). On-device transcription is disabled pending future implementation.
-    - **Phase 2 (Planned)**: Whisper.cpp for local, on-device transcription to ensure privacy.
+    - **On-Device (Default)**: Transformers.js for private, in-browser transcription.
+    - **Cloud-Based (Pro Option)**: AssemblyAI for premium, high-accuracy transcription.
 
 ## Getting Started
 
@@ -114,11 +109,13 @@ These issues are documented and will be addressed as part of the broader project
 
 ## How to Test the Application
 
-This project uses a hybrid testing strategy to ensure both speed and reliability.
+This project uses a hybrid testing strategy:
 
-### 1. Unit & Integration Tests (Jest)
+-   **Unit & Integration Tests (Vitest):** For most application logic and components. Run with `pnpm test`.
+-   **End-to-End Tests (Playwright):** For testing features in a real browser environment. Run with `npx playwright test`.
 
-For most of the application logic and component testing, we use [Jest](https://jestjs.io/), a fast and modern test runner. These tests run in a simulated JSDOM environment, which is fast but not a real browser.
+
+For most of the application logic and component testing, we use Vitest, a fast and modern test runner. These tests run in a simulated JSDOM environment, which is fast but not a real browser.
 
 To run the main test suite, use the following command:
 
@@ -127,8 +124,6 @@ pnpm test
 ```
 
 This command is configured to execute all `*.test.jsx` files located under the `src` directory.
-
-**NOTE: The Jest test suite is currently unstable due to a recent migration. See the "Known Issues" section in `PRD.md` for details. This is a high-priority item to be fixed.**
 
 ### 2. End-to-End & Browser-Specific Tests (Playwright)
 
