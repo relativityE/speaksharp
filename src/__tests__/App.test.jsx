@@ -20,6 +20,6 @@ describe('App Component', () => {
     );
 
     // Check for the main element to confirm the app shell renders
-    expect(screen.getByTestId('app-main')).toBeInTheDocument();
+    expect(screen.getByTestId('app-main')).not.toBeNull();
   });
 });

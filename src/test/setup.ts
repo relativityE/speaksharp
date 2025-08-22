@@ -1,5 +1,3 @@
-import '@testing-library/jest-dom';
-
 // Polyfills for browser-like APIs you may use
 globalThis.TextEncoder = require('util').TextEncoder;
 globalThis.TextDecoder = require('util').TextDecoder as any;

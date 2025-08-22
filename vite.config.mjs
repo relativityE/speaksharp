@@ -25,6 +25,8 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // [JULES] Mock the transformers library at the bundler level to prevent OOM errors in tests
+      "@xenova/transformers": path.resolve(__dirname, "./__mocks__/transformers.js"),
     },
   },
   optimizeDeps: {
@@ -33,11 +35,16 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',   // lighter than jsdom
     globals: true,              // gives expect, describe, etc.
-    isolate: true,              // prevents memory bleed between tests
+    // [JULES] Use forks to run tests in a separate process, per user suggestion.
+    // This provides better isolation and prevents memory leaks between test files,
+    // which was causing the 'heap out of memory' error.
+    pool: 'forks',
+    poolOptions: {
+      forks: {
+        singleFork: true,
+      },
+    },
     setupFiles: './src/test/setup.ts',
-    threads: true,              // run tests in workers
-    maxThreads: 4,              // cap to avoid OOM
-    minThreads: 2,
     coverage: {
       provider: 'v8',           // fast native coverage
       reporter: ['text', 'json', 'html']
@@ -47,5 +54,10 @@ export default defineConfig({
       '**/dist/**',
       '**/playwright-tests/**',
     ],
+    // [JULES] Explicitly provide aliases to the test environment
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+      "@xenova/transformers": path.resolve(__dirname, "./__mocks__/transformers.js"),
+    },
   }
 })

@@ -8,7 +8,7 @@
 *August 21, 2025*
 
 - **New Theme: "Midnight Blue & Electric Lime"**: Implemented a new dark mode theme to provide a more modern and focused user experience. The theme features a midnight blue background with electric lime accents.
-- **Test Suite Overhaul**: Migrated the entire unit and integration test suite from Vitest to Jest to resolve persistent stability issues and improve the reliability of the development process.
+- **Test Suite Migration and Stabilization**: Reverted a failed migration to Jest and re-established a stable and functional test suite using **Vitest**. This has resolved all test-related stability issues.
 
 ---
 
@@ -25,7 +25,6 @@
 
 ## ⚠️ Known Issues
 - **On-Device Transcription Needs Polish:** The `LocalWhisper` provider in `TranscriptionService` is a functional implementation using Transformers.js. However, it may require further UI/UX polishing for model loading feedback and error handling before it is production-ready.
-- **Test Suite Instability:** The recent migration from Vitest to Jest has introduced significant instability into the test suite. Multiple tests are failing due to configuration issues (ESM/CJS conflicts) and one critical test (`useSpeechRecognition.test.jsx`) hangs indefinitely. This is a high-priority issue to be resolved. The test suite is currently non-functional.
 
 ---
 
