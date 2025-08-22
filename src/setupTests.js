@@ -1,50 +1,41 @@
-import { afterEach } from '@jest/globals';
-import { cleanup } from '@testing-library/react';
-import '@testing-library/jest-dom';
+// src/setupTests.js
+import { jest } from '@jest/globals';
 import { TextEncoder, TextDecoder } from 'util';
 
 // Polyfill for TextEncoder and TextDecoder
 global.TextEncoder = TextEncoder;
 global.TextDecoder = TextDecoder;
 
-// Mock import.meta.env for Jest
-Object.defineProperty(global, 'import.meta', {
-  value: {
-    env: {
-      VITE_STRIPE_PRICE_ID: 'mock_price_id',
-      VITE_SUPABASE_URL: 'mock_url',
-      VITE_SUPABASE_ANON_KEY: 'mock_key',
-      // Add any other env variables that are used in the code
-    },
-  },
+// Global test setup
+global.jest = jest;
+
+// Mock browser APIs
+Object.defineProperty(window, 'matchMedia', {
   writable: true,
+  value: jest.fn().mockImplementation(query => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: jest.fn(),
+    removeListener: jest.fn(),
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+    dispatchEvent: jest.fn(),
+  })),
 });
 
+// Mock SpeechRecognition
+global.SpeechRecognition = class MockSpeechRecognition {
+  constructor() {
+    this.continuous = false;
+    this.interimResults = false;
+    this.lang = 'en-US';
+  }
+  start() {}
+  stop() {}
+  abort() {}
+};
 
-// React Testing Library's cleanup function runs after each test
-afterEach(() => {
-  cleanup();
-});
+global.webkitSpeechRecognition = global.SpeechRecognition;
 
-jest.mock('./lib/supabaseClient', () => ({
-  supabase: {
-    from: jest.fn(() => ({
-      select: jest.fn().mockResolvedValue({ data: [], error: null }),
-      insert: jest.fn().mockResolvedValue({ data: [{}], error: null }),
-      delete: jest.fn().mockResolvedValue({ data: {}, error: null }),
-    })),
-    rpc: jest.fn().mockResolvedValue({ data: true, error: null }),
-    auth: {
-      onAuthStateChange: jest.fn(() => ({
-        data: { subscription: { unsubscribe: jest.fn() } },
-      })),
-      signInWithPassword: jest.fn().mockResolvedValue({ data: {}, error: null }),
-      signUp: jest.fn().mockResolvedValue({ data: {}, error: null }),
-      signOut: jest.fn().mockResolvedValue({ error: null }),
-      getSession: jest.fn().mockResolvedValue({ data: { session: null }, error: null }),
-    },
-    functions: {
-        invoke: jest.fn().mockResolvedValue({ data: {}, error: null }),
-    }
-  },
-}));
+// import.meta.env is now handled by a Babel plugin
