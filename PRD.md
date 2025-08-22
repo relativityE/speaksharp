@@ -8,7 +8,7 @@
 *August 21, 2025*
 
 - **New Theme: "Midnight Blue & Electric Lime"**: Implemented a new dark mode theme to provide a more modern and focused user experience. The theme features a midnight blue background with electric lime accents.
-- **Test Suite Overhaul**: Migrated the entire unit and integration test suite from Vitest to Jest to resolve persistent stability issues and improve the reliability of the development process.
+- **Test Suite Migration and Stabilization**: Reverted a failed migration to Jest and re-established a stable and functional test suite using **Vitest**. This has resolved all test-related stability issues.
 
 ---
 
@@ -24,8 +24,7 @@
 ---
 
 ## ⚠️ Known Issues
-- **On-Device Transcription is Not Yet Implemented:** The `LocalWhisper` provider in `TranscriptionService` is a non-functional simulation. The UI toggle remains enabled for demo purposes. This is the top priority for Phase 2 and will be implemented using the Transformers.js library.
-- **Test Suite Migration:** The project has migrated from `Vitest` to `Jest` to resolve persistent timeout issues and improve test reliability. This work is now complete.
+- **On-Device Transcription Needs Polish:** The `LocalWhisper` provider in `TranscriptionService` is a functional implementation using Transformers.js. However, it may require further UI/UX polishing for model loading feedback and error handling before it is production-ready.
 
 ---
 
@@ -106,7 +105,7 @@ Our technology choices prioritize development speed, scalability, and user exper
 
 ## 🗓️ Development Roadmap
 
-### PHASE 1 — MVP FOUNDATION (Weeks 1-3) - ~95% Complete
+### PHASE 1 — MVP FOUNDATION (Weeks 1-3) - ~80% Complete
 - **[DONE]** `[M]` Implement core backend services (Supabase Auth & DB).
 - **[DONE]** `[M]` Implement `TranscriptionService` with AssemblyAI provider.
 - **[DONE]** `[M]` Integrate `TranscriptionService` into the main session page.
@@ -119,10 +118,10 @@ Our technology choices prioritize development speed, scalability, and user exper
 - **[DONE]** `[S]` Implement "Midnight Blue & Electric Lime" theme.
 - **[DEFERRED]** `[C]` A/B testing setup with PostHog.
 
-### PHASE 2 — PRIVACY & POLISH (Months 1-3) - ~30% Complete
+### PHASE 2 — PRIVACY & POLISH (Months 1-3) - ~60% Complete
 - **[DONE]** `[M]` Build a comprehensive analytics dashboard for users.
 - **[DONE]** `[S]` Re-evaluated fallback to native Web Speech API (removed as a feature).
-- **[BLOCKED]** `[M]` Integrate On-Device Transcription (using **Transformers.js**).
+- **[DONE]** `[M]` Integrate On-Device Transcription (using **Transformers.js**).
 - **[BLOCKED]** `[M]` Implement automatic fallback from local to cloud STT based on performance.
 - **[OUTSTANDING]** `[S]` Implement weekly summary emails.
 - **[OUTSTANDING]** `[S]` Add in-app prompts to encourage users to upgrade.

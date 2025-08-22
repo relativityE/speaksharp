@@ -1,11 +1,17 @@
-// src/test/mocks/transformers.js
-export const pipeline = vi.fn().mockImplementation(() => {
-  return Promise.resolve({
-    // Mock transcription result
-    text: 'Mock transcription result'
-  });
-});
+// This is a mock file to prevent the actual @xenova/transformers library from loading.
+// It must be a plain JavaScript module with no dependencies on Vitest (like `vi`).
 
-export default {
-  pipeline
+const pipeline = async (task, model) => {
+  console.log(`[Mock] Pipeline called for task: ${task}, model: ${model}`);
+  // Return a function that simulates the behavior of a real pipeline
+  return (text) => {
+    return Promise.resolve({
+      text: "Mocked transcription result.",
+    });
+  };
+};
+
+// Use CJS exports for maximum compatibility with Node/Vite config
+module.exports = {
+  pipeline,
 };
