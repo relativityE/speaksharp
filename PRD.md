@@ -24,8 +24,8 @@
 ---
 
 ## ⚠️ Known Issues
-- **On-Device Transcription is Not Yet Implemented:** The `LocalWhisper` provider in `TranscriptionService` is a non-functional simulation. The UI toggle remains enabled for demo purposes. This is the top priority for Phase 2 and will be implemented using the Transformers.js library.
-- **Test Suite Migration:** The project has migrated from `Vitest` to `Jest` to resolve persistent timeout issues and improve test reliability. This work is now complete.
+- **On-Device Transcription Needs Polish:** The `LocalWhisper` provider in `TranscriptionService` is a functional implementation using Transformers.js. However, it may require further UI/UX polishing for model loading feedback and error handling before it is production-ready.
+- **Test Suite Instability:** The recent migration from Vitest to Jest has introduced significant instability into the test suite. Multiple tests are failing due to configuration issues (ESM/CJS conflicts) and one critical test (`useSpeechRecognition.test.jsx`) hangs indefinitely. This is a high-priority issue to be resolved. The test suite is currently non-functional.
 
 ---
 
@@ -106,7 +106,7 @@ Our technology choices prioritize development speed, scalability, and user exper
 
 ## 🗓️ Development Roadmap
 
-### PHASE 1 — MVP FOUNDATION (Weeks 1-3) - ~95% Complete
+### PHASE 1 — MVP FOUNDATION (Weeks 1-3) - ~80% Complete
 - **[DONE]** `[M]` Implement core backend services (Supabase Auth & DB).
 - **[DONE]** `[M]` Implement `TranscriptionService` with AssemblyAI provider.
 - **[DONE]** `[M]` Integrate `TranscriptionService` into the main session page.
@@ -115,14 +115,14 @@ Our technology choices prioritize development speed, scalability, and user exper
 - **[DONE]** `[M]` Set up Sentry for error monitoring.
 - **[DONE]** `[M]` Set up PostHog for product analytics.
 - **[DONE]** `[S]` Develop a responsive UI with a professional light theme.
-- **[DONE]** `[S]` Migrate test suite from Vitest to Jest to stabilize the testing environment.
+- **[BROKEN]** `[S]` Migrate test suite from Vitest to Jest to stabilize the testing environment.
 - **[DONE]** `[S]` Implement "Midnight Blue & Electric Lime" theme.
 - **[DEFERRED]** `[C]` A/B testing setup with PostHog.
 
-### PHASE 2 — PRIVACY & POLISH (Months 1-3) - ~30% Complete
+### PHASE 2 — PRIVACY & POLISH (Months 1-3) - ~60% Complete
 - **[DONE]** `[M]` Build a comprehensive analytics dashboard for users.
 - **[DONE]** `[S]` Re-evaluated fallback to native Web Speech API (removed as a feature).
-- **[BLOCKED]** `[M]` Integrate On-Device Transcription (using **Transformers.js**).
+- **[DONE]** `[M]` Integrate On-Device Transcription (using **Transformers.js**).
 - **[BLOCKED]** `[M]` Implement automatic fallback from local to cloud STT based on performance.
 - **[OUTSTANDING]** `[S]` Implement weekly summary emails.
 - **[OUTSTANDING]** `[S]` Add in-app prompts to encourage users to upgrade.
