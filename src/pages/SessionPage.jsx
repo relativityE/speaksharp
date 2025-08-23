@@ -17,23 +17,6 @@ import { UpgradePromptDialog } from '@/components/UpgradePromptDialog';
 const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) => {
     const { error, isSupported, isListening, transcript, interimTranscript } = speechRecognition;
 
-    if (error) {
-        return (
-            <Card className="flex-grow">
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <AlertTriangle className="text-red-500" /> Error
-                    </CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <p className="text-red-500">{error.message}</p>
-                    <p className="text-muted-foreground mt-2">
-                        Speech recognition could not be initialized. Please check your browser permissions and try refreshing the page.
-                    </p>
-                </CardContent>
-            </Card>
-        );
-    }
 
     if (!isSupported) {
         return (
@@ -83,22 +66,11 @@ export const SessionPage = () => {
     const { saveSession, usageLimitExceeded, setUsageLimitExceeded } = useSessionManager();
     const [customWords, setCustomWords] = useState([]);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-    const [mode, setMode] = useState('local'); // Default to local
+    const [mode, setMode] = useState('cloud');
     const [elapsedTime, setElapsedTime] = useState(0);
 
     const speechRecognition = useSpeechRecognition({ customWords, mode });
     const { isListening, modelLoadingProgress } = speechRecognition;
-
-    useEffect(() => {
-        // Set the initial mode based on user's subscription status.
-        // Pro users can default to cloud, others are locked to local.
-        const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
-        if (isPro) {
-            setMode('cloud');
-        } else {
-            setMode('local');
-        }
-    }, [profile]);
 
     useEffect(() => {
         posthog.capture('session_page_viewed');

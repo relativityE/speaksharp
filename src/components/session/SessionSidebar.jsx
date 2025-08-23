@@ -58,6 +58,16 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
 
     const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
 
+    const handleDevCloudUnlockChange = (checked) => {
+        if (isListening) {
+            toast.info("Mode switching is disabled while recording.", {
+                description: "Please stop the current session to switch transcription modes.",
+            });
+        } else {
+            setDevCloudUnlocked(checked);
+        }
+    };
+
     const handleUpgrade = async () => {
         if (!user) {
             navigate('/auth');
@@ -240,7 +250,7 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                                     </Label>
                                 </div>
                                 <div className="flex items-center space-x-2">
-                                    <Checkbox id="dev-unlock-cloud" checked={devCloudUnlocked} onCheckedChange={setDevCloudUnlocked} />
+                                    <Checkbox id="dev-unlock-cloud" checked={devCloudUnlocked} onCheckedChange={handleDevCloudUnlockChange} />
                                     <Label htmlFor="dev-unlock-cloud" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
                                         Unlock Cloud Mode (for non-pro)
                                     </Label>
