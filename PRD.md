@@ -153,7 +153,7 @@ Status Key: ✓ = Done, ➜ = In Progress, ○ = Outstanding, (D) = Deferred.
 - ○ S: Implement weekly summary emails.
 - ✓ S: Add in-app prompts to encourage users to upgrade.
 - ○ S: Conduct thorough cross-browser testing and bug fixing.
-- ○ S: Develop AI-powered suggestions for improving speech.
+- ➜ S: Develop AI-powered suggestions for improving speech.
 - (D) C: Full offline mode for the application.
 - (D) C: A/B test different UI elements and user flows.
 - (D) C: Optimize funnels based on PostHog data.
