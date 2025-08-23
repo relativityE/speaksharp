@@ -2,13 +2,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabaseClient';
-import { Mic, Square, Loader2, Zap } from 'lucide-react';
+import { Mic, Square, Loader2, Zap, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useStripe } from '@stripe/react-stripe-js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { Progress } from '@/components/ui/progress';
 import { ErrorDisplay } from '../ErrorDisplay';
 
 const DigitalTimer = ({ elapsedTime }) => {
@@ -24,7 +25,29 @@ const DigitalTimer = ({ elapsedTime }) => {
     );
 };
 
-export const SessionSidebar = ({ isListening, error, startListening, stopListening, reset, desiredMode, setMode, actualMode, saveSession, elapsedTime }) => {
+const ModelLoadingIndicator = ({ progress }) => {
+    if (!progress || progress.status === 'ready' || progress.status === 'error') {
+        return null;
+    }
+
+    const loaded = progress.loaded ? (progress.loaded / 1024 / 1024).toFixed(2) : 0;
+    const total = progress.total ? (progress.total / 1024 / 1024).toFixed(2) : 0;
+    const progressPercent = progress.total ? (progress.loaded / progress.total) * 100 : 0;
+
+    let statusText = 'Initializing...';
+    if (progress.status === 'download') {
+        statusText = `Downloading model: ${progress.file} (${loaded}MB / ${total}MB)`;
+    }
+
+    return (
+        <div className="space-y-2 pt-2">
+            <p className="text-xs text-muted-foreground text-center">{statusText}</p>
+            {progress.status === 'download' && <Progress value={progressPercent} />}
+        </div>
+    );
+};
+
+export const SessionSidebar = ({ isListening, error, startListening, stopListening, reset, desiredMode, setMode, actualMode, saveSession, elapsedTime, modelLoadingProgress }) => {
     const navigate = useNavigate();
     const { user, profile } = useAuth();
     const stripe = useStripe();
@@ -195,10 +218,15 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                                     id="transcription-mode"
                                     checked={desiredMode === 'cloud'}
                                     onCheckedChange={(checked) => setMode(checked ? 'cloud' : 'local')}
+                                    disabled={!isPro}
                                 />
-                                <Label htmlFor="transcription-mode" className="text-muted-foreground">Cloud</Label>
+                                <Label htmlFor="transcription-mode" className="text-muted-foreground flex items-center gap-1">
+                                    Cloud
+                                    {!isPro && <Lock className="w-3 h-3" />}
+                                </Label>
                             </div>
                         </div>
+                        <ModelLoadingIndicator progress={modelLoadingProgress} />
                         <ErrorDisplay error={error} />
                         {import.meta.env.DEV && (
                             <div className="pt-4 border-t border-border/50">

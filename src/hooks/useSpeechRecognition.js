@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import TranscriptionService from '../services/transcription/TranscriptionService';
 import { FILLER_WORD_KEYS } from '../config';
 
@@ -34,6 +35,8 @@ export const useSpeechRecognition = ({
 } = {}) => {
     console.log(`[useSpeechRecognition] Hook initialized with mode: ${mode}, model: ${model}`);
 
+    const { profile } = useAuth();
+
     // --- State Management ---
     const [isListening, setIsListening] = useState(false);
     const [transcript, setTranscript] = useState('');
@@ -45,6 +48,7 @@ export const useSpeechRecognition = ({
     const [error, setError] = useState(null);
     const [isSupported, setIsSupported] = useState(true);
     const [currentMode, setCurrentMode] = useState(mode);
+    const [modelLoadingProgress, setModelLoadingProgress] = useState(null);
 
     const transcriptionServiceRef = useRef(null);
 
@@ -77,9 +81,14 @@ export const useSpeechRecognition = ({
         return counts;
     }, [customWords]);
 
+    const onModelLoadProgress = useCallback((progress) => {
+        setModelLoadingProgress(progress);
+    }, []);
+
     const onTranscriptUpdate = useCallback((data) => {
         // console.log('[useSpeechRecognition] onTranscriptUpdate:', data);
-        if (data.transcript?.partial) {
+        // Don't show model loading messages in the transcript panel anymore
+        if (data.transcript?.partial && !data.transcript.partial.startsWith('Downloading model')) {
             setInterimTranscript(data.transcript.partial);
         }
 
@@ -130,7 +139,9 @@ export const useSpeechRecognition = ({
 
                 const service = new TranscriptionService(mode, {
                     onTranscriptUpdate,
-                    model
+                    onModelLoadProgress,
+                    model,
+                    profile
                 });
                 await service.init();
                 transcriptionServiceRef.current = service;
@@ -199,5 +210,6 @@ export const useSpeechRecognition = ({
         stopListening,
         reset,
         mode: currentMode, // Return the *actual* current mode
+        modelLoadingProgress,
     };
 };
