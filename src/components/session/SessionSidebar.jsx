@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { useStripe } from '@stripe/react-stripe-js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { ErrorDisplay } from '../ErrorDisplay';
@@ -53,6 +54,7 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
     const stripe = useStripe();
     const [isLoading, setIsLoading] = useState(false);
     const [isUpgrading, setIsUpgrading] = useState(false);
+    const [devCloudUnlocked, setDevCloudUnlocked] = useState(false);
 
     const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
 
@@ -218,7 +220,7 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                                     id="transcription-mode"
                                     checked={desiredMode === 'cloud'}
                                     onCheckedChange={(checked) => setMode(checked ? 'cloud' : 'local')}
-                                    disabled={!isPro}
+                                    disabled={!isPro && !devCloudUnlocked}
                                 />
                                 <Label htmlFor="transcription-mode" className="text-muted-foreground flex items-center gap-1">
                                     Cloud
@@ -229,11 +231,20 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                         <ModelLoadingIndicator progress={modelLoadingProgress} />
                         <ErrorDisplay error={error} />
                         {import.meta.env.DEV && (
-                            <div className="pt-4 border-t border-border/50">
-                                <h4 className="font-medium text-muted-foreground mb-2">Developer Controls</h4>
-                                <Button variant="outline" size="sm" onClick={() => setMode('native')} className="h-auto whitespace-normal text-balance">
-                                    Force Native Transcription
-                                </Button>
+                            <div className="pt-4 border-t border-border/50 space-y-4">
+                                <h4 className="font-medium text-muted-foreground">Developer Controls</h4>
+                                <div className="flex items-center space-x-2">
+                                    <Checkbox id="dev-native-mode" onCheckedChange={(checked) => { if(checked) setMode('native')}} />
+                                    <Label htmlFor="dev-native-mode" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                                        Force Native Transcription
+                                    </Label>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                    <Checkbox id="dev-unlock-cloud" checked={devCloudUnlocked} onCheckedChange={setDevCloudUnlocked} />
+                                    <Label htmlFor="dev-unlock-cloud" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                                        Unlock Cloud Mode (for non-pro)
+                                    </Label>
+                                </div>
                             </div>
                         )}
                     </CardContent>
