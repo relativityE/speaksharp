@@ -25,7 +25,11 @@
 
 ## Known Issues
 - **On-Device Transcription Needs Polish:** The `LocalWhisper` provider in `TranscriptionService` is a functional implementation using Transformers.js. However, it may require further UI/UX polishing for model loading feedback and error handling before it is production-ready.
-- **`useSpeechRecognition` Test Disabled:** The test file for the main `useSpeechRecognition` hook (`useSpeechRecognition.test.jsx`) is currently disabled due to an unresolvable memory leak in the Vitest environment. The leak occurs even when running a single, simple test, suggesting the memory overhead comes from importing the hook's dependency graph. The file has been preserved with a `.disabled` extension for future debugging, but it is excluded from the test suite to maintain a stable CI pipeline. This is a high-priority issue to resolve to ensure full test coverage.
+- **`useSpeechRecognition` Test Disabled:** The test file for the main `useSpeechRecognition` hook (`useSpeechRecognition.test.jsx`) is currently disabled due to a critical, unresolvable memory leak.
+  - **Status (as of Aug 23, 2025):** The test was re-enabled and confirmed to fail with a `JS heap out of memory` error, even when run in isolation.
+  - **Analysis:** The memory leak appears to be caused by the large dependency graph of the hook, which includes the AI models from Transformers.js. The issue persists even with advanced mocking strategies.
+  - **Action:** The file has been re-disabled with a `.disabled` extension to maintain a stable CI pipeline. This remains a high-priority issue to resolve to ensure full test coverage.
+  - **Developer Note:** When attempting to debug this test, it is a long-running process. It should be executed as a background task (e.g., `pnpm test src/__tests__/useSpeechRecognition.test.jsx &`) to avoid blocking the shell.
 
 ---
 
@@ -236,3 +240,9 @@ Target: 3:1+ (Highly favorable)
 Private practice. Public impact.
 
 ---
+
+## Technical Debt
+
+This section tracks known technical issues and areas for improvement that have been identified but not yet prioritized for immediate action.
+
+-   **[OPEN]** **`createRoot` Warning:** The application throws a warning: `You are calling ReactDOMClient.createRoot() on a container that has already been passed to createRoot() before.` This suggests that the main script might be loading more than once. While a guard exists in `main.jsx` to prevent this, the warning persists, pointing to a potential issue in the Vite HMR environment.
