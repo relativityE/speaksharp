@@ -147,15 +147,15 @@ Status Key: ✓ = Done, ➜ = In Progress, ○ = Outstanding, (D) = Deferred.
 - ✓ M: Implement hard 30-minute per-session time limit for Free tier users.
 - ○ M: Enforce "Local-only" transcription mode for Free tier users.
 - ○ M: Implement automatic fallback from local to cloud STT based on performance.
-- ○ M: Implement team accounts and billing.
+- ○ M: Conduct thorough cross-browser testing and bug fixing.
 - ○ M: Set up production deployment on Vercel.
-- ○ S: Add support for more languages.
 - ○ S: Implement weekly summary emails.
 - ✓ S: Add in-app prompts to encourage users to upgrade.
-- ○ S: Conduct thorough cross-browser testing and bug fixing.
-- ○ S: Develop AI-powered suggestions for improving speech.
+- ➜ S: Develop AI-powered suggestions for improving speech.
+- ○ S: A/B test different UI elements and user flows.
 - (D) C: Full offline mode for the application.
-- (D) C: A/B test different UI elements and user flows.
+- (D) C: Implement team accounts and billing.
+- (D) C: Add support for more languages.
 - (D) C: Optimize funnels based on PostHog data.
 - (D) C: Case studies and advanced content marketing.
 

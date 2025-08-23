@@ -1,11 +1,12 @@
 import { pipeline } from '@xenova/transformers';
 
 export default class LocalWhisper {
-  constructor({ model = 'Xenova/whisper-tiny.en', performanceWatcher, onTranscriptUpdate } = {}) {
+  constructor({ model = 'Xenova/whisper-tiny.en', performanceWatcher, onTranscriptUpdate, onModelLoadProgress } = {}) {
     console.log(`[LocalWhisper] Constructor called with model: ${model}`);
     this.model = model;
     this.performanceWatcher = performanceWatcher;
     this.onTranscriptUpdate = onTranscriptUpdate;
+    this.onModelLoadProgress = onModelLoadProgress;
     this.transcriber = null;
     this.ready = false;
     this.audioChunks = [];
@@ -17,18 +18,15 @@ export default class LocalWhisper {
   async init() {
     try {
       console.log(`[LocalWhisper] Initializing local whisper model: ${this.model}`);
+      if (this.onModelLoadProgress) {
+        this.onModelLoadProgress({ status: 'initializing' });
+      }
 
       const progress_callback = (progress) => {
         console.log(`[LocalWhisper] Model download progress:`, progress);
-        const status = progress.status;
-        const file = progress.file;
-        const loaded = (progress.loaded / 1024 / 1024).toFixed(2);
-        const total = (progress.total / 1024 / 1024).toFixed(2);
-        const progressPercent = ((progress.loaded / progress.total) * 100).toFixed(2);
-
-        this.onTranscriptUpdate({
-            transcript: { partial: `Downloading model: ${file} (${loaded}MB / ${total}MB - ${progressPercent}%)` }
-        });
+        if (this.onModelLoadProgress) {
+          this.onModelLoadProgress(progress);
+        }
       };
 
       this.transcriber = await pipeline('automatic-speech-recognition', this.model, {
@@ -37,10 +35,16 @@ export default class LocalWhisper {
       });
 
       this.ready = true;
+      if (this.onModelLoadProgress) {
+        this.onModelLoadProgress({ status: 'ready' });
+      }
       console.log('[LocalWhisper] Local whisper model initialized successfully.');
     } catch (error) {
       console.error('[LocalWhisper] Failed to initialize local whisper model:', error);
       this.ready = false;
+      if (this.onModelLoadProgress) {
+        this.onModelLoadProgress({ status: 'error', error });
+      }
       throw error;
     }
   }

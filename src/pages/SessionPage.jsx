@@ -5,6 +5,7 @@ import posthog from 'posthog-js';
 import { FILLER_WORD_KEYS } from '../config';
 import { TranscriptPanel } from '../components/session/TranscriptPanel';
 import FillerWordAnalysis from '../components/session/FillerWordAnalysis';
+import AISuggestions from '../components/session/AISuggestions';
 import { SessionSidebar } from '../components/session/SessionSidebar';
 import { Button } from '@/components/ui/button';
 import { Drawer, DrawerContent, DrawerTrigger } from '@/components/ui/drawer';
@@ -64,6 +65,11 @@ const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) =
                     defaultFillerWords={Object.values(FILLER_WORD_KEYS)}
                     className="flex-grow"
                 />
+                {!isListening && transcript && (
+                    <div className="mt-8">
+                        <AISuggestions transcript={transcript} />
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -77,11 +83,22 @@ export const SessionPage = () => {
     const { saveSession, usageLimitExceeded, setUsageLimitExceeded } = useSessionManager();
     const [customWords, setCustomWords] = useState([]);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-    const [mode, setMode] = useState('cloud');
+    const [mode, setMode] = useState('local'); // Default to local
     const [elapsedTime, setElapsedTime] = useState(0);
 
     const speechRecognition = useSpeechRecognition({ customWords, mode });
-    const { isListening } = speechRecognition;
+    const { isListening, modelLoadingProgress } = speechRecognition;
+
+    useEffect(() => {
+        // Set the initial mode based on user's subscription status.
+        // Pro users can default to cloud, others are locked to local.
+        const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
+        if (isPro) {
+            setMode('cloud');
+        } else {
+            setMode('local');
+        }
+    }, [profile]);
 
     useEffect(() => {
         posthog.capture('session_page_viewed');
@@ -139,7 +156,7 @@ export const SessionPage = () => {
 
                 {/* Desktop Sidebar (Right Column) */}
                 <div className="hidden lg:block lg:w-1/3">
-                    <SessionSidebar {...speechRecognition} saveSession={saveSession} desiredMode={mode} setMode={setMode} actualMode={speechRecognition.mode} elapsedTime={elapsedTime} />
+                    <SessionSidebar {...speechRecognition} saveSession={saveSession} desiredMode={mode} setMode={setMode} actualMode={speechRecognition.mode} elapsedTime={elapsedTime} modelLoadingProgress={modelLoadingProgress} />
                 </div>
 
                 {/* Mobile Drawer */}
@@ -153,7 +170,7 @@ export const SessionPage = () => {
                         </DrawerTrigger>
                         <DrawerContent>
                             <div className="p-4 overflow-y-auto h-[80vh]">
-                                <SessionSidebar {...speechRecognition} saveSession={saveSession} desiredMode={mode} setMode={setMode} actualMode={speechRecognition.mode} elapsedTime={elapsedTime} />
+                                <SessionSidebar {...speechRecognition} saveSession={saveSession} desiredMode={mode} setMode={setMode} actualMode={speechRecognition.mode} elapsedTime={elapsedTime} modelLoadingProgress={modelLoadingProgress} />
                             </div>
                         </DrawerContent>
                     </Drawer>
