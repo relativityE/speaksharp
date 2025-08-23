@@ -149,7 +149,7 @@ Status Key: ✓ = Done, ➜ = In Progress, ○ = Outstanding, (D) = Deferred.
 - ○ M: Set up production deployment on Vercel.
 - ○ S: Add support for more languages.
 - ○ S: Implement weekly summary emails.
-- ○ S: Add in-app prompts to encourage users to upgrade.
+- ✓ S: Add in-app prompts to encourage users to upgrade.
 - ○ S: Conduct thorough cross-browser testing and bug fixing.
 - ○ S: Develop AI-powered suggestions for improving speech.
 - (D) C: Full offline mode for the application.

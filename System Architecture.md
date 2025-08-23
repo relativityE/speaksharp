@@ -34,6 +34,12 @@ The architecture is designed around a modern, client-heavy Jamstack approach. Th
 |  | - TranscriptPanel: Uses a |  |
 |  |   debounced scroll handler|  |
 |  |   for performance.        |  |
+|  | - Upgrade Prompts: A      |  |
+|  |   dialog appears on       |  |
+|  |   session limits, and a   |  |
+|  |   banner on the analytics |  |
+|  |   page to encourage       |  |
+|  |   upgrades.               |  |
 |  +---------------------------+  |
 +---------------------------------+
              |

@@ -85,6 +85,8 @@ describe('SessionPage', () => {
 
         // Check that stopListening was called
         expect(mockUseSpeechRecognition.stopListening).toHaveBeenCalledTimes(1);
+        // Check that the upgrade prompt is triggered
+        expect(mockUseSessionManager.setUsageLimitExceeded).toHaveBeenCalledWith(true);
     });
 
     it('should auto-stop the session for a free user after 30 minutes', () => {
@@ -103,6 +105,7 @@ describe('SessionPage', () => {
         });
 
         expect(mockUseSpeechRecognition.stopListening).toHaveBeenCalledTimes(1);
+        expect(mockUseSessionManager.setUsageLimitExceeded).toHaveBeenCalledWith(true);
     });
 
     it('should not auto-stop the session for a pro user', () => {

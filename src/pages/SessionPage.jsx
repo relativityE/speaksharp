@@ -115,9 +115,9 @@ export const SessionPage = () => {
 
         if (sessionLimit && elapsedTime >= sessionLimit) {
             speechRecognition.stopListening();
-            // Consider showing a notification here
+            setUsageLimitExceeded(true);
         }
-    }, [elapsedTime, isListening, user, profile, speechRecognition.stopListening]);
+    }, [elapsedTime, isListening, user, profile, speechRecognition.stopListening, setUsageLimitExceeded]);
 
     return (
         <div className="container mx-auto px-4 py-10">
