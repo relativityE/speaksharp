@@ -271,10 +271,10 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                 </Card>
             </div>
 
-            <Card className="w-full bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 border-purple-200 flex-shrink-0">
+            <Card className="w-full bg-secondary border-primary/20 flex-shrink-0">
                 <CardHeader>
-                    <CardTitle className="text-base flex items-center gap-2">
-                        <Zap className="w-6 h-6 text-yellow-500" />
+                    <CardTitle className="text-base flex items-center gap-2 text-primary">
+                        <Zap className="w-6 h-6" />
                         Upgrade to Pro
                     </CardTitle>
                 </CardHeader>
@@ -282,7 +282,7 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                     <p className="text-sm text-muted-foreground mb-4">
                         Get unlimited practice, advanced analytics, and priority support.
                     </p>
-                    <Button className="w-full font-bold group" onClick={handleUpgrade} disabled={isUpgrading || !user || isPro}>
+                    <Button className="w-full font-bold group" variant="outline" onClick={handleUpgrade} disabled={isUpgrading || !user || isPro}>
                         {isUpgrading
                             ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Upgrading...</>
                             : isPro
