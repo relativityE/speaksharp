@@ -139,21 +139,26 @@ This command looks for test files in the `playwright-tests` directory and runs t
 
 ## Usage
 
-SpeakSharp uses a "progressive reveal" model. All pages are accessible to everyone, but more features are unlocked when you sign up for a free account.
+SpeakSharp uses a "progressive reveal" model. All pages are accessible to everyone, but more features are unlocked when you sign up for a free account. This section outlines the features available at each tier.
 
-### Anonymous Users (Free Trial)
--   **Start a Session**: Anyone can start a recording session from the main page.
--   **2-Minute Limit**: Trial sessions are limited to 2 minutes. A checkbox is available for developers to override this limit.
--   **View Analytics Page**: You can view the Analytics page, but it will show a demo and a prompt to sign up to save and view your history.
--   **Choice of Transcription Mode**: Users can switch between high-accuracy cloud transcription and private on-device transcription.
+### Anonymous Users (Trial)
+- **Session Limit**: A single trial session is limited to 2 minutes.
+- **Transcription**: Uses the same privacy-first, on-device transcription as the Free tier.
+- **Analytics**: Can view a demo of the analytics page, but no data is saved.
 
-### Authenticated Users (Free Tier)
--   **Sign Up / Login**: Create a free account to unlock more features.
--   **Save Session History**: Your sessions are automatically saved to your account.
--   **Track Progress**: The Analytics page will show your full session history and progress charts.
--   **Unlimited Session Length**: The 2-minute limit is removed.
--   **Custom Filler Words**: Add and track your own list of custom filler words.
--   **Choice of Transcription Mode**: Users can switch between high-accuracy cloud transcription and private on-device transcription.
+### Free Tier Users
+- **Session Limit**: 30-minute session limit and a monthly usage cap.
+- **Transcription**: All transcription is processed locally on-device to ensure privacy.
+- **Session History**: Automatically saves session metadata to the user's account.
+- **Analytics**: Access to trend-based dashboards to track progress over time.
+- **Custom Filler Words**: Track up to 3 custom filler words.
+
+### Pro Tier Users
+Pro users unlock the full power of the tool, including:
+- Unlimited session time and history.
+- The option to use premium, high-accuracy cloud transcription.
+- Advanced, per-session analytics and data export (including PDF reports).
+- Unlimited custom filler words.
 
 ## User Tiers & Authentication
 

@@ -45,7 +45,7 @@ The architecture is designed around a modern, client-heavy Jamstack approach. Th
 
 ### Detailed User Flow Diagram
 
-This diagram offers a more detailed look at the application's architecture from a user flow perspective, showing the specific paths and API calls for different user tiers.
+This diagram offers a more detailed look at the application's architecture from a user flow perspective, showing the specific paths and API calls for all three user tiers.
 
 ```text
                           +---------------------------------------------+
@@ -57,81 +57,46 @@ This diagram offers a more detailed look at the application's architecture from 
 | |      React SPA (Vite, `src`)           |  |      TranscriptionService       | |
 | |                                        |  |  (Provides onTranscriptUpdate)  | |
 | |  - `SessionPage.jsx`                   |  |---------------------------------| |
-| |  - `SessionSidebar.jsx`                |<--+ if (mode === 'local') {         | |
-| |  - `useSpeechRecognition.js`           |  |   LocalWhisper (On-Device)    | |
+| |  - `SessionSidebar.jsx`                |<--+ if (user.isPro) {             | |
+| |  - `useSpeechRecognition.js`           |  |   CloudAssemblyAI (via Token)   | |
 |    (Initializes service on-demand)     |  | } else {                        | |
-| |  - `useSessionManager.js`              |  |   CloudAssemblyAI (via Supabase token fn) | |
+| |  - `useSessionManager.js`              |  |   LocalWhisper (On-Device)    | |
 | +----------------------------------------+  | }                               | |
 |                                          |  +---------------------------------+ |
 |                                          |                                    |
 +------------------------------------------+------------------------------------+
                           |
-+-------------------------+---------------------------------------------+
-|       FREE USER         |                PRO USER                     |
-| (Usage Limit Enforced)  |         (No Usage Limit, Pro Features)      |
-+-------------------------+---------------------------------------------+
-             |                                       |
-             |                                       |
-+------------v--------------------------+ +-----------v---------------------------+
-| Save Session (Metadata Only)          | | Save Session (Metadata Only)          |
-| `supabase.from('sessions').insert()`  | | `supabase.from('sessions').insert()`  |
-+---------------------------------------+ +---------------------------------------+
-             |                                       |
-+------------v--------------------------+ +-----------v---------------------------+
-| Update & Enforce Usage Limit          | | (No Usage Update Call)                |
-| `supabase.rpc('update_user_usage')`   | |                                       |
-+---------------------------------------+ +---------------------------------------+
-                                                     |
-                                          (One-time Upgrade Process)
-                                                     |
-             +---------------------------------------v---------------------------------------+
-             |                                                                               |
-             |  1. `supabase.functions.invoke('stripe-checkout')`                            |
-             |       |                                                                       |
-             |       +--> Creates Stripe Checkout Session, redirects User to Stripe          |
-             |                                                                               |
-             |  2. User completes payment on Stripe                                          |
-             |       |                                                                       |
-             |       +--> Stripe sends webhook event                                         |
-             |                                                                               |
-             |  3. `supabase.functions.invoke('stripe-webhook')`                             |
-             |       |                                                                       |
-             |       +--> Verifies event, updates `user_profiles.subscription_status` to 'pro'|
-             |                                                                               |
-             +-------------------------------------------------------------------------------+
-
-## 6. Test Approach
-
-Our project employs a robust and stable testing strategy centered on **Vitest**, a modern test runner that integrates seamlessly with Vite.
-
-### Unit & Integration Testing: **Vitest + happy-dom**
-
-This is the primary testing stack for the application. It provides a fast and reliable way to test components and logic.
-
-*   **Vite**: Acts as the core build and test orchestration engine.
-*   **Vitest**: The designated **test runner**. `pnpm test` is configured to execute all `*.test.jsx` files located in `src/__tests__`.
-*   **happy-dom**: A lightweight, simulated browser environment for tests that need to interact with a DOM.
-*   **Mocking**: The test environment is configured with advanced mocking to handle complex dependencies like `@xenova/transformers` and prevent memory leaks. The key to solving the memory issue was to control the module import order in the test file (`useSpeechRecognition.test.jsx`):
-    1.  **Mocks are established first:** `vi.mock()` is called at the top level of the test file, before any imports. This tells Vitest to replace the real modules with our mocks.
-    2.  **The hook is imported dynamically:** The `useSpeechRecognition` hook is imported using a top-level `await import(...)` *after* the mocks are defined.
-    3.  **Result:** When the hook is imported, it receives the mocked versions of its dependencies instead of the real ones. This prevents the large machine learning models from being loaded into memory during the test run and keeps the memory footprint low.
-
-### End-to-End Testing: **Playwright**
-
-For features that rely heavily on browser-native APIs (like the `TranscriptionService`'s audio processing), we use **Playwright**. These tests run in a real browser environment, providing a higher level of confidence for critical user flows.
-
-### Summary of Tools
-
-| Tool          | Role                               | When It's Used                                      |
-| :------------ | :--------------------------------- | :-------------------------------------------------- |
-| **Vite**      | Core build & test engine.          | Used by `pnpm run dev` and `pnpm test`.             |
-| **Vitest**    | Main test runner.                  | `pnpm test`                                         |
-| **happy-dom** | Simulated browser for Vitest.      | The environment for all Vitest tests.               |
-| **Playwright**| Secondary, end-to-end test runner. | For high-level smoke tests (`npx playwright test`). |
-
-This hybrid approach provides a fast, reliable, and comprehensive testing strategy for the project.
++-------------------------+-------------------------+---------------------------+
+|    ANONYMOUS USER       |        FREE USER        |         PRO USER          |
+| (No Auth, Temp Storage) |  (Auth, Usage Limit)    |   (Auth, No Limit)        |
++-------------------------+-------------------------+---------------------------+
+             |                         |                         |
++------------v-----------+ +-----------v-------------+ +-----------v-------------+
+| Save Session (Temp)    | | Save Session (Metadata) | | Save Session (Metadata) |
+| `sessionStorage.set()` | | `supabase.insert()`     | | `supabase.insert()`     |
++------------------------+ +-------------------------+ +-------------------------+
+                                     |
+                         +-----------v-------------+
+                         | Update & Enforce Limit  |
+                         | `supabase.rpc()`        |
+                         +-------------------------+
+                                                               |
+                                                    (One-time Upgrade Process)
+                                                               |
+             +-------------------------------------------------v-----------------------------------------------+
+             |                                                                                               |
+             |  1. User clicks "Upgrade" -> `supabase.functions.invoke('stripe-checkout')`                     |
+             |       |                                                                                       |
+             |       +--> Creates Stripe Checkout Session, redirects User to Stripe                          |
+             |                                                                                               |
+             |  2. User completes payment on Stripe -> Stripe sends webhook event                             |
+             |       |                                                                                       |
+             |       +--> `supabase.functions.invoke('stripe-webhook')` is triggered                         |
+             |            |                                                                                  |
+             |            +--> Verifies event, updates `user_profiles.subscription_status` to 'pro'          |
+             |                                                                                               |
+             +-----------------------------------------------------------------------------------------------+
 ```
-
 
 ### Technology Stack Breakdown
 
@@ -141,10 +106,10 @@ This hybrid approach provides a fast, reliable, and comprehensive testing strate
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ React            │ Frontend UI Library        │ The core of the application. Used to build all components & pages.   │ N/A                                                                                              │
 │                  │                            │ • `src/`: Entire frontend application source.                      │                                                                                                │
+│                  │                            │ • `react-router-dom`: Handles all client-side routing.             │                                                                                                │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Vite             │ Build Tool & Dev Server    │ Provides a fast dev experience and bundles the app for production.   │ N/A                                                                                              │
 │                  │                            │ • `vite.config.mjs`: Main configuration file for Vite and Vitest.  │                                                                                                │
-│                  │                            │ • `.npmrc`: Ensures `pnpm` creates a flat `node_modules` structure.│                                                                                                │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Supabase         │ Backend-as-a-Service       │ Provides DB, auth, & APIs, reducing backend work for the MVP.        │ • `VITE_SUPABASE_URL`: Public URL for the project.                                               │
 │                  │                            │ • `src/lib/supabaseClient.js`: Client initialization.              │ • `VITE_SUPABASE_ANON_KEY`: Public key for client-side access.                                   │
@@ -154,39 +119,24 @@ This hybrid approach provides a fast, reliable, and comprehensive testing strate
 │ Service          │                            │ approach via an `onTranscriptUpdate` callback to provide real-time   │   (Set in Supabase project secrets)                                                          │
 │                  │                            │ results to the UI without polling.                                   │                                                                                                │
 │                  │                            │ • `src/services/transcription`: Wrapper for STT providers.         │                                                                                                │
-│                  │                            │ • `modes/LocalWhisper.js`: On-device via **Transformers.js**. This is│                                                                                                │
-│                  │                            │   the default for Free users to ensure privacy.                      │                                                                                                │
-│                  │                            │ • `modes/CloudAssemblyAI.js`: Premium cloud-based mode for Pro users.│                                                                                                │
+│                  │                            │ • `modes/LocalWhisper.js`: On-device via **Transformers.js**.        │                                                                                                │
+│                  │                            │ • `modes/CloudAssemblyAI.js`: Premium cloud-based mode.              │                                                                                                │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ Tailwind CSS     │ Utility-First CSS          │ Used for all styling, enabling rapid UI development.                 │ N/A                                                                                              │
-│                  │                            │ • `tailwind.config.cjs`: Configures the theme, font sizes, and custom effects like glows. │                                                                                                │
-│                  │                            │ • `src/index.css`: Defines global styles and the new "Midnight Blue & Electric Lime" color variables. │                                                                                                │
+│ Styling          │ CSS & Component Toolkit    │ Used for all styling, enabling rapid UI development.                 │ N/A                                                                                              │
+│                  │                            │ • `Tailwind CSS`: Utility-first CSS framework.                     │                                                                                                │
+│                  │                            │ • `shadcn/ui`: Re-usable components built on Radix UI.               │                                                                                                │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ Sentry           │ Error Monitoring           │ Captures runtime errors and performance data to ensure a stable MVP. │ • `VITE_SENTRY_DSN`: Public key for sending error data to Sentry.                                │
-│                  │                            │ • `src/main.jsx`: Sentry is initialized and wraps the App.         │                                                                                                │
-├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ PostHog          │ Product Analytics          │ Tracks user behavior & funnels to support "Primary Success Metrics". │ • `VITE_POSTHOG_KEY`: Public key for sending event data to PostHog.                                │
-│                  │                            │ • `src/lib/posthog.js`: PostHog is initialized.                    │ • `VITE_POSTHOG_HOST`: The URL of the PostHog instance.                                            │
+│ Analytics        │ Usage & Perf. Monitoring   │ Captures errors, analytics, and performance data.                    │                                                                                                │
+│                  │                            │ • `Sentry`: Captures runtime errors.                               │ • `VITE_SENTRY_DSN`                                                                            │
+│                  │                            │ • `PostHog`: Tracks user behavior and product analytics.           │ • `VITE_POSTHOG_KEY`                                                                           │
+│                  │                            │ • `Recharts`: Renders charts for the analytics dashboard.            │                                                                                                │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Stripe           │ Payments                   │ Handles all subscription payments for the "Pro" tier.                │ • `VITE_STRIPE_PUBLISHABLE_KEY`: Public key for Stripe.js on the client.                         │
 │                  │                            │ • `supabase/functions/stripe-checkout`: Creates checkout sessions.   │ • `STRIPE_SECRET_KEY`: Secret key for server-side API calls in functions.                        │
 │                  │                            │ • `supabase/functions/stripe-webhook`: Handles payment events.       │ • `STRIPE_WEBHOOK_SECRET`: Secret to verify webhooks are from Stripe.                            │
 └──────────────────┴────────────────────────────┴──────────────────────────────────────────────────────────────────────┴────────────────────────────────────────────────────────────────────────────────────────────────┘
 
-## 3. The Test Environment and Developer Controls
-
-The testing strategy is designed for rapid feedback and reliability, directly supporting the goal of launching a stable MVP quickly.
-
-*   **Framework**: The project uses **Jest**, a modern test runner. This choice is strategic: it is the industry standard and has a massive ecosystem of tools and support. This speed is critical for a fast-paced MVP development cycle.
-*   **Test Organization**: Tests are co-located with the code they validate (e.g., `src/__tests__`, `src/components/__tests__`), making them easy to find and run. They focus on testing individual components and hooks.
-*   **Mocking (`src/setupTests.js`)**: For the Jest suite, a key part of the strategy is the robust mocking of browser-only APIs like `MediaRecorder` and dependencies of the `TranscriptionService`. This allows the core application logic to be tested quickly in a simulated `jsdom` environment.
-*   **Playwright for Real Browser Testing**: For features that are inherently difficult to mock or require a true browser environment (like the `TranscriptionService`'s audio processing), the project uses **Playwright**. This secondary test suite runs in a real browser, providing a higher level of confidence for critical, browser-dependent features. This hybrid approach balances the speed of JSDOM with the accuracy of a real browser.
-*   **Rationale vs. Alternatives**:
-    *   **vs. Vitest**: While Vitest is fast, Jest has a more mature ecosystem and wider adoption, making it a more robust choice for this project.
-    *   **vs. Cypress/Playwright for everything**: While Playwright is used, relying on it for all tests would be too slow for rapid development. The hybrid approach provides the best of both worlds.
-*   **Developer Controls**: To facilitate testing of different transcription modes without cluttering the user interface, a "Developer Controls" section is available in the Session Sidebar. This section is only rendered when the application is running in a development environment (`import.meta.env.DEV`). It currently contains a button to force the use of the `native` browser SpeechRecognition API for direct comparison with the cloud-based service.
-
-## 4. Alignment with PRD Goals
+## 3. Alignment with PRD Goals
 
 The entire system architecture is a direct reflection of the goals outlined in the **SpeakSharp PRD**.
 
@@ -204,7 +154,7 @@ The entire system architecture is a direct reflection of the goals outlined in t
 
 In summary, the architecture is not just a technical blueprint; it is a well-considered plan to efficiently build, launch, and scale the exact product envisioned in the PRD.
 
-## 5. User Flows & API Usage
+## 4. User Flows & API Usage
 
 This section details the step-by-step execution flow for both free and paid users, clarifying which APIs are used and what data is stored.
 
@@ -246,3 +196,34 @@ This flow involves coordination between the React app, Supabase Edge Functions, 
 4.  **Stripe Webhook**: After a successful payment, Stripe sends a `checkout.session.completed` event to a predefined webhook endpoint.
     *   **API Hit**: The `stripe-webhook` Supabase Edge Function is triggered.
 5.  **Confirm Subscription**: This second function verifies the webhook's signature to ensure it's a legitimate request from Stripe. It then uses a Supabase service role key to update the user's record in the `user_profiles` table, setting their `subscription_status` to `'pro'`.
+
+## 5. Test Approach
+
+Our project employs a robust and stable testing strategy centered on **Vitest**, a modern test runner that integrates seamlessly with Vite.
+
+### Unit & Integration Testing: **Vitest + happy-dom**
+
+This is the primary testing stack for the application. It provides a fast and reliable way to test components and logic.
+
+*   **Vite**: Acts as the core build and test orchestration engine.
+*   **Vitest**: The designated **test runner**. `pnpm test` is configured to execute all `*.test.jsx` files located in `src/__tests__`.
+*   **happy-dom**: A lightweight, simulated browser environment for tests that need to interact with a DOM.
+*   **Mocking**: The test environment is configured with advanced mocking to handle complex dependencies like `@xenova/transformers` and prevent memory leaks. The key to solving the memory issue was to control the module import order in the test file (`useSpeechRecognition.test.jsx`):
+    1.  **Mocks are established first:** `vi.mock()` is called at the top level of the test file, before any imports. This tells Vitest to replace the real modules with our mocks.
+    2.  **The hook is imported dynamically:** The `useSpeechRecognition` hook is imported using a top-level `await import(...)` *after* the mocks are defined.
+    3.  **Result:** When the hook is imported, it receives the mocked versions of its dependencies instead of the real ones. This prevents the large machine learning models from being loaded into memory during the test run and keeps the memory footprint low.
+
+### End-to-End Testing: **Playwright**
+
+For features that rely heavily on browser-native APIs (like the `TranscriptionService`'s audio processing), we use **Playwright**. These tests run in a real browser environment, providing a higher level of confidence for critical user flows.
+
+### Summary of Tools
+
+| Tool          | Role                               | When It's Used                                      |
+| :------------ | :--------------------------------- | :-------------------------------------------------- |
+| **Vite**      | Core build & test engine.          | Used by `pnpm run dev` and `pnpm test`.             |
+| **Vitest**    | Main test runner.                  | `pnpm test`                                         |
+| **happy-dom** | Simulated browser for Vitest.      | The environment for all Vitest tests.               |
+| **Playwright**| Secondary, end-to-end test runner. | For high-level smoke tests (`npx playwright test`). |
+
+This hybrid approach provides a fast, reliable, and comprehensive testing strategy for the project.

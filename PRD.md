@@ -70,7 +70,7 @@ Growth     → SEO expansion, retargeting ads, coach partnerships
 ┌─────────────┬──────────────┬──────────────────────────────────────────────────┐
 │    TIER     │    PRICE     │                     FEATURES                     │
 ├─────────────┼──────────────┼──────────────────────────────────────────────────┤
-│    FREE     │     $0       │ • 30-minute session limit                        │
+│    FREE     │     $0       │ • 30-minute monthly usage limit*                 │
 │             │              │ • Local-only transcription (privacy-first)       │
 │             │              │ • Trend-based analytics dashboards               │
 │             │              │ • 3 custom filler words                          │
@@ -83,6 +83,7 @@ Growth     → SEO expansion, retargeting ads, coach partnerships
 │             │              │ • Offline Mode & Encrypted Storage (coming soon) │
 └─────────────┴──────────────┴──────────────────────────────────────────────────┘
 ```
+*\*The free tier's usage limit is a monthly quota, not a per-session cap.*
 
 ---
 
@@ -116,39 +117,36 @@ Our technology choices prioritize development speed, scalability, and user exper
 
 ## 🗓️ Development Roadmap
 
-### PHASE 1 — MVP FOUNDATION (Weeks 1-3) - 100% Complete
+### PHASE 1: MVP & Core Functionality (Completed)
 - **[DONE]** `[M]` Implement core backend services (Supabase Auth & DB).
 - **[DONE]** `[M]` Implement `TranscriptionService` with both local (Transformers.js) and cloud (AssemblyAI) providers.
 - **[DONE]** `[M]` Integrate `TranscriptionService` into the main session page.
 - **[DONE]** `[M]` Implement Stripe payment flow for Pro tier.
 - **[DONE]** `[M]` Configure production Price ID for Stripe checkout (via environment variable).
-- **[DONE]** `[M]` Set up Sentry for error monitoring.
-- **[DONE]** `[M]` Set up PostHog for product analytics.
-- **[DONE]** `[S]` Develop a responsive UI with a professional light theme.
+- **[DONE]** `[M]` Build a comprehensive analytics dashboard for users.
+- **[DONE]** `[M]` Set up Sentry for error monitoring and PostHog for product analytics.
+- **[DONE]** `[S]` Develop a responsive UI with a professional light theme and a "Midnight Blue & Electric Lime" dark theme.
 - **[DONE]** `[S]` Stabilize test suite with Vitest, removing Jest and Babel.
-- **[DONE]** `[S]` Implement "Midnight Blue & Electric Lime" theme.
+- **[DONE]** `[S]` Re-evaluated and removed fallback to native Web Speech API.
 - **[DEFERRED]** `[C]` A/B testing setup with PostHog.
 
-### PHASE 2 — PRIVACY & POLISH (Months 1-3) - ~60% Complete
-- **[DONE]** `[M]` Build a comprehensive analytics dashboard for users.
-- **[DONE]** `[S]` Re-evaluated fallback to native Web Speech API (removed as a feature).
+
+### PHASE 2: Polish & Expansion (Current & Next Steps)
 - **[IN PROGRESS]** `[M]` Polish the On-Device Transcription UX (model loading, error handling).
+- **[OUTSTANDING]** `[M]` Enforce transcription mode restrictions (lock Free/Anonymous users to Local-only).
+- **[OUTSTANDING]** `[M]` Implement 2-minute session limit for Anonymous (unauthenticated) users.
 - **[OUTSTANDING]** `[M]` Implement automatic fallback from local to cloud STT based on performance.
+- **[OUTSTANDING]** `[M]` Implement team accounts and billing.
+- **[OUTSTANDING]** `[M]` Set up production deployment on Vercel.
+- **[OUTSTANDING]** `[S]` Add support for more languages.
 - **[OUTSTANDING]** `[S]` Implement weekly summary emails.
 - **[OUTSTANDING]** `[S]` Add in-app prompts to encourage users to upgrade.
 - **[OUTSTANDING]** `[S]` Conduct thorough cross-browser testing and bug fixing.
-- **[DEFERRED]** `[C]` A/B test different UI elements and user flows.
-- **[DEFERRED]** `[C]` Optimize funnels based on PostHog data.
-
-### PHASE 3 — SCALE & EXPANSION (Months 6-12) - 0% Complete
-- **[OUTSTANDING]** `[M]` Implement team accounts and billing.
-- **[OUTSTANDING]** `[S]` Add support for more languages.
 - **[OUTSTANDING]** `[S]` Develop AI-powered suggestions for improving speech.
 - **[DEFERRED]** `[C]` Full offline mode for the application.
+- **[DEFERRED]** `[C]` A/B test different UI elements and user flows.
+- **[DEFERRED]** `[C]` Optimize funnels based on PostHog data.
 - **[DEFERRED]** `[C]` Case studies and advanced content marketing.
-
-### NEW: DEPLOYMENT
-- **[OUTSTANDING]** `[M]` Set up production deployment on Vercel (includes config and environment variables).
 
 ---
 
