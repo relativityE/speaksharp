@@ -70,7 +70,7 @@ Growth     → SEO expansion, retargeting ads, coach partnerships
 ┌─────────────┬──────────────┬──────────────────────────────────────────────────┐
 │    TIER     │    PRICE     │                     FEATURES                     │
 ├─────────────┼──────────────┼──────────────────────────────────────────────────┤
-│    FREE     │     $0       │ • 30-minute monthly usage limit*                 │
+│    FREE     │     $0       │ • 30-minute session limit*                       │
 │             │              │ • Local-only transcription (privacy-first)       │
 │             │              │ • Trend-based analytics dashboards               │
 │             │              │ • 3 custom filler words                          │
@@ -83,7 +83,7 @@ Growth     → SEO expansion, retargeting ads, coach partnerships
 │             │              │ • Offline Mode & Encrypted Storage (coming soon) │
 └─────────────┴──────────────┴──────────────────────────────────────────────────┘
 ```
-*\*The free tier's usage limit is a monthly quota, not a per-session cap.*
+*\*The Free tier includes a monthly usage quota. A hard 30-minute limit per session is planned for implementation (see roadmap).*
 
 ---
 
@@ -133,8 +133,10 @@ Our technology choices prioritize development speed, scalability, and user exper
 
 ### PHASE 2: Polish & Expansion (Current & Next Steps)
 - **[IN PROGRESS]** `[M]` Polish the On-Device Transcription UX (model loading, error handling).
-- **[OUTSTANDING]** `[M]` Enforce transcription mode restrictions (lock Free/Anonymous users to Local-only).
-- **[OUTSTANDING]** `[M]` Implement 2-minute session limit for Anonymous (unauthenticated) users.
+- **[OUTSTANDING]** `[M]` Implement 2-minute session limit for Anonymous users.
+- **[OUTSTANDING]** `[M]` Enforce "Local-only" transcription mode for Anonymous users.
+- **[OUTSTANDING]** `[M]` Implement hard 30-minute per-session time limit for Free tier users.
+- **[OUTSTANDING]** `[M]` Enforce "Local-only" transcription mode for Free tier users.
 - **[OUTSTANDING]** `[M]` Implement automatic fallback from local to cloud STT based on performance.
 - **[OUTSTANDING]** `[M]` Implement team accounts and billing.
 - **[OUTSTANDING]** `[M]` Set up production deployment on Vercel.

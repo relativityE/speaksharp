@@ -139,21 +139,21 @@ This command looks for test files in the `playwright-tests` directory and runs t
 
 ## Usage
 
-SpeakSharp uses a "progressive reveal" model. All pages are accessible to everyone, but more features are unlocked when you sign up for a free account. This section outlines the features available at each tier.
+This section outlines the features available at each of the three user tiers.
 
-### Anonymous Users (Trial)
-- **Session Limit**: A single trial session is limited to 2 minutes.
-- **Transcription**: Uses the same privacy-first, on-device transcription as the Free tier.
+### 1. Anonymous Users (Trial)
+- **Session Limit**: A single, 2-minute trial session.
+- **Transcription**: Privacy-first, on-device transcription.
 - **Analytics**: Can view a demo of the analytics page, but no data is saved.
 
-### Free Tier Users
-- **Session Limit**: 30-minute session limit and a monthly usage cap.
-- **Transcription**: All transcription is processed locally on-device to ensure privacy.
-- **Session History**: Automatically saves session metadata to the user's account.
-- **Analytics**: Access to trend-based dashboards to track progress over time.
+### 2. Free Tier Users
+- **Session Limit**: A 30-minute monthly usage quota.
+- **Transcription**: All transcription is processed locally on-device.
+- **Session History**: Automatically saves session metadata (excluding transcripts) to the user's account.
+- **Analytics**: Access to trend-based dashboards.
 - **Custom Filler Words**: Track up to 3 custom filler words.
 
-### Pro Tier Users
+### 3. Pro Tier Users
 Pro users unlock the full power of the tool, including:
 - Unlimited session time and history.
 - The option to use premium, high-accuracy cloud transcription.
