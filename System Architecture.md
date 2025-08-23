@@ -186,6 +186,10 @@ This hybrid approach provides a fast, reliable, and comprehensive testing strate
 │ Stripe           │ Payments                   │ Handles all subscription payments for the "Pro" tier.                │ • `VITE_STRIPE_PUBLISHABLE_KEY`: Public key for Stripe.js on the client.                         │
 │                  │                            │ • `supabase/functions/stripe-checkout`: Creates checkout sessions.   │ • `STRIPE_SECRET_KEY`: Secret key for server-side API calls in functions.                        │
 │                  │                            │ • `supabase/functions/stripe-webhook`: Handles payment events.       │ • `STRIPE_WEBHOOK_SECRET`: Secret to verify webhooks are from Stripe.                            │
+├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ AI Suggestions   │ Speech Analysis            │ Provides AI-driven feedback on user speech via Google Gemini.        │ • `GEMINI_API_KEY`: Secret key for Gemini API.                                                   │
+│                  │                            │ • `supabase/functions/get-ai-suggestions`: Edge function.          │   (Set in Supabase secrets)                                                                    │
+│                  │                            │ • `src/components/session/AISuggestions.jsx`: Frontend component.    │                                                                                                │
 └──────────────────┴────────────────────────────┴──────────────────────────────────────────────────────────────────────┴────────────────────────────────────────────────────────────────────────────────────────────────┘
 
 ## 3. Alignment with PRD Goals

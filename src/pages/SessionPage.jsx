@@ -5,6 +5,7 @@ import posthog from 'posthog-js';
 import { FILLER_WORD_KEYS } from '../config';
 import { TranscriptPanel } from '../components/session/TranscriptPanel';
 import FillerWordAnalysis from '../components/session/FillerWordAnalysis';
+import AISuggestions from '../components/session/AISuggestions';
 import { SessionSidebar } from '../components/session/SessionSidebar';
 import { Button } from '@/components/ui/button';
 import { Drawer, DrawerContent, DrawerTrigger } from '@/components/ui/drawer';
@@ -64,6 +65,11 @@ const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) =
                     defaultFillerWords={Object.values(FILLER_WORD_KEYS)}
                     className="flex-grow"
                 />
+                {!isListening && transcript && (
+                    <div className="mt-8">
+                        <AISuggestions transcript={transcript} />
+                    </div>
+                )}
             </div>
         </div>
     );
