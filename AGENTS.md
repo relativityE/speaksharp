@@ -29,12 +29,11 @@ This document provides guidance for AI software engineering agents working on th
 -   **Environment Variables:** All secret keys and environment-specific configurations **must** be loaded from environment variables (e.g., `import.meta.env.VITE_...`). Do **not** hardcode keys in the source code. The Vitest environment is configured to use `.env.test` for its variables.
 -   **Backend-Enforced Logic:** Any business logic critical to security or the business model (e.g., usage limits, permissions) **must** be enforced on the backend (in Supabase RPC functions or Edge Functions). Do not rely on client-side checks for security.
 -   **Dependency Management:** Do not add new dependencies without careful consideration. Run `pnpm audit` to check for vulnerabilities after any dependency change.
--   **Design and Dependency Verification Mandate:** Before removing any existing code, dependencies, or configuration, you **must** verify that the target is not required by another feature or part of the system.
-    -   **Procedure:**
-        1.  **Consult Documentation:** Review `PRD.md` and `System Architecture.md` to understand the full scope of the product's features.
-        2.  **Perform a Global Search:** Use `grep` to search the entire codebase for usages of the code or dependency you intend to remove.
-        3.  **Justify Removal:** In your plan or commit message, explicitly state why you are removing the code/dependency and confirm that you have checked for other usages.
--   **Testing `useSpeechRecognition`:** The `useSpeechRecognition` hook has a complex dependency on the `TranscriptionService`. The Vitest tests for this hook (`src/__tests__/useSpeechRecognition.test.jsx`) use `vi.mock()` and a dynamic `import()` to mock this service at the module level. This is the preferred way to test the hook's logic and avoid memory issues.
+-   **Dependency Verification:** Before removing any code, dependencies, or configuration, you must verify that the target is not required by another part of the system. Follow the documentation update procedure in the Pre-Submission Checklist (Section 6).
+-   **Testing `useSpeechRecognition`:** The `useSpeechRecognition` hook has a complex dependency on the `TranscriptionService`.
+    -   **Mocking Strategy:** The Vitest tests for this hook (`src/__tests__/useSpeechRecognition.test.jsx`) use `vi.mock()` and a dynamic `import()` to mock this service at the module level. This is the preferred way to test the hook's logic.
+    -   **WARNING - MEMORY LEAK:** This test is known to have a severe memory leak and will likely crash the test runner with a `JS heap out of memory` error. It is kept disabled in the repository.
+    -   **If you must run this test:** Execute it as a background process to avoid blocking your session (e.g., `pnpm test src/__tests__/useSpeechRecognition.test.jsx &`). See Section 7 for more details on handling long-running tasks.
 
 ## 4. Code Style & Linting
 
@@ -47,6 +46,7 @@ The submission process is a two-step interaction between you (the agent) and the
 
 1.  **Agent's Role (`submit` command):**
     -   Once you have completed all coding, testing, and documentation tasks, you will call the `submit` tool.
+    -   **NOTE:** Before calling `submit`, you are required to complete all items in the **CRITICAL PRE-SUBMISSION CHECKLIST (Section 6)**.
     -   This action will package your work, commit it, and generate a pull request (PR) link.
 
 2.  **User's Role ("Publish Branch" button):**
@@ -62,13 +62,15 @@ This workflow ensures a clear handoff from the agent to the user for the final r
 1.  **Run All Tests:** Execute all relevant test suites (e.g., `pnpm test`). Debug any failures until the test suite is clean.
 2.  **Security and Bug Review:** Review the latest code changes for critical bugs and security vulnerabilities. List any findings in the pull request description.
 3.  **Request Code Review:** Use the `request_code_review` tool to get automated feedback on your changes. Address any critical issues raised in the review.
-4.  **Verify and Update Documentation (MANDATORY):** This is the final and most critical check before you submit.
-    - You **must** review `README.md`, `PRD.md`, and `System Architecture.md`.
-    - You **must** update them to reflect the changes you have made.
-    - **Content Guidelines:**
-        - **`PRD.md`:** High-level product, marketing, and business strategy ONLY.
-        - **`System Architecture.md`:** All technical details, diagrams, and implementation notes.
-    - **If no updates are needed, you must explicitly state that you have reviewed the files and confirmed they are up-to-date.** This is not an optional step.
+4.  **Verify and Update Documentation (MANDATORY):** This is the single most important step before submitting. You must ensure all documentation is synchronized with your changes.
+    -   **[ ] Review all three core documents:** `README.md`, `PRD.md`, and `System Architecture.md`.
+    -   **[ ] Update for all code changes:** Ensure new features, dependency changes, or environment variable updates are documented in `System Architecture.md` and/or `README.md`.
+    -   **[ ] Update the PRD Roadmap:** If your work completes a task on the roadmap in `PRD.md`, you **must** update its status (e.g., from `○` to `✓`).
+    -   **[ ] Verify for all code removals:** Before removing any code, follow this procedure:
+        1.  **Consult Documentation:** Review `PRD.md` and `System Architecture.md` to ensure the feature is not required.
+        2.  **Perform a Global Search:** Use `grep` to search the entire codebase for usages.
+        3.  **Justify Removal:** State in your commit message why the code was removed.
+    -   **[ ] Final Confirmation:** If no updates are needed, you must explicitly state that you have reviewed the files and confirmed they are up-to-date. This is not optional.
 
 **Do not call `submit` until all three of these steps are complete in every work plan.**
 

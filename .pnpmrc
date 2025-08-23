@@ -1,1 +1,1 @@
-enable-pre-post-scripts=true
+public-hoist-pattern[]=*sharp*
