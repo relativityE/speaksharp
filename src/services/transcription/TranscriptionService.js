@@ -96,14 +96,10 @@ export default class TranscriptionService {
     if (!this.instance) throw new Error('TranscriptionService not initialized');
     this._lagStrikes = 0;
     this._fallbackArmed = true;
-    try {
-      await this.instance.startTranscription(this.mic);
-      console.log(`[TranscriptionService] Transcription started successfully.`);
-    } catch (error) {
-      console.warn(`[TranscriptionService] Failed to start ${this.mode} mode. Falling back to native.`, error);
-      await this.setMode('native');
-      await this.instance.startTranscription(this.mic); // No need for this.mic, native handles it
-    }
+    // The try/catch for fallback has been removed. Errors will now propagate up to the calling hook,
+    // allowing the UI to display a specific error message instead of silently failing.
+    await this.instance.startTranscription(this.mic);
+    console.log(`[TranscriptionService] Transcription started successfully.`);
   }
 
   async stopTranscription() {

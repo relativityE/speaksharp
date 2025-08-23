@@ -139,6 +139,8 @@ Status Key: ✓ = Done, ➜ = In Progress, ○ = Outstanding, (D) = Deferred.
 
 
 ### PHASE 2: Polish & Expansion (Current & Next Steps)
+- ✓ M: Fix Cloud Mode fallback bug by improving error propagation.
+- ✓ S: Improve UI readability by increasing global font size and fixing contrast issues.
 - ➜ M: Polish the On-Device Transcription UX (model loading, error handling).
 - ✓ M: Implement 2-minute session limit for Anonymous users.
 - ○ M: Enforce "Local-only" transcription mode for Anonymous users.

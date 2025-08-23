@@ -238,7 +238,7 @@ export const AnalyticsDashboard = ({ sessionHistory, profile }) => {
                                 <BarChart data={trends.topFillerWords} layout="vertical" margin={{ top: 0, right: 20, left: 10, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
                                     <XAxis type="number" hide />
-                                    <YAxis type="category" dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} width={80} />
+                                    <YAxis type="category" dataKey="name" stroke="white" fontSize="0.875rem" tickLine={false} axisLine={false} width={80} />
                                     <Tooltip
                                         cursor={{ fill: 'hsla(var(--secondary))' }}
                                         contentStyle={{
@@ -248,7 +248,7 @@ export const AnalyticsDashboard = ({ sessionHistory, profile }) => {
                                         }}
                                     />
                                     <Bar dataKey="value" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]}>
-                                        <LabelList dataKey="value" position="right" className="fill-white" />
+                                        <LabelList dataKey="value" position="right" className="fill-white font-bold" />
                                     </Bar>
                                 </BarChart>
                             </ResponsiveContainer>
