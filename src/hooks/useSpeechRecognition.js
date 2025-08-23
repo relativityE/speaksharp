@@ -117,6 +117,21 @@ export const useSpeechRecognition = ({
         setTranscript(newTranscript);
     }, [finalChunks]);
 
+    useEffect(() => {
+        if (transcriptionServiceRef.current && mode !== currentMode) {
+            console.log(`[useSpeechRecognition] Mode changed from ${currentMode} to ${mode}. Updating service.`);
+            transcriptionServiceRef.current.setMode(mode)
+                .then(() => {
+                    setCurrentMode(mode);
+                    console.log('[useSpeechRecognition] Service mode updated successfully.');
+                })
+                .catch(err => {
+                    console.error('[useSpeechRecognition] Error updating service mode:', err);
+                    setError(err);
+                });
+        }
+    }, [mode, currentMode]);
+
     // --- Control Functions ---
     const startListening = async () => {
         console.log('[useSpeechRecognition] startListening called.');

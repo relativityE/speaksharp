@@ -11,6 +11,7 @@ export default class CloudAssemblyAI {
   }
 
   async _getTemporaryToken() {
+    console.log('[CloudAssemblyAI] Attempting to get temporary token...');
     try {
       const { data, error } = await supabase.functions.invoke('assemblyai-token');
 
