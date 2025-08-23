@@ -113,6 +113,12 @@ This project uses a hybrid testing strategy:
 
 -   **Unit & Integration Tests (Vitest):** For most application logic and components. Run with `pnpm test`.
 -   **End-to-End Tests (Playwright):** For testing features in a real browser environment. Run with `npx playwright test`.
+-   **Backend Function Tests (Deno):** For testing Supabase Edge Functions. Run with `pnpm run test:functions`.
+
+To run the entire test suite (Vitest and Deno tests), use:
+```bash
+pnpm run test:all
+```
 
 
 For most of the application logic and component testing, we use Vitest, a fast and modern test runner. These tests run in a simulated JSDOM environment, which is fast but not a real browser.

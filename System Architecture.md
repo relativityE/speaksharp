@@ -133,6 +133,13 @@ This is the primary testing stack for the application. It provides a fast and re
 
 For features that rely heavily on browser-native APIs (like the `TranscriptionService`'s audio processing), we use **Playwright**. These tests run in a real browser environment, providing a higher level of confidence for critical user flows.
 
+### Backend Function Testing: Deno Test
+
+For Supabase Edge Functions, which are written in TypeScript and run on the Deno runtime, we use **Deno's built-in test runner**.
+
+*   **Execution**: A dedicated script, `pnpm run test:functions`, is available to run all `*.test.ts` files located within the `supabase/functions/` directory.
+*   **Mocking**: These tests use dependency injection to mock external services like the Supabase client or other APIs. This allows for isolated and predictable testing of the function's logic.
+
 ### Summary of Tools
 
 | Tool          | Role                               | When It's Used                                      |
