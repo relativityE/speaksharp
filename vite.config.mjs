@@ -54,6 +54,7 @@ export default defineConfig({
       '**/node_modules/**',
       '**/dist/**',
       '**/playwright-tests/**',
+      '**/supabase/functions/**',
     ],
     // [JULES] Explicitly provide aliases to the test environment
     alias: {

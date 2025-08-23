@@ -27,7 +27,7 @@ const EmptyState = () => {
 };
 
 const StatCard = ({ icon, label, value, unit, className }) => (
-    <Card className={className}>
+    <Card className={className} data-testid={`stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`}>
         <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
             {icon}
@@ -68,7 +68,7 @@ const SessionHistoryItem = ({ session, isPro }) => {
                         <p className="font-bold text-base text-foreground">{durationMins} min</p>
                     </div>
                     {isPro && (
-                        <Button variant="outline" size="icon" onClick={() => generateSessionPdf(session)}>
+                        <Button variant="outline" size="icon" onClick={() => generateSessionPdf(session)} aria-label="Download Session PDF">
                             <Download className="h-4 w-4" />
                         </Button>
                     )}

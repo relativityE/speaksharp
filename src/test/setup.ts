@@ -1,5 +1,7 @@
 // [JULES] This file is used to set up the test environment.
-// The jest-dom import was removed as the package is no longer a dependency.
+// We are adding back the jest-dom matchers for Vitest to provide
+// more expressive, DOM-centric assertions.
+import '@testing-library/jest-dom/vitest';
 
 // Polyfills for browser-like APIs you may use
 globalThis.TextEncoder = require('util').TextEncoder;

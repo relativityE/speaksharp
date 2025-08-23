@@ -1,0 +1,114 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - link "SpeakSharp" [ref=e6] [cursor=pointer]:
+        - /url: /
+      - navigation [ref=e8]:
+        - link "View Analytics" [ref=e9] [cursor=pointer]:
+          - /url: /analytics
+        - link "Login / Sign Up" [ref=e10] [cursor=pointer]:
+          - /url: /auth
+  - main [ref=e11]:
+    - generic [ref=e13]:
+      - generic [ref=e15]:
+        - generic [ref=e17]:
+          - generic [ref=e18]:
+            - heading "Live Transcript" [level=2] [ref=e19]
+            - paragraph [ref=e20]: Your spoken words appear here. Filler words are highlighted.
+          - generic [ref=e21]:
+            - paragraph
+        - generic [ref=e23]:
+          - generic [ref=e25]: Filler Word Analysis
+          - generic [ref=e26]:
+            - generic [ref=e27]:
+              - generic [ref=e28]:
+                - generic [ref=e29]:
+                  - generic [ref=e30]: um
+                  - generic [ref=e31]: "0"
+                - progressbar [ref=e32]
+              - generic [ref=e34]:
+                - generic [ref=e35]:
+                  - generic [ref=e36]: uh
+                  - generic [ref=e37]: "0"
+                - progressbar [ref=e38]
+              - generic [ref=e40]:
+                - generic [ref=e41]:
+                  - generic [ref=e42]: ah
+                  - generic [ref=e43]: "0"
+                - progressbar [ref=e44]
+              - generic [ref=e46]:
+                - generic [ref=e47]:
+                  - generic [ref=e48]: like
+                  - generic [ref=e49]: "0"
+                - progressbar [ref=e50]
+              - generic [ref=e52]:
+                - generic [ref=e53]:
+                  - generic [ref=e54]: You Know
+                  - generic [ref=e55]: "0"
+                - progressbar [ref=e56]
+              - generic [ref=e58]:
+                - generic [ref=e59]:
+                  - generic [ref=e60]: so
+                  - generic [ref=e61]: "0"
+                - progressbar [ref=e62]
+              - generic [ref=e64]:
+                - generic [ref=e65]:
+                  - generic [ref=e66]: actually
+                  - generic [ref=e67]: "0"
+                - progressbar [ref=e68]
+              - generic [ref=e70]:
+                - generic [ref=e71]:
+                  - generic [ref=e72]: oh
+                  - generic [ref=e73]: "0"
+                - progressbar [ref=e74]
+              - generic [ref=e76]:
+                - generic [ref=e77]:
+                  - generic [ref=e78]: I Mean
+                  - generic [ref=e79]: "0"
+                - progressbar [ref=e80]
+            - generic [ref=e82]:
+              - generic [ref=e83]: "Custom Filler Word:"
+              - textbox "Custom Filler Word:" [ref=e84]
+              - button "Add custom filler word" [ref=e85]:
+                - img
+      - generic [ref=e87]:
+        - generic [ref=e88]:
+          - generic [ref=e89]:
+            - generic [ref=e91]: Settings
+            - generic [ref=e92]:
+              - paragraph [ref=e94]: Local Transcription (Faster, Private)
+              - generic [ref=e95]:
+                - generic [ref=e96]: Transcription Mode
+                - generic [ref=e97]:
+                  - generic [ref=e98]: Local
+                  - switch "Transcription Mode Local Cloud" [disabled] [ref=e99]
+                  - generic [ref=e100]:
+                    - text: Cloud
+                    - img [ref=e101]
+              - generic [ref=e104]:
+                - heading "Developer Controls" [level=4] [ref=e105]
+                - generic [ref=e106]:
+                  - checkbox "Force Native Transcription" [ref=e107]
+                  - generic [ref=e108]: Force Native Transcription
+                - generic [ref=e109]:
+                  - checkbox "Unlock Cloud Mode (for non-pro)" [ref=e110]
+                  - generic [ref=e111]: Unlock Cloud Mode (for non-pro)
+          - generic [ref=e114]:
+            - generic [ref=e116]: 00:00
+            - generic [ref=e117]: Idle
+            - button "Start Recording" [ref=e118]:
+              - img
+              - text: Start Recording
+        - generic [ref=e119]:
+          - generic [ref=e121]:
+            - img [ref=e122]
+            - text: Upgrade to Pro
+          - generic [ref=e124]:
+            - paragraph [ref=e125]: Get unlimited practice, advanced analytics, and priority support.
+            - button "Get Unlimited Practice →" [disabled]:
+              - text: Get Unlimited Practice
+              - generic: →
+```
