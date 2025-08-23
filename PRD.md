@@ -122,42 +122,42 @@ Our technology choices prioritize development speed, scalability, and user exper
 ## Development Roadmap
 
 Priorities are set using the MoSCoW method (M: Must-have, S: Should-have, C: Could-have, W: Won't-have).
-Status Key: ✓ = Done, ➜ = In Progress, ○ = Outstanding, (D) = Deferred.
+Status Key: ✅ = Completed, ▶️ = In Progress, ⚪ = Not Started, ⏸️ = Deferred.
 
 ### PHASE 1: MVP & Core Functionality (Completed)
-- ✓ M: Implement core backend services (Supabase Auth & DB).
-- ✓ M: Implement `TranscriptionService` with both local (Transformers.js) and cloud (AssemblyAI) providers.
-- ✓ M: Integrate `TranscriptionService` into the main session page.
-- ✓ M: Implement Stripe payment flow for Pro tier.
-- ✓ M: Configure production Price ID for Stripe checkout (via environment variable).
-- ✓ M: Build a comprehensive analytics dashboard for users.
-- ✓ M: Set up Sentry for error monitoring and PostHog for product analytics.
-- ✓ S: Develop a responsive UI with a professional light theme and a "Midnight Blue & Electric Lime" dark theme.
-- ✓ S: Stabilize test suite with Vitest, removing Jest and Babel.
-- ✓ S: Re-evaluated and removed fallback to native Web Speech API.
-- (D) C: A/B testing setup with PostHog.
+- ✅ M: Implement core backend services (Supabase Auth & DB).
+- ✅ M: Implement `TranscriptionService` with both local (Transformers.js) and cloud (AssemblyAI) providers.
+- ✅ M: Integrate `TranscriptionService` into the main session page.
+- ✅ M: Implement Stripe payment flow for Pro tier.
+- ✅ M: Configure production Price ID for Stripe checkout (via environment variable).
+- ✅ M: Build a comprehensive analytics dashboard for users.
+- ✅ M: Set up Sentry for error monitoring and PostHog for product analytics.
+- ✅ S: Develop a responsive UI with a professional light theme and a "Midnight Blue & Electric Lime" dark theme.
+- ✅ S: Stabilize test suite with Vitest, removing Jest and Babel.
+- ✅ S: Solidified transcription fallback to use Native Web Speech API.
+- ⏸️ C: A/B testing setup with PostHog.
 
 
 ### PHASE 2: Polish & Expansion (Current & Next Steps)
-- ✓ M: Fix Cloud Mode fallback bug by improving error propagation.
-- ✓ S: Improve UI readability by increasing global font size and fixing contrast issues.
-- ➜ M: Polish the On-Device Transcription UX (model loading, error handling).
-- ✓ M: Implement 2-minute session limit for Anonymous users.
-- ○ M: Enforce "Local-only" transcription mode for Anonymous users.
-- ✓ M: Implement hard 30-minute per-session time limit for Free tier users.
-- ○ M: Enforce "Local-only" transcription mode for Free tier users.
-- ○ M: Implement automatic fallback from local to cloud STT based on performance.
-- ○ M: Conduct thorough cross-browser testing and bug fixing.
-- ○ M: Set up production deployment on Vercel.
-- ○ S: Implement weekly summary emails.
-- ✓ S: Add in-app prompts to encourage users to upgrade.
-- ➜ S: Develop AI-powered suggestions for improving speech.
-- ○ S: A/B test different UI elements and user flows.
-- (D) C: Full offline mode for the application.
-- (D) C: Implement team accounts and billing.
-- (D) C: Add support for more languages.
-- (D) C: Optimize funnels based on PostHog data.
-- (D) C: Case studies and advanced content marketing.
+- ✅ M: Fix Cloud Mode fallback bug by improving error propagation.
+- ✅ S: Improve UI readability by increasing global font size and fixing contrast issues.
+- ▶️ M: Polish the On-Device Transcription UX (model loading, error handling).
+- ✅ M: Implement 2-minute session limit for Anonymous users.
+- ✅ M: Enforce "Local-only" transcription mode for Anonymous users.
+- ✅ M: Implement hard 30-minute per-session time limit for Free tier users.
+- ✅ M: Enforce "Local-only" transcription mode for Free tier users.
+- ⚪ M: Implement automatic fallback from local to cloud STT based on performance.
+- ⚪ M: Conduct thorough cross-browser testing and bug fixing.
+- ⚪ M: Set up production deployment on Vercel.
+- ⚪ S: Implement weekly summary emails.
+- ✅ S: Add in-app prompts to encourage users to upgrade.
+- ▶️ S: Develop AI-powered suggestions for improving speech.
+- ⚪ S: A/B test different UI elements and user flows.
+- ⏸️ C: Full offline mode for the application.
+- ⏸️ C: Implement team accounts and billing.
+- ⏸️ C: Add support for more languages.
+- ⏸️ C: Optimize funnels based on PostHog data.
+- ⏸️ C: Case studies and advanced content marketing.
 
 ---
 

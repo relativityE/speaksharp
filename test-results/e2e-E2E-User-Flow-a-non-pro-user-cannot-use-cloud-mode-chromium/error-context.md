@@ -1,0 +1,109 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - link "SpeakSharp" [ref=e6] [cursor=pointer]:
+        - /url: /
+      - navigation [ref=e8]:
+        - link "View Analytics" [ref=e9] [cursor=pointer]:
+          - /url: /analytics
+        - link "Login / Sign Up" [ref=e10] [cursor=pointer]:
+          - /url: /auth
+  - main [ref=e11]:
+    - generic [ref=e13]:
+      - generic [ref=e15]:
+        - generic [ref=e17]:
+          - generic [ref=e18]:
+            - heading "Live Transcript" [level=2] [ref=e19]
+            - paragraph [ref=e20]: Your spoken words appear here. Filler words are highlighted.
+          - generic [ref=e21]:
+            - paragraph
+        - generic [ref=e23]:
+          - generic [ref=e25]: Filler Word Analysis
+          - generic [ref=e26]:
+            - generic [ref=e27]:
+              - generic [ref=e28]:
+                - generic:
+                  - generic [ref=e29]: um
+                  - generic [ref=e30]: "0"
+                - progressbar
+              - generic [ref=e31]:
+                - generic:
+                  - generic [ref=e32]: uh
+                  - generic [ref=e33]: "0"
+                - progressbar
+              - generic [ref=e34]:
+                - generic:
+                  - generic [ref=e35]: ah
+                  - generic [ref=e36]: "0"
+                - progressbar
+              - generic [ref=e37]:
+                - generic:
+                  - generic [ref=e38]: like
+                  - generic [ref=e39]: "0"
+                - progressbar
+              - generic [ref=e40]:
+                - generic:
+                  - generic [ref=e41]: You Know
+                  - generic [ref=e42]: "0"
+                - progressbar
+              - generic [ref=e43]:
+                - generic:
+                  - generic [ref=e44]: so
+                  - generic [ref=e45]: "0"
+                - progressbar
+              - generic [ref=e46]:
+                - generic:
+                  - generic [ref=e47]: actually
+                  - generic [ref=e48]: "0"
+                - progressbar
+              - generic [ref=e49]:
+                - generic:
+                  - generic [ref=e50]: oh
+                  - generic [ref=e51]: "0"
+                - progressbar
+              - generic [ref=e52]:
+                - generic:
+                  - generic [ref=e53]: I Mean
+                  - generic [ref=e54]: "0"
+                - progressbar
+            - generic [ref=e55]:
+              - generic [ref=e56]: "Custom Filler Word:"
+              - textbox "Custom Filler Word:" [ref=e57]
+              - button "Add custom filler word" [ref=e58]:
+                - img
+      - generic [ref=e60]:
+        - generic [ref=e61]:
+          - generic [ref=e62]:
+            - generic [ref=e64]: Settings
+            - generic [ref=e65]:
+              - paragraph [ref=e67]: Local Transcription (Faster, Private)
+              - generic [ref=e68]:
+                - generic [ref=e69]: Transcription Mode
+                - generic [ref=e70]:
+                  - generic [ref=e71]: Local
+                  - switch "Transcription Mode Local Cloud" [disabled] [ref=e72]
+                  - generic [ref=e73]:
+                    - text: Cloud
+                    - img [ref=e74]
+              - generic [ref=e77]:
+                - heading "Developer Controls" [level=4] [ref=e78]
+                - button "Force Native Transcription" [ref=e79]
+          - generic [ref=e82]:
+            - generic [ref=e84]: 00:00
+            - generic [ref=e85]: Idle
+            - button "Start Recording" [ref=e86]:
+              - img
+              - text: Start Recording
+        - generic [ref=e87]:
+          - generic [ref=e89]:
+            - img [ref=e90]
+            - text: Upgrade to Pro
+          - generic [ref=e92]:
+            - paragraph [ref=e93]: Get unlimited practice, advanced analytics, and priority support.
+            - button "Get Unlimited Practice →" [disabled]:
+              - text: Get Unlimited Practice
+              - generic: →
+```
