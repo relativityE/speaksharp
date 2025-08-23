@@ -4,7 +4,7 @@
 
 ---
 
-## 🔄 Recent Updates (v6.21)
+## Recent Updates (v6.21)
 *August 21, 2025*
 
 - **New Theme: "Midnight Blue & Electric Lime"**: Implemented a new dark mode theme to provide a more modern and focused user experience. The theme features a midnight blue background with electric lime accents.
@@ -12,7 +12,7 @@
 
 ---
 
-## 🔄 Recent Updates (v6.20)
+## Recent Updates (v6.20)
 *August 19, 2025*
 
 - **UI/UX Improvements (Based on User Feedback)**:
@@ -23,13 +23,17 @@
 
 ---
 
-## ⚠️ Known Issues
+## Known Issues
 - **On-Device Transcription Needs Polish:** The `LocalWhisper` provider in `TranscriptionService` is a functional implementation using Transformers.js. However, it may require further UI/UX polishing for model loading feedback and error handling before it is production-ready.
-- **`useSpeechRecognition` Test Disabled:** The test file for the main `useSpeechRecognition` hook (`useSpeechRecognition.test.jsx`) is currently disabled due to an unresolvable memory leak in the Vitest environment. The leak occurs even when running a single, simple test, suggesting the memory overhead comes from importing the hook's dependency graph. The file has been preserved with a `.disabled` extension for future debugging, but it is excluded from the test suite to maintain a stable CI pipeline. This is a high-priority issue to resolve to ensure full test coverage.
+- **`useSpeechRecognition` Test Disabled:** The test file for the main `useSpeechRecognition` hook (`useSpeechRecognition.test.jsx`) is currently disabled due to a critical, unresolvable memory leak.
+  - **Status (as of Aug 23, 2025):** The test was re-enabled and confirmed to fail with a `JS heap out of memory` error, even when run in isolation.
+  - **Analysis:** The memory leak appears to be caused by the large dependency graph of the hook, which includes the AI models from Transformers.js. The issue persists even with advanced mocking strategies.
+  - **Action:** The file has been re-disabled with a `.disabled` extension to maintain a stable CI pipeline. This remains a high-priority issue to resolve to ensure full test coverage.
+  - **Developer Note:** When attempting to debug this test, it is a long-running process. It should be executed as a background task (e.g., `pnpm test src/__tests__/useSpeechRecognition.test.jsx &`) to avoid blocking the shell.
 
 ---
 
-## 🎯 Executive Summary
+## Executive Summary
 
 SpeakSharp is a real-time speech analysis tool built on two pillars: speed and privacy.
 
@@ -54,15 +58,15 @@ Growth     → SEO expansion, retargeting ads, coach partnerships
 
 ### Primary Success Metrics
 ```
-📊 Homepage → Signup Conversion:  15%+
-💰 Free → Paid Conversion:       5%+
-🔄 Returning Monthly Users:      40%+
-✅ Session Completion Rate:      80%+
+- Homepage → Signup Conversion:  15%+
+- Free → Paid Conversion:       5%+
+- Returning Monthly Users:      40%+
+- Session Completion Rate:      80%+
 ```
 
 ---
 
-## 💰 Pricing Model
+## Pricing Model
 
 *(Note: A 7-day unlimited Pro trial will be offered to encourage conversion.)*
 
@@ -87,20 +91,20 @@ Growth     → SEO expansion, retargeting ads, coach partnerships
 
 ---
 
-## 🔒 Privacy Policy
+## Privacy Policy
 
 **What we DON'T store:**
-- ❌ Audio recordings (never saved on servers)
+- Audio recordings (never saved on servers)
 
 **What we DO store:**
-- ✅ Filler word counts
-- ✅ Session duration
-- ✅ Speaking pace
-- ✅ Timestamps
+- Filler word counts
+- Session duration
+- Speaking pace
+- Timestamps
 
 ---
 
-## 🛠️ Technology Stack
+## Technology Stack
 
 Our technology choices prioritize development speed, scalability, and user experience.
 
@@ -115,44 +119,47 @@ Our technology choices prioritize development speed, scalability, and user exper
 
 ---
 
-## 🗓️ Development Roadmap
+## Development Roadmap
+
+Priorities are set using the MoSCoW method (M: Must-have, S: Should-have, C: Could-have, W: Won't-have).
+Status Key: ✓ = Done, ➜ = In Progress, ○ = Outstanding, (D) = Deferred.
 
 ### PHASE 1: MVP & Core Functionality (Completed)
-- **[DONE]** `[M]` Implement core backend services (Supabase Auth & DB).
-- **[DONE]** `[M]` Implement `TranscriptionService` with both local (Transformers.js) and cloud (AssemblyAI) providers.
-- **[DONE]** `[M]` Integrate `TranscriptionService` into the main session page.
-- **[DONE]** `[M]` Implement Stripe payment flow for Pro tier.
-- **[DONE]** `[M]` Configure production Price ID for Stripe checkout (via environment variable).
-- **[DONE]** `[M]` Build a comprehensive analytics dashboard for users.
-- **[DONE]** `[M]` Set up Sentry for error monitoring and PostHog for product analytics.
-- **[DONE]** `[S]` Develop a responsive UI with a professional light theme and a "Midnight Blue & Electric Lime" dark theme.
-- **[DONE]** `[S]` Stabilize test suite with Vitest, removing Jest and Babel.
-- **[DONE]** `[S]` Re-evaluated and removed fallback to native Web Speech API.
-- **[DEFERRED]** `[C]` A/B testing setup with PostHog.
+- ✓ M: Implement core backend services (Supabase Auth & DB).
+- ✓ M: Implement `TranscriptionService` with both local (Transformers.js) and cloud (AssemblyAI) providers.
+- ✓ M: Integrate `TranscriptionService` into the main session page.
+- ✓ M: Implement Stripe payment flow for Pro tier.
+- ✓ M: Configure production Price ID for Stripe checkout (via environment variable).
+- ✓ M: Build a comprehensive analytics dashboard for users.
+- ✓ M: Set up Sentry for error monitoring and PostHog for product analytics.
+- ✓ S: Develop a responsive UI with a professional light theme and a "Midnight Blue & Electric Lime" dark theme.
+- ✓ S: Stabilize test suite with Vitest, removing Jest and Babel.
+- ✓ S: Re-evaluated and removed fallback to native Web Speech API.
+- (D) C: A/B testing setup with PostHog.
 
 
 ### PHASE 2: Polish & Expansion (Current & Next Steps)
-- **[IN PROGRESS]** `[M]` Polish the On-Device Transcription UX (model loading, error handling).
-- **[OUTSTANDING]** `[M]` Implement 2-minute session limit for Anonymous users.
-- **[OUTSTANDING]** `[M]` Enforce "Local-only" transcription mode for Anonymous users.
-- **[OUTSTANDING]** `[M]` Implement hard 30-minute per-session time limit for Free tier users.
-- **[OUTSTANDING]** `[M]` Enforce "Local-only" transcription mode for Free tier users.
-- **[OUTSTANDING]** `[M]` Implement automatic fallback from local to cloud STT based on performance.
-- **[OUTSTANDING]** `[M]` Implement team accounts and billing.
-- **[OUTSTANDING]** `[M]` Set up production deployment on Vercel.
-- **[OUTSTANDING]** `[S]` Add support for more languages.
-- **[OUTSTANDING]** `[S]` Implement weekly summary emails.
-- **[OUTSTANDING]** `[S]` Add in-app prompts to encourage users to upgrade.
-- **[OUTSTANDING]** `[S]` Conduct thorough cross-browser testing and bug fixing.
-- **[OUTSTANDING]** `[S]` Develop AI-powered suggestions for improving speech.
-- **[DEFERRED]** `[C]` Full offline mode for the application.
-- **[DEFERRED]** `[C]` A/B test different UI elements and user flows.
-- **[DEFERRED]** `[C]` Optimize funnels based on PostHog data.
-- **[DEFERRED]** `[C]` Case studies and advanced content marketing.
+- ➜ M: Polish the On-Device Transcription UX (model loading, error handling).
+- ✓ M: Implement 2-minute session limit for Anonymous users.
+- ○ M: Enforce "Local-only" transcription mode for Anonymous users.
+- ✓ M: Implement hard 30-minute per-session time limit for Free tier users.
+- ○ M: Enforce "Local-only" transcription mode for Free tier users.
+- ○ M: Implement automatic fallback from local to cloud STT based on performance.
+- ○ M: Implement team accounts and billing.
+- ○ M: Set up production deployment on Vercel.
+- ○ S: Add support for more languages.
+- ○ S: Implement weekly summary emails.
+- ✓ S: Add in-app prompts to encourage users to upgrade.
+- ○ S: Conduct thorough cross-browser testing and bug fixing.
+- ○ S: Develop AI-powered suggestions for improving speech.
+- (D) C: Full offline mode for the application.
+- (D) C: A/B test different UI elements and user flows.
+- (D) C: Optimize funnels based on PostHog data.
+- (D) C: Case studies and advanced content marketing.
 
 ---
 
-## 📊 Financial Projections
+## Financial Projections
 
 ### Assumptions
 - **Free → Paid Conversion:** 5%
@@ -174,29 +181,29 @@ Our technology choices prioritize development speed, scalability, and user exper
 
 ### Key Business Metrics
 
-**📈 LTV (Lifetime Value)**
+**LTV (Lifetime Value)**
 ```
 Formula: ARPU × Average Customer Lifespan
 Calculation: $7.99/month × 12 months = $95.88
 ```
 
-**💸 CAC (Customer Acquisition Cost)**
+**CAC (Customer Acquisition Cost)**
 ```
 Formula: Total Marketing Spend ÷ New Paying Customers
 Example Calculation: $350 ÷ 35 customers = $10.00
 (Note: This is a sample calculation. Actual CAC will vary based on ad performance and conversion rates from the growth projection.)
 ```
 
-**🎯 LTV:CAC Ratio**
+**LTV:CAC Ratio**
 ```
 Current Ratio: $95.88 ÷ $10.00 = 9.5:1
-Target: 3:1+ (Highly favorable ✅)
+Target: 3:1+ (Highly favorable)
 ```
 *(Note: This LTV:CAC model is optimistic and based on early assumptions. It will be recalibrated with real user data post-launch to account for churn and actual conversion rates.)*
 
 ---
 
-## 🚀 Go-to-Market Assets
+## Go-to-Market Assets
 
 ### Reddit Engagement Strategy
 
@@ -219,13 +226,13 @@ Target: 3:1+ (Highly favorable ✅)
 
 ---
 
-## ✅ Success Criteria
+## Success Criteria
 
 ```
-🎯 Achieve 500 MAUs within 3 months post-launch
-💰 Reach 5% free-to-paid conversion rate
-📱 Maintain <40% mobile bounce rate  
-💵 Achieve profitability within 12 months
+- Achieve 500 MAUs within 3 months post-launch
+- Reach 5% free-to-paid conversion rate
+- Maintain <40% mobile bounce rate
+- Achieve profitability within 12 months
 ```
 
 ---
@@ -233,3 +240,9 @@ Target: 3:1+ (Highly favorable ✅)
 Private practice. Public impact.
 
 ---
+
+## Technical Debt
+
+This section tracks known technical issues and areas for improvement that have been identified but not yet prioritized for immediate action.
+
+-   **[OPEN]** **`createRoot` Warning:** The application throws a warning: `You are calling ReactDOMClient.createRoot() on a container that has already been passed to createRoot() before.` This suggests that the main script might be loading more than once. While a guard exists in `main.jsx` to prevent this, the warning persists, pointing to a potential issue in the Vite HMR environment.

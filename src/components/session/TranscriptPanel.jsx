@@ -47,11 +47,26 @@ const HighlightedTranscript = ({ chunks, interimTranscript, fillerData }) => {
 
 export const TranscriptPanel = ({ chunks = [], interimTranscript, fillerData, isLoading = false }) => {
     const scrollContainerRef = useRef(null);
+    const scrollTimeoutRef = useRef(null);
 
     useEffect(() => {
-        if (scrollContainerRef.current) {
-            scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+        // Debounce the scroll to the bottom to avoid performance issues on rapid updates.
+        if (scrollTimeoutRef.current) {
+            clearTimeout(scrollTimeoutRef.current);
         }
+
+        scrollTimeoutRef.current = setTimeout(() => {
+            if (scrollContainerRef.current) {
+                scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+            }
+        }, 100); // 100ms debounce delay
+
+        // Cleanup the timeout on component unmount
+        return () => {
+            if (scrollTimeoutRef.current) {
+                clearTimeout(scrollTimeoutRef.current);
+            }
+        };
     }, [chunks, interimTranscript]);
 
     return (
