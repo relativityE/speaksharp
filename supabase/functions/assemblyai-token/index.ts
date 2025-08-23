@@ -75,7 +75,14 @@ serve((req) => {
         Deno.env.get('SUPABASE_ANON_KEY') ?? '',
         { global: { headers: { Authorization: authHeader } } }
     );
-    const assemblyAIFactory = () => new AssemblyAI({ apiKey: Deno.env.get('ASSEMBLYAI_API_KEY')! });
+    const assemblyAIFactory = () => {
+        const apiKey = Deno.env.get('ASSEMBLYAI_API_KEY');
+        console.log('ASSEMBLYAI_API_KEY exists:', !!apiKey);
+        if (apiKey) {
+            console.log('ASSEMBLYAI_API_KEY starts with:', apiKey.substring(0, 4));
+        }
+        return new AssemblyAI({ apiKey: apiKey! });
+    };
 
     return handler(req, supabaseClientFactory, assemblyAIFactory);
 });
