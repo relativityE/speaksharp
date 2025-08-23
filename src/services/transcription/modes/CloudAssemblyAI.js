@@ -25,7 +25,8 @@ export default class CloudAssemblyAI {
       return data.token;
     } catch (error) {
       console.error('Failed to get AssemblyAI token:', error);
-      throw new Error(`Failed to get AssemblyAI token: ${error.message}`);
+      // Provide a more user-friendly error message that suggests a common cause.
+      throw new Error('Failed to get AssemblyAI token. Please ensure the server is configured with an API key.');
     }
   }
 

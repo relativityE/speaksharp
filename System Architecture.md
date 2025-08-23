@@ -27,6 +27,20 @@ The architecture is designed around a modern, client-heavy Jamstack approach. Th
 |  |   AssemblyAI (via Token)  |  |
 |  | }                         |  |
 |  +---------------------------+  |
+|                                 |
+|  +---------------------------+  |
+|  |  UI Components (`/src`)   |  |
+|  |---------------------------|  |
+|  | - TranscriptPanel: Uses a |  |
+|  |   debounced scroll handler|  |
+|  |   for performance.        |  |
+|  | - Upgrade Prompts: A      |  |
+|  |   dialog appears on       |  |
+|  |   session limits, and a   |  |
+|  |   banner on the analytics |  |
+|  |   page to encourage       |  |
+|  |   upgrades.               |  |
+|  +---------------------------+  |
 +---------------------------------+
              |
              | API Calls, Analytics, Error Reporting
@@ -109,7 +123,8 @@ This is the primary testing stack for the application. It provides a fast and re
 *   **Vite**: Acts as the core build and test orchestration engine.
 *   **Vitest**: The designated **test runner**. `pnpm test` is configured to execute all `*.test.jsx` files located in `src/__tests__`.
 *   **happy-dom**: A lightweight, simulated browser environment for tests that need to interact with a DOM.
-*   **Mocking**: The test environment is configured with advanced mocking to handle complex dependencies like `@xenova/transformers` and prevent memory leaks. The key to solving the memory issue was to control the module import order in the test file (`useSpeechRecognition.test.jsx`):
+*   **DOM API Mocking**: For browser-specific APIs not implemented in `happy-dom` (e.g., `scrollIntoView`), global mocks are added to the test setup file (`src/test/setup.ts`) to prevent tests from crashing.
+*   **Dependency Mocking**: The test environment is configured with advanced mocking to handle complex dependencies like `@xenova/transformers` and prevent memory leaks. The key to solving the memory issue was to control the module import order in the test file (`useSpeechRecognition.test.jsx`):
     1.  **Mocks are established first:** `vi.mock()` is called at the top level of the test file, before any imports. This tells Vitest to replace the real modules with our mocks.
     2.  **The hook is imported dynamically:** The `useSpeechRecognition` hook is imported using a top-level `await import(...)` *after* the mocks are defined.
     3.  **Result:** When the hook is imported, it receives the mocked versions of its dependencies instead of the real ones. This prevents the large machine learning models from being loaded into memory during the test run and keeps the memory footprint low.
@@ -150,13 +165,17 @@ This hybrid approach provides a fast, reliable, and comprehensive testing strate
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Transcription    │ Core Feature               │ A swappable service for speech-to-text. Uses an event-driven         │ • `ASSEMBLYAI_API_KEY`: Secret key for server-side token generation.                             │
 │ Service          │                            │ approach via an `onTranscriptUpdate` callback to provide real-time   │   (Set in Supabase project secrets)                                                          │
-│                  │                            │ results to the UI without polling.                                   │                                                                                                │
+│                  │                            │ results to the UI without polling. Errors from the cloud provider    │                                                                                                │
+│                  │                            │ (e.g., missing API key) now propagate to the UI instead of silently  │                                                                                                │
+│                  │                            │ falling back to a different engine.                                  │                                                                                                │
 │                  │                            │ • `src/services/transcription`: Wrapper for STT providers.         │                                                                                                │
 │                  │                            │ • `modes/LocalWhisper.js`: On-device via **Transformers.js**.        │                                                                                                │
 │                  │                            │ • `modes/CloudAssemblyAI.js`: Premium cloud-based mode.              │                                                                                                │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Styling          │ CSS & Component Toolkit    │ Used for all styling, enabling rapid UI development.                 │ N/A                                                                                              │
 │                  │                            │ • `Tailwind CSS`: Utility-first CSS framework.                     │                                                                                                │
+│                  │                            │ • `src/index.css`: Defines global styles, including a doubled base   │                                                                                                │
+│                  │                            │   font size for improved readability.                                │                                                                                                │
 │                  │                            │ • `shadcn/ui`: Re-usable components built on Radix UI.               │                                                                                                │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Analytics        │ Usage & Perf. Monitoring   │ Captures errors, analytics, and performance data.                    │                                                                                                │
