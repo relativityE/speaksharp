@@ -98,6 +98,39 @@ This diagram offers a more detailed look at the application's architecture from 
              +-----------------------------------------------------------------------------------------------+
 ```
 
+## 6. Test Approach
+
+Our project employs a robust and stable testing strategy centered on **Vitest**, a modern test runner that integrates seamlessly with Vite.
+
+### Unit & Integration Testing: **Vitest + happy-dom**
+
+This is the primary testing stack for the application. It provides a fast and reliable way to test components and logic.
+
+*   **Vite**: Acts as the core build and test orchestration engine.
+*   **Vitest**: The designated **test runner**. `pnpm test` is configured to execute all `*.test.jsx` files located in `src/__tests__`.
+*   **happy-dom**: A lightweight, simulated browser environment for tests that need to interact with a DOM.
+*   **Mocking**: The test environment is configured with advanced mocking to handle complex dependencies like `@xenova/transformers` and prevent memory leaks. The key to solving the memory issue was to control the module import order in the test file (`useSpeechRecognition.test.jsx`):
+    1.  **Mocks are established first:** `vi.mock()` is called at the top level of the test file, before any imports. This tells Vitest to replace the real modules with our mocks.
+    2.  **The hook is imported dynamically:** The `useSpeechRecognition` hook is imported using a top-level `await import(...)` *after* the mocks are defined.
+    3.  **Result:** When the hook is imported, it receives the mocked versions of its dependencies instead of the real ones. This prevents the large machine learning models from being loaded into memory during the test run and keeps the memory footprint low.
+
+### End-to-End Testing: **Playwright**
+
+For features that rely heavily on browser-native APIs (like the `TranscriptionService`'s audio processing), we use **Playwright**. These tests run in a real browser environment, providing a higher level of confidence for critical user flows.
+
+### Summary of Tools
+
+| Tool          | Role                               | When It's Used                                      |
+| :------------ | :--------------------------------- | :-------------------------------------------------- |
+| **Vite**      | Core build & test engine.          | Used by `pnpm run dev` and `pnpm test`.             |
+| **Vitest**    | Main test runner.                  | `pnpm test`                                         |
+| **happy-dom** | Simulated browser for Vitest.      | The environment for all Vitest tests.               |
+| **Playwright**| Secondary, end-to-end test runner. | For high-level smoke tests (`npx playwright test`). |
+
+This hybrid approach provides a fast, reliable, and comprehensive testing strategy for the project.
+```
+
+
 ### Technology Stack Breakdown
 
 ```text
@@ -154,7 +187,7 @@ The entire system architecture is a direct reflection of the goals outlined in t
 
 In summary, the architecture is not just a technical blueprint; it is a well-considered plan to efficiently build, launch, and scale the exact product envisioned in the PRD.
 
-## 4. User Flows & API Usage
+## 5. User Flows & API Usage
 
 This section details the step-by-step execution flow for both free and paid users, clarifying which APIs are used and what data is stored.
 
@@ -196,34 +229,3 @@ This flow involves coordination between the React app, Supabase Edge Functions, 
 4.  **Stripe Webhook**: After a successful payment, Stripe sends a `checkout.session.completed` event to a predefined webhook endpoint.
     *   **API Hit**: The `stripe-webhook` Supabase Edge Function is triggered.
 5.  **Confirm Subscription**: This second function verifies the webhook's signature to ensure it's a legitimate request from Stripe. It then uses a Supabase service role key to update the user's record in the `user_profiles` table, setting their `subscription_status` to `'pro'`.
-
-## 5. Test Approach
-
-Our project employs a robust and stable testing strategy centered on **Vitest**, a modern test runner that integrates seamlessly with Vite.
-
-### Unit & Integration Testing: **Vitest + happy-dom**
-
-This is the primary testing stack for the application. It provides a fast and reliable way to test components and logic.
-
-*   **Vite**: Acts as the core build and test orchestration engine.
-*   **Vitest**: The designated **test runner**. `pnpm test` is configured to execute all `*.test.jsx` files located in `src/__tests__`.
-*   **happy-dom**: A lightweight, simulated browser environment for tests that need to interact with a DOM.
-*   **Mocking**: The test environment is configured with advanced mocking to handle complex dependencies like `@xenova/transformers` and prevent memory leaks. The key to solving the memory issue was to control the module import order in the test file (`useSpeechRecognition.test.jsx`):
-    1.  **Mocks are established first:** `vi.mock()` is called at the top level of the test file, before any imports. This tells Vitest to replace the real modules with our mocks.
-    2.  **The hook is imported dynamically:** The `useSpeechRecognition` hook is imported using a top-level `await import(...)` *after* the mocks are defined.
-    3.  **Result:** When the hook is imported, it receives the mocked versions of its dependencies instead of the real ones. This prevents the large machine learning models from being loaded into memory during the test run and keeps the memory footprint low.
-
-### End-to-End Testing: **Playwright**
-
-For features that rely heavily on browser-native APIs (like the `TranscriptionService`'s audio processing), we use **Playwright**. These tests run in a real browser environment, providing a higher level of confidence for critical user flows.
-
-### Summary of Tools
-
-| Tool          | Role                               | When It's Used                                      |
-| :------------ | :--------------------------------- | :-------------------------------------------------- |
-| **Vite**      | Core build & test engine.          | Used by `pnpm run dev` and `pnpm test`.             |
-| **Vitest**    | Main test runner.                  | `pnpm test`                                         |
-| **happy-dom** | Simulated browser for Vitest.      | The environment for all Vitest tests.               |
-| **Playwright**| Secondary, end-to-end test runner. | For high-level smoke tests (`npx playwright test`). |
-
-This hybrid approach provides a fast, reliable, and comprehensive testing strategy for the project.
