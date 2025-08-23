@@ -140,9 +140,9 @@ Status Key: ✓ = Done, ➜ = In Progress, ○ = Outstanding, (D) = Deferred.
 
 ### PHASE 2: Polish & Expansion (Current & Next Steps)
 - ➜ M: Polish the On-Device Transcription UX (model loading, error handling).
-- ○ M: Implement 2-minute session limit for Anonymous users.
+- ✓ M: Implement 2-minute session limit for Anonymous users.
 - ○ M: Enforce "Local-only" transcription mode for Anonymous users.
-- ○ M: Implement hard 30-minute per-session time limit for Free tier users.
+- ✓ M: Implement hard 30-minute per-session time limit for Free tier users.
 - ○ M: Enforce "Local-only" transcription mode for Free tier users.
 - ○ M: Implement automatic fallback from local to cloud STT based on performance.
 - ○ M: Implement team accounts and billing.
