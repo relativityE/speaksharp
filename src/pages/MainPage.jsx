@@ -18,7 +18,7 @@ export const MainPage = () => {
             <main className="flex-grow">
                 {/* Hero Section */}
                 <section className="container mx-auto px-component-px py-24 text-center">
-                    <h1 className="text-5xl md:text-7xl font-bold mb-4 text-glow">
+                    <h1 className="text-3xl md:text-5xl font-bold mb-4 text-glow">
                         {APP_TAGLINE}
                     </h1>
                     <p className="max-w-3xl mx-auto mb-8 text-lg text-muted-foreground">

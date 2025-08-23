@@ -13,7 +13,16 @@ export default class CloudAssemblyAI {
   async _getTemporaryToken() {
     console.log('[CloudAssemblyAI] Attempting to get temporary token...');
     try {
-      const { data, error } = await supabase.functions.invoke('assemblyai-token');
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('User not authenticated.');
+      }
+
+      const { data, error } = await supabase.functions.invoke('assemblyai-token', {
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        }
+      });
 
       if (error) {
         throw error;
