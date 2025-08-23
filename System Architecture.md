@@ -182,10 +182,27 @@ This hybrid approach provides a fast, reliable, and comprehensive testing strate
 │                  │                            │ • `modes/LocalWhisper.js`: On-device via **Transformers.js**.        │                                                                                                │
 │                  │                            │ • `modes/CloudAssemblyAI.js`: Premium cloud-based mode.              │                                                                                                │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ Styling          │ CSS & Component Toolkit    │ Used for all styling, enabling rapid UI development.                 │ N/A                                                                                              │
+<<<<<<< HEAD
+│ Styling          │ CSS & Component Toolkit    │ Used for all styling, enabling rapid UI development. The global      │ N/A                                                                                              │
+│                  │                            │ layout is managed by a scalable system of CSS variables and          │                                                                                                │
+│                  │                            │ semantic utilities. Core spacing values (e.g.,                       │                                                                                                │
+│                  │                            │ `--component-padding-x`) are defined in `index.css`. These are       │                                                                                                │
+│                  │                            │ consumed by new utilities in `tailwind.config.cjs` (e.g.,            │                                                                                                │
+│                  │                            │ `p-component-px`), which are then applied to the components. This    │                                                                                                │
+│                  │                            │ allows for global, theme-level control over component layouts.       │                                                                                                │
 │                  │                            │ • `Tailwind CSS`: Utility-first CSS framework.                     │                                                                                                │
-│                  │                            │ • `src/index.css`: Defines global styles, including a doubled base   │                                                                                                │
-│                  │                            │   font size for improved readability.                                │                                                                                                │
+│                  │                            │ • `src/index.css`: Defines global theme variables.                 │                                                                                                │
+=======
+│ Styling          │ CSS & Component Toolkit    │ Used for all styling, enabling rapid UI development. The global      │ N/A                                                                                              │
+│                  │                            │ layout is managed by a scalable system of CSS variables and          │                                                                                                │
+│                  │                            │ semantic utilities. Core spacing values (e.g.,                       │                                                                                                │
+│                  │                            │ `--component-padding-x`) are defined in `index.css`. These are       │                                                                                                │
+│                  │                            │ consumed by new utilities in `tailwind.config.cjs` (e.g.,            │                                                                                                │
+│                  │                            │ `p-component-px`), which are then applied to the components. This    │                                                                                                │
+│                  │                            │ allows for global, theme-level control over component layouts.       │                                                                                                │
+│                  │                            │ • `Tailwind CSS`: Utility-first CSS framework.                     │                                                                                                │
+│                  │                            │ • `src/index.css`: Defines global theme variables.                 │                                                                                                │
+>>>>>>> origin/feature/update-roadmap-and-security
 │                  │                            │ • `shadcn/ui`: Re-usable components built on Radix UI.               │                                                                                                │
 ├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Analytics        │ Usage & Perf. Monitoring   │ Captures errors, analytics, and performance data.                    │                                                                                                │

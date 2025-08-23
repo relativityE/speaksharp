@@ -53,7 +53,7 @@ const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) =
     const isLoading = isListening && !transcript && !interimTranscript;
 
     return (
-        <div className="flex flex-col gap-8 h-full">
+        <div className="flex flex-col gap-component-gap h-full">
             <div className="flex-shrink-0">
                 <TranscriptPanel {...speechRecognition} isLoading={isLoading} />
             </div>
@@ -137,14 +137,14 @@ export const SessionPage = () => {
     }, [elapsedTime, isListening, user, profile, speechRecognition.stopListening, setUsageLimitExceeded]);
 
     return (
-        <div className="container mx-auto px-4 py-10">
+        <div className="container mx-auto px-component-px py-10">
             <UpgradePromptDialog
                 open={usageLimitExceeded}
                 onOpenChange={setUsageLimitExceeded}
             />
-            <div className="lg:flex lg:gap-8 relative lg:items-stretch">
+            <div className="lg:flex lg:gap-component-gap relative lg:items-stretch">
                 {/* Left Column */}
-                <div className="lg:w-2/3 flex flex-col gap-8">
+                <div className="lg:w-2/3 flex flex-col gap-component-gap">
                     <ErrorBoundary fallback={<p>Something went wrong in the session display.</p>}>
                         <LeftColumnContent
                             speechRecognition={speechRecognition}
