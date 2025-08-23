@@ -24,14 +24,12 @@ const DigitalTimer = ({ elapsedTime }) => {
     );
 };
 
-export const SessionSidebar = ({ isListening, error, startListening, stopListening, reset, desiredMode, setMode, actualMode, saveSession }) => {
+export const SessionSidebar = ({ isListening, error, startListening, stopListening, reset, desiredMode, setMode, actualMode, saveSession, elapsedTime }) => {
     const navigate = useNavigate();
     const { user, profile } = useAuth();
     const stripe = useStripe();
-    const [elapsedTime, setElapsedTime] = useState(0);
     const [isLoading, setIsLoading] = useState(false);
     const [isUpgrading, setIsUpgrading] = useState(false);
-    const timerIntervalRef = useRef(null);
 
     const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
 
@@ -118,21 +116,10 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
     useEffect(() => {
         if (isListening) {
             setIsLoading(false);
-            timerIntervalRef.current = setInterval(() => {
-                setElapsedTime(prev => prev + 1);
-            }, 1000);
         } else {
             if (error) setIsLoading(false);
-            clearInterval(timerIntervalRef.current);
         }
-        return () => clearInterval(timerIntervalRef.current);
     }, [isListening, error]);
-
-    useEffect(() => {
-        if(!isListening) {
-            setElapsedTime(0);
-        }
-    }, [isListening]);
 
     useEffect(() => {
         if (actualMode === 'local') {
@@ -149,7 +136,6 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
         } else {
             setIsLoading(true);
             reset();
-            setElapsedTime(0);
             startListening();
         }
     };

@@ -70,17 +70,54 @@ const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) =
 };
 
 
+import { useAuth } from '../contexts/AuthContext';
+
 export const SessionPage = () => {
+    const { user, profile } = useAuth();
     const { saveSession, usageLimitExceeded, setUsageLimitExceeded } = useSessionManager();
     const [customWords, setCustomWords] = useState([]);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
     const [mode, setMode] = useState('cloud');
+    const [elapsedTime, setElapsedTime] = useState(0);
 
     const speechRecognition = useSpeechRecognition({ customWords, mode });
+    const { isListening } = speechRecognition;
 
     useEffect(() => {
         posthog.capture('session_page_viewed');
     }, []);
+
+    useEffect(() => {
+        let interval;
+        if (isListening) {
+            interval = setInterval(() => {
+                setElapsedTime(prevTime => prevTime + 1);
+            }, 1000);
+        } else {
+            setElapsedTime(0); // Reset timer when not listening
+        }
+
+        return () => {
+            if (interval) {
+                clearInterval(interval);
+            }
+        };
+    }, [isListening]);
+
+    useEffect(() => {
+        if (!isListening) return;
+
+        const sessionLimit = !user
+            ? 120 // 2 minutes for anonymous users
+            : profile?.subscription_status !== 'pro'
+                ? 1800 // 30 minutes for free users
+                : null; // No limit for pro users
+
+        if (sessionLimit && elapsedTime >= sessionLimit) {
+            speechRecognition.stopListening();
+            // Consider showing a notification here
+        }
+    }, [elapsedTime, isListening, user, profile, speechRecognition.stopListening]);
 
     return (
         <div className="container mx-auto px-4 py-10">
@@ -102,7 +139,7 @@ export const SessionPage = () => {
 
                 {/* Desktop Sidebar (Right Column) */}
                 <div className="hidden lg:block lg:w-1/3">
-                    <SessionSidebar {...speechRecognition} saveSession={saveSession} desiredMode={mode} setMode={setMode} actualMode={speechRecognition.mode} />
+                    <SessionSidebar {...speechRecognition} saveSession={saveSession} desiredMode={mode} setMode={setMode} actualMode={speechRecognition.mode} elapsedTime={elapsedTime} />
                 </div>
 
                 {/* Mobile Drawer */}
@@ -116,7 +153,7 @@ export const SessionPage = () => {
                         </DrawerTrigger>
                         <DrawerContent>
                             <div className="p-4 overflow-y-auto h-[80vh]">
-                                <SessionSidebar {...speechRecognition} saveSession={saveSession} desiredMode={mode} setMode={setMode} actualMode={speechRecognition.mode} />
+                                <SessionSidebar {...speechRecognition} saveSession={saveSession} desiredMode={mode} setMode={setMode} actualMode={speechRecognition.mode} elapsedTime={elapsedTime} />
                             </div>
                         </DrawerContent>
                     </Drawer>

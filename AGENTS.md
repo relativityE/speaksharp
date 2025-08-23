@@ -47,6 +47,7 @@ The submission process is a two-step interaction between you (the agent) and the
 
 1.  **Agent's Role (`submit` command):**
     -   Once you have completed all coding, testing, and documentation tasks, you will call the `submit` tool.
+    -   **NOTE:** Before calling `submit`, you are required to complete all items in the **CRITICAL PRE-SUBMISSION CHECKLIST (Section 6)**, which includes a mandatory review and update of all repository documentation (`PRD.md`, `System Architecture.md`, etc.).
     -   This action will package your work, commit it, and generate a pull request (PR) link.
 
 2.  **User's Role ("Publish Branch" button):**
