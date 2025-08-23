@@ -133,6 +133,13 @@ This is the primary testing stack for the application. It provides a fast and re
 
 For features that rely heavily on browser-native APIs (like the `TranscriptionService`'s audio processing), we use **Playwright**. These tests run in a real browser environment, providing a higher level of confidence for critical user flows.
 
+### Backend Function Testing: Deno Test
+
+For Supabase Edge Functions, which are written in TypeScript and run on the Deno runtime, we use **Deno's built-in test runner**.
+
+*   **Execution**: A dedicated script, `pnpm run test:functions`, is available to run all `*.test.ts` files located within the `supabase/functions/` directory.
+*   **Mocking**: These tests use dependency injection to mock external services like the Supabase client or other APIs. This allows for isolated and predictable testing of the function's logic.
+
 ### Summary of Tools
 
 | Tool          | Role                               | When It's Used                                      |
@@ -167,7 +174,10 @@ This hybrid approach provides a fast, reliable, and comprehensive testing strate
 │ Service          │                            │ approach via an `onTranscriptUpdate` callback to provide real-time   │   (Set in Supabase project secrets)                                                          │
 │                  │                            │ results to the UI without polling. Errors from the cloud provider    │                                                                                                │
 │                  │                            │ (e.g., missing API key) now propagate to the UI instead of silently  │                                                                                                │
-│                  │                            │ falling back to a different engine.                                  │                                                                                                │
+│                  │                            │ falling back to a different engine. If a provider fails to           │                                                                                                │
+│                  │                            │ initialize for any reason (e.g., browser incompatibility, network    │                                                                                                │
+│                  │                            │ error), the service will automatically attempt to fall back to the   │                                                                                                │
+│                  │                            │ native browser's built-in speech recognition as a last resort.       │                                                                                                │
 │                  │                            │ • `src/services/transcription`: Wrapper for STT providers.         │                                                                                                │
 │                  │                            │ • `modes/LocalWhisper.js`: On-device via **Transformers.js**.        │                                                                                                │
 │                  │                            │ • `modes/CloudAssemblyAI.js`: Premium cloud-based mode.              │                                                                                                │

@@ -6,9 +6,6 @@ import { MainPage } from './pages/MainPage';
 import { SessionPage } from './pages/SessionPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import AuthPage from './pages/AuthPage';
-import TestPage from './pages/TestPage';
-
-
 function App() {
   useAuth();
 
@@ -21,7 +18,6 @@ function App() {
             <Route path="/" element={<MainPage />} />
             <Route path="/session" element={<SessionPage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
-            <Route path="/test-page" element={<TestPage />} />
           </Routes>
       </main>
     </div>
