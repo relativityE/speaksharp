@@ -62,14 +62,14 @@ const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) =
 import { useAuth } from '../contexts/AuthContext';
 
 export const SessionPage = () => {
-    const { user, profile } = useAuth();
+    const { user, profile, session } = useAuth();
     const { saveSession, usageLimitExceeded, setUsageLimitExceeded } = useSessionManager();
     const [customWords, setCustomWords] = useState([]);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
     const [mode, setMode] = useState('cloud');
     const [elapsedTime, setElapsedTime] = useState(0);
 
-    const speechRecognition = useSpeechRecognition({ customWords, mode });
+    const speechRecognition = useSpeechRecognition({ customWords, mode, session });
     const { isListening, modelLoadingProgress } = speechRecognition;
 
     useEffect(() => {

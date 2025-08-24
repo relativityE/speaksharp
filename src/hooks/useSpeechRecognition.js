@@ -31,7 +31,8 @@ const getInitialFillerData = (customWords = []) => {
 export const useSpeechRecognition = ({
     customWords = [],
     mode,
-    model = 'Xenova/whisper-tiny.en'
+    model = 'Xenova/whisper-tiny.en',
+    session
 } = {}) => {
     console.log(`[useSpeechRecognition] Hook initialized with mode: ${mode}, model: ${model}`);
 
@@ -156,7 +157,8 @@ export const useSpeechRecognition = ({
                     onTranscriptUpdate,
                     onModelLoadProgress,
                     model,
-                    profile
+                    profile,
+                    session
                 });
                 await service.init();
                 transcriptionServiceRef.current = service;
