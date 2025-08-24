@@ -59,6 +59,7 @@ serve(async (req) => {
       }
     }
     // If in dev mode, we bypass the auth checks and proceed.
+
     const { transcript } = await req.json();
     if (!transcript) {
       return new Response(JSON.stringify({ error: 'Transcript is required' }), {
