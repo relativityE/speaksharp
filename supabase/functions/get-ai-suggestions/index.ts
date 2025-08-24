@@ -1,7 +1,8 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.44.4';
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': 'http://localhost:5173',
+  'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
@@ -14,6 +15,51 @@ serve(async (req) => {
   }
 
   try {
+    const authHeader = req.headers.get('Authorization');
+    const devModeSecret = Deno.env.get('DEV_SECRET_KEY_V2');
+
+    // Dev mode check
+    if (!devModeSecret || authHeader !== `Bearer ${devModeSecret}`) {
+      // Production mode: Standard user authentication and "pro" plan check.
+      const supabaseClient = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+        { global: { headers: { Authorization: authHeader } } }
+      );
+
+      const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
+
+      if (userError || !user) {
+        return new Response(JSON.stringify({ error: 'Authentication failed' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 401,
+        });
+      }
+
+      const { data: profile, error: profileError } = await supabaseClient
+        .from('user_profiles')
+        .select('subscription_status')
+        .eq('id', user.id)
+        .single();
+
+      if (profileError) {
+        console.error('Profile fetch error:', profileError);
+        return new Response(JSON.stringify({ error: 'Failed to fetch user profile' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 500,
+        });
+      }
+
+      const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
+      if (!isPro) {
+        return new Response(JSON.stringify({ error: 'User is not on a Pro plan' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 403,
+        });
+      }
+    }
+    // If in dev mode, we bypass the auth checks and proceed.
+
     const { transcript } = await req.json();
     if (!transcript) {
       return new Response(JSON.stringify({ error: 'Transcript is required' }), {
