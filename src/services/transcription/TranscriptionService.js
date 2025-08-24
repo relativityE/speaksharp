@@ -3,14 +3,13 @@ import NativeBrowser from './modes/NativeBrowser';
 import { createMicStream } from './utils/audioUtils';
 
 export default class TranscriptionService {
-  constructor(mode = 'local', { model = 'Xenova/whisper-tiny.en', onTranscriptUpdate, onModelLoadProgress, profile, session } = {}) {
+  constructor(mode = 'local', { model = 'Xenova/whisper-tiny.en', onTranscriptUpdate, onModelLoadProgress, profile } = {}) {
     console.log(`[TranscriptionService] Constructor called with mode: ${mode}, model: ${model}`);
     this.mode = mode;
     this.model = model;
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onModelLoadProgress = onModelLoadProgress;
     this.profile = profile;
-    this.session = session;
     this.instance = null;
     this.mic = null;
     this._fallbackArmed = true;
@@ -35,10 +34,17 @@ export default class TranscriptionService {
     try {
       await this._instantiate(performanceWatcher);
       console.log('[TranscriptionService] Initialization complete.');
+      return { success: true };
     } catch (error) {
       console.warn(`[TranscriptionService] Failed to initialize ${this.mode} mode. Falling back to native.`, error);
-      this.setMode('native');
-      await this._instantiate(performanceWatcher);
+      try {
+        this.setMode('native');
+        await this._instantiate(performanceWatcher);
+        return { success: true, fallback: true, error };
+      } catch (fallbackError) {
+        console.error('[TranscriptionService] Failed to initialize fallback native mode.', fallbackError);
+        throw fallbackError; // If fallback also fails, rethrow the error.
+      }
     }
   }
 
@@ -69,7 +75,6 @@ export default class TranscriptionService {
       performanceWatcher,
       onTranscriptUpdate: this.onTranscriptUpdate,
       onModelLoadProgress: this.onModelLoadProgress,
-      session: this.session,
     };
 
     console.log(`[TranscriptionService] Loading provider for mode: ${this.mode}`);
