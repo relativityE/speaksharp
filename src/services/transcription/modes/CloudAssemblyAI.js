@@ -2,20 +2,47 @@ import { AssemblyAI } from 'assemblyai';
 import { supabase } from '../../../lib/supabaseClient';
 
 export default class CloudAssemblyAI {
-  constructor({ performanceWatcher, onTranscriptUpdate } = {}) {
+  constructor({ performanceWatcher, onTranscriptUpdate, session } = {}) {
     this.performanceWatcher = performanceWatcher;
     this.onTranscriptUpdate = onTranscriptUpdate;
+    this.session = session;
     this.transcriber = null;
     this._frameCount = 0;
     this._t0 = 0;
   }
 
   async _getTemporaryToken() {
+    const devModeSecret = import.meta.env.DEV ? import.meta.env.VITE_DEV_MODE_SECRET : undefined;
+    let authHeader;
+
+    if (devModeSecret) {
+      console.log('[CloudAssemblyAI] Dev mode: using secret key for token request.');
+      authHeader = `Bearer ${devModeSecret}`;
+    } else {
+      console.log('[CloudAssemblyAI] Production mode: using user session for token request.');
+      const session = this.session;
+      if (!session) {
+        // This is a critical client-side check before attempting to call the function.
+        throw new Error('User not authenticated. Please log in to use Cloud transcription.');
+      }
+      authHeader = `Bearer ${session.access_token}`;
+    }
+
     try {
-      const { data, error } = await supabase.functions.invoke('assemblyai-token');
+      const { data, error } = await supabase.functions.invoke('assemblyai-token', {
+        headers: {
+          'Authorization': authHeader,
+        },
+      });
 
       if (error) {
-        throw error;
+        // Errors from the function (e.g., network errors, 5xx status)
+        throw new Error(`Supabase function invocation failed: ${error.message}`);
+      }
+
+      if (data.error) {
+        // Errors returned in the function's JSON response body (e.g., auth failures)
+        throw new Error(`AssemblyAI token error: ${data.error}`);
       }
 
       if (!data || !data.token) {
@@ -25,8 +52,8 @@ export default class CloudAssemblyAI {
       return data.token;
     } catch (error) {
       console.error('Failed to get AssemblyAI token:', error);
-      // Provide a more user-friendly error message that suggests a common cause.
-      throw new Error('Failed to get AssemblyAI token. Please ensure the server is configured with an API key.');
+      // Provide a more user-friendly error message.
+      throw new Error(`Failed to get AssemblyAI token. Please ensure the server is configured correctly and you have the required permissions. Reason: ${error.message}`);
     }
   }
 
