@@ -17,23 +17,6 @@ import { UpgradePromptDialog } from '@/components/UpgradePromptDialog';
 const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) => {
     const { error, isSupported, isListening, transcript, interimTranscript } = speechRecognition;
 
-    if (error) {
-        return (
-            <Card className="flex-grow">
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <AlertTriangle className="text-red-500" /> Error
-                    </CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <p className="text-red-500">{error.message}</p>
-                    <p className="text-muted-foreground mt-2">
-                        Speech recognition could not be initialized. Please check your browser permissions and try refreshing the page.
-                    </p>
-                </CardContent>
-            </Card>
-        );
-    }
 
     if (!isSupported) {
         return (
@@ -53,7 +36,7 @@ const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) =
     const isLoading = isListening && !transcript && !interimTranscript;
 
     return (
-        <div className="flex flex-col gap-8 h-full">
+        <div className="flex flex-col gap-component-gap h-full">
             <div className="flex-shrink-0">
                 <TranscriptPanel {...speechRecognition} isLoading={isLoading} />
             </div>
@@ -79,26 +62,15 @@ const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) =
 import { useAuth } from '../contexts/AuthContext';
 
 export const SessionPage = () => {
-    const { user, profile } = useAuth();
+    const { user, profile, session } = useAuth();
     const { saveSession, usageLimitExceeded, setUsageLimitExceeded } = useSessionManager();
     const [customWords, setCustomWords] = useState([]);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-    const [mode, setMode] = useState('local'); // Default to local
+    const [mode, setMode] = useState('cloud');
     const [elapsedTime, setElapsedTime] = useState(0);
 
-    const speechRecognition = useSpeechRecognition({ customWords, mode });
+    const speechRecognition = useSpeechRecognition({ customWords, mode, session });
     const { isListening, modelLoadingProgress } = speechRecognition;
-
-    useEffect(() => {
-        // Set the initial mode based on user's subscription status.
-        // Pro users can default to cloud, others are locked to local.
-        const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
-        if (isPro) {
-            setMode('cloud');
-        } else {
-            setMode('local');
-        }
-    }, [profile]);
 
     useEffect(() => {
         posthog.capture('session_page_viewed');
@@ -137,14 +109,14 @@ export const SessionPage = () => {
     }, [elapsedTime, isListening, user, profile, speechRecognition.stopListening, setUsageLimitExceeded]);
 
     return (
-        <div className="container mx-auto px-4 py-10">
+        <div className="container mx-auto px-component-px py-10">
             <UpgradePromptDialog
                 open={usageLimitExceeded}
                 onOpenChange={setUsageLimitExceeded}
             />
-            <div className="lg:flex lg:gap-8 relative lg:items-stretch">
+            <div className="lg:flex lg:gap-component-gap relative lg:items-stretch">
                 {/* Left Column */}
-                <div className="lg:w-2/3 flex flex-col gap-8">
+                <div className="lg:w-2/3 flex flex-col gap-component-gap">
                     <ErrorBoundary fallback={<p>Something went wrong in the session display.</p>}>
                         <LeftColumnContent
                             speechRecognition={speechRecognition}
