@@ -12,11 +12,20 @@ export default class CloudAssemblyAI {
   }
 
   async _getTemporaryToken() {
-    console.log('[CloudAssemblyAI] Attempting to get temporary token...');
+    // Dev mode: get token directly from local env var
+    if (import.meta.env.DEV && import.meta.env.VITE_ASSEMBLYAI_API_KEY) {
+        console.log('[CloudAssemblyAI] Dev mode: creating temporary token directly.');
+        const assemblyai = new AssemblyAI({ apiKey: import.meta.env.VITE_ASSEMBLYAI_API_KEY });
+        const token = await assemblyai.realtime.createTemporaryToken({ expires_in: 3600 });
+        return token;
+    }
+
+    // Production mode: get token from Supabase function
+    console.log('[CloudAssemblyAI] Production mode: fetching token from Supabase function...');
     try {
       const session = this.session;
       if (!session) {
-        throw new Error('User not authenticated.');
+        throw new Error('User not authenticated. Please log in to use Cloud transcription.');
       }
 
       const { data, error } = await supabase.functions.invoke('assemblyai-token', {

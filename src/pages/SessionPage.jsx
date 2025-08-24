@@ -66,11 +66,18 @@ export const SessionPage = () => {
     const { saveSession, usageLimitExceeded, setUsageLimitExceeded } = useSessionManager();
     const [customWords, setCustomWords] = useState([]);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-    const [mode, setMode] = useState('cloud');
+    const [mode, setMode] = useState('local');
     const [elapsedTime, setElapsedTime] = useState(0);
 
     const speechRecognition = useSpeechRecognition({ customWords, mode, session });
     const { isListening, modelLoadingProgress } = speechRecognition;
+
+    useEffect(() => {
+        const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
+        if (isPro) {
+            setMode('cloud');
+        }
+    }, [profile]);
 
     useEffect(() => {
         posthog.capture('session_page_viewed');
