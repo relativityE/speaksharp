@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import TranscriptionService from '../services/transcription/TranscriptionService';
 import { FILLER_WORD_KEYS } from '../config';

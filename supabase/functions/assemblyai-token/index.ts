@@ -18,6 +18,10 @@ export async function handler(req, createSupabase, createAssemblyAI) {
     const authHeader = req.headers.get('Authorization');
     const devModeSecret = Deno.env.get('DEV_SECRET_KEY_V2');
 
+    console.log('[assemblyai-token] Debugging Info:');
+    console.log(`[assemblyai-token] devModeSecret from env: "${devModeSecret}"`);
+    console.log(`[assemblyai-token] authHeader received: "${authHeader}"`);
+
     // Developer Mode: If a specific secret is provided, bypass user auth.
     if (devModeSecret && authHeader === `Bearer ${devModeSecret}`) {
       console.log('[assemblyai-token] Dev mode request received. Bypassing user auth.');
