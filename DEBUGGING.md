@@ -101,6 +101,7 @@ This requires setting up secrets in two places:
 
 This keeps the main `ASSEMBLYAI_API_KEY` secure on the backend while providing a streamlined and secure workflow for local development.
 
+
 ---
 
 ### Scenario 3: Backend & Environment Issues
