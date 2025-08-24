@@ -150,6 +150,45 @@ For Supabase Edge Functions, which are written in TypeScript and run on the Deno
 | **Playwright**| Secondary, end-to-end test runner. | For high-level smoke tests (`npx playwright test`). |
 
 This hybrid approach provides a fast, reliable, and comprehensive testing strategy for the project.
+
+## 7. Evolution of the Developer Workflow
+
+The process for enabling developers to test the premium cloud transcription feature has evolved significantly to improve security and reliability. Understanding this history is useful for appreciating the current architecture.
+
+### Phase 1 & 2: Direct-to-API Flow (Insecure / CORS-Blocked)
+
+*   **How it Worked**: The developer's browser, using a key from `.env.local`, would attempt to request a token directly from the AssemblyAI API.
+*   **Problem**: This was either a security risk (if the main key was exposed) or blocked by browser CORS policy.
+
+```text
++-----------------------+           +-----------------------+
+|   Developer Browser   |           |    AssemblyAI API     |
+| (localhost:5173)      |           | (api.assemblyai.com)  |
+|                       |           |                       |
+| 1. Read key from      |           |                       |
+|    .env.local         |           |                       |
+|                       |           |                       |
+| 2. Request Token -----X---------->|  2a. REJECTED (CORS)  |
+|    (Fetch API)        |           |                       |
++-----------------------+           +-----------------------+
+```
+
+### Phase 3: Secure "Dev Secret" Flow (Current)
+
+*   **How it Works**: The browser no longer holds any powerful API keys. It holds a simple "dev secret" which it sends to our own Supabase function. The function recognizes the secret and then uses its own powerful, secure API key to get the token from AssemblyAI.
+*   **Benefit**: This is secure, mimics the production data path, and avoids all CORS issues.
+
+```text
++---------------------+   2. Request Token    +---------------------+   3. Request Token    +---------------------+
+| Developer Browser   |      (w/ Dev Secret)  | Supabase Function   |  (w/ Main API Key)  |   AssemblyAI API    |
+| (localhost:5173)    |---------------------->| (assemblyai-token)  |-------------------->| (api.assemblyai.com)|
+|                     |                       |                     |                     |                     |
+| 1. Read Dev Secret  |                       | 2a. Validate Secret |                     | 3a. Validate Key    |
+|    from .env.local  |                       |                     |                     |     & Issue Token   |
+|                     |   4. Return Token     |                     |  4. Return Token    |                     |
+|                     |<----------------------|                     |<--------------------|                     |
++---------------------+                       +---------------------+                     +---------------------+
+```
 ```
 
 

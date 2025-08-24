@@ -64,45 +64,43 @@ This is the most common failure mode discovered during recent debugging.
 
 ---
 
-### Scenario 2: Developer Testing & Anonymous Usage
+### Scenario 2: Secure Developer Testing
 
-**Symptom:** As a developer, you want to test the cloud transcription flow without needing to log in as a "pro" user. The production authentication flow gets in the way.
+**Symptom:** As a developer, you want to test the cloud transcription flow without needing to log in as a "pro" user. The production authentication flow, which requires a valid login, gets in the way.
 
-**Cause:** The production flow is designed to be secure and requires a valid, authenticated user session to generate a token. This is intentional.
+**Cause:** The production flow is intentionally secure. It requires a valid, authenticated user session to generate an AssemblyAI token via the `assemblyai-token` Supabase function. This protects the main AssemblyAI API key.
 
-**Solution:** A special "Developer Mode" has been implemented.
+**Solution:** A secure "Developer Mode" has been implemented. This mode uses a shared secret to allow the client to request a token from the Supabase function, bypassing the normal user login and "pro" plan checks.
 
-1.  **Create a `.env.local` file** in the root of your project if you don't have one.
-2.  **Add your AssemblyAI API key** to this file. The key name must be `VITE_ASSEMBLYAI_API_KEY`.
-    ```
-    VITE_ASSEMBLYAI_API_KEY=your_assemblyai_api_key_here
-    ```
-3.  **Run the app in dev mode** (`pnpm run dev`).
+This requires setting up secrets in two places:
 
-When the application is in dev mode (`import.meta.env.DEV` is true) and it finds the `VITE_ASSEMBLYAI_API_KEY`, it will bypass the Supabase function entirely and generate a temporary token directly in the browser. This allows for full testing of the cloud transcription pipeline without any authentication.
+1.  **For the Supabase Function (Backend):**
+    *   Navigate to your Supabase project dashboard.
+    *   Go to **Settings -> Secrets**.
+    *   Create a **new secret** named `DEV_MODE_SECRET`.
+    *   Set its value to a strong, random string (e.g., a UUID). This secret proves to your function that a developer is making the request.
+    *   After setting the secret, you **must** redeploy your Supabase functions for the change to take effect:
+        ```bash
+        npx supabase functions deploy
+        ```
 
-#### How `import.meta.env.DEV` Works
+2.  **For the React App (Client):**
+    *   Create a file named `.env.local` in the root of the project if it doesn't exist.
+    *   Add the **same secret** to this file, but prefix the variable with `VITE_`. This is a Vite requirement for exposing variables to the browser.
+        ```
+        VITE_DEV_MODE_SECRET=the_same_strong_random_string_as_above
+        ```
+    *   **Important:** You must **restart your development server** (stop and restart `pnpm run dev`) after changing this file.
 
-`import.meta.env.DEV` is a special variable provided by **Vite**, the build tool used for this project. It is not something you set manually. Vite automatically sets its value based on how the application is running:
+**How It Works:**
 
--   **`true`**: When you run the development server (e.g., `pnpm run dev`).
--   **`false`**: When you build the application for production (e.g., `pnpm run build`).
+-   When you run the app in dev mode (`pnpm run dev`), `import.meta.env.DEV` becomes `true`.
+-   The client-side code in `CloudAssemblyAI.js` detects this and reads `import.meta.env.VITE_DEV_MODE_SECRET`.
+-   It then calls the `assemblyai-token` Supabase function, but instead of sending a user's login token, it sends the developer secret in the `Authorization` header.
+-   The Supabase function receives the request, finds the developer secret, and bypasses all the normal user authentication checks, proceeding directly to generate and return a temporary AssemblyAI token.
 
-This allows the code to have different behaviors in development and production environments, which is exactly how "Developer Mode" is enabled.
+This keeps the main `ASSEMBLYAI_API_KEY` secure on the backend while providing a streamlined and secure workflow for local development.
 
-The code for this logic is in `src/services/transcription/modes/CloudAssemblyAI.js`:
-```javascript
-async _getTemporaryToken() {
-  // Dev mode: get token directly from local env var
-  if (import.meta.env.DEV && import.meta.env.VITE_ASSEMBLYAI_API_KEY) {
-      console.log('[CloudAssemblyAI] Dev mode: creating temporary token directly.');
-      const assemblyai = new AssemblyAI({ apiKey: import.meta.env.VITE_ASSEMBLYAI_API_KEY });
-      const token = await assemblyai.realtime.createTemporaryToken({ expires_in: 3600 });
-      return token;
-  }
-  // ... production logic follows
-}
-```
 
 ---
 
