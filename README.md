@@ -66,6 +66,11 @@ A real-time speech analysis tool built on two pillars: speed and privacy. Our "p
     VITE_STRIPE_PUBLISHABLE_KEY=your_stripe_publishable_key_here
     VITE_STRIPE_SECRET_KEY=your_stripe_secret_key_here
     VITE_STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret_here
+
+    # (Optional) Developer Mode Universal Bypass
+    # Set this to true to bypass all authentication and usage checks in Supabase functions.
+    # This should ONLY be used for local testing.
+    SUPER_DEV_MODE=true
     ```
 
     **Note on Environment Variables:** In Vite-based projects, it is standard practice to prefix all client-side environment variables with `VITE_`. This is a security measure to prevent accidental exposure of sensitive keys to the browser. Any variable without this prefix will not be accessible in the application's frontend code. For more details, see the official [Vite documentation](https://vitejs.dev/guide/env-and-mode.html).

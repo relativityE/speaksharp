@@ -10,6 +10,8 @@ This document provides guidance for AI software engineering agents working on th
 
 2.  **Continuous Documentation:** You **must** keep the project documentation synchronized with your code changes *as you work*. Do not leave documentation updates until the end. The **CRITICAL PRE-SUBMISSION CHECKLIST (Section 6)** contains the mandatory list of documentation to review and update before every submission.
 
+3.  **Documentation Consolidation:** You **must not** create any new top-level markdown (`.md`) files. All project documentation, analysis, and planning must be consolidated into the three existing documents: `PRD.md`, `README.md`, and `System Architecture.md`. This ensures a single source of truth.
+
 ---
 
 ## 1. Technology Stack
