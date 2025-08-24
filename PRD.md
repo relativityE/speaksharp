@@ -25,11 +25,6 @@
 
 ## Known Issues
 - **On-Device Transcription Needs Polish:** The `LocalWhisper` provider in `TranscriptionService` is a functional implementation using Transformers.js. However, it may require further UI/UX polishing for model loading feedback and error handling before it is production-ready.
-- **`useSpeechRecognition` Test Disabled:** The test file for the main `useSpeechRecognition` hook (`useSpeechRecognition.test.jsx`) is currently disabled due to a critical, unresolvable memory leak.
-  - **Status (as of Aug 23, 2025):** The test was re-enabled and confirmed to fail with a `JS heap out of memory` error, even when run in isolation.
-  - **Analysis:** The memory leak appears to be caused by the large dependency graph of the hook, which includes the AI models from Transformers.js. The issue persists even with advanced mocking strategies.
-  - **Action:** The file has been re-disabled with a `.disabled` extension to maintain a stable CI pipeline. This remains a high-priority issue to resolve to ensure full test coverage.
-  - **Developer Note:** When attempting to debug this test, it is a long-running process. It should be executed as a background task (e.g., `pnpm test src/__tests__/useSpeechRecognition.test.jsx &`) to avoid blocking the shell.
 
 ---
 
