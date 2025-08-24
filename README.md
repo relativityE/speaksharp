@@ -50,6 +50,11 @@ A real-time speech analysis tool built on two pillars: speed and privacy. Our "p
     VITE_SUPABASE_URL=your_supabase_project_url_here
     VITE_SUPABASE_ANON_KEY=your_supabase_anon_key_here
 
+    # (Optional) Developer Mode Universal Bypass
+    # Set this to true to bypass all authentication and usage checks in Supabase functions.
+    # This should ONLY be used for local testing.
+    SUPER_DEV_MODE=true
+
     # Sentry
     VITE_SENTRY_DSN=your_sentry_dsn_here
 

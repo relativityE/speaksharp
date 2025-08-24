@@ -12,7 +12,7 @@ export default class CloudAssemblyAI {
   }
 
   async _getTemporaryToken() {
-    // The new developer flow is handled by the edge function based on NODE_ENV.
+    // The new developer flow is handled by the edge function based on SUPER_DEV_MODE.
     // The client just needs to send the regular auth header.
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {

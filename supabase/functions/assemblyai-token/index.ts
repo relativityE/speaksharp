@@ -40,7 +40,8 @@ export async function handler(req, createSupabase, createAssemblyAI) {
 
     const { data: profile, error: profileError } = await supabaseClient
       .from('user_profiles')
-      .select('subscription_status, usage_seconds, usage_reset_date')
+
+      .select('subscription_status, usage_seconds')
       .eq('id', user.id)
       .single();
 
@@ -54,24 +55,16 @@ export async function handler(req, createSupabase, createAssemblyAI) {
 
     const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
     if (isPro) {
-      // Pro users have unlimited access
-      const assemblyai = createAssemblyAI();
-      const token = await assemblyai.realtime.createTemporaryToken({ expires_in: 600 });
-      return new Response(JSON.stringify({ token }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200,
-      });
-    }
-
-    // For free users, check usage limits.
-    // The monthly reset logic is handled by the `update_user_usage` RPC function,
-    // which is called at the end of a session. This function only needs to read the current state.
-    const FREE_TIER_LIMIT_SECONDS = 600; // 10 minutes
-    if ((profile.usage_seconds || 0) >= FREE_TIER_LIMIT_SECONDS) {
-      return new Response(JSON.stringify({ error: 'Usage limit exceeded. Please upgrade to Pro for unlimited access.' }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 403, // Forbidden
-      });
+      // Pro users have unlimited access, so we can grant a token directly.
+    } else {
+      // For free users, check usage limits.
+      const FREE_TIER_LIMIT_SECONDS = 600; // 10 minutes
+      if ((profile.usage_seconds || 0) >= FREE_TIER_LIMIT_SECONDS) {
+        return new Response(JSON.stringify({ error: 'Usage limit exceeded. Please upgrade to Pro for unlimited access.' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 403, // Forbidden
+        });
+      }
     }
 
     const assemblyai = createAssemblyAI();
