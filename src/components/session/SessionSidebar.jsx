@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { useStripe } from '@stripe/react-stripe-js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { ErrorDisplay } from '../ErrorDisplay';
@@ -17,8 +18,8 @@ const DigitalTimer = ({ elapsedTime }) => {
     const seconds = elapsedTime % 60;
     const formattedTime = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     return (
-        <div className="bg-primary text-primary-foreground px-8 py-3 rounded-full shadow-lg">
-            <div className="text-5xl font-mono font-bold tracking-widest">
+        <div className="bg-primary text-primary-foreground px-4 py-2 rounded-full shadow-lg">
+            <div className="text-2xl font-mono font-bold tracking-widest">
                 {formattedTime}
             </div>
         </div>
@@ -53,8 +54,19 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
     const stripe = useStripe();
     const [isLoading, setIsLoading] = useState(false);
     const [isUpgrading, setIsUpgrading] = useState(false);
+    const [devCloudUnlocked, setDevCloudUnlocked] = useState(false);
 
     const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
+
+    const handleDevCloudUnlockChange = (checked) => {
+        if (isListening) {
+            toast.info("Mode switching is disabled while recording.", {
+                description: "Please stop the current session to switch transcription modes.",
+            });
+        } else {
+            setDevCloudUnlocked(checked);
+        }
+    };
 
     const handleUpgrade = async () => {
         if (!user) {
@@ -202,25 +214,25 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
             <div className="flex-grow flex flex-col gap-6">
                 <Card className="w-full">
                     <CardHeader>
-                        <CardTitle>Settings</CardTitle>
+                        <CardTitle className="text-sm">Settings</CardTitle>
                     </CardHeader>
-                    <CardContent className="space-y-4">
-                        <div className={`text-center p-3 rounded-lg ${modeNotification.className}`}>
-                            <p>
+                    <CardContent className="space-y-2">
+                        <div className={`text-center p-2 rounded-lg ${modeNotification.className}`}>
+                            <p className="text-xs">
                                 {modeNotification.text}
                             </p>
                         </div>
                         <div className="flex items-center justify-between">
-                            <Label htmlFor="transcription-mode">Transcription Mode</Label>
-                            <div className="flex items-center gap-2">
-                                <Label htmlFor="transcription-mode" className="text-muted-foreground">Local</Label>
+                            <Label htmlFor="transcription-mode" className="text-xs">Transcription Mode</Label>
+                            <div className="flex items-center gap-1">
+                                <Label htmlFor="transcription-mode" className="text-muted-foreground text-xs">Local</Label>
                                 <Switch
                                     id="transcription-mode"
                                     checked={desiredMode === 'cloud'}
                                     onCheckedChange={(checked) => setMode(checked ? 'cloud' : 'local')}
-                                    disabled={!isPro}
+                                    disabled={!isPro && !devCloudUnlocked}
                                 />
-                                <Label htmlFor="transcription-mode" className="text-muted-foreground flex items-center gap-1">
+                                <Label htmlFor="transcription-mode" className="text-muted-foreground flex items-center gap-1 text-xs">
                                     Cloud
                                     {!isPro && <Lock className="w-3 h-3" />}
                                 </Label>
@@ -229,11 +241,20 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                         <ModelLoadingIndicator progress={modelLoadingProgress} />
                         <ErrorDisplay error={error} />
                         {import.meta.env.DEV && (
-                            <div className="pt-4 border-t border-border/50">
-                                <h4 className="font-medium text-muted-foreground mb-2">Developer Controls</h4>
-                                <Button variant="outline" size="sm" onClick={() => setMode('native')} className="h-auto whitespace-normal text-balance">
-                                    Force Native Transcription
-                                </Button>
+                            <div className="pt-2 border-t border-border/50 space-y-2">
+                                <h4 className="font-medium text-muted-foreground text-sm">Developer Controls</h4>
+                                <div className="flex items-center space-x-1">
+                                    <Checkbox id="dev-native-mode" onCheckedChange={(checked) => { if(checked) setMode('native')}} />
+                                    <Label htmlFor="dev-native-mode" className="text-xs font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                                        Force Native Transcription
+                                    </Label>
+                                </div>
+                                <div className="flex items-center space-x-1">
+                                    <Checkbox id="dev-unlock-cloud" checked={devCloudUnlocked} onCheckedChange={handleDevCloudUnlockChange} />
+                                    <Label htmlFor="dev-unlock-cloud" className="text-xs font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                                        Unlock Cloud Mode (for non-pro)
+                                    </Label>
+                                </div>
                             </div>
                         )}
                     </CardContent>
@@ -260,18 +281,18 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                 </Card>
             </div>
 
-            <Card className="w-full bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 border-purple-200 flex-shrink-0">
+            <Card className="w-full bg-secondary border-primary/20 flex-shrink-0">
                 <CardHeader>
-                    <CardTitle className="text-base flex items-center gap-2">
-                        <Zap className="w-6 h-6 text-yellow-500" />
+                    <CardTitle className="text-sm flex items-center gap-2 text-primary">
+                        <Zap className="w-4 h-4" />
                         Upgrade to Pro
                     </CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <p className="text-sm text-muted-foreground mb-4">
+                    <p className="text-xs text-muted-foreground mb-2">
                         Get unlimited practice, advanced analytics, and priority support.
                     </p>
-                    <Button className="w-full font-bold group" onClick={handleUpgrade} disabled={isUpgrading || !user || isPro}>
+                    <Button size="sm" className="w-full font-bold group" variant="outline" onClick={handleUpgrade} disabled={isUpgrading || !user || isPro}>
                         {isUpgrading
                             ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Upgrading...</>
                             : isPro
