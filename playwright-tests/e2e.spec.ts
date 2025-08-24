@@ -6,7 +6,7 @@ test.describe('E2E User Flow', () => {
   test('a non-pro user cannot use cloud mode', async ({ page }) => {
     // 1. Start on the main page
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: /Speak with confidence/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Private Practice. Public Impact!/i })).toBeVisible();
 
     // 2. Navigate to the session page
     await page.getByRole('button', { name: /Start Your Free Session Now/i }).click();
