@@ -1,6 +1,7 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
+import { Toaster } from '@/components/ui/sonner';
 import { Header } from './components/Header';
 import { MainPage } from './pages/MainPage';
 import { SessionPage } from './pages/SessionPage';
@@ -13,7 +14,8 @@ function App() {
     <div>
       <Header />
       <main data-testid="app-main">
-          <Routes>
+        <Toaster />
+        <Routes>
             <Route path="/auth" element={<AuthPage />} />
             <Route path="/" element={<MainPage />} />
             <Route path="/session" element={<SessionPage />} />

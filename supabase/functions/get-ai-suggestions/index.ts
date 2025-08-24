@@ -15,12 +15,10 @@ serve(async (req) => {
   }
 
   try {
-    const authHeader = req.headers.get('Authorization');
-    const devModeSecret = Deno.env.get('DEV_SECRET_KEY_V2');
-
-    // Dev mode check
-    if (!devModeSecret || authHeader !== `Bearer ${devModeSecret}`) {
+    // Universal developer mode bypass
+    if (Deno.env.get("SUPER_DEV_MODE") !== 'true') {
       // Production mode: Standard user authentication and "pro" plan check.
+      const authHeader = req.headers.get('Authorization');
       const supabaseClient = createClient(
         Deno.env.get('SUPABASE_URL') ?? '',
         Deno.env.get('SUPABASE_ANON_KEY') ?? '',

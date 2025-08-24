@@ -121,43 +121,53 @@ Our technology choices prioritize development speed, scalability, and user exper
 
 ## Development Roadmap
 
-Priorities are set using the MoSCoW method (M: Must-have, S: Should-have, C: Could-have, W: Won't-have).
-Status Key: ✅ = Completed, ▶️ = In Progress, ⚪ = Not Started, ⏸️ = Deferred.
+This roadmap reflects our strategic pivot to launch the simplest possible, high-quality MVP. It integrates our previous work with a clear, bite-sized execution plan.
+Status Key: ✅ = Completed, ⚪ = To Do
 
-### PHASE 1: MVP & Core Functionality (Completed)
-- ✅ M: Implement core backend services (Supabase Auth & DB).
-- ✅ M: Implement `TranscriptionService` with both local (Transformers.js) and cloud (AssemblyAI) providers.
-- ✅ M: Integrate `TranscriptionService` into the main session page.
-- ✅ M: Implement Stripe payment flow for Pro tier.
-- ✅ M: Configure production Price ID for Stripe checkout (via environment variable).
-- ✅ M: Build a comprehensive analytics dashboard for users.
-- ✅ M: Set up Sentry for error monitoring and PostHog for product analytics.
-- ✅ S: Develop a responsive UI with a professional light theme and a "Midnight Blue & Electric Lime" dark theme.
-- ✅ S: Stabilize test suite with Vitest, removing Jest and Babel.
-- ✅ S: Solidified transcription fallback to use Native Web Speech API.
-- ⏸️ C: A/B testing setup with PostHog.
+---
 
+### **Phase 1: Launch the "Cloud-Only" MVP**
 
-### PHASE 2: Polish & Expansion (Current & Next Steps)
-- ✅ M: Fix Cloud Mode fallback bug by improving error propagation.
-- ✅ S: Improve UI readability by increasing global font size and fixing contrast issues.
-- ▶️ M: Polish the On-Device Transcription UX (model loading, error handling).
-- ✅ M: Implement 2-minute session limit for Anonymous users.
-- ✅ M: Enforce "Local-only" transcription mode for Anonymous users.
-- ✅ M: Implement hard 30-minute per-session time limit for Free tier users.
-- ✅ M: Enforce "Local-only" transcription mode for Free tier users.
-- ⚪ M: Implement automatic fallback from local to cloud STT based on performance.
-- ⚪ M: Conduct thorough cross-browser testing and bug fixing.
-- ⚪ M: Set up production deployment on Vercel.
-- ⚪ S: Implement weekly summary emails.
-- ✅ S: Add in-app prompts to encourage users to upgrade.
-- ▶️ S: Develop AI-powered suggestions for improving speech.
-- ⚪ S: A/B test different UI elements and user flows.
-- ⏸️ C: Full offline mode for the application.
-- ⏸️ C: Implement team accounts and billing.
-- ⏸️ C: Add support for more languages.
-- ⏸️ C: Optimize funnels based on PostHog data.
-- ⏸️ C: Case studies and advanced content marketing.
+**Goal:** Deliver a best-in-class, reliable, and simple speech-coaching experience.
+
+**Completed Foundational Work:**
+*   ✅ Core backend services (Supabase Auth & DB) are implemented.
+*   ✅ Stripe payment flow for Pro tier is implemented.
+*   ✅ Core UI for the session page and analytics dashboard is built.
+*   ✅ Sentry and PostHog are integrated.
+*   ✅ A stable test suite using Vitest is established.
+*   ✅ The initial `TranscriptionService` and its three modes (though requiring refactoring) are implemented.
+
+**Execution Plan (Bite-Sized):**
+
+*   **Group 1: Backend & Developer Workflow**
+    *   ⚪ **Task 1.1:** Modify `assemblyai-token` function to use `SUPER_DEV_MODE` bypass.
+    *   ⚪ **Task 1.2:** Modify `get-ai-suggestions` function to use `SUPER_DEV_MODE` bypass.
+    *   ⚪ **Task 1.3 (Testing):** Write Deno tests to validate the `SUPER_DEV_MODE` bypass in both functions.
+
+*   **Group 2: Core Frontend Logic**
+    *   ⚪ **Task 2.1:** Refactor `TranscriptionService.js` to implement the `try/catch` "Cloud-First, Native-Fallback" logic.
+    *   ⚪ **Task 2.2:** Refactor `useSpeechRecognition.js` hook to work with the new, simplified service.
+    *   ⚪ **Task 2.3 (Testing):** Write Vitest integration test for the `TranscriptionService` fallback logic.
+
+*   **Group 3: UI and User Feedback**
+    *   ⚪ **Task 3.1:** Remove the `LocalWhisper.js` file and clean up any remaining dead code.
+    *   ⚪ **Task 3.2:** Add the global `<Toaster />` component to `App.jsx`.
+    *   ⚪ **Task 3.3:** Remove the mode `<Switch/>` from `SessionSidebar.jsx` and the related state from `SessionPage.jsx`.
+    *   ⚪ **Task 3.4:** Create and add the `QualityIndicator` component to the sidebar.
+    *   ⚪ **Task 3.5:** Implement the "usage limit exceeded" toast in `CloudAssemblyAI.js`.
+
+*   **Group 4: Documentation & Final Testing**
+    *   ⚪ **Task 4.1:** Update `README.md` with the simplified `SUPER_DEV_MODE` setup instructions.
+    *   ⚪ **Task 4.2 (Testing):** Create a new Playwright E2E test for the full free-tier journey.
+    *   ⚪ **Task 4.3 (Testing):** Run the entire test suite (`pnpm test:all`) to ensure full coverage and no regressions.
+
+---
+
+### **Phase 2: Post-MVP Expansion (Future Roadmap)**
+
+*   ⚪ **Re-evaluate Local/Private Mode:** Based on user feedback and growth, scope the engineering effort to build a robust, privacy-first Local Mode as a premium, differentiating feature.
+*   ⚪ **Expand Analytics & Coaching:** Build out more AI-powered features based on the reliable data we collect.
 
 ---
 
