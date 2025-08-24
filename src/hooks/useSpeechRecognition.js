@@ -35,6 +35,7 @@ export const useSpeechRecognition = ({
     session
 } = {}) => {
     console.log(`[useSpeechRecognition] Hook initialized with mode: ${mode}, model: ${model}`);
+    console.log('[useSpeechRecognition] Received session:', session);
 
     const { profile } = useAuth();
 
