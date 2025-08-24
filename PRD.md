@@ -121,38 +121,48 @@ Our technology choices prioritize development speed, scalability, and user exper
 
 ## Development Roadmap
 
-This roadmap reflects our final, agreed-upon strategy: to launch a highly resilient, "Cloud-First" MVP that silently falls back to a native browser implementation to ensure the app is **always functional**.
+This roadmap reflects our strategic pivot to launch the simplest possible, high-quality MVP. It integrates our previous work with a clear, bite-sized execution plan.
+Status Key: ✅ = Completed, ⚪ = To Do
 
-### **Phase 1: Launch the Resilient "Cloud-First" MVP**
+---
 
-**Goal:** Deliver a best-in-class speech-coaching experience that is always available, gracefully degrading from premium to basic quality when necessary.
+### **Phase 1: Launch the "Cloud-Only" MVP**
 
-**Core User Experience:**
-*   **No user-facing mode selection.** The application automatically provides the best possible transcription quality.
-*   **Primary Mode (All Users):** High-accuracy **Cloud Mode**.
-*   **Automatic Fallback Mode:** If Cloud Mode fails (due to API errors, network issues, etc.), the app **silently and automatically** switches to the browser's native speech recognition.
-*   **UI Indicator:** A subtle indicator will show the current quality (e.g., "⚡ Premium Quality" vs. "📱 Basic Mode"), creating a natural upsell opportunity.
+**Goal:** Deliver a best-in-class, reliable, and simple speech-coaching experience.
 
-**Execution Plan & Action Items:**
+**Completed Foundational Work:**
+*   ✅ Core backend services (Supabase Auth & DB) are implemented.
+*   ✅ Stripe payment flow for Pro tier is implemented.
+*   ✅ Core UI for the session page and analytics dashboard is built.
+*   ✅ Sentry and PostHog are integrated.
+*   ✅ A stable test suite using Vitest is established.
+*   ✅ The initial `TranscriptionService` and its three modes (though requiring refactoring) are implemented.
 
-*   ⚪ **Week 1: Implement the Fallback Logic & Fix Developer Access**
-    *   **Task:** Implement the simple, environment-based auth bypass for developers in the `assemblyai-token` function.
-    *   **Task:** Refactor `TranscriptionService.js`. The `startTranscription` method will be wrapped in a `try...catch` block. It will `try` to start the Cloud service and `catch` any errors by starting the Native Browser service.
-    *   **Task:** Update the `README.md` with the new, simplified developer setup instructions.
+**Execution Plan (Bite-Sized):**
 
-*   ⚪ **Week 2: Implement Usage Limits & Refine the UI**
-    *   **Task:** Implement the database schema and RPC functions to track and enforce the **10 minutes/month Cloud usage limit** for the Free Tier.
-    *   **Task:** **Remove** all UI elements related to mode selection from `SessionSidebar.jsx`.
-    *   **Task:** **Create** the new UI quality indicator component to show "Premium" vs. "Basic" quality.
+*   **Group 1: Backend & Developer Workflow**
+    *   ⚪ **Task 1.1:** Modify `assemblyai-token` function to use `SUPER_DEV_MODE` bypass.
+    *   ⚪ **Task 1.2:** Modify `get-ai-suggestions` function to use `SUPER_DEV_MODE` bypass.
+    *   ⚪ **Task 1.3 (Testing):** Write Deno tests to validate the `SUPER_DEV_MODE` bypass in both functions.
 
-*   ⚪ **Week 3: Polish the User Journey & Remove Dead Code**
-    *   **Task:** Add the global `<Toaster />` component to `App.jsx` to enable notifications for errors and events (e.g., running out of minutes).
-    *   **Task:** **Remove** the `LocalWhisper.js` file and all related code, as it is out of scope for the MVP.
-    *   **Task:** Test the end-to-end user journey: Free signup -> use Cloud -> (simulate Cloud failure) -> see fallback to Native -> use up quota -> see upgrade prompt -> upgrade to Pro -> get unlimited Cloud.
+*   **Group 2: Core Frontend Logic**
+    *   ⚪ **Task 2.1:** Refactor `TranscriptionService.js` to implement the `try/catch` "Cloud-First, Native-Fallback" logic.
+    *   ⚪ **Task 2.2:** Refactor `useSpeechRecognition.js` hook to work with the new, simplified service.
+    *   ⚪ **Task 2.3 (Testing):** Write Vitest integration test for the `TranscriptionService` fallback logic.
 
-*   ⚪ **Week 4: Final Polish & Launch Prep**
-    *   **Task:** Harden the `NativeBrowser.js` service with more error handling to make the fallback experience as reliable as possible.
-    *   **Task:** Prepare for launch.
+*   **Group 3: UI and User Feedback**
+    *   ⚪ **Task 3.1:** Remove the `LocalWhisper.js` file and clean up any remaining dead code.
+    *   ⚪ **Task 3.2:** Add the global `<Toaster />` component to `App.jsx`.
+    *   ⚪ **Task 3.3:** Remove the mode `<Switch/>` from `SessionSidebar.jsx` and the related state from `SessionPage.jsx`.
+    *   ⚪ **Task 3.4:** Create and add the `QualityIndicator` component to the sidebar.
+    *   ⚪ **Task 3.5:** Implement the "usage limit exceeded" toast in `CloudAssemblyAI.js`.
+
+*   **Group 4: Documentation & Final Testing**
+    *   ⚪ **Task 4.1:** Update `README.md` with the simplified `SUPER_DEV_MODE` setup instructions.
+    *   ⚪ **Task 4.2 (Testing):** Create a new Playwright E2E test for the full free-tier journey.
+    *   ⚪ **Task 4.3 (Testing):** Run the entire test suite (`pnpm test:all`) to ensure full coverage and no regressions.
+
+---
 
 ### **Phase 2: Post-MVP Expansion (Future Roadmap)**
 
