@@ -2,17 +2,28 @@ import { AssemblyAI } from 'assemblyai';
 import { supabase } from '../../../lib/supabaseClient';
 
 export default class CloudAssemblyAI {
-  constructor({ performanceWatcher, onTranscriptUpdate } = {}) {
+  constructor({ performanceWatcher, onTranscriptUpdate, session } = {}) {
     this.performanceWatcher = performanceWatcher;
     this.onTranscriptUpdate = onTranscriptUpdate;
+    this.session = session;
     this.transcriber = null;
     this._frameCount = 0;
     this._t0 = 0;
   }
 
   async _getTemporaryToken() {
+    console.log('[CloudAssemblyAI] Attempting to get temporary token...');
     try {
-      const { data, error } = await supabase.functions.invoke('assemblyai-token');
+      const session = this.session;
+      if (!session) {
+        throw new Error('User not authenticated.');
+      }
+
+      const { data, error } = await supabase.functions.invoke('assemblyai-token', {
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        }
+      });
 
       if (error) {
         throw error;
