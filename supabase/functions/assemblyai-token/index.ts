@@ -22,7 +22,7 @@ export async function handler(req, createSupabase, createAssemblyAI) {
     if (devModeSecret && authHeader === `Bearer ${devModeSecret}`) {
       console.log('[assemblyai-token] Dev mode request received. Bypassing user auth.');
       const assemblyai = createAssemblyAI();
-      const token = await assemblyai.realtime.createTemporaryToken({ expires_in: 3600 });
+      const token = await assemblyai.realtime.createTemporaryToken({ expires_in: 600 });
       return new Response(JSON.stringify({ token }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 200,
@@ -63,7 +63,7 @@ export async function handler(req, createSupabase, createAssemblyAI) {
     }
 
     const assemblyai = createAssemblyAI();
-    const token = await assemblyai.realtime.createTemporaryToken({ expires_in: 3600 });
+    const token = await assemblyai.realtime.createTemporaryToken({ expires_in: 600 });
 
     return new Response(JSON.stringify({ token }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
