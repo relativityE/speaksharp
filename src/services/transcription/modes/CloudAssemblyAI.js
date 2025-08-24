@@ -2,17 +2,37 @@ import { AssemblyAI } from 'assemblyai';
 import { supabase } from '../../../lib/supabaseClient';
 
 export default class CloudAssemblyAI {
-  constructor({ performanceWatcher, onTranscriptUpdate } = {}) {
+  constructor({ performanceWatcher, onTranscriptUpdate, session } = {}) {
     this.performanceWatcher = performanceWatcher;
     this.onTranscriptUpdate = onTranscriptUpdate;
+    this.session = session;
     this.transcriber = null;
     this._frameCount = 0;
     this._t0 = 0;
   }
 
   async _getTemporaryToken() {
+    // Dev mode: get token directly from local env var
+    if (import.meta.env.DEV && import.meta.env.VITE_ASSEMBLYAI_API_KEY) {
+        console.log('[CloudAssemblyAI] Dev mode: creating temporary token directly.');
+        const assemblyai = new AssemblyAI({ apiKey: import.meta.env.VITE_ASSEMBLYAI_API_KEY });
+        const token = await assemblyai.realtime.createTemporaryToken({ expires_in: 3600 });
+        return token;
+    }
+
+    // Production mode: get token from Supabase function
+    console.log('[CloudAssemblyAI] Production mode: fetching token from Supabase function...');
     try {
-      const { data, error } = await supabase.functions.invoke('assemblyai-token');
+      const session = this.session;
+      if (!session) {
+        throw new Error('User not authenticated. Please log in to use Cloud transcription.');
+      }
+
+      const { data, error } = await supabase.functions.invoke('assemblyai-token', {
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        }
+      });
 
       if (error) {
         throw error;
