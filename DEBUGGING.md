@@ -77,7 +77,7 @@ This requires setting up secrets in two places:
 1.  **For the Supabase Function (Backend):**
     *   Navigate to your Supabase project dashboard.
     *   Go to **Settings -> Secrets**.
-    *   Create a **new secret** named `DEV_MODE_SECRET`.
+    *   Create a **new secret** named `DEV_SECRET_KEY_V2`.
     *   Set its value to a strong, random string (e.g., a UUID). This secret proves to your function that a developer is making the request.
     *   After setting the secret, you **must** redeploy your Supabase functions for the change to take effect:
         ```bash
@@ -88,7 +88,7 @@ This requires setting up secrets in two places:
     *   Create a file named `.env.local` in the root of the project if it doesn't exist.
     *   Add the **same secret** to this file, but prefix the variable with `VITE_`. This is a Vite requirement for exposing variables to the browser.
         ```
-        VITE_DEV_MODE_SECRET=the_same_strong_random_string_as_above
+        VITE_DEV_SECRET_KEY_V2=the_same_strong_random_string_as_above
         ```
     *   **Important:** You must **restart your development server** (stop and restart `pnpm run dev`) after changing this file.
 

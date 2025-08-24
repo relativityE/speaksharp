@@ -12,7 +12,7 @@ export default class CloudAssemblyAI {
   }
 
   async _getTemporaryToken() {
-    const devModeSecret = import.meta.env.DEV ? import.meta.env.VITE_DEV_MODE_SECRET : undefined;
+    const devModeSecret = import.meta.env.DEV ? import.meta.env.VITE_DEV_SECRET_KEY_V2 : undefined;
     let authHeader;
 
     if (devModeSecret) {

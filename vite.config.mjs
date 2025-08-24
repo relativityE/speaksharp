@@ -25,8 +25,6 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
-      // [JULES] Mock the transformers library at the bundler level to prevent OOM errors in tests
-      "@xenova/transformers": path.resolve(__dirname, "./__mocks__/transformers.js"),
     },
   },
   optimizeDeps: {

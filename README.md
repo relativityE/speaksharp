@@ -51,7 +51,7 @@ A real-time speech analysis tool built on two pillars: speed and privacy. Our "p
     VITE_SUPABASE_ANON_KEY=your_supabase_anon_key_here
 
     # (Optional) Secure Developer Mode for Cloud Transcription
-    VITE_DEV_MODE_SECRET=a_strong_random_secret_key_here
+    VITE_DEV_SECRET_KEY_V2=a_strong_random_secret_key_here
 
     # Sentry
     VITE_SENTRY_DSN=your_sentry_dsn_here
@@ -69,8 +69,8 @@ A real-time speech analysis tool built on two pillars: speed and privacy. Our "p
     **Note on Environment Variables:** In Vite-based projects, it is standard practice to prefix all client-side environment variables with `VITE_`. This is a security measure to prevent accidental exposure of sensitive keys to the browser. Any variable without this prefix will not be accessible in the application's frontend code. For more details, see the official [Vite documentation](https://vitejs.dev/guide/env-and-mode.html).
 
     **Developer Mode for Cloud Transcription:** For developers to test the cloud transcription service without needing a logged-in "pro" user account, a secure developer mode is available. This requires setting a shared secret in two places:
-    1. In this `.env.local` file, add `VITE_DEV_MODE_SECRET`.
-    2. In your Supabase project's secrets, add `DEV_MODE_SECRET` with the same value.
+    1. In this `.env.local` file, add `VITE_DEV_SECRET_KEY_V2`.
+    2. In your Supabase project's secrets, add `DEV_SECRET_KEY_V2` with the same value.
 
     When running in development mode (`pnpm run dev`), the app will send this secret to the `assemblyai-token` function, which will then bypass the user authentication check. See `DEBUGGING.md` for a more detailed guide.
 
