@@ -34,10 +34,17 @@ export default class TranscriptionService {
     try {
       await this._instantiate(performanceWatcher);
       console.log('[TranscriptionService] Initialization complete.');
+      return { success: true };
     } catch (error) {
       console.warn(`[TranscriptionService] Failed to initialize ${this.mode} mode. Falling back to native.`, error);
-      this.setMode('native');
-      await this._instantiate(performanceWatcher);
+      try {
+        this.setMode('native');
+        await this._instantiate(performanceWatcher);
+        return { success: true, fallback: true, error };
+      } catch (fallbackError) {
+        console.error('[TranscriptionService] Failed to initialize fallback native mode.', fallbackError);
+        throw fallbackError; // If fallback also fails, rethrow the error.
+      }
     }
   }
 

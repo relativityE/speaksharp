@@ -143,7 +143,12 @@ export const useSpeechRecognition = ({
                     model,
                     profile
                 });
-                await service.init();
+                const { fallback } = await service.init();
+                if (fallback) {
+                    toast.info("Local model failed to load.", {
+                        description: "Falling back to your browser's built-in speech recognition.",
+                    });
+                }
                 transcriptionServiceRef.current = service;
                 setCurrentMode(service.mode);
                 console.log(`[useSpeechRecognition] Transcription service initialized. Actual mode: ${service.mode}`);

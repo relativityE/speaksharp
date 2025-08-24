@@ -156,15 +156,6 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
         }
     }, [isListening, error]);
 
-    useEffect(() => {
-        if (actualMode === 'local') {
-            toast.info("Local Mode is a Demo", {
-                description: "This mode uses a sample sentence to demonstrate filler word detection and is not processing your live speech.",
-                duration: 8000,
-            });
-        }
-    }, [actualMode]);
-
     const handleStartStop = () => {
         if (isListening) {
             endSessionAndSave();
@@ -177,7 +168,7 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
 
     const getButtonContent = () => {
         if (isLoading) {
-            return <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Starting...</>;
+            return <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Initializing...</>;
         }
         if (isListening) {
             return <><Square className="w-4 h-4 mr-2" /> End Session</>;
@@ -265,8 +256,16 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                         <div className="flex flex-col items-center justify-center gap-6 py-2">
                             <DigitalTimer elapsedTime={elapsedTime} />
                             <div className={`text-xl font-semibold ${isListening ? 'text-red-500 animate-pulse' : 'text-muted-foreground'}`}>
-                                {isLoading ? 'INITIALIZING...' : (isListening ? '● RECORDING' : 'Idle')}
+                                {isLoading
+                                    ? (modelLoadingProgress?.status === 'download'
+                                        ? `Downloading Model... ${(modelLoadingProgress.loaded / 1024 / 1024).toFixed(1)}MB`
+                                        : 'INITIALIZING...')
+                                    : (isListening ? '● RECORDING' : 'Idle')
+                                }
                             </div>
+                            {isLoading && modelLoadingProgress?.status === 'download' && (
+                                <Progress value={(modelLoadingProgress.loaded / modelLoadingProgress.total) * 100} className="w-3/4" />
+                            )}
                             <Button
                                 onClick={handleStartStop}
                                 size="lg"
