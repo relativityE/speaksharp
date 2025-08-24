@@ -3,14 +3,13 @@ import NativeBrowser from './modes/NativeBrowser';
 import { createMicStream } from './utils/audioUtils';
 
 export default class TranscriptionService {
-  constructor(mode = 'local', { model = 'Xenova/whisper-tiny.en', onTranscriptUpdate, onModelLoadProgress, profile, session } = {}) {
+  constructor(mode = 'local', { model = 'Xenova/whisper-tiny.en', onTranscriptUpdate, onModelLoadProgress, profile } = {}) {
     console.log(`[TranscriptionService] Constructor called with mode: ${mode}, model: ${model}`);
     this.mode = mode;
     this.model = model;
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onModelLoadProgress = onModelLoadProgress;
     this.profile = profile;
-    this.session = session;
     this.instance = null;
     this.mic = null;
     this._fallbackArmed = true;
@@ -69,7 +68,6 @@ export default class TranscriptionService {
       performanceWatcher,
       onTranscriptUpdate: this.onTranscriptUpdate,
       onModelLoadProgress: this.onModelLoadProgress,
-      session: this.session,
     };
 
     console.log(`[TranscriptionService] Loading provider for mode: ${this.mode}`);

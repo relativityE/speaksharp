@@ -233,9 +233,9 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                                     disabled={!isPro && !devCloudUnlocked}
                                 />
                                 <Label htmlFor="transcription-mode" className="text-muted-foreground flex items-center gap-1 text-xs">
-                                    Cloud
-                                    {!isPro && <Lock className="w-3 h-3" />}
-                                </Label>
+                                     Cloud
+                                     {!isPro && <Lock className="w-3 h-3" />}
+                                 </Label>
                             </div>
                         </div>
                         <ModelLoadingIndicator progress={modelLoadingProgress} />

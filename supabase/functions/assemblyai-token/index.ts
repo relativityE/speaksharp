@@ -41,7 +41,7 @@ export async function handler(req, createSupabase, createAssemblyAI) {
     }
 
     const { data: profile, error: profileError } = await supabaseClient
-      .from('profiles')
+      .from('user_profiles')
       .select('subscription_status')
       .eq('id', user.id)
       .single();

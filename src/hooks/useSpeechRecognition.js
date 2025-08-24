@@ -31,11 +31,9 @@ const getInitialFillerData = (customWords = []) => {
 export const useSpeechRecognition = ({
     customWords = [],
     mode,
-    model = 'Xenova/whisper-tiny.en',
-    session
+    model = 'Xenova/whisper-tiny.en'
 } = {}) => {
     console.log(`[useSpeechRecognition] Hook initialized with mode: ${mode}, model: ${model}`);
-    console.log('[useSpeechRecognition] Received session:', session);
 
     const { profile } = useAuth();
 
@@ -119,21 +117,6 @@ export const useSpeechRecognition = ({
         setTranscript(newTranscript);
     }, [finalChunks]);
 
-    useEffect(() => {
-        if (transcriptionServiceRef.current && mode !== currentMode) {
-            console.log(`[useSpeechRecognition] Mode changed from ${currentMode} to ${mode}. Updating service.`);
-            transcriptionServiceRef.current.setMode(mode)
-                .then(() => {
-                    setCurrentMode(mode);
-                    console.log('[useSpeechRecognition] Service mode updated successfully.');
-                })
-                .catch(err => {
-                    console.error('[useSpeechRecognition] Error updating service mode:', err);
-                    setError(err);
-                });
-        }
-    }, [mode, currentMode]);
-
     // --- Control Functions ---
     const startListening = async () => {
         console.log('[useSpeechRecognition] startListening called.');
@@ -158,8 +141,7 @@ export const useSpeechRecognition = ({
                     onTranscriptUpdate,
                     onModelLoadProgress,
                     model,
-                    profile,
-                    session
+                    profile
                 });
                 await service.init();
                 transcriptionServiceRef.current = service;
