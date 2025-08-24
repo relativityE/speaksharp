@@ -65,16 +65,20 @@ export const SessionPage = () => {
     const { saveSession, usageLimitExceeded, setUsageLimitExceeded } = useSessionManager();
     const [customWords, setCustomWords] = useState([]);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-    const [mode, setMode] = useState('local');
+    const [mode, setMode] = useState('local'); // Default to local
     const [elapsedTime, setElapsedTime] = useState(0);
 
     const speechRecognition = useSpeechRecognition({ customWords, mode });
     const { isListening, modelLoadingProgress } = speechRecognition;
 
     useEffect(() => {
+        // Set the initial mode based on user's subscription status.
+        // Pro users can default to cloud, others are locked to local.
         const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
         if (isPro) {
             setMode('cloud');
+        } else {
+            setMode('local');
         }
     }, [profile]);
 
