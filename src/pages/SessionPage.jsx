@@ -17,7 +17,6 @@ import { UpgradePromptDialog } from '@/components/UpgradePromptDialog';
 const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) => {
     const { error, isSupported, isListening, transcript, interimTranscript } = speechRecognition;
 
-
     if (!isSupported) {
         return (
              <Card className="flex-grow">
@@ -62,14 +61,14 @@ const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) =
 import { useAuth } from '../contexts/AuthContext';
 
 export const SessionPage = () => {
-    const { user, profile, session } = useAuth();
+    const { user, profile } = useAuth();
     const { saveSession, usageLimitExceeded, setUsageLimitExceeded } = useSessionManager();
     const [customWords, setCustomWords] = useState([]);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
     const [mode, setMode] = useState('local');
     const [elapsedTime, setElapsedTime] = useState(0);
 
-    const speechRecognition = useSpeechRecognition({ customWords, mode, session });
+    const speechRecognition = useSpeechRecognition({ customWords, mode });
     const { isListening, modelLoadingProgress } = speechRecognition;
 
     useEffect(() => {

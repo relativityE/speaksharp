@@ -95,7 +95,7 @@ This requires setting up secrets in two places:
 **How It Works:**
 
 -   When you run the app in dev mode (`pnpm run dev`), `import.meta.env.DEV` becomes `true`.
--   The client-side code in `CloudAssemblyAI.js` detects this and reads `import.meta.env.VITE_DEV_MODE_SECRET`.
+-   The client-side code in `CloudAssemblyAI.js` detects this and reads `import.meta.env.VITE_DEV_SECRET_KEY_V2`.
 -   It then calls the `assemblyai-token` Supabase function, but instead of sending a user's login token, it sends the developer secret in the `Authorization` header.
 -   The Supabase function receives the request, finds the developer secret, and bypasses all the normal user authentication checks, proceeding directly to generate and return a temporary AssemblyAI token.
 

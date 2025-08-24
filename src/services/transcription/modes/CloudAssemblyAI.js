@@ -2,10 +2,9 @@ import { AssemblyAI } from 'assemblyai';
 import { supabase } from '../../../lib/supabaseClient';
 
 export default class CloudAssemblyAI {
-  constructor({ performanceWatcher, onTranscriptUpdate, session } = {}) {
+  constructor({ performanceWatcher, onTranscriptUpdate } = {}) {
     this.performanceWatcher = performanceWatcher;
     this.onTranscriptUpdate = onTranscriptUpdate;
-    this.session = session;
     this.transcriber = null;
     this._frameCount = 0;
     this._t0 = 0;
@@ -20,7 +19,7 @@ export default class CloudAssemblyAI {
       authHeader = `Bearer ${devModeSecret}`;
     } else {
       console.log('[CloudAssemblyAI] Production mode: using user session for token request.');
-      const session = this.session;
+      const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         // This is a critical client-side check before attempting to call the function.
         throw new Error('User not authenticated. Please log in to use Cloud transcription.');
