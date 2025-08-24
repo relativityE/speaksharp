@@ -11,8 +11,8 @@ const UpgradeBanner = () => {
     const navigate = useNavigate();
     return (
         <Card className="mb-8 bg-gradient-to-r from-purple-500 to-indigo-600 text-white shadow-lg">
-            <CardContent className="p-component-py flex items-center justify-between">
-                <div className="flex items-center gap-component-gap">
+            <CardContent className="p-6 flex items-center justify-between">
+                <div className="flex items-center gap-4">
                     <Sparkles className="w-8 h-8 text-yellow-300" />
                     <div>
                         <h3 className="font-bold text-lg">Unlock Your Full Potential</h3>
@@ -64,7 +64,7 @@ const AuthenticatedAnalyticsView = () => {
 
 export const AnalyticsPage = () => {
     return (
-        <div className="container mx-auto px-component-px py-10">
+        <div className="container mx-auto px-4 py-10">
             <AuthenticatedAnalyticsView />
         </div>
     );

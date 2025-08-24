@@ -3,7 +3,7 @@
 @theme {
   /* Midnight Blue & Electric Lime Theme */
   --color-background: #0A0F1E;
-  --color-foreground: #39FF14;
+  --color-foreground: #E0E0E0;
   --color-card: #141A2C;
   --color-popover: #141A2C;
   --color-primary: #39FF14;
@@ -25,16 +25,10 @@
   --color-highlight-foreground: #39FF14;
 
   --font-sans: "Inter", "sans-serif";
-
-  /* New Scalable Layout Variables */
-  --spacing-unit: 0.0625rem; /* Base unit, 1rem = 40px, so this is 2.5px. This globally scales down the components. */
-  --component-padding-x: calc(3 * var(--spacing-unit)); /* 0.1875rem or 7.5px */
-  --component-padding-y: calc(3 * var(--spacing-unit)); /* 0.1875rem or 7.5px */
-  --component-gap: calc(3 * var(--spacing-unit));       /* 0.1875rem or 7.5px */
 }
 
 html {
-    font-size: 40px;
+    font-size: 64px;
 }
 
 body {
@@ -45,7 +39,7 @@ body {
 
 @media (max-width: 768px) {
   html {
-    font-size: 22px;
+    font-size: 36px;
   }
 }
 
