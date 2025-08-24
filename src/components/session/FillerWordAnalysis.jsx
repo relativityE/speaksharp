@@ -14,12 +14,12 @@ const SEVERITY_PALETTE = {
 };
 
 const FillerWordCard = ({ word, count, colorClass, progress }) => (
-  <div className={`p-3 rounded-lg text-left ${colorClass}`}>
-    <div className="flex justify-between items-center mb-2">
-      <span className="text-sm font-semibold text-gray-800 capitalize">{word}</span>
-      <span className="text-lg font-bold text-gray-900">{count}</span>
+  <div className={`p-2 rounded-lg text-left ${colorClass}`}>
+    <div className="flex justify-between items-center mb-1">
+      <span className="text-xs font-semibold text-gray-800 capitalize">{word}</span>
+      <span className="text-base font-bold text-gray-900">{count}</span>
     </div>
-    <Progress value={progress} className="h-2 [&>*]:bg-gray-600" />
+    <Progress value={progress} className="h-1 [&>*]:bg-gray-600" />
   </div>
 );
 
@@ -54,10 +54,10 @@ const FillerWordAnalysis = ({ fillerData = {}, customWords, addCustomWord, defau
   return (
     <Card className={cn("flex flex-col", className)}>
       <CardHeader>
-        <CardTitle>Filler Word Analysis</CardTitle>
+        <CardTitle className="text-sm">Filler Word Analysis</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col flex-grow">
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 mb-3">
           {sortedWords.map(({ word, count }, index) => {
             const progress = maxCount > 0 ? (count / maxCount) * 100 : 0;
             const colorClass = getSeverityColor(index);
@@ -73,7 +73,7 @@ const FillerWordAnalysis = ({ fillerData = {}, customWords, addCustomWord, defau
           })}
         </div>
 
-        <form onSubmit={handleAddWord} className="flex items-center gap-2 mt-8">
+        <form onSubmit={handleAddWord} className="flex items-center gap-1 mt-4">
           <label htmlFor="custom-word" className="text-xs font-medium">
             Custom Filler Word:
           </label>
@@ -83,7 +83,7 @@ const FillerWordAnalysis = ({ fillerData = {}, customWords, addCustomWord, defau
             value={newWord}
             onChange={(e) => setNewWord(e.target.value)}
             placeholder="e.g., basically"
-            className="flex-grow"
+            className="flex-grow h-8"
           />
           <Button type="submit" size="icon" aria-label="Add custom filler word">
             <Plus className="h-4 w-4" />
