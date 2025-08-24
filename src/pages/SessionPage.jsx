@@ -17,25 +17,6 @@ import { UpgradePromptDialog } from '@/components/UpgradePromptDialog';
 const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) => {
     const { error, isSupported, isListening, transcript, interimTranscript } = speechRecognition;
 
-    if (error) {
-        return (
-            <Card className="flex-grow">
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <AlertTriangle className="text-red-500" /> Error
-                    </CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <p className="text-red-500">{error.message}</p>
-                    <p className="text-muted-foreground mt-2">
-                        Speech recognition could not be initialized. Please check your browser permissions and try refreshing the page.
-                    </p>
-                </CardContent>
-            </Card>
-        );
-    }
-
-
     if (!isSupported) {
         return (
              <Card className="flex-grow">

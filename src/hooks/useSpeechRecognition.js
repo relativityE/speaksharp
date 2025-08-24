@@ -141,8 +141,7 @@ export const useSpeechRecognition = ({
                     onTranscriptUpdate,
                     onModelLoadProgress,
                     model,
-                    profile,
-                    session
+                    profile
                 });
                 await service.init();
                 transcriptionServiceRef.current = service;
