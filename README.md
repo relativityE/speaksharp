@@ -50,8 +50,8 @@ A real-time speech analysis tool built on two pillars: speed and privacy. Our "p
     VITE_SUPABASE_URL=your_supabase_project_url_here
     VITE_SUPABASE_ANON_KEY=your_supabase_anon_key_here
 
-    # AssemblyAI - This is now a server-side secret, not a client-side variable.
-    # See the Supabase setup instructions for how to set the ASSEMBLYAI_API_KEY for the Edge Function.
+    # (Optional) Developer Mode for Cloud Transcription
+    VITE_ASSEMBLYAI_API_KEY=your_assemblyai_api_key_here
 
     # Sentry
     VITE_SENTRY_DSN=your_sentry_dsn_here
@@ -67,6 +67,8 @@ A real-time speech analysis tool built on two pillars: speed and privacy. Our "p
     ```
 
     **Note on Environment Variables:** In Vite-based projects, it is standard practice to prefix all client-side environment variables with `VITE_`. This is a security measure to prevent accidental exposure of sensitive keys to the browser. Any variable without this prefix will not be accessible in the application's frontend code. For more details, see the official [Vite documentation](https://vitejs.dev/guide/env-and-mode.html).
+
+    **Developer Mode for Cloud Transcription:** For developers who need to test the cloud-based transcription service without a logged-in "pro" user, you can add your `ASSEMBLYAI_API_KEY` to your `.env.local` file, prefixed with `VITE_`. When the application is run in development mode (`pnpm run dev`), it will detect this key and use it to generate temporary tokens directly in the browser, bypassing the secure backend function. **This should only be used for local development.**
 
 4.  Start the development server:
     ```bash
