@@ -18,37 +18,50 @@ export default class NativeBrowser {
     this.recognition.continuous = true;
 
     this.recognition.onresult = (event) => {
-      let interimTranscript = '';
-      let finalTranscript = '';
+      try {
+        let interimTranscript = '';
+        let finalTranscript = '';
 
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        if (event.results[i].isFinal) {
-          finalTranscript += event.results[i][0].transcript;
-        } else {
-          interimTranscript += event.results[i][0].transcript;
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
         }
-      }
 
-      if (this.onTranscriptUpdate) {
-        if (interimTranscript) {
-          this.onTranscriptUpdate({ transcript: { partial: interimTranscript } });
+        if (this.onTranscriptUpdate) {
+          if (interimTranscript) {
+            this.onTranscriptUpdate({ transcript: { partial: interimTranscript } });
+          }
+          if (finalTranscript) {
+            this.transcript += finalTranscript;
+            this.onTranscriptUpdate({ transcript: { final: finalTranscript } });
+          }
         }
-        if (finalTranscript) {
-          this.transcript += finalTranscript;
-          this.onTranscriptUpdate({ transcript: { final: finalTranscript } });
-        }
+      } catch (error) {
+        console.error("Error in NativeBrowser onresult handler:", error);
       }
     };
 
     this.recognition.onerror = (event) => {
-      console.error('Speech recognition error', event.error);
+      try {
+        console.error('Speech recognition error', event.error);
+        // Maybe throw a custom event or call a callback to notify the UI
+      } catch (error) {
+        console.error("Error in NativeBrowser onerror handler:", error);
+      }
     };
 
     this.recognition.onend = () => {
-      if (this.isListening) {
-        // The service may stop listening automatically after a period of silence.
-        // We can restart it to keep it listening continuously.
-        this.recognition.start();
+      try {
+        if (this.isListening) {
+          // The service may stop listening automatically after a period of silence.
+          // We can restart it to keep it listening continuously.
+          this.recognition.start();
+        }
+      } catch (error) {
+        console.error("Error in NativeBrowser onend handler:", error);
       }
     };
   }

@@ -121,43 +121,43 @@ Our technology choices prioritize development speed, scalability, and user exper
 
 ## Development Roadmap
 
-Priorities are set using the MoSCoW method (M: Must-have, S: Should-have, C: Could-have, W: Won't-have).
-Status Key: ✅ = Completed, ▶️ = In Progress, ⚪ = Not Started, ⏸️ = Deferred.
+This roadmap reflects our final, agreed-upon strategy: to launch a highly resilient, "Cloud-First" MVP that silently falls back to a native browser implementation to ensure the app is **always functional**.
 
-### PHASE 1: MVP & Core Functionality (Completed)
-- ✅ M: Implement core backend services (Supabase Auth & DB).
-- ✅ M: Implement `TranscriptionService` with both local (Transformers.js) and cloud (AssemblyAI) providers.
-- ✅ M: Integrate `TranscriptionService` into the main session page.
-- ✅ M: Implement Stripe payment flow for Pro tier.
-- ✅ M: Configure production Price ID for Stripe checkout (via environment variable).
-- ✅ M: Build a comprehensive analytics dashboard for users.
-- ✅ M: Set up Sentry for error monitoring and PostHog for product analytics.
-- ✅ S: Develop a responsive UI with a professional light theme and a "Midnight Blue & Electric Lime" dark theme.
-- ✅ S: Stabilize test suite with Vitest, removing Jest and Babel.
-- ✅ S: Solidified transcription fallback to use Native Web Speech API.
-- ⏸️ C: A/B testing setup with PostHog.
+### **Phase 1: Launch the Resilient "Cloud-First" MVP**
 
+**Goal:** Deliver a best-in-class speech-coaching experience that is always available, gracefully degrading from premium to basic quality when necessary.
 
-### PHASE 2: Polish & Expansion (Current & Next Steps)
-- ✅ M: Fix Cloud Mode fallback bug by improving error propagation.
-- ✅ S: Improve UI readability by increasing global font size and fixing contrast issues.
-- ▶️ M: Polish the On-Device Transcription UX (model loading, error handling).
-- ✅ M: Implement 2-minute session limit for Anonymous users.
-- ✅ M: Enforce "Local-only" transcription mode for Anonymous users.
-- ✅ M: Implement hard 30-minute per-session time limit for Free tier users.
-- ✅ M: Enforce "Local-only" transcription mode for Free tier users.
-- ⚪ M: Implement automatic fallback from local to cloud STT based on performance.
-- ⚪ M: Conduct thorough cross-browser testing and bug fixing.
-- ⚪ M: Set up production deployment on Vercel.
-- ⚪ S: Implement weekly summary emails.
-- ✅ S: Add in-app prompts to encourage users to upgrade.
-- ▶️ S: Develop AI-powered suggestions for improving speech.
-- ⚪ S: A/B test different UI elements and user flows.
-- ⏸️ C: Full offline mode for the application.
-- ⏸️ C: Implement team accounts and billing.
-- ⏸️ C: Add support for more languages.
-- ⏸️ C: Optimize funnels based on PostHog data.
-- ⏸️ C: Case studies and advanced content marketing.
+**Core User Experience:**
+*   **No user-facing mode selection.** The application automatically provides the best possible transcription quality.
+*   **Primary Mode (All Users):** High-accuracy **Cloud Mode**.
+*   **Automatic Fallback Mode:** If Cloud Mode fails (due to API errors, network issues, etc.), the app **silently and automatically** switches to the browser's native speech recognition.
+*   **UI Indicator:** A subtle indicator will show the current quality (e.g., "⚡ Premium Quality" vs. "📱 Basic Mode"), creating a natural upsell opportunity.
+
+**Execution Plan & Action Items:**
+
+*   ⚪ **Week 1: Implement the Fallback Logic & Fix Developer Access**
+    *   **Task:** Implement the simple, environment-based auth bypass for developers in the `assemblyai-token` function.
+    *   **Task:** Refactor `TranscriptionService.js`. The `startTranscription` method will be wrapped in a `try...catch` block. It will `try` to start the Cloud service and `catch` any errors by starting the Native Browser service.
+    *   **Task:** Update the `README.md` with the new, simplified developer setup instructions.
+
+*   ⚪ **Week 2: Implement Usage Limits & Refine the UI**
+    *   **Task:** Implement the database schema and RPC functions to track and enforce the **10 minutes/month Cloud usage limit** for the Free Tier.
+    *   **Task:** **Remove** all UI elements related to mode selection from `SessionSidebar.jsx`.
+    *   **Task:** **Create** the new UI quality indicator component to show "Premium" vs. "Basic" quality.
+
+*   ⚪ **Week 3: Polish the User Journey & Remove Dead Code**
+    *   **Task:** Add the global `<Toaster />` component to `App.jsx` to enable notifications for errors and events (e.g., running out of minutes).
+    *   **Task:** **Remove** the `LocalWhisper.js` file and all related code, as it is out of scope for the MVP.
+    *   **Task:** Test the end-to-end user journey: Free signup -> use Cloud -> (simulate Cloud failure) -> see fallback to Native -> use up quota -> see upgrade prompt -> upgrade to Pro -> get unlimited Cloud.
+
+*   ⚪ **Week 4: Final Polish & Launch Prep**
+    *   **Task:** Harden the `NativeBrowser.js` service with more error handling to make the fallback experience as reliable as possible.
+    *   **Task:** Prepare for launch.
+
+### **Phase 2: Post-MVP Expansion (Future Roadmap)**
+
+*   ⚪ **Re-evaluate Local/Private Mode:** Based on user feedback and growth, scope the engineering effort to build a robust, privacy-first Local Mode as a premium, differentiating feature.
+*   ⚪ **Expand Analytics & Coaching:** Build out more AI-powered features based on the reliable data we collect.
 
 ---
 

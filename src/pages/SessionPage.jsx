@@ -65,22 +65,10 @@ export const SessionPage = () => {
     const { saveSession, usageLimitExceeded, setUsageLimitExceeded } = useSessionManager();
     const [customWords, setCustomWords] = useState([]);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-    const [mode, setMode] = useState('local'); // Default to local
     const [elapsedTime, setElapsedTime] = useState(0);
 
-    const speechRecognition = useSpeechRecognition({ customWords, mode });
+    const speechRecognition = useSpeechRecognition({ customWords });
     const { isListening, modelLoadingProgress } = speechRecognition;
-
-    useEffect(() => {
-        // Set the initial mode based on user's subscription status.
-        // Pro users can default to cloud, others are locked to local.
-        const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
-        if (isPro) {
-            setMode('cloud');
-        } else {
-            setMode('local');
-        }
-    }, [profile]);
 
     useEffect(() => {
         posthog.capture('session_page_viewed');
@@ -138,7 +126,7 @@ export const SessionPage = () => {
 
                 {/* Desktop Sidebar (Right Column) */}
                 <div className="hidden lg:block lg:w-1/3">
-                    <SessionSidebar {...speechRecognition} saveSession={saveSession} desiredMode={mode} setMode={setMode} actualMode={speechRecognition.mode} elapsedTime={elapsedTime} modelLoadingProgress={modelLoadingProgress} />
+                    <SessionSidebar {...speechRecognition} saveSession={saveSession} actualMode={speechRecognition.mode} elapsedTime={elapsedTime} modelLoadingProgress={modelLoadingProgress} />
                 </div>
 
                 {/* Mobile Drawer */}
@@ -152,7 +140,7 @@ export const SessionPage = () => {
                         </DrawerTrigger>
                         <DrawerContent>
                             <div className="p-4 overflow-y-auto h-[80vh]">
-                                <SessionSidebar {...speechRecognition} saveSession={saveSession} desiredMode={mode} setMode={setMode} actualMode={speechRecognition.mode} elapsedTime={elapsedTime} modelLoadingProgress={modelLoadingProgress} />
+                                <SessionSidebar {...speechRecognition} saveSession={saveSession} actualMode={speechRecognition.mode} elapsedTime={elapsedTime} modelLoadingProgress={modelLoadingProgress} />
                             </div>
                         </DrawerContent>
                     </Drawer>

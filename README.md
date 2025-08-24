@@ -50,9 +50,6 @@ A real-time speech analysis tool built on two pillars: speed and privacy. Our "p
     VITE_SUPABASE_URL=your_supabase_project_url_here
     VITE_SUPABASE_ANON_KEY=your_supabase_anon_key_here
 
-    # (Optional) Secure Developer Mode for Cloud Transcription
-    VITE_DEV_SECRET_KEY_V2=a_strong_random_secret_key_here
-
     # Sentry
     VITE_SENTRY_DSN=your_sentry_dsn_here
 
@@ -64,15 +61,17 @@ A real-time speech analysis tool built on two pillars: speed and privacy. Our "p
     VITE_STRIPE_PUBLISHABLE_KEY=your_stripe_publishable_key_here
     VITE_STRIPE_SECRET_KEY=your_stripe_secret_key_here
     VITE_STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret_here
+
+    # (Optional) Developer Mode Universal Bypass
+    # Set this to true to bypass all authentication and usage checks in Supabase functions.
+    # This should ONLY be used for local testing.
+    SUPER_DEV_MODE=true
     ```
 
     **Note on Environment Variables:** In Vite-based projects, it is standard practice to prefix all client-side environment variables with `VITE_`. This is a security measure to prevent accidental exposure of sensitive keys to the browser. Any variable without this prefix will not be accessible in the application's frontend code. For more details, see the official [Vite documentation](https://vitejs.dev/guide/env-and-mode.html).
 
-    **Developer Mode for Cloud Transcription:** For developers to test the cloud transcription service without needing a logged-in "pro" user account, a secure developer mode is available. This requires setting a shared secret in two places:
-    1. In this `.env.local` file, add `VITE_DEV_SECRET_KEY_V2`.
-    2. In your Supabase project's secrets, add `DEV_SECRET_KEY_V2` with the same value.
-
-    When running in development mode (`pnpm run dev`), the app will send this secret to the `assemblyai-token` function, which will then bypass the user authentication check. See `DEBUGGING.md` for a more detailed guide.
+    **Developer Mode for Cloud Transcription:**
+    To simplify testing, you can enable a universal developer mode. Set `SUPER_DEV_MODE=true` in your `.env.local` file and also set it as a secret in your Supabase project. When this variable is detected, all backend functions will bypass authentication and usage limit checks, allowing you to test premium features freely.
 
 4.  Start the development server:
     ```bash
@@ -83,13 +82,11 @@ A real-time speech analysis tool built on two pillars: speed and privacy. Our "p
 
 ## Known Issues
 
-When running the application in a development environment, you may see several warnings in the browser console. Most of these are non-critical and can be safely ignored for now.
+The development team is currently undertaking a focused effort (Phase 1) to launch a stable MVP. The following issues are known and are the primary targets of the current work:
 
--   **`net::ERR_BLOCKED_BY_CLIENT`**: This error is typically caused by a browser ad blocker or privacy extension. It blocks tracking requests to services like Sentry and Stripe but does not affect core application functionality.
--   **PostHog Warnings**: You may see warnings about a missing API key for PostHog (our analytics service). These can be ignored if you are not actively working on analytics features.
--   **Stripe HTTPS Warning**: A warning about Stripe needing to be run over HTTPS is expected in local development and does not impact testing.
-
-These issues are documented and will be addressed as part of the broader project polishing phase.
+*   **Unreliable Transcription Modes:** The application's core transcription services are unstable. The "Local Mode" is non-functional, and the "Native Browser" fallback is unreliable. The MVP plan is to deliver a single, high-quality "Cloud Mode" with a reliable native fallback.
+*   **Broken Developer Workflow:** The process for developers to test premium features is broken and insecure. This is being replaced with a simple, environment-based bypass.
+*   **Missing User Feedback:** The application lacks a global notification system, meaning errors often happen silently. This will be fixed by implementing a global toast notification system.
 
 ## Production Ready Checklist
 *****************************************************************

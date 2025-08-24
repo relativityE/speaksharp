@@ -15,16 +15,9 @@ export async function handler(req, createSupabase, createAssemblyAI) {
   }
 
   try {
-    const authHeader = req.headers.get('Authorization');
-    const devModeSecret = Deno.env.get('DEV_SECRET_KEY_V2');
-
-    console.log('[assemblyai-token] Debugging Info:');
-    console.log(`[assemblyai-token] devModeSecret from env: "${devModeSecret}"`);
-    console.log(`[assemblyai-token] authHeader received: "${authHeader}"`);
-
-    // Developer Mode: If a specific secret is provided, bypass user auth.
-    if (devModeSecret && authHeader === `Bearer ${devModeSecret}`) {
-      console.log('[assemblyai-token] Dev mode request received. Bypassing user auth.');
+    // Universal developer mode bypass
+    if (Deno.env.get("SUPER_DEV_MODE") === 'true') {
+      console.log('[assemblyai-token] SUPER_DEV_MODE enabled. Bypassing user auth and usage limits.');
       const assemblyai = createAssemblyAI();
       const token = await assemblyai.realtime.createTemporaryToken({ expires_in: 600 });
       return new Response(JSON.stringify({ token }), {
@@ -34,6 +27,7 @@ export async function handler(req, createSupabase, createAssemblyAI) {
     }
 
     // Production Mode: Standard user authentication and "pro" plan check.
+    const authHeader = req.headers.get('Authorization');
     const supabaseClient = createSupabase(authHeader);
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
 
@@ -46,7 +40,7 @@ export async function handler(req, createSupabase, createAssemblyAI) {
 
     const { data: profile, error: profileError } = await supabaseClient
       .from('user_profiles')
-      .select('subscription_status')
+      .select('subscription_status, usage_seconds, usage_reset_date')
       .eq('id', user.id)
       .single();
 
@@ -59,10 +53,24 @@ export async function handler(req, createSupabase, createAssemblyAI) {
     }
 
     const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
-    if (!isPro) {
-      return new Response(JSON.stringify({ error: 'User is not on a Pro plan' }), {
+    if (isPro) {
+      // Pro users have unlimited access
+      const assemblyai = createAssemblyAI();
+      const token = await assemblyai.realtime.createTemporaryToken({ expires_in: 600 });
+      return new Response(JSON.stringify({ token }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 403,
+        status: 200,
+      });
+    }
+
+    // For free users, check usage limits.
+    // The monthly reset logic is handled by the `update_user_usage` RPC function,
+    // which is called at the end of a session. This function only needs to read the current state.
+    const FREE_TIER_LIMIT_SECONDS = 600; // 10 minutes
+    if ((profile.usage_seconds || 0) >= FREE_TIER_LIMIT_SECONDS) {
+      return new Response(JSON.stringify({ error: 'Usage limit exceeded. Please upgrade to Pro for unlimited access.' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 403, // Forbidden
       });
     }
 

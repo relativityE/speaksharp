@@ -48,25 +48,14 @@ const ModelLoadingIndicator = ({ progress }) => {
     );
 };
 
-export const SessionSidebar = ({ isListening, error, startListening, stopListening, reset, desiredMode, setMode, actualMode, saveSession, elapsedTime, modelLoadingProgress }) => {
+export const SessionSidebar = ({ isListening, error, startListening, stopListening, reset, actualMode, saveSession, elapsedTime, modelLoadingProgress }) => {
     const navigate = useNavigate();
     const { user, profile } = useAuth();
     const stripe = useStripe();
     const [isLoading, setIsLoading] = useState(false);
     const [isUpgrading, setIsUpgrading] = useState(false);
-    const [devCloudUnlocked, setDevCloudUnlocked] = useState(false);
 
     const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
-
-    const handleDevCloudUnlockChange = (checked) => {
-        if (isListening) {
-            toast.info("Mode switching is disabled while recording.", {
-                description: "Please stop the current session to switch transcription modes.",
-            });
-        } else {
-            setDevCloudUnlocked(checked);
-        }
-    };
 
     const handleUpgrade = async () => {
         if (!user) {
@@ -176,78 +165,42 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
         return <><Mic className="w-4 h-4 mr-2" /> Start Recording</>;
     };
 
-    const getModeNotification = () => {
+    const getQualityIndicator = () => {
         switch (actualMode) {
             case 'cloud':
                 return {
-                    text: 'Cloud Transcription (Highest Accuracy)',
+                    text: '⚡ Premium Quality',
                     className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
-                };
-            case 'local':
-                return {
-                    text: 'Local Transcription (Faster, Private)',
-                    className: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
                 };
             case 'native':
                 return {
-                    text: 'Native Browser Fallback (Lower Accuracy)',
+                    text: '📱 Basic Mode',
                     className: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300'
                 };
             default:
-                return { text: '', className: '' };
+                return null; // Don't show anything if mode is not set
         }
     };
 
-    const modeNotification = getModeNotification();
+    const qualityIndicator = getQualityIndicator();
 
     return (
         <div className="flex flex-col gap-6 h-full">
             <div className="flex-grow flex flex-col gap-6">
                 <Card className="w-full">
                     <CardHeader>
-                        <CardTitle className="text-sm">Settings</CardTitle>
+                        <CardTitle className="text-sm">Session Status</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2">
-                        <div className={`text-center p-2 rounded-lg ${modeNotification.className}`}>
-                            <p className="text-xs">
-                                {modeNotification.text}
-                            </p>
-                        </div>
-                        <div className="flex items-center justify-between">
-                            <Label htmlFor="transcription-mode" className="text-xs">Transcription Mode</Label>
-                            <div className="flex items-center gap-1">
-                                <Label htmlFor="transcription-mode" className="text-muted-foreground text-xs">Local</Label>
-                                <Switch
-                                    id="transcription-mode"
-                                    checked={desiredMode === 'cloud'}
-                                    onCheckedChange={(checked) => setMode(checked ? 'cloud' : 'local')}
-                                    disabled={!isPro && !devCloudUnlocked}
-                                />
-                                <Label htmlFor="transcription-mode" className="text-muted-foreground flex items-center gap-1 text-xs">
-                                     Cloud
-                                     {!isPro && <Lock className="w-3 h-3" />}
-                                 </Label>
-                            </div>
-                        </div>
-                        <ModelLoadingIndicator progress={modelLoadingProgress} />
-                        <ErrorDisplay error={error} />
-                        {import.meta.env.DEV && (
-                            <div className="pt-2 border-t border-border/50 space-y-2">
-                                <h4 className="font-medium text-muted-foreground text-sm">Developer Controls</h4>
-                                <div className="flex items-center space-x-1">
-                                    <Checkbox id="dev-native-mode" onCheckedChange={(checked) => { if(checked) setMode('native')}} />
-                                    <Label htmlFor="dev-native-mode" className="text-xs font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                                        Force Native Transcription
-                                    </Label>
-                                </div>
-                                <div className="flex items-center space-x-1">
-                                    <Checkbox id="dev-unlock-cloud" checked={devCloudUnlocked} onCheckedChange={handleDevCloudUnlockChange} />
-                                    <Label htmlFor="dev-unlock-cloud" className="text-xs font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                                        Unlock Cloud Mode (for non-pro)
-                                    </Label>
-                                </div>
+                        {qualityIndicator && (
+                            <div className={`text-center p-2 rounded-lg ${qualityIndicator.className}`}>
+                                <p className="text-xs font-semibold">
+                                    {qualityIndicator.text}
+                                </p>
                             </div>
                         )}
+                        <ModelLoadingIndicator progress={modelLoadingProgress} />
+                        <ErrorDisplay error={error} />
                     </CardContent>
                 </Card>
 

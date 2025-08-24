@@ -31,10 +31,8 @@ const getInitialFillerData = (customWords = []) => {
 // --- The Hook ---
 export const useSpeechRecognition = ({
     customWords = [],
-    mode,
-    model = 'Xenova/whisper-tiny.en'
 } = {}) => {
-    console.log(`[useSpeechRecognition] Hook initialized with mode: ${mode}, model: ${model}`);
+    console.log(`[useSpeechRecognition] Hook initialized.`);
 
     const { profile } = useAuth();
 
@@ -48,7 +46,7 @@ export const useSpeechRecognition = ({
     const [finalFillerData, setFinalFillerData] = useState(getInitialFillerData(customWords));
     const [error, setError] = useState(null);
     const [isSupported, setIsSupported] = useState(true);
-    const [currentMode, setCurrentMode] = useState(mode);
+    const [currentMode, setCurrentMode] = useState(null); // 'cloud' or 'native'
     const [modelLoadingProgress, setModelLoadingProgress] = useState(null);
 
     const transcriptionServiceRef = useRef(null);
@@ -121,7 +119,6 @@ export const useSpeechRecognition = ({
     // --- Control Functions ---
     const startListening = async () => {
         console.log('[useSpeechRecognition] startListening called.');
-
         if (isListening) {
             console.warn('[useSpeechRecognition] Already listening.');
             return;
@@ -129,40 +126,38 @@ export const useSpeechRecognition = ({
 
         try {
             setError(null);
+            setIsSupported(true);
 
+            // Initialize the service if it doesn't exist
             if (!transcriptionServiceRef.current) {
-                console.log('[useSpeechRecognition] Service not initialized. Initializing now...');
-                const isNativeSupported = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
-                if (mode === 'native' && !isNativeSupported) {
-                    throw new Error("Native speech recognition is not supported in this browser.");
-                }
-                setIsSupported(true);
-
-                const service = new TranscriptionService(mode, {
+                console.log('[useSpeechRecognition] Service not initialized. Creating instance...');
+                const service = new TranscriptionService({
                     onTranscriptUpdate,
                     onModelLoadProgress,
-                    model,
                     profile
                 });
-                const { fallback } = await service.init();
-                if (fallback) {
-                    toast.info("Local model failed to load.", {
-                        description: "Falling back to your browser's built-in speech recognition.",
-                    });
-                }
+                // The new init only prepares the mic, it doesn't start any provider.
+                await service.init();
                 transcriptionServiceRef.current = service;
-                setCurrentMode(service.mode);
-                console.log(`[useSpeechRecognition] Transcription service initialized. Actual mode: ${service.mode}`);
+                console.log('[useSpeechRecognition] Transcription service initialized.');
             }
 
+            // Start the transcription process (which now includes the fallback logic)
             await transcriptionServiceRef.current.startTranscription();
+
+            // Update state after starting
             setIsListening(true);
-            console.log('[useSpeechRecognition] Started listening successfully.');
+            setCurrentMode(transcriptionServiceRef.current.mode); // Reflect the actual mode used
+            console.log(`[useSpeechRecognition] Started listening successfully in mode: ${transcriptionServiceRef.current.mode}`);
+
         } catch (err) {
             console.error('[useSpeechRecognition] Error starting speech recognition:', err);
             setError(err);
-            setIsListening(false); // Ensure listening state is false on error
-            setIsSupported(err.message.includes('not supported') ? false : true);
+            setIsListening(false);
+            // A more robust check for browser support issues
+            if (err.message.toLowerCase().includes('not supported') || err.message.toLowerCase().includes('permission denied')) {
+                setIsSupported(false);
+            }
         }
     };
 
