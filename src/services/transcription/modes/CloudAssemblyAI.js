@@ -1,5 +1,6 @@
 import { AssemblyAI } from 'assemblyai';
 import { supabase } from '../../../lib/supabaseClient';
+import { toast } from 'sonner';
 
 export default class CloudAssemblyAI {
   constructor({ performanceWatcher, onTranscriptUpdate } = {}) {
@@ -11,21 +12,13 @@ export default class CloudAssemblyAI {
   }
 
   async _getTemporaryToken() {
-    const devModeSecret = import.meta.env.DEV ? import.meta.env.VITE_DEV_SECRET_KEY_V2 : undefined;
-    let authHeader;
-
-    if (devModeSecret) {
-      console.log('[CloudAssemblyAI] Dev mode: using secret key for token request.');
-      authHeader = `Bearer ${devModeSecret}`;
-    } else {
-      console.log('[CloudAssemblyAI] Production mode: using user session for token request.');
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        // This is a critical client-side check before attempting to call the function.
-        throw new Error('User not authenticated. Please log in to use Cloud transcription.');
-      }
-      authHeader = `Bearer ${session.access_token}`;
+    // The new developer flow is handled by the edge function based on NODE_ENV.
+    // The client just needs to send the regular auth header.
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      throw new Error('User not authenticated. Please log in to use Cloud transcription.');
     }
+    const authHeader = `Bearer ${session.access_token}`;
 
     try {
       const { data, error } = await supabase.functions.invoke('assemblyai-token', {
@@ -40,7 +33,21 @@ export default class CloudAssemblyAI {
       }
 
       if (data.error) {
-        // Errors returned in the function's JSON response body (e.g., auth failures)
+        // Special handling for usage limit error to show a toast
+        if (data.error.includes('Usage limit exceeded')) {
+          toast.error("You've run out of free minutes.", {
+            description: "Please upgrade to a Pro plan for unlimited transcription.",
+            action: {
+              label: "Upgrade",
+              onClick: () => {
+                // This is a bit of a hack, but it's the simplest way to navigate
+                // without passing the navigate function all the way down.
+                window.location.href = '/auth?view=pro-upgrade';
+              },
+            },
+          });
+        }
+        // For all errors (including usage limit), we throw to stop the process
         throw new Error(`AssemblyAI token error: ${data.error}`);
       }
 
