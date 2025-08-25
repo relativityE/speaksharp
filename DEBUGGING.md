@@ -77,27 +77,28 @@ This requires setting up secrets in two places:
 1.  **For the Supabase Function (Backend):**
     *   Navigate to your Supabase project dashboard.
     *   Go to **Settings -> Secrets**.
-    *   Create a **new secret** named `DEV_SECRET_KEY_V2`.
-    *   Set its value to a strong, random string (e.g., a UUID). This secret proves to your function that a developer is making the request.
+    *   Create a **new secret** with the exact name `DEV_SECRET_KEY`.
+    *   Set its value to a strong, random string (e.g., `dev-secret-12345`). This secret proves to your function that a developer is making the request.
     *   After setting the secret, you **must** redeploy your Supabase functions for the change to take effect:
         ```bash
         npx supabase functions deploy
         ```
 
 2.  **For the React App (Client):**
-    *   Create a file named `.env.local` in the root of the project if it doesn't exist.
-    *   Add the **same secret** to this file, but prefix the variable with `VITE_`. This is a Vite requirement for exposing variables to the browser.
+    *   In your local `.env.local` file, add a new line for the client-side secret. The name must be prefixed with `VITE_`.
         ```
-        VITE_DEV_SECRET_KEY_V2=the_same_strong_random_string_as_above
+        VITE_DEV_SECRET_KEY=dev-secret-12345
         ```
+    *   The value of `VITE_DEV_SECRET_KEY` must be **exactly the same** as the value of `DEV_SECRET_KEY` in your Supabase secrets.
     *   **Important:** You must **restart your development server** (stop and restart `pnpm run dev`) after changing this file.
 
 **How It Works:**
 
--   When you run the app in dev mode (`pnpm run dev`), `import.meta.env.DEV` becomes `true`.
--   The client-side code in `CloudAssemblyAI.js` detects this and reads `import.meta.env.VITE_DEV_SECRET_KEY_V2`.
--   It then calls the `assemblyai-token` Supabase function, but instead of sending a user's login token, it sends the developer secret in the `Authorization` header.
--   The Supabase function receives the request, finds the developer secret, and bypasses all the normal user authentication checks, proceeding directly to generate and return a temporary AssemblyAI token.
+-   The client-side code in `CloudAssemblyAI.js` checks if `import.meta.env.VITE_DEV_SECRET_KEY` exists.
+-   If it exists, it creates an `Authorization` header with the value of the secret (e.g., `Authorization: Bearer dev-secret-12345`).
+-   It then calls the `assemblyai-token` Supabase function with this header.
+-   The Supabase function receives the request. It reads its own `DEV_SECRET_KEY` environment variable and compares it to the `Authorization` header from the client.
+-   If they match, the function bypasses all the normal user authentication checks, proceeding directly to generate and return a temporary AssemblyAI token.
 
 This keeps the main `ASSEMBLYAI_API_KEY` secure on the backend while providing a streamlined and secure workflow for local development.
 
