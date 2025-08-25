@@ -191,6 +191,7 @@ Status Key: ✅ = Completed, ⚪ = To Do
     *   ✅ **Task 2.1:** Overhaul `SessionSidebar.jsx` to consolidate UI, improve the status title, and fix the "Initializing..." state.
     *   ✅ **Task 2.2:** Add a developer-only "Force Cloud" checkbox to the UI.
     *   ⚪ **Task 2.3:** Add the global `<Toaster />` component to `App.jsx`.
+    *   ⚪ **Task 2.4:** Display speech-to-text accuracy percentage on the Analytics Page to build user trust.
 
 *   **Group 3: Code Health**
     *   ⚪ **Task 3.1:** Remove dead code and stale documentation references related to `LocalWhisper.js`.

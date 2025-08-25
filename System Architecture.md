@@ -110,6 +110,39 @@ This diagram offers a more detailed look at the application's architecture from 
              |            +--> Verifies event, updates `user_profiles.subscription_status` to 'pro'          |
              |                                                                                               |
              +-----------------------------------------------------------------------------------------------+
+
+---
+
+## 8. Developer Workflow & Local Testing
+
+### The `SUPER_DEV_MODE` Bypass
+
+To facilitate local development and testing of premium cloud features without requiring a real, authenticated Pro user, the project uses a `SUPER_DEV_MODE`. This is a pragmatic short-term solution that unblocks the development workflow. However, it should be considered planned technical debt and replaced with a more robust developer authentication or mocking system in the future.
+
+The system is designed with two layers of security checks (frontend and backend), which can be visualized as a house with two doors. A developer needs to unlock both doors to get all the way through the system.
+
+#### The Frontend Door (The Browser)
+The React application running in the browser has its own lock that checks if a user is logged in before attempting to call a protected backend function.
+*   **The Key:** `VITE_SUPER_DEV_MODE=true`
+*   **How it Works:** This environment variable, placed in the `.env.local` file, is made available to the frontend code by Vite's build process (due to the `VITE_` prefix). When our client-side code (e.g., in `CloudAssemblyAI.js`) sees this variable is `true`, it bypasses its own login checks.
+
+#### The Backend Door (The Server)
+The Supabase Edge Functions, which run on a server, have their own separate security lock. They do not have access to environment variables prefixed with `VITE_`.
+*   **The Key:** `SUPER_DEV_MODE=true`
+*   **How it Works:** This environment variable must be set in the environment where the Edge Functions are running.
+    *   **For Deployed Functions:** This is set as a secret in the Supabase project dashboard (`Settings` > `Edge Functions`).
+    *   **For Local Development:** The local Supabase development environment (often called an "emulator") also needs this key. It reads it from the `.env.local` file, but only if the name is `SUPER_DEV_MODE` (without the prefix).
+
+#### Summary of Local Setup
+To run the full developer workflow locally, a developer's `.env.local` file must contain **both** keys:
+```
+# For the frontend app to bypass its own checks
+VITE_SUPER_DEV_MODE=true
+
+# For the local Supabase backend emulation to bypass its checks
+SUPER_DEV_MODE=true
+```
+Additionally, the developer must have the necessary service keys (like `ASSEMBLYAI_API_KEY`) set as secrets in their Supabase project dashboard, as the backend, even in dev mode, still needs to contact real external services.
 ```
 
 ## 6. Test Approach
