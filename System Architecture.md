@@ -4,11 +4,11 @@
 
 SpeakSharp is a **privacy-first, real-time speech analysis tool** designed as a modern, serverless SaaS web application. Its architecture is strategically aligned with the core product goal: to provide instant, on-device feedback that helps users improve their public speaking skills, while rigorously protecting their privacy.
 
-The system is built for speed, both in user experience and development velocity. It leverages a **React (Vite)** frontend for a highly interactive UI and **Supabase** as an all-in-one backend for data, authentication, and user management. The speech recognition engine is designed with a **two-phase, hybrid approach**, starting with a cloud-based service for rapid development and transitioning to a fully on-device model to fulfill the privacy-first promise.
+The system is built for speed, both in user experience and development velocity. It leverages a **React (Vite)** frontend for a highly interactive UI and **Supabase** as an all-in-one backend for data, authentication, and user management. The speech recognition engine now uses a "Cloud-First, Native-Fallback" model to ensure reliability.
 
 ## 2. System Architecture & Technology Stack
 
-The architecture is designed around a modern, client-heavy Jamstack approach. The frontend is a sophisticated single-page application that handles most of the business logic, including the transcription via a flexible `TranscriptionService` wrapper. This service can toggle between a cloud provider (AssemblyAI) and a local, in-browser engine (using **Transformers.js**), providing a seamless path from a rapid MVP to a privacy-focused production system.
+The architecture is designed around a modern, client-heavy Jamstack approach. The frontend is a sophisticated single-page application that handles most of the business logic, including the transcription via a flexible `TranscriptionService` wrapper. This service attempts to use a cloud provider (AssemblyAI) and gracefully falls back to the native browser's speech recognition capabilities on failure.
 
 ### High-Level Overview
 ```text
@@ -18,28 +18,18 @@ The architecture is designed around a modern, client-heavy Jamstack approach. Th
 |                                 |      +---------------------------------+
 |  +---------------------------+  |
 |  |  TranscriptionService     |  |
-|  | (Event-Driven via        |  |
-|  |  onTranscriptUpdate)      |  |
+|  | (Cloud-First, Native-    |  |
+|  |  Fallback Logic)          |  |
 |  |---------------------------|  |
-|  | if (mode === 'local') {   |  |
-|  |   Transformers.js (WASM)  |  |
-|  | } else {                  |  |
-|  |   AssemblyAI (via Token)  |  |
+|  | try {                     |  |
+|  |   CloudAssemblyAI         |  |
+|  | } catch {                 |  |
+|  |   NativeBrowser           |  |
 |  | }                         |  |
 |  +---------------------------+  |
 |                                 |
 |  +---------------------------+  |
 |  |  UI Components (`/src`)   |  |
-|  |---------------------------|  |
-|  | - TranscriptPanel: Uses a |  |
-|  |   debounced scroll handler|  |
-|  |   for performance.        |  |
-|  | - Upgrade Prompts: A      |  |
-|  |   dialog appears on       |  |
-|  |   session limits, and a   |  |
-|  |   banner on the analytics |  |
-|  |   page to encourage       |  |
-|  |   upgrades.               |  |
 |  +---------------------------+  |
 +---------------------------------+
              |
@@ -57,10 +47,37 @@ The architecture is designed around a modern, client-heavy Jamstack approach. Th
 +-------------------------------------------------------------------+
 ```
 
-### Detailed User Flow Diagram
+## 3. Developer Workflow & Local Testing
 
-This diagram offers a more detailed look at the application's architecture from a user flow perspective, showing the specific paths and API calls for all three user tiers.
+### The `SUPER_DEV_MODE` Bypass
 
+To facilitate local development and testing of premium cloud features without requiring a real, authenticated Pro user, the project uses a `SUPER_DEV_MODE`.
+
+**The Rationale (The "Two Doors" Analogy):**
+The system has two layers of security that must be bypassed in development: the frontend application and the backend functions.
+
+1.  **The Frontend Door (The Browser):** The React app has checks to see if a user is logged in before attempting to call a protected backend function.
+    *   **The Key:** `VITE_SUPER_DEV_MODE=true`
+    *   **How it Works:** This environment variable, placed in the `.env.local` file, is made available to the frontend code by Vite's build process. When our client-side code sees this is `true`, it bypasses its own login checks.
+
+2.  **The Backend Door (The Server):** The Supabase Edge Functions have their own separate security.
+    *   **The Key:** `SUPER_DEV_MODE=true`
+    *   **How it Works:** This variable must be set in the environment where the Edge Functions are running.
+        *   **For Deployed Functions (e.g., on a preview branch):** This is set as a secret in the Supabase project dashboard (`Settings` > `Edge Functions`).
+        *   **For True Local Development (with Docker):** The local Supabase environment (started with `supabase start`) reads this variable from the `.env.local` file (without the `VITE_` prefix).
+
+**Important Note on Local Database Setup:**
+Since you don't have Docker installed, you are not running a local database. You are running your frontend locally, but it is connecting to the **remote, deployed** database on Supabase's cloud. Therefore, the `supabase db reset` command will not work for you. This is a critical distinction in your development workflow.
+
+**Deployment Configuration:**
+The `supabase/config.toml` file must explicitly list all functions to ensure that deployments, especially updates to environment variables, are handled reliably. A failure to do so was the root cause of previous deployment issues. The correct configuration is:
+```toml
+[functions.assemblyai-token]
+  entrypoint = "functions/assemblyai-token/index.ts"
+
+[functions.get-ai-suggestions]
+  entrypoint = "functions/get-ai-suggestions/index.ts"
+# ... and so on for all other functions
 ```text
                           +---------------------------------------------+
                           |              User's Browser                 |
@@ -145,192 +162,59 @@ SUPER_DEV_MODE=true
 Additionally, the developer must have the necessary service keys (like `ASSEMBLYAI_API_KEY`) set as secrets in their Supabase project dashboard, as the backend, even in dev mode, still needs to contact real external services.
 ```
 
-## 6. Test Approach
+### History of the Deployment Issue
 
-Our project employs a robust and stable testing strategy centered on **Vitest**, a modern test runner that integrates seamlessly with Vite.
+The developer workflow was previously blocked by a persistent `401 Unauthorized` error, even when secrets were set. The root cause was twofold:
+1.  The `supabase/config.toml` was missing the `[functions]` block, causing the `supabase functions deploy` command to fail to correctly update the environment variables for the deployed functions.
+2.  The local development workflow was not clearly documented, leading to confusion between client-side (`VITE_`) and server-side environment variables.
 
-### Unit & Integration Testing: **Vitest + happy-dom**
+By explicitly defining the functions in `config.toml` and clarifying the setup in this document, the process is now stable and reliable.
 
-This is the primary testing stack for the application. It provides a fast and reliable way to test components and logic.
+---
 
-*   **Vite**: Acts as the core build and test orchestration engine.
-*   **Vitest**: The designated **test runner**. `pnpm test` is configured to execute all `*.test.jsx` files located in `src/__tests__`.
-*   **happy-dom**: A lightweight, simulated browser environment for tests that need to interact with a DOM.
-*   **DOM API Mocking**: For browser-specific APIs not implemented in `happy-dom` (e.g., `scrollIntoView`), global mocks are added to the test setup file (`src/test/setup.ts`) to prevent tests from crashing.
-*   **Dependency Mocking**: The test environment is configured with advanced mocking to handle complex dependencies like `@xenova/transformers` and prevent memory leaks. The key to solving the memory issue was to control the module import order in the test file (`useSpeechRecognition.test.jsx`):
-    1.  **Mocks are established first:** `vi.mock()` is called at the top level of the test file, before any imports. This tells Vitest to replace the real modules with our mocks.
-    2.  **The hook is imported dynamically:** The `useSpeechRecognition` hook is imported using a top-level `await import(...)` *after* the mocks are defined.
-    3.  **Result:** When the hook is imported, it receives the mocked versions of its dependencies instead of the real ones. This prevents the large machine learning models from being loaded into memory during the test run and keeps the memory footprint low.
+## 4. Database Management & Performance
 
-### End-to-End Testing: **Playwright**
+This section details the process for managing the database schema and highlights key performance optimizations that have been implemented.
 
-For features that rely heavily on browser-native APIs (like the `TranscriptionService`'s audio processing), we use **Playwright**. These tests run in a real browser environment, providing a higher level of confidence for critical user flows.
+### Applying Database Migrations
 
-### Backend Function Testing: Deno Test
+All changes to the database schema (e.g., creating tables, adding indexes) are managed through timestamped SQL migration files located in the `supabase/migrations` directory.
 
-For Supabase Edge Functions, which are written in TypeScript and run on the Deno runtime, we use **Deno's built-in test runner**.
-
-*   **Execution**: A dedicated script, `pnpm run test:functions`, is available to run all `*.test.ts` files located within the `supabase/functions/` directory.
-*   **Mocking**: These tests use dependency injection to mock external services like the Supabase client or other APIs. This allows for isolated and predictable testing of the function's logic.
-
-### Summary of Tools
-
-| Tool          | Role                               | When It's Used                                      |
-| :------------ | :--------------------------------- | :-------------------------------------------------- |
-| **Vite**      | Core build & test engine.          | Used by `pnpm run dev` and `pnpm test`.             |
-| **Vitest**    | Main test runner.                  | `pnpm test`                                         |
-| **happy-dom** | Simulated browser for Vitest.      | The environment for all Vitest tests.               |
-| **Playwright**| Secondary, end-to-end test runner. | For high-level smoke tests (`npx playwright test`). |
-
-This hybrid approach provides a fast, reliable, and comprehensive testing strategy for the project.
-
-## 7. Evolution of the Developer Workflow
-
-The process for enabling developers to test the premium cloud transcription feature has evolved significantly to improve security and reliability. Understanding this history is useful for appreciating the current architecture.
-
-### Phase 1 & 2: Direct-to-API Flow (Insecure / CORS-Blocked)
-
-*   **How it Worked**: The developer's browser, using a key from `.env.local`, would attempt to request a token directly from the AssemblyAI API.
-*   **Problem**: This was either a security risk (if the main key was exposed) or blocked by browser CORS policy.
-
-```text
-+-----------------------+           +-----------------------+
-|   Developer Browser   |           |    AssemblyAI API     |
-| (localhost:5173)      |           | (api.assemblyai.com)  |
-|                       |           |                       |
-| 1. Read key from      |           |                       |
-|    .env.local         |           |                       |
-|                       |           |                       |
-| 2. Request Token -----X---------->|  2a. REJECTED (CORS)  |
-|    (Fetch API)        |           |                       |
-+-----------------------+           +-----------------------+
+To apply new migrations to your deployed Supabase project, run the following CLI command:
+```bash
+supabase db push
 ```
+This command compares the migrations in your local directory with the ones that have already been run on the remote database and executes only the new ones.
 
-### Phase 3: Secure "Dev Secret" Flow (Current)
+### Performance Optimizations
 
-*   **How it Works**: The browser no longer holds any powerful API keys. It holds a simple "dev secret" which it sends to our own Supabase function. The function recognizes the secret and then uses its own powerful, secure API key to get the token from AssemblyAI.
-*   **Benefit**: This is secure, mimics the production data path, and avoids all CORS issues.
+Based on feedback from the Supabase Database Linter, the following performance improvements have been implemented via migrations:
 
-```text
-+---------------------+   2. Request Token    +---------------------+   3. Request Token    +---------------------+
-| Developer Browser   |      (w/ Dev Secret)  | Supabase Function   |  (w/ Main API Key)  |   AssemblyAI API    |
-| (localhost:5173)    |---------------------->| (assemblyai-token)  |-------------------->| (api.assemblyai.com)|
-|                     |                       |                     |                     |                     |
-| 1. Read Dev Secret  |                       | 2a. Validate Secret |                     | 3a. Validate Key    |
-|    from .env.local  |                       |                     |                     |     & Issue Token   |
-|                     |   4. Return Token     |                     |  4. Return Token    |                     |
-|                     |<----------------------|                     |<--------------------|                     |
-+---------------------+                       +---------------------+                     +---------------------+
-```
-```
+1.  **Row Level Security (RLS) Policy Optimization:**
+    *   **Issue:** The original RLS policies on the `sessions` table used `auth.uid()` directly, causing the function to be re-evaluated for every row in a query, leading to poor performance.
+    *   **Fix:** The policies were consolidated and updated to use `(select auth.uid())`. This ensures the function is treated as a stable value and is only evaluated once per query.
 
+2.  **Foreign Key Indexing:**
+    *   **Issue:** The `user_id` column on the `sessions` table is a foreign key but was missing a database index. This can lead to slow queries when filtering or joining on this column.
+    *   **Fix:** A new index was added to the `sessions(user_id)` column to significantly speed up these lookups.
 
-### Technology Stack Breakdown
+---
 
-```text
-┌──────────────────┬────────────────────────────┬──────────────────────────────────────────────────────────────────────┬────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ Technology       │ Purpose                    │ Implementation Location(s) & Notes                                   │ Keys & Usage                                                                                     │
-├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ React            │ Frontend UI Library        │ The core of the application. Used to build all components & pages.   │ N/A                                                                                              │
-│                  │                            │ • `src/`: Entire frontend application source.                      │                                                                                                │
-│                  │                            │ • `react-router-dom`: Handles all client-side routing.             │                                                                                                │
-├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ Vite             │ Build Tool & Dev Server    │ Provides a fast dev experience and bundles the app for production.   │ N/A                                                                                              │
-│                  │                            │ • `vite.config.mjs`: Main configuration file for Vite and Vitest.  │                                                                                                │
-├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ Supabase         │ Backend-as-a-Service       │ Provides DB, auth, & APIs, reducing backend work for the MVP.        │ • `VITE_SUPABASE_URL`: Public URL for the project.                                               │
-│                  │                            │ • `src/lib/supabaseClient.js`: Client initialization.              │ • `VITE_SUPABASE_ANON_KEY`: Public key for client-side access.                                   │
-│                  │                            │ • `supabase/functions`: Location of serverless edge functions.       │ • `SUPABASE_SERVICE_ROLE_KEY`: Secret key for admin access in functions.                         │
-├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ Transcription    │ Core Feature               │ A swappable service for speech-to-text. Uses an event-driven         │ • `ASSEMBLYAI_API_KEY`: Secret key for server-side token generation.                             │
-│ Service          │                            │ approach via an `onTranscriptUpdate` callback to provide real-time   │   (Set in Supabase project secrets)                                                          │
-│                  │                            │ results to the UI without polling. Errors from the cloud provider    │                                                                                                │
-│                  │                            │ (e.g., missing API key) now propagate to the UI instead of silently  │                                                                                                │
-│                  │                            │ falling back to a different engine. If a provider fails to           │                                                                                                │
-│                  │                            │ initialize for any reason (e.g., browser incompatibility, network    │                                                                                                │
-│                  │                            │ error), the service will automatically attempt to fall back to the   │                                                                                                │
-│                  │                            │ native browser's built-in speech recognition as a last resort.       │                                                                                                │
-│                  │                            │ • `src/services/transcription`: Wrapper for STT providers.         │                                                                                                │
-│                  │                            │ • `modes/LocalWhisper.js`: On-device via **Transformers.js**.        │                                                                                                │
-│                  │                            │ • `modes/CloudAssemblyAI.js`: Premium cloud-based mode.              │                                                                                                │
-├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ Styling          │ CSS & Component Toolkit    │ Used for all styling, enabling rapid UI development.                 │ N/A                                                                                              │
-│                  │                            │ • `Tailwind CSS`: Utility-first CSS framework.                     │                                                                                                │
-│                  │                            │ • `src/index.css`: Defines global styles, including a doubled base   │                                                                                                │
-│                  │                            │   font size for improved readability.                                │                                                                                                │
-│                  │                            │ • `shadcn/ui`: Re-usable components built on Radix UI.               │                                                                                                │
-├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ Analytics        │ Usage & Perf. Monitoring   │ Captures errors, analytics, and performance data.                    │                                                                                                │
-│                  │                            │ • `Sentry`: Captures runtime errors.                               │ • `VITE_SENTRY_DSN`                                                                            │
-│                  │                            │ • `PostHog`: Tracks user behavior and product analytics.           │ • `VITE_POSTHOG_KEY`                                                                           │
-│                  │                            │ • `Recharts`: Renders charts for the analytics dashboard.            │                                                                                                │
-├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ Stripe           │ Payments                   │ Handles all subscription payments for the "Pro" tier.                │ • `VITE_STRIPE_PUBLISHABLE_KEY`: Public key for Stripe.js on the client.                         │
-│                  │                            │ • `supabase/functions/stripe-checkout`: Creates checkout sessions.   │ • `STRIPE_SECRET_KEY`: Secret key for server-side API calls in functions.                        │
-│                  │                            │ • `supabase/functions/stripe-webhook`: Handles payment events.       │ • `STRIPE_WEBHOOK_SECRET`: Secret to verify webhooks are from Stripe.                            │
-├──────────────────┼────────────────────────────┼──────────────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ AI Suggestions   │ Speech Analysis            │ Provides AI-driven feedback on user speech via Google Gemini.        │ • `GEMINI_API_KEY`: Secret key for Gemini API.                                                   │
-│                  │                            │ • `supabase/functions/get-ai-suggestions`: Edge function.          │   (Set in Supabase secrets)                                                                    │
-│                  │                            │ • `src/components/session/AISuggestions.jsx`: Frontend component.    │                                                                                                │
-└──────────────────┴────────────────────────────┴──────────────────────────────────────────────────────────────────────┴────────────────────────────────────────────────────────────────────────────────────────────────┘
+## 5. Test Approach
 
-## 3. Alignment with PRD Goals
+Our project employs a robust testing strategy centered on **Vitest**.
 
-The entire system architecture is a direct reflection of the goals outlined in the **SpeakSharp PRD**.
+### Unit & Integration Testing (Vitest)
+This is the primary testing stack. It provides a fast and reliable way to test components and logic.
 
-*   **Goal: "Privacy-First, Real-Time Analysis"**:
-    *   **Architecture**: The `TranscriptionService` wrapper is the cornerstone of the privacy strategy. It allows for a fast MVP using a cloud service (AssemblyAI) while providing a clear path to a fully on-device solution (**Transformers.js**) for the production release. This two-phase approach balances speed with the long-term privacy promise.
+*   **`happy-dom`**: A lightweight, simulated browser environment.
+*   **Dependency Mocking & Memory Leaks**: We use advanced mocking to handle complex dependencies (like `@xenova/transformers`) that can cause memory leaks in the test environment. The key to solving this is to ensure mocks are established *before* any module imports are processed. The recommended pattern for this is `vi.hoisted()`:
+    1.  **Hoist Mocks:** Any mocks for heavy dependencies are wrapped in `vi.hoisted()` and placed at the very top of the test file. This ensures they run before any standard `import` statements.
+    2.  **Import Hook/Component:** The component under test can then be imported normally.
+    3.  **Result:** This strategy prevents the large libraries from being loaded into memory during the test run.
 
-*   **Goal: "Rapid MVP Launch" (3-Week Target)**:
-    *   **Architecture**: The technology choices are optimized for development speed to meet the aggressive **3-week MVP timeline** defined in the PRD.
-        *   **React + Vite + shadcn/ui**: Allows for rapid development of a modern, interactive frontend.
-        *   **Supabase**: Provides a complete backend out-of-the-box, saving weeks of development time on building auth, user management, and a database API from scratch.
-        *   **AssemblyAI Integration**: Using a managed cloud service for transcription in Phase 1 allows the team to focus on core application features rather than on building and managing a local STT engine.
+### End-to-End Testing (Playwright)
+For critical user flows, we use **Playwright** to run tests in a real browser environment.
 
-*   **Goal: "Scalable Freemium Model"**:
-    *   **Architecture**: The client-heavy architecture for free users is infinitely scalable at near-zero cost. The system is already designed to integrate with a serverless function for a "High-accuracy cloud transcription" feature for Pro users, demonstrating a clear and cost-effective path to scaling premium features. The database schema includes fields for `subscription_status` and `usage_seconds`, directly enabling the tiered pricing model.
-
-In summary, the architecture is not just a technical blueprint; it is a well-considered plan to efficiently build, launch, and scale the exact product envisioned in the PRD.
-
-## 5. User Flows & API Usage
-
-This section details the step-by-step execution flow for both free and paid users, clarifying which APIs are used and what data is stored.
-
-### Free User Flow
-
-The free tier is designed to build a habit around practice and reinforce our privacy-first value proposition.
-
-1.  **Authentication**: A user with a `subscription_status` of `'free'` logs in.
-2.  **Speech Recognition (Local-Only)**: When the user starts a session, the `useSpeechRecognition.js` hook is activated. For Free users, this **defaults to and is locked to the local on-device mode** using **Transformers.js**. This ensures the core promise of privacy is met for all free users.
-3.  **Session Completion**: The user manually stops the session.
-4.  **Data Persistence (Metadata Only)**: The `useSessionManager.js` and `lib/storage.js` modules collaborate to save the session.
-    *   **API Hit**: An `insert` call is made to the Supabase `sessions` table.
-    *   **Data Stored**: Only session metadata is persisted (e.g., `duration`, `total_words`, `filler_words` JSON). The full transcript is discarded and **not** sent to the database, reinforcing privacy.
-5.  **Usage Tracking & Enforcement**: After a successful save, an RPC (Remote Procedure Call) is made to a Supabase function.
-    *   **API Hit**: `supabase.rpc('update_user_usage', ...)` is called.
-    *   **Action**: This secure backend function checks if the user is over their monthly limit. If they are not, it adds the `session_duration_seconds` to their total. If they are over the limit, it returns `false`, and the frontend displays a notification. This prevents any further usage until the next month or an upgrade.
-
-**Key Files & Components**: `SessionPage.jsx`, `SessionSidebar.jsx`, `useSpeechRecognition.js`, `useSessionManager.js`, `lib/storage.js`, `lib/supabaseClient.js`, `services/transcription/TranscriptionService.js`.
-
-### Paid (Pro) User Flow
-
-The Pro tier removes limitations and adds premium features, including higher-accuracy transcription.
-
-1.  **Authentication**: A user with a `subscription_status` of `'pro'` or `'premium'` logs in.
-2.  **Unrestricted Usage**: Pro-specific features, like unlimited custom words and full analytics history, are enabled in the UI.
-3.  **Speech Recognition (User's Choice)**: Pro users have the choice between the standard `local` mode and the premium `cloud` mode (using AssemblyAI) for higher accuracy.
-4.  **Session Completion & Persistence**: This is identical to the free user flow. Session metadata (not the transcript) is saved to the `sessions` table. The `update_user_usage` RPC function is **not** called, as it is unnecessary for Pro users.
-
-**Key Files & Components**: The same as the free flow, with conditional logic in `SessionSidebar.jsx` unlocking the Pro features.
-
-### Upgrade Flow (Free to Pro)
-
-This flow involves coordination between the React app, Supabase Edge Functions, and the Stripe API.
-
-1.  **Initiate Checkout**: The user clicks the "Upgrade" button in the `SessionSidebar.jsx` component.
-    *   **API Hit**: `supabase.functions.invoke('stripe-checkout')` is called.
-2.  **Stripe Function**: This Supabase Edge Function (running on Deno) uses a secret key to securely communicate with the Stripe API, creating a new Checkout Session. It returns the session ID to the client.
-3.  **Redirect to Stripe**: The frontend uses the received session ID to redirect the user to Stripe's hosted payment page.
-4.  **Stripe Webhook**: After a successful payment, Stripe sends a `checkout.session.completed` event to a predefined webhook endpoint.
-    *   **API Hit**: The `stripe-webhook` Supabase Edge Function is triggered.
-5.  **Confirm Subscription**: This second function verifies the webhook's signature to ensure it's a legitimate request from Stripe. It then uses a Supabase service role key to update the user's record in the `user_profiles` table, setting their `subscription_status` to `'pro'`.
+### Backend Function Testing (Deno Test)
+For Supabase Edge Functions, we use **Deno's built-in test runner**. These tests use dependency injection to mock external services.

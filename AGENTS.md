@@ -42,10 +42,6 @@ This document provides guidance for AI software engineering agents working on th
 -   **Backend-Enforced Logic:** Any business logic critical to security or the business model (e.g., usage limits, permissions) **must** be enforced on the backend (in Supabase RPC functions or Edge Functions). Do not rely on client-side checks for security.
 -   **Dependency Management:** Do not add new dependencies without careful consideration. Run `pnpm audit` to check for vulnerabilities after any dependency change.
 -   **Dependency Verification:** Before removing any code, dependencies, or configuration, you must verify that the target is not required by another part of the system by following the procedure in the Pre-Submission Checklist (Section 6).
--   **Testing `useSpeechRecognition`:** The `useSpeechRecognition` hook has a complex dependency on the `TranscriptionService`.
-    -   **Mocking Strategy:** The Vitest tests for this hook (`src/__tests__/useSpeechRecognition.test.jsx`) use `vi.mock()` and a dynamic `import()` to mock this service at the module level. This is the preferred way to test the hook's logic.
-    -   **WARNING - MEMORY LEAK:** This test is known to have a severe memory leak and will likely crash the test runner with a `JS heap out of memory` error. It is kept disabled in the repository.
-    -   **If you must run this test:** Execute it as a background process to avoid blocking your session (e.g., `pnpm test src/__tests__/useSpeechRecognition.test.jsx &`). See Section 7 for more details on handling long-running tasks.
 
 ## 4. Code Style & Linting
 

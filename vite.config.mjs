@@ -31,7 +31,7 @@ export default defineConfig({
     include: ['@supabase/supabase-js'],
   },
   test: {
-    environment: 'happy-dom',   // lighter than jsdom
+    environment: 'jsdom',   // Using jsdom as happy-dom seems to cause a silent crash
     globals: true,              // gives expect, describe, etc.
     // [JULES] Use forks to run tests in a separate process, per user suggestion.
     // This provides better isolation and prevents memory leaks between test files,
