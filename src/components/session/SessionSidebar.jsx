@@ -52,32 +52,24 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
     const navigate = useNavigate();
     const { user, profile } = useAuth();
     const stripe = useStripe();
-    const [isLoading, setIsLoading] = useState(false);
+    const [isEndingSession, setIsEndingSession] = useState(false); // Used for the "End Session" action
     const [isUpgrading, setIsUpgrading] = useState(false);
+    const [forceCloud, setForceCloud] = useState(false);
 
     const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
+    const isModelLoading = modelLoadingProgress && modelLoadingProgress.status !== 'ready' && modelLoadingProgress.status !== 'error';
 
     const handleUpgrade = async () => {
         if (!user) {
             navigate('/auth');
             return;
         }
-
         setIsUpgrading(true);
         try {
-            const { data, error } = await supabase.functions.invoke('stripe-checkout', {
-                body: {
-                    priceId: import.meta.env.VITE_STRIPE_PRICE_ID
-                },
-            });
-
-            if (error) {
-                throw new Error(`Function Error: ${error.message}`);
-            }
-
+            const { data, error } = await supabase.functions.invoke('stripe-checkout', { body: { priceId: import.meta.env.VITE_STRIPE_PRICE_ID } });
+            if (error) throw new Error(`Function Error: ${error.message}`);
             const { sessionId } = data;
             const { error: stripeError } = await stripe.redirectToCheckout({ sessionId });
-
             if (stripeError) {
                 console.error("Stripe redirect error:", stripeError.message);
                 alert(`Error: ${stripeError.message}`);
@@ -91,93 +83,94 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
     };
 
     const endSessionAndSave = async () => {
-        const sessionData = await stopListening();
-        if (!sessionData) {
-            toast.error("Could not process session data. Please try again.");
-            return;
+        setIsEndingSession(true);
+        try {
+            const sessionData = await stopListening();
+            if (!sessionData || !sessionData.transcript) {
+                toast.error("Session was too short or no speech was detected.");
+                return;
+            }
+            if (user) {
+                const savedSession = await saveSession(sessionData);
+                if (savedSession && savedSession.id) {
+                    toast.success("Session saved successfully!");
+                    navigate(`/analytics/${savedSession.id}`);
+                } else {
+                    toast.error("Failed to save the session. Please try again.");
+                }
+            } else {
+                toast.info("Session complete. View your results below.");
+                navigate('/analytics', { state: { sessionData } });
+            }
+        } catch (e) {
+            console.error("Error ending session:", e);
+            toast.error("An unexpected error occurred while saving your session.");
+        } finally {
+            setIsEndingSession(false);
         }
-        // ... (rest of the function is unchanged)
     };
 
     const handleStartStop = async () => {
         if (isListening) {
             await endSessionAndSave();
         } else {
-            setIsLoading(true);
             reset();
-            try {
-                await startListening();
-            } finally {
-                setIsLoading(false);
-            }
+            // Pass the developer flag to the startListening function
+            await startListening({ forceCloud });
         }
     };
 
-    const getButtonContent = () => {
-        if (isLoading) {
-            return <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Initializing...</>;
-        }
+    // Determine the vivid title for the card
+    const getCardTitle = () => {
         if (isListening) {
-            return <><Square className="w-4 h-4 mr-2" /> End Session</>;
+            return actualMode === 'cloud' ? 'Mode: Premium Cloud' : 'Mode: Basic Fallback';
         }
-        return <><Mic className="w-4 h-4 mr-2" /> Start Recording</>;
+        if (isModelLoading) {
+            return 'Initializing Model...';
+        }
+        return 'Ready to Record';
     };
 
-    const getQualityIndicator = () => {
-        switch (actualMode) {
-            case 'cloud':
-                return {
-                    title: 'Mode: Premium Cloud',
-                    text: '⚡ Premium Quality',
-                    className: 'bg-blue-100 text-blue-800 ring-2 ring-blue-500/50'
-                };
-            case 'native':
-                return {
-                    title: 'Mode: Basic Browser',
-                    text: '📱 Browser-Based (Basic)',
-                    className: 'bg-yellow-100 text-yellow-800 ring-2 ring-yellow-500/50'
-                };
-            default:
-                return null;
-        }
-    };
-
-    const qualityIndicator = getQualityIndicator();
-    const showUpgradeButton = (!isPro && !isUpgrading) || (import.meta.env.DEV && !isUpgrading);
+    const showUpgradeButton = !isPro && !isUpgrading;
+    const isButtonDisabled = isListening ? isEndingSession : isModelLoading;
 
     return (
         <div className="flex flex-col gap-6 h-full">
             <Card className="w-full flex flex-col flex-grow">
                 <CardHeader>
-                    <CardTitle className="text-sm ring-2 ring-red-500 p-1 rounded-md">
-                        {qualityIndicator ? qualityIndicator.title : 'Session Status'}
+                    <CardTitle className="text-sm font-bold text-center p-2 rounded-lg bg-card-foreground/5 text-card-foreground shadow-inner">
+                        {getCardTitle()}
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4 flex-grow flex flex-col">
-                    {qualityIndicator && (
-                        <div className={`text-center p-2 rounded-lg ${qualityIndicator.className}`}>
-                            <p className="text-xs font-semibold">
-                                {qualityIndicator.text}
-                            </p>
-                        </div>
-                    )}
                     <ModelLoadingIndicator progress={modelLoadingProgress} />
                     <ErrorDisplay error={error} />
                     <div className="flex flex-col items-center justify-center gap-6 py-2 flex-grow">
                         <DigitalTimer elapsedTime={elapsedTime} />
                         <div className={`text-xl font-semibold ${isListening ? 'text-red-500 animate-pulse' : 'text-muted-foreground'}`}>
-                            {isLoading ? 'INITIALIZING...' : (isListening ? '● RECORDING' : 'Idle')}
+                            {isListening ? '● RECORDING' : (isModelLoading ? 'Please wait...' : 'Idle')}
                         </div>
                         <Button
                             onClick={handleStartStop}
                             size="lg"
                             variant={isListening ? 'destructive' : 'default'}
                             className="w-full h-16 text-xl font-bold rounded-lg"
-                            disabled={isLoading}
+                            disabled={isButtonDisabled}
                         >
-                            {getButtonContent()}
+                            {isListening ? <><Square className="w-4 h-4 mr-2" /> End Session</> : <><Mic className="w-4 h-4 mr-2" /> Start Recording</>}
                         </Button>
                     </div>
+
+                    {/* Developer Tools */}
+                    {import.meta.env.DEV && (
+                        <div className="mt-auto pt-4 border-t">
+                             <Label htmlFor="force-cloud" className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <Checkbox id="force-cloud" checked={forceCloud} onCheckedChange={setForceCloud} disabled={isListening}/>
+                                Force Cloud (Disable Fallback)
+                            </Label>
+                        </div>
+                    )}
+
                     {showUpgradeButton && (
                         <div className="mt-auto pt-4 border-t">
                             <div className="flex items-center gap-2 text-primary mb-2">
