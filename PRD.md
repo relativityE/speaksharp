@@ -119,30 +119,13 @@ Our technology choices prioritize development speed, scalability, and user exper
 
 ---
 
-## Software Quality Metrics
+## Quality & Testing Strategy
 
-This section tracks key software quality metrics to ensure the project's health and align technical work with business goals.
+This section is the single source of truth for all quality assurance efforts. It tracks high-level quality metrics and the detailed roadmap for addressing testing debt. These metrics should be automated and reviewed regularly to observe trends.
 
-### Code Bloat
+### 1. Software Quality Metrics
 
-*   **Definition:** A qualitative estimate of the proportion of the codebase that is unused, deprecated, or provides low value relative to the product requirements.
-*   **Business Goal:** Minimizing code bloat directly impacts **Feature Velocity**. A smaller, cleaner codebase is easier for developers to understand, maintain, and extend, reducing the time it takes to deliver new features.
-*   **Industry Standard:** While subjective, this is often tracked via proxy metrics like code duplication and cyclomatic complexity.
-
-**Current Estimate (as of August 24, 2025):** ~20% of frontend components
-
-**Contextual Breakdown (Justification):**
-*   **Unused UI Components:** The primary source of bloat is the `src/components/ui` directory, which contains a large number of components installed via CLI but never used in the application (e.g., `menubar.jsx`, `pagination.jsx`, `table.jsx`).
-*   **Stale Documentation:** The `PRD.md` and `System Architecture.md` contain references to `LocalWhisper.js`, a feature that has already been removed.
-
----
-
-## Testing Strategy & Roadmap
-
-This section is the single source of truth for all quality assurance efforts. It tracks high-level testing metrics and the detailed roadmap for addressing testing debt. These metrics should be automated and reviewed regularly to observe trends.
-
-### 1. Test Coverage
-
+#### Test Coverage
 *   **Definition:** The percentage of application code (statements, branches, functions, lines) that is executed by the automated test suite.
 *   **Business Goal:** High test coverage is directly linked to **User Retention** and **Session Completion Rate**. A well-tested application has fewer bugs, leading to a more stable and trustworthy user experience. It also improves **Feature Velocity**, as developers can make changes with confidence, knowing that the test suite will catch regressions.
 *   **Industry Standard:** A common target is 70-80%.
@@ -153,6 +136,17 @@ This section is the single source of truth for all quality assurance efforts. It
 The overall coverage is critically low. The risk is concentrated in the most important areas of the application:
 *   **Core Hooks (Highest Risk):** `useSpeechRecognition.js` (11%) and `useSessionManager.js` (5%) are virtually untested.
 *   **Core UI (High Risk):** `SessionSidebar.jsx` (10%) and `AnalyticsPage.jsx` (12%) lack validation for their critical user flows.
+
+#### Code Bloat
+*   **Definition:** A qualitative estimate of the proportion of the codebase that is unused, deprecated, or provides low value relative to the product requirements.
+*   **Business Goal:** Minimizing code bloat directly impacts **Feature Velocity**. A smaller, cleaner codebase is easier for developers to understand, maintain, and extend, reducing the time it takes to deliver new features.
+*   **Industry Standard:** While subjective, this is often tracked via proxy metrics like code duplication and cyclomatic complexity.
+
+**Current Estimate (as of August 24, 2025):** ~20% of frontend components
+
+**Contextual Breakdown (Justification):**
+*   **Unused UI Components:** The primary source of bloat is the `src/components/ui` directory, which contains a large number of components installed via CLI but never used in the application (e.g., `menubar.jsx`, `pagination.jsx`, `table.jsx`).
+*   **Stale Documentation:** The `PRD.md` and `System Architecture.md` contain references to `LocalWhisper.js`, a feature that has already been removed.
 
 ### 2. Automation Strategy
 
@@ -177,13 +171,12 @@ Status Key: ✅ = Completed, ⚪ = To Do
     *   ⚪ **Task 3.1:** Create a Playwright E2E test for the full free-tier user journey.
     *   ⚪ **Task 3.2:** Run all test suites (`pnpm test:all`) and ensure 100% pass rate.
 
+---
+
 ## Development Roadmap
 
-This roadmap has been updated to focus on feature work and critical bug fixes. All testing-related tasks are now tracked in the "Testing Strategy & Roadmap" section.
-
+This roadmap has been updated to focus on feature work and critical bug fixes. All testing-related tasks are now tracked in the "Quality & Testing Strategy" section.
 Status Key: ✅ = Completed, ⚪ = To Do
-
----
 
 ### **Phase 1: Stabilize and Harden the MVP**
 
