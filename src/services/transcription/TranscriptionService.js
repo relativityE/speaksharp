@@ -3,12 +3,13 @@ import NativeBrowser from './modes/NativeBrowser';
 import { createMicStream } from './utils/audioUtils';
 
 export default class TranscriptionService {
-  constructor({ onTranscriptUpdate, onModelLoadProgress, profile } = {}) {
-    console.log(`[TranscriptionService] Constructor called`);
+  constructor({ onTranscriptUpdate, onModelLoadProgress, profile, forceCloud = false } = {}) {
+    console.log(`[TranscriptionService] Constructor called with forceCloud: ${forceCloud}`);
     this.mode = null; // Will be 'cloud' or 'native'
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onModelLoadProgress = onModelLoadProgress;
     this.profile = profile;
+    this.forceCloud = forceCloud;
     this.instance = null;
     this.mic = null;
   }
@@ -44,9 +45,17 @@ export default class TranscriptionService {
       this.mode = 'cloud';
       console.log('[TranscriptionService] Cloud transcription started successfully.');
     } catch (error) {
-      console.warn('[TranscriptionService] Cloud mode failed, falling back to Native Browser mode.', error);
+      console.warn(`[TranscriptionService] Cloud mode failed. forceCloud is ${this.forceCloud}.`, error);
+
+      // If forceCloud is true, we don't fall back. We just fail.
+      if (this.forceCloud) {
+        console.error('[TranscriptionService] forceCloud is enabled, re-throwing error without fallback.');
+        throw error;
+      }
+
       // If Cloud mode fails, fall back to Native Browser mode
       try {
+        console.log('[TranscriptionService] Attempting to fall back to Native Browser mode.');
         // Clean up previous instance if it exists
         if (this.instance) {
           await this.instance.destroy?.();

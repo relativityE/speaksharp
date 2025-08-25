@@ -117,8 +117,8 @@ export const useSpeechRecognition = ({
     }, [finalChunks]);
 
     // --- Control Functions ---
-    const startListening = async () => {
-        console.log('[useSpeechRecognition] startListening called.');
+    const startListening = async ({ forceCloud = false } = {}) => {
+        console.log(`[useSpeechRecognition] startListening called with forceCloud: ${forceCloud}`);
         if (isListening) {
             console.warn('[useSpeechRecognition] Already listening.');
             return;
@@ -128,26 +128,29 @@ export const useSpeechRecognition = ({
             setError(null);
             setIsSupported(true);
 
-            // Initialize the service if it doesn't exist
-            if (!transcriptionServiceRef.current) {
-                console.log('[useSpeechRecognition] Service not initialized. Creating instance...');
+            // Initialize the service if it doesn't exist or if the forceCloud option has changed
+            if (!transcriptionServiceRef.current || transcriptionServiceRef.current.forceCloud !== forceCloud) {
+                console.log(`[useSpeechRecognition] Service not initialized or forceCloud changed. Creating instance...`);
+                // Clean up old instance if it exists
+                if (transcriptionServiceRef.current) {
+                    await transcriptionServiceRef.current.destroy();
+                }
                 const service = new TranscriptionService({
                     onTranscriptUpdate,
                     onModelLoadProgress,
-                    profile
+                    profile,
+                    forceCloud // Pass the option here
                 });
-                // The new init only prepares the mic, it doesn't start any provider.
                 await service.init();
                 transcriptionServiceRef.current = service;
                 console.log('[useSpeechRecognition] Transcription service initialized.');
             }
 
-            // Start the transcription process (which now includes the fallback logic)
             await transcriptionServiceRef.current.startTranscription();
 
             // Update state after starting
             setIsListening(true);
-            setCurrentMode(transcriptionServiceRef.current.mode); // Reflect the actual mode used
+            setCurrentMode(transcriptionServiceRef.current.mode);
             console.log(`[useSpeechRecognition] Started listening successfully in mode: ${transcriptionServiceRef.current.mode}`);
 
         } catch (err) {
