@@ -43,40 +43,9 @@ A real-time speech analysis tool built on two pillars: speed and privacy. Our "p
     ```
 
 3.  Set up your environment variables.
-    Create a file named `.env.local` in the root of the project. This file is ignored by git and is where you will store your secret keys. Add the following variables:
+    Create a file named `.env.local` in the root of the project and add the necessary keys for Supabase and other services. See the `.env.example` file for a full list.
 
-    ```
-    # Supabase
-    VITE_SUPABASE_URL=your_supabase_project_url_here
-    VITE_SUPABASE_ANON_KEY=your_supabase_anon_key_here
-
-    # (Optional) Developer Mode Universal Bypass
-    # Set this to true to bypass all authentication and usage checks in Supabase functions.
-    # This should ONLY be used for local testing.
-    SUPER_DEV_MODE=true
-
-    # Sentry
-    VITE_SENTRY_DSN=your_sentry_dsn_here
-
-    # PostHog
-    VITE_POSTHOG_KEY=your_posthog_project_api_key_here
-    VITE_POSTHOG_HOST=your_posthog_api_host_here
-
-    # Stripe
-    VITE_STRIPE_PUBLISHABLE_KEY=your_stripe_publishable_key_here
-    VITE_STRIPE_SECRET_KEY=your_stripe_secret_key_here
-    VITE_STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret_here
-
-    # (Optional) Developer Mode Universal Bypass
-    # Set this to true to bypass all authentication and usage checks in Supabase functions.
-    # This should ONLY be used for local testing.
-    SUPER_DEV_MODE=true
-    ```
-
-    **Note on Environment Variables:** In Vite-based projects, it is standard practice to prefix all client-side environment variables with `VITE_`. This is a security measure to prevent accidental exposure of sensitive keys to the browser. Any variable without this prefix will not be accessible in the application's frontend code. For more details, see the official [Vite documentation](https://vitejs.dev/guide/env-and-mode.html).
-
-    **Developer Mode for Cloud Transcription:**
-    To simplify testing, you can enable a universal developer mode. Set `SUPER_DEV_MODE=true` in your `.env.local` file and also set it as a secret in your Supabase project. When this variable is detected, all backend functions will bypass authentication and usage limit checks, allowing you to test premium features freely.
+    For a detailed explanation of the developer workflow and how to use `SUPER_DEV_MODE` for testing, please see the **"Developer Workflow & Local Testing"** section in the `System Architecture.md` document.
 
 4.  Start the development server:
     ```bash

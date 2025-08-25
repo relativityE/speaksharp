@@ -1,5 +1,5 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.44.4';
+import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.44.4';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -9,7 +9,10 @@ const corsHeaders = {
 
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent';
 
-serve(async (req) => {
+type SupabaseClientFactory = (authHeader: string | null) => SupabaseClient;
+
+// Define the handler with dependency injection for testability
+export async function handler(req: Request, createSupabase: SupabaseClientFactory) {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
@@ -19,11 +22,7 @@ serve(async (req) => {
     if (Deno.env.get("SUPER_DEV_MODE") !== 'true') {
       // Production mode: Standard user authentication and "pro" plan check.
       const authHeader = req.headers.get('Authorization');
-      const supabaseClient = createClient(
-        Deno.env.get('SUPABASE_URL') ?? '',
-        Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-        { global: { headers: { Authorization: authHeader } } }
-      );
+      const supabaseClient = createSupabase(authHeader);
 
       const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
 
@@ -66,16 +65,9 @@ serve(async (req) => {
       });
     }
 
-    // TODO: Add your Gemini API key to the Supabase project secrets.
-    // 1. Go to your Supabase project dashboard.
-    // 2. Navigate to Settings > Secrets.
-    // 3. Click New Secret.
-    // 4. Set the Name to GEMINI_API_KEY.
-    // 5. Paste your API key into the Value field.
     const apiKey = Deno.env.get('GEMINI_API_KEY');
     if (!apiKey) {
       console.error('GEMINI_API_KEY is not set.');
-      // Return a structured error that the client can display.
       return new Response(JSON.stringify({ error: 'The server is not configured for AI suggestions. Please contact support.' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 500,
@@ -117,11 +109,7 @@ serve(async (req) => {
 
     const responseData = await geminiResponse.json();
     const rawText = responseData.candidates[0].content.parts[0].text;
-
-    // Clean the raw text to ensure it's valid JSON
     const jsonText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-
-    // Parse the JSON string from the model's response
     const suggestions = JSON.parse(jsonText);
 
     return new Response(JSON.stringify({ suggestions }), {
@@ -131,9 +119,22 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Error getting AI suggestions:', error);
-    return new Response(JSON.stringify({ error: 'Failed to get AI suggestions. ' + error.message }), {
+    const errorMessage = (error instanceof Error) ? error.message : 'An unexpected error occurred';
+    return new Response(JSON.stringify({ error: `Failed to get AI suggestions. ${errorMessage}` }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 500,
     });
   }
+}
+
+// Start the server with the real dependencies
+serve((req: Request) => {
+  const supabaseClientFactory: SupabaseClientFactory = (authHeader) =>
+    createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      { global: { headers: { Authorization: authHeader! } } }
+    );
+
+  return handler(req, supabaseClientFactory);
 });

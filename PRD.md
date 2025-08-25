@@ -111,7 +111,7 @@ Our technology choices prioritize development speed, scalability, and user exper
 - **Frontend:** React (Vite)
 - **Styling:** Tailwind CSS with shadcn/ui components
 - **Backend & Database:** Supabase (PostgreSQL, Auth, Edge Functions)
-- **Speech Recognition:** A custom `TranscriptionService` that defaults to on-device transcription via **Transformers.js** (for the Free tier) and offers a premium, high-accuracy cloud mode via **AssemblyAI** (for the Pro tier).
+- **Speech Recognition:** A custom `TranscriptionService` that uses a "Cloud-First, Native-Fallback" approach (AssemblyAI -> Native Browser).
 - **Payments:** Stripe
 - **Monitoring & Analytics:** Sentry & PostHog
 
@@ -119,48 +119,83 @@ Our technology choices prioritize development speed, scalability, and user exper
 
 ---
 
-## Development Roadmap
+## Quality & Testing Strategy
 
-This roadmap reflects our strategic pivot to launch the simplest possible, high-quality MVP. It integrates our previous work with a clear, bite-sized execution plan.
+This section is the single source of truth for all quality assurance efforts. It tracks high-level quality metrics and the detailed roadmap for addressing testing debt. These metrics should be automated and reviewed regularly to observe trends.
+
+### 1. Software Quality Metrics
+
+#### Test Coverage
+*   **Definition:** The percentage of application code (statements, branches, functions, lines) that is executed by the automated test suite.
+*   **Business Goal:** High test coverage is directly linked to **User Retention** and **Session Completion Rate**. A well-tested application has fewer bugs, leading to a more stable and trustworthy user experience. It also improves **Feature Velocity**, as developers can make changes with confidence, knowing that the test suite will catch regressions.
+*   **Industry Standard:** A common target is 70-80%.
+
+**Current Coverage (as of August 24, 2025):** 16.59%
+
+**Contextual Breakdown (Risk Analysis):**
+The overall coverage is critically low. The risk is concentrated in the most important areas of the application:
+*   **Core Hooks (Highest Risk):** `useSpeechRecognition.js` (11%) and `useSessionManager.js` (5%) are virtually untested.
+*   **Core UI (High Risk):** `SessionSidebar.jsx` (10%) and `AnalyticsPage.jsx` (12%) lack validation for their critical user flows.
+
+#### Code Bloat
+*   **Definition:** A qualitative estimate of the proportion of the codebase that is unused, deprecated, or provides low value relative to the product requirements.
+*   **Business Goal:** Minimizing code bloat directly impacts **Feature Velocity**. A smaller, cleaner codebase is easier for developers to understand, maintain, and extend, reducing the time it takes to deliver new features.
+*   **Industry Standard:** While subjective, this is often tracked via proxy metrics like code duplication and cyclomatic complexity.
+
+**Current Estimate (as of August 24, 2025):** ~20% of frontend components
+
+**Contextual Breakdown (Justification):**
+*   **Unused UI Components:** The primary source of bloat is the `src/components/ui` directory, which contains a large number of components installed via CLI but never used in the application (e.g., `menubar.jsx`, `pagination.jsx`, `table.jsx`).
+*   **Stale Documentation:** The `PRD.md` and `System Architecture.md` contain references to `LocalWhisper.js`, a feature that has already been removed.
+
+### 2. Automation Strategy
+
+To make these metrics actionable, they must be tracked over time. The following should be implemented in the project's CI/CD pipeline:
+1.  **Automated Coverage Reports:** The `pnpm test:coverage` command should be run on every commit to master to track the trend of our test coverage.
+2.  **Automated Bloat Analysis:** Tools for detecting unused code/dependencies (e.g., `depcheck`) and code duplication should be added to the pipeline to provide real-time feedback.
+
+### 3. Testing Roadmap
+
+This roadmap outlines the tasks required to bring the application's test coverage to an acceptable level.
 Status Key: ✅ = Completed, ⚪ = To Do
+
+*   **Group 1: Foundational Tests**
+    *   ✅ **Task 1.1:** Add Deno tests to validate the Supabase function bypasses.
+    *   ✅ **Task 1.2:** Add Vitest integration test for the `TranscriptionService` fallback logic.
+*   **Group 2: Address Testing Debt (High Priority)**
+    *   ⚪ **Task 2.1:** Fix memory leak and enable the `useSpeechRecognition` hook test.
+    *   ⚪ **Task 2.2:** Add integration tests for the `useSessionManager` hook to cover saving and fetching sessions.
+    *   ⚪ **Task 2.3:** Add component tests for `SessionSidebar` to verify the start/stop and save/navigate logic.
+    *   ⚪ **Task 2.4:** Add component tests for `AnalyticsPage` to cover all three data-loading scenarios.
+*   **Group 3: End-to-End Validation**
+    *   ⚪ **Task 3.1:** Create a Playwright E2E test for the full free-tier user journey.
+    *   ⚪ **Task 3.2:** Run all test suites (`pnpm test:all`) and ensure 100% pass rate.
 
 ---
 
-### **Phase 1: Launch the "Cloud-Only" MVP**
+## Development Roadmap
 
-**Goal:** Deliver a best-in-class, reliable, and simple speech-coaching experience.
+This roadmap has been updated to focus on feature work and critical bug fixes. All testing-related tasks are now tracked in the "Quality & Testing Strategy" section.
+Status Key: ✅ = Completed, ⚪ = To Do
 
-**Completed Foundational Work:**
-*   ✅ Core backend services (Supabase Auth & DB) are implemented.
-*   ✅ Stripe payment flow for Pro tier is implemented.
-*   ✅ Core UI for the session page and analytics dashboard is built.
-*   ✅ Sentry and PostHog are integrated.
-*   ✅ A stable test suite using Vitest is established.
-*   ✅ The initial `TranscriptionService` and its three modes (though requiring refactoring) are implemented.
+### **Phase 1: Stabilize and Harden the MVP**
 
-**Execution Plan (Bite-Sized):**
+**Goal:** Fix critical bugs, address code health, and ensure the existing features are reliable and robust before adding new functionality.
 
-*   **Group 1: Backend & Developer Workflow**
-    *   ⚪ **Task 1.1:** Modify `assemblyai-token` function to use `SUPER_DEV_MODE` bypass.
-    *   ⚪ **Task 1.2:** Modify `get-ai-suggestions` function to use `SUPER_DEV_MODE` bypass.
-    *   ⚪ **Task 1.3 (Testing):** Write Deno tests to validate the `SUPER_DEV_MODE` bypass in both functions.
+*   **Group 1: Critical Fixes**
+    *   ✅ **Task 1.1:** Fix data flow race condition where navigation occurred before session data was saved.
+    *   ✅ **Task 1.2:** Refactor `AnalyticsPage` to handle data from multiple sources (URL params and navigation state).
+    *   ⚪ **Task 1.3:** Fix developer workflow by allowing `CloudAssemblyAI.js` to work in `SUPER_DEV_MODE` without a logged-in user.
 
-*   **Group 2: Core Frontend Logic**
-    *   ⚪ **Task 2.1:** Refactor `TranscriptionService.js` to implement the `try/catch` "Cloud-First, Native-Fallback" logic.
-    *   ⚪ **Task 2.2:** Refactor `useSpeechRecognition.js` hook to work with the new, simplified service.
-    *   ⚪ **Task 2.3 (Testing):** Write Vitest integration test for the `TranscriptionService` fallback logic.
+*   **Group 2: UI/UX Refinements**
+    *   ✅ **Task 2.1:** Overhaul `SessionSidebar.jsx` to consolidate UI, improve the status title, and fix the "Initializing..." state.
+    *   ✅ **Task 2.2:** Add a developer-only "Force Cloud" checkbox to the UI.
+    *   ⚪ **Task 2.3:** Add the global `<Toaster />` component to `App.jsx`.
+    *   ⚪ **Task 2.4:** Display speech-to-text accuracy percentage on the Analytics Page to build user trust.
 
-*   **Group 3: UI and User Feedback**
-    *   ⚪ **Task 3.1:** Remove the `LocalWhisper.js` file and clean up any remaining dead code.
-    *   ⚪ **Task 3.2:** Add the global `<Toaster />` component to `App.jsx`.
-    *   ⚪ **Task 3.3:** Remove the mode `<Switch/>` from `SessionSidebar.jsx` and the related state from `SessionPage.jsx`.
-    *   ⚪ **Task 3.4:** Create and add the `QualityIndicator` component to the sidebar.
-    *   ⚪ **Task 3.5:** Implement the "usage limit exceeded" toast in `CloudAssemblyAI.js`.
-
-*   **Group 4: Documentation & Final Testing**
-    *   ⚪ **Task 4.1:** Update `README.md` with the simplified `SUPER_DEV_MODE` setup instructions.
-    *   ⚪ **Task 4.2 (Testing):** Create a new Playwright E2E test for the full free-tier journey.
-    *   ⚪ **Task 4.3 (Testing):** Run the entire test suite (`pnpm test:all`) to ensure full coverage and no regressions.
+*   **Group 3: Code Health**
+    *   ⚪ **Task 3.1:** Remove dead code and stale documentation references related to `LocalWhisper.js`.
+    *   ⚪ **Task 3.2:** Update `README.md` with the final `SUPER_DEV_MODE` setup instructions.
 
 ---
 
@@ -258,3 +293,5 @@ Private practice. Public impact.
 This section tracks known technical issues and areas for improvement that have been identified but not yet prioritized for immediate action.
 
 -   **[OPEN]** **`createRoot` Warning:** The application throws a warning: `You are calling ReactDOMClient.createRoot() on a container that has already been passed to createRoot() before.` This suggests that the main script might be loading more than once. While a guard exists in `main.jsx` to prevent this, the warning persists, pointing to a potential issue in the Vite HMR environment.
+-   **[NEW]** **Navigation via `window.location.href`:** The "Upgrade" toast notification in `CloudAssemblyAI.js` uses a direct `window.location.href` assignment for navigation. This is a "hack" that works but bypasses the standard React Router flow. It should be refactored to use the `navigate` function for better consistency and testability.
+-   **[NEW]** **`SUPER_DEV_MODE` Implementation:** The current `SUPER_DEV_MODE` is a pragmatic short-term solution to unblock local developer workflow. It is not a scalable, long-term architecture. In the future, it should be replaced with a more robust developer authentication system or a full-fledged mocking framework to handle different user roles and permissions during development.

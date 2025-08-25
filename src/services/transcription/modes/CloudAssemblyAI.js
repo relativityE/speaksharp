@@ -3,26 +3,34 @@ import { supabase } from '../../../lib/supabaseClient';
 import { toast } from 'sonner';
 
 export default class CloudAssemblyAI {
-  constructor({ performanceWatcher, onTranscriptUpdate } = {}) {
+  constructor({ performanceWatcher, onTranscriptUpdate, onReady } = {}) {
     this.performanceWatcher = performanceWatcher;
     this.onTranscriptUpdate = onTranscriptUpdate;
+    this.onReady = onReady;
     this.transcriber = null;
     this._frameCount = 0;
     this._t0 = 0;
   }
 
   async _getTemporaryToken() {
-    // The new developer flow is handled by the edge function based on SUPER_DEV_MODE.
-    // The client just needs to send the regular auth header.
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      throw new Error('User not authenticated. Please log in to use Cloud transcription.');
+    let authHeader = null;
+
+    // In SUPER_DEV_MODE, we can skip the session check and send a null auth header.
+    // The backend Supabase function will see the SUPER_DEV_MODE env var and grant a token.
+    if (import.meta.env.VITE_SUPER_DEV_MODE === 'true') {
+      console.log('[CloudAssemblyAI] SUPER_DEV_MODE is active. Bypassing client-side session check.');
+    } else {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('User not authenticated. Please log in to use Cloud transcription.');
+      }
+      authHeader = `Bearer ${session.access_token}`;
     }
-    const authHeader = `Bearer ${session.access_token}`;
 
     try {
       const { data, error } = await supabase.functions.invoke('assemblyai-token', {
         headers: {
+          // The backend function is designed to handle a null Authorization header.
           'Authorization': authHeader,
         },
       });
@@ -86,8 +94,8 @@ export default class CloudAssemblyAI {
         console.log(`AssemblyAI session opened with ID: ${sessionId}`);
         this._frameCount = 0;
         this._t0 = performance.now();
-        if (this.onTranscriptUpdate) {
-          this.onTranscriptUpdate({ transcript: { partial: '' } });
+        if (this.onReady) {
+          this.onReady();
         }
       });
 
