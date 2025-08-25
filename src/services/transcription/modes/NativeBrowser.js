@@ -1,8 +1,9 @@
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
 export default class NativeBrowser {
-  constructor({ onTranscriptUpdate } = {}) {
+  constructor({ onTranscriptUpdate, onReady } = {}) {
     this.onTranscriptUpdate = onTranscriptUpdate;
+    this.onReady = onReady;
     this.recognition = null;
     this.isSupported = !!SpeechRecognition;
     this.transcript = '';
@@ -67,6 +68,9 @@ export default class NativeBrowser {
   }
 
   async startTranscription() {
+    if (this.onReady) {
+      this.onReady();
+    }
     if (!this.recognition) {
       throw new Error('NativeBrowser not initialized');
     }

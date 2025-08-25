@@ -7,6 +7,16 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useStripe } from '@stripe/react-stripe-js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -48,13 +58,15 @@ const ModelLoadingIndicator = ({ progress }) => {
     );
 };
 
-export const SessionSidebar = ({ isListening, error, startListening, stopListening, reset, actualMode, saveSession, elapsedTime, modelLoadingProgress }) => {
+export const SessionSidebar = ({ isListening, isReady, error, startListening, stopListening, reset, actualMode, saveSession, elapsedTime, modelLoadingProgress }) => {
     const navigate = useNavigate();
     const { user, profile } = useAuth();
     const stripe = useStripe();
-    const [isEndingSession, setIsEndingSession] = useState(false); // Used for the "End Session" action
+    const [isEndingSession, setIsEndingSession] = useState(false);
     const [isUpgrading, setIsUpgrading] = useState(false);
     const [forceCloud, setForceCloud] = useState(false);
+    const [showEndSessionDialog, setShowEndSessionDialog] = useState(false);
+    const [completedSessionData, setCompletedSessionData] = useState(null);
 
     const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
     const isModelLoading = modelLoadingProgress && modelLoadingProgress.status !== 'ready' && modelLoadingProgress.status !== 'error';
@@ -88,26 +100,41 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
             const sessionData = await stopListening();
             if (!sessionData || !sessionData.transcript) {
                 toast.error("Session was too short or no speech was detected.");
+                setIsEndingSession(false);
                 return;
             }
-            if (user) {
-                const savedSession = await saveSession(sessionData);
-                if (savedSession && savedSession.id) {
-                    toast.success("Session saved successfully!");
-                    navigate(`/analytics/${savedSession.id}`);
-                } else {
-                    toast.error("Failed to save the session. Please try again.");
-                }
-            } else {
-                toast.info("Session complete. View your results below.");
-                navigate('/analytics', { state: { sessionData } });
-            }
+            // Instead of navigating, store data and show the dialog
+            setCompletedSessionData(sessionData);
+            setShowEndSessionDialog(true);
         } catch (e) {
             console.error("Error ending session:", e);
-            toast.error("An unexpected error occurred while saving your session.");
+            toast.error("An unexpected error occurred while ending the session.");
         } finally {
-            setIsEndingSession(false);
+            // isEndingSession will be set to false when the dialog is interacted with
         }
+    };
+
+    const handleNavigateToAnalytics = async () => {
+        if (!completedSessionData) return;
+
+        if (user) {
+            const savedSession = await saveSession(completedSessionData);
+            if (savedSession && savedSession.id) {
+                toast.success("Session saved successfully!");
+                navigate(`/analytics/${savedSession.id}`);
+            } else {
+                toast.error("Failed to save the session. Please try again.");
+            }
+        } else {
+            toast.info("Session complete. View your results below.");
+            navigate('/analytics', { state: { sessionData: completedSessionData } });
+        }
+        setIsEndingSession(false);
+    };
+
+    const handleStayOnPage = () => {
+        setShowEndSessionDialog(false);
+        setIsEndingSession(false);
     };
 
     const handleStartStop = async () => {
@@ -123,7 +150,7 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
     // Determine the vivid title for the card
     const getCardTitle = () => {
         if (isListening) {
-            return actualMode === 'cloud' ? 'Mode: Premium Cloud' : 'Mode: Basic Fallback';
+            return actualMode === 'cloud' ? 'Cloud AI' : 'Native Browser';
         }
         if (isModelLoading) {
             return 'Initializing Model...';
@@ -147,8 +174,8 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                     <ErrorDisplay error={error} />
                     <div className="flex flex-col items-center justify-center gap-6 py-2 flex-grow">
                         <DigitalTimer elapsedTime={elapsedTime} />
-                        <div className={`text-xl font-semibold ${isListening ? 'text-red-500 animate-pulse' : 'text-muted-foreground'}`}>
-                            {isListening ? '● RECORDING' : (isModelLoading ? 'Please wait...' : 'Idle')}
+                        <div className={`text-xl font-semibold ${isListening && isReady ? 'text-green-500' : 'text-muted-foreground'}`}>
+                            {isListening ? (isReady ? '● Listening, you may begin speaking!' : '○ Connecting...') : (isModelLoading ? 'Please wait...' : 'Idle')}
                         </div>
                         <Button
                             onClick={handleStartStop}
@@ -157,14 +184,22 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                             className="w-full h-16 text-xl font-bold rounded-lg"
                             disabled={isButtonDisabled}
                         >
-                            {isListening ? <><Square className="w-4 h-4 mr-2" /> End Session</> : <><Mic className="w-4 h-4 mr-2" /> Start Recording</>}
+                            {isListening ? <><Square className="w-4 h-4 mr-2" /> End Session</> : (isModelLoading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Initializing...</> : <><Mic className="w-4 h-4 mr-2" /> Start Recording</>)}
                         </Button>
                     </div>
 
                     {/* Developer Tools */}
                     {import.meta.env.DEV && (
                         <div className="mt-auto pt-4 border-t">
-                             <Label htmlFor="force-cloud" className="flex items-center gap-2 text-xs text-muted-foreground">
+                             <Label
+                                htmlFor="force-cloud"
+                                className="flex items-center gap-2 text-xs text-muted-foreground"
+                                onClick={() => {
+                                    if (isListening) {
+                                        toast.info("This option cannot be changed during an active session.");
+                                    }
+                                }}
+                             >
                                 <Checkbox id="force-cloud" checked={forceCloud} onCheckedChange={setForceCloud} disabled={isListening}/>
                                 Force Cloud (Disable Fallback)
                             </Label>
@@ -190,6 +225,21 @@ export const SessionSidebar = ({ isListening, error, startListening, stopListeni
                     )}
                 </CardContent>
             </Card>
+
+            <AlertDialog open={showEndSessionDialog} onOpenChange={setShowEndSessionDialog}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Session Ended</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Your session has been processed. What would you like to do next?
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={handleStayOnPage}>Stay on Page</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleNavigateToAnalytics}>Go to Analytics</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 };

@@ -3,11 +3,12 @@ import NativeBrowser from './modes/NativeBrowser';
 import { createMicStream } from './utils/audioUtils';
 
 export default class TranscriptionService {
-  constructor({ onTranscriptUpdate, onModelLoadProgress, profile, forceCloud = false } = {}) {
+  constructor({ onTranscriptUpdate, onModelLoadProgress, onReady, profile, forceCloud = false } = {}) {
     console.log(`[TranscriptionService] Constructor called with forceCloud: ${forceCloud}`);
     this.mode = null; // Will be 'cloud' or 'native'
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onModelLoadProgress = onModelLoadProgress;
+    this.onReady = onReady;
     this.profile = profile;
     this.forceCloud = forceCloud;
     this.instance = null;
@@ -35,6 +36,7 @@ export default class TranscriptionService {
     const providerConfig = {
       onTranscriptUpdate: this.onTranscriptUpdate,
       onModelLoadProgress: this.onModelLoadProgress,
+      onReady: this.onReady,
     };
 
     try {

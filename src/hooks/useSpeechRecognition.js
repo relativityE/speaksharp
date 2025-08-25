@@ -38,6 +38,7 @@ export const useSpeechRecognition = ({
 
     // --- State Management ---
     const [isListening, setIsListening] = useState(false);
+    const [isReady, setIsReady] = useState(false); // New state to signal when the service is truly ready
     const [transcript, setTranscript] = useState('');
     const [finalChunks, setFinalChunks] = useState([]);
     const [wordConfidences, setWordConfidences] = useState([]);
@@ -84,6 +85,11 @@ export const useSpeechRecognition = ({
         setModelLoadingProgress(progress);
     }, []);
 
+    const handleReady = useCallback(() => {
+        console.log('[useSpeechRecognition] Service is ready.');
+        setIsReady(true);
+    }, []);
+
     const onTranscriptUpdate = useCallback((data) => {
         // console.log('[useSpeechRecognition] onTranscriptUpdate:', data);
         // Don't show model loading messages in the transcript panel anymore
@@ -124,6 +130,9 @@ export const useSpeechRecognition = ({
             return;
         }
 
+        // Reset readiness state on every start attempt
+        setIsReady(false);
+
         try {
             setError(null);
             setIsSupported(true);
@@ -131,27 +140,28 @@ export const useSpeechRecognition = ({
             // Initialize the service if it doesn't exist or if the forceCloud option has changed
             if (!transcriptionServiceRef.current || transcriptionServiceRef.current.forceCloud !== forceCloud) {
                 console.log(`[useSpeechRecognition] Service not initialized or forceCloud changed. Creating instance...`);
-                // Clean up old instance if it exists
                 if (transcriptionServiceRef.current) {
                     await transcriptionServiceRef.current.destroy();
                 }
                 const service = new TranscriptionService({
                     onTranscriptUpdate,
                     onModelLoadProgress,
+                    onReady: handleReady, // Pass the new callback
                     profile,
-                    forceCloud // Pass the option here
+                    forceCloud
                 });
                 await service.init();
                 transcriptionServiceRef.current = service;
                 console.log('[useSpeechRecognition] Transcription service initialized.');
             }
 
+            // This just sets the flag, the onReady callback will fire when connected
+            setIsListening(true);
             await transcriptionServiceRef.current.startTranscription();
 
-            // Update state after starting
-            setIsListening(true);
+            // The mode is now set after transcription starts, which is more accurate
             setCurrentMode(transcriptionServiceRef.current.mode);
-            console.log(`[useSpeechRecognition] Started listening successfully in mode: ${transcriptionServiceRef.current.mode}`);
+            console.log(`[useSpeechRecognition] Started listening process in mode: ${transcriptionServiceRef.current.mode}`);
 
         } catch (err) {
             console.error('[useSpeechRecognition] Error starting speech recognition:', err);
@@ -173,6 +183,7 @@ export const useSpeechRecognition = ({
 
         await transcriptionServiceRef.current.stopTranscription();
         setIsListening(false);
+        setIsReady(false); // Reset readiness on stop
         console.log('[useSpeechRecognition] Stopped listening.');
 
         // Finalize transcript
@@ -200,10 +211,12 @@ export const useSpeechRecognition = ({
         setFinalFillerData(getInitialFillerData(customWords));
         setWordConfidences([]);
         setError(null);
+        setIsReady(false); // Also reset readiness
     }, [customWords]);
 
     return {
         isListening,
+        isReady, // Expose the new state
         transcript,
         chunks: finalChunks,
         interimTranscript,
