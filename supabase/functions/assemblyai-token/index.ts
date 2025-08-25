@@ -1,5 +1,5 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.44.4';
+import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.44.4';
 import { AssemblyAI } from 'https://esm.sh/assemblyai@4.15.0';
 
 const corsHeaders = {
@@ -8,8 +8,15 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type'
 };
 
+type SupabaseClientFactory = (authHeader: string | null) => SupabaseClient;
+type AssemblyAIClientFactory = () => AssemblyAI;
+
 // Define the handler with dependency injection for testability
-export async function handler(req, createSupabase, createAssemblyAI) {
+export async function handler(
+  req: Request,
+  createSupabase: SupabaseClientFactory,
+  createAssemblyAI: AssemblyAIClientFactory
+) {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
@@ -40,7 +47,6 @@ export async function handler(req, createSupabase, createAssemblyAI) {
 
     const { data: profile, error: profileError } = await supabaseClient
       .from('user_profiles')
-
       .select('subscription_status, usage_seconds')
       .eq('id', user.id)
       .single();
@@ -76,7 +82,8 @@ export async function handler(req, createSupabase, createAssemblyAI) {
     });
   } catch (error) {
     console.error('Unexpected error:', error);
-    return new Response(JSON.stringify({ error: error.message || 'An unexpected error occurred' }), {
+    const errorMessage = (error instanceof Error) ? error.message : 'An unexpected error occurred';
+    return new Response(JSON.stringify({ error: errorMessage }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 500,
     });
@@ -84,18 +91,21 @@ export async function handler(req, createSupabase, createAssemblyAI) {
 }
 
 // Start the server with the real dependencies
-serve((req) => {
-  const supabaseClientFactory = (authHeader) =>
+serve((req: Request) => {
+  const supabaseClientFactory: SupabaseClientFactory = (authHeader) =>
     createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: authHeader } } }
+      { global: { headers: { Authorization: authHeader! } } }
     );
 
-  const assemblyAIFactory = () =>
-    new AssemblyAI({
-      apiKey: Deno.env.get('ASSEMBLYAI_API_KEY'),
-    });
+  const assemblyAIFactory: AssemblyAIClientFactory = () => {
+    const apiKey = Deno.env.get('ASSEMBLYAI_API_KEY');
+    if (!apiKey) {
+      throw new Error('ASSEMBLYAI_API_KEY is not set in environment variables.');
+    }
+    return new AssemblyAI({ apiKey });
+  }
 
   return handler(req, supabaseClientFactory, assemblyAIFactory);
 });

@@ -42,10 +42,6 @@ This document provides guidance for AI software engineering agents working on th
 -   **Backend-Enforced Logic:** Any business logic critical to security or the business model (e.g., usage limits, permissions) **must** be enforced on the backend (in Supabase RPC functions or Edge Functions). Do not rely on client-side checks for security.
 -   **Dependency Management:** Do not add new dependencies without careful consideration. Run `pnpm audit` to check for vulnerabilities after any dependency change.
 -   **Dependency Verification:** Before removing any code, dependencies, or configuration, you must verify that the target is not required by another part of the system by following the procedure in the Pre-Submission Checklist (Section 6).
--   **Testing `useSpeechRecognition`:** The `useSpeechRecognition` hook has a complex dependency on the `TranscriptionService`.
-    -   **Mocking Strategy:** The Vitest tests for this hook (`src/__tests__/useSpeechRecognition.test.jsx`) use `vi.mock()` and a dynamic `import()` to mock this service at the module level. This is the preferred way to test the hook's logic.
-    -   **WARNING - MEMORY LEAK:** This test is known to have a severe memory leak and will likely crash the test runner with a `JS heap out of memory` error. It is kept disabled in the repository.
-    -   **If you must run this test:** Execute it as a background process to avoid blocking your session (e.g., `pnpm test src/__tests__/useSpeechRecognition.test.jsx &`). See Section 7 for more details on handling long-running tasks.
 
 ## 4. Code Style & Linting
 
@@ -72,9 +68,15 @@ This workflow ensures a clear handoff from the agent to the user for the final r
 **Your execution plan MUST include a final step to complete this entire checklist.** Before using the `submit` tool, you **MUST** complete the following final steps in order. Failure to do so is a violation of your core instructions.
 
 1.  **Run All Tests:** Execute all relevant test suites (e.g., `pnpm test`). Debug any failures until the test suite is clean.
-2.  **Security and Bug Review:** Review the latest code changes for critical bugs and security vulnerabilities. List any findings in the pull request description.
-3.  **Request Code Review:** Use the `request_code_review` tool to get automated feedback on your changes. Address any critical issues raised in the review.
-4.  **Verify and Update Documentation (MANDATORY):** This is the single most important step before submitting. You must ensure all documentation is synchronized with your changes by following this checklist:
+2.  **Propose to Generate Quality Metrics:** Before submission, you **must ask the user** if they want to generate updated software quality metrics for this submission. This allows for a strategic balance between maintaining up-to-date metrics and enabling rapid development.
+    -   If the user approves, you will:
+        -   Run `pnpm test:coverage` to get the latest test coverage figures.
+        -   Update the 'Software Quality Metrics' section in `PRD.md` to reflect the new test coverage percentage.
+        -   Summarize the key metrics and the change in coverage (e.g., "+1.5%") in your pull request description.
+    -   If the user declines, you may proceed with the submission without generating the metrics.
+3.  **Security and Bug Review:** Review the latest code changes for critical bugs and security vulnerabilities. List any findings in the pull request description.
+4.  **Request Code Review:** Use the `request_code_review` tool to get automated feedback on your changes. Address any critical issues raised in the review.
+5.  **Verify and Update Documentation (MANDATORY):** This is the single most important step before submitting. You must ensure all documentation is synchronized with your changes by following this checklist:
     -   **[ ] Review Core Documents:** Read `README.md`, `PRD.md`, and `System Architecture.md`.
     -   **[ ] Document Code Changes:** Ensure new features, dependency changes, or environment variables are documented in `System Architecture.md` and/or `README.md`.
     -   **[ ] Update PRD Roadmap:** If your work completes a task on the roadmap in `PRD.md`, update its status (e.g., from `○` to `✓`).
