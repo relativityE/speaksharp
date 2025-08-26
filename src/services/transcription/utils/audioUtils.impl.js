@@ -21,7 +21,7 @@ const getWorkletUrl = () => {
   return workletUrlPromise;
 };
 
-export async function createMicStream({ sampleRate = 16000, frameSize = 1024 } = {}) {
+export async function createMicStreamImpl({ sampleRate = 16000, frameSize = 1024 } = {}) {
   // Early environment check
   if (typeof navigator === 'undefined' || !navigator.mediaDevices) {
     throw new Error('Media devices not available in this environment');

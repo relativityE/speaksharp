@@ -24,7 +24,6 @@
 ---
 
 ## Known Issues
-- **[NEW] Authorization Error with AssemblyAI (Developer Path):** Developers are reporting a `401 Unauthorized` error when using the shared secret (`DEV_SECRET_KEY`) to access the `assemblyai-token` Supabase edge function. This prevents testing the cloud-based transcription feature during local development. The issue needs to be investigated.
 - **On-Device Transcription Needs Polish:** The `LocalWhisper` provider in `TranscriptionService` is a functional implementation using Transformers.js. However, it may require further UI/UX polishing for model loading feedback and error handling before it is production-ready.
 - **[UNRESOLVED] Vitest Suite Instability with Complex Mocks**
   - **Status (as of Aug 25, 2025):** The test suite is currently unstable. Two test files are disabled to allow the CI/CD pipeline to pass. This is a high-priority issue preventing full test coverage of critical application logic.
@@ -207,6 +206,7 @@ Status Key: ✅ = Completed, ⚪ = To Do
     *   ✅ **Task 1.2:** Refactor `AnalyticsPage` to handle data from multiple sources (URL params and navigation state).
     *   ✅ **Task 1.3:** Fix developer workflow by implementing a shared secret system (`DEV_SECRET_KEY`) for testing cloud features without a logged-in user.
     *   ✅ **Task 1.4:** Add detailed logging to the `assemblyai-token` function for better auth debugging.
+    *   ✅ **Task 1.5:** Fix AssemblyAI authorization flow for both developer and user paths.
 
 *   **Group 2: UI/UX Refinements**
     *   ✅ **Task 2.1:** Overhaul `SessionSidebar.jsx` to consolidate UI, improve the status title, and fix the "Initializing..." state.
