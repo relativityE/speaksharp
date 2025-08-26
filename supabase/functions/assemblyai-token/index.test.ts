@@ -15,30 +15,7 @@ Deno.test('assemblyai-token edge function', async (t) => {
     },
   }) as any;
 
-  await t.step('should return a token if DEV_SECRET_KEY is provided', async () => {
-    const testSecret = 'test-secret-key';
-    Deno.env.set('DEV_SECRET_KEY', testSecret);
-
-    try {
-      const req = new Request('http://localhost/assemblyai-token', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${testSecret}` },
-      });
-      const res = await handler(req, failingMockCreateSupabase, mockCreateAssemblyAI);
-      const json = await res.json();
-
-      assertEquals(res.status, 200);
-      assertExists(json.token);
-      assertEquals(json.token, 'mock_assemblyai_token');
-    } finally {
-      Deno.env.delete('DEV_SECRET_KEY');
-    }
-  });
-
-  await t.step('should return 401 if no auth header is provided and dev mode is off', async () => {
-    // Ensure dev mode is off by not setting the secret
-    assert(Deno.env.get('DEV_SECRET_KEY') === undefined, 'DEV_SECRET_KEY should not be set');
-
+  await t.step('should return 401 if no auth header is provided', async () => {
     const req = new Request('http://localhost/assemblyai-token', { method: 'POST' });
     const res = await handler(req, failingMockCreateSupabase, mockCreateAssemblyAI);
     const json = await res.json();
