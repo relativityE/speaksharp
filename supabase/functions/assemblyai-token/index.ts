@@ -41,7 +41,14 @@ export async function handler(
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
 
     if (userError || !user) {
-      return new Response(JSON.stringify({ error: 'Authentication failed - v2' }), {
+      console.error(
+        '[assemblyai-token] Authentication failed.',
+        {
+          error: userError?.message,
+          authHeaderProvided: !!authHeader,
+        }
+      );
+      return new Response(JSON.stringify({ error: 'Authentication failed' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 401,
       });

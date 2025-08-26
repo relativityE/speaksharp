@@ -11,6 +11,20 @@ vi.mock('../contexts/AuthContext', () => ({
   }),
 }));
 
+// [JULES] Per user's instruction, mock the entire audioUtils module.
+// The new implementation of audioUtils makes this simple mock possible.
+vi.mock('../services/transcription/utils/audioUtils', () => ({
+  createMicStream: vi.fn().mockImplementation(() =>
+    Promise.resolve({
+      sampleRate: 16000,
+      onFrame: vi.fn(),
+      offFrame: vi.fn(),
+      stop: vi.fn(),
+    })
+  ),
+}));
+
+
 describe('App Component', () => {
   it('should render the main content area', () => {
     render(

@@ -47,6 +47,34 @@ The architecture is designed around a modern, client-heavy Jamstack approach. Th
 +-------------------------------------------------------------------+
 ```
 
+### Cloud AI Transcription Workflow (Detailed View)
+This diagram illustrates the step-by-step process for initiating a cloud-based transcription session.
+
+```text
++---------------------------------+      +-------------------------------------+      +-----------------------------+
+|         User's Browser          |      |        Supabase Edge Function       |      |      AssemblyAI Service     |
+|        (React Client)           |      |        (assemblyai-token)           |      |                             |
++---------------------------------+      +-------------------------------------+      +-----------------------------+
+               |                                       |                                       |
+1. `createMicStream()` is called.                      |                                       |
+   - Captures audio.                                   |                                       |
+   - Downsamples via `AudioWorklet`.                   |                                       |
+               |                                       |                                       |
+2. `invoke('assemblyai-token')`  ──────────────────>   3. Receives request.                    |
+   - Sends `Authorization` header                      |   - Checks for Dev Secret OR          |
+     (Dev Secret or User JWT).                         |   - Validates User JWT.               |
+               |                                       |                                       |
+               |                                     4. `createTemporaryToken()` ───────────> 5. Validates API Key.
+               |                                       |   (Uses master AssemblyAI API Key)    |   Generates temporary token.
+               |                                       |                                       |
+             6. Receives temporary token <────────────────────────────────────────────────────
+               |                                       |                                       |
+7. Connects to AssemblyAI WebSocket.                   |                                       |
+   - Uses temporary token for auth.                    |                                       |
+   - Begins streaming audio data.  ─────────────────────────────────────────────────────────> 8. Receives audio stream.
+               |                                       |                                       |   Performs transcription.
+```
+
 ## 3. Developer Workflow & Local Testing
 
 ### The Shared Secret Bypass
@@ -61,6 +89,24 @@ Instead of a simple on/off flag, we use a shared secret key that must be present
 2.  **The Backend (Supabase Secrets):** The Supabase Edge Function reads its own copy of the secret from a `DEV_SECRET_KEY` environment variable, which is set in the Supabase project dashboard (`Settings -> Secrets`).
 
 When the backend function receives a request, it checks if the `Authorization` header from the client matches its own `DEV_SECRET_KEY`. If they match, the developer is authenticated, and the function bypasses the normal user login checks.
+
+#### Authentication Flow by Role
+The `assemblyai-token` Edge Function has a clear, priority-based authentication and authorization flow. It is critical to understand that the system checks for a developer secret *first*, and only if that is not present does it proceed to standard user authentication.
+
+1.  **Developer Path (Highest Priority):**
+    *   **Requirement:** The request must have an `Authorization: Bearer <DEV_SECRET_KEY>` header.
+    *   **Behavior:** If the secret is valid, the function immediately grants access and generates a temporary AssemblyAI token. It **does not** check for a user, profile, or usage limits. This path is for trusted developers only.
+
+2.  **Standard User Path (Fallback):** If the developer secret is not present or invalid, the function attempts to authenticate a standard user.
+    *   **Pro User:**
+        *   **Requirement:** A valid Supabase JWT (`Authorization: Bearer <user-jwt>`).
+        *   **Authorization:** The function validates the JWT, then checks if the user's `subscription_status` in their profile is `'pro'` or `'premium'`.
+    *   **Free User:**
+        *   **Requirement:** A valid Supabase JWT.
+        *   **Authorization:** The function validates the JWT, then checks if the user's `usage_seconds` is below the free tier limit. If they are over the limit, they are denied access with a `403 Forbidden` error.
+    *   **Anonymous User (Not Logged In):**
+        *   **Requirement:** Cannot provide a valid JWT.
+        *   **Result:** The function cannot authenticate them, and they are denied access with a `401 Unauthorized` error.
 
 **Important Note on Local Database Setup:**
 Since you don't have Docker installed, you are not running a local database. You are running your frontend locally, but it is connecting to the **remote, deployed** database on Supabase's cloud. Therefore, the `supabase db reset` command will not work for you. This is a critical distinction in your development workflow.
@@ -139,11 +185,45 @@ Our project employs a robust testing strategy centered on **Vitest**.
 ### Unit & Integration Testing (Vitest)
 This is the primary testing stack. It provides a fast and reliable way to test components and logic.
 
-*   **`happy-dom`**: A lightweight, simulated browser environment.
+*   **`jsdom`**: A simulated browser environment. Note: The project was migrated from `happy-dom` because it was causing silent, difficult-to-debug crashes in the test runner.
 *   **Dependency Mocking & Memory Leaks**: We use advanced mocking to handle complex dependencies (like `@xenova/transformers`) that can cause memory leaks in the test environment. The key to solving this is to ensure mocks are established *before* any module imports are processed. The recommended pattern for this is `vi.hoisted()`:
     1.  **Hoist Mocks:** Any mocks for heavy dependencies are wrapped in `vi.hoisted()` and placed at the very top of the test file. This ensures they run before any standard `import` statements.
     2.  **Import Hook/Component:** The component under test can then be imported normally.
     3.  **Result:** This strategy prevents the large libraries from being loaded into memory during the test run.
+
+### Handling Browser-Specific Imports in a Node.js Test Environment
+A critical challenge in this stack is testing code that relies on browser-specific features not present in the `jsdom`/Node.js environment. A key example is Vite's `?url` import syntax for loading assets like Audio Worklets.
+
+**The Problem: Static Analysis Failure**
+Vitest's Node.js-based test runner performs **static analysis** on the entire dependency tree *before* executing any tests or applying mocks. When it encounters a browser-specific import syntax like `import WORKLET_URL from './audio-processor.worklet.js?url';`, it fails at this initial parsing/resolution stage. Standard mocking techniques like `vi.mock` or even `vi.hoisted` are ineffective because they only execute *after* this static analysis has already failed.
+
+**The Solution: Architectural Separation (Wrapper/Implementation Pattern)**
+The only reliable solution is to architect the code to physically separate the problematic import from the code path that the test runner analyzes.
+
+1.  **Implementation File (`*.impl.js`):** The code containing the browser-specific import (e.g., `?url`) is placed in a separate implementation file.
+    ```javascript
+    // audioUtils.impl.js
+    import WORKLET_URL from './audio-processor.worklet.js?url';
+    // ... actual implementation ...
+    ```
+
+2.  **Wrapper File (`*.js`):** A "safe" wrapper file is created, which is the module that the rest of the application imports. This wrapper **dynamically imports** the implementation file only when its functions are called at runtime.
+    ```javascript
+    // audioUtils.js
+    export async function createMicStream(options = {}) {
+      const { createMicStreamImpl } = await import('./audioUtils.impl.js');
+      return createMicStreamImpl(options);
+    }
+    ```
+
+3.  **Mocking the Wrapper:** In tests, you mock the safe wrapper file. The test runner's static analysis never sees the `.impl.js` file and therefore never encounters the problematic import.
+    ```javascript
+    // MyComponent.test.jsx
+    vi.mock('../services/transcription/utils/audioUtils', () => ({
+      createMicStream: vi.fn().mockResolvedValue(/*...mocked stream...*/),
+    }));
+    ```
+This pattern ensures browser-specific code can be used without breaking the Node.js-based test environment.
 
 ### End-to-End Testing (Playwright)
 For critical user flows, we use **Playwright** to run tests in a real browser environment.
