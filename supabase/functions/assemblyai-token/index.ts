@@ -11,58 +11,25 @@ const corsHeaders = {
 type SupabaseClientFactory = (authHeader: string | null) => SupabaseClient;
 type AssemblyAIClientFactory = () => AssemblyAI;
 
-// Define the handler with dependency injection for testability
-export async function handler(
-  req: Request,
-  createSupabase: SupabaseClientFactory,
-  createAssemblyAI: AssemblyAIClientFactory
-) {
+export async function handler(req: Request, createSupabase: SupabaseClientFactory, createAssemblyAI: AssemblyAIClientFactory) {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    // Developer mode bypass using a shared secret
     const authHeader = req.headers.get('Authorization');
-    const devSecretKey = Deno.env.get("DEV_SECRET_KEY");
-
-    // --- Developer Mode Path ---
-    if (devSecretKey) {
-      if (authHeader === `Bearer ${devSecretKey}`) {
-        console.log('[assemblyai-token] Dev Mode: Success. Bypassing user auth.');
-        const assemblyai = createAssemblyAI();
-        const token = await assemblyai.realtime.createTemporaryToken({ expires_in: 600 });
-        return new Response(JSON.stringify({ token }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 200,
-        });
-      } else if (authHeader?.startsWith('Bearer ')) {
-        // This case handles when a dev key is set, but the client sends a different (e.g., user) token.
-        // We log it but proceed to user auth.
-        console.log('[assemblyai-token] Dev Mode: Mismatch. Client token does not match DEV_SECRET_KEY. Falling back to user auth.');
-      }
-    }
-
-    // --- Standard User Path ---
     if (!authHeader) {
-      console.error('[assemblyai-token] Auth Error: No Authorization header provided.');
       return new Response(JSON.stringify({ error: 'Authentication failed: Missing Authorization header.' }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401
       });
     }
-
     const supabaseClient = createSupabase(authHeader);
+
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
 
     if (userError || !user) {
-      console.error(
-        '[assemblyai-token] Auth Error: Supabase getUser failed.',
-        { error: userError?.message || 'No user object returned.' }
-      );
-      return new Response(JSON.stringify({ error: 'Authentication failed: Invalid token.' }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 401,
+      return new Response(JSON.stringify({ error: 'Authentication failed' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401
       });
     }
 
@@ -84,33 +51,25 @@ export async function handler(
     }
 
     const isPro = profile.subscription_status === 'pro' || profile.subscription_status === 'premium';
-    if (isPro) {
-      console.log(`[assemblyai-token] Pro User: Access granted for user ${user.id}.`);
-    } else {
+    if (!isPro) {
       const FREE_TIER_LIMIT_SECONDS = 600; // 10 minutes
       if ((profile.usage_seconds || 0) >= FREE_TIER_LIMIT_SECONDS) {
-        console.log(`[assemblyai-token] Free User Denied: Usage limit exceeded for user ${user.id}.`, {
-          userId: user.id,
-          usage: profile.usage_seconds,
-          limit: FREE_TIER_LIMIT_SECONDS,
-        });
         return new Response(JSON.stringify({ error: 'Usage limit exceeded. Please upgrade to Pro for unlimited access.' }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 403, // Forbidden
+          status: 403,
         });
       }
-      console.log(`[assemblyai-token] Free User: Access granted for user ${user.id}.`);
     }
 
     const assemblyai = createAssemblyAI();
     const token = await assemblyai.realtime.createTemporaryToken({ expires_in: 600 });
 
     return new Response(JSON.stringify({ token }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200
     });
+
   } catch (error) {
-    console.error('Unexpected error:', error);
+    console.error('[assemblyai-token] Unexpected error:', error);
     const errorMessage = (error instanceof Error) ? error.message : 'An unexpected error occurred';
     return new Response(JSON.stringify({ error: errorMessage }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -119,7 +78,6 @@ export async function handler(
   }
 }
 
-// Start the server with the real dependencies
 serve((req: Request) => {
   const supabaseClientFactory: SupabaseClientFactory = (authHeader) =>
     createClient(

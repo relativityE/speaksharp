@@ -14,131 +14,87 @@ export default class CloudAssemblyAI {
     this._t0 = 0;
   }
 
-  async _getTemporaryToken() {
-    let authHeader = null;
+  async _getAuthToken() {
     const devSecretKey = import.meta.env.VITE_DEV_SECRET_KEY;
 
+    // --- Developer Path ---
     if (devSecretKey) {
-      console.log('[CloudAssemblyAI] Dev secret key found. Using it for authentication.');
-      authHeader = `Bearer ${devSecretKey}`;
-    } else {
-      if (!this.session) {
-        throw new Error('User not authenticated. Please log in to use Cloud transcription.');
+      console.log('[CloudAssemblyAI] Dev mode: Attempting to get temporary JWT...');
+      try {
+        const { data, error } = await supabase.functions.invoke('generate-dev-jwt', {
+          headers: { 'X-Dev-Secret-Key': devSecretKey },
+        });
+        if (error) throw error;
+        if (data.error) throw new Error(data.error);
+        return data.token;
+      } catch (e) {
+        console.error("Failed to get dev JWT:", e);
+        throw new Error(`Failed to get developer token. Reason: ${e.message}`);
       }
-      authHeader = `Bearer ${this.session.access_token}`;
     }
 
+    // --- Standard User Path ---
+    if (!this.session?.access_token) {
+      throw new Error('User not authenticated. Please log in to use Cloud transcription.');
+    }
+    return this.session.access_token;
+  }
+
+  async _getAssemblyAIToken() {
     try {
+      const userJwt = await this._getAuthToken();
       const { data, error } = await supabase.functions.invoke('assemblyai-token', {
-        headers: {
-          'Authorization': authHeader,
-        },
+        headers: { 'Authorization': `Bearer ${userJwt}` },
       });
 
-      if (error) {
-        // Errors from the function (e.g., network errors, 5xx status)
-        throw new Error(`Supabase function invocation failed: ${error.message}`);
-      }
-
+      if (error) throw new Error(`Supabase function invocation failed: ${error.message}`);
       if (data.error) {
-        // Special handling for usage limit error to show a toast
         if (data.error.includes('Usage limit exceeded')) {
           toast.error("You've run out of free minutes.", {
             description: "Please upgrade to a Pro plan for unlimited transcription.",
-            action: {
-              label: "Upgrade",
-              onClick: () => {
-                if (this.navigate) {
-                  this.navigate('/auth?view=pro-upgrade');
-                } else {
-                  console.error("Navigate function not provided to CloudAssemblyAI. Falling back to window.location.");
-                  window.location.href = '/auth?view=pro-upgrade';
-                }
-              },
-            },
+            action: { label: "Upgrade", onClick: () => this.navigate('/auth?view=pro-upgrade') },
           });
         }
-        // For all errors (including usage limit), we throw to stop the process
         throw new Error(`AssemblyAI token error: ${data.error}`);
       }
-
-      if (!data || !data.token) {
-        throw new Error('Token not found in response from Supabase function.');
-      }
-
+      if (!data?.token) throw new Error('Token not found in response from Supabase function.');
       return data.token;
     } catch (error) {
       console.error('Failed to get AssemblyAI token:', error);
-      // Provide a more user-friendly error message.
-      throw new Error(`Failed to get AssemblyAI token. Please ensure the server is configured correctly and you have the required permissions. Reason: ${error.message}`);
+      throw new Error(`Failed to get AssemblyAI token. Reason: ${error.message}`);
     }
   }
 
   async init() {
-    // Token will be fetched on-demand in startTranscription.
+    // Initialization logic can be placed here if needed in the future.
   }
 
   async startTranscription(mic) {
     try {
-      const token = await this._getTemporaryToken();
-      if (typeof token !== 'string' || !token) {
-        throw new Error('Invalid token received. Must be a non-empty string.');
-      }
-
+      const assemblyAIToken = await this._getAssemblyAIToken();
       this.transcriber = new AssemblyAI.StreamingTranscriber({
-        token: token,
+        token: assemblyAIToken,
         sampleRate: 16000,
-        disfluencies: true,
-        punctuate: true,
-        end_utterance_silence_threshold: 1000,
       });
 
       this.transcriber.on('open', ({ sessionId }) => {
         console.log(`AssemblyAI session opened with ID: ${sessionId}`);
-        this._frameCount = 0;
-        this._t0 = performance.now();
-        if (this.onReady) {
-          this.onReady();
-        }
+        if (this.onReady) this.onReady();
       });
 
-      this.transcriber.on('error', (error) => {
-        console.error('AssemblyAI error:', error);
-      });
+      this.transcriber.on('error', (error) => console.error('AssemblyAI error:', error));
+      this.transcriber.on('close', (code, reason) => console.log('AssemblyAI session closed:', code, reason));
 
-      this.transcriber.on('close', (code, reason) => {
-        console.log('AssemblyAI session closed:', code, reason);
+      this.transcriber.on('transcript.partial', (p) => {
+        if (p.text && this.onTranscriptUpdate) this.onTranscriptUpdate({ transcript: { partial: p.text } });
       });
-
-      this.transcriber.on('transcript.partial', (partial) => {
-          if (partial.text && this.onTranscriptUpdate) {
-              this.onTranscriptUpdate({ transcript: { partial: partial.text } });
-          }
-      });
-
-      this.transcriber.on('transcript.final', (final) => {
-          if (final.text && this.onTranscriptUpdate) {
-              this.onTranscriptUpdate({
-                  transcript: { final: final.text },
-                  words: final.words
-              });
-          }
+      this.transcriber.on('transcript.final', (f) => {
+        if (f.text && this.onTranscriptUpdate) this.onTranscriptUpdate({ transcript: { final: f.text }, words: f.words });
       });
 
       await this.transcriber.connect();
 
-      const onFrame = (f32) => {
-        if (!this.transcriber) return;
-        this.transcriber.sendAudio(f32);
-        if (this._frameCount % 10 === 0 && this.performanceWatcher) {
-          const elapsedMs = performance.now() - this._t0;
-          const audioMs = (this._frameCount * 1024) / 16000 * 1000;
-          const rtFactor = elapsedMs / audioMs;
-          this.performanceWatcher({ provider: 'cloud', rtFactor, elapsedMs, audioMs });
-        }
-        this._frameCount++;
-      };
-
+      const onFrame = (f32) => this.transcriber?.sendAudio(f32);
       mic.onFrame(onFrame);
       this._stop = () => mic.offFrame(onFrame);
 
@@ -149,16 +105,9 @@ export default class CloudAssemblyAI {
   }
 
   async stopTranscription() {
-    if (this._stop) this._stop();
+    this._stop?.();
     this._stop = null;
-    if (this.transcriber) {
-      await this.transcriber.close();
-      this.transcriber = null;
-    }
-    return '';
-  }
-
-  async getTranscript() {
-    return '';
+    await this.transcriber?.close();
+    this.transcriber = null;
   }
 }
