@@ -12,6 +12,7 @@
         - link "Login / Sign Up" [ref=e10] [cursor=pointer]:
           - /url: /auth
   - main [ref=e11]:
+    - region "Notifications alt+T"
     - generic [ref=e13]:
       - generic [ref=e15]:
         - generic [ref=e17]:
@@ -74,41 +75,24 @@
               - textbox "Custom Filler Word:" [ref=e84]
               - button "Add custom filler word" [ref=e85]:
                 - img
-      - generic [ref=e87]:
-        - generic [ref=e88]:
-          - generic [ref=e89]:
-            - generic [ref=e91]: Settings
-            - generic [ref=e92]:
-              - paragraph [ref=e94]: Local Transcription (Faster, Private)
-              - generic [ref=e95]:
-                - generic [ref=e96]: Transcription Mode
-                - generic [ref=e97]:
-                  - generic [ref=e98]: Local
-                  - switch "Transcription Mode Local Cloud" [disabled] [ref=e99]
-                  - generic [ref=e100]:
-                    - text: Cloud
-                    - img [ref=e101]
-              - generic [ref_e104]:
-                - heading "Developer Controls" [level=4] [ref=e105]
-                - generic [ref=e106]:
-                  - checkbox "Force Native Transcription" [ref=e107]
-                  - generic [ref=e108]: Force Native Transcription
-                - generic [ref=e109]:
-                  - checkbox "Unlock Cloud Mode (for non-pro)" [ref=e110]
-                  - generic [ref=e111]: Unlock Cloud Mode (for non-pro)
-          - generic [ref=e114]:
-            - generic [ref=e116]: 00:00
-            - generic [ref=e117]: Idle
-            - button "Start Recording" [ref=e118]:
+      - generic [ref=e88]:
+        - generic [ref=e90]: Ready to Record
+        - generic [ref=e91]:
+          - generic [ref=e92]:
+            - generic [ref=e94]: 00:00
+            - generic [ref=e95]: Idle
+            - button "Start Recording" [ref=e96]:
               - img
               - text: Start Recording
-        - generic [ref=e119]:
-          - generic [ref=e121]:
-            - img [ref=e122]
-            - text: Upgrade to Pro
-          - generic [ref=e124]:
-            - paragraph [ref=e125]: Get unlimited practice, advanced analytics, and priority support.
-            - button "Get Unlimited Practice →" [disabled]:
+          - generic [ref=e98]:
+            - checkbox "Force Cloud (Disable Fallback)" [ref=e99]
+            - text: Force Cloud (Disable Fallback)
+          - generic [ref=e100]:
+            - generic [ref=e101]:
+              - img [ref=e102]
+              - heading "Upgrade to Pro" [level=4] [ref=e104]
+            - paragraph [ref=e105]: Get unlimited practice, advanced analytics, and priority support.
+            - button "Get Unlimited Practice →" [ref=e106]:
               - text: Get Unlimited Practice
-              - generic: →
+              - generic [ref=e107]: →
 ```

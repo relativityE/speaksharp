@@ -162,10 +162,10 @@ The overall coverage is critically low. The risk is concentrated in the most imp
 *   **Business Goal:** Minimizing code bloat directly impacts **Feature Velocity**. A smaller, cleaner codebase is easier for developers to understand, maintain, and extend, reducing the time it takes to deliver new features.
 *   **Industry Standard:** While subjective, this is often tracked via proxy metrics like code duplication and cyclomatic complexity.
 
-**Current Estimate (as of August 24, 2025):** ~20% of frontend components
+**Current Estimate (as of August 26, 2025):** ~7% of frontend components. *(Note: Estimate reduced from ~20% after a manual audit and removal of one unused component file.)*
 
 **Contextual Breakdown (Justification):**
-*   **Unused UI Components:** The primary source of bloat is the `src/components/ui` directory, which contains a large number of components installed via CLI but never used in the application (e.g., `menubar.jsx`, `pagination.jsx`, `table.jsx`).
+*   **Unused UI Components:** A manual audit of the 14 components in the `src/components/ui` directory found that only one (`sheet.jsx`) was unused. This is a significant improvement from the previous estimate.
 
 ### 2. Automation Strategy
 
@@ -312,6 +312,6 @@ Private practice. Public impact.
 This section tracks known technical issues and areas for improvement that have been identified but not yet prioritized for immediate action.
 
 -   **[DEFERRED]** **Test Suite Verification for Worklet Fix:** The fix for the "Unable to load a worklet's module" error, which involved refactoring `audioUtils.js` into a wrapper and implementation, could not be fully verified because the test suite is unstable. The tests hang or crash, preventing a clean run. A full, passing `pnpm test` run is required to confirm the fix introduced no regressions.
--   **[OPEN]** **`createRoot` Warning:** The application throws a warning: `You are calling ReactDOMClient.createRoot() on a container that has already been passed to createRoot() before.` This suggests that the main script might be loading more than once. While a guard exists in `main.jsx` to prevent this, the warning persists, pointing to a potential issue in the Vite HMR environment.
--   **[NEW]** **Navigation via `window.location.href`:** The "Upgrade" toast notification in `CloudAssemblyAI.js` uses a direct `window.location.href` assignment for navigation. This is a "hack" that works but bypasses the standard React Router flow. It should be refactored to use the `navigate` function for better consistency and testability.
+-   **[FIXED]** **`createRoot` Warning:** The application throws a warning: `You are calling ReactDOMClient.createRoot() on a container that has already been passed to createRoot() before.` This suggests that the main script might be loading more than once. While a guard exists in `main.jsx` to prevent this, the warning persists, pointing to a potential issue in the Vite HMR environment. *(Note: A more robust guard was implemented in `main.jsx` to solve this).*
+-   **[FIXED]** **Navigation via `window.location.href`:** The "Upgrade" toast notification in `CloudAssemblyAI.js` uses a direct `window.location.href` assignment for navigation. This is a "hack" that works but bypasses the standard React Router flow. It should be refactored to use the `navigate` function for better consistency and testability. *(Note: This was refactored to pass the `navigate` function down through the component tree).*
 -   **[REPLACED]** The old `SUPER_DEV_MODE` system has been replaced with a more robust shared secret (`DEV_SECRET_KEY`) implementation. The new system is documented in the `System Architecture.md` file.
