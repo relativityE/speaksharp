@@ -20,7 +20,13 @@ export default defineConfig({
         './index.html'
       ],
     }),
-    react(),
+    react({
+      // Exclude the problematic file from the React plugin's transformations.
+      // This file uses a Vite-specific '?url' import that seems to crash
+      // the dev server when processed by the React plugin. Since the file
+      // contains no JSX, it's safe to exclude it.
+      exclude: /audioUtils\.impl\.js$/,
+    }),
   ],
   resolve: {
     alias: {
