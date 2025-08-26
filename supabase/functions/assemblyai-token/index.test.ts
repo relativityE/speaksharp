@@ -9,20 +9,21 @@ Deno.test('assemblyai-token edge function', async (t) => {
     },
   }) as any;
 
-  // This mock will always fail auth, useful for testing bypass
   const failingMockCreateSupabase = () => ({
     auth: {
       getUser: () => Promise.resolve({ data: { user: null }, error: { message: 'Unauthorized' } }),
     },
   }) as any;
 
-  await t.step('should return a token if SUPER_DEV_MODE is enabled, regardless of auth status', async () => {
-    // Set the env var for this test
-    Deno.env.set('SUPER_DEV_MODE', 'true');
+  await t.step('should return a token if DEV_SECRET_KEY is provided', async () => {
+    const testSecret = 'test-secret-key';
+    Deno.env.set('DEV_SECRET_KEY', testSecret);
 
     try {
-      const req = new Request('http://localhost/assemblyai-token', { method: 'POST' });
-      // We use the failing mock here to prove auth is bypassed
+      const req = new Request('http://localhost/assemblyai-token', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${testSecret}` },
+      });
       const res = await handler(req, failingMockCreateSupabase, mockCreateAssemblyAI);
       const json = await res.json();
 
@@ -30,22 +31,20 @@ Deno.test('assemblyai-token edge function', async (t) => {
       assertExists(json.token);
       assertEquals(json.token, 'mock_assemblyai_token');
     } finally {
-      // Clean up the env var
-      Deno.env.delete('SUPER_DEV_MODE');
+      Deno.env.delete('DEV_SECRET_KEY');
     }
   });
 
-  await t.step('should return 401 if user is not authenticated and dev mode is off', async () => {
-    // Ensure dev mode is off
-    assert(Deno.env.get('SUPER_DEV_MODE') === undefined, 'SUPER_DEV_MODE should not be set');
+  await t.step('should return 401 if no auth header is provided and dev mode is off', async () => {
+    // Ensure dev mode is off by not setting the secret
+    assert(Deno.env.get('DEV_SECRET_KEY') === undefined, 'DEV_SECRET_KEY should not be set');
 
     const req = new Request('http://localhost/assemblyai-token', { method: 'POST' });
     const res = await handler(req, failingMockCreateSupabase, mockCreateAssemblyAI);
     const json = await res.json();
 
     assertEquals(res.status, 401);
-    // The error message was updated in the source file, let's match it.
-    assertEquals(json.error, 'Authentication failed - v2');
+    assertEquals(json.error, 'Authentication failed: Missing Authorization header.');
   });
 
   await t.step('should return 403 if free user exceeds usage limit', async () => {

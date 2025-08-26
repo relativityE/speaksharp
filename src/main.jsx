@@ -43,7 +43,10 @@ try {
 }
 
 const rootElement = document.getElementById('root');
-if (rootElement && !rootElement.hasChildNodes()) {
+// This guard prevents the app from being rendered twice in development
+// due to Vite's Fast Refresh. It's more reliable than checking for child nodes.
+if (rootElement && !rootElement._speakSharpRootInitialized) {
+  rootElement._speakSharpRootInitialized = true;
   const root = ReactDOM.createRoot(rootElement);
   root.render(
     <StrictMode>

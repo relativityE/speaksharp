@@ -1,0 +1,135 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e5]:
+        - link "SpeakSharp" [ref=e6] [cursor=pointer]:
+          - /url: /
+        - navigation [ref=e8]:
+          - link "View Analytics" [ref=e9] [cursor=pointer]:
+            - /url: /analytics
+          - link "Login / Sign Up" [ref=e10] [cursor=pointer]:
+            - /url: /auth
+    - main [ref=e11]:
+      - region "Notifications alt+T"
+      - generic [ref=e13]:
+        - generic [ref=e15]:
+          - generic [ref=e17]:
+            - generic [ref=e18]:
+              - heading "Live Transcript" [level=2] [ref=e19]
+              - paragraph [ref=e20]: Your spoken words appear here. Filler words are highlighted.
+            - generic [ref=e21]:
+              - paragraph
+          - generic [ref=e23]:
+            - generic [ref=e25]: Filler Word Analysis
+            - generic [ref=e26]:
+              - generic [ref=e27]:
+                - generic [ref=e28]:
+                  - generic [ref=e29]:
+                    - generic [ref=e30]: um
+                    - generic [ref=e31]: "0"
+                  - progressbar [ref=e32]
+                - generic [ref=e34]:
+                  - generic [ref=e35]:
+                    - generic [ref=e36]: uh
+                    - generic [ref=e37]: "0"
+                  - progressbar [ref=e38]
+                - generic [ref=e40]:
+                  - generic [ref=e41]:
+                    - generic [ref=e42]: ah
+                    - generic [ref=e43]: "0"
+                  - progressbar [ref=e44]
+                - generic [ref=e46]:
+                  - generic [ref=e47]:
+                    - generic [ref=e48]: like
+                    - generic [ref=e49]: "0"
+                  - progressbar [ref=e50]
+                - generic [ref=e52]:
+                  - generic [ref=e53]:
+                    - generic [ref=e54]: You Know
+                    - generic [ref=e55]: "0"
+                  - progressbar [ref=e56]
+                - generic [ref=e58]:
+                  - generic [ref=e59]:
+                    - generic [ref=e60]: so
+                    - generic [ref=e61]: "0"
+                  - progressbar [ref=e62]
+                - generic [ref=e64]:
+                  - generic [ref=e65]:
+                    - generic [ref=e66]: actually
+                    - generic [ref=e67]: "0"
+                  - progressbar [ref=e68]
+                - generic [ref=e70]:
+                  - generic [ref=e71]:
+                    - generic [ref=e72]: oh
+                    - generic [ref=e73]: "0"
+                  - progressbar [ref=e74]
+                - generic [ref=e76]:
+                  - generic [ref=e77]:
+                    - generic [ref=e78]: I Mean
+                    - generic [ref=e79]: "0"
+                  - progressbar [ref=e80]
+              - generic [ref=e82]:
+                - generic [ref=e83]: "Custom Filler Word:"
+                - textbox "Custom Filler Word:" [ref=e84]
+                - button "Add custom filler word" [ref=e85]:
+                  - img
+        - generic [ref=e88]:
+          - generic [ref=e90]: Ready to Record
+          - generic [ref=e91]:
+            - alert [ref=e92]:
+              - img [ref=e93]
+              - generic [ref=e95]: An Error Occurred
+              - generic [ref=e96]: "Failed to fetch dynamically imported module: http://localhost:5173/src/services/transcription/utils/audioUtils.impl.js"
+            - generic [ref=e97]:
+              - generic [ref=e99]: 00:00
+              - generic [ref=e100]: Idle
+              - button "Start Recording" [active] [ref=e101]:
+                - img
+                - text: Start Recording
+            - generic [ref=e103]:
+              - checkbox "Force Cloud (Disable Fallback)" [ref=e104]
+              - text: Force Cloud (Disable Fallback)
+            - generic [ref=e105]:
+              - generic [ref=e106]:
+                - img [ref=e107]
+                - heading "Upgrade to Pro" [level=4] [ref=e109]
+              - paragraph [ref=e110]: Get unlimited practice, advanced analytics, and priority support.
+              - button "Get Unlimited Practice →" [ref=e111]:
+                - text: Get Unlimited Practice
+                - generic [ref=e112]: →
+  - generic [ref=e115]:
+    - generic [ref=e116]:
+      - generic [ref=e117]: "[plugin:vite:import-analysis]"
+      - generic [ref=e118]: Failed to resolve import "./audio-processor.worklet.js?url" from "src/services/transcription/utils/audioUtils.impl.js". Does the file exist?
+    - generic [ref=e120] [cursor=pointer]: /app/src/services/transcription/utils/audioUtils.impl.js:10:34
+    - generic [ref=e121]: "8 | // Check if we're in a browser environment with audio worklet support 9 | if (typeof window !== 'undefined' && window.AudioContext && AudioContext.prototype.audioWorklet) { 10 | workletUrlPromise = import('./audio-processor.worklet.js?url') | ^ 11 | .then(module => module.default) 12 | .catch(error => {"
+    - generic [ref=e122]:
+      - text: "at TransformPluginContext._formatLog (file:"
+      - generic [ref=e123] [cursor=pointer]: ///app/node_modules/vite/dist/node/chunks/dep-DBxKXgDP.js:42499:41
+      - text: ") at TransformPluginContext.error (file:"
+      - generic [ref=e124] [cursor=pointer]: ///app/node_modules/vite/dist/node/chunks/dep-DBxKXgDP.js:42496:16
+      - text: ") at normalizeUrl (file:"
+      - generic [ref=e125] [cursor=pointer]: ///app/node_modules/vite/dist/node/chunks/dep-DBxKXgDP.js:40475:23
+      - text: ") at async file:"
+      - generic [ref=e126] [cursor=pointer]: ///app/node_modules/vite/dist/node/chunks/dep-DBxKXgDP.js:40594:37
+      - text: "at async Promise.all (index 0) at async TransformPluginContext.transform (file:"
+      - generic [ref=e127] [cursor=pointer]: ///app/node_modules/vite/dist/node/chunks/dep-DBxKXgDP.js:40521:7
+      - text: ") at async EnvironmentPluginContainer.transform (file:"
+      - generic [ref=e128] [cursor=pointer]: ///app/node_modules/vite/dist/node/chunks/dep-DBxKXgDP.js:42294:18
+      - text: ") at async loadAndTransform (file:"
+      - generic [ref=e129] [cursor=pointer]: ///app/node_modules/vite/dist/node/chunks/dep-DBxKXgDP.js:35735:27
+    - generic [ref=e130]:
+      - text: Click outside, press
+      - generic [ref=e131]: Esc
+      - text: key, or fix the code to dismiss.
+      - text: You can also disable this overlay by setting
+      - code [ref=e132]: server.hmr.overlay
+      - text: to
+      - code [ref=e133]: "false"
+      - text: in
+      - code [ref=e134]: vite.config.mjs
+      - text: .
+```
