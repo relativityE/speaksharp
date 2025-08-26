@@ -58,7 +58,8 @@ This diagram illustrates the step-by-step process for initiating a cloud-based t
                |                                       |                                       |
 1. `createMicStream()` is called.                      |                                       |
    - Captures audio.                                   |                                       |
-   - Downsamples via `AudioWorklet`.                   |                                       |
+   - Downsamples via `AudioWorklet` (`pcm-downsampler`). The worklet takes the raw         |
+     microphone audio and resamples it to a target of 16,000 Hz before streaming it.       |
                |                                       |                                       |
 2. `invoke('assemblyai-token')`  ──────────────────>   3. Receives request.                    |
    - Sends `Authorization` header                      |   - Checks for Dev Secret OR          |
