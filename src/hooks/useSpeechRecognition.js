@@ -31,6 +31,7 @@ const getInitialFillerData = (customWords = []) => {
 // --- The Hook ---
 export const useSpeechRecognition = ({
     customWords = [],
+    session,
 } = {}) => {
     console.log(`[useSpeechRecognition] Hook initialized.`);
 
@@ -148,7 +149,8 @@ export const useSpeechRecognition = ({
                     onModelLoadProgress,
                     onReady: handleReady, // Pass the new callback
                     profile,
-                    forceCloud
+                    forceCloud,
+                    session,
                 });
                 await service.init();
                 transcriptionServiceRef.current = service;

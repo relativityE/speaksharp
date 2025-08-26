@@ -45,7 +45,7 @@ A real-time speech analysis tool built on two pillars: speed and privacy. Our "p
 3.  Set up your environment variables.
     Create a file named `.env.local` in the root of the project and add the necessary keys for Supabase and other services. See the `.env.example` file for a full list.
 
-    For a detailed explanation of the developer workflow and how to use `SUPER_DEV_MODE` for testing, please see the **"Developer Workflow & Local Testing"** section in the `System Architecture.md` document.
+    For a detailed explanation of the developer workflow and how to use the shared secret for testing, please see the **"Developer Workflow & Local Testing"** section in the `System Architecture.md` document.
 
 4.  Start the development server:
     ```bash

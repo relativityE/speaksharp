@@ -3,10 +3,11 @@ import { supabase } from '../../../lib/supabaseClient';
 import { toast } from 'sonner';
 
 export default class CloudAssemblyAI {
-  constructor({ performanceWatcher, onTranscriptUpdate, onReady } = {}) {
+  constructor({ performanceWatcher, onTranscriptUpdate, onReady, session } = {}) {
     this.performanceWatcher = performanceWatcher;
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onReady = onReady;
+    this.session = session;
     this.transcriber = null;
     this._frameCount = 0;
     this._t0 = 0;
@@ -14,23 +15,21 @@ export default class CloudAssemblyAI {
 
   async _getTemporaryToken() {
     let authHeader = null;
+    const devSecretKey = import.meta.env.VITE_DEV_SECRET_KEY;
 
-    // In SUPER_DEV_MODE, we can skip the session check and send a null auth header.
-    // The backend Supabase function will see the SUPER_DEV_MODE env var and grant a token.
-    if (import.meta.env.VITE_SUPER_DEV_MODE === 'true') {
-      console.log('[CloudAssemblyAI] SUPER_DEV_MODE is active. Bypassing client-side session check.');
+    if (devSecretKey) {
+      console.log('[CloudAssemblyAI] Dev secret key found. Using it for authentication.');
+      authHeader = `Bearer ${devSecretKey}`;
     } else {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
+      if (!this.session) {
         throw new Error('User not authenticated. Please log in to use Cloud transcription.');
       }
-      authHeader = `Bearer ${session.access_token}`;
+      authHeader = `Bearer ${this.session.access_token}`;
     }
 
     try {
       const { data, error } = await supabase.functions.invoke('assemblyai-token', {
         headers: {
-          // The backend function is designed to handle a null Authorization header.
           'Authorization': authHeader,
         },
       });

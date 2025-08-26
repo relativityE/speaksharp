@@ -95,6 +95,7 @@
     "globals": "^16.0.0",
     "happy-dom": "^18.0.1",
     "jsdom": "^26.1.0",
+    "knip": "^5.63.0",
     "postcss": "^8.5.6",
     "serve-handler": "^6.1.6",
     "sharp": "^0.32.6",

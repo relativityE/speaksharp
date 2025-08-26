@@ -22,9 +22,12 @@ export async function handler(
   }
 
   try {
-    // Universal developer mode bypass
-    if (Deno.env.get("SUPER_DEV_MODE") === 'true') {
-      console.log('[assemblyai-token] SUPER_DEV_MODE enabled. Bypassing user auth and usage limits.');
+    // Developer mode bypass using a shared secret
+    const authHeader = req.headers.get('Authorization');
+    const devSecretKey = Deno.env.get("DEV_SECRET_KEY");
+
+    if (devSecretKey && authHeader === `Bearer ${devSecretKey}`) {
+      console.log('[assemblyai-token] Dev secret key valid. Bypassing user auth and usage limits.');
       const assemblyai = createAssemblyAI();
       const token = await assemblyai.realtime.createTemporaryToken({ expires_in: 600 });
       return new Response(JSON.stringify({ token }), {
@@ -33,8 +36,7 @@ export async function handler(
       });
     }
 
-    // Production Mode: Standard user authentication and "pro" plan check.
-    const authHeader = req.headers.get('Authorization');
+    // If not in dev mode, proceed with standard user authentication
     const supabaseClient = createSupabase(authHeader);
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
 

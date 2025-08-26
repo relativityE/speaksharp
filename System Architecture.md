@@ -49,22 +49,18 @@ The architecture is designed around a modern, client-heavy Jamstack approach. Th
 
 ## 3. Developer Workflow & Local Testing
 
-### The `SUPER_DEV_MODE` Bypass
+### The Shared Secret Bypass
 
-To facilitate local development and testing of premium cloud features without requiring a real, authenticated Pro user, the project uses a `SUPER_DEV_MODE`.
+To facilitate local development and testing of premium cloud features without requiring a real, authenticated Pro user, the project uses a shared secret system.
 
-**The Rationale (The "Two Doors" Analogy):**
-The system has two layers of security that must be bypassed in development: the frontend application and the backend functions.
+**The Rationale:**
+Instead of a simple on/off flag, we use a shared secret key that must be present on both the client and the server. This ensures that only trusted developers can access the developer mode bypass.
 
-1.  **The Frontend Door (The Browser):** The React app has checks to see if a user is logged in before attempting to call a protected backend function.
-    *   **The Key:** `VITE_SUPER_DEV_MODE=true`
-    *   **How it Works:** This environment variable, placed in the `.env.local` file, is made available to the frontend code by Vite's build process. When our client-side code sees this is `true`, it bypasses its own login checks.
+1.  **The Frontend (`.env.local`):** The client-side code reads a secret key from a `VITE_DEV_SECRET_KEY` variable in the `.env.local` file. It sends this key in the `Authorization` header of its request to the backend function.
 
-2.  **The Backend Door (The Server):** The Supabase Edge Functions have their own separate security.
-    *   **The Key:** `SUPER_DEV_MODE=true`
-    *   **How it Works:** This variable must be set in the environment where the Edge Functions are running.
-        *   **For Deployed Functions (e.g., on a preview branch):** This is set as a secret in the Supabase project dashboard (`Settings` > `Edge Functions`).
-        *   **For True Local Development (with Docker):** The local Supabase environment (started with `supabase start`) reads this variable from the `.env.local` file (without the `VITE_` prefix).
+2.  **The Backend (Supabase Secrets):** The Supabase Edge Function reads its own copy of the secret from a `DEV_SECRET_KEY` environment variable, which is set in the Supabase project dashboard (`Settings -> Secrets`).
+
+When the backend function receives a request, it checks if the `Authorization` header from the client matches its own `DEV_SECRET_KEY`. If they match, the developer is authenticated, and the function bypasses the normal user login checks.
 
 **Important Note on Local Database Setup:**
 Since you don't have Docker installed, you are not running a local database. You are running your frontend locally, but it is connecting to the **remote, deployed** database on Supabase's cloud. Therefore, the `supabase db reset` command will not work for you. This is a critical distinction in your development workflow.
@@ -79,42 +75,6 @@ The `supabase/config.toml` file must explicitly list all functions to ensure tha
   entrypoint = "functions/get-ai-suggestions/index.ts"
 # ... and so on for all other functions
 ```text
-                          +---------------------------------------------+
-                          |              User's Browser                 |
-                          |                                             |
-+-------------------------+---------------------------------------------+
-|                         |                                             |
-| +-----------------------v----------------+  +---------------------------------+ |
-| |      React SPA (Vite, `src`)           |  |      TranscriptionService       | |
-| |                                        |  |  (Provides onTranscriptUpdate)  | |
-| |  - `SessionPage.jsx`                   |  |---------------------------------| |
-| |  - `SessionSidebar.jsx`                |<--+ if (user.isPro) {             | |
-| |  - `useSpeechRecognition.js`           |  |   CloudAssemblyAI (via Token)   | |
-|    (Initializes service on-demand)     |  | } else {                        | |
-| |  - `useSessionManager.js`              |  |   LocalWhisper (On-Device)    | |
-| +----------------------------------------+  | }                               | |
-|                                          |  +---------------------------------+ |
-|                                          |                                    |
-+------------------------------------------+------------------------------------+
-                          |
-+-------------------------+-------------------------+---------------------------+
-|    ANONYMOUS USER       |        FREE USER        |         PRO USER          |
-| (No Auth, Temp Storage) |  (Auth, Usage Limit)    |   (Auth, No Limit)        |
-+-------------------------+-------------------------+---------------------------+
-             |                         |                         |
-+------------v-----------+ +-----------v-------------+ +-----------v-------------+
-| Save Session (Temp)    | | Save Session (Metadata) | | Save Session (Metadata) |
-| `sessionStorage.set()` | | `supabase.insert()`     | | `supabase.insert()`     |
-+------------------------+ +-------------------------+ +-------------------------+
-                                     |
-                         +-----------v-------------+
-                         | Update & Enforce Limit  |
-                         | `supabase.rpc()`        |
-                         +-------------------------+
-                                                               |
-                                                    (One-time Upgrade Process)
-                                                               |
-             +-------------------------------------------------v-----------------------------------------------+
              |                                                                                               |
              |  1. User clicks "Upgrade" -> `supabase.functions.invoke('stripe-checkout')`                     |
              |       |                                                                                       |
@@ -132,35 +92,7 @@ The `supabase/config.toml` file must explicitly list all functions to ensure tha
 
 ## 8. Developer Workflow & Local Testing
 
-### The `SUPER_DEV_MODE` Bypass
-
-To facilitate local development and testing of premium cloud features without requiring a real, authenticated Pro user, the project uses a `SUPER_DEV_MODE`. This is a pragmatic short-term solution that unblocks the development workflow. However, it should be considered planned technical debt and replaced with a more robust developer authentication or mocking system in the future.
-
-The system is designed with two layers of security checks (frontend and backend), which can be visualized as a house with two doors. A developer needs to unlock both doors to get all the way through the system.
-
-#### The Frontend Door (The Browser)
-The React application running in the browser has its own lock that checks if a user is logged in before attempting to call a protected backend function.
-*   **The Key:** `VITE_SUPER_DEV_MODE=true`
-*   **How it Works:** This environment variable, placed in the `.env.local` file, is made available to the frontend code by Vite's build process (due to the `VITE_` prefix). When our client-side code (e.g., in `CloudAssemblyAI.js`) sees this variable is `true`, it bypasses its own login checks.
-
-#### The Backend Door (The Server)
-The Supabase Edge Functions, which run on a server, have their own separate security lock. They do not have access to environment variables prefixed with `VITE_`.
-*   **The Key:** `SUPER_DEV_MODE=true`
-*   **How it Works:** This environment variable must be set in the environment where the Edge Functions are running.
-    *   **For Deployed Functions:** This is set as a secret in the Supabase project dashboard (`Settings` > `Edge Functions`).
-    *   **For Local Development:** The local Supabase development environment (often called an "emulator") also needs this key. It reads it from the `.env.local` file, but only if the name is `SUPER_DEV_MODE` (without the prefix).
-
-#### Summary of Local Setup
-To run the full developer workflow locally, a developer's `.env.local` file must contain **both** keys:
-```
-# For the frontend app to bypass its own checks
-VITE_SUPER_DEV_MODE=true
-
-# For the local Supabase backend emulation to bypass its checks
-SUPER_DEV_MODE=true
-```
-Additionally, the developer must have the necessary service keys (like `ASSEMBLYAI_API_KEY`) set as secrets in their Supabase project dashboard, as the backend, even in dev mode, still needs to contact real external services.
-```
+*For a detailed explanation of the developer workflow, please see Section 3 of this document.*
 
 ### History of the Deployment Issue
 
