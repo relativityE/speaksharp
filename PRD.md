@@ -304,6 +304,7 @@ Private practice. Public impact.
 
 This section tracks known technical issues and areas for improvement that have been identified but not yet prioritized for immediate action.
 
+-   **[DEFERRED]** **Test Suite Verification for Worklet Fix:** The fix for the "Unable to load a worklet's module" error, which involved refactoring `audioUtils.js` into a wrapper and implementation, could not be fully verified because the test suite is unstable. The tests hang or crash, preventing a clean run. A full, passing `pnpm test` run is required to confirm the fix introduced no regressions.
 -   **[OPEN]** **`createRoot` Warning:** The application throws a warning: `You are calling ReactDOMClient.createRoot() on a container that has already been passed to createRoot() before.` This suggests that the main script might be loading more than once. While a guard exists in `main.jsx` to prevent this, the warning persists, pointing to a potential issue in the Vite HMR environment.
 -   **[NEW]** **Navigation via `window.location.href`:** The "Upgrade" toast notification in `CloudAssemblyAI.js` uses a direct `window.location.href` assignment for navigation. This is a "hack" that works but bypasses the standard React Router flow. It should be refactored to use the `navigate` function for better consistency and testability.
 -   **[REPLACED]** The old `SUPER_DEV_MODE` system has been replaced with a more robust shared secret (`DEV_SECRET_KEY`) implementation. The new system is documented in the `System Architecture.md` file.

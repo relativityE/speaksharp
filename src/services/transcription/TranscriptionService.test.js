@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // 1. Hoist the vi.mock calls.
-// This block runs before any imports, ensuring dependencies are mocked.
 vi.mock('./modes/CloudAssemblyAI');
 vi.mock('./modes/NativeBrowser');
-vi.mock('./utils/audioUtils');
+
+// [JULES] Mock the audioUtils module with a factory to handle the new dynamic import architecture.
+vi.mock('./utils/audioUtils', () => ({
+  createMicStream: vi.fn(),
+}));
 
 // 2. Import everything needed for the tests AFTER the hoist.
 import TranscriptionService from './TranscriptionService';
