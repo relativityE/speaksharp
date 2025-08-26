@@ -26,29 +26,41 @@ export async function handler(
     const authHeader = req.headers.get('Authorization');
     const devSecretKey = Deno.env.get("DEV_SECRET_KEY");
 
-    if (devSecretKey && authHeader === `Bearer ${devSecretKey}`) {
-      console.log('[assemblyai-token] Dev secret key valid. Bypassing user auth and usage limits.');
-      const assemblyai = createAssemblyAI();
-      const token = await assemblyai.realtime.createTemporaryToken({ expires_in: 600 });
-      return new Response(JSON.stringify({ token }), {
+    // --- Developer Mode Path ---
+    if (devSecretKey) {
+      if (authHeader === `Bearer ${devSecretKey}`) {
+        console.log('[assemblyai-token] Dev Mode: Success. Bypassing user auth.');
+        const assemblyai = createAssemblyAI();
+        const token = await assemblyai.realtime.createTemporaryToken({ expires_in: 600 });
+        return new Response(JSON.stringify({ token }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 200,
+        });
+      } else if (authHeader?.startsWith('Bearer ')) {
+        // This case handles when a dev key is set, but the client sends a different (e.g., user) token.
+        // We log it but proceed to user auth.
+        console.log('[assemblyai-token] Dev Mode: Mismatch. Client token does not match DEV_SECRET_KEY. Falling back to user auth.');
+      }
+    }
+
+    // --- Standard User Path ---
+    if (!authHeader) {
+      console.error('[assemblyai-token] Auth Error: No Authorization header provided.');
+      return new Response(JSON.stringify({ error: 'Authentication failed: Missing Authorization header.' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200,
+        status: 401,
       });
     }
 
-    // If not in dev mode, proceed with standard user authentication
     const supabaseClient = createSupabase(authHeader);
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
 
     if (userError || !user) {
       console.error(
-        '[assemblyai-token] Authentication failed.',
-        {
-          error: userError?.message,
-          authHeaderProvided: !!authHeader,
-        }
+        '[assemblyai-token] Auth Error: Supabase getUser failed.',
+        { error: userError?.message || 'No user object returned.' }
       );
-      return new Response(JSON.stringify({ error: 'Authentication failed' }), {
+      return new Response(JSON.stringify({ error: 'Authentication failed: Invalid token.' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 401,
       });
@@ -60,26 +72,34 @@ export async function handler(
       .eq('id', user.id)
       .single();
 
-    if (profileError) {
-      console.error('Profile fetch error:', profileError);
+    if (profileError || !profile) {
+      console.error('[assemblyai-token] Profile Error: Failed to fetch profile for user.', {
+        userId: user.id,
+        error: profileError?.message || 'No profile returned.',
+      });
       return new Response(JSON.stringify({ error: 'Failed to fetch user profile' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 500,
       });
     }
 
-    const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
+    const isPro = profile.subscription_status === 'pro' || profile.subscription_status === 'premium';
     if (isPro) {
-      // Pro users have unlimited access, so we can grant a token directly.
+      console.log(`[assemblyai-token] Pro User: Access granted for user ${user.id}.`);
     } else {
-      // For free users, check usage limits.
       const FREE_TIER_LIMIT_SECONDS = 600; // 10 minutes
       if ((profile.usage_seconds || 0) >= FREE_TIER_LIMIT_SECONDS) {
+        console.log(`[assemblyai-token] Free User Denied: Usage limit exceeded for user ${user.id}.`, {
+          userId: user.id,
+          usage: profile.usage_seconds,
+          limit: FREE_TIER_LIMIT_SECONDS,
+        });
         return new Response(JSON.stringify({ error: 'Usage limit exceeded. Please upgrade to Pro for unlimited access.' }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           status: 403, // Forbidden
         });
       }
+      console.log(`[assemblyai-token] Free User: Access granted for user ${user.id}.`);
     }
 
     const assemblyai = createAssemblyAI();

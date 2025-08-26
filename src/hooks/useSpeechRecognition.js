@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import TranscriptionService from '../services/transcription/TranscriptionService';
@@ -36,6 +37,7 @@ export const useSpeechRecognition = ({
     console.log(`[useSpeechRecognition] Hook initialized.`);
 
     const { profile } = useAuth();
+    const navigate = useNavigate();
 
     // --- State Management ---
     const [isListening, setIsListening] = useState(false);
@@ -151,6 +153,7 @@ export const useSpeechRecognition = ({
                     profile,
                     forceCloud,
                     session,
+                    navigate,
                 });
                 await service.init();
                 transcriptionServiceRef.current = service;

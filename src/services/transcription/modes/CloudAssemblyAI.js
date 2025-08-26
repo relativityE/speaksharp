@@ -3,11 +3,12 @@ import { supabase } from '../../../lib/supabaseClient';
 import { toast } from 'sonner';
 
 export default class CloudAssemblyAI {
-  constructor({ performanceWatcher, onTranscriptUpdate, onReady, session } = {}) {
+  constructor({ performanceWatcher, onTranscriptUpdate, onReady, session, navigate } = {}) {
     this.performanceWatcher = performanceWatcher;
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onReady = onReady;
     this.session = session;
+    this.navigate = navigate;
     this.transcriber = null;
     this._frameCount = 0;
     this._t0 = 0;
@@ -47,9 +48,12 @@ export default class CloudAssemblyAI {
             action: {
               label: "Upgrade",
               onClick: () => {
-                // This is a bit of a hack, but it's the simplest way to navigate
-                // without passing the navigate function all the way down.
-                window.location.href = '/auth?view=pro-upgrade';
+                if (this.navigate) {
+                  this.navigate('/auth?view=pro-upgrade');
+                } else {
+                  console.error("Navigate function not provided to CloudAssemblyAI. Falling back to window.location.");
+                  window.location.href = '/auth?view=pro-upgrade';
+                }
               },
             },
           });
