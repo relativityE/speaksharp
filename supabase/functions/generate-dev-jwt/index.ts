@@ -4,7 +4,7 @@ import { create, getNumericDate } from "https://deno.land/x/djwt@v3.0.2/mod.ts";
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'content-type, x-dev-secret-key',
+  'Access-Control-Allow-Headers': 'content-type, x-dev-secret-key, X-Dev-Secret-Key',
 };
 
 export async function handler(req: Request) {
@@ -41,9 +41,18 @@ export async function handler(req: Request) {
         ["sign", "verify"],
     );
 
+    const devUserId = Deno.env.get("UUID_DEV_USER")?.trim();
+    if (!devUserId) {
+      console.error('[generate-dev-jwt] Server configuration error: UUID_DEV_USER is not set.');
+      return new Response(JSON.stringify({ error: 'Server configuration error: Dev user UUID not set.' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 500,
+      });
+    }
+
     const payload = {
       iss: "speaksharp-dev",
-      sub: "e9e0a6a0-0e0a-4e0a-a0e0-a0e0a0e0a0e0", // Hardcoded dev user UUID
+      sub: devUserId,
       role: "authenticated",
       exp: getNumericDate(60 * 60), // Expires in 1 hour
     };

@@ -8,6 +8,7 @@ Deno.test('generate-dev-jwt edge function', async (t) => {
 
   Deno.env.set("DEV_SECRET_KEY", "my-secret-dev-key");
   Deno.env.set("SUPABASE_JWT_SECRET", "super-secret-jwt-secret-for-testing");
+  Deno.env.set("UUID_DEV_USER", "e9e0a6a0-0e0a-4e0a-a0e0-a0e0a0e0a0e0");
 
   await t.step('should return 401 if dev key is missing', async () => {
     const req = new Request('http://localhost/generate-dev-jwt', { method: 'POST' });
