@@ -56,12 +56,7 @@ A real-time speech analysis tool built on two pillars: speed and privacy. Our "p
 
 ## Known Issues
 
-The development team is currently undertaking a focused effort (Phase 1) to launch a stable MVP. The following issues are known and are the primary targets of the current work:
-
-*   **Unreliable Transcription Modes:** The application's core transcription services are unstable. The "Local Mode" is non-functional, and the "Native Browser" fallback is unreliable. The MVP plan is to deliver a single, high-quality "Cloud Mode" with a reliable native fallback.
-*   **Broken Developer Workflow:** The process for developers to test premium features is broken and insecure. This is being replaced with a simple, environment-based bypass.
-*   **Missing User Feedback:** The application lacks a global notification system, meaning errors often happen silently. This will be fixed by implementing a global toast notification system.
-*   **Test Runner Memory Leak:** The Vitest test runner is experiencing a severe memory leak, causing it to crash. The issue has been isolated to the `src/__tests__/useSpeechRecognition.test.jsx` test suite. The problematic tests within this file have been disabled to allow the CI pipeline to run. Further investigation is required to identify the root cause, which is suspected to be related to how `vi.mock` handles complex class instantiations.
+All known issues, bugs, and technical debt are tracked in our [Product Requirements Document (PRD.md#known-issues)](PRD.md#known-issues). This ensures a single source of truth for the project's status.
 
 ## Production Ready Checklist
 *****************************************************************
