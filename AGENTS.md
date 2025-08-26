@@ -14,6 +14,15 @@ This document provides guidance for AI software engineering agents working on th
 
 ---
 
+### **Pre-Task Checklist**
+
+**You must complete this checklist at the beginning of every new task *before* forming a plan.** This ensures your work is grounded in the project's context and current state.
+
+1.  **Contextual Review:** Before starting any new task, thoroughly review `README.md`, `PRD.md`, and `System Architecture.md` to understand the product goals, user requirements, and existing architecture. This forms the foundation for your plan.
+2.  **Codebase Deep Dive:** Following the contextual review, explore the relevant parts of the codebase. Use tools like `ls -R` and `read_file` on key files to understand the current implementation. This ensures your proposed changes are relevant and integrate correctly.
+
+---
+
 ## 1. Technology Stack
 
 - **Frontend:** React (with Vite)

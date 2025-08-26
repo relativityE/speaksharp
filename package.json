@@ -7,8 +7,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest",
-    "test:watch": "vitest",
+    "test": "NODE_OPTIONS=--max-old-space-size=4096 vitest",
+    "test:watch": "NODE_OPTIONS=--max-old-space-size=4096 vitest",
     "test:coverage": "vitest run --coverage",
     "test:functions": "deno test --allow-all supabase/functions/**/*.test.ts",
     "test:all": "pnpm test && pnpm test:functions"

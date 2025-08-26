@@ -16,7 +16,7 @@ process.env.VITE_SUPABASE_KEY = 'test-key';
 // Mock scrollIntoView, which is not implemented in JSDOM.
 // This prevents tests from crashing when a component calls it.
 if (typeof window !== 'undefined') {
-  window.HTMLElement.prototype.scrollIntoView = function() {};
+  window.HTMLElement.prototype.scrollIntoView = vi.fn();
 }
 
 // Mock window.matchMedia, which is not implemented in JSDOM.
