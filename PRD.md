@@ -24,7 +24,7 @@
 ---
 
 ## Known Issues
-- **[CRITICAL BUG] Missing `audio-processor.worklet.js` File:** The application is missing the critical `src/services/transcription/utils/audio-processor.worklet.js` file. This file is essential for audio processing. Its absence causes the application to crash when a user attempts to start a recording session, and it prevents the Playwright E2E tests from running successfully.
+- **[NEW] Authorization Error with AssemblyAI (Developer Path):** Developers are reporting a `401 Unauthorized` error when using the shared secret (`DEV_SECRET_KEY`) to access the `assemblyai-token` Supabase edge function. This prevents testing the cloud-based transcription feature during local development. The issue needs to be investigated.
 - **On-Device Transcription Needs Polish:** The `LocalWhisper` provider in `TranscriptionService` is a functional implementation using Transformers.js. However, it may require further UI/UX polishing for model loading feedback and error handling before it is production-ready.
 - **[UNRESOLVED] Vitest Suite Instability with Complex Mocks**
   - **Status (as of Aug 25, 2025):** The test suite is currently unstable. Two test files are disabled to allow the CI/CD pipeline to pass. This is a high-priority issue preventing full test coverage of critical application logic.
@@ -216,6 +216,9 @@ Status Key: ✅ = Completed, ⚪ = To Do
 
 *   **Group 3: Code Health**
     *   ✅ **Task 3.2:** Update all documentation (`README.md`, `System Architecture.md`, etc.) with the final shared secret (`DEV_SECRET_KEY`) setup instructions.
+
+*   **Group 4: Deployment**
+    *   ⚪ **Task 4.1:** Configure and set up Vercel hosting for continuous deployment.
 
 ---
 

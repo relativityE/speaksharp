@@ -33,32 +33,7 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
     },
   }) as any;
 
-  await t.step('should return suggestions if SUPER_DEV_MODE is enabled, regardless of auth status', async () => {
-    Deno.env.set('SUPER_DEV_MODE', 'true');
-    Deno.env.set('GEMINI_API_KEY', 'mock-key'); // Needs a key to pass the check
-
-    try {
-      const req = new Request('http://localhost/get-ai-suggestions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript: "hello world this is a test" })
-      });
-
-      const res = await handler(req, failingMockCreateSupabase);
-      const json = await res.json();
-
-      assertEquals(res.status, 200);
-      assertExists(json.suggestions);
-      assertEquals(json.suggestions.summary, "This is a mock summary.");
-    } finally {
-      Deno.env.delete('SUPER_DEV_MODE');
-      Deno.env.delete('GEMINI_API_KEY');
-    }
-  });
-
-  await t.step('should return 401 if user is not authenticated and dev mode is off', async () => {
-    assert(Deno.env.get('SUPER_DEV_MODE') === undefined, 'SUPER_DEV_MODE should not be set');
-
+  await t.step('should return 401 if user is not authenticated', async () => {
     const req = new Request('http://localhost/get-ai-suggestions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
