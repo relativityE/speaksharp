@@ -27,23 +27,19 @@ export async function handler(
     const devSecretKey = Deno.env.get("DEV_SECRET_KEY");
 
     // --- Developer Mode Path ---
-    if (devSecretKey) {
-      if (authHeader === `Bearer ${devSecretKey}`) {
-        console.log('[assemblyai-token] Dev Mode: Success. Bypassing user auth.');
-        const assemblyai = createAssemblyAI();
-        const token = await assemblyai.realtime.createTemporaryToken({ expires_in: 600 });
-        return new Response(JSON.stringify({ token }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 200,
-        });
-      } else if (authHeader?.startsWith('Bearer ')) {
-        // This case handles when a dev key is set, but the client sends a different (e.g., user) token.
-        // We log it but proceed to user auth.
-        console.log('[assemblyai-token] Dev Mode: Mismatch. Client token does not match DEV_SECRET_KEY. Falling back to user auth.');
-      }
+    // If the dev secret is set on the server and the client provides it, bypass user auth.
+    if (devSecretKey && authHeader === `Bearer ${devSecretKey}`) {
+      console.log('[assemblyai-token] Dev Mode: Success. Bypassing user auth.');
+      const assemblyai = createAssemblyAI();
+      const token = await assemblyai.realtime.createTemporaryToken({ expires_in: 600 });
+      return new Response(JSON.stringify({ token }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 200,
+      });
     }
 
     // --- Standard User Path ---
+    // If the developer mode check did not pass, proceed with standard user authentication.
     if (!authHeader) {
       console.error('[assemblyai-token] Auth Error: No Authorization header provided.');
       return new Response(JSON.stringify({ error: 'Authentication failed: Missing Authorization header.' }), {
