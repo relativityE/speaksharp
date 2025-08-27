@@ -108,11 +108,6 @@ export default class CloudAssemblyAI {
       });
       // Explicitly connect to the service
       await this.transcriber.connect();
-      const onFrame = (f32) => {
-        if (this.transcriber) {
-          this.transcriber.sendAudio(f32);
-        }
-      };
     } catch (error) {
       console.error('Failed to start transcription:', error);
       throw error;
