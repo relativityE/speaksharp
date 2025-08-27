@@ -9,6 +9,7 @@ export default class CloudAssemblyAI {
     this.session = session;
     this.navigate = navigate;
     this.transcriber = null;
+    this._stopMicListener = null;
   }
 
   async _getAssemblyAIKey() {
@@ -32,7 +33,12 @@ export default class CloudAssemblyAI {
         headers: { 'Authorization': `Bearer ${userJwt}` },
       });
 
-      if (error) throw new Error(`Supabase function invocation for assemblyai-token failed: ${error.message}`);
+      if (error) {
+          if (error.context?.reason) {
+              throw new Error(`Supabase function invocation for assemblyai-token failed: ${error.context.reason}`);
+          }
+          throw new Error(`Supabase function invocation for assemblyai-token failed: ${error.message}`);
+      }
       if (data.error) throw new Error(`AssemblyAI token error: ${data.error}`);
       if (!data?.token) throw new Error('Token not found in response from Supabase function.');
 
@@ -107,10 +113,6 @@ export default class CloudAssemblyAI {
           this.transcriber.sendAudio(f32);
         }
       };
-
-      mic.onFrame(onFrame);
-      this._stopMicListener = () => mic.offFrame(onFrame);
-      
     } catch (error) {
       console.error('Failed to start transcription:', error);
       throw error;
@@ -122,7 +124,6 @@ export default class CloudAssemblyAI {
       this._stopMicListener();
       this._stopMicListener = null;
     }
-    
     if (this.transcriber) {
       await this.transcriber.close();
       this.transcriber = null;
