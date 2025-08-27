@@ -151,9 +151,9 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
     // Determine the vivid title for the card
     const getCardTitle = () => {
         if (isConnecting) return 'Connecting...';
-        if (isListening) return actualMode === 'cloud' ? 'Cloud AI' : 'Native Browser';
+        if (isListening) return `Mode: ${actualMode === 'cloud' ? 'Cloud AI' : 'Native Browser'}`;
         if (isModelLoading) return 'Initializing Model...';
-        return 'Ready to Record';
+        return 'Ready';
     };
 
     const showUpgradeButton = !isPro && !isUpgrading;

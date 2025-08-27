@@ -177,9 +177,13 @@ export const useSpeechRecognition = ({
             setError(null);
             setIsSupported(true);
 
-            if (!transcriptionServiceRef.current || transcriptionServiceRef.current.forceCloud !== forceCloud) {
-                console.log(`[useSpeechRecognition] Service not initialized or forceCloud changed. Creating instance...`);
+            const oldForceCloud = transcriptionServiceRef.current?.forceCloud;
+            console.log(`[useSpeechRecognition] startListening called with forceCloud=${forceCloud}. Previous service forceCloud was ${oldForceCloud}`);
+
+            if (!transcriptionServiceRef.current || oldForceCloud !== forceCloud) {
+                console.log(`[useSpeechRecognition] Condition met: Creating new service instance.`);
                 if (transcriptionServiceRef.current) {
+                    console.log(`[useSpeechRecognition] Destroying old service instance.`);
                     await transcriptionServiceRef.current.destroy();
                 }
                 const service = new TranscriptionService({
