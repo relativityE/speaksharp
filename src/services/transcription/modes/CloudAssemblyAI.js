@@ -16,11 +16,25 @@ export default class CloudAssemblyAI {
 
   async _getAssemblyAIToken() {
     try {
+      let userSession = this.session;
+      const isDevMode = import.meta.env.VITE_DEV_MODE === 'true';
+
+      // --- Developer Path: Anonymous Sign-In ---
+      // If in dev mode and there's no active session, sign in anonymously.
+      if (isDevMode && !userSession) {
+        console.log('[CloudAssemblyAI] Dev mode: No user session found. Attempting anonymous sign-in...');
+        const { data, error } = await supabase.auth.signInAnonymously();
+        if (error) throw new Error(`Anonymous sign-in failed: ${error.message}`);
+        if (!data.session) throw new Error('Anonymous sign-in did not return a session.');
+        console.log('[CloudAssemblyAI] Dev mode: Successfully signed in anonymously.');
+        userSession = data.session;
+      }
+
       // --- Standard User Path ---
-      if (!this.session?.access_token) {
+      if (!userSession?.access_token) {
         throw new Error('User not authenticated. Please log in to use Cloud transcription.');
       }
-      const userJwt = this.session.access_token;
+      const userJwt = userSession.access_token;
 
       // --- Use JWT to get AssemblyAI Token ---
       console.log('[CloudAssemblyAI] Requesting AssemblyAI token...');
