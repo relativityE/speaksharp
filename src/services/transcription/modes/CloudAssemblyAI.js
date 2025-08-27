@@ -10,7 +10,6 @@ export default class CloudAssemblyAI {
   }
 
   async init() {
-    // Initialization is now primarily handled by the hook that creates this instance.
     if (typeof this._getAssemblyAIToken !== 'function') {
       throw new Error('CloudAssemblyAI requires a getAssemblyAIToken function.');
     }
@@ -20,8 +19,6 @@ export default class CloudAssemblyAI {
     try {
       const assemblyAIToken = await this._getAssemblyAIToken();
       if (!assemblyAIToken) {
-        // The getAssemblyAIToken function should handle its own errors/toasts.
-        // Just throw to stop the process here.
         throw new Error("Failed to retrieve AssemblyAI token.");
       }
 
@@ -37,7 +34,6 @@ export default class CloudAssemblyAI {
         console.log(`AssemblyAI session opened with ID: ${id}`);
         if (this.onReady) this.onReady();
 
-        // Start listening to the microphone only after the connection is open
         const onFrame = (f32) => {
           if (this.transcriber) {
             this.transcriber.sendAudio(f32);
@@ -84,6 +80,7 @@ export default class CloudAssemblyAI {
       this._stopMicListener();
       this._stopMicListener = null;
     }
+
     if (this.transcriber) {
       await this.transcriber.close();
       this.transcriber = null;

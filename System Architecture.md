@@ -53,11 +53,10 @@ This diagram provides a more granular view of how the different parts of the cod
 |   | - `SessionSidebar.jsx`: User clicks "Start" button.             |     | - Vite (`vite.config.mjs`)        |
 |   | - `useSpeechRecognition.js`: Handles UI logic.                  |     | - Vitest (`*.test.jsx`)           |
 |   | - `TranscriptionService.js`: Core logic to choose mode.         |     | - Playwright (`*.spec.ts`)        |
-|   |   - `CloudAssemblyAI.js`: Handles cloud mode via SDK.           |     | - Deno Test (`*.test.ts`)         |
-|   |     - If dev mode & not logged in, calls signInAnonymously().   |     +-----------------------------------+
-|   |     - Makes POST to `/assemblyai-token` to get temporary token. |
-|   |     - Initializes AssemblyAI SDK with the temporary token.      |
-|   |   - `LocalWhisper.js`: Handles local mode (Transformers.js).    |
+|   |   - `CloudAssemblyAI.js`: Handles cloud mode.                   |     | - Deno Test (`*.test.ts`)         |
+|   |     - Makes POST to `/assemblyai-token`                         |     +-----------------------------------+
+|   |     - Opens WebSocket to AssemblyAI with the received token.    |
+|   |   - `NativeBrowser.js`: Handles local mode (Browser's native SpeechRecognition). |
 |   +-----------------------------------------------------------------+
 |                                   |
 |                                   | API Calls to Supabase Functions
@@ -67,10 +66,9 @@ This diagram provides a more granular view of how the different parts of the cod
 |   | Supabase (Backend)                                              |
 |   |-----------------------------------------------------------------|
 |   | - **Edge Functions (`supabase/functions/`)**                    |
-|   |   - `assemblyai-token`: Verifies user JWT, gets AssemblyAI      |
-|   |     temporary token for the new 'universal' model.              |
+|   |   - `assemblyai-token`: Verifies user JWT, gets AssemblyAI token.    |
 |   |     (Code: `index.ts`, Config: `config.toml`)                   |
-|   |     (Uses Secrets: `ASSEMBLYAI_API_KEY`)                        |
+|   |     (Uses Secrets: `ASSEMBLYAI_API_KEY`, `SERVICE_ROLE_KEY`)    |
 |   |                                                                 |
 |   |   - `get-ai-suggestions`: Gets suggestions from Gemini.         |
 |   |     (Code: `index.ts`, Config: `config.toml`)                   |
@@ -93,41 +91,33 @@ This diagram provides a more granular view of how the different parts of the cod
 
 ### Cloud AI Transcription Workflow (Detailed View)
 
-This diagram illustrates the step-by-step process for initiating a cloud-based transcription session. This workflow uses a temporary token, which is best practice for browser-based clients to avoid exposing the main API key.
+This diagram illustrates the step-by-step process for initiating a cloud-based transcription session. The new architecture uses a much simpler and more secure authentication flow.
 
 **Authentication & Developer Workflow**
 
-The system supports two authentication paths: one for standard users and a special flow for local development.
+The system supports two authentication paths: one for standard users and a seamless flow for local development.
 
 -   **Standard Users:** Authenticate using the standard JWT provided by Supabase Auth upon login.
--   **Developers (Local Env Only):** This flow is triggered by setting `VITE_DEV_MODE='true'` in the `.env.local` file. It uses Supabase's built-in anonymous sign-in feature to create a temporary user session.
+-   **Developers (Local Env Only):** This flow is triggered by setting `VITE_DEV_MODE='true'` in the `.env.local` file. If no active user session exists, the application automatically performs an anonymous sign-in with Supabase. This provides a valid, temporary session to test cloud features without needing to create a permanent user or manage special developer credentials.
 
-**Workflow Diagram:**
+**New Workflow Diagram:**
 ```
 Browser (React App)
   |
-  | 1. Get User JWT (either from normal login or anonymous sign-in for devs)
+  | 1. User clicks "Start Recording".
+  |    - If VITE_DEV_MODE=true and no user, performs `supabase.auth.signInAnonymously()`.
+  |    - Gets the user's JWT (either real or anonymous).
   |
-  | 2. Request Temporary AssemblyAI Token
+  | 2. Request AssemblyAI token with the user's JWT
   |    POST /functions/v1/assemblyai-token
   |    Header: Authorization: Bearer <user-JWT>
   |
   v
 Supabase Edge Function: assemblyai-token
-  - Verifies the user's JWT via `auth.getUser()`.
-  - If valid, uses the master `ASSEMBLYAI_API_KEY` to ask AssemblyAI
-    for a temporary token for the new 'universal' model.
+  - Uses Supabase Admin client to verify the user's JWT.
+  - If valid, calls AssemblyAI API with the secret ASSEMBLYAI_API_KEY.
   |
   | 3. Response: { token: "<assemblyai-temp-token>" }
-  v
-Browser (CloudAssemblyAI.js)
-  |
-  | 4. Initialize AssemblyAI SDK with the received temporary token.
-  |    `this.transcriber = new AssemblyAI.StreamingTranscriber({ token, ... })`
-  |
-  | 5. Connect and start sending audio data.
-  |    `await this.transcriber.connect();`
-  |
   v
 AssemblyAI Service
   - Receives audio stream and returns transcripts.
@@ -135,11 +125,11 @@ AssemblyAI Service
 
 ### Environment Variables for Local Development
 
-To run the application locally in developer mode, create a `.env.local` file in the root of the project with the following variables:
+To run the application locally, create a `.env.local` file in the root of the project with the following variables:
 
 ```bash
 # --- React App Variables ---
-# Set this to true to enable the developer authentication flow
+# Set this to true to enable the anonymous sign-in developer workflow
 VITE_DEV_MODE='true'
 
 # Your project's public Supabase URL and Anon Key
@@ -157,6 +147,7 @@ ASSEMBLYAI_API_KEY=<Your AssemblyAI API Key>
 # Your Gemini API Key for AI suggestions
 GEMINI_API_KEY=<Your Gemini API Key>
 ```
+The `UUID_DEV_USER` secret is no longer required.
 
 > [!NOTE]
 > **`VITE_DEV_MODE` is for the Frontend Only**
