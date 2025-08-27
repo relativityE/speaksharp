@@ -79,7 +79,6 @@ All known issues, bugs, and technical debt are tracked in our [Product Requireme
 *                                                               *
 *****************************************************************
 
-
 ## How to Test the Application
 
 This project uses a hybrid testing strategy:
