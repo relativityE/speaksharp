@@ -115,9 +115,11 @@ Browser (React App)
   v
 Supabase Edge Function: assemblyai-token
   - Uses Supabase Admin client to verify the user's JWT.
-  - If valid, calls AssemblyAI API with the secret ASSEMBLYAI_API_KEY.
+  - If valid, attempts to get a token using the AssemblyAI SDK.
+  - If the SDK fails, it automatically falls back to a direct `fetch` call.
+  - This provides resilience against SDK-related issues.
   |
-  | 3. Response: { token: "<assemblyai-temp-token>" }
+  | 3. Response: { token: "<assemblyai-temp-token>" } or a structured error
   v
 AssemblyAI Service
   - Receives audio stream and returns transcripts.
