@@ -4,9 +4,9 @@ import { AssemblyAI } from 'https://esm.sh/assemblyai@4.15.0';
 import * as jose from 'https://esm.sh/jose@4.15.1';
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'authorization, content-type'
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type"
 };
 
 export async function handler(req: Request) {
@@ -43,6 +43,10 @@ export async function handler(req: Request) {
         status: 403 // Forbidden
       });
     }
+    // Create AssemblyAI client and temporary token
+    const assemblyai = new AssemblyAI({ apiKey: assemblyAIKey });
+    const tempToken = await assemblyai.realtime.createTemporaryToken({ expires_in: 600 });
+
     // Create AssemblyAI client and temporary token
     const assemblyai = new AssemblyAI({ apiKey: assemblyAIKey });
     const tempToken = await assemblyai.realtime.createTemporaryToken({ expires_in: 600 });
