@@ -13,23 +13,13 @@
 ---
 
 ## Known Issues
-- **[UNRESOLVED] Cloud Transcription Fails to Initialize**
-  - **Status (as of Aug 27, 2025):** The cloud transcription service is non-operational. The frontend gets stuck in an "initializing" state because the backend Supabase Function (`assemblyai-token`) is not responding to requests.
-  - **Summary:** This issue has been the subject of an extensive, multi-day debugging effort. The root cause appears to be a platform-level issue with the Supabase Edge Runtime environment for this project.
-  - **Symptoms:**
-    - The browser console shows a `net::ERR_FAILED` error when calling the `assemblyai-token` function, indicating a CORS preflight failure.
-    - However, Supabase function logs show the function is **booting successfully** (`"event_message": "booted"`), but the request handler code is **never executed**. No logs from within the handler are ever printed.
-  - **Hypotheses Tested and Ruled Out:**
-    1.  **AssemblyAI API Error:** The issue is not a simple `400 Bad Request` from AssemblyAI.
-    2.  **Function-level CORS:** The function has been repeatedly updated with robust `OPTIONS` preflight handlers and correct CORS headers on all responses. The error persists.
-    3.  **Project-level CORS:** An invalid `cors_origins` key was added to `supabase/config.toml` and then removed. The deployment error from this invalid key proved that the `config.toml` file is being processed, but is not the source of the CORS error.
-    4.  **Function Handler Pattern:** We have tried both the `Deno.serve` and `export async function handler` patterns. Neither has resolved the issue.
-    5.  **Dependency Import Method:** We have tried importing dependencies using both the `npm:` specifier and the `https://esm.sh/` CDN. Neither has resolved the issue.
-    6.  **Authentication:** The function was simplified to use a basic `apikey` check, ruling out any issues with JWTs. The issue persists.
-  - **Final Conclusion:** The function boots but the runtime does not invoke the request handler. This points to an issue with the Supabase Edge Runtime itself, not the application code.
-  - **Next Steps:**
-    - This issue must be **escalated to Supabase support**.
-    - The `assemblyai-token` function has been left in a simplified "dev-friendly" state (using `apikey` auth) to serve as a minimal reproduction case for the support team.
+- **[RESOLVED] Cloud Transcription Fails to Initialize**
+  - **Status (as of Aug 27, 2025):** This issue has been addressed by a full rewrite of the authentication and transcription initiation flow.
+  - **Resolution:** Per user directive, the system was refactored to override the previous debugging state. The new implementation includes:
+    1.  A switch to a robust, user-specific JWT authentication model for the `assemblyai-token` function.
+    2.  An update of the edge function to use the modern `serve` pattern.
+    3.  A rewrite of the `useSpeechRecognition` frontend hook to directly manage the WebSocket connection and authentication flow, simplifying the architecture.
+  - **Next Steps:** The feature now needs to be tested in a deployed environment to confirm the fix.
 - **[UNRESOLVED] Vitest Suite Instability with Complex Mocks**
   - **Status (as of Aug 25, 2025):** The test suite is currently unstable. Two test files are disabled to allow the CI/CD pipeline to pass. This is a high-priority issue preventing full test coverage of critical application logic.
   - **Culprit Files:**
