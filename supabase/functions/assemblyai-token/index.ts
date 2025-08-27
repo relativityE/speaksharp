@@ -8,6 +8,11 @@ Deno.serve(async (req) => {
     return new Response("ok", { status: 200, headers: corsHeaders() });
   }
 
+  const supabaseClient = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_ANON_KEY")!
+  );
+
   try {
     // 2. Init AssemblyAI client
     const assemblyai = new AssemblyAI({
