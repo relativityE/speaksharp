@@ -27,9 +27,6 @@ export default class CloudAssemblyAI {
         sampleRate: 16000,
       });
 
-      const client = new AssemblyAI({ apiKey });
-      const transcriberParams = { sampleRate: 16000 };
-      this.transcriber = client.streaming.transcriber(transcriberParams);
       this.transcriber.on("open", ({ id }) => {
         console.log(`AssemblyAI session opened with ID: ${id}`);
         if (this.onReady) this.onReady();
