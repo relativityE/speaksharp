@@ -1,49 +1,72 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.44.4';
-import { AssemblyAI } from 'https://esm.sh/assemblyai@4.15.0';
-import { corsHeaders } from '../_shared/cors.ts';
+// supabase/functions/assemblyai-token/index.ts
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "npm:@supabase/supabase-js";
+import AssemblyAI from "npm:assemblyai";
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
+  const supabaseClient = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_ANON_KEY")!
+  );
 
   try {
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      throw new Error('Missing authorization header');
-    }
-    const token = authHeader.replace('Bearer ', '');
-    const supabaseUrl = Deno.env.get('SUPABASE_URL');
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-    const assemblyAIKey = Deno.env.get('ASSEMBLYAI_API_KEY');
+    const { data: { user }, error: authError } = await supabaseClient.auth.getUser(
+      req.headers.get("authorization")?.replace("Bearer ", "") ?? ""
+    );
 
-    if (!supabaseUrl || !serviceRoleKey || !assemblyAIKey) {
-      throw new Error('Server configuration error: Missing environment variables');
+    if (authError || !user) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
-    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
-    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
+    console.log("Authenticated user:", user.id);
 
-    if (userError) {
-      throw new Error(`Authentication error: ${userError.message}`);
+    // === 1. Try SDK method first ===
+    try {
+      const client = new AssemblyAI({ apiKey: Deno.env.get("ASSEMBLYAI_API_KEY")! });
+      const tempToken = await client.realtime.createTemporaryToken({ expires_in: 600 });
+
+      return new Response(JSON.stringify(tempToken), {
+        headers: { "Content-Type": "application/json" },
+      });
+    } catch (sdkError) {
+      console.error("AssemblyAI SDK error:", sdkError);
+      console.log("Falling back to raw fetch...");
     }
-    if (!user) {
-      throw new Error('User not found');
-    }
 
-    const assemblyai = new AssemblyAI({ apiKey: assemblyAIKey });
-    // Using corrected expires_in and no model parameter
-    const tempToken = await assemblyai.realtime.createTemporaryToken({ expires_in: 600 });
-
-    return new Response(JSON.stringify({ token: tempToken }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 200,
+    // === 2. Fallback: Direct fetch to AssemblyAI ===
+    const resp = await fetch("https://api.assemblyai.com/v2/realtime/token", {
+      method: "POST",
+      headers: {
+        "authorization": Deno.env.get("ASSEMBLYAI_API_KEY")!,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ expires_in: 600 }),
     });
-  } catch (error) {
-    // Return a 400 for client-side errors or AssemblyAI API errors
-    return new Response(JSON.stringify({ error: error.message }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 400,
+
+    const data = await resp.json();
+    console.log("AssemblyAI raw response:", data);
+
+    if (!resp.ok) {
+      return new Response(
+        JSON.stringify({ error: "AssemblyAI token request failed", details: data }),
+        {
+          status: resp.status,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    return new Response(JSON.stringify(data), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    console.error("Unexpected error in assemblyai-token function:", err);
+    return new Response(JSON.stringify({ error: "Internal server error" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
     });
   }
 });
