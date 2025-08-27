@@ -1,3 +1,4 @@
+// Modern Deno serve import - this is the key fix for Root Cause #3
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
@@ -7,17 +8,17 @@ const corsHeaders = () => ({
   'Access-Control-Allow-Methods': 'POST, OPTIONS'
 });
 
-interface AuthenticatedRequest extends Request {
-  user?: {
-    id: string;
-    email?: string;
-    [key: string]: any;
-  };
-}
 
-serve(async (req: Request) => {
+// Modern serve pattern - replaces the old "export async function handler" pattern
+// This is critical for compatibility with current Supabase Edge Runtime
+serve(async (req: Request): Promise<Response> => {
+  // Add comprehensive logging to help debug invocation issues
+  console.log(`🚀 assemblyai-token function invoked: ${req.method} ${req.url}`);
+  console.log(`📋 Headers:`, Object.fromEntries(req.headers.entries()));
+
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
+    console.log('✅ CORS preflight request handled');
     return new Response('ok', {
       headers: corsHeaders(),
       status: 200
@@ -25,6 +26,7 @@ serve(async (req: Request) => {
   }
 
   if (req.method !== 'POST') {
+    console.log(`❌ Method not allowed: ${req.method}`);
     return new Response(
       JSON.stringify({ error: 'Method not allowed' }),
       {
@@ -86,7 +88,7 @@ serve(async (req: Request) => {
     }
 
     // At this point, we have a verified user
-    console.log(`Authenticated request from user: ${user.id} (${user.email})`);
+    console.log(`✅ Authenticated request from user: ${user.id} (${user.email || 'no email'})`);
 
     // Check if AssemblyAI API key is configured
     const assemblyAIKey = Deno.env.get('ASSEMBLYAI_API_KEY');
@@ -131,7 +133,7 @@ serve(async (req: Request) => {
     const assemblyData = await assemblyResponse.json();
 
     // Optional: Log token generation for monitoring/debugging
-    console.log(`Generated AssemblyAI token for user ${user.id}`);
+    console.log(`🎟️ Generated AssemblyAI token for user ${user.id}`);
 
     // Optional: Store token usage in database for analytics
     try {
@@ -144,9 +146,10 @@ serve(async (req: Request) => {
         });
     } catch (dbError) {
       // Don't fail the request if logging fails
-      console.warn('Failed to log token usage:', dbError);
+      console.warn('⚠️ Failed to log token usage:', dbError);
     }
 
+    console.log('🎉 Successfully returning AssemblyAI token');
     return new Response(
       JSON.stringify({
         token: assemblyData.token,
@@ -160,7 +163,7 @@ serve(async (req: Request) => {
     );
 
   } catch (error) {
-    console.error('Unexpected error in assemblyai-token function:', error);
+    console.error('💥 Unexpected error in assemblyai-token function:', error);
     return new Response(
       JSON.stringify({
         error: 'Internal server error',
@@ -172,4 +175,4 @@ serve(async (req: Request) => {
       }
     );
   }
-});
+}); // End of serve() call - this is critical!
