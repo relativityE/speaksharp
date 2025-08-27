@@ -56,7 +56,6 @@ export async function handler(req: Request): Promise<Response> {
     return new Response(JSON.stringify(data), {
       headers: { "Content-Type": "application/json", ...corsHeaders() },
     });
-
   } catch (err) {
     console.error("Unexpected error in assemblyai-token function:", err);
     return new Response(JSON.stringify({ error: "Internal server error" }), {
