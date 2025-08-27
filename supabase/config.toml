@@ -343,6 +343,3 @@ s3_secret_key = "env(S3_SECRET_KEY)"
   entrypoint = "./functions/stripe-checkout/index.ts"
 [functions.stripe-webhook]
   entrypoint = "./functions/stripe-webhook/index.ts"
-[functions.generate-dev-jwt]
-  entrypoint = "./functions/generate-dev-jwt/index.ts"
-  verify_jwt = false
