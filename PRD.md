@@ -50,6 +50,9 @@ Status Key: ✅ = Completed, ⚪ = To Do, 🟡 = In Progress
     *   ⚪ **Task 4.1:** Configure and set up Vercel hosting for continuous deployment.
     *   ✅ **Task 4.2:** Fix `supabase/config.toml` to enable edge function deployment.
 
+*   **Group 4: Deployment**
+    *   ⚪ **Task 4.1:** Configure and set up Vercel hosting for continuous deployment.
+
 ---
 
 ### **Phase 2: Post-MVP Expansion (Future Roadmap)**

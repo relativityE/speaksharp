@@ -43,7 +43,7 @@ export async function handler(req: Request) {
         status: 403 // Forbidden
       });
     }
-
+    
     // Create AssemblyAI client and temporary token
     const assemblyai = new AssemblyAI({ apiKey: assemblyAIKey });
     const tempToken = await assemblyai.realtime.createTemporaryToken({ expires_in: 600 });
