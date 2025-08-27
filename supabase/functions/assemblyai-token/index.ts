@@ -1,5 +1,4 @@
-import { createClient } from "npm:@supabase/supabase-js";
-import { AssemblyAI } from "npm:assemblyai";
+import { AssemblyAI } from "https://esm.sh/assemblyai@4.15.0";
 import { corsHeaders } from "../_shared/cors.ts";
 
 export async function handler(req: Request): Promise<Response> {
