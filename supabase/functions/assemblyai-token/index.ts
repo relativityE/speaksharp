@@ -4,6 +4,7 @@ import { corsHeaders } from '../_shared/cors.ts';
 // This function now acts as a secure proxy to provide the AssemblyAI API key
 // to an authenticated client.
 
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -40,7 +41,6 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
     });
-
   } catch (error) {
     console.error('Error in assemblyai-token handler:', error);
     const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
