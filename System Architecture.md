@@ -10,6 +10,13 @@ The system is built for speed, both in user experience and development velocity.
 
 The architecture is designed around a modern, client-heavy Jamstack approach. The frontend is a sophisticated single-page application that handles most of the business logic.
 
+> **Serverless + Edge Functions**
+>
+> Lets you run backend logic without managing servers.
+>
+> - **Serverless functions** → run on demand (API endpoints, auth, etc.).
+> - **Edge functions** → run geographically closer to the user for faster response.
+
 ### High-Level Overview
 ```text
 +---------------------------------+      +---------------------------------+
