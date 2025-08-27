@@ -11,7 +11,7 @@ export default class CloudAssemblyAI {
     this.transcriber = null;
   }
 
-  async _getAssemblyAIToken() {
+  async _getAssemblyAIKey() {
     try {
       let userSession = this.session;
       const isDevMode = import.meta.env.VITE_DEV_MODE === 'true';
@@ -39,9 +39,9 @@ export default class CloudAssemblyAI {
       return data.token;
 
     } catch (error) {
-      console.error('Failed to get AssemblyAI token:', error);
+      console.error('Failed to get AssemblyAI API key:', error);
       toast.error('Failed to start session', { description: error.message });
-      throw new Error(`Failed to get AssemblyAI token. Reason: ${error.message}`);
+      throw new Error(`Failed to get AssemblyAI API key. Reason: ${error.message}`);
     }
   }
 
@@ -58,9 +58,21 @@ export default class CloudAssemblyAI {
         sampleRate: 16000,
       });
 
-      this.transcriber.on('open', ({ sessionId }) => {
-        console.log(`AssemblyAI session opened with ID: ${sessionId}`);
+      const client = new AssemblyAI({ apiKey });
+      const transcriberParams = { sampleRate: 16000 };
+      this.transcriber = client.streaming.transcriber(transcriberParams);
+      this.transcriber.on("open", ({ id }) => {
+        console.log(`AssemblyAI session opened with ID: ${id}`);
         if (this.onReady) this.onReady();
+
+        // Start listening to the microphone only after the connection is open
+        const onFrame = (f32) => {
+          if (this.transcriber) {
+            this.transcriber.sendAudio(f32);
+          }
+        };
+        mic.onFrame(onFrame);
+        this._stopMicListener = () => mic.offFrame(onFrame);
       });
 
       this.transcriber.on('error', (error) => {
@@ -76,12 +88,20 @@ export default class CloudAssemblyAI {
       this.transcriber.on('transcript.partial', (p) => {
         if (p.text && this.onTranscriptUpdate) this.onTranscriptUpdate({ transcript: { partial: p.text } });
       });
-      this.transcriber.on('transcript.final', (f) => {
-        if (f.text && this.onTranscriptUpdate) this.onTranscriptUpdate({ transcript: { final: f.text }, words: f.words });
+
+      this.transcriber.on("close", (code, reason) => {
+        console.log("AssemblyAI session closed:", code, reason);
+        this.transcriber = null;
       });
 
+      this.transcriber.on("turn", (turn) => {
+        if (!turn.transcript) {
+          return;
+        }
+        this.onTranscriptUpdate({ transcript: { final: turn.transcript }, words: turn.words });
+      });
+      // Explicitly connect to the service
       await this.transcriber.connect();
-
       const onFrame = (f32) => {
         if (this.transcriber) {
           this.transcriber.sendAudio(f32);
@@ -90,7 +110,7 @@ export default class CloudAssemblyAI {
 
       mic.onFrame(onFrame);
       this._stopMicListener = () => mic.offFrame(onFrame);
-
+      
     } catch (error) {
       console.error('Failed to start transcription:', error);
       throw error;
@@ -102,7 +122,7 @@ export default class CloudAssemblyAI {
       this._stopMicListener();
       this._stopMicListener = null;
     }
-
+    
     if (this.transcriber) {
       await this.transcriber.close();
       this.transcriber = null;
