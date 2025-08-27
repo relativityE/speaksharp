@@ -12,6 +12,7 @@ export async function handler(req: Request): Promise<Response> {
   }
 
   try {
+    console.log("assemblyai-token function invoked.");
     const supabaseClient = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!
@@ -31,6 +32,7 @@ export async function handler(req: Request): Promise<Response> {
 
     // === 1. Try SDK method first ===
     try {
+      console.log("Attempting to get token via AssemblyAI SDK...");
       const client = new AssemblyAI({ apiKey: Deno.env.get("ASSEMBLYAI_API_KEY")! });
       const tempToken = await client.realtime.createTemporaryToken({ expires_in: 600 });
       return new Response(JSON.stringify(tempToken), {
@@ -42,6 +44,7 @@ export async function handler(req: Request): Promise<Response> {
     }
 
     // === 2. Fallback: Direct fetch to AssemblyAI ===
+    console.log("Attempting to get token via direct fetch...");
     const resp = await fetch("https://api.assemblyai.com/v2/realtime/token", {
       method: "POST",
       headers: {
