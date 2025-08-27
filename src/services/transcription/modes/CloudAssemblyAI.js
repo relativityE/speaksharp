@@ -27,8 +27,11 @@ export default class CloudAssemblyAI {
         sampleRate: 16000,
       });
 
-      this.transcriber.on('open', ({ sessionId }) => {
-        console.log(`AssemblyAI session opened with ID: ${sessionId}`);
+      const client = new AssemblyAI({ apiKey });
+      const transcriberParams = { sampleRate: 16000 };
+      this.transcriber = client.streaming.transcriber(transcriberParams);
+      this.transcriber.on("open", ({ id }) => {
+        console.log(`AssemblyAI session opened with ID: ${id}`);
         if (this.onReady) this.onReady();
 
         const onFrame = (f32) => {
@@ -52,12 +55,20 @@ export default class CloudAssemblyAI {
       this.transcriber.on('transcript.partial', (p) => {
         if (p.text && this.onTranscriptUpdate) this.onTranscriptUpdate({ transcript: { partial: p.text } });
       });
-      this.transcriber.on('transcript.final', (f) => {
-        if (f.text && this.onTranscriptUpdate) this.onTranscriptUpdate({ transcript: { final: f.text }, words: f.words });
+
+      this.transcriber.on("close", (code, reason) => {
+        console.log("AssemblyAI session closed:", code, reason);
+        this.transcriber = null;
       });
 
+      this.transcriber.on("turn", (turn) => {
+        if (!turn.transcript) {
+          return;
+        }
+        this.onTranscriptUpdate({ transcript: { final: turn.transcript }, words: turn.words });
+      });
+      // Explicitly connect to the service
       await this.transcriber.connect();
-
     } catch (error) {
       console.error('Failed to start transcription:', error);
       throw error;

@@ -10,6 +10,13 @@ The system is built for speed, both in user experience and development velocity.
 
 The architecture is designed around a modern, client-heavy Jamstack approach. The frontend is a sophisticated single-page application that handles most of the business logic.
 
+> **Serverless + Edge Functions**
+>
+> Lets you run backend logic without managing servers.
+>
+> - **Serverless functions** → run on demand (API endpoints, auth, etc.).
+> - **Edge functions** → run geographically closer to the user for faster response.
+
 ### High-Level Overview
 ```text
 +---------------------------------+      +---------------------------------+
@@ -30,15 +37,6 @@ The architecture is designed around a modern, client-heavy Jamstack approach. Th
 | +------------+  +----------+  +----------+  +-----------+         |
 +-------------------------------------------------------------------+
 ```
-
-
-#### React SPA 
-SPA = Single-Page Application
-
-A React SPA is a web application built with React where the browser loads one HTML page (usually index.html) once, and then JavaScript dynamically updates the content as the user navigates.
-
-=> So instead of going back to the server for each new page, the app swaps components in/out on the client side.
-
 
 ### Detailed Component & Service Interaction Diagram
 
@@ -81,7 +79,7 @@ This diagram provides a more granular view of how the different parts of the cod
 |   +-----------------------------------------------------------------+
 |       |         |                      |
 |       |         |                      +----------------> +----------------------------+
-|       |         | (Via Supabase Function)                 | AssemblyAI API (Real-time) |
+|       |         | (SDK handles this)                      | AssemblyAI API (Real-time) |
 |       |         +---------------------------------------> +----------------------------+
 |       |
 |       +---------------------------------------------------> +----------------------------+
@@ -121,7 +119,8 @@ Supabase Edge Function: assemblyai-token
   |
   | 3. Response: { token: "<assemblyai-temp-token>" }
   v
-Browser uses the temporary AssemblyAI token for the WebSocket connection.
+AssemblyAI Service
+  - Receives audio stream and returns transcripts.
 ```
 
 ### Environment Variables for Local Development
@@ -142,9 +141,6 @@ VITE_SUPABASE_ANON_KEY=<Your Supabase Project Anon Key>
 # These are used by the functions when running locally via `supabase start`
 # and should also be set in your project's secrets for deployment.
 
-# Your project's Service Role Key (found in API settings)
-SUPABASE_SERVICE_ROLE_KEY=<Your Supabase Project Service Role Key>
-
 # Your AssemblyAI API Key
 ASSEMBLYAI_API_KEY=<Your AssemblyAI API Key>
 
@@ -152,6 +148,10 @@ ASSEMBLYAI_API_KEY=<Your AssemblyAI API Key>
 GEMINI_API_KEY=<Your Gemini API Key>
 ```
 The `UUID_DEV_USER` secret is no longer required.
+
+> [!NOTE]
+> **`VITE_DEV_MODE` is for the Frontend Only**
+> You do **not** need to set `VITE_DEV_MODE` as a secret in your Supabase project. Any variable prefixed with `VITE_` is specifically for your React application running in the browser. It's used in your `.env.local` file to tell the frontend to enable the developer workflow (the anonymous sign-in). Supabase Edge Functions run on a server and use a separate set of secrets that you configure in the Supabase dashboard.
 
 ## 3. Database Management & Performance
 

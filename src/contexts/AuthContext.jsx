@@ -10,40 +10,30 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const getSessionAndProfile = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+    // onAuthStateChange fires on initial load and whenever the auth state changes.
+    // This is the single source of truth for the user's session.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
+      const currentUser = session?.user;
+      setUser(currentUser ?? null);
+
+      // Don't try to fetch a profile for anonymous or logged-out users.
+      if (currentUser && !currentUser.is_anonymous) {
         const { data: profileData } = await supabase
           .from('user_profiles')
           .select('*')
-          .eq('id', session.user.id)
+          .eq('id', currentUser.id)
           .single();
-        setProfile(profileData);
+        setProfile(profileData ?? null);
+      } else {
+        setProfile(null);
       }
+
+      // Once the session and profile (or lack thereof) are sorted, we are done loading.
       setLoading(false);
-    };
+    });
 
-    getSessionAndProfile();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          const { data: profileData } = await supabase
-            .from('user_profiles')
-            .select('*')
-            .eq('id', session.user.id)
-            .single();
-          setProfile(profileData);
-        } else {
-          setProfile(null);
-        }
-      }
-    );
-
+    // Cleanup the subscription when the component unmounts.
     return () => {
       subscription?.unsubscribe();
     };
@@ -56,6 +46,7 @@ export function AuthProvider({ children }) {
     signOut: () => supabase.auth.signOut(),
   };
 
+  // Do not render the rest of the app until the initial auth state has been determined.
   return (
     <AuthContext.Provider value={value}>
       {!loading && children}

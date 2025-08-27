@@ -125,6 +125,7 @@ export const useSpeechRecognition = ({
             const { data, error } = await supabase.functions.invoke('assemblyai-token', {
                 headers: { 'Authorization': `Bearer ${userJwt}` },
             });
+
             if (error) {
                 throw new Error(`Supabase function invocation failed: ${error.message}`);
             }
