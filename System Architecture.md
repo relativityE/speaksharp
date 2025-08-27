@@ -53,10 +53,10 @@ This diagram provides a more granular view of how the different parts of the cod
 |   | - `SessionSidebar.jsx`: User clicks "Start" button.             |     | - Vite (`vite.config.mjs`)        |
 |   | - `useSpeechRecognition.js`: Handles UI logic.                  |     | - Vitest (`*.test.jsx`)           |
 |   | - `TranscriptionService.js`: Core logic to choose mode.         |     | - Playwright (`*.spec.ts`)        |
-|   |   - `CloudAssemblyAI.js`: Handles cloud mode.                   |     | - Deno Test (`*.test.ts`)         |
+|   |   - `CloudAssemblyAI.js`: Handles cloud mode via SDK.           |     | - Deno Test (`*.test.ts`)         |
 |   |     - If dev mode & not logged in, calls signInAnonymously().   |     +-----------------------------------+
-|   |     - Makes POST to `/assemblyai-token` with user's JWT.        |
-|   |     - Opens WebSocket to AssemblyAI with the received token.    |
+|   |     - Makes POST to `/assemblyai-token` to get API key.         |
+|   |     - Uses `assemblyai` SDK to stream audio.                    |
 |   |   - `LocalWhisper.js`: Handles local mode (Transformers.js).    |
 |   +-----------------------------------------------------------------+
 |                                   |
@@ -67,7 +67,7 @@ This diagram provides a more granular view of how the different parts of the cod
 |   | Supabase (Backend)                                              |
 |   |-----------------------------------------------------------------|
 |   | - **Edge Functions (`supabase/functions/`)**                    |
-|   |   - `assemblyai-token`: Verifies JWT, gets AssemblyAI token.    |
+|   |   - `assemblyai-token`: Verifies user JWT, returns API key.     |
 |   |     (Code: `index.ts`, Config: `config.toml`)                   |
 |   |     (Uses Secrets: `ASSEMBLYAI_API_KEY`)                        |
 |   |                                                                 |
@@ -80,7 +80,7 @@ This diagram provides a more granular view of how the different parts of the cod
 |   +-----------------------------------------------------------------+
 |       |         |                      |
 |       |         |                      +----------------> +----------------------------+
-|       |         | (Via Supabase Function)                 | AssemblyAI API (Real-time) |
+|       |         | (SDK handles this)                      | AssemblyAI API (Real-time) |
 |       |         +---------------------------------------> +----------------------------+
 |       |
 |       +---------------------------------------------------> +----------------------------+
@@ -92,7 +92,7 @@ This diagram provides a more granular view of how the different parts of the cod
 
 ### Cloud AI Transcription Workflow (Detailed View)
 
-This diagram illustrates the step-by-step process for initiating a cloud-based transcription session.
+This diagram illustrates the step-by-step process for initiating a cloud-based transcription session using the modern, SDK-based approach.
 
 **Authentication & Developer Workflow**
 
@@ -101,33 +101,35 @@ The system supports two authentication paths: one for standard users and a speci
 -   **Standard Users:** Authenticate using the standard JWT provided by Supabase Auth upon login.
 -   **Developers (Local Env Only):** This flow is triggered by setting `VITE_DEV_MODE='true'` in the `.env.local` file. It uses Supabase's built-in anonymous sign-in feature to create a temporary user session. This is secure and uses standard Supabase functionality.
 
-**Developer Workflow Diagram:**
+**Workflow Diagram:**
 ```
-Browser (React App, VITE_DEV_MODE=true, not logged in)
+Browser (React App)
   |
-  | 1. Call supabase.auth.signInAnonymously()
+  | 1. Get User JWT (either from normal login or anonymous sign-in for devs)
   |
-  v
-Supabase Auth
-  - Creates a new temporary, anonymous user.
-  - Returns a standard, secure JWT for this user.
-  |
-  | 2. Response: { data: { session: { access_token: "<jwt>" } } }
-  v
-Browser stores the anonymous session.
-  |
-  | 3. Request AssemblyAI token with the anonymous user's JWT.
+  | 2. Request AssemblyAI API Key
   |    POST /functions/v1/assemblyai-token
-  |    Header: Authorization: Bearer <jwt>
+  |    Header: Authorization: Bearer <user-JWT>
   |
   v
 Supabase Edge Function: assemblyai-token
-  - Verifies the JWT via `auth.getUser()`.
-  - If valid, calls AssemblyAI with the secret ASSEMBLYAI_API_KEY.
+  - Verifies the user's JWT via `auth.getUser()`.
+  - If valid, retrieves the master ASSEMBLYAI_API_KEY from secrets.
   |
-  | 4. Response: { token: "<assemblyai-temp-token>" }
+  | 3. Response: { apiKey: "<master-assemblyai-key>" }
   v
-Browser uses the temporary AssemblyAI token for the WebSocket connection.
+Browser (CloudAssemblyAI.js)
+  |
+  | 4. Initialize AssemblyAI SDK with the received API key.
+  |    `const client = new AssemblyAI({ apiKey });`
+  |    `const transcriber = client.streaming.transcriber(...)`
+  |
+  | 5. Start sending audio data to the transcriber.
+  |    The SDK handles the WebSocket connection and authentication.
+  |
+  v
+AssemblyAI Service
+  - Receives audio stream and returns transcripts.
 ```
 
 ### Environment Variables for Local Development
