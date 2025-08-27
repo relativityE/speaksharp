@@ -1,13 +1,11 @@
 // supabase/functions/assemblyai-token/index.ts
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js";
-import AssemblyAI from "npm:assemblyai";
 import { corsHeaders } from "../_shared/cors.ts";
+import AssemblyAI from "npm:assemblyai";
 
 Deno.serve(async (req) => {
-  // Handle CORS preflight requests
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+  // 1. Handle OPTIONS early
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { status: 200, headers: corsHeaders() });
   }
 
   const supabaseClient = createClient(
@@ -16,63 +14,26 @@ Deno.serve(async (req) => {
   );
 
   try {
-    const { data: { user }, error: authError } = await supabaseClient.auth.getUser(
-      req.headers.get("authorization")?.replace("Bearer ", "") ?? ""
-    );
-
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      });
-    }
-
-    console.log("Authenticated user:", user.id);
-
-    // === 1. Try SDK method first ===
-    try {
-      const client = new AssemblyAI({ apiKey: Deno.env.get("ASSEMBLYAI_API_KEY")! });
-      const tempToken = await client.realtime.createTemporaryToken({ expires_in: 600 });
-
-      return new Response(JSON.stringify(tempToken), {
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      });
-    } catch (sdkError) {
-      console.error("AssemblyAI SDK error:", sdkError);
-      console.log("Falling back to raw fetch...");
-    }
-
-    // === 2. Fallback: Direct fetch to AssemblyAI ===
-    const resp = await fetch("https://api.assemblyai.com/v2/realtime/token", {
-      method: "POST",
-      headers: {
-        "authorization": Deno.env.get("ASSEMBLYAI_API_KEY")!,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ expires_in: 600 }),
+    // 2. Init AssemblyAI client
+    const assemblyai = new AssemblyAI({
+      apiKey: Deno.env.get("ASSEMBLYAI_API_KEY")!,
     });
 
-    const data = await resp.json();
-    console.log("AssemblyAI raw response:", data);
+    // 3. Request temp token
+    const tempToken = await assemblyai.realtime.createTemporaryToken({
+      expires_in: 600,
+    });
 
-    if (!resp.ok) {
-      return new Response(
-        JSON.stringify({ error: "AssemblyAI token request failed", details: data }),
-        {
-          status: resp.status,
-          headers: { "Content-Type": "application/json", ...corsHeaders },
-        }
-      );
-    }
-
-    return new Response(JSON.stringify(data), {
-      headers: { "Content-Type": "application/json", ...corsHeaders },
+    // 4. Return with CORS
+    return new Response(JSON.stringify(tempToken), {
+      status: 200,
+      headers: { "Content-Type": "application/json", ...corsHeaders() },
     });
   } catch (err) {
-    console.error("Unexpected error in assemblyai-token function:", err);
-    return new Response(JSON.stringify({ error: "Internal server error" }), {
-      status: 500,
-      headers: { "Content-Type": "application/json", ...corsHeaders },
+    // 5. Ensure errors ALSO include CORS
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 400,
+      headers: { "Content-Type": "application/json", ...corsHeaders() },
     });
   }
 });
