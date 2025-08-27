@@ -1,63 +1,29 @@
 import { AssemblyAI } from 'assemblyai';
-import { supabase } from '../../../lib/supabaseClient';
-import { toast } from 'sonner';
 
 export default class CloudAssemblyAI {
-  constructor({ onTranscriptUpdate, onReady, session, navigate } = {}) {
+  constructor({ onTranscriptUpdate, onReady, getAssemblyAIToken } = {}) {
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onReady = onReady;
-    this.session = session;
-    this.navigate = navigate;
+    this._getAssemblyAIToken = getAssemblyAIToken; // Injected dependency
     this.transcriber = null;
     this._stopMicListener = null;
   }
 
-  async _getAssemblyAIKey() {
-    try {
-      let userSession = this.session;
-      const isDevMode = import.meta.env.VITE_DEV_MODE === 'true';
-
-      if (isDevMode && !userSession) {
-        const { data, error } = await supabase.auth.signInAnonymously();
-        if (error) throw new Error(`Anonymous sign-in failed: ${error.message}`);
-        if (!data.session) throw new Error('Anonymous sign-in did not return a session.');
-        userSession = data.session;
-      }
-
-      if (!userSession?.access_token) {
-        throw new Error('User not authenticated. Please log in to use Cloud transcription.');
-      }
-      const userJwt = userSession.access_token;
-
-      const { data, error } = await supabase.functions.invoke('assemblyai-token', {
-        headers: { 'Authorization': `Bearer ${userJwt}` },
-      });
-
-      if (error) {
-          if (error.context?.reason) {
-              throw new Error(`Supabase function invocation for assemblyai-token failed: ${error.context.reason}`);
-          }
-          throw new Error(`Supabase function invocation for assemblyai-token failed: ${error.message}`);
-      }
-      if (data.error) throw new Error(`AssemblyAI token error: ${data.error}`);
-      if (!data?.token) throw new Error('Token not found in response from Supabase function.');
-
-      return data.token;
-
-    } catch (error) {
-      console.error('Failed to get AssemblyAI API key:', error);
-      toast.error('Failed to start session', { description: error.message });
-      throw new Error(`Failed to get AssemblyAI API key. Reason: ${error.message}`);
-    }
-  }
-
   async init() {
-    // Initialization is handled in startTranscription
+    // Initialization is now primarily handled by the hook that creates this instance.
+    if (typeof this._getAssemblyAIToken !== 'function') {
+      throw new Error('CloudAssemblyAI requires a getAssemblyAIToken function.');
+    }
   }
 
   async startTranscription(mic) {
     try {
       const assemblyAIToken = await this._getAssemblyAIToken();
+      if (!assemblyAIToken) {
+        // The getAssemblyAIToken function should handle its own errors/toasts.
+        // Just throw to stop the process here.
+        throw new Error("Failed to retrieve AssemblyAI token.");
+      }
 
       this.transcriber = new AssemblyAI.StreamingTranscriber({
         token: assemblyAIToken,
@@ -83,7 +49,6 @@ export default class CloudAssemblyAI {
 
       this.transcriber.on('error', (error) => {
         console.error('AssemblyAI error:', error);
-        toast.error('An error occurred with the transcription service.');
       });
 
       this.transcriber.on('close', (code, reason) => {
