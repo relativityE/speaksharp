@@ -57,7 +57,6 @@ export default class CloudAssemblyAI {
       const client = new AssemblyAI({ apiKey });
       const transcriberParams = { sampleRate: 16000 };
       this.transcriber = client.streaming.transcriber(transcriberParams);
-
       this.transcriber.on("open", ({ id }) => {
         console.log(`AssemblyAI session opened with ID: ${id}`);
         if (this.onReady) this.onReady();
@@ -88,10 +87,8 @@ export default class CloudAssemblyAI {
         }
         this.onTranscriptUpdate({ transcript: { final: turn.transcript }, words: turn.words });
       });
-
       // Explicitly connect to the service
       await this.transcriber.connect();
-
     } catch (error) {
       console.error('Failed to start transcription:', error);
       throw error;
@@ -103,7 +100,6 @@ export default class CloudAssemblyAI {
       this._stopMicListener();
       this._stopMicListener = null;
     }
-
     if (this.transcriber) {
       await this.transcriber.close();
       this.transcriber = null;
