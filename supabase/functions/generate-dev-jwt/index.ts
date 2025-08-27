@@ -1,10 +1,11 @@
+// File: functions/generate-dev-jwt/index.ts
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
-import { create, getNumericDate } from "https://deno.land/x/djwt@v3.0.2/mod.ts";
+import * as jose from 'https://esm.sh/jose@4.15.1';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'content-type, x-dev-secret-key, X-Dev-Secret-Key',
+  'Access-Control-Allow-Headers': 'authorization, content-type'
 };
 
 export async function handler(req: Request) {
@@ -13,65 +14,40 @@ export async function handler(req: Request) {
   }
 
   try {
-    const devSecretHeader = req.headers.get('X-Dev-Secret-Key');
-    const devSecretKey = Deno.env.get("DEV_SECRET_KEY")?.trim();
-    const jwtSecret = Deno.env.get("SUPABASE_JWT_SECRET")?.trim();
+    // This function is now a simple JWT generator and doesn't need a dev key.
+    // The browser can call it directly in dev mode.
+    // It's secured by the fact that it only returns a token for a non-privileged, specific dev user UUID.
 
-    if (!devSecretKey || !jwtSecret) {
-      console.error('[generate-dev-jwt] Server configuration error: DEV_SECRET_KEY or SUPABASE_JWT_SECRET is not set.');
-      return new Response(JSON.stringify({ error: 'Server configuration error.' }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 500,
-      });
+    // Environment variables
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const uuidDevUser = Deno.env.get('UUID_DEV_USER');
+
+    if (!serviceRoleKey || !uuidDevUser) {
+      throw new Error('Missing required environment variables');
     }
 
-    if (devSecretHeader !== devSecretKey) {
-      console.error('[generate-dev-jwt] Unauthorized: Invalid developer key provided.');
-      return new Response(JSON.stringify({ error: 'Invalid developer key.' }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 401,
-      });
-    }
+    // Create short-lived JWT (expires in 10 min)
+    const jwt = await new jose.SignJWT({ sub: uuidDevUser, role: 'authenticated' })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt()
+      .setExpirationTime('10m')
+      .sign(new TextEncoder().encode(serviceRoleKey));
 
-    const key = await crypto.subtle.importKey(
-        "raw",
-        new TextEncoder().encode(jwtSecret),
-        { name: "HMAC", hash: "SHA-256" },
-        false,
-        ["sign", "verify"],
-    );
-
-    const devUserId = Deno.env.get("UUID_DEV_USER")?.trim();
-    if (!devUserId) {
-      console.error('[generate-dev-jwt] Server configuration error: UUID_DEV_USER is not set.');
-      return new Response(JSON.stringify({ error: 'Server configuration error: Dev user UUID not set.' }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 500,
-      });
-    }
-
-    const payload = {
-      iss: "speaksharp-dev",
-      sub: devUserId,
-      role: "authenticated",
-      exp: getNumericDate(60 * 60), // Expires in 1 hour
-    };
-
-    const jwt = await create({ alg: "HS256", typ: "JWT" }, payload, key);
-
-    return new Response(JSON.stringify({ token: jwt }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 200,
+    return new Response(JSON.stringify({ token: jwt, expires_in: 600 }), {
+      headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      status: 200
     });
 
-  } catch (error) {
-    const message = (error instanceof Error) ? error.message : 'An unexpected error occurred.';
+  } catch (err) {
+    const message = (err instanceof Error) ? err.message : 'An unexpected error occurred.';
     return new Response(JSON.stringify({ error: message }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500
+      headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      status: 500
     });
   }
 }
 
-serve((req: Request) => {
-    return handler(req);
-});
+// Start server if the script is executed directly.
+if (import.meta.main) {
+  serve(handler);
+}

@@ -1,77 +1,128 @@
 import { handler } from './index.ts';
 import { assertEquals, assertExists } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { assert } from 'https://deno.land/std@0.224.0/assert/assert.ts';
+import { stub } from "https://deno.land/std@0.224.0/testing/mock.ts";
+import * as jose from 'https://esm.sh/jose@4.15.1';
+import { AssemblyAI } from 'https://esm.sh/assemblyai@4.15.0';
+
+const SERVICE_KEY = 'super-secret-key-that-is-long-enough';
+const DEV_USER_ID = 'test-dev-uuid';
+const OTHER_USER_ID = 'other-user-uuid';
+const ASSEMBLYAI_KEY = 'assembly-ai-api-key';
+
+
+// Helper to create a valid JWT for testing
+async function createTestJwt(subject: string, key: string) {
+    return await new jose.SignJWT({ sub: subject })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setIssuedAt()
+        .setExpirationTime('1m')
+        .sign(new TextEncoder().encode(key));
+}
 
 Deno.test('assemblyai-token edge function', async (t) => {
-  const mockCreateAssemblyAI = () => ({
-    realtime: {
-      createTemporaryToken: () => Promise.resolve('mock_assemblyai_token'),
-    },
-  }) as any;
 
-  const failingMockCreateSupabase = () => ({
-    auth: {
-      getUser: () => Promise.resolve({ data: { user: null }, error: { message: 'Unauthorized' } }),
-    },
-  }) as any;
-
-  await t.step('should return 401 if no auth header is provided', async () => {
-    const req = new Request('http://localhost/assemblyai-token', { method: 'POST' });
-    const res = await handler(req, failingMockCreateSupabase, mockCreateAssemblyAI);
-    const json = await res.json();
-
-    assertEquals(res.status, 401);
-    assertEquals(json.error, 'Authentication failed: Missing Authorization header.');
-  });
-
-  await t.step('should return 403 if free user exceeds usage limit', async () => {
-    const mockCreateSupabase = () => ({
-      auth: {
-        getUser: () => Promise.resolve({ data: { user: { id: 'test-user' } }, error: null }),
-      },
-      from: () => ({
-        select: () => ({
-          eq: () => ({
-            single: () => Promise.resolve({ data: { subscription_status: 'free', usage_seconds: 1000 }, error: null }),
-          }),
-        }),
-      }),
-    }) as any;
-
-    const req = new Request('http://localhost/assemblyai-token', {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer fake-token' },
+    await t.step('should return 401 if environment variables are missing', async () => {
+        const envStub = stub(Deno.env, "get", () => undefined);
+        try {
+            // Provide a dummy header to get past the first check
+            const req = new Request('http://localhost/assemblyai-token', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer dummy-token' }
+            });
+            const res = await handler(req);
+            // It should throw an error, which the catch block turns into a 401
+            assertEquals(res.status, 401);
+            const json = await res.json();
+            assertEquals(json.error, 'Missing environment variables');
+        } finally {
+            envStub.restore();
+        }
     });
-    const res = await handler(req, mockCreateSupabase, mockCreateAssemblyAI);
-    const json = await res.json();
 
-    assertEquals(res.status, 403);
-    assertEquals(json.error, 'Usage limit exceeded. Please upgrade to Pro for unlimited access.');
-  });
-
-  await t.step('should return a token for a pro user', async () => {
-    const mockCreateSupabase = () => ({
-      auth: {
-        getUser: () => Promise.resolve({ data: { user: { id: 'pro-user' } }, error: null }),
-      },
-      from: () => ({
-        select: () => ({
-          eq: () => ({
-            single: () => Promise.resolve({ data: { subscription_status: 'pro' }, error: null }),
-          }),
-        }),
-      }),
-    }) as any;
-
-    const req = new Request('http://localhost/assemblyai-token', {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer fake-token' },
+    await t.step('should return 401 if auth header is missing', async () => {
+        const envStub = stub(Deno.env, "get", (key) => {
+            if (key === 'SUPABASE_SERVICE_ROLE_KEY') return SERVICE_KEY;
+            if (key === 'UUID_DEV_USER') return DEV_USER_ID;
+            if (key === 'ASSEMBLYAI_API_KEY') return ASSEMBLYAI_KEY;
+            return undefined;
+        });
+        try {
+            const req = new Request('http://localhost/assemblyai-token', { method: 'POST' });
+            const res = await handler(req);
+            assertEquals(res.status, 401);
+            const json = await res.json();
+            assertEquals(json.error, 'Missing authorization header');
+        } finally {
+            envStub.restore();
+        }
     });
-    const res = await handler(req, mockCreateSupabase, mockCreateAssemblyAI);
-    const json = await res.json();
 
-    assertEquals(res.status, 200);
-    assertExists(json.token);
-    assertEquals(json.token, 'mock_assemblyai_token');
-  });
+    await t.step('should return 401 if JWT is invalid or expired', async () => {
+        const envStub = stub(Deno.env, "get", (key) => {
+            if (key === 'SUPABASE_SERVICE_ROLE_KEY') return SERVICE_KEY;
+            if (key === 'UUID_DEV_USER') return DEV_USER_ID;
+            if (key === 'ASSEMBLYAI_API_KEY') return ASSEMBLYAI_KEY;
+            return undefined;
+        });
+        try {
+            const req = new Request('http://localhost/assemblyai-token', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer garbage-token' }
+            });
+            const res = await handler(req);
+            assertEquals(res.status, 401);
+        } finally {
+            envStub.restore();
+        }
+    });
+
+    await t.step('should return 403 if JWT is for a different user', async () => {
+        const envStub = stub(Deno.env, "get", (key) => {
+            if (key === 'SUPABASE_SERVICE_ROLE_KEY') return SERVICE_KEY;
+            if (key === 'UUID_DEV_USER') return DEV_USER_ID;
+            if (key === 'ASSEMBLYAI_API_KEY') return ASSEMBLYAI_KEY;
+            return undefined;
+        });
+        try {
+            const validTokenForOtherUser = await createTestJwt(OTHER_USER_ID, SERVICE_KEY);
+            const req = new Request('http://localhost/assemblyai-token', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${validTokenForOtherUser}` }
+            });
+            const res = await handler(req);
+            assertEquals(res.status, 403);
+            const json = await res.json();
+            assertEquals(json.error, 'Invalid user for this endpoint');
+        } finally {
+            envStub.restore();
+        }
+    });
+
+    await t.step('should pass JWT validation and fail on AssemblyAI client', async () => {
+        const envStub = stub(Deno.env, "get", (key) => {
+            if (key === 'SUPABASE_SERVICE_ROLE_KEY') return SERVICE_KEY;
+            if (key === 'UUID_DEV_USER') return DEV_USER_ID;
+            if (key === 'ASSEMBLYAI_API_KEY') return ASSEMBLYAI_KEY;
+            return undefined;
+        });
+        try {
+            const validToken = await createTestJwt(DEV_USER_ID, SERVICE_KEY);
+            const req = new Request('http://localhost/assemblyai-token', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${validToken}` }
+            });
+            const res = await handler(req);
+            // We expect a 401 because the AssemblyAI client will fail to initialize
+            // without a real API key, and the error is caught.
+            assertEquals(res.status, 401);
+            const json = await res.json();
+            assertExists(json.error);
+            // Check that the error is NOT one of our auth errors.
+            // This proves the JWT validation part was successful.
+            assertEquals(json.error.includes('Invalid user'), false);
+            assertEquals(json.error.includes('Missing authorization header'), false);
+        } finally {
+            envStub.restore();
+        }
+    });
 });

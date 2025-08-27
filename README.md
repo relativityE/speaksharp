@@ -93,82 +93,12 @@ To run the entire test suite (Vitest and Deno tests), use:
 pnpm run test:all
 ```
 
-
-For most of the application logic and component testing, we use Vitest, a fast and modern test runner. These tests run in a simulated JSDOM environment, which is fast but not a real browser.
-
-To run the main test suite, use the following command:
-
-```bash
-pnpm test
-```
-
-This command is configured to execute all `*.test.jsx` files located under the `src` directory.
-
-### 2. End-to-End & Browser-Specific Tests (Playwright)
-
-For features that rely on browser-native APIs (like the `TranscriptionService`'s audio processing) and are difficult to test reliably in JSDOM, we use [Playwright](https://playwright.dev/). These tests run in a real browser environment, providing a more accurate and stable testing ground for complex features.
-
-To run the Playwright tests, use the following command:
-
-```bash
-npx playwright test
-```
-
-This command looks for test files in the `playwright-tests` directory and runs them in a headless browser.
-
-## Usage
-
-This section outlines the features available at each of the three user tiers.
-
-### 1. Anonymous Users (Trial)
-- **Session Limit**: A single, 2-minute trial session.
-- **Transcription**: Privacy-first, on-device transcription.
-- **Analytics**: Can view a demo of the analytics page, but no data is saved.
-
-### 2. Free Tier Users
-- **Session Limit**: A 30-minute monthly usage quota.
-- **Transcription**: All transcription is processed locally on-device.
-- **Session History**: Automatically saves session metadata (excluding transcripts) to the user's account.
-- **Analytics**: Access to trend-based dashboards.
-- **Custom Filler Words**: Track up to 3 custom filler words.
-
-### 3. Pro Tier Users
-Pro users unlock the full power of the tool, including:
-- Unlimited session time and history.
-- The option to use premium, high-accuracy cloud transcription.
-- Advanced, per-session analytics and data export (including PDF reports).
-- Unlimited custom filler words.
-
-## User Tiers & Authentication
-
-The application is built with a "public-first" approach. Core pages like the main session recorder and analytics dashboard are viewable by anyone. However, to persist data and unlock features, users must create an account.
-
--   **Authentication Provider**: We use **Supabase Auth** for handling user sign-up, sign-in, and password recovery.
--   **Sign-Up**: When a new user signs up, Supabase sends a confirmation email with a verification link. The user must click this link to activate their account.
--   **Password Reset**: Users can request a password reset link from the Sign-In page. This also uses Supabase's secure email-based recovery flow.
--   **Session Management**: User sessions are managed via the `AuthContext`, which provides user and profile data throughout the application.
-
-This model allows for a low-friction initial experience while providing a clear path to engagement and feature unlock for registered users.
-
-## Project Status & Roadmap
-
-This project is currently being developed into a full-stack SaaS application with a **"Speed Over Perfection"** philosophy. The immediate goal is to launch a monetizable MVP within 3 weeks to gather user feedback and iterate quickly.
-
-The high-level roadmap is a two-phase plan:
-1.  **Phase 1: Fast Development & Testing (AssemblyAI)**
-    - Goal: Quickly test features, get user feedback, and fix bugs using a cloud-based transcription service.
-    - This phase prioritizes speed of iteration over privacy-first features.
-2.  **Phase 2: Privacy-First Production (Whisper.cpp On-Device)**
-    - Goal: Deliver on the "privacy-first" promise by moving transcription to the user's device.
-    - This phase will involve integrating Whisper.cpp to ensure no audio leaves the device.
-
 ## How to Deploy to Vercel
 
 1.  **Fork the repository** to your own GitHub account.
 2.  **Create a new project on Vercel** and connect it to your forked repository.
 3.  **Configure the environment variables** in the Vercel project settings. You will need to add all the variables from your `.env.local` file.
 4.  **Deploy!** Vercel will automatically build and deploy your application. Any new pushes to the `main` branch will trigger a new deployment.
-
 
 ## Contributing
 

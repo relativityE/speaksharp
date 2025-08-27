@@ -14,40 +14,37 @@ export default class CloudAssemblyAI {
     this._t0 = 0;
   }
 
-  async _getAuthToken() {
-    const devSecretKey = import.meta.env.VITE_DEV_SECRET_KEY;
-
-    // --- Developer Path ---
-    if (devSecretKey) {
-      console.log('[CloudAssemblyAI] Dev mode: Attempting to get temporary JWT...');
-      try {
-        const { data, error } = await supabase.functions.invoke('generate-dev-jwt', {
-          headers: { 'X-Dev-Secret-Key': devSecretKey },
-        });
-        if (error) throw error;
-        if (data.error) throw new Error(data.error);
-        return data.token;
-      } catch (e) {
-        console.error("Failed to get dev JWT:", e);
-        throw new Error(`Failed to get developer token. Reason: ${e.message}`);
-      }
-    }
-
-    // --- Standard User Path ---
-    if (!this.session?.access_token) {
-      throw new Error('User not authenticated. Please log in to use Cloud transcription.');
-    }
-    return this.session.access_token;
-  }
-
   async _getAssemblyAIToken() {
     try {
-      const userJwt = await this._getAuthToken();
+      let userJwt;
+      const isDevMode = import.meta.env.VITE_DEV_MODE === 'true';
+
+      // --- Developer Path ---
+      if (isDevMode) {
+        console.log('[CloudAssemblyAI] Dev mode: Requesting temporary developer JWT...');
+        const { data: jwtData, error: jwtError } = await supabase.functions.invoke('generate-dev-jwt', {
+          method: 'POST',
+        });
+        if (jwtError) throw new Error(`Failed to get developer JWT: ${jwtError.message}`);
+        if (jwtData.error) throw new Error(`generate-dev-jwt function returned an error: ${jwtData.error}`);
+        userJwt = jwtData.token;
+        console.log('[CloudAssemblyAI] Dev mode: Successfully received temporary developer JWT.');
+      }
+      // --- Standard User Path ---
+      else {
+        if (!this.session?.access_token) {
+          throw new Error('User not authenticated. Please log in to use Cloud transcription.');
+        }
+        userJwt = this.session.access_token;
+      }
+
+      // --- Use JWT to get AssemblyAI Token ---
+      console.log('[CloudAssemblyAI] Requesting AssemblyAI token...');
       const { data, error } = await supabase.functions.invoke('assemblyai-token', {
         headers: { 'Authorization': `Bearer ${userJwt}` },
       });
 
-      if (error) throw new Error(`Supabase function invocation failed: ${error.message}`);
+      if (error) throw new Error(`Supabase function invocation for assemblyai-token failed: ${error.message}`);
       if (data.error) {
         if (data.error.includes('Usage limit exceeded')) {
           toast.error("You've run out of free minutes.", {
@@ -58,9 +55,13 @@ export default class CloudAssemblyAI {
         throw new Error(`AssemblyAI token error: ${data.error}`);
       }
       if (!data?.token) throw new Error('Token not found in response from Supabase function.');
+
+      console.log('[CloudAssemblyAI] Successfully received AssemblyAI token.');
       return data.token;
+
     } catch (error) {
       console.error('Failed to get AssemblyAI token:', error);
+      toast.error('Failed to start session', { description: error.message });
       throw new Error(`Failed to get AssemblyAI token. Reason: ${error.message}`);
     }
   }
@@ -84,7 +85,6 @@ export default class CloudAssemblyAI {
 
       this.transcriber.on('error', (error) => console.error('AssemblyAI error:', error));
       this.transcriber.on('close', (code, reason) => console.log('AssemblyAI session closed:', code, reason));
-
       this.transcriber.on('transcript.partial', (p) => {
         if (p.text && this.onTranscriptUpdate) this.onTranscriptUpdate({ transcript: { partial: p.text } });
       });
@@ -100,6 +100,7 @@ export default class CloudAssemblyAI {
 
     } catch (error) {
       console.error('Failed to start transcription:', error);
+      // The error is already toasted in _getAssemblyAIToken, so no need to toast again here.
       throw error;
     }
   }

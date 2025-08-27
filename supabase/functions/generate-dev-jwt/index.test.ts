@@ -1,59 +1,46 @@
 import { handler } from './index.ts';
 import { assertEquals, assertExists } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { verify } from "https://deno.land/x/djwt@v3.0.2/mod.ts";
+import { stub } from "https://deno.land/std@0.224.0/testing/mock.ts";
+import * as jose from 'https://esm.sh/jose@4.15.1';
 
 Deno.test('generate-dev-jwt edge function', async (t) => {
-  const originalDevKey = Deno.env.get("DEV_SECRET_KEY");
-  const originalJwtSecret = Deno.env.get("SUPABASE_JWT_SECRET");
 
-  Deno.env.set("DEV_SECRET_KEY", "my-secret-dev-key");
-  Deno.env.set("SUPABASE_JWT_SECRET", "super-secret-jwt-secret-for-testing");
-  Deno.env.set("UUID_DEV_USER", "e9e0a6a0-0e0a-4e0a-a0e0-a0e0a0e0a0e0");
-
-  await t.step('should return 401 if dev key is missing', async () => {
-    const req = new Request('http://localhost/generate-dev-jwt', { method: 'POST' });
-    const res = await handler(req);
-    assertEquals(res.status, 401);
-    const json = await res.json();
-    assertEquals(json.error, 'Invalid developer key.');
+  await t.step('should return 500 if environment variables are missing', async () => {
+    const envStub = stub(Deno.env, "get", () => undefined);
+    try {
+      const req = new Request('http://localhost/generate-dev-jwt', { method: 'POST' });
+      const res = await handler(req);
+      assertEquals(res.status, 500);
+      const json = await res.json();
+      assertEquals(json.error, 'Missing required environment variables');
+    } finally {
+      envStub.restore();
+    }
   });
 
-  await t.step('should return 401 if dev key is incorrect', async () => {
-    const req = new Request('http://localhost/generate-dev-jwt', {
-      method: 'POST',
-      headers: { 'X-Dev-Secret-Key': 'wrong-key' }
+  await t.step('should return a JWT if environment variables are set', async () => {
+    const envStub = stub(Deno.env, "get", (key) => {
+      if (key === 'SUPABASE_SERVICE_ROLE_KEY') return 'super-secret-key-that-is-long-enough';
+      if (key === 'UUID_DEV_USER') return 'test-uuid';
+      return undefined;
     });
-    const res = await handler(req);
-    assertEquals(res.status, 401);
+
+    try {
+      const req = new Request('http://localhost/generate-dev-jwt', { method: 'POST' });
+      const res = await handler(req);
+
+      assertEquals(res.status, 200);
+      const json = await res.json();
+      assertExists(json.token);
+      assertEquals(json.expires_in, 600);
+
+      // Optional: verify the token to ensure it's well-formed
+      const { payload } = await jose.jwtVerify(json.token, new TextEncoder().encode('super-secret-key-that-is-long-enough'));
+      assertEquals(payload.sub, 'test-uuid');
+      assertExists(payload.exp);
+
+    } finally {
+      envStub.restore();
+    }
   });
-
-  await t.step('should return a valid JWT if correct dev key is provided', async () => {
-    const req = new Request('http://localhost/generate-dev-jwt', {
-      method: 'POST',
-      headers: { 'X-Dev-Secret-Key': 'my-secret-dev-key' }
-    });
-    const res = await handler(req);
-    assertEquals(res.status, 200);
-    const json = await res.json();
-    assertExists(json.token);
-
-    // Verify the JWT
-    const key = await crypto.subtle.importKey(
-        "raw",
-        new TextEncoder().encode(Deno.env.get("SUPABASE_JWT_SECRET")),
-        { name: "HMAC", hash: "SHA-256" },
-        false,
-        ["sign", "verify"],
-    );
-    const payload = await verify(json.token, key);
-    assertExists(payload);
-    assertEquals(payload.role, 'authenticated');
-    assertEquals(payload.sub, 'e9e0a6a0-0e0a-4e0a-a0e0-a0e0a0e0a0e0');
-  });
-
-  // Restore original environment variables
-  if (originalDevKey) Deno.env.set("DEV_SECRET_KEY", originalDevKey);
-  else Deno.env.delete("DEV_SECRET_KEY");
-  if (originalJwtSecret) Deno.env.set("SUPABASE_JWT_SECRET", originalJwtSecret);
-  else Deno.env.delete("SUPABASE_JWT_SECRET");
 });

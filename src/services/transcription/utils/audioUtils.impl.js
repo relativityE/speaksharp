@@ -1,4 +1,5 @@
-// src/services/transcription/utils/audioUtils.js
+// This file contains the actual implementation for creating a microphone stream
+// and is dynamically imported by the 'safe' wrapper file (audioUtils.js).
 
 // Lazy-load worklet URL only in browser environments
 let workletUrlPromise = null;
