@@ -100,6 +100,42 @@ ASSEMBLYAI_API_KEY=<Your AssemblyAI API Key>
 # The UUID of the dedicated, non-privileged user you created for development
 # (Go to Supabase Dashboard > Authentication > Users > Click on dev user > Copy UUID)
 UUID_DEV_USER=<The UUID of the dev user>
+
+**Authentication:**
+- **Standard Users:** Authenticate using the JWT obtained at login.
+- **Developers (Local Env Only):** If a `VITE_DEV_SECRET_KEY` is present in the `.env.local` file, the application enters developer mode. It calls a special `generate-jwt` edge function (which has JWT verification disabled). This function returns a short-lived JWT for a hardcoded, non-privileged developer user. This temporary JWT is then used to authenticate subsequent requests to secured functions.
+
+**Workflow:**
+```text
++---------------------------------+      +-------------------------------------+      +-----------------------------+
+|         User's Browser          |      |        Supabase Edge Function       |      |      AssemblyAI Service     |
+|        (React Client)           |      |        (assemblyai-token)           |      |                             |
++---------------------------------+      +-------------------------------------+      +-----------------------------+
+               |                                       |                                       |
+1. `createMicStream()` is called.                      |                                       |
+   - Captures audio.                                   |                                       |
+   - Downsamples via `AudioWorklet` (`pcm-downsampler`) to 16,000 Hz. |                               |
+               |                                       |                                       |
+2. `_getAuthToken()` is called.                        |                                       |
+   - If dev mode, calls `generate-jwt` function to get a temporary JWT. |
+   - Otherwise, uses the logged-in user's JWT.         |                                       |
+               |                                       |                                       |
+3. `_getAssemblyAIToken()` is called.                  |                                       |
+   - Invokes `assemblyai-token` function with the JWT. |                                       |
+   ──────────────────────────────────────────────────> 4. Receives request.                    |
+                                                       |   - Supabase Gateway validates JWT.   |
+                                                       |   - Function gets user from JWT.      |
+                                                       |   - Checks user's plan/usage.         |
+                                                       |                                       |
+                                                     5. `createTemporaryToken()` ───────────> 6. Validates API Key.
+                                                       |   (Uses master AssemblyAI API Key)    |   Generates temporary token.
+                                                       |                                       |
+             7. Receives temporary token <────────────────────────────────────────────────────
+               |                                       |                                       |
+8. Connects to AssemblyAI WebSocket.                   |                                       |
+   - Uses temporary token for auth.                    |                                       |
+   - Begins streaming audio data.  ─────────────────────────────────────────────────────────> 9. Receives audio stream.
+               |                                       |                                       |   Performs transcription.
 ```
 
 ## 3. Database Management & Performance
