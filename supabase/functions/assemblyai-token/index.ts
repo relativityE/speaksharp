@@ -1,49 +1,34 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.44.4';
-import { AssemblyAI } from 'https://esm.sh/assemblyai@4.15.0';
-import { corsHeaders } from '../_shared/cors.ts';
+// supabase/functions/assemblyai-token/index.ts
+import { corsHeaders } from "../_shared/cors.ts";
+import AssemblyAI from "npm:assemblyai";
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+  // 1. Handle OPTIONS early
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { status: 200, headers: corsHeaders() });
   }
 
   try {
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      throw new Error('Missing authorization header');
-    }
-    const token = authHeader.replace('Bearer ', '');
-    const supabaseUrl = Deno.env.get('SUPABASE_URL');
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-    const assemblyAIKey = Deno.env.get('ASSEMBLYAI_API_KEY');
-
-    if (!supabaseUrl || !serviceRoleKey || !assemblyAIKey) {
-      throw new Error('Server configuration error: Missing environment variables');
-    }
-
-    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
-    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
-
-    if (userError) {
-      throw new Error(`Authentication error: ${userError.message}`);
-    }
-    if (!user) {
-      throw new Error('User not found');
-    }
-
-    const assemblyai = new AssemblyAI({ apiKey: assemblyAIKey });
-    // Using corrected expires_in and no model parameter
-    const tempToken = await assemblyai.realtime.createTemporaryToken({ expires_in: 600 });
-
-    return new Response(JSON.stringify({ token: tempToken }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 200,
+    // 2. Init AssemblyAI client
+    const assemblyai = new AssemblyAI({
+      apiKey: Deno.env.get("ASSEMBLYAI_API_KEY")!,
     });
-  } catch (error) {
-    // Return a 400 for client-side errors or AssemblyAI API errors
-    return new Response(JSON.stringify({ error: error.message }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+
+    // 3. Request temp token
+    const tempToken = await assemblyai.realtime.createTemporaryToken({
+      expires_in: 600,
+    });
+
+    // 4. Return with CORS
+    return new Response(JSON.stringify(tempToken), {
+      status: 200,
+      headers: { "Content-Type": "application/json", ...corsHeaders() },
+    });
+  } catch (err) {
+    // 5. Ensure errors ALSO include CORS
+    return new Response(JSON.stringify({ error: err.message }), {
       status: 400,
+      headers: { "Content-Type": "application/json", ...corsHeaders() },
     });
   }
 });
