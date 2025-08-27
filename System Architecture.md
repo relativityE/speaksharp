@@ -55,8 +55,8 @@ This diagram provides a more granular view of how the different parts of the cod
 |   | - `TranscriptionService.js`: Core logic to choose mode.         |     | - Playwright (`*.spec.ts`)        |
 |   |   - `CloudAssemblyAI.js`: Handles cloud mode via SDK.           |     | - Deno Test (`*.test.ts`)         |
 |   |     - If dev mode & not logged in, calls signInAnonymously().   |     +-----------------------------------+
-|   |     - Makes POST to `/assemblyai-token` to get API key.         |
-|   |     - Uses `assemblyai` SDK to stream audio.                    |
+|   |     - Makes POST to `/assemblyai-token` to get temporary token. |
+|   |     - Initializes AssemblyAI SDK with the temporary token.      |
 |   |   - `LocalWhisper.js`: Handles local mode (Transformers.js).    |
 |   +-----------------------------------------------------------------+
 |                                   |
@@ -67,7 +67,8 @@ This diagram provides a more granular view of how the different parts of the cod
 |   | Supabase (Backend)                                              |
 |   |-----------------------------------------------------------------|
 |   | - **Edge Functions (`supabase/functions/`)**                    |
-|   |   - `assemblyai-token`: Verifies user JWT, returns API key.     |
+|   |   - `assemblyai-token`: Verifies user JWT, gets AssemblyAI      |
+|   |     temporary token for the new 'universal' model.              |
 |   |     (Code: `index.ts`, Config: `config.toml`)                   |
 |   |     (Uses Secrets: `ASSEMBLYAI_API_KEY`)                        |
 |   |                                                                 |
@@ -92,14 +93,14 @@ This diagram provides a more granular view of how the different parts of the cod
 
 ### Cloud AI Transcription Workflow (Detailed View)
 
-This diagram illustrates the step-by-step process for initiating a cloud-based transcription session using the modern, SDK-based approach.
+This diagram illustrates the step-by-step process for initiating a cloud-based transcription session. This workflow uses a temporary token, which is best practice for browser-based clients to avoid exposing the main API key.
 
 **Authentication & Developer Workflow**
 
-The system supports two authentication paths: one for standard users and a special flow for local development to bypass the need for a full login.
+The system supports two authentication paths: one for standard users and a special flow for local development.
 
 -   **Standard Users:** Authenticate using the standard JWT provided by Supabase Auth upon login.
--   **Developers (Local Env Only):** This flow is triggered by setting `VITE_DEV_MODE='true'` in the `.env.local` file. It uses Supabase's built-in anonymous sign-in feature to create a temporary user session. This is secure and uses standard Supabase functionality.
+-   **Developers (Local Env Only):** This flow is triggered by setting `VITE_DEV_MODE='true'` in the `.env.local` file. It uses Supabase's built-in anonymous sign-in feature to create a temporary user session.
 
 **Workflow Diagram:**
 ```
@@ -107,25 +108,25 @@ Browser (React App)
   |
   | 1. Get User JWT (either from normal login or anonymous sign-in for devs)
   |
-  | 2. Request AssemblyAI API Key
+  | 2. Request Temporary AssemblyAI Token
   |    POST /functions/v1/assemblyai-token
   |    Header: Authorization: Bearer <user-JWT>
   |
   v
 Supabase Edge Function: assemblyai-token
   - Verifies the user's JWT via `auth.getUser()`.
-  - If valid, retrieves the master ASSEMBLYAI_API_KEY from secrets.
+  - If valid, uses the master `ASSEMBLYAI_API_KEY` to ask AssemblyAI
+    for a temporary token for the new 'universal' model.
   |
-  | 3. Response: { apiKey: "<master-assemblyai-key>" }
+  | 3. Response: { token: "<assemblyai-temp-token>" }
   v
 Browser (CloudAssemblyAI.js)
   |
-  | 4. Initialize AssemblyAI SDK with the received API key.
-  |    `const client = new AssemblyAI({ apiKey });`
-  |    `const transcriber = client.streaming.transcriber(...)`
+  | 4. Initialize AssemblyAI SDK with the received temporary token.
+  |    `this.transcriber = new AssemblyAI.StreamingTranscriber({ token, ... })`
   |
-  | 5. Start sending audio data to the transcriber.
-  |    The SDK handles the WebSocket connection and authentication.
+  | 5. Connect and start sending audio data.
+  |    `await this.transcriber.connect();`
   |
   v
 AssemblyAI Service
