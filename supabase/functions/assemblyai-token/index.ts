@@ -1,66 +1,175 @@
-import { AssemblyAI } from "https://esm.sh/assemblyai@4.15.0";
-import { corsHeaders } from "../_shared/cors.ts";
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
-export async function handler(req: Request): Promise<Response> {
-  // Handle CORS preflight
+const corsHeaders = () => ({
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS'
+});
+
+interface AuthenticatedRequest extends Request {
+  user?: {
+    id: string;
+    email?: string;
+    [key: string]: any;
+  };
+}
+
+serve(async (req: Request) => {
+  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 200, headers: corsHeaders() });
+    return new Response('ok', {
+      headers: corsHeaders(),
+      status: 200
+    });
+  }
+
+  if (req.method !== 'POST') {
+    return new Response(
+      JSON.stringify({ error: 'Method not allowed' }),
+      {
+        status: 405,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders() }
+      }
+    );
   }
 
   try {
-    console.log("assemblyai-token function invoked.");
-
-    // --- 1. Simple dev auth check ---
-    const apiKeyHeader = req.headers.get("apikey");
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
-    if (!apiKeyHeader || apiKeyHeader !== supabaseAnonKey) {
+    // Extract and validate JWT from Authorization header
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return new Response(
-        JSON.stringify({ error: "Unauthorized — missing or invalid apikey header" }),
-        { status: 401, headers: { "Content-Type": "application/json", ...corsHeaders() } }
+        JSON.stringify({
+          error: 'Unauthorized - Missing or invalid Authorization header. Expected: Bearer <jwt>'
+        }),
+        {
+          status: 401,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders() }
+        }
       );
     }
 
-    // --- 2. Request AssemblyAI token ---
-    const assemblyKey = Deno.env.get("ASSEMBLYAI_API_KEY");
-    if (!assemblyKey) throw new Error("ASSEMBLYAI_API_KEY not set");
+    const jwt = authHeader.substring(7); // Remove 'Bearer ' prefix
 
-    try {
-      // Use SDK
-      const client = new AssemblyAI({ apiKey: assemblyKey });
-      const tempToken = await client.realtime.createTemporaryToken({ expires_in: 600 });
-      return new Response(JSON.stringify(tempToken), {
-        headers: { "Content-Type": "application/json", ...corsHeaders() },
-      });
-    } catch (sdkError) {
-      console.warn("SDK failed, falling back to fetch:", sdkError);
+    // Initialize Supabase client with service role key for JWT verification
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+      console.error('Missing required environment variables: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+      return new Response(
+        JSON.stringify({ error: 'Server configuration error' }),
+        {
+          status: 500,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders() }
+        }
+      );
     }
 
-    // Fallback: raw fetch
-    const resp = await fetch("https://api.assemblyai.com/v2/realtime/token", {
-      method: "POST",
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Verify and decode the JWT
+    const { data: { user }, error: authError } = await supabase.auth.getUser(jwt);
+
+    if (authError || !user) {
+      console.error('JWT verification failed:', authError?.message);
+      return new Response(
+        JSON.stringify({
+          error: 'Unauthorized - Invalid or expired JWT',
+          details: authError?.message
+        }),
+        {
+          status: 401,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders() }
+        }
+      );
+    }
+
+    // At this point, we have a verified user
+    console.log(`Authenticated request from user: ${user.id} (${user.email})`);
+
+    // Check if AssemblyAI API key is configured
+    const assemblyAIKey = Deno.env.get('ASSEMBLYAI_API_KEY');
+    if (!assemblyAIKey) {
+      console.error('ASSEMBLYAI_API_KEY environment variable not set');
+      return new Response(
+        JSON.stringify({ error: 'Server configuration error - AssemblyAI key not configured' }),
+        {
+          status: 500,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders() }
+        }
+      );
+    }
+
+    // Generate AssemblyAI token
+    const assemblyResponse = await fetch('https://api.assemblyai.com/v2/realtime/token', {
+      method: 'POST',
       headers: {
-        "authorization": assemblyKey,
-        "content-type": "application/json",
+        'Authorization': `${assemblyAIKey}`,
+        'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ expires_in: 600 }),
+      body: JSON.stringify({
+        expires_in: 3600 // Token valid for 1 hour
+      })
     });
 
-    const data = await resp.json();
-    if (!resp.ok) {
+    if (!assemblyResponse.ok) {
+      const errorText = await assemblyResponse.text();
+      console.error('AssemblyAI token generation failed:', errorText);
       return new Response(
-        JSON.stringify({ error: "AssemblyAI token request failed", details: data }),
-        { status: resp.status, headers: { "Content-Type": "application/json", ...corsHeaders() } }
+        JSON.stringify({
+          error: 'Failed to generate AssemblyAI token',
+          details: `AssemblyAI API returned ${assemblyResponse.status}`
+        }),
+        {
+          status: 500,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders() }
+        }
       );
     }
 
-    return new Response(JSON.stringify(data), {
-      headers: { "Content-Type": "application/json", ...corsHeaders() },
-    });
-  } catch (err) {
-    console.error("Unexpected error in assemblyai-token function:", err);
-    return new Response(JSON.stringify({ error: "Internal server error" }), {
-      status: 500,
-      headers: { "Content-Type": "application/json", ...corsHeaders() },
-    });
+    const assemblyData = await assemblyResponse.json();
+
+    // Optional: Log token generation for monitoring/debugging
+    console.log(`Generated AssemblyAI token for user ${user.id}`);
+
+    // Optional: Store token usage in database for analytics
+    try {
+      await supabase
+        .from('assemblyai_token_usage') // Create this table if you want to track usage
+        .insert({
+          user_id: user.id,
+          token_generated_at: new Date().toISOString(),
+          expires_at: new Date(Date.now() + 3600 * 1000).toISOString()
+        });
+    } catch (dbError) {
+      // Don't fail the request if logging fails
+      console.warn('Failed to log token usage:', dbError);
+    }
+
+    return new Response(
+      JSON.stringify({
+        token: assemblyData.token,
+        expires_in: assemblyData.expires_in || 3600,
+        user_id: user.id // Optional: return user ID for frontend use
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders() }
+      }
+    );
+
+  } catch (error) {
+    console.error('Unexpected error in assemblyai-token function:', error);
+    return new Response(
+      JSON.stringify({
+        error: 'Internal server error',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      }),
+      {
+        status: 500,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders() }
+      }
+    );
   }
-}
+});
