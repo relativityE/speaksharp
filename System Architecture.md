@@ -148,6 +148,10 @@ ASSEMBLYAI_API_KEY=<Your AssemblyAI API Key>
 GEMINI_API_KEY=<Your Gemini API Key>
 ```
 
+> [!NOTE]
+> **`VITE_DEV_MODE` is for the Frontend Only**
+> You do **not** need to set `VITE_DEV_MODE` as a secret in your Supabase project. Any variable prefixed with `VITE_` is specifically for your React application running in the browser. It's used in your `.env.local` file to tell the frontend to enable the developer workflow (the anonymous sign-in). Supabase Edge Functions run on a server and use a separate set of secrets that you configure in the Supabase dashboard.
+
 ## 3. Database Management & Performance
 
 ### Applying Database Migrations
