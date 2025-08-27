@@ -123,7 +123,7 @@ export const useSpeechRecognition = ({
             }
             const userJwt = userSession.access_token;
 
-            const resp = await fetch("/functions/v1/assemblyai-token", {
+            const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/assemblyai-token`, {
                 method: "POST",
                 headers: {
                     "Authorization": `Bearer ${userJwt}`,
