@@ -1,12 +1,13 @@
-// src/services/transcription/utils/audioUtils.js
+// This file contains the actual implementation for creating a microphone stream
+// and is dynamically imported by the 'safe' wrapper file (audioUtils.js).
 
 // Lazy-load worklet URL only in browser environments
 let workletUrlPromise = null;
 
-const getWorkletUrl = () => {
+const getWorkletUrl = (audioContext) => {
   if (!workletUrlPromise) {
     // Check if we're in a browser environment with audio worklet support
-    if (typeof window !== 'undefined' && window.AudioContext && AudioContext.prototype.audioWorklet) {
+    if (typeof window !== 'undefined' && audioContext && audioContext.audioWorklet) {
       workletUrlPromise = import('./audio-processor.worklet.js?url')
         .then(module => module.default)
         .catch(error => {
@@ -21,17 +22,17 @@ const getWorkletUrl = () => {
   return workletUrlPromise;
 };
 
-export async function createMicStream({ sampleRate = 16000, frameSize = 1024 } = {}) {
+export async function createMicStreamImpl({ sampleRate = 16000, frameSize = 1024 } = {}) {
   // Early environment check
   if (typeof navigator === 'undefined' || !navigator.mediaDevices) {
     throw new Error('Media devices not available in this environment');
   }
 
-  const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+  const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-  // Load worklet URL dynamically
-  const workletUrl = await getWorkletUrl();
+  // Load worklet URL dynamically, passing the audio context instance for the check.
+  const workletUrl = await getWorkletUrl(audioCtx);
   if (!workletUrl) {
     throw new Error('Audio worklet failed to load');
   }
