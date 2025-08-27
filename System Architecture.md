@@ -31,12 +31,14 @@ The architecture is designed around a modern, client-heavy Jamstack approach. Th
 +-------------------------------------------------------------------+
 ```
 
-#### What a React SPA is
+
+#### React SPA 
 SPA = Single-Page Application
 
 A React SPA is a web application built with React where the browser loads one HTML page (usually index.html) once, and then JavaScript dynamically updates the content as the user navigates.
 
 => So instead of going back to the server for each new page, the app swaps components in/out on the client side.
+
 
 ### Detailed Component & Service Interaction Diagram
 
