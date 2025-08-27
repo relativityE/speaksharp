@@ -118,15 +118,15 @@ export const useSpeechRecognition = ({
                 if (!data.session) throw new Error('Anonymous sign-in did not return a session.');
                 userSession = data.session;
             }
-            if (!userSession?.access_token) {
-                throw new Error('User not authenticated. Please log in to use Cloud transcription.');
+            const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+            if (!supabaseAnonKey) {
+                throw new Error("VITE_SUPABASE_ANON_KEY is not set in the environment.");
             }
-            const userJwt = userSession.access_token;
 
             const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/assemblyai-token`, {
                 method: "POST",
                 headers: {
-                    "Authorization": `Bearer ${userJwt}`,
+                    "apikey": supabaseAnonKey,
                     "Content-Type": "application/json",
                 },
             });

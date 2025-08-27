@@ -1,69 +1,59 @@
 import { createClient } from "npm:@supabase/supabase-js";
 import { AssemblyAI } from "npm:assemblyai";
 import { corsHeaders } from "../_shared/cors.ts";
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-serve(async (req) => {
+export async function handler(req: Request): Promise<Response> {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 200,
-      headers: corsHeaders(),
-    });
+    return new Response(null, { status: 200, headers: corsHeaders() });
   }
 
   try {
     console.log("assemblyai-token function invoked.");
-    const supabaseClient = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!
-    );
-    const { data: { user }, error: authError } = await supabaseClient.auth.getUser(
-      req.headers.get("authorization")?.replace("Bearer ", "") ?? ""
-    );
 
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { "Content-Type": "application/json", ...corsHeaders() },
-      });
+    // --- 1. Simple dev auth check ---
+    const apiKeyHeader = req.headers.get("apikey");
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    if (!apiKeyHeader || apiKeyHeader !== supabaseAnonKey) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized — missing or invalid apikey header" }),
+        { status: 401, headers: { "Content-Type": "application/json", ...corsHeaders() } }
+      );
     }
 
-    console.log("Authenticated user:", user.id);
+    // --- 2. Request AssemblyAI token ---
+    const assemblyKey = Deno.env.get("ASSEMBLYAI_API_KEY");
+    if (!assemblyKey) throw new Error("ASSEMBLYAI_API_KEY not set");
 
-    // === 1. Try SDK method first ===
     try {
-      console.log("Attempting to get token via AssemblyAI SDK...");
-      const client = new AssemblyAI({ apiKey: Deno.env.get("ASSEMBLYAI_API_KEY")! });
+      // Use SDK
+      const client = new AssemblyAI({ apiKey: assemblyKey });
       const tempToken = await client.realtime.createTemporaryToken({ expires_in: 600 });
       return new Response(JSON.stringify(tempToken), {
         headers: { "Content-Type": "application/json", ...corsHeaders() },
       });
     } catch (sdkError) {
-      console.error("AssemblyAI SDK error:", sdkError);
-      console.log("Falling back to raw fetch...");
+      console.warn("SDK failed, falling back to fetch:", sdkError);
     }
 
-    // === 2. Fallback: Direct fetch to AssemblyAI ===
-    console.log("Attempting to get token via direct fetch...");
+    // Fallback: raw fetch
     const resp = await fetch("https://api.assemblyai.com/v2/realtime/token", {
       method: "POST",
       headers: {
-        "authorization": Deno.env.get("ASSEMBLYAI_API_KEY")!,
+        "authorization": assemblyKey,
         "content-type": "application/json",
       },
       body: JSON.stringify({ expires_in: 600 }),
     });
 
     const data = await resp.json();
-    console.log("AssemblyAI raw response:", data);
-
     if (!resp.ok) {
       return new Response(
         JSON.stringify({ error: "AssemblyAI token request failed", details: data }),
         { status: resp.status, headers: { "Content-Type": "application/json", ...corsHeaders() } }
       );
     }
+
     return new Response(JSON.stringify(data), {
       headers: { "Content-Type": "application/json", ...corsHeaders() },
     });
