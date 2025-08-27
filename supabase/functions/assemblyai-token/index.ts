@@ -19,7 +19,6 @@ Deno.serve(async (req) => {
       throw new Error('Missing authorization header');
     }
     const token = authHeader.replace('Bearer ', '');
-
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
     const assemblyAIKey = Deno.env.get('ASSEMBLYAI_API_KEY');
