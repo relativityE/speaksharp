@@ -191,6 +191,7 @@
         "npm:serve-handler@^6.1.6",
         "npm:sharp@~0.32.6",
         "npm:sonner@^2.0.3",
+        "npm:supabase@^2.39.2",
         "npm:tailwind-merge@^3.3.0",
         "npm:tailwindcss-animate@^1.0.7",
         "npm:tailwindcss@^4.1.7",

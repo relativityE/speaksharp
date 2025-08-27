@@ -18,6 +18,7 @@ export default class CloudAssemblyAI {
   async startTranscription(mic) {
     try {
       const assemblyAIToken = await this._getAssemblyAIToken();
+      console.log("Received AssemblyAI Token:", assemblyAIToken);
       if (!assemblyAIToken) {
         throw new Error("Failed to retrieve AssemblyAI token.");
       }
@@ -27,11 +28,9 @@ export default class CloudAssemblyAI {
         sampleRate: 16000,
       });
 
-      const client = new AssemblyAI({ apiKey });
-      const transcriberParams = { sampleRate: 16000 };
-      this.transcriber = client.streaming.transcriber(transcriberParams);
       this.transcriber.on("open", ({ id }) => {
         console.log(`AssemblyAI session opened with ID: ${id}`);
+        console.log("Successfully connected to AssemblyAI WebSocket.");
         if (this.onReady) this.onReady();
 
         const onFrame = (f32) => {
@@ -68,6 +67,7 @@ export default class CloudAssemblyAI {
         this.onTranscriptUpdate({ transcript: { final: turn.transcript }, words: turn.words });
       });
       // Explicitly connect to the service
+      console.log("Attempting to connect to AssemblyAI WebSocket...");
       await this.transcriber.connect();
     } catch (error) {
       console.error('Failed to start transcription:', error);
