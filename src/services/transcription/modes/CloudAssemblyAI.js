@@ -16,27 +16,11 @@ export default class CloudAssemblyAI {
 
   async _getAssemblyAIToken() {
     try {
-      let userJwt;
-      const isDevMode = import.meta.env.VITE_DEV_MODE === 'true';
-
-      // --- Developer Path ---
-      if (isDevMode) {
-        console.log('[CloudAssemblyAI] Dev mode: Requesting temporary developer JWT...');
-        const { data: jwtData, error: jwtError } = await supabase.functions.invoke('generate-dev-jwt', {
-          method: 'POST',
-        });
-        if (jwtError) throw new Error(`Failed to get developer JWT: ${jwtError.message}`);
-        if (jwtData.error) throw new Error(`generate-dev-jwt function returned an error: ${jwtData.error}`);
-        userJwt = jwtData.token;
-        console.log('[CloudAssemblyAI] Dev mode: Successfully received temporary developer JWT.');
-      }
       // --- Standard User Path ---
-      else {
-        if (!this.session?.access_token) {
-          throw new Error('User not authenticated. Please log in to use Cloud transcription.');
-        }
-        userJwt = this.session.access_token;
+      if (!this.session?.access_token) {
+        throw new Error('User not authenticated. Please log in to use Cloud transcription.');
       }
+      const userJwt = this.session.access_token;
 
       // --- Use JWT to get AssemblyAI Token ---
       console.log('[CloudAssemblyAI] Requesting AssemblyAI token...');
