@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import TranscriptionService from '../services/transcription/TranscriptionService';
 import { FILLER_WORD_KEYS } from '../config';
+import { supabase } from '../lib/supabaseClient';
 
 // --- Default configurations ---
 const defaultFillerPatterns = {
@@ -36,12 +37,12 @@ export const useSpeechRecognition = ({
 } = {}) => {
     console.log(`[useSpeechRecognition] Hook initialized.`);
 
-    const { profile } = useAuth();
+    const { profile, session: authSession } = useAuth();
     const navigate = useNavigate();
 
     // --- State Management ---
     const [isListening, setIsListening] = useState(false);
-    const [isReady, setIsReady] = useState(false); // New state to signal when the service is truly ready
+    const [isReady, setIsReady] = useState(false);
     const [transcript, setTranscript] = useState('');
     const [finalChunks, setFinalChunks] = useState([]);
     const [wordConfidences, setWordConfidences] = useState([]);
@@ -50,13 +51,12 @@ export const useSpeechRecognition = ({
     const [finalFillerData, setFinalFillerData] = useState(getInitialFillerData(customWords));
     const [error, setError] = useState(null);
     const [isSupported, setIsSupported] = useState(true);
-    const [currentMode, setCurrentMode] = useState(null); // 'cloud' or 'native'
+    const [currentMode, setCurrentMode] = useState(null);
     const [modelLoadingProgress, setModelLoadingProgress] = useState(null);
 
     const transcriptionServiceRef = useRef(null);
 
     // --- Service Initialization and Management ---
-    // Cleanup effect to destroy the service on unmount
     useEffect(() => {
         return () => {
             if (transcriptionServiceRef.current) {
@@ -64,7 +64,7 @@ export const useSpeechRecognition = ({
                 transcriptionServiceRef.current.destroy();
             }
         };
-    }, []); // Empty dependency array ensures this runs only on mount and unmount
+    }, []);
 
     // --- Transcript and Filler Word Processing ---
     const countFillerWords = useCallback((text) => {
@@ -94,8 +94,6 @@ export const useSpeechRecognition = ({
     }, []);
 
     const onTranscriptUpdate = useCallback((data) => {
-        // console.log('[useSpeechRecognition] onTranscriptUpdate:', data);
-        // Don't show model loading messages in the transcript panel anymore
         if (data.transcript?.partial && !data.transcript.partial.startsWith('Downloading model')) {
             setInterimTranscript(data.transcript.partial);
         }
@@ -125,6 +123,46 @@ export const useSpeechRecognition = ({
         setTranscript(newTranscript);
     }, [finalChunks]);
 
+    const getAssemblyAIToken = useCallback(async () => {
+        try {
+            let userSession = authSession;
+            const isDevMode = import.meta.env.VITE_DEV_MODE === 'true';
+
+            if (isDevMode && !userSession) {
+                const { data, error } = await supabase.auth.signInAnonymously();
+                if (error) throw new Error(`Anonymous sign-in failed: ${error.message}`);
+                if (!data.session) throw new Error('Anonymous sign-in did not return a session.');
+                userSession = data.session;
+            }
+
+            if (!userSession?.access_token) {
+                throw new Error('User not authenticated. Please log in to use Cloud transcription.');
+            }
+
+            const userJwt = userSession.access_token;
+            const { data, error } = await supabase.functions.invoke('assemblyai-token', {
+                headers: { 'Authorization': `Bearer ${userJwt}` },
+            });
+
+            if (error) {
+                if (error.context?.reason) {
+                    throw new Error(`Supabase function invocation failed: ${error.context.reason}`);
+                }
+                throw new Error(`Supabase function invocation failed: ${error.message}`);
+            }
+
+            if (data.error) throw new Error(`AssemblyAI token error: ${data.error}`);
+            if (!data?.token) throw new Error('Token not found in response from Supabase function.');
+
+            return data.token;
+
+        } catch (error) {
+            console.error('Failed to get AssemblyAI token:', error);
+            toast.error('Failed to start session', { description: error.message });
+            return null;
+        }
+    }, [authSession]);
+
     // --- Control Functions ---
     const startListening = async ({ forceCloud = false } = {}) => {
         console.log(`[useSpeechRecognition] startListening called with forceCloud: ${forceCloud}`);
@@ -133,38 +171,38 @@ export const useSpeechRecognition = ({
             return;
         }
 
-        // Reset readiness state on every start attempt
         setIsReady(false);
 
         try {
             setError(null);
             setIsSupported(true);
 
-            // Initialize the service if it doesn't exist or if the forceCloud option has changed
-            if (!transcriptionServiceRef.current || transcriptionServiceRef.current.forceCloud !== forceCloud) {
-                console.log(`[useSpeechRecognition] Service not initialized or forceCloud changed. Creating instance...`);
+            const oldForceCloud = transcriptionServiceRef.current?.forceCloud;
+            console.log(`[useSpeechRecognition] startListening called with forceCloud=${forceCloud}. Previous service forceCloud was ${oldForceCloud}`);
+
+            if (!transcriptionServiceRef.current || oldForceCloud !== forceCloud) {
+                console.log(`[useSpeechRecognition] Condition met: Creating new service instance.`);
                 if (transcriptionServiceRef.current) {
+                    console.log(`[useSpeechRecognition] Destroying old service instance.`);
                     await transcriptionServiceRef.current.destroy();
                 }
                 const service = new TranscriptionService({
                     onTranscriptUpdate,
                     onModelLoadProgress,
-                    onReady: handleReady, // Pass the new callback
+                    onReady: handleReady,
                     profile,
                     forceCloud,
                     session,
                     navigate,
+                    getAssemblyAIToken,
                 });
                 await service.init();
                 transcriptionServiceRef.current = service;
                 console.log('[useSpeechRecognition] Transcription service initialized.');
             }
 
-            // This just sets the flag, the onReady callback will fire when connected
             setIsListening(true);
             await transcriptionServiceRef.current.startTranscription();
-
-            // The mode is now set after transcription starts, which is more accurate
             setCurrentMode(transcriptionServiceRef.current.mode);
             console.log(`[useSpeechRecognition] Started listening process in mode: ${transcriptionServiceRef.current.mode}`);
 
@@ -172,7 +210,6 @@ export const useSpeechRecognition = ({
             console.error('[useSpeechRecognition] Error starting speech recognition:', err);
             setError(err);
             setIsListening(false);
-            // A more robust check for browser support issues
             if (err.message.toLowerCase().includes('not supported') || err.message.toLowerCase().includes('permission denied')) {
                 setIsSupported(false);
             }
@@ -188,10 +225,9 @@ export const useSpeechRecognition = ({
 
         await transcriptionServiceRef.current.stopTranscription();
         setIsListening(false);
-        setIsReady(false); // Reset readiness on stop
+        setIsReady(false);
         console.log('[useSpeechRecognition] Stopped listening.');
 
-        // Finalize transcript
         const finalTranscriptText = [...finalChunks.map(c => c.text), interimTranscript].join(' ').trim();
         const averageConfidence = wordConfidences.length > 0
             ? wordConfidences.reduce((sum, word) => sum + word.confidence, 0) / wordConfidences.length
@@ -216,12 +252,12 @@ export const useSpeechRecognition = ({
         setFinalFillerData(getInitialFillerData(customWords));
         setWordConfidences([]);
         setError(null);
-        setIsReady(false); // Also reset readiness
+        setIsReady(false);
     }, [customWords]);
 
     return {
         isListening,
-        isReady, // Expose the new state
+        isReady,
         transcript,
         chunks: finalChunks,
         interimTranscript,
@@ -231,7 +267,7 @@ export const useSpeechRecognition = ({
         startListening,
         stopListening,
         reset,
-        mode: currentMode, // Return the *actual* current mode
+        mode: currentMode,
         modelLoadingProgress,
     };
 };

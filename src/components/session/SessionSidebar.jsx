@@ -70,6 +70,7 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
 
     const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
     const isModelLoading = modelLoadingProgress && modelLoadingProgress.status !== 'ready' && modelLoadingProgress.status !== 'error';
+    const isConnecting = isListening && !isReady;
 
     const handleUpgrade = async () => {
         if (!user) {
@@ -149,17 +150,14 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
 
     // Determine the vivid title for the card
     const getCardTitle = () => {
-        if (isListening) {
-            return actualMode === 'cloud' ? 'Cloud AI' : 'Native Browser';
-        }
-        if (isModelLoading) {
-            return 'Initializing Model...';
-        }
-        return 'Ready to Record';
+        if (isConnecting) return 'Connecting...';
+        if (isListening) return `Mode: ${actualMode === 'cloud' ? 'Cloud AI' : 'Native Browser'}`;
+        if (isModelLoading) return 'Initializing Model...';
+        return 'Ready';
     };
 
     const showUpgradeButton = !isPro && !isUpgrading;
-    const isButtonDisabled = isListening ? isEndingSession : isModelLoading;
+    const isButtonDisabled = isListening ? isEndingSession : (isModelLoading || isConnecting);
 
     return (
         <div className="flex flex-col gap-6 h-full">
@@ -175,7 +173,7 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
                     <div className="flex flex-col items-center justify-center gap-6 py-2 flex-grow">
                         <DigitalTimer elapsedTime={elapsedTime} />
                         <div className={`text-xl font-semibold ${isListening && isReady ? 'text-green-500' : 'text-muted-foreground'}`}>
-                            {isListening ? (isReady ? '● Listening, you may begin speaking!' : '○ Connecting...') : (isModelLoading ? 'Please wait...' : 'Idle')}
+                            {isConnecting ? '○ Connecting...' : (isListening ? '● Listening, you may begin speaking!' : (isModelLoading ? 'Please wait...' : 'Idle'))}
                         </div>
                         <Button
                             onClick={handleStartStop}
@@ -184,7 +182,7 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
                             className="w-full h-16 text-xl font-bold rounded-lg"
                             disabled={isButtonDisabled}
                         >
-                            {isListening ? <><Square className="w-4 h-4 mr-2" /> End Session</> : (isModelLoading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Initializing...</> : <><Mic className="w-4 h-4 mr-2" /> Start Recording</>)}
+                            {isListening ? <><Square className="w-4 h-4 mr-2" /> End Session</> : (isModelLoading || isConnecting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {isConnecting ? 'Connecting...' : 'Initializing...'}</> : <><Mic className="w-4 h-4 mr-2" /> Start Recording</>)}
                         </Button>
                     </div>
 
