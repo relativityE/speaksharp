@@ -1,140 +1,70 @@
+// File: functions/assemblyai-token/index.ts
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
-import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.44.4';
 import { AssemblyAI } from 'https://esm.sh/assemblyai@4.15.0';
+import * as jose from 'https://esm.sh/jose@4.15.1';
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type'
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type"
 };
 
-type SupabaseClientFactory = (authHeader: string | null) => SupabaseClient;
-type AssemblyAIClientFactory = () => AssemblyAI;
-
-// Define the handler with dependency injection for testability
-export async function handler(
-  req: Request,
-  createSupabase: SupabaseClientFactory,
-  createAssemblyAI: AssemblyAIClientFactory
-) {
+export async function handler(req: Request) {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    // Developer mode bypass using a shared secret
-    const authHeader = req.headers.get('Authorization');
-    const devSecretKey = Deno.env.get("DEV_SECRET_KEY");
-
-    // --- Developer Mode Path ---
-    if (devSecretKey) {
-      if (authHeader === `Bearer ${devSecretKey}`) {
-        console.log('[assemblyai-token] Dev Mode: Success. Bypassing user auth.');
-        const assemblyai = createAssemblyAI();
-        const token = await assemblyai.realtime.createTemporaryToken({ expires_in: 600 });
-        return new Response(JSON.stringify({ token }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 200,
-        });
-      } else if (authHeader?.startsWith('Bearer ')) {
-        // This case handles when a dev key is set, but the client sends a different (e.g., user) token.
-        // We log it but proceed to user auth.
-        console.log('[assemblyai-token] Dev Mode: Mismatch. Client token does not match DEV_SECRET_KEY. Falling back to user auth.');
-      }
+    const authHeader = req.headers.get('Authorization') || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: 'Missing authorization header' }), { status: 401, headers: corsHeaders });
     }
 
-    // --- Standard User Path ---
-    if (!authHeader) {
-      console.error('[assemblyai-token] Auth Error: No Authorization header provided.');
-      return new Response(JSON.stringify({ error: 'Authentication failed: Missing Authorization header.' }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 401,
+    const token = authHeader.replace('Bearer ', '');
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const uuidDevUser = Deno.env.get('UUID_DEV_USER');
+    const assemblyAIKey = Deno.env.get('ASSEMBLYAI_API_KEY');
+
+    if (!serviceRoleKey || !uuidDevUser || !assemblyAIKey) {
+      throw new Error('Missing environment variables');
+    }
+
+    // Verify dev JWT
+    const { payload } = await jose.jwtVerify(token, new TextEncoder().encode(serviceRoleKey));
+
+    // For a real user, we would check their subscription status here.
+    // For the dev user, we check their UUID and grant access.
+    if (payload.sub !== uuidDevUser) {
+      // This is a valid JWT, but not for the dev user.
+      // Here you could add logic to handle real users, e.g., check their subscription in the database.
+      // For now, we only allow the dev user.
+      return new Response(JSON.stringify({ error: 'Invalid user for this endpoint' }), {
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        status: 403 // Forbidden
       });
     }
 
-    const supabaseClient = createSupabase(authHeader);
-    const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
+    // Create AssemblyAI client and temporary token
+    const assemblyai = new AssemblyAI({ apiKey: assemblyAIKey });
+    const tempToken = await assemblyai.realtime.createTemporaryToken({ expires_in: 600 });
 
-    if (userError || !user) {
-      console.error(
-        '[assemblyai-token] Auth Error: Supabase getUser failed.',
-        { error: userError?.message || 'No user object returned.' }
-      );
-      return new Response(JSON.stringify({ error: 'Authentication failed: Invalid token.' }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 401,
-      });
-    }
-
-    const { data: profile, error: profileError } = await supabaseClient
-      .from('user_profiles')
-      .select('subscription_status, usage_seconds')
-      .eq('id', user.id)
-      .single();
-
-    if (profileError || !profile) {
-      console.error('[assemblyai-token] Profile Error: Failed to fetch profile for user.', {
-        userId: user.id,
-        error: profileError?.message || 'No profile returned.',
-      });
-      return new Response(JSON.stringify({ error: 'Failed to fetch user profile' }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 500,
-      });
-    }
-
-    const isPro = profile.subscription_status === 'pro' || profile.subscription_status === 'premium';
-    if (isPro) {
-      console.log(`[assemblyai-token] Pro User: Access granted for user ${user.id}.`);
-    } else {
-      const FREE_TIER_LIMIT_SECONDS = 600; // 10 minutes
-      if ((profile.usage_seconds || 0) >= FREE_TIER_LIMIT_SECONDS) {
-        console.log(`[assemblyai-token] Free User Denied: Usage limit exceeded for user ${user.id}.`, {
-          userId: user.id,
-          usage: profile.usage_seconds,
-          limit: FREE_TIER_LIMIT_SECONDS,
-        });
-        return new Response(JSON.stringify({ error: 'Usage limit exceeded. Please upgrade to Pro for unlimited access.' }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 403, // Forbidden
-        });
-      }
-      console.log(`[assemblyai-token] Free User: Access granted for user ${user.id}.`);
-    }
-
-    const assemblyai = createAssemblyAI();
-    const token = await assemblyai.realtime.createTemporaryToken({ expires_in: 600 });
-
-    return new Response(JSON.stringify({ token }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 200,
+    return new Response(JSON.stringify({ token: tempToken, expires_in: 600 }), {
+      headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      status: 200
     });
-  } catch (error) {
-    console.error('Unexpected error:', error);
-    const errorMessage = (error instanceof Error) ? error.message : 'An unexpected error occurred';
-    return new Response(JSON.stringify({ error: errorMessage }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 500,
+
+  } catch (err) {
+    // Catch JWT errors (e.g., signature invalid, expired)
+    console.error("Error in assemblyai-token handler:", err);
+    const message = (err instanceof Error) ? err.message : 'An unexpected error occurred.';
+    return new Response(JSON.stringify({ error: message }), {
+      headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      status: 401
     });
   }
 }
 
-// Start the server with the real dependencies
-serve((req: Request) => {
-  const supabaseClientFactory: SupabaseClientFactory = (authHeader) =>
-    createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: authHeader! } } }
-    );
-
-  const assemblyAIFactory: AssemblyAIClientFactory = () => {
-    const apiKey = Deno.env.get('ASSEMBLYAI_API_KEY');
-    if (!apiKey) {
-      throw new Error('ASSEMBLYAI_API_KEY is not set in environment variables.');
-    }
-    return new AssemblyAI({ apiKey });
-  }
-
-  return handler(req, supabaseClientFactory, assemblyAIFactory);
-});
+// Start server if the script is executed directly.
+if (import.meta.main) {
+  serve(handler);
+}
