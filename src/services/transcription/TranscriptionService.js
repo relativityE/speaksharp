@@ -45,35 +45,40 @@ export default class TranscriptionService {
       getAssemblyAIToken: this.getAssemblyAIToken,
     };
 
-    try {
-      console.log(`[TranscriptionService] Attempting to use Cloud mode. forceCloud is ${this.forceCloud}`);
-      this.instance = new CloudAssemblyAI(providerConfig);
-      await this.instance.init();
-      await this.instance.startTranscription(this.mic);
-      this.mode = 'cloud';
-      console.log('[TranscriptionService] Cloud transcription started successfully.');
-    } catch (error) {
-      console.warn(`[TranscriptionService] Cloud mode failed. forceCloud is ${this.forceCloud}.`, error);
+    const useCloud = this.forceCloud || (this.profile && this.profile.is_pro_user);
+    console.log(`[TranscriptionService] Decided on cloud mode: ${useCloud}`);
 
-      if (this.forceCloud) {
-        console.error('[TranscriptionService] forceCloud is enabled, re-throwing error without fallback.');
-        throw error;
-      }
-
-      try {
-        console.log('[TranscriptionService] Attempting to fall back to Native Browser mode.');
-        if (this.instance) {
-          await this.instance.destroy?.();
-        }
-        this.instance = new NativeBrowser(providerConfig);
+    if (useCloud) {
+      const token = await this.getAssemblyAIToken();
+      if (token) {
+        console.log('[TranscriptionService] Token acquired, starting CloudAssemblyAI.');
+        this.instance = new CloudAssemblyAI(providerConfig);
         await this.instance.init();
         await this.instance.startTranscription(this.mic);
-        this.mode = 'native';
-        console.log('[TranscriptionService] Native fallback transcription started successfully.');
-      } catch (fallbackError) {
-        console.error('[TranscriptionService] Native fallback mode also failed.', fallbackError);
-        throw fallbackError;
+        this.mode = 'cloud';
+        console.log('[TranscriptionService] Cloud transcription started successfully.');
+        return;
+      } else {
+        console.warn('[TranscriptionService] Failed to get AssemblyAI token.');
+        if (this.forceCloud) {
+          console.error('[TranscriptionService] forceCloud is enabled, throwing error without fallback.');
+          throw new Error('Failed to get AssemblyAI token in forceCloud mode.');
+        }
+        console.warn('[TranscriptionService] Proceeding with native fallback.');
       }
+    }
+
+    // Fallback to native if not using cloud or if token fetch failed
+    try {
+      console.log('[TranscriptionService] Starting Native Browser mode.');
+      this.instance = new NativeBrowser(providerConfig);
+      await this.instance.init();
+      await this.instance.startTranscription(this.mic);
+      this.mode = 'native';
+      console.log('[TranscriptionService] Native transcription started successfully.');
+    } catch (fallbackError) {
+      console.error('[TranscriptionService] Native mode failed.', fallbackError);
+      throw fallbackError;
     }
   }
 
