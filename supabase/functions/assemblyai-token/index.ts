@@ -1,69 +1,56 @@
-// File: functions/assemblyai-token/index.ts
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { AssemblyAI } from 'https://esm.sh/assemblyai@4.15.0';
-import * as jose from 'https://esm.sh/jose@4.15.1';
+import { corsHeaders } from '../_shared/cors.ts';
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type"
-};
+// This function creates a temporary token for the client to use to connect
+// to the AssemblyAI streaming service.
 
-export async function handler(req: Request) {
+Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    const authHeader = req.headers.get('Authorization') || '';
-    if (!authHeader.startsWith('Bearer ')) {
-      return new Response(JSON.stringify({ error: 'Missing authorization header' }), { status: 401, headers: corsHeaders });
+    // 1. Create a Supabase client with the user's auth context
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: 'Missing Authorization header' }), { status: 401, headers: corsHeaders });
+    }
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      { global: { headers: { Authorization: authHeader } } }
+    );
+
+    // 2. Verify the user is authenticated
+    const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
+    if (userError) throw userError;
+    if (!user) {
+      return new Response(JSON.stringify({ error: 'User not authenticated' }), { status: 401, headers: corsHeaders });
     }
 
-    const token = authHeader.replace('Bearer ', '');
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-    const uuidDevUser = Deno.env.get('UUID_DEV_USER');
+    // 3. Securely retrieve the AssemblyAI API key from environment variables
     const assemblyAIKey = Deno.env.get('ASSEMBLYAI_API_KEY');
-
-    if (!serviceRoleKey || !uuidDevUser || !assemblyAIKey) {
-      throw new Error('Missing environment variables');
+    if (!assemblyAIKey) {
+      throw new Error("ASSEMBLYAI_API_KEY is not configured on the server.");
     }
 
-    // Verify dev JWT
-    const { payload } = await jose.jwtVerify(token, new TextEncoder().encode(serviceRoleKey));
-
-    // For a real user, we would check their subscription status here.
-    // For the dev user, we check their UUID and grant access.
-    if (payload.sub !== uuidDevUser) {
-      // This is a valid JWT, but not for the dev user.
-      // Here you could add logic to handle real users, e.g., check their subscription in the database.
-      // For now, we only allow the dev user.
-      return new Response(JSON.stringify({ error: 'Invalid user for this endpoint' }), {
-        headers: { 'Content-Type': 'application/json', ...corsHeaders },
-        status: 403 // Forbidden
-      });
-    }
-    // Create AssemblyAI client and temporary token
+    // 4. Create an AssemblyAI client and generate a temporary token for the new model
     const assemblyai = new AssemblyAI({ apiKey: assemblyAIKey });
     const tempToken = await assemblyai.realtime.createTemporaryToken({ expires_in: 600 });
 
-    return new Response(JSON.stringify({ token: tempToken, expires_in: 600 }), {
-      headers: { 'Content-Type': 'application/json', ...corsHeaders },
-      status: 200
+    // 5. Return the temporary token to the client
+    return new Response(JSON.stringify({ token: tempToken }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 200,
     });
 
-  } catch (err) {
-    // Catch JWT errors (e.g., signature invalid, expired)
-    console.error("Error in assemblyai-token handler:", err);
-    const message = (err instanceof Error) ? err.message : 'An unexpected error occurred.';
-    return new Response(JSON.stringify({ error: message }), {
-      headers: { 'Content-Type': 'application/json', ...corsHeaders },
-      status: 401
+  } catch (error) {
+    console.error('Error in assemblyai-token handler:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+    return new Response(JSON.stringify({ error: errorMessage }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 400,
     });
   }
-}
-
-// Start server if the script is executed directly.
-if (import.meta.main) {
-  serve(handler);
-}
+});
