@@ -1,49 +1,68 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.44.4';
-import { AssemblyAI } from 'https://esm.sh/assemblyai@4.15.0';
-import { corsHeaders } from '../_shared/cors.ts';
+import { createClient } from "npm:@supabase/supabase-js";
+import { AssemblyAI } from "npm:assemblyai";
+import { corsHeaders } from "../_shared/cors.ts";
 
-Deno.serve(async (req) => {
+export async function handler(req: Request): Promise<Response> {
+  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response(null, { status: 200, headers: corsHeaders() });
   }
 
   try {
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      throw new Error('Missing authorization header');
-    }
-    const token = authHeader.replace('Bearer ', '');
-    const supabaseUrl = Deno.env.get('SUPABASE_URL');
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-    const assemblyAIKey = Deno.env.get('ASSEMBLYAI_API_KEY');
+    console.log("assemblyai-token function invoked.");
 
-    if (!supabaseUrl || !serviceRoleKey || !assemblyAIKey) {
-      throw new Error('Server configuration error: Missing environment variables');
-    }
-
-    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
-    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
-
-    if (userError) {
-      throw new Error(`Authentication error: ${userError.message}`);
-    }
-    if (!user) {
-      throw new Error('User not found');
+    // --- 1. Simple dev auth check ---
+    const apiKeyHeader = req.headers.get("apikey");
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    if (!apiKeyHeader || apiKeyHeader !== supabaseAnonKey) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized — missing or invalid apikey header" }),
+        { status: 401, headers: { "Content-Type": "application/json", ...corsHeaders() } }
+      );
     }
 
-    const assemblyai = new AssemblyAI({ apiKey: assemblyAIKey });
-    // Using corrected expires_in and no model parameter
-    const tempToken = await assemblyai.realtime.createTemporaryToken({ expires_in: 600 });
+    // --- 2. Request AssemblyAI token ---
+    const assemblyKey = Deno.env.get("ASSEMBLYAI_API_KEY");
+    if (!assemblyKey) throw new Error("ASSEMBLYAI_API_KEY not set");
 
-    return new Response(JSON.stringify({ token: tempToken }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 200,
+    try {
+      // Use SDK
+      const client = new AssemblyAI({ apiKey: assemblyKey });
+      const tempToken = await client.realtime.createTemporaryToken({ expires_in: 600 });
+      return new Response(JSON.stringify(tempToken), {
+        headers: { "Content-Type": "application/json", ...corsHeaders() },
+      });
+    } catch (sdkError) {
+      console.warn("SDK failed, falling back to fetch:", sdkError);
+    }
+
+    // Fallback: raw fetch
+    const resp = await fetch("https://api.assemblyai.com/v2/realtime/token", {
+      method: "POST",
+      headers: {
+        "authorization": assemblyKey,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ expires_in: 600 }),
     });
-  } catch (error) {
-    // Return a 400 for client-side errors or AssemblyAI API errors
-    return new Response(JSON.stringify({ error: error.message }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 400,
+
+    const data = await resp.json();
+    if (!resp.ok) {
+      return new Response(
+        JSON.stringify({ error: "AssemblyAI token request failed", details: data }),
+        { status: resp.status, headers: { "Content-Type": "application/json", ...corsHeaders() } }
+      );
+    }
+
+    return new Response(JSON.stringify(data), {
+      headers: { "Content-Type": "application/json", ...corsHeaders() },
+    });
+
+  } catch (err) {
+    console.error("Unexpected error in assemblyai-token function:", err);
+    return new Response(JSON.stringify({ error: "Internal server error" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json", ...corsHeaders() },
     });
   }
-});
+}
