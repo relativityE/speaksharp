@@ -1,8 +1,9 @@
 import { createClient } from "npm:@supabase/supabase-js";
 import { AssemblyAI } from "npm:assemblyai";
 import { corsHeaders } from "../_shared/cors.ts";
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-export async function handler(req: Request): Promise<Response> {
+serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, {
