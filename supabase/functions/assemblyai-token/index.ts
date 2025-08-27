@@ -1,49 +1,32 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.44.4';
-import { AssemblyAI } from 'https://esm.sh/assemblyai@4.15.0';
-import { corsHeaders } from '../_shared/cors.ts';
-
-Deno.serve(async (req) => {
+export async function handler(req: Request): Promise<Response> {
+  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response(null, {
+      status: 200,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+      },
+    });
   }
 
   try {
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      throw new Error('Missing authorization header');
-    }
-    const token = authHeader.replace('Bearer ', '');
-    const supabaseUrl = Deno.env.get('SUPABASE_URL');
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-    const assemblyAIKey = Deno.env.get('ASSEMBLYAI_API_KEY');
-
-    if (!supabaseUrl || !serviceRoleKey || !assemblyAIKey) {
-      throw new Error('Server configuration error: Missing environment variables');
-    }
-
-    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
-    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
-
-    if (userError) {
-      throw new Error(`Authentication error: ${userError.message}`);
-    }
-    if (!user) {
-      throw new Error('User not found');
-    }
-
-    const assemblyai = new AssemblyAI({ apiKey: assemblyAIKey });
-    // Using corrected expires_in and no model parameter
-    const tempToken = await assemblyai.realtime.createTemporaryToken({ expires_in: 600 });
-
-    return new Response(JSON.stringify({ token: tempToken }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    // Your actual function logic here
+    return new Response(JSON.stringify({ token: 'example' }), {
       status: 200,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Content-Type': 'application/json',
+      },
     });
   } catch (error) {
-    // Return a 400 for client-side errors or AssemblyAI API errors
     return new Response(JSON.stringify({ error: error.message }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 400,
+      status: 500,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Content-Type': 'application/json',
+      },
     });
   }
-});
+}

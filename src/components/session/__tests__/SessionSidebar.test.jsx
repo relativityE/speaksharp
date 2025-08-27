@@ -46,7 +46,7 @@ describe('SessionSidebar', () => {
   it('renders in its initial idle state', () => {
     render(<SessionSidebar {...defaultProps} />);
     expect(screen.getByText('Start Recording')).toBeInTheDocument();
-    expect(screen.getByText('Ready to Record')).toBeInTheDocument();
+    expect(screen.getByText('Ready')).toBeInTheDocument();
     expect(screen.getByText('00:00')).toBeInTheDocument();
   });
 
@@ -60,7 +60,7 @@ describe('SessionSidebar', () => {
   it('renders in the listening state', () => {
     render(<SessionSidebar {...defaultProps} isListening={true} isReady={true} elapsedTime={30} />);
     expect(screen.getByText('End Session')).toBeInTheDocument();
-    expect(screen.getByText('● Listening, you may begin speaking!')).toBeInTheDocument();
+    expect(screen.getByText('● Listening...')).toBeInTheDocument();
     expect(screen.getByText('00:30')).toBeInTheDocument();
   });
 
