@@ -47,10 +47,6 @@ export async function handler(req: Request) {
     const assemblyai = new AssemblyAI({ apiKey: assemblyAIKey });
     const tempToken = await assemblyai.realtime.createTemporaryToken({ expires_in: 600 });
 
-    // Create AssemblyAI client and temporary token
-    const assemblyai = new AssemblyAI({ apiKey: assemblyAIKey });
-    const tempToken = await assemblyai.realtime.createTemporaryToken({ expires_in: 600 });
-
     return new Response(JSON.stringify({ token: tempToken, expires_in: 600 }), {
       headers: { 'Content-Type': 'application/json', ...corsHeaders },
       status: 200

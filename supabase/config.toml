@@ -335,8 +335,10 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 
 [functions.assemblyai-token]
   entrypoint = "./functions/assemblyai-token/index.ts"
+  verify_jwt = false
 [functions.get-ai-suggestions]
   entrypoint = "./functions/get-ai-suggestions/index.ts"
+  verify_jwt = false
 [functions.stripe-checkout]
   entrypoint = "./functions/stripe-checkout/index.ts"
 [functions.stripe-webhook]
