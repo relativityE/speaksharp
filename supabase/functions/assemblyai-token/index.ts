@@ -2,13 +2,10 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.44.4';
 import { AssemblyAI } from 'https://esm.sh/assemblyai@4.15.0';
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type"
-};
+// This function creates a temporary token for the client to use to connect
+// to the AssemblyAI streaming service.
 
-export async function handler(req: Request) {
+Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
@@ -65,7 +62,6 @@ export async function handler(req: Request) {
     // 4. Create a temporary token for AssemblyAI
     const assemblyai = new AssemblyAI({ apiKey: assemblyAIKey });
     const tempToken = await assemblyai.realtime.createTemporaryToken({ expires_in: 3600 }); // Expires in 1 hour
-
     return new Response(JSON.stringify({ token: tempToken }), {
       headers: { 'Content-Type': 'application/json', ...corsHeaders },
       status: 200
@@ -79,9 +75,4 @@ export async function handler(req: Request) {
       status: 500
     });
   }
-}
-
-// Start server if the script is executed directly.
-if (import.meta.main) {
-  serve(handler);
-}
+});
