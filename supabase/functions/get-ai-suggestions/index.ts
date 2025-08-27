@@ -18,44 +18,40 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
   }
 
   try {
-    // Universal developer mode bypass
-    if (Deno.env.get("SUPER_DEV_MODE") !== 'true') {
-      // Production mode: Standard user authentication and "pro" plan check.
-      const authHeader = req.headers.get('Authorization');
-      const supabaseClient = createSupabase(authHeader);
+    // Production mode: Standard user authentication and "pro" plan check.
+    const authHeader = req.headers.get('Authorization');
+    const supabaseClient = createSupabase(authHeader);
 
-      const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
+    const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
 
-      if (userError || !user) {
-        return new Response(JSON.stringify({ error: 'Authentication failed' }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 401,
-        });
-      }
-
-      const { data: profile, error: profileError } = await supabaseClient
-        .from('user_profiles')
-        .select('subscription_status')
-        .eq('id', user.id)
-        .single();
-
-      if (profileError) {
-        console.error('Profile fetch error:', profileError);
-        return new Response(JSON.stringify({ error: 'Failed to fetch user profile' }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 500,
-        });
-      }
-
-      const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
-      if (!isPro) {
-        return new Response(JSON.stringify({ error: 'User is not on a Pro plan' }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 403,
-        });
-      }
+    if (userError || !user) {
+      return new Response(JSON.stringify({ error: 'Authentication failed' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 401,
+      });
     }
-    // If in dev mode, we bypass the auth checks and proceed.
+
+    const { data: profile, error: profileError } = await supabaseClient
+      .from('user_profiles')
+      .select('subscription_status')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError) {
+      console.error('Profile fetch error:', profileError);
+      return new Response(JSON.stringify({ error: 'Failed to fetch user profile' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 500,
+      });
+    }
+
+    const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
+    if (!isPro) {
+      return new Response(JSON.stringify({ error: 'User is not on a Pro plan' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 403,
+      });
+    }
 
     const { transcript } = await req.json();
     if (!transcript) {

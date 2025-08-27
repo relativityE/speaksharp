@@ -85,7 +85,6 @@ export default class CloudAssemblyAI {
 
       this.transcriber.on('error', (error) => console.error('AssemblyAI error:', error));
       this.transcriber.on('close', (code, reason) => console.log('AssemblyAI session closed:', code, reason));
-
       this.transcriber.on('transcript.partial', (p) => {
         if (p.text && this.onTranscriptUpdate) this.onTranscriptUpdate({ transcript: { partial: p.text } });
       });

@@ -58,6 +58,27 @@ A real-time speech analysis tool built on two pillars: speed and privacy. Our "p
 
 All known issues, bugs, and technical debt are tracked in our [Product Requirements Document (PRD.md#known-issues)](PRD.md#known-issues). This ensures a single source of truth for the project's status.
 
+## Production Ready Checklist
+*****************************************************************
+*                                                               *
+*   DANGEROUS!  ALERT!  DANGEROUS!  ALERT!  DANGEROUS!  ALERT!   *
+*                                                               *
+*   The following keys MUST be rolled before any production     *
+*   deployment. These are development keys and should not be    *
+*   used in a live environment.                                 *
+*                                                               *
+*   - VITE_SUPABASE_URL                                         *
+*   - VITE_SUPABASE_ANON_KEY                                    *
+*   - VITE_ASSEMBLYAI_API_KEY                                   *
+*   - VITE_SENTRY_DSN                                           *
+*   - VITE_POSTHOG_KEY                                          *
+*   - VITE_POSTHOG_HOST                                         *
+*   - VITE_STRIPE_PUBLISHABLE_KEY                               *
+*   - VITE_STRIPE_SECRET_KEY                                    *
+*   - VITE_STRIPE_WEBHOOK_SECRET                                *
+*                                                               *
+*****************************************************************
+
 ## How to Test the Application
 
 This project uses a hybrid testing strategy:

@@ -100,6 +100,70 @@ ASSEMBLYAI_API_KEY=<Your AssemblyAI API Key>
 # The UUID of the dedicated, non-privileged user you created for development
 # (Go to Supabase Dashboard > Authentication > Users > Click on dev user > Copy UUID)
 UUID_DEV_USER=<The UUID of the dev user>
+
+### Environment Variables for Local Development
+
+To run the application locally in developer mode, create a `.env.local` file in the root of the project with the following variables:
+
+```bash
+# --- React App Variables ---
+# Set this to true to enable the developer authentication flow
+VITE_DEV_MODE='true'
+
+# Your project's public Supabase URL and Anon Key
+VITE_SUPABASE_URL=<Your Supabase Project URL>
+VITE_SUPABASE_ANON_KEY=<Your Supabase Project Anon Key>
+
+
+# --- Supabase Edge Function Variables ---
+# These are used by the functions when running locally via `supabase start`
+# and should also be set in your project's secrets for deployment.
+
+# Your project's Service Role Key (found in API settings)
+SUPABASE_SERVICE_ROLE_KEY=<Your Supabase Project Service Role Key>
+
+# Your AssemblyAI API Key
+ASSEMBLYAI_API_KEY=<Your AssemblyAI API Key>
+
+# The UUID of the dedicated, non-privileged user you created for development
+# (Go to Supabase Dashboard > Authentication > Users > Click on dev user > Copy UUID)
+UUID_DEV_USER=<The UUID of the dev user>
+
+**Authentication:**
+- **Standard Users:** Authenticate using the JWT obtained at login.
+- **Developers (Local Env Only):** If a `VITE_DEV_SECRET_KEY` is present in the `.env.local` file, the application enters developer mode. It calls a special `generate-jwt` edge function (which has JWT verification disabled). This function returns a short-lived JWT for a hardcoded, non-privileged developer user. This temporary JWT is then used to authenticate subsequent requests to secured functions.
+
+**Workflow:**
+```text
++---------------------------------+      +-------------------------------------+      +-----------------------------+
+|         User's Browser          |      |        Supabase Edge Function       |      |      AssemblyAI Service     |
+|        (React Client)           |      |        (assemblyai-token)           |      |                             |
++---------------------------------+      +-------------------------------------+      +-----------------------------+
+               |                                       |                                       |
+1. `createMicStream()` is called.                      |                                       |
+   - Captures audio.                                   |                                       |
+   - Downsamples via `AudioWorklet` (`pcm-downsampler`) to 16,000 Hz. |                               |
+               |                                       |                                       |
+2. `_getAuthToken()` is called.                        |                                       |
+   - If dev mode, calls `generate-jwt` function to get a temporary JWT. |
+   - Otherwise, uses the logged-in user's JWT.         |                                       |
+               |                                       |                                       |
+3. `_getAssemblyAIToken()` is called.                  |                                       |
+   - Invokes `assemblyai-token` function with the JWT. |                                       |
+   ──────────────────────────────────────────────────> 4. Receives request.                    |
+                                                       |   - Supabase Gateway validates JWT.   |
+                                                       |   - Function gets user from JWT.      |
+                                                       |   - Checks user's plan/usage.         |
+                                                       |                                       |
+                                                     5. `createTemporaryToken()` ───────────> 6. Validates API Key.
+                                                       |   (Uses master AssemblyAI API Key)    |   Generates temporary token.
+                                                       |                                       |
+             7. Receives temporary token <────────────────────────────────────────────────────
+               |                                       |                                       |
+8. Connects to AssemblyAI WebSocket.                   |                                       |
+   - Uses temporary token for auth.                    |                                       |
+   - Begins streaming audio data.  ─────────────────────────────────────────────────────────> 9. Receives audio stream.
+               |                                       |                                       |   Performs transcription.
 ```
 
 ## 3. Database Management & Performance
