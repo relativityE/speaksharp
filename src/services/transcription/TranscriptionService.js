@@ -3,15 +3,16 @@ import NativeBrowser from './modes/NativeBrowser';
 import { createMicStream } from './utils/audioUtils';
 
 export default class TranscriptionService {
-  constructor({ onTranscriptUpdate, onModelLoadProgress, onReady, profile, forceCloud = false, session, navigate } = {}) {
+  constructor({ onTranscriptUpdate, onModelLoadProgress, onReady, profile, forceCloud = false, session, navigate, getAssemblyAIToken } = {}) {
     console.log(`[TranscriptionService] Constructor called with forceCloud: ${forceCloud}`);
-    this.mode = null; // Will be 'cloud' or 'native'
+    this.mode = null;
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onModelLoadProgress = onModelLoadProgress;
     this.onReady = onReady;
     this.profile = profile;
     this.session = session;
     this.navigate = navigate;
+    this.getAssemblyAIToken = getAssemblyAIToken;
     this.forceCloud = forceCloud;
     this.instance = null;
     this.mic = null;
@@ -30,7 +31,7 @@ export default class TranscriptionService {
   }
 
   async startTranscription() {
-    console.log('[TranscriptionService] Attempting to start Cloud transcription...');
+    console.log('[TranscriptionService] Attempting to start transcription...');
     if (!this.mic) {
       throw new Error("Microphone not initialized. Call init() first.");
     }
@@ -41,10 +42,11 @@ export default class TranscriptionService {
       onReady: this.onReady,
       session: this.session,
       navigate: this.navigate,
+      getAssemblyAIToken: this.getAssemblyAIToken,
     };
 
     try {
-      // Attempt to use Cloud mode first
+      console.log(`[TranscriptionService] Attempting to use Cloud mode. forceCloud is ${this.forceCloud}`);
       this.instance = new CloudAssemblyAI(providerConfig);
       await this.instance.init();
       await this.instance.startTranscription(this.mic);
@@ -53,16 +55,13 @@ export default class TranscriptionService {
     } catch (error) {
       console.warn(`[TranscriptionService] Cloud mode failed. forceCloud is ${this.forceCloud}.`, error);
 
-      // If forceCloud is true, we don't fall back. We just fail.
       if (this.forceCloud) {
         console.error('[TranscriptionService] forceCloud is enabled, re-throwing error without fallback.');
         throw error;
       }
 
-      // If Cloud mode fails, fall back to Native Browser mode
       try {
         console.log('[TranscriptionService] Attempting to fall back to Native Browser mode.');
-        // Clean up previous instance if it exists
         if (this.instance) {
           await this.instance.destroy?.();
         }
@@ -73,7 +72,7 @@ export default class TranscriptionService {
         console.log('[TranscriptionService] Native fallback transcription started successfully.');
       } catch (fallbackError) {
         console.error('[TranscriptionService] Native fallback mode also failed.', fallbackError);
-        throw fallbackError; // Rethrow if fallback also fails
+        throw fallbackError;
       }
     }
   }

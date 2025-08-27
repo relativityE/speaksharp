@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabaseClient';
-import { Mic, Square, Loader2, Zap, Lock } from 'lucide-react';
+import { Mic, Square, Loader2, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useStripe } from '@stripe/react-stripe-js';
@@ -17,7 +17,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
@@ -40,16 +39,13 @@ const ModelLoadingIndicator = ({ progress }) => {
     if (!progress || progress.status === 'ready' || progress.status === 'error') {
         return null;
     }
-
     const loaded = progress.loaded ? (progress.loaded / 1024 / 1024).toFixed(2) : 0;
     const total = progress.total ? (progress.total / 1024 / 1024).toFixed(2) : 0;
     const progressPercent = progress.total ? (progress.loaded / progress.total) * 100 : 0;
-
     let statusText = 'Initializing...';
     if (progress.status === 'download') {
         statusText = `Downloading model: ${progress.file} (${loaded}MB / ${total}MB)`;
     }
-
     return (
         <div className="space-y-2 pt-2">
             <p className="text-xs text-muted-foreground text-center">{statusText}</p>
@@ -70,6 +66,7 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
 
     const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
     const isModelLoading = modelLoadingProgress && modelLoadingProgress.status !== 'ready' && modelLoadingProgress.status !== 'error';
+    const isConnecting = isListening && !isReady;
 
     const handleUpgrade = async () => {
         if (!user) {
@@ -84,11 +81,11 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
             const { error: stripeError } = await stripe.redirectToCheckout({ sessionId });
             if (stripeError) {
                 console.error("Stripe redirect error:", stripeError.message);
-                alert(`Error: ${stripeError.message}`);
+                toast.error(`Error: ${stripeError.message}`);
             }
         } catch (e) {
             console.error("Upgrade process failed:", e);
-            alert("Could not initiate the upgrade process. Please try again later.");
+            toast.error("Could not initiate the upgrade process. Please try again later.");
         } finally {
             setIsUpgrading(false);
         }
@@ -100,23 +97,20 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
             const sessionData = await stopListening();
             if (!sessionData || !sessionData.transcript) {
                 toast.error("Session was too short or no speech was detected.");
-                setIsEndingSession(false);
                 return;
             }
-            // Instead of navigating, store data and show the dialog
             setCompletedSessionData(sessionData);
             setShowEndSessionDialog(true);
         } catch (e) {
             console.error("Error ending session:", e);
             toast.error("An unexpected error occurred while ending the session.");
         } finally {
-            // isEndingSession will be set to false when the dialog is interacted with
+            setIsEndingSession(false);
         }
     };
 
     const handleNavigateToAnalytics = async () => {
         if (!completedSessionData) return;
-
         if (user) {
             const savedSession = await saveSession(completedSessionData);
             if (savedSession && savedSession.id) {
@@ -134,7 +128,6 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
 
     const handleStayOnPage = () => {
         setShowEndSessionDialog(false);
-        setIsEndingSession(false);
     };
 
     const handleStartStop = async () => {
@@ -142,24 +135,18 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
             await endSessionAndSave();
         } else {
             reset();
-            // Pass the developer flag to the startListening function
             await startListening({ forceCloud });
         }
     };
 
-    // Determine the vivid title for the card
     const getCardTitle = () => {
-        if (isListening) {
-            return actualMode === 'cloud' ? 'Cloud AI' : 'Native Browser';
-        }
-        if (isModelLoading) {
-            return 'Initializing Model...';
-        }
-        return 'Ready to Record';
+        if (isConnecting) return 'Connecting...';
+        if (isListening) return `Mode: ${actualMode === 'cloud' ? 'Cloud AI' : 'Native Browser'}`;
+        if (isModelLoading) return 'Initializing Model...';
+        return 'Ready';
     };
 
-    const showUpgradeButton = !isPro && !isUpgrading;
-    const isButtonDisabled = isListening ? isEndingSession : isModelLoading;
+    const isButtonDisabled = isListening ? isEndingSession : (isModelLoading || isConnecting);
 
     return (
         <div className="flex flex-col gap-6 h-full">
@@ -175,7 +162,7 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
                     <div className="flex flex-col items-center justify-center gap-6 py-2 flex-grow">
                         <DigitalTimer elapsedTime={elapsedTime} />
                         <div className={`text-xl font-semibold ${isListening && isReady ? 'text-green-500' : 'text-muted-foreground'}`}>
-                            {isListening ? (isReady ? '● Listening, you may begin speaking!' : '○ Connecting...') : (isModelLoading ? 'Please wait...' : 'Idle')}
+                            {isConnecting ? '○ Connecting...' : (isListening ? '● Listening...' : (isModelLoading ? 'Please wait...' : 'Idle'))}
                         </div>
                         <Button
                             onClick={handleStartStop}
@@ -184,11 +171,10 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
                             className="w-full h-16 text-xl font-bold rounded-lg"
                             disabled={isButtonDisabled}
                         >
-                            {isListening ? <><Square className="w-4 h-4 mr-2" /> End Session</> : (isModelLoading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Initializing...</> : <><Mic className="w-4 h-4 mr-2" /> Start Recording</>)}
+                            {isListening ? <><Square className="w-4 h-4 mr-2" /> End Session</> : (isModelLoading || isConnecting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {isConnecting ? 'Connecting...' : 'Initializing...'}</> : <><Mic className="w-4 h-4 mr-2" /> Start Recording</>)}
                         </Button>
                     </div>
 
-                    {/* Developer Tools */}
                     {import.meta.env.DEV && (
                         <div className="mt-auto pt-4 border-t">
                              <Label
@@ -206,7 +192,7 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
                         </div>
                     )}
 
-                    {showUpgradeButton && (
+                    {!isPro && (
                         <div className="mt-auto pt-4 border-t">
                             <div className="flex items-center gap-2 text-primary mb-2">
                                 <Zap className="w-4 h-4" />
