@@ -8,8 +8,6 @@ import { SessionPage } from './pages/SessionPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import AuthPage from './pages/AuthPage';
 function App() {
-  useAuth();
-
   return (
     <div>
       <Header />
