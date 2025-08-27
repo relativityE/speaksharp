@@ -118,23 +118,40 @@ export const useSpeechRecognition = ({
                 if (!data.session) throw new Error('Anonymous sign-in did not return a session.');
                 userSession = data.session;
             }
-            if (!userSession?.access_token) {
-                throw new Error('User not authenticated. Please log in to use Cloud transcription.');
+            const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+            if (!supabaseAnonKey) {
+                throw new Error("VITE_SUPABASE_ANON_KEY is not set in the environment.");
             }
-            const userJwt = userSession.access_token;
-            const { data, error } = await supabase.functions.invoke('assemblyai-token', {
-                headers: { 'Authorization': `Bearer ${userJwt}` },
+
+            const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/assemblyai-token`, {
+                method: "POST",
+                headers: {
+                    "apikey": supabaseAnonKey,
+                    "Content-Type": "application/json",
+                },
             });
 
-            if (error) {
-                throw new Error(`Supabase function invocation failed: ${error.message}`);
+            const data = await resp.json();
+
+            if (!resp.ok) {
+                // We now return structured error details from the function
+                console.error("AssemblyAI token error:", data);
+                throw new Error(
+                    `AssemblyAI Token Request Failed (${resp.status}): ${data.error ?? "Unknown error"}`
+                );
             }
-            if (data.error) throw new Error(`AssemblyAI token error: ${data.error}`);
-            if (!data?.token) throw new Error('Token not found in response from Supabase function.');
-            return data.token;
-        } catch (error) {
-            console.error('Failed to get AssemblyAI token:', error);
-            toast.error('Failed to start session', { description: error.message });
+
+            if (!data || !data.token) {
+                console.error("Unexpected token response:", data);
+                throw new Error("No valid AssemblyAI token returned.");
+            }
+
+            console.log("✅ AssemblyAI token acquired:", data);
+            return data.token; // Pass this into your realtime connection
+        } catch (err) {
+            console.error("❌ Error getting AssemblyAI token:", err);
+            // Optionally surface to the user
+            toast.error("Unable to start transcription: " + err.message);
             return null;
         }
     }, [authSession]);
