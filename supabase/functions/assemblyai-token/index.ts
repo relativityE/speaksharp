@@ -2,12 +2,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
-// CORS headers function - modernized from the _shared/cors.ts pattern
 const corsHeaders = () => ({
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS'
 });
+
 
 // Modern serve pattern - replaces the old "export async function handler" pattern
 // This is critical for compatibility with current Supabase Edge Runtime
