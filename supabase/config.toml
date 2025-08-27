@@ -336,6 +336,7 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 [functions.assemblyai-token]
   entrypoint = "./functions/assemblyai-token/index.ts"
   verify_jwt = false
+  cors_origins = ["http://localhost:5173"]
 [functions.get-ai-suggestions]
   entrypoint = "./functions/get-ai-suggestions/index.ts"
   verify_jwt = false
