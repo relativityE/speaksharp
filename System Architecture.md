@@ -31,15 +31,6 @@ The architecture is designed around a modern, client-heavy Jamstack approach. Th
 +-------------------------------------------------------------------+
 ```
 
-
-#### React SPA 
-SPA = Single-Page Application
-
-A React SPA is a web application built with React where the browser loads one HTML page (usually index.html) once, and then JavaScript dynamically updates the content as the user navigates.
-
-=> So instead of going back to the server for each new page, the app swaps components in/out on the client side.
-
-
 ### Detailed Component & Service Interaction Diagram
 
 This diagram provides a more granular view of how the different parts of the codebase interact with each other and with external services.
@@ -56,23 +47,19 @@ This diagram provides a more granular view of how the different parts of the cod
 |   | - `useSpeechRecognition.js`: Handles UI logic.                  |     | - Vitest (`*.test.jsx`)           |
 |   | - `TranscriptionService.js`: Core logic to choose mode.         |     | - Playwright (`*.spec.ts`)        |
 |   |   - `CloudAssemblyAI.js`: Handles cloud mode.                   |     | - Deno Test (`*.test.ts`)         |
-|   |     - Makes POST to `/generate-dev-jwt`                         |     +-----------------------------------+
-|   |     - Makes POST to `/assemblyai-token`                         |
+|   |     - If dev mode & not logged in, calls signInAnonymously().   |     +-----------------------------------+
+|   |     - Makes POST to `/assemblyai-token` with user's JWT.        |
 |   |     - Opens WebSocket to AssemblyAI with the received token.    |
 |   |   - `LocalWhisper.js`: Handles local mode (Transformers.js).    |
 |   +-----------------------------------------------------------------+
-|                                   |         |
+|                                   |
 |                                   | API Calls to Supabase Functions
-|                                   |         |
-|                                   v         v
+|                                   |
+|                                   v
 |   +-----------------------------------------------------------------+
 |   | Supabase (Backend)                                              |
 |   |-----------------------------------------------------------------|
 |   | - **Edge Functions (`supabase/functions/`)**                    |
-|   |   - `generate-dev-jwt`: Creates a temporary JWT for devs.       |
-|   |     (Code: `index.ts`, Config: `config.toml`)                   |
-|   |     (Uses Secrets: `SERVICE_ROLE_KEY`, `UUID_DEV_USER`)         |
-|   |                                                                 |
 |   |   - `assemblyai-token`: Verifies JWT, gets AssemblyAI token.    |
 |   |     (Code: `index.ts`, Config: `config.toml`)                   |
 |   |     (Uses Secrets: `ASSEMBLYAI_API_KEY`)                        |
@@ -97,6 +84,7 @@ This diagram provides a more granular view of how the different parts of the cod
 ```
 
 ### Cloud AI Transcription Workflow (Detailed View)
+
 This diagram illustrates the step-by-step process for initiating a cloud-based transcription session.
 
 **Authentication & Developer Workflow**
@@ -104,33 +92,30 @@ This diagram illustrates the step-by-step process for initiating a cloud-based t
 The system supports two authentication paths: one for standard users and a special flow for local development to bypass the need for a full login.
 
 -   **Standard Users:** Authenticate using the standard JWT provided by Supabase Auth upon login.
--   **Developers (Local Env Only):** This flow is triggered by setting `VITE_DEV_MODE='true'` in the `.env.local` file. It uses a secure, two-step token exchange process to grant access without exposing any long-lived secrets to the browser.
+-   **Developers (Local Env Only):** This flow is triggered by setting `VITE_DEV_MODE='true'` in the `.env.local` file. It uses Supabase's built-in anonymous sign-in feature to create a temporary user session. This is secure and uses standard Supabase functionality.
 
 **Developer Workflow Diagram:**
 ```
-Browser (React App, VITE_DEV_MODE=true)
+Browser (React App, VITE_DEV_MODE=true, not logged in)
   |
-  | 1. Request short-lived dev JWT (no secret needed)
-  |    POST /functions/v1/generate-dev-jwt
+  | 1. Call supabase.auth.signInAnonymously()
   |
   v
-Supabase Edge Function: generate-dev-jwt
-  - Uses server-side UUID_DEV_USER.
-  - Signs a new JWT with the secret SUPABASE_SERVICE_ROLE_KEY.
-  - JWT expires in 10 minutes.
+Supabase Auth
+  - Creates a new temporary, anonymous user.
+  - Returns a standard, secure JWT for this user.
   |
-  | 2. Response: { token: "<dev-JWT>" }
+  | 2. Response: { data: { session: { access_token: "<jwt>" } } }
   v
-Browser stores dev JWT (in memory)
+Browser stores the anonymous session.
   |
-  | 3. Request AssemblyAI token with the dev JWT
+  | 3. Request AssemblyAI token with the anonymous user's JWT.
   |    POST /functions/v1/assemblyai-token
-  |    Header: Authorization: Bearer <dev-JWT>
+  |    Header: Authorization: Bearer <jwt>
   |
   v
 Supabase Edge Function: assemblyai-token
-  - Verifies the dev JWT signature.
-  - Confirms the JWT's subject (`sub`) matches UUID_DEV_USER.
+  - Verifies the JWT via `auth.getUser()`.
   - If valid, calls AssemblyAI with the secret ASSEMBLYAI_API_KEY.
   |
   | 4. Response: { token: "<assemblyai-temp-token>" }
@@ -156,51 +141,16 @@ VITE_SUPABASE_ANON_KEY=<Your Supabase Project Anon Key>
 # These are used by the functions when running locally via `supabase start`
 # and should also be set in your project's secrets for deployment.
 
-# Your project's Service Role Key (found in API settings)
-SUPABASE_SERVICE_ROLE_KEY=<Your Supabase Project Service Role Key>
-
 # Your AssemblyAI API Key
 ASSEMBLYAI_API_KEY=<Your AssemblyAI API Key>
 
 # Your Gemini API Key for AI suggestions
 GEMINI_API_KEY=<Your Gemini API Key>
-
-# The UUID of the dedicated, non-privileged user you created for development
-# (Go to Supabase Dashboard > Authentication > Users > Click on dev user > Copy UUID)
-UUID_DEV_USER=<The UUID of the dev user>
-
-**Workflow:**
-```text
-+---------------------------------+      +-------------------------------------+      +-----------------------------+
-|         User's Browser          |      |        Supabase Edge Function       |      |      AssemblyAI Service     |
-|        (React Client)           |      |        (assemblyai-token)           |      |                             |
-+---------------------------------+      +-------------------------------------+      +-----------------------------+
-               |                                       |                                       |
-1. `createMicStream()` is called.                      |                                       |
-   - Captures audio.                                   |                                       |
-   - Downsamples via `AudioWorklet` (`pcm-downsampler`) to 16,000 Hz. |                               |
-               |                                       |                                       |
-2. `_getAuthToken()` is called.                        |                                       |
-   - If dev mode, calls `generate-jwt` function to get a temporary JWT. |
-   - Otherwise, uses the logged-in user's JWT.         |                                       |
-               |                                       |                                       |
-3. `_getAssemblyAIToken()` is called.                  |                                       |
-   - Invokes `assemblyai-token` function with the JWT. |                                       |
-   ──────────────────────────────────────────────────> 4. Receives request.                    |
-                                                       |   - Gateway does NOT validate JWT.    |
-                                                       |   - Function code validates JWT.      |
-                                                       |   - Function checks user's plan.      |
-                                                       |                                       |
-                                                     5. `createTemporaryToken()` ───────────> 6. Validates API Key.
-                                                       |   (Uses master AssemblyAI API Key)    |   Generates temporary token.
-                                                       |                                       |
-             7. Receives temporary token <────────────────────────────────────────────────────
-               |                                       |                                       |
-8. Connects to AssemblyAI WebSocket.                   |                                       |
-   - Uses temporary token for auth.                    |                                       |
-   - Begins streaming audio data.  ─────────────────────────────────────────────────────────> 9. Receives audio stream.
-               |                                       |                                       |   Performs transcription.
 ```
+
+> [!NOTE]
+> **`VITE_DEV_MODE` is for the Frontend Only**
+> You do **not** need to set `VITE_DEV_MODE` as a secret in your Supabase project. Any variable prefixed with `VITE_` is specifically for your React application running in the browser. It's used in your `.env.local` file to tell the frontend to enable the developer workflow (the anonymous sign-in). Supabase Edge Functions run on a server and use a separate set of secrets that you configure in the Supabase dashboard.
 
 ## 3. Database Management & Performance
 

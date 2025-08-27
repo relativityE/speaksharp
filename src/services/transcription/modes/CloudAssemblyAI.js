@@ -16,27 +16,25 @@ export default class CloudAssemblyAI {
 
   async _getAssemblyAIToken() {
     try {
-      let userJwt;
+      let userSession = this.session;
       const isDevMode = import.meta.env.VITE_DEV_MODE === 'true';
 
-      // --- Developer Path ---
-      if (isDevMode) {
-        console.log('[CloudAssemblyAI] Dev mode: Requesting temporary developer JWT...');
-        const { data: jwtData, error: jwtError } = await supabase.functions.invoke('generate-dev-jwt', {
-          method: 'POST',
-        });
-        if (jwtError) throw new Error(`Failed to get developer JWT: ${jwtError.message}`);
-        if (jwtData.error) throw new Error(`generate-dev-jwt function returned an error: ${jwtData.error}`);
-        userJwt = jwtData.token;
-        console.log('[CloudAssemblyAI] Dev mode: Successfully received temporary developer JWT.');
+      // --- Developer Path: Anonymous Sign-In ---
+      // If in dev mode and there's no active session, sign in anonymously.
+      if (isDevMode && !userSession) {
+        console.log('[CloudAssemblyAI] Dev mode: No user session found. Attempting anonymous sign-in...');
+        const { data, error } = await supabase.auth.signInAnonymously();
+        if (error) throw new Error(`Anonymous sign-in failed: ${error.message}`);
+        if (!data.session) throw new Error('Anonymous sign-in did not return a session.');
+        console.log('[CloudAssemblyAI] Dev mode: Successfully signed in anonymously.');
+        userSession = data.session;
       }
+
       // --- Standard User Path ---
-      else {
-        if (!this.session?.access_token) {
-          throw new Error('User not authenticated. Please log in to use Cloud transcription.');
-        }
-        userJwt = this.session.access_token;
+      if (!userSession?.access_token) {
+        throw new Error('User not authenticated. Please log in to use Cloud transcription.');
       }
+      const userJwt = userSession.access_token;
 
       // --- Use JWT to get AssemblyAI Token ---
       console.log('[CloudAssemblyAI] Requesting AssemblyAI token...');
