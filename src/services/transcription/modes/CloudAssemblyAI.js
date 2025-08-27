@@ -9,7 +9,7 @@ export default class CloudAssemblyAI {
     this.session = session;
     this.navigate = navigate;
     this.transcriber = null;
-    this.writer = null;
+    this._stopMicListener = null;
   }
 
   async _getAssemblyAIKey() {
@@ -57,10 +57,18 @@ export default class CloudAssemblyAI {
       const client = new AssemblyAI({ apiKey });
       const transcriberParams = { sampleRate: 16000 };
       this.transcriber = client.streaming.transcriber(transcriberParams);
-
       this.transcriber.on("open", ({ id }) => {
         console.log(`AssemblyAI session opened with ID: ${id}`);
         if (this.onReady) this.onReady();
+
+        // Start listening to the microphone only after the connection is open
+        const onFrame = (f32) => {
+          if (this.transcriber) {
+            this.transcriber.sendAudio(f32);
+          }
+        };
+        mic.onFrame(onFrame);
+        this._stopMicListener = () => mic.offFrame(onFrame);
       });
 
       this.transcriber.on("error", (error) => {
@@ -79,19 +87,8 @@ export default class CloudAssemblyAI {
         }
         this.onTranscriptUpdate({ transcript: { final: turn.transcript }, words: turn.words });
       });
-
-      // The new SDK requires writing to a stream.
-      this.writer = this.transcriber.stream().getWriter();
-
-      const onFrame = (f32) => {
-        if (this.writer) {
-          this.writer.write(f32);
-        }
-      };
-
-      mic.onFrame(onFrame);
-      this._stopMicListener = () => mic.offFrame(onFrame);
-
+      // Explicitly connect to the service
+      await this.transcriber.connect();
     } catch (error) {
       console.error('Failed to start transcription:', error);
       throw error;
@@ -103,16 +100,6 @@ export default class CloudAssemblyAI {
       this._stopMicListener();
       this._stopMicListener = null;
     }
-
-    if (this.writer) {
-      try {
-        await this.writer.close();
-      } catch (error) {
-        console.error("Error closing stream writer:", error);
-      }
-      this.writer = null;
-    }
-
     if (this.transcriber) {
       await this.transcriber.close();
       this.transcriber = null;
