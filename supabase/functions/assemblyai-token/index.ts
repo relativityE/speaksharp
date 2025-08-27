@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
     console.log(`Successfully authenticated user: ${user.id}`);
 
     const assemblyai = new AssemblyAI({ apiKey: assemblyAIKey });
-    const tempToken = await assemblyai.realtime.createTemporaryToken({ expires_in: 3600 });
+    const tempToken = await assemblyai.realtime.createTemporaryToken({ expires_in: 3600, model: 'universal' });
 
     return new Response(JSON.stringify({ token: tempToken }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
