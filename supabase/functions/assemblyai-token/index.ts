@@ -19,7 +19,6 @@ Deno.serve(async (req) => {
       throw new Error('Missing authorization header');
     }
     const token = authHeader.replace('Bearer ', '');
-
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
     const assemblyAIKey = Deno.env.get('ASSEMBLYAI_API_KEY');
@@ -41,7 +40,7 @@ Deno.serve(async (req) => {
     console.log(`Successfully authenticated user: ${user.id}`);
 
     const assemblyai = new AssemblyAI({ apiKey: assemblyAIKey });
-    const tempToken = await assemblyai.realtime.createTemporaryToken({ expires_in: 600 });
+    const tempToken = await assemblyai.realtime.createTemporaryToken({ expires_in: 3600, model: 'universal' });
 
     return new Response(JSON.stringify({ token: tempToken }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
