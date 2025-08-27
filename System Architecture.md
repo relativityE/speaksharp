@@ -31,6 +31,69 @@ The architecture is designed around a modern, client-heavy Jamstack approach. Th
 +-------------------------------------------------------------------+
 ```
 
+#### What a React SPA is
+SPA = Single-Page Application
+
+A React SPA is a web application built with React where the browser loads one HTML page (usually index.html) once, and then JavaScript dynamically updates the content as the user navigates.
+
+=> So instead of going back to the server for each new page, the app swaps components in/out on the client side.
+
+### Detailed Component & Service Interaction Diagram
+
+This diagram provides a more granular view of how the different parts of the codebase interact with each other and with external services.
+
+```text
++-----------------------------------------------------------------------------------------------------------------+
+|                                         SpeakSharp System Architecture                                          |
++=================================================================================================================+
+|                                                                                                                 |
+|   +-----------------------------------------------------------------+     +-----------------------------------+
+|   | Browser (Client - React SPA in `src/`)                          |     | Development & Testing             |
+|   |-----------------------------------------------------------------|     |-----------------------------------|
+|   | - `SessionSidebar.jsx`: User clicks "Start" button.             |     | - Vite (`vite.config.mjs`)        |
+|   | - `useSpeechRecognition.js`: Handles UI logic.                  |     | - Vitest (`*.test.jsx`)           |
+|   | - `TranscriptionService.js`: Core logic to choose mode.         |     | - Playwright (`*.spec.ts`)        |
+|   |   - `CloudAssemblyAI.js`: Handles cloud mode.                   |     | - Deno Test (`*.test.ts`)         |
+|   |     - Makes POST to `/generate-dev-jwt`                         |     +-----------------------------------+
+|   |     - Makes POST to `/assemblyai-token`                         |
+|   |     - Opens WebSocket to AssemblyAI with the received token.    |
+|   |   - `LocalWhisper.js`: Handles local mode (Transformers.js).    |
+|   +-----------------------------------------------------------------+
+|                                   |         |
+|                                   | API Calls to Supabase Functions
+|                                   |         |
+|                                   v         v
+|   +-----------------------------------------------------------------+
+|   | Supabase (Backend)                                              |
+|   |-----------------------------------------------------------------|
+|   | - **Edge Functions (`supabase/functions/`)**                    |
+|   |   - `generate-dev-jwt`: Creates a temporary JWT for devs.       |
+|   |     (Code: `index.ts`, Config: `config.toml`)                   |
+|   |     (Uses Secrets: `SERVICE_ROLE_KEY`, `UUID_DEV_USER`)         |
+|   |                                                                 |
+|   |   - `assemblyai-token`: Verifies JWT, gets AssemblyAI token.    |
+|   |     (Code: `index.ts`, Config: `config.toml`)                   |
+|   |     (Uses Secrets: `ASSEMBLYAI_API_KEY`)                        |
+|   |                                                                 |
+|   |   - `get-ai-suggestions`: Gets suggestions from Gemini.         |
+|   |     (Code: `index.ts`, Config: `config.toml`)                   |
+|   |     (Uses Secrets: `GEMINI_API_KEY`)                            |
+|   |                                                                 |
+|   | - **Database (PostgreSQL)**: Stores user data, sessions.        |
+|   |   (Schema: `supabase/migrations/`)                              |
+|   +-----------------------------------------------------------------+
+|       |         |                      |
+|       |         |                      +----------------> +----------------------------+
+|       |         | (Via Supabase Function)                 | AssemblyAI API (Real-time) |
+|       |         +---------------------------------------> +----------------------------+
+|       |
+|       +---------------------------------------------------> +----------------------------+
+|         (Via Supabase Function)                             | Google Gemini API (REST)   |
+|                                                             +----------------------------+
+|
++-----------------------------------------------------------------------------------------------------------------+
+```
+
 ### Cloud AI Transcription Workflow (Detailed View)
 This diagram illustrates the step-by-step process for initiating a cloud-based transcription session.
 
@@ -97,41 +160,12 @@ SUPABASE_SERVICE_ROLE_KEY=<Your Supabase Project Service Role Key>
 # Your AssemblyAI API Key
 ASSEMBLYAI_API_KEY=<Your AssemblyAI API Key>
 
-# The UUID of the dedicated, non-privileged user you created for development
-# (Go to Supabase Dashboard > Authentication > Users > Click on dev user > Copy UUID)
-UUID_DEV_USER=<The UUID of the dev user>
-
-### Environment Variables for Local Development
-
-To run the application locally in developer mode, create a `.env.local` file in the root of the project with the following variables:
-
-```bash
-# --- React App Variables ---
-# Set this to true to enable the developer authentication flow
-VITE_DEV_MODE='true'
-
-# Your project's public Supabase URL and Anon Key
-VITE_SUPABASE_URL=<Your Supabase Project URL>
-VITE_SUPABASE_ANON_KEY=<Your Supabase Project Anon Key>
-
-
-# --- Supabase Edge Function Variables ---
-# These are used by the functions when running locally via `supabase start`
-# and should also be set in your project's secrets for deployment.
-
-# Your project's Service Role Key (found in API settings)
-SUPABASE_SERVICE_ROLE_KEY=<Your Supabase Project Service Role Key>
-
-# Your AssemblyAI API Key
-ASSEMBLYAI_API_KEY=<Your AssemblyAI API Key>
+# Your Gemini API Key for AI suggestions
+GEMINI_API_KEY=<Your Gemini API Key>
 
 # The UUID of the dedicated, non-privileged user you created for development
 # (Go to Supabase Dashboard > Authentication > Users > Click on dev user > Copy UUID)
 UUID_DEV_USER=<The UUID of the dev user>
-
-**Authentication:**
-- **Standard Users:** Authenticate using the JWT obtained at login.
-- **Developers (Local Env Only):** If a `VITE_DEV_SECRET_KEY` is present in the `.env.local` file, the application enters developer mode. It calls a special `generate-jwt` edge function (which has JWT verification disabled). This function returns a short-lived JWT for a hardcoded, non-privileged developer user. This temporary JWT is then used to authenticate subsequent requests to secured functions.
 
 **Workflow:**
 ```text
@@ -151,9 +185,9 @@ UUID_DEV_USER=<The UUID of the dev user>
 3. `_getAssemblyAIToken()` is called.                  |                                       |
    - Invokes `assemblyai-token` function with the JWT. |                                       |
    ──────────────────────────────────────────────────> 4. Receives request.                    |
-                                                       |   - Supabase Gateway validates JWT.   |
-                                                       |   - Function gets user from JWT.      |
-                                                       |   - Checks user's plan/usage.         |
+                                                       |   - Gateway does NOT validate JWT.    |
+                                                       |   - Function code validates JWT.      |
+                                                       |   - Function checks user's plan.      |
                                                        |                                       |
                                                      5. `createTemporaryToken()` ───────────> 6. Validates API Key.
                                                        |   (Uses master AssemblyAI API Key)    |   Generates temporary token.

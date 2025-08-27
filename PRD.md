@@ -59,4 +59,12 @@ Status Key: ✅ = Completed, ⚪ = To Do, 🟡 = In Progress
 *   🟡 **Stabilize Vitest Test Suite:** Address the memory leak and enable the disabled tests.
 
 ---
-(The rest of the file remains the same)
+
+## Software Quality Metrics
+
+This section tracks key software quality metrics for the project. These are baseline measurements taken on August 26, 2025.
+
+| Metric                        | Current Value | Industry Standard | Notes                                           |
+| ----------------------------- | ------------- | ----------------- | ----------------------------------------------- |
+| **Test Coverage (Lines)**     | `43.48%`      | `70-80%`          | Percentage of code lines executed by tests.     |
+| **Code Bloat (Uncovered Code)** | `56.52%`      | `N/A`             | Percentage of code lines not covered by tests.  |
