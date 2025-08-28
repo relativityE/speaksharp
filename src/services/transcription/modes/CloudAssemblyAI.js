@@ -44,10 +44,17 @@ export default class CloudAssemblyAI {
       this.socket.onmessage = (event) => {
         const data = JSON.parse(event.data);
         console.log('[CloudAssemblyAI] Received message:', data);
-        if (data.message_type === 'FinalTranscript' && data.text) {
-          this.onTranscriptUpdate({ transcript: { final: data.text }, words: data.words });
-        } else if (data.message_type === 'PartialTranscript' && data.text) {
-          this.onTranscriptUpdate({ transcript: { partial: data.text } });
+
+        // The V3 API sends transcript data without a 'message_type' field.
+        // We determine if it's partial or final based on 'end_of_turn' and 'turn_is_formatted'.
+        if (data.transcript) {
+          if (data.turn_is_formatted && data.end_of_turn) {
+            // This is the final, polished transcript for a turn.
+            this.onTranscriptUpdate({ transcript: { final: data.transcript }, words: data.words || [] });
+          } else {
+            // This is a partial, real-time transcript.
+            this.onTranscriptUpdate({ transcript: { partial: data.transcript } });
+          }
         }
       };
 
