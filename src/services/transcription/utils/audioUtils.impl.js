@@ -61,6 +61,7 @@ export async function createMicStreamImpl({ sampleRate = 16000, frameSize = 1024
       try { source.disconnect(); node.disconnect(); } catch (e) { /* best effort */ }
       audioCtx.close().catch(() => { /* best effort */ });
       mediaStream.getTracks().forEach(t => t.stop());
-    }
+    },
+    _mediaStream: mediaStream, // Expose the raw stream for MediaRecorder
   };
 }

@@ -110,35 +110,33 @@ export const useSpeechRecognition = ({
 
     const getAssemblyAIToken = useCallback(async () => {
         try {
+            console.log('[getAssemblyAIToken] Starting...');
+            console.log('[getAssemblyAIToken] Initial authSession:', authSession);
             let userSession = authSession;
+
             const isDevMode = import.meta.env.VITE_DEV_MODE === 'true';
+            console.log('[getAssemblyAIToken] VITE_DEV_MODE:', isDevMode);
+
             if (isDevMode && !userSession) {
+                console.log('[getAssemblyAIToken] Dev mode is on and no session, attempting anonymous sign-in...');
                 const { data, error } = await supabase.auth.signInAnonymously();
+                console.log('[getAssemblyAIToken] Anonymous sign-in result:', { data, error });
                 if (error) throw new Error(`Anonymous sign-in failed: ${error.message}`);
                 if (!data.session) throw new Error('Anonymous sign-in did not return a session.');
                 userSession = data.session;
             }
-            const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-            if (!supabaseAnonKey) {
-                throw new Error("VITE_SUPABASE_ANON_KEY is not set in the environment.");
-            }
 
-            const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/assemblyai-token`, {
-                method: "POST",
-                headers: {
-                    "apikey": supabaseAnonKey,
-                    "Content-Type": "application/json",
-                },
+            console.log('[getAssemblyAIToken] Final userSession has access token:', userSession?.access_token ? 'Yes' : 'No');
+
+            // Refactored to use supabase.functions.invoke for robustness.
+            // This handles auth and headers automatically.
+            const { data, error } = await supabase.functions.invoke('assemblyai-token', {
+                body: {}, // Body is required to trigger a POST request and handle CORS correctly.
             });
 
-            const data = await resp.json();
-
-            if (!resp.ok) {
-                // We now return structured error details from the function
-                console.error("AssemblyAI token error:", data);
-                throw new Error(
-                    `AssemblyAI Token Request Failed (${resp.status}): ${data.error ?? "Unknown error"}`
-                );
+            if (error) {
+                console.error("Error invoking assemblyai-token function:", error);
+                throw new Error(`Failed to invoke token function: ${error.message}`);
             }
 
             if (!data || !data.token) {

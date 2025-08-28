@@ -1,12 +1,10 @@
-import { AssemblyAI } from 'assemblyai';
-
 export default class CloudAssemblyAI {
   constructor({ onTranscriptUpdate, onReady, getAssemblyAIToken } = {}) {
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onReady = onReady;
-    this._getAssemblyAIToken = getAssemblyAIToken; // Injected dependency
-    this.transcriber = null;
-    this._stopMicListener = null;
+    this._getAssemblyAIToken = getAssemblyAIToken;
+    this.socket = null;
+    this.mediaRecorder = null;
   }
 
   async init() {
@@ -16,74 +14,82 @@ export default class CloudAssemblyAI {
   }
 
   async startTranscription(mic) {
+    if (!mic || !mic._mediaStream) {
+      throw new Error("A mediaStream is required to start transcription.");
+    }
+
     try {
-      const assemblyAIToken = await this._getAssemblyAIToken();
-      console.log("Received AssemblyAI Token:", assemblyAIToken);
-      if (!assemblyAIToken) {
+      const token = await this._getAssemblyAIToken();
+      if (!token) {
         throw new Error("Failed to retrieve AssemblyAI token.");
       }
 
-      this.transcriber = new AssemblyAI.StreamingTranscriber({
-        token: assemblyAIToken,
-        sampleRate: 16000,
-      });
+      const socket = new WebSocket(
+        `wss://api.assemblyai.com/v2/realtime/ws?sample_rate=16000&token=${token}`
+      );
+      this.socket = socket;
 
-      this.transcriber.on("open", ({ id }) => {
-        console.log(`AssemblyAI session opened with ID: ${id}`);
-        console.log("Successfully connected to AssemblyAI WebSocket.");
+      socket.onopen = () => {
+        console.log('✅ AssemblyAI WebSocket connected');
         if (this.onReady) this.onReady();
+        this._startAudioCapture(mic._mediaStream);
+      };
 
-        const onFrame = (f32) => {
-          if (this.transcriber) {
-            this.transcriber.sendAudio(f32);
-          }
-        };
-        mic.onFrame(onFrame);
-        this._stopMicListener = () => mic.offFrame(onFrame);
-      });
-
-      this.transcriber.on('error', (error) => {
-        console.error('AssemblyAI error:', error);
-      });
-
-      this.transcriber.on('close', (code, reason) => {
-        console.log('AssemblyAI session closed:', code, reason);
-        this.transcriber = null;
-      });
-
-      this.transcriber.on('transcript.partial', (p) => {
-        if (p.text && this.onTranscriptUpdate) this.onTranscriptUpdate({ transcript: { partial: p.text } });
-      });
-
-      this.transcriber.on("close", (code, reason) => {
-        console.log("AssemblyAI session closed:", code, reason);
-        this.transcriber = null;
-      });
-
-      this.transcriber.on("turn", (turn) => {
-        if (!turn.transcript) {
-          return;
+      socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.message_type === 'FinalTranscript' && data.text) {
+          this.onTranscriptUpdate({ transcript: { final: data.text }, words: data.words });
+        } else if (data.message_type === 'PartialTranscript' && data.text) {
+          this.onTranscriptUpdate({ transcript: { partial: data.text } });
         }
-        this.onTranscriptUpdate({ transcript: { final: turn.transcript }, words: turn.words });
-      });
-      // Explicitly connect to the service
-      console.log("Attempting to connect to AssemblyAI WebSocket...");
-      await this.transcriber.connect();
+      };
+
+      socket.onerror = (error) => {
+        console.error('❌ AssemblyAI WebSocket error:', error);
+        this.stopTranscription();
+      };
+
+      socket.onclose = (event) => {
+        console.log('🔌 AssemblyAI WebSocket closed:', event.code, event.reason);
+        this.socket = null;
+      };
+
     } catch (error) {
-      console.error('Failed to start transcription:', error);
+      console.error('❌ Error starting cloud transcription:', error);
       throw error;
     }
   }
 
-  async stopTranscription() {
-    if (this._stopMicListener) {
-      this._stopMicListener();
-      this._stopMicListener = null;
-    }
+  _startAudioCapture(stream) {
+    const mediaRecorder = new MediaRecorder(stream);
+    this.mediaRecorder = mediaRecorder;
 
-    if (this.transcriber) {
-      await this.transcriber.close();
-      this.transcriber = null;
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0 && this.socket?.readyState === WebSocket.OPEN) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64Audio = reader.result.split(',')[1];
+          this.socket.send(JSON.stringify({ audio_data: base64Audio }));
+        };
+        reader.readAsDataURL(event.data);
+      }
+    };
+
+    // Send audio data in chunks
+    mediaRecorder.start(250);
+    console.log('🎙️ Cloud audio capture started');
+  }
+
+  async stopTranscription() {
+    if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+      this.mediaRecorder.stop();
+      this.mediaRecorder = null;
+    }
+    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+      // Send a termination message before closing
+      this.socket.send(JSON.stringify({ terminate_session: true }));
+      this.socket.close(1000);
+      this.socket = null;
     }
   }
 }

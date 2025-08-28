@@ -56,7 +56,7 @@ A real-time speech analysis tool built on two pillars: speed and privacy. Our "p
 
 ## Known Issues
 
-A list of known issues is maintained in the `KNOWN_ISSUES.md` file in the root of this repository.
+- **Test Suite Instability:** The `vitest` test suite is currently unstable. While tests can pass, there are intermittent failures related to the test environment, often reporting `node_modules missing` even after a successful `pnpm install`. This is the next critical issue to be investigated.
 
 ## Production Ready Checklist
 *****************************************************************
