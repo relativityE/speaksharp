@@ -46,7 +46,7 @@ const SessionHistoryItem = ({ session, isPro }) => {
     const durationMins = (session.duration / 60).toFixed(1);
 
     return (
-        <Card className="p-4 transition-all duration-200 hover:bg-secondary/50">
+        <Card className="p-4 transition-all duration-200 hover:bg-secondary/50" data-testid="session-history-item">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div className="flex-grow">
                     <p className="font-semibold text-foreground text-base">{session.title || `Session from ${new Date(session.created_at).toLocaleDateString()}`}</p>

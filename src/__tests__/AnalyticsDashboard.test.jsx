@@ -90,6 +90,26 @@ describe('AnalyticsDashboard', () => {
     // Use queryAllByRole for non-existence check
     expect(screen.queryAllByRole('button', { name: /Download Session PDF/i })).toHaveLength(0);
   });
+
+  it('renders the session history items with correct duration', () => {
+    useAuth.mockReturnValue({ profile: { subscription_status: 'pro' } });
+    render(
+      <MemoryRouter>
+        <AnalyticsDashboard sessionHistory={mockSessionHistory} profile={{ subscription_status: 'pro' }} />
+      </MemoryRouter>
+    );
+
+    const sessionItems = screen.getAllByTestId('session-history-item');
+    expect(sessionItems).toHaveLength(2);
+
+    // Check Session 1
+    expect(within(sessionItems[0]).getByText('Test Session 1')).toBeInTheDocument();
+    expect(within(sessionItems[0]).getByText('10.0 min')).toBeInTheDocument();
+
+    // Check Session 2
+    expect(within(sessionItems[1]).getByText('Test Session 2')).toBeInTheDocument();
+    expect(within(sessionItems[1]).getByText('5.0 min')).toBeInTheDocument();
+  });
 });
 
 describe('AnalyticsDashboardSkeleton', () => {

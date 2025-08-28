@@ -15,7 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { UpgradePromptDialog } from '@/components/UpgradePromptDialog';
 
 const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) => {
-    const { error, isSupported, isListening, transcript, interimTranscript } = speechRecognition;
+    const { error, isSupported, isListening, isReady, transcript, interimTranscript } = speechRecognition;
 
     if (!isSupported) {
         return (
@@ -32,12 +32,18 @@ const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) =
         );
     }
 
-    const isLoading = isListening && !transcript && !interimTranscript;
+    // isLoading is true only when we are in a listening state but not yet ready for transcription.
+    const isLoading = isListening && !isReady;
 
     return (
         <div className="flex flex-col gap-component-gap h-full">
             <div className="flex-shrink-0">
-                <TranscriptPanel {...speechRecognition} isLoading={isLoading} />
+                <TranscriptPanel
+                    {...speechRecognition}
+                    isLoading={isLoading}
+                    isListening={isListening}
+                    isReady={isReady}
+                />
             </div>
             <div className="flex-grow flex flex-col">
                 <FillerWordAnalysis
@@ -67,7 +73,7 @@ export const SessionPage = () => {
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
     const [elapsedTime, setElapsedTime] = useState(0);
 
-    const speechRecognition = useSpeechRecognition({ customWords, session });
+    const speechRecognition = useSpeechRecognition({ customWords, session, profile });
     const { isListening, modelLoadingProgress } = speechRecognition;
 
     useEffect(() => {
