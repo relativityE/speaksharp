@@ -71,6 +71,7 @@ A real-time speech analysis tool built on two pillars: speed and privacy. Our "p
 
 **Conclusion:** The available evidence suggests the request is being dropped or blocked by the Supabase platform *after* the gateway accepts it, but *before* the function handler is invoked. The issue does not appear to be solvable within the application codebase. The next step is to present these findings to an external developer or Supabase support.
 
+
 ## Production Ready Checklist
 *****************************************************************
 *                                                               *
