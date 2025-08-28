@@ -139,6 +139,5 @@ export function useSpeechRecognition() {
   useEffect(() => {
     return () => stopListening();
   }, []);
-
   return { isListening, isLoading, transcript, error, startListening, stopListening };
 };
