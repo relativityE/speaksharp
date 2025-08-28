@@ -49,7 +49,9 @@ export default class TranscriptionService {
     console.log(`[TranscriptionService] Decided on cloud mode: ${useCloud}`);
 
     if (useCloud) {
+      console.log('[TranscriptionService] Calling getAssemblyAIToken...');
       const token = await this.getAssemblyAIToken();
+      console.log(`[TranscriptionService] getAssemblyAIToken returned: ${token ? 'a token' : 'null'}`);
       if (token) {
         console.log('[TranscriptionService] Token acquired, starting CloudAssemblyAI.');
         this.instance = new CloudAssemblyAI(providerConfig);

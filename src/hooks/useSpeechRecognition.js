@@ -129,6 +129,7 @@ export const useSpeechRecognition = ({
                     "apikey": supabaseAnonKey,
                     "Content-Type": "application/json",
                 },
+                body: JSON.stringify({}), // Body is required for POST even if empty
             });
 
             const data = await resp.json();
