@@ -1,63 +1,55 @@
 import { corsHeaders } from "../_shared/cors.ts";
 
-Deno.serve(async (req: Request): Promise<Response> => {
-  console.log("🚀 assemblyai-token function invoked!");
-  console.log(`Method: ${req.method}, URL: ${req.url}`);
+const ASSEMBLYAI_KEY = Deno.env.get("ASSEMBLYAI_API_KEY");
 
-  if (req.method === 'OPTIONS') {
-    console.log("CORS preflight request received. Responding with OK.");
-    return new Response('ok', { headers: corsHeaders() });
+if (!ASSEMBLYAI_KEY) {
+  console.error("Missing ASSEMBLYAI_API_KEY environment variable.");
+}
+
+Deno.serve(async (req: Request) => {
+  // Handle CORS preflight
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders() });
   }
 
   try {
-    console.log("Checking for ASSEMBLYAI_API_KEY...");
-    const assemblyAIKey = Deno.env.get('ASSEMBLYAI_API_KEY');
-    if (!assemblyAIKey) {
-      console.error('❌ ASSEMBLYAI_API_KEY environment variable not set');
-      return new Response(
-        JSON.stringify({ error: 'Server configuration error' }),
-        { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders() } }
-      );
+    if (!ASSEMBLYAI_KEY) {
+      throw new Error("Missing ASSEMBLYAI_API_KEY environment variable.");
     }
     console.log("✅ ASSEMBLYAI_API_KEY found, generating token...");
 
-    // Correct v3 token generation: GET request with query params, no body.
-    const tokenUrl = new URL("https://streaming.assemblyai.com/v3/token");
-    tokenUrl.searchParams.set("expires_in_seconds", "3600");
+    // Correct v3 token generation: GET request to the streaming-specific endpoint.
+    const expiresIn = 600; // max 600 seconds
+    const tokenUrl = `https://streaming.assemblyai.com/v3/token?expires_in_seconds=${expiresIn}`;
 
-    const assemblyResponse = await fetch(tokenUrl, {
-      method: 'GET', // v3 uses GET
-      headers: { 'Authorization': assemblyAIKey }
+    const resp = await fetch(tokenUrl, {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${ASSEMBLYAI_KEY}`,
+      },
     });
 
-    if (!assemblyResponse.ok) {
-      const errorText = await assemblyResponse.text();
-      console.error('❌ AssemblyAI v3 token generation failed:', errorText);
-      return new Response(
-        JSON.stringify({
-          error: 'Failed to generate AssemblyAI v3 token',
-          details: `AssemblyAI API returned ${assemblyResponse.status}`
-        }),
-        { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders() } }
-      );
+    if (!resp.ok) {
+      const errData = await resp.json();
+      console.error("AssemblyAI v3 token request failed:", errData);
+      return new Response(JSON.stringify({ error: "Failed to generate AssemblyAI token", details: errData }), {
+        status: resp.status,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders() },
+      });
     }
 
-    const assemblyData = await assemblyResponse.json();
-    console.log("🎟️ Successfully generated AssemblyAI v3 token");
+    const data = await resp.json();
 
-    return new Response(
-      JSON.stringify({ token: assemblyData.token }),
-      { status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders() } }
-    );
+    return new Response(JSON.stringify({ token: data.token, expires_in: data.expires_in_seconds }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders() },
+    });
 
-  } catch (error) {
-    console.error('💥 Unexpected error:', error);
-    return new Response(
-      JSON.stringify({
-        error: 'Internal server error',
-        message: error instanceof Error ? error.message : 'Unknown error'
-      }),
-      { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders() } }
-    );
+  } catch (err) {
+    console.error("Unexpected error in assemblyai-token function:", err);
+    return new Response(JSON.stringify({ error: "Internal server error" }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders() },
+    });
   }
 });
