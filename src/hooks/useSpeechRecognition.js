@@ -128,7 +128,9 @@ export const useSpeechRecognition = ({
 
             // Refactored to use supabase.functions.invoke for robustness.
             // This handles auth and headers automatically.
-            const { data, error } = await supabase.functions.invoke('assemblyai-token');
+            const { data, error } = await supabase.functions.invoke('assemblyai-token', {
+                body: {}, // Body is required to trigger a POST request and handle CORS correctly.
+            });
 
             if (error) {
                 console.error("Error invoking assemblyai-token function:", error);
