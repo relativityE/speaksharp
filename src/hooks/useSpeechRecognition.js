@@ -126,6 +126,8 @@ export const useSpeechRecognition = ({
                 userSession = data.session;
             }
 
+            console.log('[getAssemblyAIToken] Final userSession has access token:', userSession?.access_token ? 'Yes' : 'No');
+
             // Refactored to use supabase.functions.invoke for robustness.
             // This handles auth and headers automatically.
             const { data, error } = await supabase.functions.invoke('assemblyai-token', {

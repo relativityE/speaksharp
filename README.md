@@ -56,7 +56,7 @@ A real-time speech analysis tool built on two pillars: speed and privacy. Our "p
 
 ## Known Issues
 
-A list of known issues is maintained in the `KNOWN_ISSUES.md` file in the root of this repository.
+- **Cloud Transcription Fails to Connect:** The real-time transcription feature using the "Cloud AI" option is non-operational. This is a known issue, and after extensive debugging, it is believed to be a platform-level issue with the Supabase Edge Runtime, not an application code error. The issue has been escalated and is pending investigation by Supabase support.
 
 ## Production Ready Checklist
 *****************************************************************
