@@ -140,8 +140,8 @@ export const useSpeechRecognition = ({
             }
 
             if (!data || !data.token) {
-                console.error("Unexpected token response:", data);
-                throw new Error("No valid AssemblyAI token returned.");
+                console.error("Unexpected token response from invoked function:", data);
+                throw new Error("No valid AssemblyAI token returned from function.");
             }
 
             console.log("✅ AssemblyAI token acquired:", data);
