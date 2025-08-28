@@ -40,6 +40,8 @@ Deno.serve(async (req: Request) => {
 
     const data = await resp.json();
 
+    console.log(`✅ Successfully generated AssemblyAI token expiring in ${data.expires_in_seconds} seconds.`);
+
     return new Response(JSON.stringify({ token: data.token, expires_in: data.expires_in_seconds }), {
       status: 200,
       headers: { 'Content-Type': 'application/json', ...corsHeaders() },
