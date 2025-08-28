@@ -53,9 +53,10 @@ This diagram provides a more granular view of how the different parts of the cod
 |   | - `SessionSidebar.jsx`: User clicks "Start" button.             |     | - Vite (`vite.config.mjs`)        |
 |   | - `useSpeechRecognition.js`: Handles UI logic.                  |     | - Vitest (`*.test.jsx`)           |
 |   | - `TranscriptionService.js`: Core logic to choose mode.         |     | - Playwright (`*.spec.ts`)        |
-|   |   - `CloudAssemblyAI.js`: Handles cloud mode.                   |     | - Deno Test (`*.test.ts`)         |
-|   |     - Makes POST to `/assemblyai-token`                         |     +-----------------------------------+
-|   |     - Opens WebSocket to AssemblyAI with the received token.    |
+|   |   - `CloudAssemblyAI.js`: Handles cloud mode via pure WebSockets. |     | - Deno Test (`*.test.ts`)         |
+|   |     - Calls `/assemblyai-token` function via `supabase.functions.invoke()`. |     +-----------------------------------+
+|   |     - Opens direct WebSocket to AssemblyAI with the received token. |
+|   |     - Uses `MediaRecorder` API to capture and stream audio.     |
 |   |   - `NativeBrowser.js`: Handles local mode (Browser's native SpeechRecognition). |
 |   +-----------------------------------------------------------------+
 |                                   |
@@ -66,9 +67,9 @@ This diagram provides a more granular view of how the different parts of the cod
 |   | Supabase (Backend)                                              |
 |   |-----------------------------------------------------------------|
 |   | - **Edge Functions (`supabase/functions/`)**                    |
-|   |   - `assemblyai-token`: Verifies user JWT, gets AssemblyAI token.    |
+|   |   - `assemblyai-token`: Uses `Deno.serve` to get AssemblyAI token. |
 |   |     (Code: `index.ts`, Config: `config.toml`)                   |
-|   |     (Uses Secrets: `ASSEMBLYAI_API_KEY`, `SERVICE_ROLE_KEY`)    |
+|   |     (Uses Secrets: `ASSEMBLYAI_API_KEY`)                        |
 |   |                                                                 |
 |   |   - `get-ai-suggestions`: Gets suggestions from Gemini.         |
 |   |     (Code: `index.ts`, Config: `config.toml`)                   |
@@ -79,7 +80,7 @@ This diagram provides a more granular view of how the different parts of the cod
 |   +-----------------------------------------------------------------+
 |       |         |                      |
 |       |         |                      +----------------> +----------------------------+
-|       |         | (SDK handles this)                      | AssemblyAI API (Real-time) |
+|       |         | (Pure WebSocket)                        | AssemblyAI API (Real-time) |
 |       |         +---------------------------------------> +----------------------------+
 |       |
 |       +---------------------------------------------------> +----------------------------+
@@ -91,38 +92,69 @@ This diagram provides a more granular view of how the different parts of the cod
 
 ### Cloud AI Transcription Workflow (Detailed View)
 
-This diagram illustrates the step-by-step process for initiating a cloud-based transcription session. The new architecture uses a much simpler and more secure authentication flow.
-
-**Authentication & Developer Workflow**
-
-The system supports two authentication paths: one for standard users and a seamless flow for local development.
-
--   **Standard Users:** Authenticate using the standard JWT provided by Supabase Auth upon login.
--   **Developers (Local Env Only):** This flow is triggered by setting `VITE_DEV_MODE='true'` in the `.env.local` file. If no active user session exists, the application automatically performs an anonymous sign-in with Supabase. This provides a valid, temporary session to test cloud features without needing to create a permanent user or manage special developer credentials.
+This section details the updated, end-to-end process for cloud-based transcription, which now uses a pure WebSocket implementation on the frontend, aligning with modern best practices.
 
 **New Workflow Diagram:**
 ```
-Browser (React App)
-  |
-  | 1. User clicks "Start Recording".
-  |    - If VITE_DEV_MODE=true and no user, performs `supabase.auth.signInAnonymously()`.
-  |    - Gets the user's JWT (either real or anonymous).
-  |
-  | 2. Request AssemblyAI token with the user's JWT
-  |    POST /functions/v1/assemblyai-token
-  |    Header: Authorization: Bearer <user-JWT>
-  |
-  v
-Supabase Edge Function: assemblyai-token
-  - Uses Supabase Admin client to verify the user's JWT.
-  - If valid, attempts to get a token using the AssemblyAI SDK.
-  - If the SDK fails, it automatically falls back to a direct `fetch` call.
-  - This provides resilience against SDK-related issues.
-  |
-  | 3. Response: { token: "<assemblyai-temp-token>" } or a structured error
-  v
-AssemblyAI Service
-  - Receives audio stream and returns transcripts.
++--------------------------------+
+|      Browser (React App)       |
++--------------------------------+
+               |
+               | 1. User clicks "Start Recording".
+               |    - `useSpeechRecognition.js` calls `getAssemblyAIToken()`.
+               |
+               v
++--------------------------------+
+| `supabase.functions.invoke()`  |
+| (Handles Auth Headers)         |
++--------------------------------+
+               |
+               | 2. POST to `/functions/v1/assemblyai-token`
+               |
+               v
++--------------------------------+
+| Supabase Edge Function         |
+| (`Deno.serve` pattern)         |
++--------------------------------+
+               |
+               | 3. Backend calls AssemblyAI API to get a temporary token.
+               |
+               v
++--------------------------------+
+|      AssemblyAI Auth API       |
++--------------------------------+
+               |
+               | 4. Returns temporary token to Supabase function.
+               |
+               v
++--------------------------------+
+| Supabase Edge Function         |
++--------------------------------+
+               |
+               | 5. Returns temporary token to Browser.
+               |
+               v
++--------------------------------+
+|      Browser (React App)       |
++--------------------------------+
+               |
+               | 6. Establishes a direct WebSocket connection to AssemblyAI
+               |    using the temporary token.
+               |    - `new WebSocket("wss://api.assemblyai.com/v2/realtime/ws?...")`
+               |
+               v
++--------------------------------+
+|   AssemblyAI Real-time API     |
+|       (WebSocket)              |
++--------------------------------+
+               |
+               | 7. Browser uses `MediaRecorder` API to stream audio
+               |    and receives transcripts back on the same connection.
+               |
+               v
++--------------------------------+
+|      Browser (React App)       |
++--------------------------------+
 ```
 
 ### Environment Variables for Local Development

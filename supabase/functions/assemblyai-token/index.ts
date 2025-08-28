@@ -1,3 +1,5 @@
+import { corsHeaders } from "../_shared/cors.ts";
+
 // Modern Deno.serve pattern - this is what Supabase runtime expects
 Deno.serve(async (req: Request): Promise<Response> => {
   // This log WILL appear now!
