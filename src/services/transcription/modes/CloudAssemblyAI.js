@@ -26,7 +26,7 @@ export default class CloudAssemblyAI {
 
       // Use the new v3 endpoint for the Universal-Streaming model.
       const socket = new WebSocket(
-        `wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&token=${token}`
+        `wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&format_turns=true&token=${token}`
       );
       this.socket = socket;
 
