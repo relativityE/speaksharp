@@ -1,66 +1,54 @@
-import { AssemblyAI } from "https://esm.sh/assemblyai@4.15.0";
 import { corsHeaders } from "../_shared/cors.ts";
 
-export async function handler(req: Request): Promise<Response> {
+const ASSEMBLYAI_KEY = Deno.env.get("ASSEMBLYAI_API_KEY");
+
+if (!ASSEMBLYAI_KEY) {
+  console.error("Missing ASSEMBLYAI_API_KEY environment variable.");
+}
+
+Deno.serve(async (req: Request) => {
   // Handle CORS preflight
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 200, headers: corsHeaders() });
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders() });
   }
 
   try {
-    console.log("assemblyai-token function invoked.");
-
-    // --- 1. Simple dev auth check ---
-    const apiKeyHeader = req.headers.get("apikey");
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
-    if (!apiKeyHeader || apiKeyHeader !== supabaseAnonKey) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized — missing or invalid apikey header" }),
-        { status: 401, headers: { "Content-Type": "application/json", ...corsHeaders() } }
-      );
+    if (!ASSEMBLYAI_KEY) {
+      throw new Error("Missing ASSEMBLYAI_API_KEY environment variable.");
     }
 
-    // --- 2. Request AssemblyAI token ---
-    const assemblyKey = Deno.env.get("ASSEMBLYAI_API_KEY");
-    if (!assemblyKey) throw new Error("ASSEMBLYAI_API_KEY not set");
+    // Correct v3 token generation: GET request to the streaming-specific endpoint.
+    const expiresIn = 600; // max 600 seconds
+    const tokenUrl = `https://streaming.assemblyai.com/v3/token?expires_in_seconds=${expiresIn}`;
 
-    try {
-      // Use SDK
-      const client = new AssemblyAI({ apiKey: assemblyKey });
-      const tempToken = await client.realtime.createTemporaryToken({ expires_in: 600 });
-      return new Response(JSON.stringify(tempToken), {
-        headers: { "Content-Type": "application/json", ...corsHeaders() },
-      });
-    } catch (sdkError) {
-      console.warn("SDK failed, falling back to fetch:", sdkError);
-    }
-
-    // Fallback: raw fetch
-    const resp = await fetch("https://api.assemblyai.com/v2/realtime/token", {
-      method: "POST",
+    const resp = await fetch(tokenUrl, {
+      method: "GET",
       headers: {
-        "authorization": assemblyKey,
-        "content-type": "application/json",
+        "Authorization": `Bearer ${ASSEMBLYAI_KEY}`,
       },
-      body: JSON.stringify({ expires_in: 600 }),
     });
+
+    if (!resp.ok) {
+      const errData = await resp.json();
+      console.error("AssemblyAI v3 token request failed:", errData);
+      return new Response(JSON.stringify({ error: "Failed to generate AssemblyAI token", details: errData }), {
+        status: resp.status,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders() },
+      });
+    }
 
     const data = await resp.json();
-    if (!resp.ok) {
-      return new Response(
-        JSON.stringify({ error: "AssemblyAI token request failed", details: data }),
-        { status: resp.status, headers: { "Content-Type": "application/json", ...corsHeaders() } }
-      );
-    }
 
-    return new Response(JSON.stringify(data), {
-      headers: { "Content-Type": "application/json", ...corsHeaders() },
+    return new Response(JSON.stringify({ token: data.token, expires_in: data.expires_in_seconds }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders() },
     });
+
   } catch (err) {
     console.error("Unexpected error in assemblyai-token function:", err);
     return new Response(JSON.stringify({ error: "Internal server error" }), {
       status: 500,
-      headers: { "Content-Type": "application/json", ...corsHeaders() },
+      headers: { 'Content-Type': 'application/json', ...corsHeaders() },
     });
   }
-}
+});
