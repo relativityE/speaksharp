@@ -145,7 +145,6 @@ export const useSpeechRecognition = ({
                 ...headers,
                 Authorization: headers.Authorization ? 'Bearer [REDACTED]' : undefined,
             });
-
             const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/assemblyai-token`, {
                 method: "POST",
                 headers,
