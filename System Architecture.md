@@ -50,13 +50,10 @@ This diagram provides a more granular view of how the different parts of the cod
 |   +-----------------------------------------------------------------+     +-----------------------------------+
 |   | Browser (Client - React SPA in `src/`)                          |     | Development & Testing             |
 |   |-----------------------------------------------------------------|     |-----------------------------------|
-|   | - `SessionSidebar.jsx`: User clicks "Start" button.             |     | - Vite (`vite.config.mjs`)        |
-|   | - `useSpeechRecognition.js`: Handles UI logic.                  |     | - Vitest (`*.test.jsx`)           |
-|   | - `TranscriptionService.js`: Core logic to choose mode.         |     | - Playwright (`*.spec.ts`)        |
-|   |   - `CloudAssemblyAI.js`: Handles cloud mode.                   |     | - Deno Test (`*.test.ts`)         |
-|   |     - Makes POST to `/assemblyai-token`                         |     +-----------------------------------+
-|   |     - Opens WebSocket to AssemblyAI with the received token.    |
-|   |   - `NativeBrowser.js`: Handles local mode (Browser's native SpeechRecognition). |
+|   | - `useSpeechRecognition.js`: Handles UI logic, gets token,      |     | - Vitest (`*.test.jsx`)           |
+|   |   and manages AssemblyAI WebSocket connection for cloud mode.   |     | - Playwright (`*.spec.ts`)        |
+|   | - `TranscriptionService.js`: Core logic to choose mode.         |     | - Deno Test (`*.test.ts`)         |
+|   |   - `NativeBrowser.js`: Handles local mode.                     |     +-----------------------------------+
 |   +-----------------------------------------------------------------+
 |                                   |
 |                                   | API Calls to Supabase Functions
