@@ -1,243 +1,144 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { toast } from 'sonner';
-import { useAuth } from '../contexts/AuthContext';
-import TranscriptionService from '../services/transcription/TranscriptionService';
-import { FILLER_WORD_KEYS } from '../config';
+import { useState, useRef, useEffect } from "react";
 import { supabase } from '../lib/supabaseClient';
 
-const defaultFillerPatterns = {
-    [FILLER_WORD_KEYS.UM]: /\b(um|umm|ummm|uhm)\b/gi,
-    [FILLER_WORD_KEYS.UH]: /\b(uh|uhh|uhhh|er|err|erh)\b/gi,
-    [FILLER_WORD_KEYS.AH]: /\b(ah|ahm|ahhh)\b/gi,
-    [FILLER_WORD_KEYS.LIKE]: /\b(like)\b/gi,
-    [FILLER_WORD_KEYS.YOU_KNOW]: /\b(you know|y'know|ya know)\b/gi,
-    [FILLER_WORD_KEYS.SO]: /\b(so)\b/gi,
-    [FILLER_WORD_KEYS.ACTUALLY]: /\b(actually)\b/gi,
-    [FILLER_WORD_KEYS.OH]: /\b(oh|ooh|ohh)\b/gi,
-    [FILLER_WORD_KEYS.I_MEAN]: /\b(i mean)\b/gi,
-};
+export function useSpeechRecognition() {
+  const [transcript, setTranscript] = useState("");
+  const [isListening, setListening] = useState(false);
+  const [error, setError] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
 
-const FILLER_WORD_COLORS = ['#BFDBFE', '#FCA5A5', '#FDE68A', '#86EFAC', '#FDBA74', '#C4B5FD', '#6EE7B7'];
+  const wsRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const processorRef = useRef(null);
+  const sourceRef = useRef(null);
+  const streamRef = useRef(null);
 
-const getInitialFillerData = (customWords = []) => {
-    const initial = {};
-    const allFillerKeys = [...Object.values(FILLER_WORD_KEYS), ...customWords];
-    allFillerKeys.forEach((key, index) => {
-        initial[key] = { count: 0, color: FILLER_WORD_COLORS[index % FILLER_WORD_COLORS.length] };
-    });
-    return initial;
-};
+  // Helper: convert Float32 [-1,1] → Int16 PCM
+  const float32ToInt16 = (buffer) => {
+    const l = buffer.length;
+    const buf = new ArrayBuffer(l * 2);
+    const view = new DataView(buf);
+    for (let i = 0; i < l; i++) {
+      let s = Math.max(-1, Math.min(1, buffer[i]));
+      view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+    return buf;
+  };
 
-export const useSpeechRecognition = ({
-    customWords = [],
-    session,
-} = {}) => {
-    const { profile, session: authSession } = useAuth();
-    const navigate = useNavigate();
-    const [isListening, setIsListening] = useState(false);
-    const [isReady, setIsReady] = useState(false);
-    const [transcript, setTranscript] = useState('');
-    const [finalChunks, setFinalChunks] = useState([]);
-    const [wordConfidences, setWordConfidences] = useState([]);
-    const [interimTranscript, setInterimTranscript] = useState('');
-    const [fillerData, setFillerData] = useState(getInitialFillerData(customWords));
-    const [finalFillerData, setFinalFillerData] = useState(getInitialFillerData(customWords));
-    const [error, setError] = useState(null);
-    const [isSupported, setIsSupported] = useState(true);
-    const [currentMode, setCurrentMode] = useState(null);
-    const [modelLoadingProgress, setModelLoadingProgress] = useState(null);
-    const transcriptionServiceRef = useRef(null);
+  const getAssemblyAIToken = async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke('assemblyai-token');
+      if (error) throw new Error(`Supabase function error: ${error.message}`);
+      if (!data?.token) throw new Error('No token received from server');
+      return data.token;
+    } catch (err) {
+      console.error('❌ Error getting AssemblyAI token:', err);
+      setError(err.message);
+      throw err;
+    }
+  };
 
-    useEffect(() => {
-        return () => {
-            if (transcriptionServiceRef.current) {
-                transcriptionServiceRef.current.destroy();
-            }
+  const startListening = async () => {
+    if (isListening || isLoading) return;
+
+    try {
+      setError(null);
+      setIsLoading(true);
+
+      const token = await getAssemblyAIToken();
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true }
+      });
+      streamRef.current = stream;
+
+      const socket = new WebSocket(
+        `wss://streaming.assemblyai.com/v3/ws?token=${token}&sample_rate=16000&format_turns=true`
+      );
+      wsRef.current = socket;
+
+      socket.onopen = () => {
+        console.log('✅ AssemblyAI WebSocket connected');
+        setListening(true);
+        setIsLoading(false);
+
+        const audioContext = new AudioContext({ sampleRate: 16000 });
+        audioContextRef.current = audioContext;
+        const source = audioContext.createMediaStreamSource(stream);
+        sourceRef.current = source;
+        const processor = audioContext.createScriptProcessor(4096, 1, 1);
+        processorRef.current = processor;
+
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+
+        processor.onaudioprocess = (event) => {
+          const input = event.inputBuffer.getChannelData(0);
+          const pcm16 = float32ToInt16(input);
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(pcm16);
+          }
         };
-    }, []);
+      };
 
-    const countFillerWords = useCallback((text) => {
-        const counts = getInitialFillerData(customWords);
-        const allPatterns = { ...defaultFillerPatterns };
-        customWords.forEach((word) => {
-            allPatterns[word] = new RegExp(`\\b(${word})\\b`, 'gi');
-        });
-        for (const key in allPatterns) {
-            const pattern = allPatterns[key];
-            const matches = text.match(pattern);
-            if (matches) {
-                counts[key].count = matches.length;
-            }
+      socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.message_type === 'FinalTranscript' && data.text) {
+          setTranscript(prev => prev + ' ' + data.text);
         }
-        return counts;
-    }, [customWords]);
+      };
 
-    const onModelLoadProgress = useCallback((progress) => {
-        setModelLoadingProgress(progress);
-    }, []);
+      socket.onerror = (error) => {
+        console.error('❌ AssemblyAI WebSocket error:', error);
+        setError('WebSocket connection failed');
+        stopListening();
+      };
 
-    const handleReady = useCallback(() => {
-        setIsReady(true);
-    }, []);
-
-    const onTranscriptUpdate = useCallback((data) => {
-        if (data.transcript?.partial && !data.transcript.partial.startsWith('Downloading model')) {
-            setInterimTranscript(data.transcript.partial);
+      socket.onclose = (event) => {
+        console.log('🔌 AssemblyAI WebSocket closed:', event.code, event.reason);
+        if (event.code !== 1000) {
+          setError(`Connection closed unexpectedly: ${event.reason}`);
         }
-        if (data.transcript?.final) {
-            setFinalChunks(prev => [...prev, { text: data.transcript.final, id: Math.random() }]);
-            setInterimTranscript('');
-        }
-        if (data.words && data.words.length > 0) {
-            setWordConfidences(prev => [...prev, ...data.words]);
-        }
-    }, []);
+        stopListening();
+      };
 
-    useEffect(() => {
-        const fullTranscript = finalChunks.map(c => c.text).join(' ') + ' ' + interimTranscript;
-        const newFillerData = countFillerWords(fullTranscript);
-        setFillerData(newFillerData);
-        const finalTranscript = finalChunks.map(c => c.text).join(' ');
-        const newFinalFillerData = countFillerWords(finalTranscript);
-        setFinalFillerData(newFinalFillerData);
-    }, [finalChunks, interimTranscript, customWords, countFillerWords]);
+    } catch (err) {
+      console.error('❌ Error starting transcription:', err);
+      setError(err.message);
+      setIsLoading(false);
+    }
+  };
 
-    useEffect(() => {
-        const newTranscript = finalChunks.map(c => c.text).join(' ');
-        setTranscript(newTranscript);
-    }, [finalChunks]);
+  const stopListening = () => {
+    if (!isListening && !isLoading) return;
 
-    const getAssemblyAIToken = useCallback(async () => {
-        try {
-            let userSession = authSession;
-            const isDevMode = import.meta.env.VITE_DEV_MODE === 'true';
-            if (isDevMode && !userSession) {
-                const { data, error } = await supabase.auth.signInAnonymously();
-                if (error) throw new Error(`Anonymous sign-in failed: ${error.message}`);
-                if (!data.session) throw new Error('Anonymous sign-in did not return a session.');
-                userSession = data.session;
-            }
-            const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-            if (!supabaseAnonKey) {
-                throw new Error("VITE_SUPABASE_ANON_KEY is not set in the environment.");
-            }
+    setIsLoading(true); // Indicate cleanup is happening
 
-            const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/assemblyai-token`, {
-                method: "POST",
-                headers: {
-                    "apikey": supabaseAnonKey,
-                    "Content-Type": "application/json",
-                },
-            });
+    if (processorRef.current) processorRef.current.disconnect();
+    if (sourceRef.current) sourceRef.current.disconnect();
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close();
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+    }
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.close();
+    }
 
-            const data = await resp.json();
+    processorRef.current = null;
+    sourceRef.current = null;
+    audioContextRef.current = null;
+    streamRef.current = null;
+    wsRef.current = null;
 
-            if (!resp.ok) {
-                // We now return structured error details from the function
-                console.error("AssemblyAI token error:", data);
-                throw new Error(
-                    `AssemblyAI Token Request Failed (${resp.status}): ${data.error ?? "Unknown error"}`
-                );
-            }
+    setListening(false);
+    setIsLoading(false);
+  };
 
-            if (!data || !data.token) {
-                console.error("Unexpected token response:", data);
-                throw new Error("No valid AssemblyAI token returned.");
-            }
+  useEffect(() => {
+    return () => stopListening();
+  }, []);
 
-            console.log("✅ AssemblyAI token acquired:", data);
-            return data.token; // Pass this into your realtime connection
-        } catch (err) {
-            console.error("❌ Error getting AssemblyAI token:", err);
-            // Optionally surface to the user
-            toast.error("Unable to start transcription: " + err.message);
-            return null;
-        }
-    }, [authSession]);
-
-    const startListening = async ({ forceCloud = false } = {}) => {
-        if (isListening) {
-            return;
-        }
-        setIsReady(false);
-        setError(null);
-        setIsSupported(true);
-
-        // Always create a new service to ensure the latest `forceCloud` is used.
-        if (transcriptionServiceRef.current) {
-            await transcriptionServiceRef.current.destroy();
-        }
-        const service = new TranscriptionService({
-            onTranscriptUpdate,
-            onModelLoadProgress,
-            onReady: handleReady,
-            profile,
-            forceCloud,
-            session,
-            navigate,
-            getAssemblyAIToken,
-        });
-        await service.init();
-        transcriptionServiceRef.current = service;
-
-        try {
-            setIsListening(true);
-            await transcriptionServiceRef.current.startTranscription();
-            setCurrentMode(transcriptionServiceRef.current.mode);
-        } catch (err) {
-            setError(err);
-            setIsListening(false);
-            if (err.message.toLowerCase().includes('not supported') || err.message.toLowerCase().includes('permission denied')) {
-                setIsSupported(false);
-            }
-        }
-    };
-
-    const stopListening = async () => {
-        if (!isListening || !transcriptionServiceRef.current) {
-            return null;
-        }
-        await transcriptionServiceRef.current.stopTranscription();
-        setIsListening(false);
-        setIsReady(false);
-
-        const finalTranscriptText = [...finalChunks.map(c => c.text), interimTranscript].join(' ').trim();
-        const averageConfidence = wordConfidences.length > 0
-            ? wordConfidences.reduce((sum, word) => sum + word.confidence, 0) / wordConfidences.length
-            : 0;
-        return {
-            transcript: finalTranscriptText,
-            filler_words: finalFillerData,
-            total_words: finalTranscriptText.split(/\s+/).filter(Boolean).length,
-            accuracy: averageConfidence,
-        };
-    };
-
-    const reset = useCallback(() => {
-        setFinalChunks([]);
-        setInterimTranscript('');
-        setTranscript('');
-        setFillerData(getInitialFillerData(customWords));
-        setFinalFillerData(getInitialFillerData(customWords));
-        setWordConfidences([]);
-        setError(null);
-        setIsReady(false);
-    }, [customWords]);
-
-    return {
-        isListening,
-        isReady,
-        transcript,
-        chunks: finalChunks,
-        interimTranscript,
-        fillerData,
-        error,
-        isSupported,
-        startListening,
-        stopListening,
-        reset,
-        mode: currentMode,
-        modelLoadingProgress,
-    };
+  return { isListening, isLoading, transcript, error, startListening, stopListening };
 };

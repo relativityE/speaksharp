@@ -1,78 +1,34 @@
 import React, { useState, useEffect } from 'react';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
-import { useSessionManager } from '../hooks/useSessionManager';
-import posthog from 'posthog-js';
-import { FILLER_WORD_KEYS } from '../config';
 import { TranscriptPanel } from '../components/session/TranscriptPanel';
-import FillerWordAnalysis from '../components/session/FillerWordAnalysis';
-import AISuggestions from '../components/session/AISuggestions';
 import { SessionSidebar } from '../components/session/SessionSidebar';
 import { Button } from '@/components/ui/button';
 import { Drawer, DrawerContent, DrawerTrigger } from '@/components/ui/drawer';
-import { SlidersHorizontal, AlertTriangle, Loader } from 'lucide-react';
+import { SlidersHorizontal } from 'lucide-react';
 import ErrorBoundary from '../components/ErrorBoundary';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { UpgradePromptDialog } from '@/components/UpgradePromptDialog';
 
-const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) => {
-    const { error, isSupported, isListening, transcript, interimTranscript } = speechRecognition;
-
-    if (!isSupported) {
-        return (
-             <Card className="flex-grow">
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <AlertTriangle className="text-yellow-500" /> Browser Not Supported
-                    </CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <p>Your browser does not support the selected speech recognition engine. Please try a different browser like Google Chrome.</p>
-                </CardContent>
-            </Card>
-        );
-    }
-
-    const isLoading = isListening && !transcript && !interimTranscript;
+// A simplified LeftColumn that only shows the transcript.
+const LeftColumnContent = ({ speechRecognition }) => {
+    const { transcript } = speechRecognition;
+    const isLoading = speechRecognition.isLoading && !speechRecognition.isListening;
 
     return (
         <div className="flex flex-col gap-component-gap h-full">
             <div className="flex-shrink-0">
-                <TranscriptPanel {...speechRecognition} isLoading={isLoading} />
-            </div>
-            <div className="flex-grow flex flex-col">
-                <FillerWordAnalysis
-                    fillerData={speechRecognition.fillerData}
-                    customWords={customWords}
-                    addCustomWord={(word) => setCustomWords(prev => [...prev, word])}
-                    defaultFillerWords={Object.values(FILLER_WORD_KEYS)}
-                    className="flex-grow"
-                />
-                {!isListening && transcript && (
-                    <div className="mt-8">
-                        <AISuggestions transcript={transcript} />
-                    </div>
-                )}
+                {/* The new hook doesn't have interimTranscript, so we pass an empty string. */}
+                <TranscriptPanel transcript={transcript} interimTranscript="" isLoading={isLoading} />
             </div>
         </div>
     );
 };
 
-
-import { useAuth } from '../contexts/AuthContext';
-
 export const SessionPage = () => {
-    const { user, profile, session } = useAuth();
-    const { saveSession, usageLimitExceeded, setUsageLimitExceeded } = useSessionManager();
-    const [customWords, setCustomWords] = useState([]);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
     const [elapsedTime, setElapsedTime] = useState(0);
 
-    const speechRecognition = useSpeechRecognition({ customWords, session });
-    const { isListening, modelLoadingProgress } = speechRecognition;
-
-    useEffect(() => {
-        posthog.capture('session_page_viewed');
-    }, []);
+    // The new hook is self-contained.
+    const speechRecognition = useSpeechRecognition();
+    const { isListening } = speechRecognition;
 
     useEffect(() => {
         let interval;
@@ -81,52 +37,26 @@ export const SessionPage = () => {
                 setElapsedTime(prevTime => prevTime + 1);
             }, 1000);
         } else {
-            setElapsedTime(0); // Reset timer when not listening
+            setElapsedTime(0);
         }
-
         return () => {
-            if (interval) {
-                clearInterval(interval);
-            }
+            if (interval) clearInterval(interval);
         };
     }, [isListening]);
 
-    useEffect(() => {
-        if (!isListening) return;
-
-        const sessionLimit = !user
-            ? 120 // 2 minutes for anonymous users
-            : profile?.subscription_status !== 'pro'
-                ? 1800 // 30 minutes for free users
-                : null; // No limit for pro users
-
-        if (sessionLimit && elapsedTime >= sessionLimit) {
-            speechRecognition.stopListening();
-            setUsageLimitExceeded(true);
-        }
-    }, [elapsedTime, isListening, user, profile, speechRecognition.stopListening, setUsageLimitExceeded]);
-
     return (
         <div className="container mx-auto px-component-px py-10">
-            <UpgradePromptDialog
-                open={usageLimitExceeded}
-                onOpenChange={setUsageLimitExceeded}
-            />
             <div className="lg:flex lg:gap-component-gap relative lg:items-stretch">
                 {/* Left Column */}
                 <div className="lg:w-2/3 flex flex-col gap-component-gap">
                     <ErrorBoundary fallback={<p>Something went wrong in the session display.</p>}>
-                        <LeftColumnContent
-                            speechRecognition={speechRecognition}
-                            customWords={customWords}
-                            setCustomWords={setCustomWords}
-                        />
+                        <LeftColumnContent speechRecognition={speechRecognition} />
                     </ErrorBoundary>
                 </div>
 
                 {/* Desktop Sidebar (Right Column) */}
                 <div className="hidden lg:block lg:w-1/3">
-                    <SessionSidebar {...speechRecognition} saveSession={saveSession} actualMode={speechRecognition.mode} elapsedTime={elapsedTime} modelLoadingProgress={modelLoadingProgress} />
+                    <SessionSidebar {...speechRecognition} elapsedTime={elapsedTime} />
                 </div>
 
                 {/* Mobile Drawer */}
@@ -140,7 +70,7 @@ export const SessionPage = () => {
                         </DrawerTrigger>
                         <DrawerContent>
                             <div className="p-4 overflow-y-auto h-[80vh]">
-                                <SessionSidebar {...speechRecognition} saveSession={saveSession} actualMode={speechRecognition.mode} elapsedTime={elapsedTime} modelLoadingProgress={modelLoadingProgress} />
+                                <SessionSidebar {...speechRecognition} elapsedTime={elapsedTime} />
                             </div>
                         </DrawerContent>
                     </Drawer>
