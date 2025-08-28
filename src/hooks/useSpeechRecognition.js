@@ -126,44 +126,18 @@ export const useSpeechRecognition = ({
                 userSession = data.session;
             }
 
-            console.log('[getAssemblyAIToken] Final userSession has access token:', userSession?.access_token ? 'Yes' : 'No');
+            // Refactored to use supabase.functions.invoke for robustness.
+            // This handles auth and headers automatically.
+            const { data, error } = await supabase.functions.invoke('assemblyai-token');
 
-            const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-            if (!supabaseAnonKey) {
-                throw new Error("VITE_SUPABASE_ANON_KEY is not set in the environment.");
-            }
-
-            const headers = {
-                "apikey": supabaseAnonKey,
-                "Content-Type": "application/json",
-            };
-            if (userSession?.access_token) {
-                headers['Authorization'] = `Bearer ${userSession.access_token}`;
-            }
-
-            console.log('[getAssemblyAIToken] Fetching with headers:', {
-                ...headers,
-                Authorization: headers.Authorization ? 'Bearer [REDACTED]' : undefined,
-            });
-            const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/assemblyai-token`, {
-                method: "POST",
-                headers,
-                body: JSON.stringify({}), // Body is required for POST even if empty
-            });
-
-            const data = await resp.json();
-
-            if (!resp.ok) {
-                // We now return structured error details from the function
-                console.error("AssemblyAI token error:", data);
-                throw new Error(
-                    `AssemblyAI Token Request Failed (${resp.status}): ${data.error ?? "Unknown error"}`
-                );
+            if (error) {
+                console.error("Error invoking assemblyai-token function:", error);
+                throw new Error(`Failed to invoke token function: ${error.message}`);
             }
 
             if (!data || !data.token) {
-                console.error("Unexpected token response:", data);
-                throw new Error("No valid AssemblyAI token returned.");
+                console.error("Unexpected token response from invoked function:", data);
+                throw new Error("No valid AssemblyAI token returned from function.");
             }
 
             console.log("✅ AssemblyAI token acquired:", data);
