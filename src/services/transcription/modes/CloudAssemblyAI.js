@@ -26,7 +26,7 @@ export default class CloudAssemblyAI {
 
       // Use the new v3 endpoint for the Universal-Streaming model.
       const socket = new WebSocket(
-        `wss://streaming.assemblyai.com/v3/ws?token=${token}`
+        `wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&token=${token}`
       );
       this.socket = socket;
 
@@ -87,8 +87,8 @@ export default class CloudAssemblyAI {
       this.mediaRecorder = null;
     }
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      // Send a termination message before closing
-      this.socket.send(JSON.stringify({ terminate_session: true }));
+      // Send a termination message before closing, using the v3 format
+      this.socket.send(JSON.stringify({ type: "Terminate" }));
       this.socket.close(1000);
       this.socket = null;
     }
