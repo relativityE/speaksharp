@@ -140,10 +140,10 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
     };
 
     const getCardTitle = () => {
-        if (isConnecting) return 'Connecting...';
-        if (isListening) return `Mode: ${actualMode === 'cloud' ? 'Cloud AI' : 'Native Browser'}`;
-        if (isModelLoading) return 'Initializing Model...';
-        return 'Ready';
+        if (isConnecting) return 'Session Status: Connecting...';
+        if (isListening) return `Session Status: ${actualMode === 'cloud' ? 'Cloud AI' : 'Native Browser'}`;
+        if (isModelLoading) return 'Session Status: Initializing...';
+        return 'Session Status: Ready';
     };
 
     const isButtonDisabled = isListening ? isEndingSession : (isModelLoading || isConnecting);
