@@ -111,17 +111,26 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
 
     const handleNavigateToAnalytics = async () => {
         if (!completedSessionData) return;
+
+        const sessionWithDuration = {
+            ...completedSessionData,
+            duration: elapsedTime,
+        };
+
         if (user) {
-            const savedSession = await saveSession(completedSessionData);
+            const savedSession = await saveSession(sessionWithDuration);
             if (savedSession && savedSession.id) {
                 toast.success("Session saved successfully!");
                 navigate(`/analytics/${savedSession.id}`);
             } else {
-                toast.error("Failed to save the session. Please try again.");
+                toast("Failed to save the session.", {
+                    description: "Your session data is safe. Please try saving again.",
+                    variant: "default",
+                });
             }
         } else {
             toast.info("Session complete. View your results below.");
-            navigate('/analytics', { state: { sessionData: completedSessionData } });
+            navigate('/analytics', { state: { sessionData: sessionWithDuration } });
         }
         setIsEndingSession(false);
     };

@@ -86,8 +86,9 @@ describe('SessionSidebar', () => {
     expect(screen.getByText('Go to Analytics')).toBeInTheDocument();
   });
 
-  it('navigates to analytics after saving the session', async () => {
-    render(<SessionSidebar {...defaultProps} isListening={true} isReady={true} />);
+  it('saves the session with duration and navigates to analytics', async () => {
+    const propsWithTime = { ...defaultProps, elapsedTime: 123 };
+    render(<SessionSidebar {...propsWithTime} isListening={true} isReady={true} />);
     const stopButton = screen.getByText('End Session');
 
     fireEvent.click(stopButton);
@@ -96,7 +97,12 @@ describe('SessionSidebar', () => {
     fireEvent.click(goToAnalyticsButton);
 
     await waitFor(() => {
-      expect(defaultProps.saveSession).toHaveBeenCalled();
+      expect(propsWithTime.saveSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          transcript: 'test transcript',
+          duration: 123,
+        })
+      );
     });
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith('/analytics/new-session-id');

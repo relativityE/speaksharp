@@ -72,11 +72,3 @@ select {
   width: auto !important;
   min-width: 384px !important; /* 96 * 4px = 384px, equivalent to w-96 */
 }
-
-[data-sonner-toast] [data-title] {
-  font-size: 0.5625rem !important; /* text-lg halved */
-}
-
-[data-sonner-toast] [data-description] {
-  font-size: 1rem !important; /* text-base */
-}

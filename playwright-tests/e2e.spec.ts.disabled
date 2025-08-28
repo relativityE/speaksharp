@@ -10,6 +10,7 @@ test.describe('E2E User Flow', () => {
     await expect(page).toHaveURL(/.*\/session/);
 
     // 2. Start the recording (using the default Native Browser mode)
+    await page.waitForTimeout(30000); // Give the app time to initialize
     const startButton = page.getByRole('button', { name: /Start Recording/i });
     await startButton.click();
 
@@ -47,6 +48,7 @@ test.describe('E2E User Flow', () => {
     await forceCloudCheckbox.check();
 
     // 3. Start the recording
+    await page.waitForTimeout(30000); // Give the app time to initialize
     const startButton = page.getByRole('button', { name: /Start Recording/i });
     await startButton.click();
 

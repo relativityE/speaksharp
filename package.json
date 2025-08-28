@@ -11,7 +11,7 @@
     "test:watch": "NODE_OPTIONS=--max-old-space-size=4096 vitest",
     "test:coverage": "vitest run --coverage",
     "test:functions": "deno test --allow-all supabase/functions/**/*.test.ts",
-    "test:all": "pnpm test && pnpm test:functions"
+    "test:all": "pnpm test && pnpm test:functions && npx playwright test"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.0.1",

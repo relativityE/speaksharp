@@ -24,7 +24,7 @@ A real-time speech analysis tool to help you speak more confidently.
     ```
 
 3.  **Set up environment variables:**
-    Create a file named `.env.local` in the root of the project and add the necessary keys for Supabase and other services. You can use `.env.example` as a template.
+    Create a file named `.env.local` in the root of the project. You can use `.env.example` as a template. For a detailed explanation of the required keys and services, please see the **Environment Variables** section in the `System Architecture.md` file.
 
 4.  **Start the development server:**
     ```bash

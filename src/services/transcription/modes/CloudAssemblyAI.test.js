@@ -27,6 +27,7 @@ const mockMic = {
   onFrame: vi.fn(),
   offFrame: vi.fn(),
   sampleRate: 16000,
+  _mediaStream: {}, // Add a mock mediaStream object
 };
 
 describe('CloudAssemblyAI', () => {
@@ -58,9 +59,16 @@ describe('CloudAssemblyAI', () => {
     it('should create a WebSocket with the correct URL', async () => {
       await cloudAI.startTranscription(mockMic);
       expect(getAssemblyAIToken).toHaveBeenCalled();
-      expect(WebSocket).toHaveBeenCalledWith(
-        'wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&token=fake-token&format_turns=true'
-      );
+
+      const wsURL = MockWebSocket.mock.calls[0][0];
+      const url = new URL(wsURL);
+
+      expect(url.protocol).toBe('wss:');
+      expect(url.host).toBe('streaming.assemblyai.com');
+      expect(url.pathname).toBe('/v3/ws');
+      expect(url.searchParams.get('sample_rate')).toBe('16000');
+      expect(url.searchParams.get('token')).toBe('fake-token');
+      expect(url.searchParams.get('format_turns')).toBe('true');
     });
   });
 
