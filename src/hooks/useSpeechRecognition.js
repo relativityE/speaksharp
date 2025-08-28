@@ -32,8 +32,9 @@ const getInitialFillerData = (customWords = []) => {
 export const useSpeechRecognition = ({
     customWords = [],
     session,
+    profile,
 } = {}) => {
-    const { profile, session: authSession } = useAuth();
+    const { session: authSession } = useAuth();
     const navigate = useNavigate();
     const [isListening, setIsListening] = useState(false);
     const [isReady, setIsReady] = useState(false);
