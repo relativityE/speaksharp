@@ -21,13 +21,20 @@ export async function handler(req: Request): Promise<Response> {
     }
 
     // --- 2. Request AssemblyAI token ---
+    console.log("Checking for ASSEMBLYAI_API_KEY...");
     const assemblyKey = Deno.env.get("ASSEMBLYAI_API_KEY");
-    if (!assemblyKey) throw new Error("ASSEMBLYAI_API_KEY not set");
+    if (!assemblyKey) {
+      console.error("ASSEMBLYAI_API_KEY not found in environment variables.");
+      throw new Error("ASSEMBLYAI_API_KEY not set");
+    }
+    console.log("ASSEMBLYAI_API_KEY found.");
 
     try {
       // Use SDK
+      console.log("Attempting to get token via AssemblyAI SDK...");
       const client = new AssemblyAI({ apiKey: assemblyKey });
       const tempToken = await client.realtime.createTemporaryToken({ expires_in: 600 });
+      console.log("Successfully retrieved token via SDK.");
       return new Response(JSON.stringify(tempToken), {
         headers: { "Content-Type": "application/json", ...corsHeaders() },
       });

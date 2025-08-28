@@ -185,3 +185,37 @@ For critical user flows, we use **Playwright** to run tests in a real browser en
 
 ### Backend Function Testing (Deno Test)
 For Supabase Edge Functions, we use **Deno's built-in test runner**. These tests use dependency injection to mock external services.
+
+## STT Communication
+
+The real-time Speech-to-Text (STT) functionality involves a multi-step communication flow between the frontend client, the Supabase backend, and the AssemblyAI service.
+
+This process happens in two main phases:
+1.  The frontend contacts the Supabase backend to get a temporary AssemblyAI token.
+2.  The frontend uses that temporary token to connect directly to AssemblyAI's real-time transcription service.
+
+---
+
+### 1. Frontend to Supabase Backend Communication
+
+For the frontend to successfully call the `assemblyai-token` function on Supabase, the following is required:
+
+*   **Endpoint:** A `POST` request to the correct Supabase function URL (`.../functions/v1/assemblyai-token`).
+*   **`apikey` Header:** This is the project's public, anonymous key. It identifies which Supabase project is being called.
+*   **`Authorization` Header:** The Supabase gateway expects a valid JSON Web Token (JWT) for the logged-in user, passed as `Authorization: Bearer <user_access_token>`. This proves the user's identity.
+*   **`body`:** A `POST` request with `Content-Type: application/json` should have a body. An empty JSON object (`{}`) is sent to prevent the request from hanging.
+
+### 2. Backend to AssemblyAI & Frontend to AssemblyAI Communication
+
+Once the Supabase function is successfully called, it communicates with AssemblyAI.
+
+*   **Backend to AssemblyAI (to get a temporary token):**
+    *   The Supabase function makes a secure, server-to-server request to AssemblyAI's API (`/v2/realtime/token`).
+    *   It authenticates using the permanent `ASSEMBLYAI_API_KEY`, which is stored as a secret in the Supabase environment.
+    *   It requests a **temporary token** that is safe to use on the frontend.
+
+*   **Frontend to AssemblyAI (to start transcription):**
+    *   The frontend receives this temporary token from the Supabase function.
+    *   It then establishes a **WebSocket connection** to AssemblyAI's real-time transcription service.
+    *   It authenticates this WebSocket connection using the **temporary token**.
+    *   Once connected, it streams audio from the microphone and receives transcription results back in real-time.
