@@ -2,11 +2,27 @@
 
 ## 1. Executive Summary
 
-SpeakSharp is a **privacy-first, real-time speech analysis tool** designed as a modern, serverless SaaS web application. Its architecture is strategically aligned with the core product goal: to provide instant, on-device feedback that helps users improve their public speaking skills, while rigorously protecting their privacy.
+SpeakSharp is a **privacy-first, real-time speech analysis tool** designed as a modern, serverless SaaS web application. Its architecture is strategically aligned with the core product goal: to provide instant, on-device feedback that helps users improve their public speaking skills, while rigorously protecting their privacy. To that end, **full transcripts are never stored on the backend**; they are only available for the user to download during the live session.
 
-The system is built for speed, both in user experience and development velocity. It leverages a **React (Vite)** frontend for a highly interactive UI and **Supabase** as an all-in-one backend for data, authentication, and user management.
+The system is built for speed, both in user experience and development velocity. It leverages a **React (Vite)** frontend for a highly interactive UI and **Supabase** as an all-in-one backend for authentication and trend analysis data.
 
-## 2. System Architecture & Technology Stack
+## 2. Product Development Phases
+
+The development of SpeakSharp is divided into two distinct phases, each with a different architectural focus.
+
+### Phase 1: MVP (Current)
+The Minimum Viable Product focuses on delivering a high-accuracy, cloud-based transcription experience.
+- **Primary STT:** Cloud AI via AssemblyAI.
+- **Fallback STT:** Native Browser `SpeechRecognition` API.
+- **Data Storage:** Only session metadata (filler word counts, duration) is stored for trend analysis.
+
+### Phase 2: Mature Software (Future)
+The long-term vision is to introduce a true, privacy-first on-device STT as a premium feature.
+- **Primary STT:** On-Device model (e.g., `LocalWhisper` via Transformers.js).
+- **Fallback STT:** Cloud AI or Native Browser.
+- **Data Storage:** Remains the same, reinforcing the privacy-first model.
+
+## 3. System Architecture & Technology Stack
 
 The architecture is designed around a modern, client-heavy Jamstack approach. The frontend is a sophisticated single-page application that handles most of the business logic.
 
@@ -50,13 +66,10 @@ This diagram provides a more granular view of how the different parts of the cod
 |   +-----------------------------------------------------------------+     +-----------------------------------+
 |   | Browser (Client - React SPA in `src/`)                          |     | Development & Testing             |
 |   |-----------------------------------------------------------------|     |-----------------------------------|
-|   | - `SessionSidebar.jsx`: User clicks "Start" button.             |     | - Vite (`vite.config.mjs`)        |
-|   | - `useSpeechRecognition.js`: Handles UI logic.                  |     | - Vitest (`*.test.jsx`)           |
-|   | - `TranscriptionService.js`: Core logic to choose mode.         |     | - Playwright (`*.spec.ts`)        |
-|   |   - `CloudAssemblyAI.js`: Handles cloud mode.                   |     | - Deno Test (`*.test.ts`)         |
-|   |     - Makes POST to `/assemblyai-token`                         |     +-----------------------------------+
-|   |     - Opens WebSocket to AssemblyAI with the received token.    |
-|   |   - `NativeBrowser.js`: Handles local mode (Browser's native SpeechRecognition). |
+|   | - `useSpeechRecognition.js`: Handles UI logic, gets token,      |     | - Vitest (`*.test.jsx`)           |
+|   |   and manages AssemblyAI WebSocket connection for cloud mode.   |     | - Playwright (`*.spec.ts`)        |
+|   | - `TranscriptionService.js`: Core logic to choose mode.         |     | - Deno Test (`*.test.ts`)         |
+|   |   - `NativeBrowser.js`: Handles local mode.                     |     +-----------------------------------+
 |   +-----------------------------------------------------------------+
 |                                   |
 |                                   | API Calls to Supabase Functions
@@ -74,7 +87,9 @@ This diagram provides a more granular view of how the different parts of the cod
 |   |     (Code: `index.ts`, Config: `config.toml`)                   |
 |   |     (Uses Secrets: `GEMINI_API_KEY`)                            |
 |   |                                                                 |
-|   | - **Database (PostgreSQL)**: Stores user data, sessions.        |
+|   | - **Database (PostgreSQL)**: Stores user data and session       |
+|   |   **metadata** (filler counts, duration). **Full transcripts**  |
+|   |   **are NOT stored.**                                           |
 |   |   (Schema: `supabase/migrations/`)                              |
 |   +-----------------------------------------------------------------+
 |       |         |                      |
@@ -155,7 +170,14 @@ The `UUID_DEV_USER` secret is no longer required.
 > **`VITE_DEV_MODE` is for the Frontend Only**
 > You do **not** need to set `VITE_DEV_MODE` as a secret in your Supabase project. Any variable prefixed with `VITE_` is specifically for your React application running in the browser. It's used in your `.env.local` file to tell the frontend to enable the developer workflow (the anonymous sign-in). Supabase Edge Functions run on a server and use a separate set of secrets that you configure in the Supabase dashboard.
 
-## 3. Database Management & Performance
+## 4. Data Persistence & Privacy
+
+This is a cornerstone of the SpeakSharp architecture.
+
+-   **No Transcript Storage:** To guarantee user privacy, full session transcripts are **never** saved to the database or any backend storage. They are processed in real-time and are only available for the user to download from the client-side during the active session.
+-   **Metadata Only:** The only data persisted to the `sessions` table is the analytical metadata: `duration`, `total_words`, and the JSON object of `filler_words` counts. This allows for tracking user progress and trends without storing sensitive conversational data.
+
+## 5. Database Management & Performance
 
 ### Applying Database Migrations
 All changes to the database schema are managed through timestamped SQL migration files located in the `supabase/migrations` directory. To apply new migrations, run: `supabase db push`.
