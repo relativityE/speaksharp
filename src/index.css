@@ -74,7 +74,7 @@ select {
 }
 
 [data-sonner-toast] [data-title] {
-  font-size: 1.125rem !important; /* text-lg */
+  font-size: 0.5625rem !important; /* text-lg halved */
 }
 
 [data-sonner-toast] [data-description] {

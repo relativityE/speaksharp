@@ -222,7 +222,9 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogCancel onClick={handleStayOnPage}>Stay on Page</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleNavigateToAnalytics}>Go to Analytics</AlertDialogAction>
+                        <AlertDialogAction asChild>
+                            <Button onClick={handleNavigateToAnalytics}>Go to Analytics</Button>
+                        </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
