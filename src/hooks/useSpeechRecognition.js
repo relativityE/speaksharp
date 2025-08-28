@@ -110,25 +110,46 @@ export const useSpeechRecognition = ({
 
     const getAssemblyAIToken = useCallback(async () => {
         try {
+            console.log('[getAssemblyAIToken] Starting...');
+            console.log('[getAssemblyAIToken] Initial authSession:', authSession);
             let userSession = authSession;
+
             const isDevMode = import.meta.env.VITE_DEV_MODE === 'true';
+            console.log('[getAssemblyAIToken] VITE_DEV_MODE:', isDevMode);
+
             if (isDevMode && !userSession) {
+                console.log('[getAssemblyAIToken] Dev mode is on and no session, attempting anonymous sign-in...');
                 const { data, error } = await supabase.auth.signInAnonymously();
+                console.log('[getAssemblyAIToken] Anonymous sign-in result:', { data, error });
                 if (error) throw new Error(`Anonymous sign-in failed: ${error.message}`);
                 if (!data.session) throw new Error('Anonymous sign-in did not return a session.');
                 userSession = data.session;
             }
+
+            console.log('[getAssemblyAIToken] Final userSession has access token:', userSession?.access_token ? 'Yes' : 'No');
+
             const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
             if (!supabaseAnonKey) {
                 throw new Error("VITE_SUPABASE_ANON_KEY is not set in the environment.");
             }
 
+            const headers = {
+                "apikey": supabaseAnonKey,
+                "Content-Type": "application/json",
+            };
+            if (userSession?.access_token) {
+                headers['Authorization'] = `Bearer ${userSession.access_token}`;
+            }
+
+            console.log('[getAssemblyAIToken] Fetching with headers:', {
+                ...headers,
+                Authorization: headers.Authorization ? 'Bearer [REDACTED]' : undefined,
+            });
+
             const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/assemblyai-token`, {
                 method: "POST",
-                headers: {
-                    "apikey": supabaseAnonKey,
-                    "Content-Type": "application/json",
-                },
+                headers,
+                body: JSON.stringify({}), // Body is required for POST even if empty
             });
 
             const data = await resp.json();
