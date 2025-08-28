@@ -56,20 +56,7 @@ A real-time speech analysis tool built on two pillars: speed and privacy. Our "p
 
 ## Known Issues
 
-### Cloud Transcription Connection Failure
-
-**Status:** Under Active Investigation (as of Aug 28, 2025)
-
-**Summary:** The real-time transcription feature using the "Cloud AI" option is currently failing to establish a connection. A detailed investigation has pinpointed the failure to the handoff between the Supabase platform gateway and the `assemblyai-token` Edge Function handler.
-
-**Technical Analysis (The Facts):**
-
-1.  **Frontend Action:** The app calls `supabase.functions.invoke('assemblyai-token', { body: {} })`. Browser logs confirm a valid authentication token is available and the function call is dispatched correctly.
-2.  **Supabase Gateway Receives Request:** Supabase platform logs confirm the request is received and the function container is booted (we see an `"event_message": "booted"` log).
-3.  **Communication Breakdown:** The code execution **never enters the function handler**. The first line of our function code (`console.log("assemblyai-token function invoked.");`) never executes, and its log message never appears in the Supabase logs.
-4.  **Result:** The frontend call hangs indefinitely, waiting for a response from the function that never comes.
-
-**Conclusion:** The available evidence suggests the request is being dropped or blocked by the Supabase platform *after* the gateway accepts it, but *before* the function handler is invoked. The issue does not appear to be solvable within the application codebase. The next step is to present these findings to an external developer or Supabase support.
+- **Test Suite Instability:** The `vitest` test suite is currently unstable. While tests can pass, there are intermittent failures related to the test environment, often reporting `node_modules missing` even after a successful `pnpm install`. This is the next critical issue to be investigated.
 
 
 ## Production Ready Checklist
