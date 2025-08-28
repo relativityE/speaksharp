@@ -123,12 +123,17 @@ export const useSpeechRecognition = ({
                 throw new Error("VITE_SUPABASE_ANON_KEY is not set in the environment.");
             }
 
+            const headers = {
+                "apikey": supabaseAnonKey,
+                "Content-Type": "application/json",
+            };
+            if (userSession?.access_token) {
+                headers['Authorization'] = `Bearer ${userSession.access_token}`;
+            }
+
             const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/assemblyai-token`, {
                 method: "POST",
-                headers: {
-                    "apikey": supabaseAnonKey,
-                    "Content-Type": "application/json",
-                },
+                headers,
                 body: JSON.stringify({}), // Body is required for POST even if empty
             });
 
