@@ -24,8 +24,9 @@ export default class CloudAssemblyAI {
         throw new Error("Failed to retrieve AssemblyAI token.");
       }
 
+      // Use the new v3 endpoint for the Universal-Streaming model.
       const socket = new WebSocket(
-        `wss://api.assemblyai.com/v2/realtime/ws?sample_rate=16000&token=${token}`
+        `wss://streaming.assemblyai.com/v3/ws?token=${token}`
       );
       this.socket = socket;
 
