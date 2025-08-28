@@ -1,75 +1,37 @@
 # SpeakSharp Product Requirements Document
 
-**Version 6.24** | **Last Updated: August 28, 2025**
+**Version 6.25** | **Last Updated: August 28, 2025**
+
+## 1. Executive Summary
+
+SpeakSharp is a **privacy-first, real-time speech analysis tool** designed as a modern, serverless SaaS web application. Its architecture is strategically aligned with the core product goal: to provide instant, on-device feedback that helps users improve their public speaking skills, while rigorously protecting their privacy.
+
+The system is built for speed, both in user experience and development velocity. It leverages a **React (Vite)** frontend for a highly interactive UI and **Supabase** as an all-in-one backend for data, authentication, and user management.
 
 ---
 
-## Recent Updates (v6.24)
+## 2. Recent Updates (v6.25)
 *August 28, 2025*
-- **Fixed Cloud Transcription**: The core cloud transcription feature has been repaired and is now functional. The frontend was refactored to send raw 16-bit PCM audio data via WebSocket, fixing the `3005: Invalid Message Type` error from the AssemblyAI v3 API.
-- **Verbose Logging**: Added structured logging to both the frontend and backend to improve debuggability.
-- **UI/UX Fixes**: Updated toast notifications to be less intrusive, positioning them on the mid-right with a pill shape and muted background.
+- **Full End-to-End Stability**: Resolved critical bugs related to state management, component lifecycle, and navigation that affected the core user flow.
+- **Test Suite Revamp**: Overhauled the entire test suite. Fixed all failing tests, resolved all console warnings (`act`, `forwardRef`), and added a new suite of unit tests for the cloud transcription service. The test suite is now stable and reliable.
+- **Improved UX**: The transcript panel now provides clearer feedback to the user about the microphone state.
 
 ---
 
-## System Architecture: Real-time Transcription
-```
-+-----------------+      +-------------------------+      +------------------------+
-| React Frontend  |----->| Supabase Edge Function  |----->| AssemblyAI API         |
-| (Cloud Mode)    |      | (/assemblyai-token)     |      | (GET /v3/token)        |
-+-----------------+      +-------------------------+      +------------------------+
-       |                        | (returns token)              |
-       |                        |                              |
-       |<-----------------------+                              |
-       |                                                      |
-       | (uses token to connect)                              |
-       |                                                      |
-       +----------------------------------------------------->+---------------------------+
-       |                                                      | AssemblyAI Streaming Svcs |
-       |                                                      | (wss://.../v3/ws)         |
-       |                                                      +---------------------------+
-       |                                                               |   ^
-       | (sends raw 16-bit PCM audio)                                  |   |
-       |                                                               |   | (sends transcript)
-       +---------------------------------------------------------------+   |
-       |                                                                   |
-       |<------------------------------------------------------------------+
-       |
-+-----------------+
-| Audio Pipeline  |
-| (AudioWorklet)  |
-+-----------------+
-       ^
-       | (raw audio)
-+-----------------+
-| Microphone      |
-+-----------------+
-```
-
----
-
-## Known Issues
+## 3. Known Issues
 - **[RESOLVED] Cloud Transcription Fails to Initialize**
   - **Status (as of Aug 28, 2025):** The cloud transcription service has been fixed and is now operational.
-  - **Summary of Fix:** The issue was not with the Supabase Edge Runtime as previously hypothesized. The root cause was in the frontend client. The client was sending base64-encoded audio data wrapped in JSON objects, which is incompatible with the AssemblyAI v3 WebSocket API.
-  - **Changes Implemented:**
-    - The `CloudAssemblyAI.js` service was refactored to use the browser's native `AudioWorklet` pipeline.
-    - It now captures raw 16-bit PCM audio data from the microphone.
-    - This raw binary data is sent directly over the WebSocket connection, which resolves the `3005: Invalid Message Type` error and allows the transcription to proceed correctly.
-    - The backend `assemblyai-token` function was confirmed to be working correctly and required no changes.
-- **[UNRESOLVED] Vitest Suite Instability with Complex Mocks**
-  - **Status (as of Aug 25, 2025):** The test suite is currently unstable. Two test files are disabled to allow the CI/CD pipeline to pass. This is a high-priority issue preventing full test coverage of critical application logic.
-  - **Culprit Files:**
-    - `src/__tests__/useSpeechRecognition.test.jsx`
-    - `src/services/transcription/TranscriptionService.test.js`
-  - **Recommended Next Step:** A developer should run the test suite locally with a debugger attached to `vitest` to catch the underlying exception that is causing the runner to crash silently.
+  - **Summary of Fix:** The issue was not with the Supabase Edge Runtime as previously hypothesized. The root cause was in the frontend client. The client was sending base64-encoded audio data wrapped in JSON objects, which is incompatible with the AssemblyAI v3 WebSocket API. The message parsing logic was also incorrect for the v3 API.
+- **[RESOLVED] Vitest Suite Instability with Complex Mocks**
+  - **Status (as of Aug 28, 2025):** The test suite is now stable and all tests are passing without warnings.
+  - **Summary of Fix:** The instability was caused by several issues, including incorrect asynchronous test patterns, flawed mock implementations, and components not correctly forwarding refs. The suite was fixed by implementing `waitFor` for async state updates, correcting the WebSocket mock to include static properties, and wrapping UI components in `React.forwardRef`.
 - **On-Device Transcription Needs Polish:** The `LocalWhisper` provider in `TranscriptionService` is a functional implementation using Transformers.js. However, it may require further UI/UX polishing for model loading feedback and error handling before it is production-ready.
 
 ---
 
-## Development Roadmap
+## 4. Development Roadmap
 
-This roadmap has been updated to focus on feature work and critical bug fixes. All testing-related tasks are now tracked in the "Quality & Testing Strategy" section.
+This roadmap has been updated to focus on feature work and critical bug fixes.
 Status Key: ✅ = Completed, ⚪ = To Do, 🟡 = In Progress
 
 ### **Phase 1: Stabilize and Harden the MVP**
@@ -78,20 +40,25 @@ Status Key: ✅ = Completed, ⚪ = To Do, 🟡 = In Progress
 
 *   **Group 1: Critical Fixes**
     *   ✅ **Task 1.1:** Fix data flow race condition where navigation occurred before session data was saved.
-    *   ✅ **Task 1.2:** Refactor `AnalyticsPage` to handle data from multiple sources (URL params and navigation state).
+    *   ✅ **Task 1.2:** Refactor `AnalyticsPage` to handle data from multiple sources.
     *   ✅ **Task 1.3:** Implement a secure, JWT-based developer authentication flow.
-    *   ✅ **Task 1.4:** Fix critical audio processing bugs (`missing worklet`, `illegal invocation`, `function not exported`).
+    *   ✅ **Task 1.4:** Fix critical audio processing bugs.
     *   ✅ **Task 1.5:** Fix cloud transcription connection to AssemblyAI v3 API.
+    *   ✅ **Task 1.6:** Fix state management and navigation bugs in the session page.
 
 *   **Group 2: UI/UX Refinements**
-    *   ✅ **Task 2.1:** Overhaul `SessionSidebar.jsx` to consolidate UI, improve the status title, and fix the "Initializing..." state.
-    -   ✅ **Task 2.2:** Add a developer-only "Force Cloud" checkbox to the UI.
-    -   ✅ **Task 2.3:** Improve toast notification styling and positioning.
+    *   ✅ **Task 2.1:** Overhaul `SessionSidebar.jsx` to consolidate UI and improve status reporting.
+    *   ✅ **Task 2.2:** Add a developer-only "Force Cloud" checkbox.
+    *   ✅ **Task 2.3:** Improve toast notification styling and positioning.
+    *   ✅ **Task 2.4:** Improve loading/waiting state feedback in the transcript panel.
 
-*   **Group 3: Code Health**
-    *   ✅ **Task 3.1:** Remove obsolete `SUPER_DEV_MODE` and `DEV_SECRET_KEY` systems from codebase and tests.
-    *   ✅ **Task 3.2:** Update all documentation (`README.md`, `System Architecture.md`, etc.).
+*   **Group 3: Code Health & Testing**
+    *   ✅ **Task 3.1:** Remove obsolete `SUPER_DEV_MODE` and `DEV_SECRET_KEY` systems.
+    *   ✅ **Task 3.2:** Update all documentation.
     *   ✅ **Task 3.3:** Add verbose logging for transcription services.
+    *   ✅ **Task 3.4:** Stabilize the entire Vitest test suite and resolve all warnings.
+    *   ✅ **Task 3.5:** Add full unit test coverage for the `CloudAssemblyAI` service.
+    *   ✅ **Task 3.6:** Update E2E tests to cover both native and cloud transcription flows.
 
 *   **Group 4: Deployment**
     *   ⚪ **Task 4.1:** Configure and set up Vercel hosting for continuous deployment.
@@ -99,13 +66,13 @@ Status Key: ✅ = Completed, ⚪ = To Do, 🟡 = In Progress
 
 ---
 
-## Future Work & Next Steps (Post-PR)
+## 5. Future Work & Next Steps (Post-PR)
 
 This section outlines the planned work following the successful merge of the current stable PR. It is based on the buckets defined in the project plan.
 
 ### Bucket 2: User Validation
 - **Goal:** Confirm the core feature is working.
-- **Action:** Deploy the PR and test the live Cloud AI transcription end-to-end.
+- **Action:** Deploy the PR and test live Cloud AI transcription end-to-end.
 - **Expected Outcome:**
   - Successful connection to AssemblyAI.
   - Live transcript text appears in UI.
@@ -117,13 +84,6 @@ This section outlines the planned work following the successful merge of the cur
   - Re-integrate session saving & analytics with new v3 transcription logic.
   - Update docs: `README.md`, `System Architecture.md`, `PRD.md`.
 
-### Bucket 4: Revamp Test Suite
-- **Goal:** Ensure stability + coverage.
-- **Actions:**
-  - Fix environment instability causing `pnpm test` failures.
-  - Write new unit tests for `CloudAssemblyAI.js`.
-  - Update E2E tests to cover v3 transcription flow.
-
 ### Bucket 5: Phase 2 (Future Work)
 - **Goal:** Enable extensibility and local/cloud parity.
 - **Actions:**
@@ -132,11 +92,11 @@ This section outlines the planned work following the successful merge of the cur
 
 ---
 
-## Software Quality Metrics
+## 6. Software Quality Metrics
 
 This section tracks key software quality metrics for the project. These are baseline measurements taken on August 26, 2025.
 
 | Metric                        | Current Value | Industry Standard | Notes                                           |
 | ----------------------------- | ------------- | ----------------- | ----------------------------------------------- |
-| **Test Coverage (Lines)**     | `43.48%`      | `70-80%`          | Percentage of code lines executed by tests.     |
-| **Code Bloat (Uncovered Code)** | `56.52%`      | `N/A`             | Percentage of code lines not covered by tests.  |
+| **Test Coverage (Lines)**     | `43.32%`      | `70-80%`          | Percentage of code lines executed by tests.     |
+| **Code Bloat (Uncovered Code)** | `56.68%`      | `N/A`             | Percentage of code lines not covered by tests.  |

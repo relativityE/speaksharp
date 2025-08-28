@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SessionSidebar } from '../SessionSidebar';
 
@@ -46,15 +46,18 @@ describe('SessionSidebar', () => {
   it('renders in its initial idle state', () => {
     render(<SessionSidebar {...defaultProps} />);
     expect(screen.getByText('Start Recording')).toBeInTheDocument();
-    expect(screen.getByText('Ready')).toBeInTheDocument();
+    // Use regex to find "Ready" within the status title
+    expect(screen.getByText(/Ready/i)).toBeInTheDocument();
     expect(screen.getByText('00:00')).toBeInTheDocument();
   });
 
-  it('calls startListening when the "Start Recording" button is clicked', () => {
+  it('calls startListening when the "Start Recording" button is clicked', async () => {
     render(<SessionSidebar {...defaultProps} />);
     const startButton = screen.getByText('Start Recording');
     fireEvent.click(startButton);
-    expect(defaultProps.startListening).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(defaultProps.startListening).toHaveBeenCalled();
+    });
   });
 
   it('renders in the listening state', () => {
@@ -67,15 +70,17 @@ describe('SessionSidebar', () => {
   it('calls stopListening when the "End Session" button is clicked', async () => {
     render(<SessionSidebar {...defaultProps} isListening={true} isReady={true} />);
     const stopButton = screen.getByText('End Session');
-    await fireEvent.click(stopButton);
-    expect(defaultProps.stopListening).toHaveBeenCalled();
+    fireEvent.click(stopButton);
+    await waitFor(() => {
+      expect(defaultProps.stopListening).toHaveBeenCalled();
+    });
   });
 
   it('shows the end session dialog after stopping', async () => {
     render(<SessionSidebar {...defaultProps} isListening={true} isReady={true} />);
     const stopButton = screen.getByText('End Session');
 
-    await fireEvent.click(stopButton);
+    fireEvent.click(stopButton);
 
     expect(await screen.findByText('Session Ended')).toBeInTheDocument();
     expect(screen.getByText('Go to Analytics')).toBeInTheDocument();
@@ -85,12 +90,16 @@ describe('SessionSidebar', () => {
     render(<SessionSidebar {...defaultProps} isListening={true} isReady={true} />);
     const stopButton = screen.getByText('End Session');
 
-    await fireEvent.click(stopButton);
+    fireEvent.click(stopButton);
 
     const goToAnalyticsButton = await screen.findByText('Go to Analytics');
-    await fireEvent.click(goToAnalyticsButton);
+    fireEvent.click(goToAnalyticsButton);
 
-    expect(defaultProps.saveSession).toHaveBeenCalled();
-    expect(mockNavigate).toHaveBeenCalledWith('/analytics/new-session-id');
+    await waitFor(() => {
+      expect(defaultProps.saveSession).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith('/analytics/new-session-id');
+    });
   });
 });
