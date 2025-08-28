@@ -28,7 +28,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         JSON.stringify({ error: 'Server configuration error' }),
         {
           status: 500,
-          headers: { 'Content-Type': 'application/json' }
+          headers: { 'Content-Type': 'application/json', ...corsHeaders() }
         }
       );
     }
@@ -57,7 +57,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         }),
         {
           status: 500,
-          headers: { 'Content-Type': 'application/json' }
+          headers: { 'Content-Type': 'application/json', ...corsHeaders() }
         }
       );
     }
@@ -88,7 +88,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       }),
       {
         status: 500,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json', ...corsHeaders() }
       }
     );
   }
