@@ -16,6 +16,7 @@ Deno.serve(async (req: Request) => {
     if (!ASSEMBLYAI_KEY) {
       throw new Error("Missing ASSEMBLYAI_API_KEY environment variable.");
     }
+    console.log("✅ ASSEMBLYAI_API_KEY found, generating token...");
 
     // Correct v3 token generation: GET request to the streaming-specific endpoint.
     const expiresIn = 600; // max 600 seconds
