@@ -45,8 +45,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        expires_in: 3600, // Token valid for 1 hour
-        model: 'universal' // Specify the model to use
+        expires_in: 3600 // Token valid for 1 hour
       })
     });
 
