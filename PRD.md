@@ -42,3 +42,27 @@ This section tracks key software quality metrics for the project. These are base
 | ----------------------------- | ------------- | ----------------- | ----------------------------------------------- |
 | **Test Coverage (Lines)**     | `43.34%`      | `70-80%`          | Percentage of code lines executed by tests.     |
 | **Code Bloat (Uncovered Code)** | `56.66%`      | `N/A`             | Percentage of code lines not covered by tests.  |
+
+---
+
+## 6. Metrics and Success Criteria
+
+### Service Level Indicators (SLIs) & Objectives (SLOs)
+
+**SLIs (what we measure):**
+
+- 🕑 **Time to first transcript chunk (latency)** — ms between mic start and first transcript event.
+- ⚡ **End-to-end transcription latency (speed)** — avg delay between spoken word and displayed text.
+- 📉 **WebSocket error rate** — % of sessions terminated by non-1000 close codes.
+- 🔄 **Reconnect success rate** — % of reconnect attempts that resume within 2s.
+- 🔐 **Token issuance error rate** — % of failed requests to /assemblyai-token.
+- 💰 **Cost guardrail** — $/minute STT usage per active user session.
+
+**SLOs (targets):**
+
+- <2s to first transcript chunk (p95).
+- <500ms streaming transcription delay (p90).
+- <1% WebSocket error rate.
+- >95% reconnect success rate within 2s.
+- <0.5% token issuance failures.
+- <$0.05/min STT cost at MVP scale.

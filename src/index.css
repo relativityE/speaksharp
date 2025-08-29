@@ -82,7 +82,7 @@
   .card-gradient {
     @apply bg-gradient-to-br from-card via-accent to-secondary/50 border rounded-2xl p-6 shadow-card;
   }
-
+    
   .text-hero {
     @apply text-6xl md:text-7xl font-bold bg-gradient-to-r from-primary via-secondary-foreground to-privacy bg-clip-text text-transparent leading-tight;
   }
