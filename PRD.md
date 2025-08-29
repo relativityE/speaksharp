@@ -8,7 +8,6 @@ SpeakSharp is a **privacy-first, real-time speech analysis tool** designed as a 
 
 The system is built for speed, both in user experience and development velocity. It leverages a **React (Vite)** frontend for a highly interactive UI and **Supabase** as an all-in-one backend for data, authentication, and user management.
 
----
 
 ## 2. Recent Updates (v6.25)
 *August 28, 2025*
@@ -31,69 +30,11 @@ The system is built for speed, both in user experience and development velocity.
 ---
 
 ## 4. Development Roadmap
-
-This roadmap has been updated to focus on feature work and critical bug fixes.
-Status Key: ✅ = Completed, ⚪ = To Do, 🟡 = In Progress
-
-### **Phase 1: Stabilize and Harden the MVP**
-
-**Goal:** Fix critical bugs, address code health, and ensure the existing features are reliable and robust before adding new functionality.
-
-*   **Group 1: Critical Fixes**
-    *   ✅ **Task 1.1:** Fix data flow race condition where navigation occurred before session data was saved.
-    *   ✅ **Task 1.2:** Refactor `AnalyticsPage` to handle data from multiple sources.
-    *   ✅ **Task 1.3:** Implement a secure, JWT-based developer authentication flow.
-    *   ✅ **Task 1.4:** Fix critical audio processing bugs.
-    *   ✅ **Task 1.5:** Fix cloud transcription connection to AssemblyAI v3 API.
-    *   ✅ **Task 1.6:** Fix state management and navigation bugs in the session page.
-
-*   **Group 2: UI/UX Refinements**
-    *   ✅ **Task 2.1:** Overhaul `SessionSidebar.jsx` to consolidate UI and improve status reporting.
-    *   ✅ **Task 2.2:** Add a developer-only "Force Cloud" checkbox.
-    *   ✅ **Task 2.3:** Improve toast notification styling and positioning.
-    *   ✅ **Task 2.4:** Improve loading/waiting state feedback in the transcript panel.
-
-*   **Group 3: Code Health & Testing**
-    *   ✅ **Task 3.1:** Remove obsolete `SUPER_DEV_MODE` and `DEV_SECRET_KEY` systems.
-    *   ✅ **Task 3.2:** Update all documentation.
-    *   ✅ **Task 3.3:** Add verbose logging for transcription services.
-    *   ✅ **Task 3.4:** Stabilize the entire Vitest test suite and resolve all warnings.
-    *   ✅ **Task 3.5:** Add full unit test coverage for the `CloudAssemblyAI` service.
-    *   ✅ **Task 3.6:** Update E2E tests to cover both native and cloud transcription flows.
-
-*   **Group 4: Deployment**
-    *   ⚪ **Task 4.1:** Configure and set up Vercel hosting for continuous deployment.
-    *   ✅ **Task 4.2:** Fix `supabase/config.toml` to enable edge function deployment.
+Please see [PROJECT_BOARD.md](PROJECT_BOARD.md) for the latest project status.
 
 ---
 
-## 5. Future Work & Next Steps (Post-PR)
-
-This section outlines the planned work following the successful merge of the current stable PR. It is based on the buckets defined in the project plan.
-
-### Bucket 2: User Validation
-- **Goal:** Confirm the core feature is working.
-- **Action:** Deploy the PR and test live Cloud AI transcription end-to-end.
-- **Expected Outcome:**
-  - Successful connection to AssemblyAI.
-  - Live transcript text appears in UI.
-
-### Bucket 3: Complete Phase 1 (Polish Feature)
-- **Goal:** Make the transcription feature production-ready.
-- **Actions:**
-  - Remove temporary `console.log` debugging.
-  - Re-integrate session saving & analytics with new v3 transcription logic.
-  - Update docs: `README.md`, `System Architecture.md`, `PRD.md`.
-
-### Bucket 5: Phase 2 (Future Work)
-- **Goal:** Enable extensibility and local/cloud parity.
-- **Actions:**
-  - Reintroduce `TranscriptionService.js` abstraction.
-  - Refactor cloud + local mode to use provider pattern under this service.
-
----
-
-## 6. Software Quality Metrics
+## 5. Software Quality Metrics
 
 This section tracks key software quality metrics for the project. These are baseline measurements taken on August 26, 2025.
 
