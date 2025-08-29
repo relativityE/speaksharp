@@ -4,162 +4,67 @@
 @tailwind components;
 @tailwind utilities;
 
-/* SpeakSharp Design System - Privacy-first, modern SaaS */
-
 @layer base {
   :root {
-    /* Core Brand Colors */
-    --background: 0 0% 100%;
-    --foreground: 215 25% 12%;
-
-    /* Card System */
-    --card: 0 0% 100%;
-    --card-foreground: 215 25% 12%;
-
-    /* Interactive Elements */
-    --popover: 0 0% 100%;
-    --popover-foreground: 215 25% 12%;
-
-    /* Brand Primary - Deep Professional Blue */
-    --primary: 221 83% 53%;
-    --primary-foreground: 0 0% 98%;
-    --primary-hover: 221 83% 48%;
-
-    /* Privacy Green - Trust & Security */
-    --privacy: 142 71% 45%;
-    --privacy-foreground: 0 0% 98%;
-    --privacy-hover: 142 71% 40%;
-
-    /* Secondary - Sophisticated Purple */
-    --secondary: 256 71% 95%;
-    --secondary-foreground: 256 71% 15%;
-
-    /* Muted Tones */
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-
-    /* Accent Colors */
-    --accent: 221 83% 96%;
-    --accent-foreground: 221 83% 15%;
-
-    /* Status Colors */
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 98%;
-
-    /* Borders & Inputs */
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 221 83% 53%;
-
-    /* Design Tokens */
-    --radius: 0.75rem;
-
-    /* Gradients */
-    --gradient-primary: linear-gradient(135deg, hsl(221 83% 53%), hsl(256 71% 58%));
-    --gradient-hero: linear-gradient(135deg, hsl(221 83% 53%) 0%, hsl(256 71% 58%) 50%, hsl(142 71% 45%) 100%);
-    --gradient-card: linear-gradient(145deg, hsl(0 0% 100%), hsl(210 40% 98%));
-    --gradient-subtle: linear-gradient(180deg, hsl(0 0% 100%), hsl(210 40% 99%));
-
-    /* Shadows - Data-driven design tokens */
-    --shadow-card: 0 4px 6px -1px hsl(221 83% 53% / 0.1), 0 2px 4px -1px hsl(221 83% 53% / 0.06);
-    --shadow-feature: 0 10px 25px -3px hsl(221 83% 53% / 0.15), 0 4px 6px -2px hsl(221 83% 53% / 0.05);
-    --shadow-hero: 0 25px 50px -12px hsl(221 83% 53% / 0.25);
-    --shadow-navigation: 0 4px 6px -1px hsl(221 83% 53% / 0.1);
-    --shadow-modal: 0 20px 25px -5px hsl(221 83% 53% / 0.1), 0 10px 10px -5px hsl(221 83% 53% / 0.04);
-
-    /* Animations - Performance optimized */
-    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    --transition-bounce: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
-    --transition-fast: all 0.15s ease-out;
-
-    /* Spacing Scale - Consistent across pages */
-    --spacing-section: 5rem;
-    --spacing-component: 2rem;
-    --spacing-element: 1rem;
-
-    /* Typography Scale */
-    --text-hero: 4.5rem;
-    --text-display: 3.5rem;
-    --text-heading: 2.25rem;
-    --text-subheading: 1.5rem;
-    --text-body: 1rem;
-    --text-caption: 0.875rem;
-
-    --sidebar-background: 0 0% 98%;
-
-    --sidebar-foreground: 240 5.3% 26.1%;
-
-    --sidebar-primary: 240 5.9% 10%;
-
-    --sidebar-primary-foreground: 0 0% 98%;
-
-    --sidebar-accent: 240 4.8% 95.9%;
-
-    --sidebar-accent-foreground: 240 5.9% 10%;
-
-    --sidebar-border: 220 13% 91%;
-
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --background: theme('colors.white');
+    --foreground: theme('colors.neutral.600');
+    --card: theme('colors.white');
+    --card-foreground: theme('colors.neutral.600');
+    --popover: theme('colors.white');
+    --popover-foreground: theme('colors.neutral.600');
+    --primary: theme('colors.primary.main');
+    --primary-foreground: theme('colors.primary.foreground');
+    --secondary: theme('colors.secondary.main');
+    --secondary-foreground: theme('colors.secondary.foreground');
+    --muted: theme('colors.muted.DEFAULT');
+    --muted-foreground: theme('colors.muted.foreground');
+    --accent: theme('colors.accent.DEFAULT');
+    --accent-foreground: theme('colors.accent.foreground');
+    --destructive: theme('colors.destructive.DEFAULT');
+    --destructive-foreground: theme('colors.destructive.foreground');
+    --border: theme('colors.border');
+    --input: theme('colors.input');
+    --ring: theme('colors.ring');
+    --radius: theme('borderRadius.lg');
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --background: theme('colors.neutral.900');
+    --foreground: theme('colors.neutral.50');
+    --card: theme('colors.neutral.900');
+    --card-foreground: theme('colors.neutral.50');
+    --popover: theme('colors.neutral.900');
+    --popover-foreground: theme('colors.neutral.50');
+    --primary: theme('colors.primary.light');
+    --primary-foreground: theme('colors.primary.dark');
+    --secondary: theme('colors.neutral.800');
+    --secondary-foreground: theme('colors.neutral.50');
+    --muted: theme('colors.neutral.800');
+    --muted-foreground: theme('colors.neutral.400');
+    --accent: theme('colors.neutral.800');
+    --accent-foreground: theme('colors.neutral.50');
+    --destructive: theme('colors.destructive.DEFAULT');
+    --destructive-foreground: theme('colors.destructive.foreground');
+    --border: theme('colors.neutral.800');
+    --input: theme('colors.neutral.800');
+    --ring: theme('colors.primary.light');
   }
-}
 
-@layer base {
-  * {
-    @apply border-border;
-  }
   body {
-    @apply bg-background text-foreground font-inter;
+    @apply bg-background text-foreground;
+    font-family: theme('fontFamily.sans');
   }
 }
 
 @layer components {
-  /* Button System - Scalable across all pages */
   .btn-hero {
     @apply bg-gradient-to-r from-primary to-primary-hover text-primary-foreground px-8 py-4 rounded-xl font-semibold text-lg hover:scale-105;
-    box-shadow: var(--shadow-hero);
-    transition: var(--transition-smooth);
+    box-shadow: theme('boxShadow.hero');
+    transition: theme('transition.smooth');
   }
 
   .btn-hero:hover {
-    box-shadow: var(--shadow-modal);
+    box-shadow: theme('boxShadow.modal');
   }
 
   .btn-privacy {
@@ -170,16 +75,14 @@
     @apply border-2 border-primary text-primary px-6 py-3 rounded-lg font-medium hover:bg-primary hover:text-primary-foreground transition-all duration-200;
   }
 
-  /* Card Variants */
   .card-feature {
-    @apply bg-gradient-to-br from-card to-accent border border-border rounded-2xl p-8 shadow-feature hover:shadow-xl transition-all duration-300 hover:-translate-y-1;
+    @apply bg-gradient-to-br from-card to-accent border rounded-2xl p-8 shadow-feature hover:shadow-xl transition-all duration-300 hover:-translate-y-1;
   }
 
   .card-gradient {
-    @apply bg-gradient-to-br from-card via-accent to-secondary/50 border border-border rounded-2xl p-6 shadow-card;
+    @apply bg-gradient-to-br from-card via-accent to-secondary/50 border rounded-2xl p-6 shadow-card;
   }
-
-  /* Text Styles */
+    
   .text-hero {
     @apply text-6xl md:text-7xl font-bold bg-gradient-to-r from-primary via-secondary-foreground to-privacy bg-clip-text text-transparent leading-tight;
   }
@@ -192,7 +95,6 @@
     @apply text-xl text-muted-foreground leading-relaxed;
   }
 
-  /* Layout Utilities */
   .section-padding {
     @apply py-20 px-4 md:px-6 lg:px-8;
   }
@@ -201,7 +103,6 @@
     @apply max-w-7xl mx-auto;
   }
 
-  /* Animations */
   .animate-float {
     animation: float 6s ease-in-out infinite;
   }
@@ -211,7 +112,7 @@
   }
 
   .animate-gradient {
-    background: var(--gradient-hero);
+    background: linear-gradient(135deg, theme('colors.primary.main') 0%, theme('colors.secondary.main') 50%, theme('colors.privacy.main') 100%);
     background-size: 200% 200%;
     animation: gradient 4s ease infinite;
   }
