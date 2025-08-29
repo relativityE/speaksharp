@@ -43,6 +43,7 @@ const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) =
                     isLoading={isLoading}
                     isListening={isListening}
                     isReady={isReady}
+                    error={error}
                 />
             </div>
             <div className="flex-grow flex flex-col">
