@@ -8,37 +8,6 @@ const config: Config = {
     './src/**/*.{js,ts,jsx,tsx,mdx}',
   ],
   theme: {
-    spacing: {
-      section: '5rem',
-      component: '2rem',
-      element: '1rem',
-      tight: '0.5rem',
-      loose: '3rem',
-    },
-    fontFamily: {
-      sans: ['Inter', 'sans-serif'],
-      mono: ['JetBrains Mono', 'monospace'],
-    },
-    fontSize: {
-      hero: ['4.5rem', { lineHeight: '1.1', fontWeight: '800' }],
-      display: ['3.5rem', { lineHeight: '1.2', fontWeight: '700' }],
-      heading: ['2.25rem', { lineHeight: '1.3', fontWeight: '600' }],
-      subheading: ['1.5rem', { lineHeight: '1.4', fontWeight: '500' }],
-      body: ['1rem', { lineHeight: '1.6', fontWeight: '400' }],
-      caption: ['0.875rem', { lineHeight: '1.5', fontWeight: '400' }],
-    },
-    boxShadow: {
-      card: '0 4px 6px -1px hsl(221 83% 53% / 0.1), 0 2px 4px -1px hsl(221 83% 53% / 0.06)',
-      feature: '0 10px 25px -3px hsl(221 83% 53% / 0.15), 0 4px 6px -2px hsl(221 83% 53% / 0.05)',
-      hero: '0 25px 50px -12px hsl(221 83% 53% / 0.25)',
-      navigation: '0 4px 6px -1px hsl(221 83% 53% / 0.1)',
-      modal: '0 20px 25px -5px hsl(221 83% 53% / 0.1), 0 10px 10px -5px hsl(221 83% 53% / 0.04)',
-    },
-    borderRadius: {
-      lg: '0.75rem',
-      md: '0.5rem',
-      sm: '0.25rem',
-    },
     extend: {
       colors: {
         primary: {
@@ -95,6 +64,39 @@ const config: Config = {
         border: 'hsl(214 32% 91%)',
         input: 'hsl(214 32% 91%)',
         ring: 'hsl(221 83% 53%)',
+      },
+      spacing: {
+        section: '5rem',
+        component: '2rem',
+        element: '1rem',
+        tight: '0.5rem',
+        loose: '3rem',
+      },
+      fontFamily: {
+        sans: ['Inter', 'sans-serif'],
+        mono: ['JetBrains Mono', 'monospace'],
+      },
+      fontSize: {
+        hero: ['4.5rem', { lineHeight: '1.1', fontWeight: '800' }],
+        display: ['3.5rem', { lineHeight: '1.2', fontWeight: '700' }],
+        heading: ['2.25rem', { lineHeight: '1.3', fontWeight: '600' }],
+        subheading: ['1.5rem', { lineHeight: '1.4', fontWeight: '500' }],
+        body: ['1rem', { lineHeight: '1.6', fontWeight: '400' }],
+        caption: ['0.875rem', { lineHeight: '1.5', fontWeight: '400' }],
+        'base-xl': '1.5rem',
+      },
+      boxShadow: {
+        card: '0 4px 6px -1px hsl(221 83% 53% / 0.1), 0 2px 4px -1px hsl(221 83% 53% / 0.06)',
+        feature: '0 10px 25px -3px hsl(221 83% 53% / 0.15), 0 4px 6px -2px hsl(221 83% 53% / 0.05)',
+        hero: '0 25px 50px -12px hsl(221 83% 53% / 0.25)',
+        navigation: '0 4px 6px -1px hsl(221 83% 53% / 0.1)',
+        modal: '0 20px 25px -5px hsl(221 83% 53% / 0.1), 0 10px 10px -5px hsl(221 83% 53% / 0.04)',
+      },
+      borderRadius: {
+        lg: '0.75rem',
+        md: '0.5rem',
+        sm: '0.25rem',
+        pill: '9999px',
       },
       keyframes: {
         'accordion-down': {
