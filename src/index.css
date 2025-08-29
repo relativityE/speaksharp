@@ -1,74 +1,239 @@
-@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
-@theme {
-  /* Midnight Blue & Electric Lime Theme */
-  --color-background: #0A0F1E;
-  --color-foreground: #39FF14;
-  --color-card: #141A2C;
-  --color-popover: #141A2C;
-  --color-primary: #39FF14;
-  --color-primary-foreground: #0A0F1E;
-  --color-secondary: #1D243A;
-  --color-secondary-foreground: #E0E0E0;
-  --color-muted: #1D243A;
-  --color-muted-foreground: #A0A0A0;
-  --color-accent: #39FF14;
-  --color-accent-foreground: #0A0F1E;
-  --color-destructive: #FF4500;
-  --color-destructive-foreground: #FFFFFF;
-  --color-border: #2A3457;
-  --color-input: #2A3457;
-  --color-ring: #39FF14;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-  /* Custom Variables */
-  --color-highlight: rgba(57, 255, 20, 0.1);
-  --color-highlight-foreground: #39FF14;
+/* SpeakSharp Design System - Privacy-first, modern SaaS */
 
-  --font-sans: "Inter", "sans-serif";
+@layer base {
+  :root {
+    /* Core Brand Colors */
+    --background: 0 0% 100%;
+    --foreground: 215 25% 12%;
 
-  /* New Scalable Layout Variables */
-  --spacing-unit: 0.0625rem; /* Base unit, 1rem = 40px, so this is 2.5px. This globally scales down the components. */
-  --component-padding-x: calc(3 * var(--spacing-unit)); /* 0.1875rem or 7.5px */
-  --component-padding-y: calc(3 * var(--spacing-unit)); /* 0.1875rem or 7.5px */
-  --component-gap: calc(3 * var(--spacing-unit));       /* 0.1875rem or 7.5px */
-}
+    /* Card System */
+    --card: 0 0% 100%;
+    --card-foreground: 215 25% 12%;
 
-html {
-    font-size: 40px;
-}
+    /* Interactive Elements */
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 25% 12%;
 
-body {
-    font-family: theme(font.sans);
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-}
+    /* Brand Primary - Deep Professional Blue */
+    --primary: 221 83% 53%;
+    --primary-foreground: 0 0% 98%;
+    --primary-hover: 221 83% 48%;
 
-@media (max-width: 768px) {
-  html {
-    font-size: 22px;
+    /* Privacy Green - Trust & Security */
+    --privacy: 142 71% 45%;
+    --privacy-foreground: 0 0% 98%;
+    --privacy-hover: 142 71% 40%;
+
+    /* Secondary - Sophisticated Purple */
+    --secondary: 256 71% 95%;
+    --secondary-foreground: 256 71% 15%;
+
+    /* Muted Tones */
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    /* Accent Colors */
+    --accent: 221 83% 96%;
+    --accent-foreground: 221 83% 15%;
+
+    /* Status Colors */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+
+    /* Borders & Inputs */
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 221 83% 53%;
+
+    /* Design Tokens */
+    --radius: 0.75rem;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(221 83% 53%), hsl(256 71% 58%));
+    --gradient-hero: linear-gradient(135deg, hsl(221 83% 53%) 0%, hsl(256 71% 58%) 50%, hsl(142 71% 45%) 100%);
+    --gradient-card: linear-gradient(145deg, hsl(0 0% 100%), hsl(210 40% 98%));
+    --gradient-subtle: linear-gradient(180deg, hsl(0 0% 100%), hsl(210 40% 99%));
+
+    /* Shadows - Data-driven design tokens */
+    --shadow-card: 0 4px 6px -1px hsl(221 83% 53% / 0.1), 0 2px 4px -1px hsl(221 83% 53% / 0.06);
+    --shadow-feature: 0 10px 25px -3px hsl(221 83% 53% / 0.15), 0 4px 6px -2px hsl(221 83% 53% / 0.05);
+    --shadow-hero: 0 25px 50px -12px hsl(221 83% 53% / 0.25);
+    --shadow-navigation: 0 4px 6px -1px hsl(221 83% 53% / 0.1);
+    --shadow-modal: 0 20px 25px -5px hsl(221 83% 53% / 0.1), 0 10px 10px -5px hsl(221 83% 53% / 0.04);
+
+    /* Animations - Performance optimized */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-bounce: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    --transition-fast: all 0.15s ease-out;
+
+    /* Spacing Scale - Consistent across pages */
+    --spacing-section: 5rem;
+    --spacing-component: 2rem;
+    --spacing-element: 1rem;
+
+    /* Typography Scale */
+    --text-hero: 4.5rem;
+    --text-display: 3.5rem;
+    --text-heading: 2.25rem;
+    --text-subheading: 1.5rem;
+    --text-body: 1rem;
+    --text-caption: 0.875rem;
+
+    --sidebar-background: 0 0% 98%;
+
+    --sidebar-foreground: 240 5.3% 26.1%;
+
+    --sidebar-primary: 240 5.9% 10%;
+
+    --sidebar-primary-foreground: 0 0% 98%;
+
+    --sidebar-accent: 240 4.8% 95.9%;
+
+    --sidebar-accent-foreground: 240 5.9% 10%;
+
+    --sidebar-border: 220 13% 91%;
+
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
   }
 }
 
-a {
-    font-size: 1em;
-    text-decoration: none;
-    transition: color 0.2s ease-in-out;
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-inter;
+  }
 }
 
-a:hover {
-    color: var(--color-primary);
+@layer components {
+  /* Button System - Scalable across all pages */
+  .btn-hero {
+    @apply bg-gradient-to-r from-primary to-primary-hover text-primary-foreground px-8 py-4 rounded-xl font-semibold text-lg hover:scale-105;
+    box-shadow: var(--shadow-hero);
+    transition: var(--transition-smooth);
+  }
+
+  .btn-hero:hover {
+    box-shadow: var(--shadow-modal);
+  }
+
+  .btn-privacy {
+    @apply bg-privacy hover:bg-privacy-hover text-privacy-foreground px-6 py-3 rounded-lg font-medium transition-colors duration-200;
+  }
+
+  .btn-outline {
+    @apply border-2 border-primary text-primary px-6 py-3 rounded-lg font-medium hover:bg-primary hover:text-primary-foreground transition-all duration-200;
+  }
+
+  /* Card Variants */
+  .card-feature {
+    @apply bg-gradient-to-br from-card to-accent border border-border rounded-2xl p-8 shadow-feature hover:shadow-xl transition-all duration-300 hover:-translate-y-1;
+  }
+
+  .card-gradient {
+    @apply bg-gradient-to-br from-card via-accent to-secondary/50 border border-border rounded-2xl p-6 shadow-card;
+  }
+
+  /* Text Styles */
+  .text-hero {
+    @apply text-6xl md:text-7xl font-bold bg-gradient-to-r from-primary via-secondary-foreground to-privacy bg-clip-text text-transparent leading-tight;
+  }
+
+  .text-feature {
+    @apply text-3xl font-bold text-foreground mb-4;
+  }
+
+  .text-subtitle {
+    @apply text-xl text-muted-foreground leading-relaxed;
+  }
+
+  /* Layout Utilities */
+  .section-padding {
+    @apply py-20 px-4 md:px-6 lg:px-8;
+  }
+
+  .container-max {
+    @apply max-w-7xl mx-auto;
+  }
+
+  /* Animations */
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+
+  .animate-pulse-slow {
+    animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  .animate-gradient {
+    background: var(--gradient-hero);
+    background-size: 200% 200%;
+    animation: gradient 4s ease infinite;
+  }
 }
 
-button,
-input,
-textarea,
-select {
-    font-size: inherit;
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-20px);
+  }
 }
 
-/* Custom styles for Sonner Toasts to ensure visibility */
-[data-sonner-toast] {
-  padding: 1.25rem !important; /* p-5 */
-  width: auto !important;
-  min-width: 384px !important; /* 96 * 4px = 384px, equivalent to w-96 */
+@keyframes gradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
 }

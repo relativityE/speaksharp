@@ -11,15 +11,7 @@ const __dirname = path.dirname(__filename)
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
-    tailwindcss({
-      content: [
-        './pages/**/*.{js,jsx}',
-        './components/**/*.{js,jsx}',
-        './app/**/*.{js,jsx}',
-        './src/**/*.{js,jsx}',
-        './index.html'
-      ],
-    }),
+    tailwindcss(),
     react({
       // Exclude the problematic file from the React plugin's transformations.
       // This file uses a Vite-specific '?url' import that seems to crash
