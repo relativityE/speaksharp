@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Loader } from 'lucide-react';
+import { InitialStatePanel, ErrorStatePanel, LoadingStatePanel } from './StatefulPanel';
 
 const Chunk = ({ chunk, fillerData }) => {
     const fillerWords = Object.keys(fillerData);
@@ -45,55 +45,62 @@ const HighlightedTranscript = ({ chunks, interimTranscript, fillerData }) => {
     );
 };
 
-export const TranscriptPanel = ({ chunks = [], interimTranscript, fillerData, isLoading = false, isListening = false, isReady = false }) => {
+export const TranscriptPanel = ({
+    chunks = [],
+    interimTranscript,
+    fillerData,
+    isLoading = false,
+    isListening = false,
+    isReady = false,
+    error = null
+}) => {
     const scrollContainerRef = useRef(null);
     const scrollTimeoutRef = useRef(null);
 
     useEffect(() => {
-        // Debounce the scroll to the bottom to avoid performance issues on rapid updates.
-        if (scrollTimeoutRef.current) {
-            clearTimeout(scrollTimeoutRef.current);
-        }
-
+        if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
         scrollTimeoutRef.current = setTimeout(() => {
             if (scrollContainerRef.current) {
                 scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
             }
-        }, 100); // 100ms debounce delay
-
-        // Cleanup the timeout on component unmount
+        }, 100);
         return () => {
-            if (scrollTimeoutRef.current) {
-                clearTimeout(scrollTimeoutRef.current);
-            }
+            if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
         };
     }, [chunks, interimTranscript]);
 
     const showWaitingMessage = isListening && isReady && !chunks.length && !interimTranscript;
 
+    const renderContent = () => {
+        if (error) {
+            return <ErrorStatePanel error={error} />;
+        }
+        if (isLoading) {
+            return <LoadingStatePanel />;
+        }
+        if (!isListening) {
+            return <InitialStatePanel />;
+        }
+        if (showWaitingMessage) {
+            return (
+                <div className="absolute inset-0 flex items-center justify-center">
+                    <p className="text-lg text-muted-foreground animate-pulse">Listening...</p>
+                </div>
+            );
+        }
+        return <HighlightedTranscript chunks={chunks} interimTranscript={interimTranscript} fillerData={fillerData} />;
+    };
+
     return (
         <div>
             <div className="mb-4">
-                 <h2 className="text-2xl font-bold text-foreground">
-                    Live Transcript
-                </h2>
+                <h2 className="text-2xl font-bold text-foreground">Live Transcript</h2>
                 <p className="text-base text-muted-foreground">
                     Your spoken words appear here. Filler words are highlighted.
                 </p>
             </div>
             <div ref={scrollContainerRef} className="relative p-6 rounded-lg bg-secondary/30 border border-border/50 h-[18rem] overflow-y-auto transition-all duration-300 ease-in-out">
-                {isLoading && (
-                    <div className="absolute inset-0 bg-secondary/80 flex flex-col items-center justify-center z-10">
-                        <Loader className="animate-spin h-12 w-12 text-primary" />
-                        <p className="mt-4 text-lg text-muted-foreground">Initializing session...</p>
-                    </div>
-                )}
-                {showWaitingMessage && (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                        <p className="text-lg text-muted-foreground animate-pulse">Listening...</p>
-                    </div>
-                )}
-                <HighlightedTranscript chunks={chunks} interimTranscript={interimTranscript} fillerData={fillerData} />
+                {renderContent()}
             </div>
         </div>
     );
