@@ -6,11 +6,11 @@
 
 @layer base {
   :root {
-    --background: theme('colors.white');
+    --background: #ffffff;
     --foreground: theme('colors.neutral.600');
-    --card: theme('colors.white');
+    --card: #ffffff;
     --card-foreground: theme('colors.neutral.600');
-    --popover: theme('colors.white');
+    --popover: #ffffff;
     --popover-foreground: theme('colors.neutral.600');
     --primary: theme('colors.primary.main');
     --primary-foreground: theme('colors.primary.foreground');
