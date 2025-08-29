@@ -11,9 +11,6 @@ vi.mock('../hooks/useSessionManager');
 vi.mock('../hooks/useSpeechRecognition');
 
 // Mock child components that are not relevant to the test
-vi.mock('../components/session/TranscriptPanel', () => ({
-  TranscriptPanel: () => <div data-testid="transcript-panel" />,
-}));
 vi.mock('../components/session/FillerWordAnalysis', () => ({
   __esModule: true,
   default: () => <div data-testid="filler-analysis" />,
@@ -125,5 +122,29 @@ describe('SessionPage', () => {
         });
 
         expect(mockUseSpeechRecognition.stopListening).not.toHaveBeenCalled();
+    });
+
+    it('should render an error message when speech recognition fails', () => {
+        const errorMessage = 'Speech recognition service is unavailable.';
+        // Override the mock for this specific test to simulate an error state
+        useSpeechRecognition.mockReturnValue({
+            isListening: true,
+            isReady: false,
+            error: new Error(errorMessage),
+            transcript: '',
+            chunks: [],
+            interimTranscript: '',
+            fillerData: {},
+            isSupported: true,
+            mode: 'cloud',
+            startListening: vi.fn(),
+            stopListening: vi.fn(),
+            reset: vi.fn(),
+        });
+
+        render(<SessionPage />);
+
+        expect(screen.getByText('An Error Occurred')).toBeInTheDocument();
+        expect(screen.getByText(errorMessage)).toBeInTheDocument();
     });
 });
