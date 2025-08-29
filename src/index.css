@@ -6,65 +6,65 @@
 
 @layer base {
   :root {
-    --background: theme('colors.white');
-    --foreground: theme('colors.neutral.600');
-    --card: theme('colors.white');
-    --card-foreground: theme('colors.neutral.600');
-    --popover: theme('colors.white');
-    --popover-foreground: theme('colors.neutral.600');
-    --primary: theme('colors.primary.main');
-    --primary-foreground: theme('colors.primary.foreground');
-    --secondary: theme('colors.secondary.main');
-    --secondary-foreground: theme('colors.secondary.foreground');
-    --muted: theme('colors.muted.DEFAULT');
-    --muted-foreground: theme('colors.muted.foreground');
-    --accent: theme('colors.accent.DEFAULT');
-    --accent-foreground: theme('colors.accent.foreground');
-    --destructive: theme('colors.destructive.DEFAULT');
-    --destructive-foreground: theme('colors.destructive.foreground');
-    --border: theme('colors.border');
-    --input: theme('colors.input');
-    --ring: theme('colors.ring');
-    --radius: theme('borderRadius.lg');
+    --background: #ffffff;
+    --foreground: #4b5563;
+    --card: #ffffff;
+    --card-foreground: #4b5563;
+    --popover: #ffffff;
+    --popover-foreground: #4b5563;
+    --primary: hsl(221, 83%, 53%);
+    --primary-foreground: hsl(0, 0%, 98%);
+    --secondary: hsl(256, 71%, 95%);
+    --secondary-foreground: hsl(256, 71%, 15%);
+    --muted: hsl(210, 40%, 96%);
+    --muted-foreground: hsl(215, 16%, 47%);
+    --accent: hsl(221, 83%, 96%);
+    --accent-foreground: hsl(221, 83%, 15%);
+    --destructive: hsl(0, 84%, 60%);
+    --destructive-foreground: hsl(0, 0%, 98%);
+    --border: hsl(214, 32%, 91%);
+    --input: hsl(214, 32%, 91%);
+    --ring: hsl(221, 83%, 53%);
+    --radius: 0.75rem;
   }
 
   .dark {
-    --background: theme('colors.neutral.900');
-    --foreground: theme('colors.neutral.50');
-    --card: theme('colors.neutral.900');
-    --card-foreground: theme('colors.neutral.50');
-    --popover: theme('colors.neutral.900');
-    --popover-foreground: theme('colors.neutral.50');
-    --primary: theme('colors.primary.light');
-    --primary-foreground: theme('colors.primary.dark');
-    --secondary: theme('colors.neutral.800');
-    --secondary-foreground: theme('colors.neutral.50');
-    --muted: theme('colors.neutral.800');
-    --muted-foreground: theme('colors.neutral.400');
-    --accent: theme('colors.neutral.800');
-    --accent-foreground: theme('colors.neutral.50');
-    --destructive: theme('colors.destructive.DEFAULT');
-    --destructive-foreground: theme('colors.destructive.foreground');
-    --border: theme('colors.neutral.800');
-    --input: theme('colors.neutral.800');
-    --ring: theme('colors.primary.light');
+    --background: #111827;
+    --foreground: #f9fafb;
+    --card: #111827;
+    --card-foreground: #f9fafb;
+    --popover: #111827;
+    --popover-foreground: #f9fafb;
+    --primary: hsl(221, 83%, 96%);
+    --primary-foreground: hsl(221, 83%, 15%);
+    --secondary: #1f2937;
+    --secondary-foreground: #f9fafb;
+    --muted: #1f2937;
+    --muted-foreground: #9ca3af;
+    --accent: #1f2937;
+    --accent-foreground: #f9fafb;
+    --destructive: hsl(0, 84%, 60%);
+    --destructive-foreground: hsl(0, 0%, 98%);
+    --border: #1f2937;
+    --input: #1f2937;
+    --ring: hsl(221, 83%, 96%);
   }
 
   body {
     @apply bg-background text-foreground;
-    font-family: theme('fontFamily.sans');
+    font-family: 'Inter', sans-serif;
   }
 }
 
 @layer components {
   .btn-hero {
     @apply bg-gradient-to-r from-primary to-primary-hover text-primary-foreground px-8 py-4 rounded-xl font-semibold text-lg hover:scale-105;
-    box-shadow: theme('boxShadow.hero');
-    transition: theme('transition.smooth');
+    box-shadow: 0 25px 50px -12px hsl(221 83% 53% / 0.25);
+    transition: all 0.2s ease-in-out;
   }
 
   .btn-hero:hover {
-    box-shadow: theme('boxShadow.modal');
+    box-shadow: 0 20px 25px -5px hsl(221 83% 53% / 0.1), 0 10px 10px -5px hsl(221 83% 53% / 0.04);
   }
 
   .btn-privacy {
@@ -112,7 +112,7 @@
   }
 
   .animate-gradient {
-    background: linear-gradient(135deg, theme('colors.primary.main') 0%, theme('colors.secondary.main') 50%, theme('colors.privacy.main') 100%);
+    background: linear-gradient(135deg, hsl(221, 83%, 53%) 0%, hsl(256, 71%, 95%) 50%, hsl(142, 71%, 45%) 100%);
     background-size: 200% 200%;
     animation: gradient 4s ease infinite;
   }

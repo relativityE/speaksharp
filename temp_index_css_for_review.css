@@ -1,0 +1,140 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: theme('colors.white');
+    --foreground: theme('colors.gray.600');
+    --card: theme('colors.white');
+    --card-foreground: theme('colors.gray.600');
+    --popover: theme('colors.white');
+    --popover-foreground: theme('colors.gray.600');
+    --primary: theme('colors.primary.main');
+    --primary-foreground: theme('colors.primary.foreground');
+    --secondary: theme('colors.secondary.main');
+    --secondary-foreground: theme('colors.secondary.foreground');
+    --muted: theme('colors.muted.DEFAULT');
+    --muted-foreground: theme('colors.muted.foreground');
+    --accent: theme('colors.accent.DEFAULT');
+    --accent-foreground: theme('colors.accent.foreground');
+    --destructive: theme('colors.destructive.DEFAULT');
+    --destructive-foreground: theme('colors.destructive.foreground');
+    --border: theme('colors.border');
+    --input: theme('colors.input');
+    --ring: theme('colors.ring');
+    --radius: theme('borderRadius.lg');
+  }
+
+  .dark {
+    --background: theme('colors.gray.900');
+    --foreground: theme('colors.gray.50');
+    --card: theme('colors.gray.900');
+    --card-foreground: theme('colors.gray.50');
+    --popover: theme('colors.gray.900');
+    --popover-foreground: theme('colors.gray.50');
+    --primary: theme('colors.primary.light');
+    --primary-foreground: theme('colors.primary.dark');
+    --secondary: theme('colors.gray.800');
+    --secondary-foreground: theme('colors.gray.50');
+    --muted: theme('colors.gray.800');
+    --muted-foreground: theme('colors.gray.400');
+    --accent: theme('colors.gray.800');
+    --accent-foreground: theme('colors.gray.50');
+    --destructive: theme('colors.destructive.DEFAULT');
+    --destructive-foreground: theme('colors.destructive.foreground');
+    --border: theme('colors.gray.800');
+    --input: theme('colors.gray.800');
+    --ring: theme('colors.primary.light');
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: theme('fontFamily.sans');
+  }
+}
+
+@layer components {
+  .btn-hero {
+    @apply bg-gradient-to-r from-primary to-primary-hover text-primary-foreground px-8 py-4 rounded-xl font-semibold text-lg hover:scale-105;
+    box-shadow: theme('boxShadow.hero');
+    transition: theme('transition.smooth');
+  }
+
+  .btn-hero:hover {
+    box-shadow: theme('boxShadow.modal');
+  }
+
+  .btn-privacy {
+    @apply bg-privacy hover:bg-privacy-hover text-privacy-foreground px-6 py-3 rounded-lg font-medium transition-colors duration-200;
+  }
+
+  .btn-outline {
+    @apply border-2 border-primary text-primary px-6 py-3 rounded-lg font-medium hover:bg-primary hover:text-primary-foreground transition-all duration-200;
+  }
+
+  .card-feature {
+    @apply bg-gradient-to-br from-card to-accent border rounded-2xl p-8 shadow-feature hover:shadow-xl transition-all duration-300 hover:-translate-y-1;
+  }
+
+  .card-gradient {
+    @apply bg-gradient-to-br from-card via-accent to-secondary/50 border rounded-2xl p-6 shadow-card;
+  }
+
+  .text-hero {
+    @apply text-6xl md:text-7xl font-bold bg-gradient-to-r from-primary via-secondary-foreground to-privacy bg-clip-text text-transparent leading-tight;
+  }
+
+  .text-feature {
+    @apply text-3xl font-bold text-foreground mb-4;
+  }
+
+  .text-subtitle {
+    @apply text-xl text-muted-foreground leading-relaxed;
+  }
+
+  .section-padding {
+    @apply py-20 px-4 md:px-6 lg:px-8;
+  }
+
+  .container-max {
+    @apply max-w-7xl mx-auto;
+  }
+
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+
+  .animate-pulse-slow {
+    animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  .animate-gradient {
+    background: linear-gradient(135deg, theme('colors.primary.main') 0%, theme('colors.secondary.main') 50%, theme('colors.privacy.main') 100%);
+    background-size: 200% 200%;
+    animation: gradient 4s ease infinite;
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-20px);
+  }
+}
+
+@keyframes gradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
