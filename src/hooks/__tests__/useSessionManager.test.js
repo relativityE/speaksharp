@@ -1,4 +1,4 @@
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, waitFor, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useSessionManager } from '../useSessionManager';
 
@@ -33,64 +33,63 @@ describe('useSessionManager', () => {
 
     // Default mock implementation for a logged-in user
     useAuth.mockReturnValue({ user: mockUser, profile: mockProfile });
-    getSessionHistory.mockResolvedValue(mockSessions);
+    getSessionHistory.mockResolvedValue([...mockSessions]); // Return a copy
   });
 
-  it('should initialize with loading true and empty sessions', () => {
+  it('should initialize with loading true and empty sessions', async () => {
     const { result } = renderHook(() => useSessionManager());
     expect(result.current.loading).toBe(true);
     expect(result.current.sessions).toEqual([]);
+    await waitFor(() => expect(result.current.loading).toBe(false));
   });
 
   it('should fetch and set sessions for a logged-in user on mount', async () => {
-    const { result, waitForNextUpdate } = renderHook(() => useSessionManager());
+    const { result } = renderHook(() => useSessionManager());
 
-    await act(async () => {
-        // The hook fetches on mount, wait for state update
-        await new Promise(resolve => setTimeout(resolve, 0));
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+      expect(result.current.sessions).toEqual(mockSessions);
     });
 
     expect(getSessionHistory).toHaveBeenCalledWith(mockUser.id);
-    expect(result.current.loading).toBe(false);
-    expect(result.current.sessions).toEqual(mockSessions);
   });
 
   it('should not fetch sessions if there is no user', async () => {
     useAuth.mockReturnValue({ user: null, profile: null });
     const { result } = renderHook(() => useSessionManager());
 
-    await act(async () => {});
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
 
     expect(getSessionHistory).not.toHaveBeenCalled();
-    expect(result.current.loading).toBe(false);
     expect(result.current.sessions).toEqual([]);
   });
 
   it('should save a new session and add it to the list', async () => {
     const { result } = renderHook(() => useSessionManager());
-    // Wait for initial load
-    await act(async () => {});
+    await waitFor(() => expect(result.current.loading).toBe(false));
 
     const newSessionData = { transcript: 'A new recording' };
     const savedSession = { id: 'session-3', ...newSessionData, user_id: mockUser.id };
-
     saveSession.mockResolvedValue({ session: savedSession, usageExceeded: false });
 
-    let newSessionId;
+    let returnedValue;
     await act(async () => {
-      newSessionId = await result.current.saveSession(newSessionData);
+      returnedValue = await result.current.saveSession(newSessionData);
     });
 
     expect(saveSession).toHaveBeenCalledWith({ ...newSessionData, user_id: mockUser.id }, mockProfile);
     expect(result.current.sessions).toEqual([savedSession, ...mockSessions]);
-    expect(newSessionId).toBe(savedSession.id);
+    expect(returnedValue).toEqual(savedSession.id); // Check that the ID is returned
     expect(result.current.usageLimitExceeded).toBe(false);
   });
 
   it('should set usageLimitExceeded flag when saving fails due to usage', async () => {
     const { result } = renderHook(() => useSessionManager());
-    const newSessionData = { transcript: 'This one will fail' };
+    await waitFor(() => expect(result.current.loading).toBe(false));
 
+    const newSessionData = { transcript: 'This one will fail' };
     saveSession.mockResolvedValue({ session: null, usageExceeded: true });
 
     await act(async () => {
@@ -102,11 +101,9 @@ describe('useSessionManager', () => {
 
   it('should delete a session and remove it from the list', async () => {
     const { result } = renderHook(() => useSessionManager());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
     const sessionIdToDelete = 'session-1';
-
-    // Wait for initial load
-    await act(async () => {});
-
     deleteSession.mockResolvedValue(true);
 
     await act(async () => {

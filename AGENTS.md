@@ -23,47 +23,25 @@ This document provides guidance for AI software engineering agents working on th
 
 ---
 
-## 1. Technology Stack
-
-- **Frontend:** React (with Vite)
-- **Styling:** Tailwind CSS & shadcn/ui
-- **Backend:** Supabase (PostgreSQL, Auth, Edge Functions)
-- **Testing:**
-    - **Vitest:** For unit and integration tests (`.test.jsx`). This is the primary test runner.
-    - **Playwright:** For end-to-end tests that require a real browser environment (`.spec.ts`).
-- **Package Manager:** `pnpm`
-
-## 2. Getting Started & Running Tests
-
-1.  **Install Dependencies:** Always start by running `pnpm install` to ensure all dependencies are present.
-2.  **Run the Main Test Suite (Vitest):** Before submitting any changes, you **must** run the Vitest suite and ensure all tests pass.
-    ```bash
-    pnpm test
-    ```
-3.  **Run the E2E Test Suite (Playwright):** If you make changes to the speech recognition service or other browser-specific features, run the Playwright suite.
-    ```bash
-    npx playwright test
-    ```
-
-## 3. Key Architectural Principles & Conventions
+## 1. Key Architectural Principles & Conventions
 
 -   **Environment Variables:** All secret keys and environment-specific configurations **must** be loaded from environment variables (e.g., `import.meta.env.VITE_...`). Do **not** hardcode keys in the source code. The Vitest environment is configured to use `.env.test` for its variables.
 -   **Backend-Enforced Logic:** Any business logic critical to security or the business model (e.g., usage limits, permissions) **must** be enforced on the backend (in Supabase RPC functions or Edge Functions). Do not rely on client-side checks for security.
 -   **Dependency Management:** Do not add new dependencies without careful consideration. Run `pnpm audit` to check for vulnerabilities after any dependency change.
 -   **Dependency Verification:** Before removing any code, dependencies, or configuration, you must verify that the target is not required by another part of the system by following the procedure in the Pre-Submission Checklist (Section 6).
 
-## 4. Code Style & Linting
+## 2. Code Style & Linting
 
 -   Follow the existing code style.
 -   Run the linter to check for issues: `pnpm run lint`.
 
-## 5. Branching and Pull Request (PR) Workflow
+## 3. Branching and Pull Request (PR) Workflow
 
 The submission process is a two-step interaction between you (the agent) and the user.
 
 1.  **Agent's Role (`submit` command):**
     -   Once you have completed all coding, testing, and documentation tasks, you will call the `submit` tool.
-    -   **NOTE:** Before calling `submit`, you are required to complete all items in the **CRITICAL PRE-SUBMISSION CHECKLIST (Section 6)**.
+    -   **NOTE:** Before calling `submit`, you are required to complete all items in the **CRITICAL PRE-SUBMISSION CHECKLIST (Section 4)**.
     -   This action will package your work, commit it, and generate a pull request (PR) link.
 
 2.  **User's Role ("Publish Branch" button):**
@@ -72,7 +50,7 @@ The submission process is a two-step interaction between you (the agent) and the
 
 This workflow ensures a clear handoff from the agent to the user for the final review and merge step.
 
-## 6. 🚨 CRITICAL PRE-SUBMISSION CHECKLIST 🚨
+## 4. 🚨 CRITICAL PRE-SUBMISSION CHECKLIST 🚨
 
 **Your execution plan MUST include a final step to complete this entire checklist.** Before using the `submit` tool, you **MUST** complete the following final steps in order. Failure to do so is a violation of your core instructions.
 
@@ -97,7 +75,7 @@ This workflow ensures a clear handoff from the agent to the user for the final r
 
 **Do not call `submit` until all three of these steps are complete in every work plan.**
 
-## 7. Proactive Status Updates and Handling Long-Running Tasks
+## 5. Proactive Status Updates and Handling Long-Running Tasks
 
 This section provides the required format for status updates and instructions for handling long-running processes.
 

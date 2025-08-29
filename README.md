@@ -1,26 +1,6 @@
 # SpeakSharp
 
-A real-time speech analysis tool built on two pillars: speed and privacy. Our "privacy by design" approach means we never store your audio. We provide a local-first transcription experience for free, with premium cloud-based features for Pro users. Our goal is to help you speak more confidently without compromising your privacy.
-
-## Features
-
-- **Real-time Filler Word Detection**: Counts common filler words (e.g., "um", "like") in real-time.
-- **On-Device Transcription (Free Tier)**: Your speech is processed locally on your device using Transformers.js, ensuring your privacy.
-- **High-Accuracy Cloud Transcription (Pro Tier)**: Pro users can opt-in to use a premium cloud-based engine for even higher accuracy.
-- **Comprehensive Analytics**: Free users can track their progress with trend dashboards, while Pro users unlock deep per-session analytics and history.
-- **Custom Filler Words**: Track your own unique filler words. (Limited in Free tier, unlimited for Pro).
-- **PDF Export (Pro Feature)**: Pro users can download detailed PDF reports of their sessions.
-- **Modern UI**: A clean, responsive interface with a new "Midnight Blue & Electric Lime" theme.
-
-## Technology Stack
-
-- **Frontend**: React (with [Vite](https://vitejs.dev/))
-- **Styling**: Tailwind CSS & shadcn/ui
-- **Testing**: Vitest & Playwright
-- **Backend & Database**: Supabase
-- **Speech Processing**:
-    - **On-Device (Default)**: Transformers.js for private, in-browser transcription.
-    - **Cloud-Based (Pro Option)**: AssemblyAI for premium, high-accuracy transcription.
+A real-time speech analysis tool to help you speak more confidently.
 
 ## Getting Started
 
@@ -28,81 +8,44 @@ A real-time speech analysis tool built on two pillars: speed and privacy. Our "p
 
 - Node.js (v18 or higher)
 - pnpm (v10.4.1 or higher)
+- Supabase Account (for backend services)
 
-### Installation
+### Installation & Setup
 
-1.  Clone the repository:
+1.  **Clone the repository:**
     ```bash
     git clone https://github.com/relativityE/speaksharp.git
     cd speaksharp
     ```
 
-2.  Install dependencies:
+2.  **Install dependencies:**
     ```bash
     pnpm install
     ```
 
-3.  Set up your environment variables.
-    Create a file named `.env.local` in the root of the project and add the necessary keys for Supabase and other services. See the `.env.example` file for a full list.
+3.  **Set up environment variables:**
+    Create a file named `.env.local` in the root of the project. You can use `.env.example` as a template. For a detailed explanation of the required keys and services, please see the **Environment Variables** section in the `System Architecture.md` file.
 
-    To test cloud-based features locally, you can enable developer mode by setting `VITE_DEV_MODE=true` in your `.env.local` file. This will use a secure anonymous sign-in to generate a temporary user session.
-
-4.  Start the development server:
+4.  **Start the development server:**
     ```bash
     pnpm run dev
     ```
 
-5.  Open your browser and navigate to the URL shown in your terminal. It is usually `http://localhost:5173`, but it might be different if that port is occupied.
+5.  Open your browser and navigate to the URL shown in your terminal (usually `http://localhost:5173`).
 
-## Known Issues
+## Running Tests
 
-- **Test Suite Instability:** The `vitest` test suite is currently unstable. While tests can pass, there are intermittent failures related to the test environment, often reporting `node_modules missing` even after a successful `pnpm install`. This is the next critical issue to be investigated.
+-   **Unit & Integration Tests (Vitest):**
+    ```bash
+    pnpm test
+    ```
 
-## Production Ready Checklist
-*****************************************************************
-*                                                               *
-*   DANGEROUS!  ALERT!  DANGEROUS!  ALERT!  DANGEROUS!  ALERT!   *
-*                                                               *
-*   The following keys MUST be rolled before any production     *
-*   deployment. These are development keys and should not be    *
-*   used in a live environment.                                 *
-*                                                               *
-*   - VITE_SUPABASE_URL                                         *
-*   - VITE_SUPABASE_ANON_KEY                                    *
-*   - VITE_ASSEMBLYAI_API_KEY                                   *
-*   - VITE_SENTRY_DSN                                           *
-*   - VITE_POSTHOG_KEY                                          *
-*   - VITE_POSTHOG_HOST                                         *
-*   - VITE_STRIPE_PUBLISHABLE_KEY                               *
-*   - VITE_STRIPE_SECRET_KEY                                    *
-*   - VITE_STRIPE_WEBHOOK_SECRET                                *
-*                                                               *
-*****************************************************************
+-   **End-to-End Tests (Playwright):**
+    ```bash
+    npx playwright test
+    ```
 
-## How to Test the Application
-
-This project uses a hybrid testing strategy:
-
--   **Unit & Integration Tests (Vitest):** For most application logic and components. Run with `pnpm test`.
--   **End-to-End Tests (Playwright):** For testing features in a real browser environment. Run with `npx playwright test`.
--   **Backend Function Tests (Deno):** For testing Supabase Edge Functions. Run with `pnpm run test:functions`.
-
-To run the entire test suite (Vitest and Deno tests), use:
-```bash
-pnpm run test:all
-```
-
-## How to Deploy to Vercel
-
-1.  **Fork the repository** to your own GitHub account.
-2.  **Create a new project on Vercel** and connect it to your forked repository.
-3.  **Configure the environment variables** in the Vercel project settings. You will need to add all the variables from your `.env.local` file.
-4.  **Deploy!** Vercel will automatically build and deploy your application. Any new pushes to the `main` branch will trigger a new deployment.
-
-## Contributing
-
-Contributions are welcome! Please feel free to open an issue or submit a pull request.
-
-## License
-
-This project is licensed under the MIT License. See the `LICENSE` file for details.
+-   **Backend Function Tests (Deno):**
+    ```bash
+    pnpm run test:functions
+    ```

@@ -45,7 +45,7 @@ const HighlightedTranscript = ({ chunks, interimTranscript, fillerData }) => {
     );
 };
 
-export const TranscriptPanel = ({ chunks = [], interimTranscript, fillerData, isLoading = false }) => {
+export const TranscriptPanel = ({ chunks = [], interimTranscript, fillerData, isLoading = false, isListening = false, isReady = false }) => {
     const scrollContainerRef = useRef(null);
     const scrollTimeoutRef = useRef(null);
 
@@ -69,6 +69,8 @@ export const TranscriptPanel = ({ chunks = [], interimTranscript, fillerData, is
         };
     }, [chunks, interimTranscript]);
 
+    const showWaitingMessage = isListening && isReady && !chunks.length && !interimTranscript;
+
     return (
         <div>
             <div className="mb-4">
@@ -84,6 +86,11 @@ export const TranscriptPanel = ({ chunks = [], interimTranscript, fillerData, is
                     <div className="absolute inset-0 bg-secondary/80 flex flex-col items-center justify-center z-10">
                         <Loader className="animate-spin h-12 w-12 text-primary" />
                         <p className="mt-4 text-lg text-muted-foreground">Initializing session...</p>
+                    </div>
+                )}
+                {showWaitingMessage && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                        <p className="text-lg text-muted-foreground animate-pulse">Listening...</p>
                     </div>
                 )}
                 <HighlightedTranscript chunks={chunks} interimTranscript={interimTranscript} fillerData={fillerData} />
