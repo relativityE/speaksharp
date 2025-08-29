@@ -36,7 +36,7 @@ This board provides a two-dimensional view of our project tasks, combining **Pha
 ### 🎯 Must-Have
 
 - 🔴 **Deploy & confirm live transcript UI works:** Ensure text appears within 2 seconds of speech in a live environment.
-- 🔴 **Remove all temporary `console.log`s:** Clean up the codebase for production.
+- 🔴 **Remove all temporary `console.log`s:** Clean up the codebase for production. *(Note: This is required, but will be handled after all other 'must-have' features are implemented.)*
 
 ### 🚧 Should-Have (Tech Debt)
 
