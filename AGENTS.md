@@ -10,7 +10,7 @@ This document provides guidance for AI software engineering agents working on th
 
 2.  **Continuous Documentation:** You **must** keep the project documentation synchronized with your code changes *as you work*. Do not leave documentation updates until the end. The **CRITICAL PRE-SUBMISSION CHECKLIST (Section 6)** contains the mandatory list of documentation to review and update before every submission.
 
-3.  **Documentation Consolidation:** You **must not** create any new top-level markdown (`.md`) files. All project documentation, analysis, and planning must be consolidated into the three existing documents: `PRD.md`, `README.md`, and `System Architecture.md`. This ensures a single source of truth.
+3.  **Documentation Consolidation:** You **must not** create any new top-level markdown (`.md`) files. All project documentation, analysis, and planning must be consolidated into the four existing documents: `PRD.md`, `README.md`, `System Architecture.md`, and `PROJECT_BOARD.md`. This ensures a single source of truth.
 
 ---
 
@@ -18,7 +18,7 @@ This document provides guidance for AI software engineering agents working on th
 
 **You must complete this checklist at the beginning of every new task *before* forming a plan.** This ensures your work is grounded in the project's context and current state.
 
-1.  **Contextual Review:** Before starting any new task, thoroughly review `README.md`, `PRD.md`, and `System Architecture.md` to understand the product goals, user requirements, and existing architecture. This forms the foundation for your plan.
+1.  **Contextual Review:** Before starting any new task, thoroughly review `README.md`, `PRD.md`, `System Architecture.md`, and `PROJECT_BOARD.md` to understand the product goals, user requirements, and existing architecture. This forms the foundation for your plan.
 2.  **Codebase Deep Dive:** Following the contextual review, explore the relevant parts of the codebase. Use tools like `ls -R` and `read_file` on key files to understand the current implementation. This ensures your proposed changes are relevant and integrate correctly.
 
 ---
