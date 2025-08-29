@@ -30,7 +30,7 @@ The system is built for speed, both in user experience and development velocity.
 ---
 
 ## 4. Development Roadmap
-Please see [PROJECT_BOARD.md](PROJECT_BOARD.md) for the latest project status.
+This roadmap has been updated to track the stabilization and enhancement of the AssemblyAI v3 streaming transcription feature. The canonical source for this plan is [`PROJECT_PLAN.md`](./PROJECT_PLAN.md).
 
 ---
 
