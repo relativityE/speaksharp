@@ -1,66 +1,163 @@
-import React from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useBrowserSupport } from '../hooks/useBrowserSupport';
-import { BrowserWarning } from '../components/BrowserWarning';
-import { Button } from '@/components/ui/button';
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { CheckCircle, Zap, Shield, Star } from "lucide-react";
+import { Link } from "react-router-dom";
+import { useBrowserSupport } from "@/hooks/useBrowserSupport";
+import { BrowserWarning } from "@/components/BrowserWarning";
 import { APP_TAGLINE } from '../config';
 
-export const MainPage = () => {
-    const navigate = useNavigate();
-    const { isSupported, error: supportError } = useBrowserSupport();
+export function MainPage() {
+  const { isSupported, error } = useBrowserSupport();
 
-    const handleStartSession = () => {
-        navigate('/session');
-    };
+  if (!isSupported) {
+    return <BrowserWarning error={error} />;
+  }
 
-    return (
-        <div className="flex flex-col min-h-screen bg-background text-foreground">
-            <main className="flex-grow">
-                {/* Hero Section */}
-                <section className="container mx-auto px-component-px py-24 text-center">
-                    <h1 className="text-3xl md:text-5xl font-bold mb-4 text-glow">
-                        {APP_TAGLINE}
-                    </h1>
-                    <p className="max-w-3xl mx-auto mb-8 text-lg text-muted-foreground">
-                        Get real-time feedback to eliminate filler words and become a more articulate speaker. Privacy-first, no audio is ever stored on our servers.
-                    </p>
-                    <div className="flex flex-col items-center gap-component-gap">
-                        <Button size="lg" className="text-lg font-semibold py-component-py px-10" onClick={handleStartSession}>
-                            Start Your Free Session Now
-                        </Button>
-                        <p className="mt-2 text-sm text-muted-foreground/80">
-                            100% free. No account required.
-                        </p>
-                    </div>
-                </section>
-
-                {/* Demo Section */}
-                <section className="container mx-auto px-component-px py-16 text-center bg-secondary rounded-xl">
-                    <h2 className="text-3xl font-bold mb-8">See it in Action</h2>
-                    <div className="max-w-4xl mx-auto">
-                        <div className="aspect-video bg-background rounded-lg flex items-center justify-center border-2 border-dashed border-border mb-8">
-                            <p className="text-muted-foreground text-base">Animated Demo Placeholder</p>
-                        </div>
-                        <div className="text-left p-component-py bg-background rounded-lg border">
-                           <p className="text-base md:text-lg leading-relaxed">
-                                "So, <span className="bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded font-semibold">like</span>, the main point is, <span className="bg-red-100 text-red-800 px-1.5 py-0.5 rounded font-semibold">um</span>, to, <span className="bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded font-semibold">you know</span>, speak more clearly. It's <span className="bg-green-100 text-green-800 px-1.5 py-0.5 rounded font-semibold">actually</span> very achievable."
-                            </p>
-                        </div>
-                    </div>
-                </section>
-
-                {/* Browser Warning Section */}
-                <section className="container mx-auto px-component-px py-10">
-                    <BrowserWarning isSupported={isSupported} supportError={supportError} />
-                </section>
-            </main>
-
-            {/* Footer */}
-            <footer className="py-component-py text-center border-t border-border">
-                <p className="text-sm text-muted-foreground">
-                    &copy; {new Date().getFullYear()} SpeakSharp. All rights reserved.
+  return (
+    <div className="flex flex-col min-h-screen bg-solid-light">
+      <header className="fixed w-full top-0 z-50 px-4 lg:px-6 h-16 flex items-center bg-glassmorphism">
+        <Link to="/" className="flex items-center justify-center">
+          <Zap className="size-6 text-primary-600" />
+          <span className="sr-only">SpeakSharp</span>
+        </Link>
+        <nav className="ml-auto flex gap-4 sm:gap-6 items-center">
+          <Link
+            to="/session"
+            className="text-sm font-medium hover:underline underline-offset-4"
+          >
+            Practice
+          </Link>
+          <Button variant="brand" size="sm" asChild>
+            <Link to="/session">Start a Session</Link>
+          </Button>
+        </nav>
+      </header>
+      <main className="flex-1">
+        <section className="w-full pt-24 md:pt-32 lg:pt-48 xl:pt-56 pb-12 md:pb-24 lg:pb-32 bg-gradient-speaksharp">
+          <div className="container px-4 md:px-6">
+            <div className="grid gap-6 items-center">
+              <div className="flex flex-col justify-center space-y-4 text-center">
+                <div className="space-y-3">
+                    <div className="badge-primary inline-block">Speak with Confidence</div>
+                  <h1 className="h1">
+                    {APP_TAGLINE}
+                  </h1>
+                  <p className="body-lg max-w-[600px] mx-auto">
+                    Get real-time feedback to eliminate filler words and become a more articulate speaker. Privacy-first, no audio is ever stored on our servers.
+                  </p>
+                </div>
+                <div className="w-full max-w-sm sm:max-w-md mx-auto flex gap-4">
+                  <Button variant="brand" size="lg" className="flex-1" asChild>
+                    <Link to="/session">Start For Free</Link>
+                  </Button>
+                   <Button variant="outline" size="lg" className="flex-1">
+                    Learn More
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section className="w-full py-12 md:py-24 lg:py-32 bg-solid-light">
+          <div className="container px-4 md:px-6">
+            <div className="flex flex-col items-center justify-center space-y-4 text-center">
+              <div className="space-y-3">
+                <div className="badge-primary">
+                  Key Features
+                </div>
+                <h2 className="h2">
+                  Everything you need to practice
+                </h2>
+                <p className="body-lg max-w-[900px]">
+                  TBD
                 </p>
-            </footer>
-        </div>
-    );
-};
+              </div>
+            </div>
+            <div className="mx-auto grid max-w-5xl items-start gap-12 sm:grid-cols-2 md:grid-cols-3 lg:gap-16 mt-12">
+                <Card className="card-feature">
+                  <div className="icon-container-md bg-primary-100 text-primary-600 anim-icon-scale">
+                    <Zap className="size-8" />
+                  </div>
+                  <h3 className="h4 mt-4">Real-time Transcription</h3>
+                  <p className="body-sm mt-2">TBD</p>
+                </Card>
+                <Card className="card-feature">
+                  <div className="icon-container-md bg-green-100 text-green-600 anim-icon-scale">
+                    <CheckCircle className="size-8" />
+                  </div>
+                  <h3 className="h4 mt-4">Filler Word Detection</h3>
+                  <p className="body-sm mt-2">TBD</p>
+                </Card>
+                <Card className="card-feature">
+                  <div className="icon-container-md bg-purple-100 text-purple-600 anim-icon-scale">
+                    <Shield className="size-8" />
+                  </div>
+                  <h3 className="h4 mt-4">Privacy Focused</h3>
+                  <p className="body-sm mt-2">TBD</p>
+                </Card>
+            </div>
+          </div>
+        </section>
+        <section className="w-full py-12 md:py-24 lg:py-32 bg-solid-white">
+            <div className="container px-4 md:px-6">
+                <div className="flex flex-col items-center justify-center space-y-4 text-center">
+                    <div className="space-y-3">
+                        <div className="badge-accent">
+                            Testimonials
+                        </div>
+                        <h2 className="h2">
+                            Trusted by Professionals
+                        </h2>
+                    </div>
+                </div>
+                <div className="mx-auto grid max-w-5xl items-start gap-12 sm:grid-cols-2 lg:gap-16 mt-12">
+                    <Card className="card-testimonial">
+                        <p className="body mt-4">"TBD"</p>
+                        <div className="flex items-center gap-4 mt-4">
+                            <img src="https://randomuser.me/api/portraits/men/32.jpg" alt="user" className="size-12 rounded-full" />
+                            <div>
+                                <h3 className="h4">TBD</h3>
+                                <div className="flex mt-1">
+                                    {[...Array(5)].map((_, i) => <Star key={i} className="size-4 fill-yellow-400 text-yellow-400" />)}
+                                </div>
+                            </div>
+                        </div>
+                    </Card>
+                    <Card className="card-testimonial">
+                        <p className="body mt-4">"TBD"</p>
+                        <div className="flex items-center gap-4 mt-4">
+                            <img src="https://randomuser.me/api/portraits/women/44.jpg" alt="user" className="size-12 rounded-full" />
+                            <div>
+                                <h3 className="h4">TBD</h3>
+                                <div className="flex mt-1">
+                                    {[...Array(5)].map((_, i) => <Star key={i} className="size-4 fill-yellow-400 text-yellow-400" />)}
+                                </div>
+                            </div>
+                        </div>
+                    </Card>
+                </div>
+            </div>
+        </section>
+      </main>
+      <footer className="flex flex-col gap-2 sm:flex-row py-6 w-full shrink-0 items-center px-4 md:px-6 border-t bg-gray-900 text-gray-400">
+        <p className="text-xs">
+          © {new Date().getFullYear()} SpeakSharp. All rights reserved.
+        </p>
+        <nav className="sm:ml-auto flex gap-4 sm:gap-6">
+          <Link
+            to="#"
+            className="text-xs hover:underline underline-offset-4"
+          >
+            Terms of Service
+          </Link>
+          <Link
+            to="#"
+            className="text-xs hover:underline underline-offset-4"
+          >
+            Privacy
+          </Link>
+        </nav>
+      </footer>
+    </div>
+  );
+}

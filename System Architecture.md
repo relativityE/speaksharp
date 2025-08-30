@@ -203,3 +203,52 @@ Once the Supabase function is successfully called, it communicates with Assembly
     *   It then establishes a **WebSocket connection** to AssemblyAI's v3 real-time transcription service.
     *   It authenticates this WebSocket connection using the **temporary token**.
     *   Once connected, it streams raw 16-bit PCM audio from the microphone via an `AudioWorklet` pipeline and receives transcription results back in real-time.
+
+## 4. Frontend Design System
+
+The project uses a comprehensive design system implemented as a custom Tailwind CSS plugin. This approach ensures visual consistency, maintainability, and a single source of truth for all UI styling.
+
+### Core Principles
+
+The design system is built on the following principles:
+
+- **Color System:** A 6-color palette with semantic mappings for primary actions, accents, success, warnings, errors, and neutrals. All colors are defined in `tailwind.config.ts`.
+- **Typography:** A consistent type scale using the "Inter" font family, with defined sizes, weights, and line heights for headings and body text.
+- **Spacing:** An 8px-based spacing system for all padding, margins, and gaps to ensure a consistent rhythm.
+
+### Tailwind Plugin Strategy
+
+Instead of applying long strings of utility classes directly in the JSX, we use a custom Tailwind plugin to create component-based classes. This is configured in `tailwind.config.ts` via the `addComponents` utility.
+
+**Example:**
+```javascript
+// tailwind.config.ts
+function ({ addComponents, theme }) {
+  addComponents({
+    // Buttons
+    '.btn-primary': {
+      '@apply bg-primary-600 text-white ...': {},
+    },
+    // Cards
+    '.card-default': {
+      '@apply bg-white p-8 rounded-2xl ...': {},
+    },
+    // Typography
+    '.h1': {
+      '@apply text-4xl sm:text-5xl ...': {},
+    }
+  });
+}
+```
+
+This provides reusable classes like `.btn-primary`, `.card-default`, and `.h1` that can be applied directly to components.
+
+### CVA Migration for Buttons
+
+The `Button` component uses `class-variance-authority` (CVA) to manage its many variants. To bridge the old system with the new, we've implemented a hybrid CVA configuration.
+
+- **Legacy variants** (e.g., `brand`, `outline`) are mapped to their new **component classes** (e.g., `btn-primary`, `btn-secondary`).
+- This allows existing button implementations to continue working without immediate refactoring.
+- New variants from the design system (e.g., `destructive`, `accent`) are also added.
+
+This strategy provides a safe migration path while enforcing the new design system as the single source of truth for styling.
