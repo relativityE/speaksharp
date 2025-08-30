@@ -43,7 +43,6 @@ This section tracks key software quality metrics for the project. These are base
 | ----------------------------- | ------------- | ----------------- | ----------------------------------------------- |
 | **Test Coverage (Lines)**     | `42.99%`      | `70-80%`          | Percentage of code lines executed by tests.     |
 | **Code Bloat (Uncovered Code)** | `57.01%`      | `N/A`             | Percentage of code lines not covered by tests.  |
-
 ---
 
 ## 6. Metrics and Success Criteria
