@@ -40,6 +40,11 @@ This board provides a two-dimensional view of our project tasks, combining **Pha
 
 ### 🚧 Should-Have (Tech Debt)
 
+- 🟡 **Implement new SpeakSharp Design System:**
+  - ✅ 1. Configure Core Theme & Test
+  - ✅ 2. Create Component Plugins & Test
+  - 🟡 3. Refactor UI Components & Test
+  - 🔴 4. Final Verification & Test
 - 🔴 **Add more UX states:** For error, loading, and empty transcript scenarios.
 - 🔴 **Improve Accessibility:** Use an ARIA live region for the transcript so screen readers can announce new lines.
 - 🔴 **Add Deno unit tests for the token endpoint:** Ensure the `assemblyai-token` function is fully covered.

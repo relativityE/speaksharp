@@ -9,30 +9,34 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default:
-          "bg-highlight text-highlight-foreground shadow-xs hover:bg-highlight/90",
-        brand:
-          "bg-primary text-primary-foreground shadow-xs hover:bg-primary/90",
-        destructive:
-          "bg-destructive text-destructive-foreground shadow-xs hover:bg-destructive/90",
-        outline:
-          "border border-primary bg-transparent text-primary hover:bg-primary/10",
-        secondary:
-          "bg-secondary text-secondary-foreground shadow-xs hover:bg-secondary/80",
-        ghost:
-          "hover:bg-accent hover:text-accent-foreground",
-        link: "text-primary underline-offset-4 hover:underline",
+        // New system classes
+        primary: "btn-primary",
+        secondary: "btn-secondary",
+        accent: "btn-accent",
+        ghost: "btn-ghost",
+        destructive: "btn-destructive",
+        outline: "btn-outline",
+
+        // Legacy aliases (map to new ones)
+        // TODO: Deprecate these variants and migrate to new system
+        default: "btn-secondary",
+        brand: "btn-primary",
+        link: "btn-ghost",
       },
       size: {
-        default: "h-9 px-4 py-2 has-[>svg]:px-3",
-        sm: "h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5",
-        lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
-        icon: "size-9",
+        // New system sizes
+        sm: "btn-sm",
+        md: "btn-md",
+        lg: "btn-lg",
+
+        // Legacy aliases
+        default: "btn-md",
+        icon: "size-9", // maintain icon size for now
       },
     },
     defaultVariants: {
-      variant: "default",
-      size: "default",
+      variant: "primary",
+      size: "md",
     },
   }
 )
