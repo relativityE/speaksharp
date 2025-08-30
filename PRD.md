@@ -24,13 +24,14 @@ The system is built for speed, both in user experience and development velocity.
 - **[RESOLVED] Vitest Suite Instability with Complex Mocks**
   - **Status (as of Aug 28, 2025):** The test suite is now stable and all tests are passing without warnings.
   - **Summary of Fix:** The instability was caused by several issues, including incorrect asynchronous test patterns, flawed mock implementations, and components not correctly forwarding refs. The suite was fixed by implementing `waitFor` for async state updates, correcting the WebSocket mock to include static properties, and wrapping UI components in `React.forwardRef`.
+- **[BLOCKER] Tailwind CSS Build Failure:** The application is currently rendering without any styles. This is a top-priority blocker preventing any further UI development or verification. The root cause is under investigation but appears to be a misconfiguration in the CSS build pipeline.
 - **On-Device Transcription Needs Polish:** The `LocalWhisper` provider in `TranscriptionService` is a functional implementation using Transformers.js. However, it may require further UI/UX polishing for model loading feedback and error handling before it is production-ready.
-- **Playwright E2E Tests Failing:** The Playwright E2E tests are currently failing due to a timeout issue. The tests are unable to detect the application transitioning to the "Listening..." state. This issue appears to be specific to the test environment and requires further investigation. The tests have been temporarily disabled by renaming the test file to `e2e.spec.ts.disabled`.
+- **Playwright E2E Tests Failing:** The Playwright E2E tests are currently failing. This is likely a direct result of the CSS build failure, as the tests cannot find styled elements to interact with. This issue is blocked until the styling is fixed.
 
 ---
 
 ## 4. Development Roadmap
-This roadmap has been updated to track the stabilization and enhancement of the AssemblyAI v3 streaming transcription feature. The canonical source for this plan is [`PROJECT_PLAN.md`](./PROJECT_PLAN.md).
+This roadmap has been updated to track the stabilization and enhancement of the AssemblyAI v3 streaming transcription feature. The canonical source for this plan is [`PROJECT_BOARD.md`](./PROJECT_BOARD.md).
 
 ---
 
@@ -40,9 +41,8 @@ This section tracks key software quality metrics for the project. These are base
 
 | Metric                        | Current Value | Industry Standard | Notes                                           |
 | ----------------------------- | ------------- | ----------------- | ----------------------------------------------- |
-| **Test Coverage (Lines)**     | `40.04%`      | `70-80%`          | Percentage of code lines executed by tests.     |
-| **Code Bloat (Uncovered Code)** | `59.96%`      | `N/A`             | Percentage of code lines not covered by tests.  |
-
+| **Test Coverage (Lines)**     | `42.99%`      | `70-80%`          | Percentage of code lines executed by tests.     |
+| **Code Bloat (Uncovered Code)** | `57.01%`      | `N/A`             | Percentage of code lines not covered by tests.  |
 ---
 
 ## 6. Metrics and Success Criteria

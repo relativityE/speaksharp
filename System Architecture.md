@@ -5,8 +5,12 @@
 The architecture is designed around a modern, client-heavy Jamstack approach. The frontend is a sophisticated single-page application that handles most of the business logic.
 
 - **Frontend**: React (with [Vite](https://vitejs.dev/))
-- **Styling**: Tailwind CSS & shadcn/ui
-  - **Component System**: The application uses a custom Tailwind plugin to define component-like classes (e.g., for toasts). This provides a robust, composable way to style common UI elements without the fragility of the `@apply` directive. Toast styles are defined in `tailwind.config.ts` and can be combined (e.g., `toast toast-md toast-success`).
+- **Styling**: Tailwind CSS, shadcn/ui, and `class-variance-authority` (CVA)
+  - **Styling Strategy**: The project has adopted a comprehensive, token-based design system built on a hybrid CVA and Tailwind strategy. This approach is the standard for all new UI components.
+    - **Design Tokens (`tailwind.config.ts`):** All core design properties (colors, spacing, fonts, radii) are defined as tokens in the Tailwind configuration. This provides a single source of truth for the application's visual style. Semantic color names (e.g., `primary`, `secondary`, `danger`) are used throughout.
+    - **Component Variants (CVA):** The `class-variance-authority` library is used within each UI component (e.g., `Button`, `Card`, `Alert`) to define variants for different styles (`variant`), sizes (`size`), and other properties. These variants compose the base Tailwind utility classes.
+    - **Component Usage:** Components are used with simple props (e.g., `<Button variant="destructive" size="sm">`) which are translated into the correct CSS classes by CVA. This makes the UI code clean, declarative, and easy to maintain.
+    - **No Custom CSS:** This strategy avoids writing custom CSS files or using `@apply`, preventing common issues with Tailwind's build process and ensuring all styling is managed through the central token and component system.
 - **Testing**:
     - **Vitest:** For unit and integration tests.
     - **Playwright:** For end-to-end tests.
@@ -204,51 +208,13 @@ Once the Supabase function is successfully called, it communicates with Assembly
     *   It authenticates this WebSocket connection using the **temporary token**.
     *   Once connected, it streams raw 16-bit PCM audio from the microphone via an `AudioWorklet` pipeline and receives transcription results back in real-time.
 
-## 4. Frontend Design System
+---
 
-The project uses a comprehensive design system implemented as a custom Tailwind CSS plugin. This approach ensures visual consistency, maintainability, and a single source of truth for all UI styling.
+## 4. Known Issues
 
-### Core Principles
+This section documents critical, unresolved issues that are currently impacting the project.
 
-The design system is built on the following principles:
-
-- **Color System:** A 6-color palette with semantic mappings for primary actions, accents, success, warnings, errors, and neutrals. All colors are defined in `tailwind.config.ts`.
-- **Typography:** A consistent type scale using the "Inter" font family, with defined sizes, weights, and line heights for headings and body text.
-- **Spacing:** An 8px-based spacing system for all padding, margins, and gaps to ensure a consistent rhythm.
-
-### Tailwind Plugin Strategy
-
-Instead of applying long strings of utility classes directly in the JSX, we use a custom Tailwind plugin to create component-based classes. This is configured in `tailwind.config.ts` via the `addComponents` utility.
-
-**Example:**
-```javascript
-// tailwind.config.ts
-function ({ addComponents, theme }) {
-  addComponents({
-    // Buttons
-    '.btn-primary': {
-      '@apply bg-primary-600 text-white ...': {},
-    },
-    // Cards
-    '.card-default': {
-      '@apply bg-white p-8 rounded-2xl ...': {},
-    },
-    // Typography
-    '.h1': {
-      '@apply text-4xl sm:text-5xl ...': {},
-    }
-  });
-}
-```
-
-This provides reusable classes like `.btn-primary`, `.card-default`, and `.h1` that can be applied directly to components.
-
-### CVA Migration for Buttons
-
-The `Button` component uses `class-variance-authority` (CVA) to manage its many variants. To bridge the old system with the new, we've implemented a hybrid CVA configuration.
-
-- **Legacy variants** (e.g., `brand`, `outline`) are mapped to their new **component classes** (e.g., `btn-primary`, `btn-secondary`).
-- This allows existing button implementations to continue working without immediate refactoring.
-- New variants from the design system (e.g., `destructive`, `accent`) are also added.
-
-This strategy provides a safe migration path while enforcing the new design system as the single source of truth for styling.
+-   **Tailwind CSS Build Failure:**
+    -   **Symptom:** No Tailwind-generated styles are being applied anywhere in the application. The UI renders as an unstyled HTML document.
+    -   **Status:** This is the **top-priority blocker**.
+    -   **Diagnosis:** Diagnostic tests confirm that Tailwind classes (e.g., `bg-red-500`) are not being processed into CSS. The root cause is believed to be a misconfiguration in the build pipeline (Vite, Tailwind, PostCSS), but all standard configuration files (`tailwind.config.ts`, `vite.config.mjs`, etc.) have been checked and appear correct. The issue is currently under investigation.
