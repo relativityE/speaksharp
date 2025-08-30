@@ -6,6 +6,6 @@
 /* Custom toast class using @apply safely */
 @layer components {
   .toast {
-    @apply rounded-pill bg-gray-100 text-gray-900 text-base-xl shadow-md px-4 py-2;
+    @apply rounded-full bg-gray-700 text-white text-base-xl shadow-md px-6 py-3;
   }
 }
