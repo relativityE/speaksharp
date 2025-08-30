@@ -6,8 +6,8 @@ import App from '../App';
 // Mock the useAuth hook as it's used in App.jsx
 vi.mock('../contexts/AuthContext', () => ({
   useAuth: () => ({
-    user: null,
-    session: null,
+    user: { id: 'test-user', email: 'test@example.com' },
+    session: { access_token: 'test-token' },
   }),
 }));
 
@@ -22,6 +22,27 @@ vi.mock('../services/transcription/utils/audioUtils', () => ({
       stop: vi.fn(),
     })
   ),
+}));
+
+vi.mock('../components/Header', () => ({
+  Header: () => <header>Mock Header</header>,
+}));
+
+vi.mock('../pages/SessionPage', () => ({
+  SessionPage: () => <div>Session Page</div>,
+}));
+vi.mock('../pages/AnalyticsPage', () => ({
+  AnalyticsPage: () => <div>Analytics Page</div>,
+}));
+vi.mock('../pages/AuthPage', () => ({
+  default: () => <div>Auth Page</div>,
+}));
+
+vi.mock('../hooks/useBrowserSupport', () => ({
+    useBrowserSupport: () => ({
+        isSupported: true,
+        error: null,
+    }),
 }));
 
 
@@ -45,6 +66,6 @@ describe('App Component', () => {
     );
 
     // Check for a key element from the MainPage to ensure it renders
-    expect(screen.getByText('Start Your Free Session Now')).not.toBeNull();
+    expect(screen.getByText('Start For Free')).not.toBeNull();
   });
 });

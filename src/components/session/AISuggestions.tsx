@@ -1,14 +1,28 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Alert } from '@/components/ui/alert';
 import { Loader2, Sparkles, AlertTriangle } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 
-const AISuggestions = ({ transcript }) => {
-  const [suggestions, setSuggestions] = useState(null);
+interface SuggestionItem {
+  title: string;
+  description: string;
+}
+
+interface AISuggestionsData {
+  summary: string;
+  suggestions: SuggestionItem[];
+}
+
+interface AISuggestionsProps {
+  transcript: string;
+}
+
+const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript }) => {
+  const [suggestions, setSuggestions] = useState<AISuggestionsData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchSuggestions = async () => {
     setIsLoading(true);
@@ -30,7 +44,7 @@ const AISuggestions = ({ transcript }) => {
       }
 
       setSuggestions(data.suggestions);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error fetching AI suggestions:", err);
       setError(err.message || 'An unexpected error occurred.');
     } finally {
@@ -63,10 +77,12 @@ const AISuggestions = ({ transcript }) => {
         )}
 
         {error && (
-          <Alert variant="destructive">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>Error</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
+          <Alert variant="error" size="md">
+            <AlertTriangle className="h-5 w-5" />
+            <div>
+              <h5 className="font-bold">Error</h5>
+              <p className="text-sm">{error}</p>
+            </div>
           </Alert>
         )}
 

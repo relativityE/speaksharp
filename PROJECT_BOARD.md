@@ -16,6 +16,8 @@ This board provides a two-dimensional view of our project tasks, combining **Pha
 - ✅ **Fix data flow race condition:** Ensure session data is saved before navigation.
 - ✅ **Fix state management & navigation bugs:** Resolved issues in the session page.
 - ✅ **Stabilize the Vitest test suite:** All unit tests now pass without warnings.
+- 🟡 **Fix CSS Build Process:** The Tailwind CSS is not being applied site-wide, preventing any visual styling. This is the current top-priority blocker.
+- 🔴 **Implement Conditional Rendering for Missing Env Vars:** The app should not crash if environment variables are missing, but instead show a graceful "offline" or "configuration needed" state.
 - 🟡 **Update E2E tests for v3 transcription flow:** Currently blocked by test environment issues.
 - 🔴 **Add full unit test coverage for `CloudAssemblyAI.js`:** Target ≥80% coverage for core logic.
 - 🔴 **Add structured logging:** Implement for both frontend and backend.
@@ -25,6 +27,7 @@ This board provides a two-dimensional view of our project tasks, combining **Pha
 
 - ✅ **Improve toast notification styling:** Toasts are now pill-shaped with appropriate styling.
 - ✅ **Improve loading/waiting state feedback:** The transcript panel now provides clearer UI feedback.
+- 🔴 **Add Page-Level Render Tests:** Create a test for each main page (`Home`, `Session`, `Analytics`, `Auth`) to verify it renders without crashing.
 - 🔴 **Create Troubleshooting Guide:** Add error recovery steps to the documentation.
 
 ---
@@ -53,6 +56,13 @@ This board provides a two-dimensional view of our project tasks, combining **Pha
 
 ### 🎯 Must-Have
 
+- 🟡 **Implement new CVA-based Design System:** Establish a new, comprehensive design system for all UI components.
+    - ✅ Define design tokens in `tailwind.config.ts`.
+    - ✅ Refactor `Button` component.
+    - ✅ Refactor `Card` component.
+    - ✅ Refactor `Alert` component.
+    - ✅ Refactor `Badge` component.
+    - ✅ Refactor `MainPage.tsx` to use new section-based components.
 - 🔴 **Reintroduce `TranscriptionService` abstraction:** Place both cloud and local modes behind a single, unified service layer.
 - 🔴 **Implement WebSocket reconnect logic:** Add heartbeat and exponential backoff for a more resilient connection.
 

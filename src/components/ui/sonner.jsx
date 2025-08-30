@@ -1,5 +1,7 @@
 import { useTheme } from "next-themes";
 import { Toaster as Sonner } from "sonner";
+import { toastVariants } from "./toast.tsx";
+import { buttonVariants } from "./button.tsx";
 
 const Toaster = ({ ...props }) => {
   const { theme = "system" } = useTheme();
@@ -11,12 +13,14 @@ const Toaster = ({ ...props }) => {
       position="mid-right"
       toastOptions={{
         classNames: {
-          toast: "toast",
-          description: "group-[.toast]:text-muted-foreground",
-          actionButton:
-            "group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
-          cancelButton:
-            "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",
+          toast: toastVariants(),
+          description: "text-sm",
+          success: toastVariants({ variant: "success" }),
+          info: toastVariants({ variant: "info" }),
+          warning: toastVariants({ variant: "warning" }),
+          error: toastVariants({ variant: "error" }),
+          actionButton: buttonVariants({ variant: "primary", size: "sm" }),
+          cancelButton: buttonVariants({ variant: "outline", size: "sm" }),
         },
       }}
       {...props}

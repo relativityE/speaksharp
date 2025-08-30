@@ -5,8 +5,12 @@
 The architecture is designed around a modern, client-heavy Jamstack approach. The frontend is a sophisticated single-page application that handles most of the business logic.
 
 - **Frontend**: React (with [Vite](https://vitejs.dev/))
-- **Styling**: Tailwind CSS & shadcn/ui
-  - **Component System**: The application uses a custom Tailwind plugin to define component-like classes (e.g., for toasts). This provides a robust, composable way to style common UI elements without the fragility of the `@apply` directive. Toast styles are defined in `tailwind.config.ts` and can be combined (e.g., `toast toast-md toast-success`).
+- **Styling**: Tailwind CSS, shadcn/ui, and `class-variance-authority` (CVA)
+  - **Styling Strategy**: The project has adopted a comprehensive, token-based design system built on a hybrid CVA and Tailwind strategy. This approach is the standard for all new UI components.
+    - **Design Tokens (`tailwind.config.ts`):** All core design properties (colors, spacing, fonts, radii) are defined as tokens in the Tailwind configuration. This provides a single source of truth for the application's visual style. Semantic color names (e.g., `primary`, `secondary`, `danger`) are used throughout.
+    - **Component Variants (CVA):** The `class-variance-authority` library is used within each UI component (e.g., `Button`, `Card`, `Alert`) to define variants for different styles (`variant`), sizes (`size`), and other properties. These variants compose the base Tailwind utility classes.
+    - **Component Usage:** Components are used with simple props (e.g., `<Button variant="destructive" size="sm">`) which are translated into the correct CSS classes by CVA. This makes the UI code clean, declarative, and easy to maintain.
+    - **No Custom CSS:** This strategy avoids writing custom CSS files or using `@apply`, preventing common issues with Tailwind's build process and ensuring all styling is managed through the central token and component system.
 - **Testing**:
     - **Vitest:** For unit and integration tests.
     - **Playwright:** For end-to-end tests.
@@ -203,3 +207,14 @@ Once the Supabase function is successfully called, it communicates with Assembly
     *   It then establishes a **WebSocket connection** to AssemblyAI's v3 real-time transcription service.
     *   It authenticates this WebSocket connection using the **temporary token**.
     *   Once connected, it streams raw 16-bit PCM audio from the microphone via an `AudioWorklet` pipeline and receives transcription results back in real-time.
+
+---
+
+## 4. Known Issues
+
+This section documents critical, unresolved issues that are currently impacting the project.
+
+-   **Tailwind CSS Build Failure:**
+    -   **Symptom:** No Tailwind-generated styles are being applied anywhere in the application. The UI renders as an unstyled HTML document.
+    -   **Status:** This is the **top-priority blocker**.
+    -   **Diagnosis:** Diagnostic tests confirm that Tailwind classes (e.g., `bg-red-500`) are not being processed into CSS. The root cause is believed to be a misconfiguration in the build pipeline (Vite, Tailwind, PostCSS), but all standard configuration files (`tailwind.config.ts`, `vite.config.mjs`, etc.) have been checked and appear correct. The issue is currently under investigation.
