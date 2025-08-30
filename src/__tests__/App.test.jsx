@@ -36,4 +36,15 @@ describe('App Component', () => {
     // Check for the main element to confirm the app shell renders
     expect(screen.getByTestId('app-main')).not.toBeNull();
   });
+
+  it('should render the main page content as a smoke test', () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <App />
+      </MemoryRouter>
+    );
+
+    // Check for a key element from the MainPage to ensure it renders
+    expect(screen.getByText('Start Your Free Session Now')).not.toBeNull();
+  });
 });
