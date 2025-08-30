@@ -81,11 +81,11 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
             const { error: stripeError } = await stripe.redirectToCheckout({ sessionId });
             if (stripeError) {
                 console.error("Stripe redirect error:", stripeError.message);
-                toast.error(`Error: ${stripeError.message}`);
+                toast.error(<div className="toast toast-md toast-error">Error: {stripeError.message}</div>);
             }
         } catch (e) {
             console.error("Upgrade process failed:", e);
-            toast.error("Could not initiate the upgrade process. Please try again later.");
+            toast.error(<div className="toast toast-md toast-error">Could not initiate the upgrade process. Please try again later.</div>);
         } finally {
             setIsUpgrading(false);
         }
@@ -96,14 +96,14 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
         try {
             const sessionData = await stopListening();
             if (!sessionData || !sessionData.transcript) {
-                toast.error("Session was too short or no speech was detected.");
+                toast.error(<div className="toast toast-md toast-error">Session was too short or no speech was detected.</div>);
                 return;
             }
             setCompletedSessionData(sessionData);
             setShowEndSessionDialog(true);
         } catch (e) {
             console.error("Error ending session:", e);
-            toast.error("An unexpected error occurred while ending the session.");
+            toast.error(<div className="toast toast-md toast-error">An unexpected error occurred while ending the session.</div>);
         } finally {
             setIsEndingSession(false);
         }
@@ -120,16 +120,13 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
         if (user) {
             const savedSession = await saveSession(sessionWithDuration);
             if (savedSession && savedSession.id) {
-                toast.success("Session saved successfully!");
+                toast.success(<div className="toast toast-md toast-success">Session saved successfully!</div>);
                 navigate(`/analytics/${savedSession.id}`);
             } else {
-                toast("Failed to save the session.", {
-                    description: "Your session data is safe. Please try saving again.",
-                    variant: "default",
-                });
+                toast.warning(<div className="toast toast-md toast-warning">Failed to save the session. Your data is safe, please try again.</div>);
             }
         } else {
-            toast.info("Session complete. View your results below.");
+            toast.info(<div className="toast toast-md toast-info">Session complete. View your results below.</div>);
             navigate('/analytics', { state: { sessionData: sessionWithDuration } });
         }
         setIsEndingSession(false);
@@ -191,7 +188,7 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
                                 className="flex items-center gap-2 text-xs text-muted-foreground"
                                 onClick={() => {
                                     if (isListening) {
-                                        toast.info("This option cannot be changed during an active session.");
+                                        toast.info(<div className="toast toast-md toast-info">This option cannot be changed during an active session.</div>);
                                     }
                                 }}
                              >

@@ -6,6 +6,7 @@ The architecture is designed around a modern, client-heavy Jamstack approach. Th
 
 - **Frontend**: React (with [Vite](https://vitejs.dev/))
 - **Styling**: Tailwind CSS & shadcn/ui
+  - **Component System**: The application uses a custom Tailwind plugin to define component-like classes (e.g., for toasts). This provides a robust, composable way to style common UI elements without the fragility of the `@apply` directive. Toast styles are defined in `tailwind.config.ts` and can be combined (e.g., `toast toast-md toast-success`).
 - **Testing**:
     - **Vitest:** For unit and integration tests.
     - **Playwright:** For end-to-end tests.

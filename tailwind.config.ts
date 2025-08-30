@@ -119,7 +119,49 @@ const config: Config = {
       },
     },
   },
-  plugins: [require('tailwindcss-animate')],
+  plugins: [
+    require('tailwindcss-animate'),
+    function ({ addComponents }) {
+      addComponents({
+        // Base Toast
+        ".toast": {
+          borderRadius: "9999px",
+          color: "white",
+          fontWeight: "500",
+          boxShadow:
+            "0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06)",
+          transition: "all 0.2s ease-in-out",
+        },
+        // Size Variants
+        ".toast-sm": {
+          fontSize: "0.875rem",
+          padding: "0.5rem 1rem",
+        },
+        ".toast-md": {
+          fontSize: "1rem",
+          padding: "0.75rem 1.5rem",
+        },
+        ".toast-lg": {
+          fontSize: "1.125rem",
+          padding: "1rem 2rem",
+        },
+        // Color Variants
+        ".toast-success": {
+          backgroundColor: "rgb(34 197 94)",
+        },
+        ".toast-error": {
+          backgroundColor: "rgb(239 68 68)",
+        },
+        ".toast-warning": {
+          backgroundColor: "rgb(234 179 8)",
+          color: "black",
+        },
+        ".toast-info": {
+          backgroundColor: "rgb(59 130 246)",
+        },
+      });
+    },
+  ],
 }
 
 export default config
