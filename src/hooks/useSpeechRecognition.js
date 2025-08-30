@@ -150,7 +150,9 @@ export const useSpeechRecognition = ({
         } catch (err) {
             console.error("❌ Error getting AssemblyAI token:", err);
             // Optionally surface to the user
-            toast.error("Unable to start transcription: " + err.message);
+            toast.error("Unable to start transcription: " + err.message, {
+                className: "toast toast-md toast-error",
+            });
             return null;
         }
     }, [authSession]);
