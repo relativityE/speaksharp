@@ -123,7 +123,7 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
                 toast.success(<div className="toast toast-md toast-success">Session saved successfully!</div>);
                 navigate(`/analytics/${savedSession.id}`);
             } else {
-                toast.warning(<div className="toast toast-md toast-warning">Failed to save the session. Your data is safe, please try again.</div>);
+                toast.warning(<div className="toast toast-md toast-warning">Could not save the session. This can happen in test mode or if the session was too short. Your data has not been lost.</div>);
             }
         } else {
             toast.info(<div className="toast toast-md toast-info">Session complete. View your results below.</div>);

@@ -128,7 +128,7 @@ const AnonymousAnalyticsView = () => {
                 <h2 className="text-2xl font-semibold mb-4">No Session Data</h2>
                 <p className="text-muted-foreground mb-6">Complete a practice session to see your analysis here.</p>
                 <Button asChild>
-                    <NavLink to="/"><Home className="mr-2 h-4 w-4" /> Start a New Session</NavLink>
+                    <NavLink to="/session"><Home className="mr-2 h-4 w-4" /> Start a New Session</NavLink>
                 </Button>
             </div>
         );
