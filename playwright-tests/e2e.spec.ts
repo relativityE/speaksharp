@@ -6,7 +6,7 @@ test.describe('E2E User Flow', () => {
   test('a user can complete a session using native mode and view analytics', async ({ page }) => {
     // 1. Start on the main page and navigate to the session page
     await page.goto('/');
-    await page.getByRole('button', { name: /Start Your Free Session Now/i }).click();
+    await page.getByRole('button', { name: /Start For Free/i }).click();
     await expect(page).toHaveURL(/.*\/session/);
 
     // 2. Start the recording (using the default Native Browser mode)
@@ -39,7 +39,7 @@ test.describe('E2E User Flow', () => {
   test('a user can complete a session using cloud mode', async ({ page }) => {
     // 1. Start on the main page and navigate to the session page
     await page.goto('/');
-    await page.getByRole('button', { name: /Start Your Free Session Now/i }).click();
+    await page.getByRole('button', { name: /Start For Free/i }).click();
     await expect(page).toHaveURL(/.*\/session/);
 
     // 2. Enable "Force Cloud" mode
