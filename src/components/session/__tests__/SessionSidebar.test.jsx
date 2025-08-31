@@ -45,15 +45,15 @@ describe('SessionSidebar', () => {
 
   it('renders in its initial idle state', () => {
     render(<SessionSidebar {...defaultProps} />);
-    expect(screen.getByText('Start Recording')).toBeInTheDocument();
+    expect(screen.getByText('Start Session')).toBeInTheDocument();
     // Use regex to find "Ready" within the status title
     expect(screen.getByText(/Ready/i)).toBeInTheDocument();
     expect(screen.getByText('00:00')).toBeInTheDocument();
   });
 
-  it('calls startListening when the "Start Recording" button is clicked', async () => {
+  it('calls startListening when the "Start Session" button is clicked', async () => {
     render(<SessionSidebar {...defaultProps} />);
-    const startButton = screen.getByText('Start Recording');
+    const startButton = screen.getByText('Start Session');
     fireEvent.click(startButton);
     await waitFor(() => {
       expect(defaultProps.startListening).toHaveBeenCalled();
@@ -62,14 +62,14 @@ describe('SessionSidebar', () => {
 
   it('renders in the listening state', () => {
     render(<SessionSidebar {...defaultProps} isListening={true} isReady={true} elapsedTime={30} />);
-    expect(screen.getByText('End Session')).toBeInTheDocument();
+    expect(screen.getByText('Stop Session')).toBeInTheDocument();
     expect(screen.getByText('● Listening...')).toBeInTheDocument();
     expect(screen.getByText('00:30')).toBeInTheDocument();
   });
 
-  it('calls stopListening when the "End Session" button is clicked', async () => {
+  it('calls stopListening when the "Stop Session" button is clicked', async () => {
     render(<SessionSidebar {...defaultProps} isListening={true} isReady={true} />);
-    const stopButton = screen.getByText('End Session');
+    const stopButton = screen.getByText('Stop Session');
     fireEvent.click(stopButton);
     await waitFor(() => {
       expect(defaultProps.stopListening).toHaveBeenCalled();
@@ -78,7 +78,7 @@ describe('SessionSidebar', () => {
 
   it('shows the end session dialog after stopping', async () => {
     render(<SessionSidebar {...defaultProps} isListening={true} isReady={true} />);
-    const stopButton = screen.getByText('End Session');
+    const stopButton = screen.getByText('Stop Session');
 
     fireEvent.click(stopButton);
 
@@ -89,7 +89,7 @@ describe('SessionSidebar', () => {
   it('saves the session with duration and navigates to analytics', async () => {
     const propsWithTime = { ...defaultProps, elapsedTime: 123 };
     render(<SessionSidebar {...propsWithTime} isListening={true} isReady={true} />);
-    const stopButton = screen.getByText('End Session');
+    const stopButton = screen.getByText('Stop Session');
 
     fireEvent.click(stopButton);
 
