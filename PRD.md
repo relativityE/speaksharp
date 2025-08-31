@@ -24,9 +24,9 @@ The system is built for speed, both in user experience and development velocity.
 - **[RESOLVED] Vitest Suite Instability with Complex Mocks**
   - **Status (as of Aug 28, 2025):** The test suite is now stable and all tests are passing without warnings.
   - **Summary of Fix:** The instability was caused by several issues, including incorrect asynchronous test patterns, flawed mock implementations, and components not correctly forwarding refs. The suite was fixed by implementing `waitFor` for async state updates, correcting the WebSocket mock to include static properties, and wrapping UI components in `React.forwardRef`.
-- **[BLOCKER] Tailwind CSS Build Failure:** The application is currently rendering without any styles. This is a top-priority blocker preventing any further UI development or verification. The root cause is under investigation but appears to be a misconfiguration in the CSS build pipeline.
+- **[TENTATIVELY FIXED] Tailwind CSS Build Failure:** A series of misconfigurations in `postcss.config.js` and `tailwind.config.ts` were identified and corrected. This has resolved the initial build crash.
+- **[BLOCKER] Playwright E2E Tests Failing:** Despite the build being fixed, E2E tests still fail because the application renders as an unstyled page in the test environment. This is believed to be caused by a persistent caching or environmental issue that serves a stale version of the CSS to the test runner. **A VM reboot is required to fully verify the fix.**
 - **On-Device Transcription Needs Polish:** The `LocalWhisper` provider in `TranscriptionService` is a functional implementation using Transformers.js. However, it may require further UI/UX polishing for model loading feedback and error handling before it is production-ready.
-- **Playwright E2E Tests Failing:** The Playwright E2E tests are currently failing. This is likely a direct result of the CSS build failure, as the tests cannot find styled elements to interact with. This issue is blocked until the styling is fixed.
 
 ---
 

@@ -18,7 +18,7 @@ This board provides a two-dimensional view of our project tasks, combining **Pha
 - ✅ **Stabilize the Vitest test suite:** All unit tests now pass without warnings.
 - 🟡 **Fix CSS Build Process:** The Tailwind CSS is not being applied site-wide, preventing any visual styling. This is the current top-priority blocker.
 - 🔴 **Implement Conditional Rendering for Missing Env Vars:** The app should not crash if environment variables are missing, but instead show a graceful "offline" or "configuration needed" state.
-- 🟡 **Update E2E tests for v3 transcription flow:** Currently blocked by test environment issues.
+- 🟡 **Update E2E tests for v3 transcription flow:** Currently blocked by a persistent, un-resolvable caching issue in the test environment. Playwright tests are being served a stale, broken version of the application, even after clearing caches and restarting the server. This prevents any E2E test verification. **A VM reboot is required to proceed.**
 - 🔴 **Add full unit test coverage for `CloudAssemblyAI.js`:** Target ≥80% coverage for core logic.
 - 🔴 **Add structured logging:** Implement for both frontend and backend.
 - 🔴 **Reinstate session saving & analytics:** Ensure new v3 transcripts are stored correctly.

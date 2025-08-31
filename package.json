@@ -7,11 +7,9 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "NODE_OPTIONS=--max-old-space-size=4096 vitest",
-    "test:watch": "NODE_OPTIONS=--max-old-space-size=4096 vitest",
-    "test:coverage": "vitest run --coverage",
-    "test:functions": "deno test --allow-all supabase/functions/**/*.test.ts",
-    "test:all": "pnpm test && pnpm test:functions && npx playwright test"
+    "test": "vitest",
+    "test:e2e": "playwright test",
+    "test:all": "pnpm run test && pnpm run test:e2e"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.0.1",

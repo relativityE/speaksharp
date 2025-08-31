@@ -1,11 +1,10 @@
 import type { Config } from 'tailwindcss'
 import colors from 'tailwindcss/colors'
+import tailwindcssAnimate from 'tailwindcss-animate'
 
 const config: Config = {
   content: [
-    './pages//*.{js,ts,jsx,tsx,mdx}',
-    './components//.{js,ts,jsx,tsx,mdx}',
-    './app/**/.{js,ts,jsx,tsx,mdx}',
+    './index.html',
     './src/**/*.{js,ts,jsx,tsx,mdx}',
   ],
   theme: {
@@ -153,7 +152,7 @@ const config: Config = {
     },
   },
   plugins: [
-    require('tailwindcss-animate'),
+    tailwindcssAnimate,
     function ({ addComponents, theme }) {
       addComponents({
         // Buttons
