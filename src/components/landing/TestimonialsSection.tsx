@@ -24,12 +24,12 @@ const TestimonialCard: React.FC<TestimonialCardProps> = ({ quote, author }) => (
 
 const testimonials = [
     {
-        quote: "SpeakSharp has been a game-changer for my presentation skills. The real-time feedback is incredibly helpful.",
-        author: "Sarah J., Product Manager",
+        quote: "TBD",
+        author: "TBD",
     },
     {
-        quote: "I used to be so nervous about filler words. Now I can practice and present with confidence. Highly recommended!",
-        author: "Michael T., University Student",
+        quote: "TBD",
+        author: "TBD",
     }
 ]
 

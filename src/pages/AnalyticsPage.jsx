@@ -5,7 +5,10 @@ import { useSessionManager } from '../hooks/useSessionManager';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Zap, Sparkles, BarChart, Home } from 'lucide-react';
+import { Zap, Sparkles, BarChart, Home, Settings } from 'lucide-react';
+import { SessionStatus } from '@/components/SessionStatus';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 
 const UpgradeBanner = () => {
     const navigate = useNavigate();
@@ -33,6 +36,7 @@ const AuthenticatedAnalyticsView = () => {
     const { sessions, loading } = useSessionManager();
     const { user, profile } = useAuth();
     const [singleSession, setSingleSession] = useState(null);
+    const [forceCloud, setForceCloud] = useState(false);
 
     const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
     const displaySessions = sessionId ? (singleSession ? [singleSession] : []) : sessions;
@@ -48,12 +52,17 @@ const AuthenticatedAnalyticsView = () => {
 
     if (loading) {
         return (
-            <div>
-                <div className="mb-8">
-                    <h1 className="text-3xl font-bold text-foreground">{sessionId ? "Session Analysis" : "Your Dashboard"}</h1>
-                    <p className="mt-2 text-base text-muted-foreground">Loading your data...</p>
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+                <div className="lg:col-span-3">
+                    <div className="mb-8">
+                        <h1 className="text-3xl font-bold text-foreground">{sessionId ? "Session Analysis" : "Your Dashboard"}</h1>
+                        <p className="mt-2 text-base text-muted-foreground">Loading your data...</p>
+                    </div>
+                    <AnalyticsDashboardSkeleton />
                 </div>
-                <AnalyticsDashboardSkeleton />
+                <div className="lg:col-span-1">
+                    {/* Skeleton for sidebar */}
+                </div>
             </div>
         );
     }
@@ -71,16 +80,41 @@ const AuthenticatedAnalyticsView = () => {
     }
 
     return (
-        <>
-            {user && !isPro && !sessionId && <UpgradeBanner />}
-            <div className="mb-8">
-                <h1 className="text-3xl font-bold text-foreground">{sessionId ? "Session Analysis" : "Your Dashboard"}</h1>
-                <p className="mt-2 text-base text-muted-foreground">
-                    {sessionId ? "A detailed breakdown of your recent practice session." : "Here's an overview of your progress. Keep it up!"}
-                </p>
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 items-start">
+            <div className="lg:col-span-3">
+                {user && !isPro && !sessionId && <UpgradeBanner />}
+                <div className="mb-8">
+                    <h1 className="text-3xl font-bold text-foreground">{sessionId ? "Session Analysis" : "Your Dashboard"}</h1>
+                    <p className="mt-2 text-base text-muted-foreground">
+                        {sessionId ? "A detailed breakdown of your recent practice session." : "Here's an overview of your progress. Keep it up!"}
+                    </p>
+                </div>
+                <AnalyticsDashboard sessionHistory={displaySessions} profile={profile} />
             </div>
-            <AnalyticsDashboard sessionHistory={displaySessions} profile={profile} />
-        </>
+
+            <div className="lg:col-span-1 space-y-6 lg:sticky lg:top-24">
+                <SessionStatus />
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <Settings className="w-5 h-5 text-primary" />
+                            Developer Options
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="flex items-center space-x-2">
+                            <Checkbox id="force-cloud" checked={forceCloud} onCheckedChange={setForceCloud} />
+                            <Label htmlFor="force-cloud" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                                Force Cloud AI
+                            </Label>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-2">
+                            Bypass browser-based speech recognition for testing cloud provider.
+                        </p>
+                    </CardContent>
+                </Card>
+            </div>
+        </div>
     );
 };
 
@@ -94,7 +128,7 @@ const AnonymousAnalyticsView = () => {
                 <h2 className="text-2xl font-semibold mb-4">No Session Data</h2>
                 <p className="text-muted-foreground mb-6">Complete a practice session to see your analysis here.</p>
                 <Button asChild>
-                    <NavLink to="/"><Home className="mr-2 h-4 w-4" /> Start a New Session</NavLink>
+                    <NavLink to="/session"><Home className="mr-2 h-4 w-4" /> Start a New Session</NavLink>
                 </Button>
             </div>
         );

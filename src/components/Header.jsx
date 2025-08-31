@@ -2,8 +2,8 @@ import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from './ui/button';
-import { Sheet, SheetContent, SheetTrigger } from './ui/sheet';
-import { Home, LogOut, UserCircle, Menu } from 'lucide-react';
+import { SideNav } from './SideNav';
+import { LogOut, UserCircle } from 'lucide-react';
 
 export const Header = () => {
     const { user, signOut } = useAuth();
@@ -15,9 +15,12 @@ export const Header = () => {
     return (
         <header className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur-sm">
             <div className="container mx-auto flex h-16 items-center justify-between px-4">
-                <NavLink to="/" className="text-xl font-bold text-primary">
-                    SpeakSharp
-                </NavLink>
+                <div className="flex items-center gap-4">
+                    <SideNav />
+                    <NavLink to="/" className="text-xl font-bold text-primary">
+                        SpeakSharp
+                    </NavLink>
+                </div>
                 <div className="flex items-center gap-4">
                     {user ? (
                         <>
@@ -31,26 +34,6 @@ export const Header = () => {
                                 <Button variant="ghost" size="icon" onClick={signOut}><LogOut size={18} /></Button>
                                 <UserCircle size={24} className="text-muted-foreground" />
                             </div>
-
-                            {/* Mobile Navigation */}
-                            <Sheet>
-                                <SheetTrigger asChild>
-                                    <Button variant="ghost" size="icon" className="md:hidden">
-                                        <Menu />
-                                    </Button>
-                                </SheetTrigger>
-                                <SheetContent>
-                                    <nav className="flex flex-col gap-4 mt-8">
-                                        <NavLink to="/" className={({ isActive }) => `${navLinkClasses} ${isActive && location.pathname === '/' ? activeLinkClasses : ''}`} end>Home</NavLink>
-                                        <NavLink to="/analytics" className={({ isActive }) => `${navLinkClasses} ${isActive ? activeLinkClasses : ''}`}>Analytics</NavLink>
-                                        <NavLink to="/session" className={({ isActive }) => `${navLinkClasses} ${isActive ? activeLinkClasses : ''}`}>New Session</NavLink>
-                                        <Button variant="ghost" onClick={signOut} className="justify-start gap-2 px-3 py-2">
-                                            <LogOut size={18} />
-                                            Sign Out
-                                        </Button>
-                                    </nav>
-                                </SheetContent>
-                            </Sheet>
                         </>
                     ) : (
                         location.pathname !== '/auth' && (
