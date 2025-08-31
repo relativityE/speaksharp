@@ -27,7 +27,7 @@ This board provides a two-dimensional view of our project tasks, combining **Pha
 
 - ✅ **Improve toast notification styling:** Toasts are now pill-shaped with appropriate styling.
 - ✅ **Improve loading/waiting state feedback:** The transcript panel now provides clearer UI feedback.
-- 🔴 **Add Page-Level Render Tests:** Create a test for each main page (`Home`, `Session`, `Analytics`, `Auth`) to verify it renders without crashing.
+- ✅ **Add Page-Level Render Tests:** Create a test for each main page (`Home`, `Session`, `Analytics`, `Auth`) to verify it renders without crashing.
 - 🔴 **Create Troubleshooting Guide:** Add error recovery steps to the documentation.
 
 ---

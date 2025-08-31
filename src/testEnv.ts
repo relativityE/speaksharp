@@ -1,38 +1,34 @@
 // src/testEnv.ts
-// Hardened test environment shims for Playwright E2E
+if (import.meta.env.MODE === "test") {
+  console.warn("[testEnv] Initializing runtime shims");
 
-// Only apply if Vite is running in test mode
-const isTest = import.meta.env.MODE === "test";
+  // Stripe stub
+  (globalThis as any).Stripe = function StripeStub() {
+    console.warn("[testEnv] Stripe called");
+    return {
+      redirectToCheckout: async () => {
+        console.warn("[testEnv] redirectToCheckout stubbed");
+        return { error: null };
+      },
+    };
+  };
 
-if (isTest) {
-  // --- Stripe ---
-  // Prevent loadStripe from fetching external script
-  // and prevent redirectToCheckout from breaking tests
-  (globalThis as any).loadStripe = async () => ({
-    redirectToCheckout: async () => {
-      console.warn("[testEnv] Stripe.redirectToCheckout called — stubbed");
-      return { error: null };
-    }
-  });
-
-  // --- PostHog ---
+  // PostHog stub
   (globalThis as any).posthog = {
-    init: () => console.warn("[testEnv] PostHog.init stub"),
-    capture: () => console.warn("[testEnv] PostHog.capture stub"),
+    capture: (...args: any[]) =>
+      console.warn("[testEnv] posthog.capture", args),
     identify: () => {},
-    people: { set: () => {} },
-    reset: () => {}
+    reset: () => {},
   };
 
-  // --- Sentry ---
+  // Sentry stub
   (globalThis as any).Sentry = {
-    init: () => console.warn("[testEnv] Sentry.init stub"),
-    captureException: () => {},
-    captureMessage: () => {}
+    init: () => console.warn("[testEnv] Sentry.init stubbed"),
+    captureException: (e: any) =>
+      console.warn("[testEnv] Sentry.captureException", e),
   };
 
-  // --- AssemblyAI ---
-  // No-op WebSocket so connection attempts don’t block render
+  // AssemblyAI WebSocket stub
   const RealWS = globalThis.WebSocket;
   (globalThis as any).WebSocket = class extends RealWS {
     constructor(url: string, ...args: any[]) {
@@ -45,5 +41,3 @@ if (isTest) {
     }
   };
 }
-
-export {}; // ensures this is treated as a module

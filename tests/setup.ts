@@ -1,29 +1,36 @@
-import { test as base } from '@playwright/test';
+// tests/setup.ts
+import { test as base } from "@playwright/test";
+
+const isDebug = !!process.env.DEBUG;
 
 export const test = base.extend({
-  context: async ({ context }, use) => {
-    await context.clearCookies();
-    await use(context);
-  },
   page: async ({ page }, use) => {
-    // nuke SW at start of each test
-    await page.addInitScript(() => {
-      (async () => {
-        try {
-          const regs = await navigator.serviceWorker?.getRegistrations?.();
-          if (regs) for (const r of regs) await r.unregister();
-          localStorage.clear();
-          sessionStorage.clear();
-          indexedDB.databases?.().then(dbs => dbs?.forEach(db => indexedDB.deleteDatabase(db.name!)));
-        } catch {}
-      })();
-    });
+    await page.route("**/*", async route => {
+      const url = route.request().url();
 
-    // noise-free logging
-    page.on('console', m => console.log(`[BROWSER:${m.type()}] ${m.text()}`));
-    page.on('pageerror', e => console.error('[PAGE ERROR]', e.message));
-    page.on('requestfailed', r => console.error('[REQUEST FAILED]', r.url()));
+      // Allow Supabase + local dev
+      if (
+        url.includes("supabase.co") ||
+        url.includes("localhost") ||
+        url.includes("127.0.0.1")
+      ) {
+        if (isDebug) console.log(`[allow] ${url}`);
+        return route.continue();
+      }
+
+      if (isDebug) {
+        // In debug mode: log and continue (see what’s being called)
+        console.log(`[debug-pass] ${url}`);
+        return route.continue();
+      }
+
+      // In strict mode: block it
+      console.warn(`[block] ${url}`);
+      return route.fulfill({ status: 204, body: "" });
+    });
 
     await use(page);
   },
 });
+
+export { expect } from "@playwright/test";
