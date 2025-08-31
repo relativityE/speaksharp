@@ -177,7 +177,7 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
                             className="w-full h-16 text-xl font-bold rounded-lg"
                             disabled={isButtonDisabled}
                         >
-                            {isListening ? <><Square className="w-4 h-4 mr-2" /> End Session</> : (isModelLoading || isConnecting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {isConnecting ? 'Connecting...' : 'Initializing...'}</> : <><Mic className="w-4 h-4 mr-2" /> Start Recording</>)}
+                            {isListening ? <><Square className="w-4 h-4 mr-2" /> Stop Session</> : (isModelLoading || isConnecting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {isConnecting ? 'Connecting...' : 'Initializing...'}</> : <><Mic className="w-4 h-4 mr-2" /> Start Session</>)}
                         </Button>
                     </div>
 
