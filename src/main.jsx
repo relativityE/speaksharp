@@ -1,16 +1,18 @@
-import { StrictMode } from 'react'
-import ReactDOM from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
-import './index.css'
-import App from './App.jsx'
-import { AuthProvider } from './contexts/AuthContext.jsx'
-import posthog from 'posthog-js'
-import { PostHogProvider } from 'posthog-js/react'
-import { Elements } from '@stripe/react-stripe-js'
-import { loadStripe } from '@stripe/stripe-js'
+import "./testEnv"; // Must be the first import
+
+import { StrictMode } from 'react';
+import ReactDOM from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
+import './index.css';
+import App from './App.jsx';
+import { AuthProvider } from './contexts/AuthContext.jsx';
+import posthog from 'posthog-js';
+import { PostHogProvider } from 'posthog-js/react';
+import { Elements } from '@stripe/react-stripe-js';
+import { loadStripe } from '@stripe/stripe-js';
 import * as Sentry from "@sentry/react";
 
-// Initialize PostHog
+// The shims in testEnv.ts will handle these in test mode
 try {
   if (import.meta.env.VITE_POSTHOG_KEY && import.meta.env.VITE_POSTHOG_HOST) {
     posthog.init(import.meta.env.VITE_POSTHOG_KEY, {
@@ -34,8 +36,8 @@ try {
     ],
     environment: import.meta.env.MODE,
     tracesSampleRate: 1.0,
-    replaysSessionSampleRate: 0.1, // This records 10% of sessions.
-    replaysOnErrorSampleRate: 1.0, // This records 100% of sessions that have an error.
+    replaysSessionSampleRate: 0.1,
+    replaysOnErrorSampleRate: 1.0,
     sendDefaultPii: true,
   });
 } catch (error) {
@@ -43,8 +45,6 @@ try {
 }
 
 const rootElement = document.getElementById('root');
-// This guard prevents the app from being rendered twice in development
-// due to Vite's Fast Refresh. It's more reliable than checking for child nodes.
 if (rootElement && !rootElement._speakSharpRootInitialized) {
   rootElement._speakSharpRootInitialized = true;
   const root = ReactDOM.createRoot(rootElement);
@@ -54,7 +54,6 @@ if (rootElement && !rootElement._speakSharpRootInitialized) {
         <PostHogProvider client={posthog}>
           <AuthProvider>
             <Elements stripe={stripePromise}>
-              {/* The Sentry.ErrorBoundary wraps the entire App to catch all errors */}
               <Sentry.ErrorBoundary fallback={<div>An error has occurred. Please refresh the page.</div>}>
                 <App />
               </Sentry.ErrorBoundary>

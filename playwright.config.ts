@@ -1,54 +1,24 @@
-import { defineConfig, devices } from '@playwright/test';
+import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
-  testDir: './playwright-tests',
-  timeout: 60000,
-  expect: {
-    timeout: 15000
-  },
-  globalTimeout: 300000,
+  testDir: './tests',
   retries: process.env.CI ? 2 : 0,
-  workers: 1,
-  reporter: 'line',
   use: {
-    viewport: { width: 1280, height: 720 },
-    navigationTimeout: 45000,
-    actionTimeout: 15000,
-    video: 'retain-on-failure',
-    screenshot: 'only-on-failure',
+    baseURL: 'http://localhost:4173',
     headless: true,
-    ignoreHTTPSErrors: true,
-    waitForLoadState: 'domcontentloaded'
+    viewport: { width: 1280, height: 800 },      // deterministic layout
+    userAgent: 'pw-e2e',                          // avoid A/B targeting
+    actionTimeout: 15_000,
+    navigationTimeout: 30_000,
+    screenshot: 'only-on-failure',
+    video: 'retain-on-failure',
+    trace: 'retain-on-failure',
   },
-  projects: [
-    {
-      name: 'chromium',
-      use: {
-        ...devices['Desktop Chrome'],
-        launchOptions: {
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-web-security',
-            '--disable-features=VizDisplayCompositor',
-            '--use-fake-ui-for-media-stream',
-            '--use-fake-device-for-media-stream'
-          ]
-        },
-        permissions: ['microphone']
-      }
-    }
-  ],
   webServer: {
-    command: 'npm run dev',
-    port: 5173,
-    timeout: 120000,
+    // IMPORTANT: bake “e2e” mode into the bundle so guards are compile-time
+    command: 'pnpm build -- --mode e2e && pnpm preview',
+    url: 'http://localhost:4173',
     reuseExistingServer: !process.env.CI,
-    env: {
-      NODE_ENV: 'test',
-      VITE_SUPABASE_URL: "https://test.supabase.co",
-      VITE_SUPABASE_ANON_KEY: "test_anon_key"
-    }
-  }
+    timeout: 60_000,
+  },
 });

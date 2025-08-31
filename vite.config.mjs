@@ -47,7 +47,7 @@ export default defineConfig({
     exclude: [
       '**/node_modules/**',
       '**/dist/**',
-      '**/playwright-tests/**',
+      '**/tests/**',
       '**/supabase/functions/**',
     ],
     // [JULES] Explicitly provide aliases to the test environment
