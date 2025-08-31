@@ -42,10 +42,10 @@ A real-time speech analysis tool to help you speak more confidently.
 
 -   **End-to-End Tests (Playwright):**
     ```bash
-    npx playwright test
+    pnpm run test:e2e
     ```
 
--   **Backend Function Tests (Deno):**
+-   **Run All Tests (Unit, E2E, Functions):**
     ```bash
-    pnpm run test:functions
+    pnpm run test:all
     ```

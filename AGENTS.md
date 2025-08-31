@@ -62,8 +62,9 @@ This workflow ensures a clear handoff from the agent to the user for the final r
         -   Summarize the key metrics and the change in coverage (e.g., "+1.5%") in your pull request description.
     -   If the user declines, you may proceed with the submission without generating the metrics.
 3.  **Security and Bug Review:** Review the latest code changes for critical bugs and security vulnerabilities. List any findings in the pull request description.
-4.  **Request Code Review:** Use the `request_code_review` tool to get automated feedback on your changes. Address any critical issues raised in the review.
-5.  **Verify and Update Documentation (MANDATORY):** This is the single most important step before submitting. You must ensure all documentation is synchronized with your changes by following this checklist:
+4.  **Clean Up Temporary Files:** Before submission, you must remove any temporary files such as screenshots (`.png`) or binary artifacts (`.bin`) that were generated during debugging.
+5.  **Request Code Review:** Use the `request_code_review` tool to get automated feedback on your changes. Address any critical issues raised in the review.
+6.  **Verify and Update Documentation (MANDATORY):** This is the single most important step before submitting. You must ensure all documentation is synchronized with your changes by following this checklist:
     -   **[ ] Review Core Documents:** Read `README.md`, `PRD.md`, and `System Architecture.md`.
     -   **[ ] Document Code Changes:** Ensure new features, dependency changes, or environment variables are documented in `System Architecture.md` and/or `README.md`.
     -   **[ ] Update PRD Roadmap:** If your work completes a task on the roadmap in `PRD.md`, update its status (e.g., from `○` to `✓`).

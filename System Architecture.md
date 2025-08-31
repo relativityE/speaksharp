@@ -214,7 +214,7 @@ Once the Supabase function is successfully called, it communicates with Assembly
 
 This section documents critical, unresolved issues that are currently impacting the project.
 
--   **Tailwind CSS Build Failure:**
+-   **[TENTATIVELY FIXED] Tailwind CSS Build Failure:**
     -   **Symptom:** No Tailwind-generated styles are being applied anywhere in the application. The UI renders as an unstyled HTML document.
-    -   **Status:** This is the **top-priority blocker**.
-    -   **Diagnosis:** Diagnostic tests confirm that Tailwind classes (e.g., `bg-red-500`) are not being processed into CSS. The root cause is believed to be a misconfiguration in the build pipeline (Vite, Tailwind, PostCSS), but all standard configuration files (`tailwind.config.ts`, `vite.config.mjs`, etc.) have been checked and appear correct. The issue is currently under investigation.
+    -   **Status:** The initial build crash has been resolved by fixing misconfigurations in `postcss.config.js` and `tailwind.config.ts`.
+    -   **Diagnosis:** Despite the build now running without errors, the application still renders without styles in the Playwright test environment. This is believed to be a persistent caching issue. **A VM reboot is required to fully verify the fix.**
