@@ -1,37 +1,81 @@
 # SpeakSharp Project Board
 
-This document tracks the high-level project status, including the development roadmap, key tasks, and known issues.
+This board provides a two-dimensional view of our project tasks, combining **Phased Milestones** (timeline) with **MoSCoW Prioritization**.
 
-## 1. Development Roadmap & Status
+- **Status Key:** ✅ Done | 🟡 In Progress | 🔴 Not Started
 
-### Phase 1: Core Functionality & Stability (Q3 2025)
+---
 
-| Task                                  | Status      | Owner | Notes                                                                                                                                                             |
-| ------------------------------------- | ----------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Foundation & Setup**                |             |       |                                                                                                                                                                   |
-| User Authentication                   | `Done`      | Core  | Email/password sign-in and sign-up flows are complete.                                                                                                            |
-| Real-time Transcription (Browser)     | `Done`      | Core  | Initial implementation using the browser's native SpeechRecognition API.                                                                                          |
-| **Test Suite Overhaul**               |             |       |                                                                                                                                                                   |
-| Implement Robust Test Environment     | `Done`      | Jules | Created `testEnv.ts` shim and Playwright network interception to ensure deterministic tests.                                                                      |
-| Expand Test Coverage                  | `Done`      | Jules | Added new unit and integration tests for all major components and hooks. Refactored existing tests for stability.                                                 |
-| **Core Features**                     |             |       |                                                                                                                                                                   |
-| Session Summary & Analytics Page      | `Done`      | Core  | Users can view a summary of their past sessions.                                                                                                                  |
-| User Profile & Settings               | `To Do`     |       | Allow users to manage their profile and application settings.                                                                                                     |
-| **Known Issues & Bugs**               |             |       |                                                                                                                                                                   |
-| Resolve Test Memory Leak              | `To Do`     |       | The test suite runs out of memory when generating a coverage report. This is a high-priority issue blocking quality metric reporting.                               |
-| Fix `useBrowserSupport` Hook Tests    | `To Do`     |       | The tests for this hook are skipped due to persistent mocking issues in the JSDOM environment.                                                                    |
+## Phase 1: Stabilize & Harden the MVP
 
-### Phase 2: Advanced Features (Q4 2025)
+*This phase focuses on fixing critical bugs, addressing code health, and ensuring the existing features are reliable and robust.*
 
-| Task                                  | Status  | Owner | Notes                                                                   |
-| ------------------------------------- | ------- | ----- | ----------------------------------------------------------------------- |
-| Cloud Speech-to-Text Integration      | `To Do` |       | Integrate AssemblyAI for higher accuracy transcription (Pro feature). |
-| Advanced Analytics                    | `To Do` |       | Implement sentiment analysis and tone detection.                        |
-| Custom Filler Word Tracking           | `To Do` |       | Allow users to define their own filler words to track.                  |
-| Goal Setting & Progress Visualization | `To Do` |       |                                                                         |
+### 🎯 Must-Have
 
-## 2. Known Issues
+- ✅ **Fix cloud transcription connection:** Use correct v3 endpoint and handle raw PCM audio instead of JSON.
+- ✅ **Fix data flow race condition:** Ensure session data is saved before navigation.
+- ✅ **Fix state management & navigation bugs:** Resolved issues in the session page.
+- ✅ **Stabilize the Vitest test suite:** All unit tests now pass without warnings.
+- ✅ **Fix CSS Build Process & Styling:** Resolved a cascade of issues including incompatible build plugins, incorrect dependencies, and a disconnected theme. The application's styling foundation is now correctly configured.
+- 🔴 **Implement Conditional Rendering for Missing Env Vars:** The app should not crash if environment variables are missing, but instead show a graceful "offline" or "configuration needed" state.
+- 🟡 **Update E2E tests for v3 transcription flow:** This is blocked by a critical rendering failure in the Playwright environment. Despite all underlying issues being fixed, the app does not render, preventing any E2E tests from running.
+- 🔴 **Add full unit test coverage for `CloudAssemblyAI.js`:** Target ≥80% coverage for core logic.
+- 🔴 **Add structured logging:** Implement for both frontend and backend.
+- 🔴 **Reinstate session saving & analytics:** Ensure new v3 transcripts are stored correctly.
 
--   **Test Environment Memory Leak:** The test suite fails with a "JavaScript heap out of memory" error when running with coverage enabled (`pnpm test:coverage`). This is a high-priority issue that prevents the generation of an up-to-date code coverage report.
--   **`useBrowserSupport` Hook Test Failures:** The unit tests for the `useBrowserSupport` hook are persistently failing and have been temporarily skipped. This is due to issues with mocking global browser APIs in the JSDOM environment.
--   **Inconsistent Browser SpeechRecognition API:** The native browser API for speech recognition can behave differently across various browsers, which may lead to an inconsistent user experience.
+### 🚧 Should-Have (Tech Debt)
+
+- ✅ **Improve toast notification styling:** Toasts are now pill-shaped with appropriate styling.
+- ✅ **Improve loading/waiting state feedback:** The transcript panel now provides clearer UI feedback.
+- ✅ **Add Page-Level Render Tests:** Create a test for each main page (`Home`, `Session`, `Analytics`, `Auth`) to verify it renders without crashing.
+- 🔴 **Create Troubleshooting Guide:** Add error recovery steps to the documentation.
+
+---
+
+## Phase 2: User Validation & Polish
+
+*This phase is about confirming the core feature set works as expected and polishing the user experience before wider release.*
+
+### 🎯 Must-Have
+
+- 🔴 **Deploy & confirm live transcript UI works:** Ensure text appears within 2 seconds of speech in a live environment.
+- 🔴 **Remove all temporary `console.log`s:** Clean up the codebase for production. *(Note: This is required, but will be handled after all other 'must-have' features are implemented.)*
+- ✅ **Implement Universal Navigation:** Add a consistent, mobile-first sidebar navigation accessible from all pages.
+- ✅ **Implement Analytics Page UI Components:** Add the session status box and a developer checkbox for forcing cloud AI.
+
+
+### 🚧 Should-Have (Tech Debt)
+
+- 🟡 **Implement new SpeakSharp Design System:**
+  - ✅ 1. Configure Core Theme & Test
+  - ✅ 2. Create Component Plugins & Test
+  - 🟡 3. Refactor UI Components & Test
+  - 🔴 4. Final Verification & Test
+- 🔴 **Add more UX states:** For error, loading, and empty transcript scenarios.
+- 🔴 **Improve Accessibility:** Use an ARIA live region for the transcript so screen readers can announce new lines.
+- 🔴 **Add Deno unit tests for the token endpoint:** Ensure the `assemblyai-token` function is fully covered.
+- 🔴 **Add a soak test:** Create a test that runs for 1-minute with continuous audio to check for memory leaks or hangs.
+
+---
+
+## Phase 3: Extensibility & Future-Proofing
+
+*This phase focuses on long-term architecture, scalability, and preparing for future feature development.*
+
+### 🎯 Must-Have
+
+- 🟡 **Implement new CVA-based Design System:** Establish a new, comprehensive design system for all UI components.
+    - ✅ Define design tokens in `tailwind.config.ts`.
+    - ✅ Refactor `Button` component.
+    - 🔴 Refactor `Card` component.
+    - 🔴 Refactor `Alert` component.
+    - 🔴 Refactor `Badge` component.
+    - 🔴 Refactor `MainPage.tsx` to use new section-based components.
+- 🔴 **Reintroduce `TranscriptionService` abstraction:** Place both cloud and local modes behind a single, unified service layer.
+- 🔴 **Implement WebSocket reconnect logic:** Add heartbeat and exponential backoff for a more resilient connection.
+
+### 🌱 Could-Have (Future Enhancements)
+
+- 🔴 **Add a Jitter Buffer & Audio Resampling Guard:** To gracefully handle unstable microphone inputs.
+- 🔴 **Implement Stripe "Pro Mode" Flag:** For feature gating and usage-based billing.
+- 🔴 **Set up Multi-Env CI/CD:** With preview deployments for staging and production.
