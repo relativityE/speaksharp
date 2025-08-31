@@ -1,6 +1,6 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { AnalyticsPage } from '../AnalyticsPage';
 import { useAuth } from '../../contexts/AuthContext';
@@ -17,19 +17,40 @@ vi.mock('../../components/AnalyticsDashboard', () => ({
   ),
   AnalyticsDashboardSkeleton: () => <div data-testid="analytics-skeleton" />,
 }));
+vi.mock('@/components/SessionStatus', () => ({
+  SessionStatus: () => <div data-testid="session-status" />,
+}));
 
 const mockSession = { id: 'session-1', transcript: 'Test session' };
 
 describe('AnalyticsPage', () => {
-  it('renders AnonymousAnalyticsView when user is not authenticated', () => {
-    useAuth.mockReturnValue({ user: null });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Default mocks for a non-pro user
+    useAuth.mockReturnValue({
+      user: { id: 'user-1' },
+      profile: { subscription_status: 'free' }
+    });
+    useSessionManager.mockReturnValue({
+      sessions: [mockSession, { ...mockSession, id: 'session-2' }],
+      loading: false
+    });
+  });
+
+  const renderWithRouter = (path) => {
     render(
-      <MemoryRouter initialEntries={['/analytics']}>
+      <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/analytics/:sessionId" element={<AnalyticsPage />} />
         </Routes>
       </MemoryRouter>
     );
+  };
+
+  it('renders AnonymousAnalyticsView when user is not authenticated', () => {
+    useAuth.mockReturnValue({ user: null });
+    renderWithRouter('/analytics');
     expect(screen.getByText('No Session Data')).toBeInTheDocument();
   });
 
@@ -45,42 +66,50 @@ describe('AnalyticsPage', () => {
     expect(screen.getByTestId('analytics-dashboard')).toHaveTextContent('1 session(s)');
   });
 
-  it('renders AuthenticatedAnalyticsView loading skeleton when loading', () => {
-    useAuth.mockReturnValue({ user: { id: 'user-1' } });
+  it('renders loading skeleton when loading', () => {
     useSessionManager.mockReturnValue({ sessions: [], loading: true });
-    render(
-        <MemoryRouter initialEntries={['/analytics']}>
-            <Routes>
-                <Route path="/analytics" element={<AnalyticsPage />} />
-            </Routes>
-        </MemoryRouter>
-    );
+    renderWithRouter('/analytics');
     expect(screen.getByTestId('analytics-skeleton')).toBeInTheDocument();
   });
 
-  it('renders AuthenticatedAnalyticsView with data when loaded', () => {
-    useAuth.mockReturnValue({ user: { id: 'user-1' }, profile: { subscription_status: 'pro' } });
-    useSessionManager.mockReturnValue({ sessions: [mockSession, mockSession], loading: false });
-    render(
-        <MemoryRouter initialEntries={['/analytics']}>
-            <Routes>
-                <Route path="/analytics" element={<AnalyticsPage />} />
-            </Routes>
-        </MemoryRouter>
-    );
+  it('renders with data when loaded', () => {
+    renderWithRouter('/analytics');
     expect(screen.getByTestId('analytics-dashboard')).toHaveTextContent('2 session(s)');
   });
 
-  it('renders session not found message for authenticated user with invalid sessionId', () => {
-    useAuth.mockReturnValue({ user: { id: 'user-1' } });
-    useSessionManager.mockReturnValue({ sessions: [mockSession], loading: false });
-    render(
-        <MemoryRouter initialEntries={['/analytics/invalid-id']}>
-            <Routes>
-                <Route path="/analytics/:sessionId" element={<AnalyticsPage />} />
-            </Routes>
-        </MemoryRouter>
-    );
+  it('renders session not found message for invalid sessionId', () => {
+    renderWithRouter('/analytics/invalid-id');
     expect(screen.getByText('Session Not Found')).toBeInTheDocument();
+  });
+
+  it('displays the upgrade banner for non-pro users on the main dashboard', () => {
+    renderWithRouter('/analytics');
+    expect(screen.getByText('Unlock Your Full Potential')).toBeInTheDocument();
+  });
+
+  it('does not display the upgrade banner for pro users', () => {
+    useAuth.mockReturnValue({ user: { id: 'user-1' }, profile: { subscription_status: 'pro' } });
+    renderWithRouter('/analytics');
+    expect(screen.queryByText('Unlock Your Full Potential')).not.toBeInTheDocument();
+  });
+
+  it('renders the correct title for the main dashboard', () => {
+    renderWithRouter('/analytics');
+    expect(screen.getByRole('heading', { name: 'Your Dashboard' })).toBeInTheDocument();
+  });
+
+  it('renders the correct title for a single session view', () => {
+    renderWithRouter('/analytics/session-1');
+    expect(screen.getByRole('heading', { name: 'Session Analysis' })).toBeInTheDocument();
+    expect(screen.getByTestId('analytics-dashboard')).toHaveTextContent('1 session(s)');
+  });
+
+  it('renders developer options and allows toggling force cloud', () => {
+    renderWithRouter('/analytics');
+    expect(screen.getByText('Developer Options')).toBeInTheDocument();
+    const checkbox = screen.getByLabelText('Force Cloud AI');
+    expect(checkbox).not.toBeChecked();
+    fireEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
   });
 });

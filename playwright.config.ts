@@ -2,9 +2,10 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests',
+  globalSetup: "./tests/setup.ts",
   retries: process.env.CI ? 2 : 0,
   use: {
-    baseURL: 'http://localhost:4173',
+    baseURL: 'http://localhost:5173',
     headless: true,
     viewport: { width: 1280, height: 800 },      // deterministic layout
     userAgent: 'pw-e2e',                          // avoid A/B targeting
@@ -17,7 +18,7 @@ export default defineConfig({
   webServer: {
     // IMPORTANT: bake “e2e” mode into the bundle so guards are compile-time
     command: 'pnpm build -- --mode e2e && pnpm preview',
-    url: 'http://localhost:4173',
+    url: 'http://localhost:5173',
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
   },
