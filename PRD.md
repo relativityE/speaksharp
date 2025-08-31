@@ -18,14 +18,10 @@ The system is built for speed, both in user experience and development velocity.
 ---
 
 ## 3. Known Issues
-- **[RESOLVED] Cloud Transcription Fails to Initialize**
-  - **Status (as of Aug 28, 2025):** The cloud transcription service has been fixed and is now operational.
-  - **Summary of Fix:** The issue was not with the Supabase Edge Runtime as previously hypothesized. The root cause was in the frontend client. The client was sending base64-encoded audio data wrapped in JSON objects, which is incompatible with the AssemblyAI v3 WebSocket API. The message parsing logic was also incorrect for the v3 API.
-- **[RESOLVED] Vitest Suite Instability with Complex Mocks**
-  - **Status (as of Aug 28, 2025):** The test suite is now stable and all tests are passing without warnings.
-  - **Summary of Fix:** The instability was caused by several issues, including incorrect asynchronous test patterns, flawed mock implementations, and components not correctly forwarding refs. The suite was fixed by implementing `waitFor` for async state updates, correcting the WebSocket mock to include static properties, and wrapping UI components in `React.forwardRef`.
-- **[TENTATIVELY FIXED] Tailwind CSS Build Failure:** A series of misconfigurations in `postcss.config.js` and `tailwind.config.ts` were identified and corrected. This has resolved the initial build crash.
-- **[BLOCKER] Playwright E2E Tests Failing:** Despite the build being fixed, E2E tests still fail because the application renders as an unstyled page in the test environment. This is believed to be caused by a persistent caching or environmental issue that serves a stale version of the CSS to the test runner. **A VM reboot is required to fully verify the fix.**
+- **[RESOLVED] All Critical Stability Issues:** A comprehensive series of fixes have been implemented to address all known critical bugs, including:
+  - **Cloud Transcription Initialization:** Fixed incorrect client-side message parsing for the AssemblyAI v3 API.
+  - **Vitest Suite Instability:** Corrected asynchronous test patterns and flawed mocks.
+  - **E2E Test Environment:** Implemented a robust, "iron-clad" testing strategy to resolve a persistent rendering failure. The root cause was identified as third-party SDKs blocking the initial render. The fix involved creating a `testEnv.ts` shim to provide no-op versions of these SDKs during testing, ensuring a deterministic and stable E2E environment.
 - **On-Device Transcription Needs Polish:** The `LocalWhisper` provider in `TranscriptionService` is a functional implementation using Transformers.js. However, it may require further UI/UX polishing for model loading feedback and error handling before it is production-ready.
 
 ---

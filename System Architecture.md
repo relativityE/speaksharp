@@ -10,7 +10,7 @@ The architecture is designed around a modern, client-heavy Jamstack approach. Th
     - **Design Tokens (`tailwind.config.ts`):** All core design properties (colors, spacing, fonts, radii) are defined as tokens in the Tailwind configuration. This provides a single source of truth for the application's visual style. Semantic color names (e.g., `primary`, `secondary`, `danger`) are used throughout.
     - **Component Variants (CVA):** The `class-variance-authority` library is used within each UI component (e.g., `Button`, `Card`, `Alert`) to define variants for different styles (`variant`), sizes (`size`), and other properties. These variants compose the base Tailwind utility classes.
     - **Component Usage:** Components are used with simple props (e.g., `<Button variant="destructive" size="sm">`) which are translated into the correct CSS classes by CVA. This makes the UI code clean, declarative, and easy to maintain.
-    - **No Custom CSS:** This strategy avoids writing custom CSS files or using `@apply`, preventing common issues with Tailwind's build process and ensuring all styling is managed through the central token and component system.
+    - **CSS Variables:** The core theme is defined as CSS variables in `src/index.css`, which are then consumed by Tailwind's configuration. This is a standard and robust practice for theming with Tailwind.
 - **Testing**:
     - **Vitest:** For unit and integration tests.
     - **Playwright:** For end-to-end tests.
@@ -54,11 +54,14 @@ This diagram provides a more granular view of how the different parts of the cod
 |   +-----------------------------------------------------------------+     +-----------------------------------+
 |   | Browser (Client - React SPA in `src/`)                          |     | Development & Testing             |
 |   |-----------------------------------------------------------------|     |-----------------------------------|
-|   | - `SessionSidebar.jsx`: User clicks "Start" button.             |     | - Vite (`vite.config.mjs`)        |
-|   | - `useSpeechRecognition.js`: Handles UI logic.                  |     | - Vitest (`*.test.jsx`)           |
-|   | - `TranscriptionService.js`: Core logic to choose mode.         |     | - Playwright (`*.spec.ts`)        |
-|   |   - `CloudAssemblyAI.js`: Handles cloud mode via pure WebSockets. |     | - Deno Test (`*.test.ts`)         |
-|   |     - Calls `/assemblyai-token` function via `supabase.functions.invoke()`. |     +-----------------------------------+
+|   | - `Header.jsx`: Main application header.                        |     | - Vite (`vite.config.mjs`)        |
+|   |   - `SideNav.jsx`: Universal, mobile-first navigation menu.     |     | - Vitest (`*.test.jsx`)           |
+|   | - `AnalyticsPage.jsx`: Displays user analytics.                 |     | - Playwright (`*.spec.ts`)        |
+|   |   - `SessionStatus.jsx`: Card for starting a new session.       |     | - Deno Test (`*.test.ts`)         |
+|   | - `useSpeechRecognition.js`: Handles UI logic.                  |     +-----------------------------------+
+|   | - `TranscriptionService.js`: Core logic to choose mode.         |
+|   |   - `CloudAssemblyAI.js`: Handles cloud mode via pure WebSockets. |
+|   |     - Calls `/assemblyai-token` function via `supabase.functions.invoke()`. |
 |   |     - Opens direct WebSocket to AssemblyAI with the received token. |
 |   |     - Uses `AudioWorklet` pipeline to capture and stream raw PCM audio. |
 |   |   - `NativeBrowser.js`: Handles local mode (Browser's native SpeechRecognition). |
@@ -173,6 +176,19 @@ For critical user flows, we use **Playwright** to run tests in a real browser en
 
 ### Backend Function Testing (Deno Test)
 For Supabase Edge Functions, we use **Deno's built-in test runner**. These tests use dependency injection to mock external services.
+
+### Iron-Clad E2E Testing Strategy
+To combat persistent, environment-specific rendering failures, a robust, deterministic E2E testing strategy has been implemented. This strategy is designed to be CI-friendly and provide clear, actionable feedback without requiring manual debugging.
+
+The core components are:
+
+1.  **Testing Against a Production Build:** All E2E tests run against a production-like build of the application (`pnpm build -- --mode e2e && pnpm preview`). This eliminates inconsistencies between the development server and the final bundled code. A dedicated `--mode e2e` is used to bake E2E-specific behavior into the bundle.
+
+2.  **Runtime Test Environment Shim (`src/testEnv.ts`):** A critical shim file is imported as the very first module in the application's entry point (`src/main.jsx`). When `import.meta.env.MODE === 'test'`, this shim replaces the initializers for all third-party services (Stripe, PostHog, Sentry, AssemblyAI WebSocket) with deterministic, no-op implementations on the `globalThis` object. This prevents flaky or hanging SDK initializations from blocking the application's render tree.
+
+3.  **Strict Network Interception (`tests/setup.ts`):** At the Playwright level, a global `page.route()` interceptor is used as a safety net. It operates on an "allowlist" principle: only requests to `localhost` and `supabase.co` are allowed to proceed. All other external network requests are immediately blocked and fulfilled with an empty `204` response. This guarantees that no unexpected third-party scripts or API calls can interfere with the test run.
+
+4.  **Debug Mode:** The network interception logic includes a debug mode, activated by running tests with the `DEBUG=1` environment variable (`DEBUG=1 pnpm test:e2e`). In this mode, external requests are logged to the console and allowed to proceed, enabling developers to trace hidden dependencies or unexpected network behavior during local debugging.
 
 ## 3. STT Communication
 

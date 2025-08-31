@@ -16,9 +16,9 @@ This board provides a two-dimensional view of our project tasks, combining **Pha
 - ✅ **Fix data flow race condition:** Ensure session data is saved before navigation.
 - ✅ **Fix state management & navigation bugs:** Resolved issues in the session page.
 - ✅ **Stabilize the Vitest test suite:** All unit tests now pass without warnings.
-- 🟡 **Fix CSS Build Process:** The Tailwind CSS is not being applied site-wide, preventing any visual styling. This is the current top-priority blocker.
+- ✅ **Fix CSS Build Process & Styling:** Resolved a cascade of issues including incompatible build plugins, incorrect dependencies, and a disconnected theme. The application's styling foundation is now correctly configured.
 - 🔴 **Implement Conditional Rendering for Missing Env Vars:** The app should not crash if environment variables are missing, but instead show a graceful "offline" or "configuration needed" state.
-- 🟡 **Update E2E tests for v3 transcription flow:** Currently blocked by a persistent, un-resolvable caching issue in the test environment. Playwright tests are being served a stale, broken version of the application, even after clearing caches and restarting the server. This prevents any E2E test verification. **A VM reboot is required to proceed.**
+- 🟡 **Update E2E tests for v3 transcription flow:** This is blocked by a critical rendering failure in the Playwright environment. Despite all underlying issues being fixed, the app does not render, preventing any E2E tests from running.
 - 🔴 **Add full unit test coverage for `CloudAssemblyAI.js`:** Target ≥80% coverage for core logic.
 - 🔴 **Add structured logging:** Implement for both frontend and backend.
 - 🔴 **Reinstate session saving & analytics:** Ensure new v3 transcripts are stored correctly.
@@ -40,6 +40,9 @@ This board provides a two-dimensional view of our project tasks, combining **Pha
 
 - 🔴 **Deploy & confirm live transcript UI works:** Ensure text appears within 2 seconds of speech in a live environment.
 - 🔴 **Remove all temporary `console.log`s:** Clean up the codebase for production. *(Note: This is required, but will be handled after all other 'must-have' features are implemented.)*
+- ✅ **Implement Universal Navigation:** Add a consistent, mobile-first sidebar navigation accessible from all pages.
+- ✅ **Implement Analytics Page UI Components:** Add the session status box and a developer checkbox for forcing cloud AI.
+
 
 ### 🚧 Should-Have (Tech Debt)
 
@@ -64,10 +67,10 @@ This board provides a two-dimensional view of our project tasks, combining **Pha
 - 🟡 **Implement new CVA-based Design System:** Establish a new, comprehensive design system for all UI components.
     - ✅ Define design tokens in `tailwind.config.ts`.
     - ✅ Refactor `Button` component.
-    - ✅ Refactor `Card` component.
-    - ✅ Refactor `Alert` component.
-    - ✅ Refactor `Badge` component.
-    - ✅ Refactor `MainPage.tsx` to use new section-based components.
+    - 🔴 Refactor `Card` component.
+    - 🔴 Refactor `Alert` component.
+    - 🔴 Refactor `Badge` component.
+    - 🔴 Refactor `MainPage.tsx` to use new section-based components.
 - 🔴 **Reintroduce `TranscriptionService` abstraction:** Place both cloud and local modes behind a single, unified service layer.
 - 🔴 **Implement WebSocket reconnect logic:** Add heartbeat and exponential backoff for a more resilient connection.
 

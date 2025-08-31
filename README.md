@@ -49,3 +49,9 @@ A real-time speech analysis tool to help you speak more confidently.
     ```bash
     pnpm run test:all
     ```
+
+-   **Debug E2E Tests:**
+    To run the E2E tests in a headed browser with verbose logging for debugging, use:
+    ```bash
+    DEBUG=1 pnpm run test:e2e
+    ```
