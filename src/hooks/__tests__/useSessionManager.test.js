@@ -114,4 +114,18 @@ describe('useSessionManager', () => {
     expect(result.current.sessions.find(s => s.id === sessionIdToDelete)).toBeUndefined();
     expect(result.current.sessions.length).toBe(mockSessions.length - 1);
   });
+
+  it('should set an error state if getSessionHistory fails', async () => {
+    const testError = new Error('Network Failure');
+    getSessionHistory.mockRejectedValue(testError);
+
+    const { result } = renderHook(() => useSessionManager());
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.error).toBe(testError);
+    expect(result.current.sessions).toEqual([]);
+  });
 });
