@@ -23,13 +23,13 @@ export default function AuthPage() {
   const [view, setView] = useState('sign_in'); // 'sign_in', 'sign_up', or 'forgot_password'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [message, setMessage] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
+    setIsSubmitting(true);
     setError(null);
     setMessage('');
 
@@ -50,7 +50,7 @@ export default function AuthPage() {
     } catch (error) {
       setError(mapError(error.message));
     } finally {
-      setLoading(false);
+      setIsSubmitting(false);
     }
   };
 
@@ -118,10 +118,12 @@ export default function AuthPage() {
               )}
               {error && <p className="text-sm text-destructive font-semibold">{error}</p>}
               {message && <p className="text-sm text-green-600 font-semibold bg-green-100 border border-green-200 rounded-md p-3 text-center">{message}</p>}
-              <Button type="submit" className="w-full text-base py-6" disabled={loading}>
-                {loading ? 'Processing...' :
-                  view === 'sign_in' ? 'Sign In' :
-                  view === 'sign_up' ? 'Sign Up' : 'Send Reset Link'
+              <Button type="submit" className="w-full text-base py-6" disabled={isSubmitting} data-testid="sign-in-button">
+                {isSubmitting ?
+                  (view === 'sign_in' ? 'Signing In...' :
+                   view === 'sign_up' ? 'Signing Up...' : 'Sending...') :
+                  (view === 'sign_in' ? 'Sign In' :
+                   view === 'sign_up' ? 'Sign Up' : 'Send Reset Link')
                 }
               </Button>
             </div>

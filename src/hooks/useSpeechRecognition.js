@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
@@ -20,6 +20,7 @@ const defaultFillerPatterns = {
 
 const FILLER_WORD_COLORS = ['#BFDBFE', '#FCA5A5', '#FDE68A', '#86EFAC', '#FDBA74', '#C4B5FD', '#6EE7B7'];
 
+// FIX 1: Memoize this function to prevent recreation on every render
 const getInitialFillerData = (customWords = []) => {
     const initial = {};
     const allFillerKeys = [...Object.values(FILLER_WORD_KEYS), ...customWords];
@@ -42,28 +43,43 @@ export const useSpeechRecognition = ({
     const [finalChunks, setFinalChunks] = useState([]);
     const [wordConfidences, setWordConfidences] = useState([]);
     const [interimTranscript, setInterimTranscript] = useState('');
-    const [fillerData, setFillerData] = useState(getInitialFillerData(customWords));
-    const [finalFillerData, setFinalFillerData] = useState(getInitialFillerData(customWords));
+    const [fillerData, setFillerData] = useState(() => getInitialFillerData(customWords));
+    const [finalFillerData, setFinalFillerData] = useState(() => getInitialFillerData(customWords));
     const [error, setError] = useState(null);
     const [isSupported, setIsSupported] = useState(true);
     const [currentMode, setCurrentMode] = useState(null);
     const [modelLoadingProgress, setModelLoadingProgress] = useState(null);
     const transcriptionServiceRef = useRef(null);
 
+    // FIX 2: Add cleanup flag to prevent state updates after unmount
+    const isMountedRef = useRef(true);
+
+    // FIX 3: Enhanced cleanup on unmount
     useEffect(() => {
+        isMountedRef.current = true;
+
         return () => {
+            isMountedRef.current = false;
             if (transcriptionServiceRef.current) {
                 transcriptionServiceRef.current.destroy();
+                transcriptionServiceRef.current = null;
             }
         };
     }, []);
 
+    // FIX 4: Memoize patterns to prevent recreation
+    const allPatterns = useMemo(() => {
+        const patterns = { ...defaultFillerPatterns };
+        customWords.forEach((word) => {
+            patterns[word] = new RegExp(`\\b(${word})\\b`, 'gi');
+        });
+        return patterns;
+    }, [customWords]);
+
+    // FIX 5: Optimize filler word counting with memoization
     const countFillerWords = useCallback((text) => {
         const counts = getInitialFillerData(customWords);
-        const allPatterns = { ...defaultFillerPatterns };
-        customWords.forEach((word) => {
-            allPatterns[word] = new RegExp(`\\b(${word})\\b`, 'gi');
-        });
+
         for (const key in allPatterns) {
             const pattern = allPatterns[key];
             const matches = text.match(pattern);
@@ -72,37 +88,81 @@ export const useSpeechRecognition = ({
             }
         }
         return counts;
-    }, [customWords]);
+    }, [customWords, allPatterns]);
 
     const onModelLoadProgress = useCallback((progress) => {
-        setModelLoadingProgress(progress);
+        if (isMountedRef.current) {
+            setModelLoadingProgress(progress);
+        }
     }, []);
 
     const handleReady = useCallback(() => {
-        setIsReady(true);
+        if (isMountedRef.current) {
+            setIsReady(true);
+        }
     }, []);
 
+    // FIX 6: Add bounds checking to prevent infinite array growth
+    const MAX_CHUNKS = 1000; // Limit chunk accumulation
+    const MAX_WORD_CONFIDENCES = 5000; // Limit word confidence accumulation
+
     const onTranscriptUpdate = useCallback((data) => {
+        if (!isMountedRef.current) return;
+
         if (data.transcript?.partial && !data.transcript.partial.startsWith('Downloading model')) {
             setInterimTranscript(data.transcript.partial);
         }
+
         if (data.transcript?.final) {
-            setFinalChunks(prev => [...prev, { text: data.transcript.final, id: Math.random() }]);
+            setFinalChunks(prev => {
+                const newChunks = [...prev, { text: data.transcript.final, id: Math.random() }];
+                // FIX 7: Prevent unlimited accumulation
+                if (newChunks.length > MAX_CHUNKS) {
+                    return newChunks.slice(-MAX_CHUNKS); // Keep only the last N chunks
+                }
+                return newChunks;
+            });
             setInterimTranscript('');
         }
+
         if (data.words && data.words.length > 0) {
-            setWordConfidences(prev => [...prev, ...data.words]);
+            setWordConfidences(prev => {
+                const newConfidences = [...prev, ...data.words];
+                // FIX 8: Prevent unlimited accumulation
+                if (newConfidences.length > MAX_WORD_CONFIDENCES) {
+                    return newConfidences.slice(-MAX_WORD_CONFIDENCES); // Keep only the last N words
+                }
+                return newConfidences;
+            });
         }
     }, []);
 
+    // FIX 9: Debounce filler word counting to prevent excessive recalculation
+    const debouncedCountFillerWords = useMemo(() => {
+        let timeoutId;
+        return (text, callback) => {
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => {
+                if (isMountedRef.current) {
+                    const result = countFillerWords(text);
+                    callback(result);
+                }
+            }, 100); // 100ms debounce
+        };
+    }, [countFillerWords]);
+
     useEffect(() => {
         const fullTranscript = finalChunks.map(c => c.text).join(' ') + ' ' + interimTranscript;
-        const newFillerData = countFillerWords(fullTranscript);
-        setFillerData(newFillerData);
+
+        // FIX 10: Use debounced counting for live data
+        debouncedCountFillerWords(fullTranscript, (newFillerData) => {
+            setFillerData(newFillerData);
+        });
+
         const finalTranscript = finalChunks.map(c => c.text).join(' ');
         const newFinalFillerData = countFillerWords(finalTranscript);
         setFinalFillerData(newFinalFillerData);
-    }, [finalChunks, interimTranscript, customWords, countFillerWords]);
+    }, [finalChunks, interimTranscript, debouncedCountFillerWords, countFillerWords]);
 
     useEffect(() => {
         const newTranscript = finalChunks.map(c => c.text).join(' ');
@@ -129,10 +189,8 @@ export const useSpeechRecognition = ({
 
             console.log('[getAssemblyAIToken] Final userSession has access token:', userSession?.access_token ? 'Yes' : 'No');
 
-            // Refactored to use supabase.functions.invoke for robustness.
-            // This handles auth and headers automatically.
             const { data, error } = await supabase.functions.invoke('assemblyai-token', {
-                body: {}, // Body is required to trigger a POST request and handle CORS correctly.
+                body: {},
             });
 
             if (error) {
@@ -146,21 +204,23 @@ export const useSpeechRecognition = ({
             }
 
             console.log("✅ AssemblyAI token acquired:", data);
-            return data.token; // Pass this into your realtime connection
+            return data.token;
         } catch (err) {
             console.error("❌ Error getting AssemblyAI token:", err);
-            // Optionally surface to the user
-            toast.error("Unable to start transcription: " + err.message, {
-                className: "toast toast-md toast-error",
-            });
+            if (isMountedRef.current) {
+                toast.error("Unable to start transcription: " + err.message, {
+                    className: "toast toast-md toast-error",
+                });
+            }
             return null;
         }
     }, [authSession]);
 
     const startListening = async ({ forceCloud = false } = {}) => {
-        if (isListening) {
+        if (isListening || !isMountedRef.current) {
             return;
         }
+
         setIsReady(false);
         setError(null);
         setIsSupported(true);
@@ -169,6 +229,7 @@ export const useSpeechRecognition = ({
         if (transcriptionServiceRef.current) {
             await transcriptionServiceRef.current.destroy();
         }
+
         const service = new TranscriptionService({
             onTranscriptUpdate,
             onModelLoadProgress,
@@ -179,43 +240,60 @@ export const useSpeechRecognition = ({
             navigate,
             getAssemblyAIToken,
         });
+
         await service.init();
         transcriptionServiceRef.current = service;
 
         try {
-            setIsListening(true);
-            await transcriptionServiceRef.current.startTranscription();
-            setCurrentMode(transcriptionServiceRef.current.mode);
+            if (isMountedRef.current) {
+                setIsListening(true);
+                await transcriptionServiceRef.current.startTranscription();
+                if (isMountedRef.current) {
+                    setCurrentMode(transcriptionServiceRef.current.mode);
+                }
+            }
         } catch (err) {
-            setError(err);
-            setIsListening(false);
-            if (err.message.toLowerCase().includes('not supported') || err.message.toLowerCase().includes('permission denied')) {
-                setIsSupported(false);
+            if (isMountedRef.current) {
+                setError(err);
+                setIsListening(false);
+                if (err.message.toLowerCase().includes('not supported') || err.message.toLowerCase().includes('permission denied')) {
+                    setIsSupported(false);
+                }
             }
         }
     };
 
     const stopListening = async () => {
-        if (!isListening || !transcriptionServiceRef.current) {
+        if (!isListening || !transcriptionServiceRef.current || !isMountedRef.current) {
             return null;
         }
-        await transcriptionServiceRef.current.stopTranscription();
-        setIsListening(false);
-        setIsReady(false);
 
-        const finalTranscriptText = [...finalChunks.map(c => c.text), interimTranscript].join(' ').trim();
-        const averageConfidence = wordConfidences.length > 0
-            ? wordConfidences.reduce((sum, word) => sum + word.confidence, 0) / wordConfidences.length
-            : 0;
-        return {
-            transcript: finalTranscriptText,
-            filler_words: finalFillerData,
-            total_words: finalTranscriptText.split(/\s+/).filter(Boolean).length,
-            accuracy: averageConfidence,
-        };
+        await transcriptionServiceRef.current.stopTranscription();
+
+        if (isMountedRef.current) {
+            setIsListening(false);
+            setIsReady(false);
+
+            const finalTranscriptText = [...finalChunks.map(c => c.text), interimTranscript].join(' ').trim();
+            const averageConfidence = wordConfidences.length > 0
+                ? wordConfidences.reduce((sum, word) => sum + word.confidence, 0) / wordConfidences.length
+                : 0;
+
+            return {
+                transcript: finalTranscriptText,
+                filler_words: finalFillerData,
+                total_words: finalTranscriptText.split(/\s+/).filter(Boolean).length,
+                accuracy: averageConfidence,
+            };
+        }
+
+        return null;
     };
 
+    // FIX 11: Improved reset function with proper cleanup
     const reset = useCallback(() => {
+        if (!isMountedRef.current) return;
+
         setFinalChunks([]);
         setInterimTranscript('');
         setTranscript('');
@@ -224,6 +302,7 @@ export const useSpeechRecognition = ({
         setWordConfidences([]);
         setError(null);
         setIsReady(false);
+        setModelLoadingProgress(null);
     }, [customWords]);
 
     return {

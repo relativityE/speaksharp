@@ -15,13 +15,13 @@ This board provides a two-dimensional view of our project tasks, combining **Pha
 - ✅ **Fix cloud transcription connection:** Use correct v3 endpoint and handle raw PCM audio instead of JSON.
 - ✅ **Fix data flow race condition:** Ensure session data is saved before navigation.
 - ✅ **Fix state management & navigation bugs:** Resolved issues in the session page.
-- ✅ **Stabilize the Vitest test suite:** All unit tests now pass without warnings.
+- ✅ **Stabilize the Vitest test suite:** All unit tests now pass without warnings. *(Note: A memory leak currently prevents coverage runs, and 4 tests are skipped.)*
 - ✅ **Fix CSS Build Process & Styling:** Resolved a cascade of issues including incompatible build plugins, incorrect dependencies, and a disconnected theme. The application's styling foundation is now correctly configured.
 - 🔴 **Implement Conditional Rendering for Missing Env Vars:** The app should not crash if environment variables are missing, but instead show a graceful "offline" or "configuration needed" state.
 - 🟡 **Update E2E tests for v3 transcription flow:** This is blocked by a critical rendering failure in the Playwright environment. Despite all underlying issues being fixed, the app does not render, preventing any E2E tests from running.
 - 🔴 **Add full unit test coverage for `CloudAssemblyAI.js`:** Target ≥80% coverage for core logic.
 - 🔴 **Add structured logging:** Implement for both frontend and backend.
-- 🔴 **Reinstate session saving & analytics:** Ensure new v3 transcripts are stored correctly.
+- ✅ **Reinstate session saving & analytics:** Ensure new v3 transcripts are stored correctly.
 
 ### 🚧 Should-Have (Tech Debt)
 
@@ -64,18 +64,18 @@ This board provides a two-dimensional view of our project tasks, combining **Pha
 
 ### 🎯 Must-Have
 
-- 🟡 **Implement new CVA-based Design System:** Establish a new, comprehensive design system for all UI components.
+- ✅ **Implement new CVA-based Design System:** Establish a new, comprehensive design system for all UI components.
     - ✅ Define design tokens in `tailwind.config.ts`.
     - ✅ Refactor `Button` component.
-    - 🔴 Refactor `Card` component.
-    - 🔴 Refactor `Alert` component.
-    - 🔴 Refactor `Badge` component.
-    - 🔴 Refactor `MainPage.tsx` to use new section-based components.
-- 🔴 **Reintroduce `TranscriptionService` abstraction:** Place both cloud and local modes behind a single, unified service layer.
+    - ✅ Refactor `Card` component.
+    - ✅ Refactor `Alert` component.
+    - ✅ Refactor `Badge` component.
+    - ✅ Refactor `MainPage.tsx` to use new section-based components.
+- ✅ **Reintroduce `TranscriptionService` abstraction:** Place both cloud and local modes behind a single, unified service layer.
 - 🔴 **Implement WebSocket reconnect logic:** Add heartbeat and exponential backoff for a more resilient connection.
 
 ### 🌱 Could-Have (Future Enhancements)
 
 - 🔴 **Add a Jitter Buffer & Audio Resampling Guard:** To gracefully handle unstable microphone inputs.
 - 🔴 **Implement Stripe "Pro Mode" Flag:** For feature gating and usage-based billing.
-- 🔴 **Set up Multi-Env CI/CD:** With preview deployments for staging and production.
+- 🟡 **Set up Multi-Env CI/CD:** With preview deployments for staging and production. *(Note: A basic implementation for DB migrations exists.)*

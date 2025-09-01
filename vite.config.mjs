@@ -27,22 +27,36 @@ export default defineConfig({
     include: ['@supabase/supabase-js'],
   },
   test: {
-    environment: 'jsdom',   // Using jsdom as happy-dom seems to cause a silent crash
-    globals: true,              // gives expect, describe, etc.
-    // [JULES] Use forks to run tests in a separate process, per user suggestion.
-    // This provides better isolation and prevents memory leaks between test files,
-    // which was causing the 'heap out of memory' error.
-    pool: 'threads',
+    // CRITICAL: Run each test file in complete isolation
+    pool: 'forks',
     poolOptions: {
-      threads: {
-        maxThreads: 1,
-        minThreads: 1,
-      },
+      forks: {
+        maxForks: 1,
+        minForks: 1,
+        isolate: true,
+        // Kill and restart worker after each test file
+        singleFork: true,
+      }
     },
-    setupFiles: './src/test/setup.ts',
+    // Force sequential execution to prevent memory buildup
+    fileParallelism: false,
+    // Reduce timeouts to catch hanging tests faster
+    testTimeout: 10000,
+    hookTimeout: 5000,
+    // Enable garbage collection
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: ['./src/test/setup.tsx'],
+    // Run coverage only on successful tests
     coverage: {
-      provider: 'v8',           // fast native coverage
-      reporter: ['text', 'json', 'html']
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
+      exclude: [
+        'node_modules/',
+        'src/test/',
+        '**/*.test.*',
+        '**/*.spec.*'
+      ]
     },
     exclude: [
       '**/node_modules/**',

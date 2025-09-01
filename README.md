@@ -1,63 +1,88 @@
-# SpeakSharp Product Requirements Document
+# SpeakSharp
 
-**Version 6.26** | **Last Updated: August 31, 2025**
+SpeakSharp is a privacy-first, real-time speech analysis tool designed to help users improve their public speaking skills. It provides instant, on-device feedback and is built as a modern, serverless SaaS web application using React (Vite) and Supabase.
 
-## 1. Executive Summary
+## Project Documentation
 
-SpeakSharp is a **privacy-first, real-time speech analysis tool** designed as a modern, serverless SaaS web application. Its architecture is strategically aligned with the core product goal: to provide instant, on-device feedback that helps users improve their public speaking skills, while rigorously protecting their privacy.
+This repository contains several key documents that outline the project's goals, architecture, and status.
 
-The system is built for speed, both in user experience and development velocity. It leverages a **React (Vite)** frontend for a highly interactive UI and **Supabase** as an all-in-one backend for data, authentication, and user management.
+*   **[Product Requirements Document (PRD.md)](./PRD.md):** Detailed information about the product, its features, user requirements, known issues, and success metrics.
+*   **[System Architecture](./System Architecture.md):** A description of the technical architecture, technology stack, and data flow.
+*   **[Project Board](./PROJECT_BOARD.md):** The canonical source for the development roadmap and task status, prioritized using the MoSCoW method.
+*   **[Agent Instructions](./AGENTS.md):** Core directives and instructions for AI agents working on this codebase.
 
+## Getting Started
 
-## 2. Recent Updates (v6.26)
-*August 31, 2025*
-- **Comprehensive Test Suite Expansion**: Implemented a full suite of new and refactored tests to enhance code quality and stability. This includes new tests for `AuthPage`, `useBrowserSupport`, and `useSpeechRecognition`, as well as significant enhancements to existing tests for `AnalyticsPage`, `SessionPage`, and `MainPage`.
-- **Hardened Test Environment**: Implemented a robust test environment with shims for external services (`Stripe`, `PostHog`, etc.) and network interception via Playwright to ensure deterministic E2E tests.
-- **Code Cleanup**: Deleted obsolete test files to streamline the codebase.
+### Prerequisites
 
----
+*   [Node.js](https://nodejs.org/) (v18 or higher)
+*   [pnpm](https://pnpm.io/)
+*   [Supabase CLI](https://supabase.com/docs/guides/cli)
 
-## 3. Known Issues
-- **Test Environment Memory Leak:** The test suite fails with a "JavaScript heap out of memory" error when running with coverage enabled (`pnpm test:coverage`). This prevents the generation of an up-to-date code coverage report.
-- **`useBrowserSupport` Hook Test Failures:** The unit tests for the `useBrowserSupport` hook are persistently failing due to issues with mocking global browser APIs in the JSDOM environment. The tests have been temporarily skipped.
-- **On-Device Transcription Needs Polish:** The `LocalWhisper` provider in `TranscriptionService` may require further UI/UX polishing.
+### Installation and Setup
 
----
+1.  **Clone the repository:**
+    ```bash
+    git clone <repository-url>
+    cd speaksharp
+    ```
 
-## 4. Development Roadmap
-The project's development status is tracked in [`PROJECT_BOARD.md`](./PROJECT_BOARD.md).
+2.  **Install dependencies:**
+    ```bash
+    pnpm install
+    ```
 
----
+3.  **Set up environment variables:**
+    Create a `.env` file in the root of the project by copying the example file:
+    ```bash
+    cp .env.example .env
+    ```
+    Populate the `.env` file with your Supabase project URL and anon key, as well as any other required service keys.
 
-## 5. Software Quality Metrics
+4.  **Run database migrations (if using a local Supabase instance):**
+    ```bash
+    supabase db reset
+    ```
 
-This section tracks key software quality metrics for the project.
+### Running the Development Server
 
-| Metric                        | Current Value | Date       | Notes                                           |
-| ----------------------------- | ------------- | ---------- | ----------------------------------------------- |
-| **Test Coverage (Lines)**     | `N/A`         | 2025-08-31 | Coverage generation failed due to memory leak.  |
-| **Total Tests**               | `64`          | 2025-08-31 | 4 tests skipped due to mocking issues.          |
-| **Test Suite RunTime**        | `16.14s`      | 2025-08-31 |                                                 |
----
+To start the Vite development server, run:
 
-## 6. Metrics and Success Criteria
+```bash
+pnpm dev
+```
 
-### Service Level Indicators (SLIs) & Objectives (SLOs)
+The application will be available at `http://localhost:5173`.
 
-**SLIs (what we measure):**
+## Testing
 
-- 🕑 **Time to first transcript chunk (latency)** — ms between mic start and first transcript event.
-- ⚡ **End-to-end transcription latency (speed)** — avg delay between spoken word and displayed text.
-- 📉 **WebSocket error rate** — % of sessions terminated by non-1000 close codes.
-- 🔄 **Reconnect success rate** — % of reconnect attempts that resume within 2s.
-- 🔐 **Token issuance error rate** — % of failed requests to /assemblyai-token.
-- 💰 **Cost guardrail** — $/minute STT usage per active user session.
+This project uses [Vitest](https://vitest.dev/) for unit and integration tests and [Playwright](https://playwright.dev/) for end-to-end tests.
 
-**SLOs (targets):**
+*   **Run all tests:**
+    ```bash
+    pnpm test
+    ```
 
-- <2s to first transcript chunk (p95).
-- <500ms streaming transcription delay (p90).
-- <1% WebSocket error rate.
-- >95% reconnect success rate within 2s.
-- <0.5% token issuance failures.
-- <$0.05/min STT cost at MVP scale.
+*   **Run tests with UI:**
+    ```bash
+    pnpm test:ui
+    ```
+
+*   **Run tests with coverage:**
+    *Note: This is currently broken due to a memory leak.*
+    ```bash
+    pnpm test:coverage
+    ```
+
+*   **Run E2E tests:**
+    ```bash
+    pnpm test:e2e
+    ```
+
+## Linting
+
+To check the code for linting errors, run:
+
+```bash
+pnpm run lint
+```

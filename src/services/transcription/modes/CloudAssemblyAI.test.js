@@ -34,15 +34,22 @@ describe('CloudAssemblyAI', () => {
   let cloudAI;
   const onTranscriptUpdate = vi.fn();
   const onReady = vi.fn();
-  const getAssemblyAIToken = vi.fn().mockResolvedValue('fake-token');
+  let getTokenSpy;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Spy on the method before creating an instance
+    getTokenSpy = vi.spyOn(CloudAssemblyAI.prototype, '_getAssemblyAIToken').mockResolvedValue('fake-token-123');
+
     cloudAI = new CloudAssemblyAI({
       onTranscriptUpdate,
       onReady,
-      getAssemblyAIToken,
+      getAssemblyAIToken: () => {}, // Provide a dummy function
     });
+  });
+
+  afterEach(() => {
+    getTokenSpy.mockRestore();
   });
 
   it('should initialize correctly', async () => {
@@ -51,6 +58,8 @@ describe('CloudAssemblyAI', () => {
   });
 
   it('should throw an error if getAssemblyAIToken is not a function', async () => {
+    // Restore spy for this specific test case
+    getTokenSpy.mockRestore();
     const invalidCloudAI = new CloudAssemblyAI();
     await expect(invalidCloudAI.init()).rejects.toThrow('CloudAssemblyAI requires a getAssemblyAIToken function.');
   });
@@ -58,7 +67,7 @@ describe('CloudAssemblyAI', () => {
   describe('startTranscription', () => {
     it('should create a WebSocket with the correct URL', async () => {
       await cloudAI.startTranscription(mockMic);
-      expect(getAssemblyAIToken).toHaveBeenCalled();
+      expect(getTokenSpy).toHaveBeenCalled();
 
       const wsURL = MockWebSocket.mock.calls[0][0];
       const url = new URL(wsURL);
