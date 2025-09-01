@@ -2,11 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabaseClient';
-import { Mic, Square, Loader2, Zap } from 'lucide-react';
+import { Mic, Square, Loader2, Zap, Cloud, Computer } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useStripe } from '@stripe/react-stripe-js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -146,21 +147,35 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
     };
 
     const getCardTitle = () => {
-        if (isConnecting) return 'Session Status: Connecting...';
-        if (isListening) return `Session Status: ${actualMode === 'cloud' ? 'Cloud AI' : 'Native Browser'}`;
-        if (isModelLoading) return 'Session Status: Initializing...';
-        return 'Session Status: Ready';
+        if (isConnecting) return 'Connecting...';
+        if (isListening) return 'Session Active';
+        if (isModelLoading) return 'Initializing...';
+        return 'Ready';
     };
 
     const isButtonDisabled = isListening ? isEndingSession : (isModelLoading || isConnecting);
+
+    const ModeIndicator = () => {
+        const modeText = actualMode === 'cloud' ? 'Cloud AI' : 'Browser';
+        const Icon = actualMode === 'cloud' ? Cloud : Computer;
+        return (
+            <Badge variant="outline" className="flex items-center gap-2 py-1 px-3">
+                <Icon className="w-4 h-4" />
+                <span className="font-semibold">{modeText}</span>
+            </Badge>
+        );
+    };
 
     return (
         <div className="flex flex-col gap-6 h-full">
             <Card className="w-full flex flex-col flex-grow">
                 <CardHeader>
-                    <CardTitle className="text-sm font-bold text-center p-2 rounded-lg bg-card-foreground/5 text-card-foreground shadow-inner">
-                        {getCardTitle()}
-                    </CardTitle>
+                     <div className="flex justify-between items-center">
+                        <CardTitle className="text-base">
+                            Session Control
+                        </CardTitle>
+                        {actualMode && <ModeIndicator />}
+                    </div>
                 </CardHeader>
                 <CardContent className="space-y-4 flex-grow flex flex-col">
                     <ModelLoadingIndicator progress={modelLoadingProgress} />
@@ -168,7 +183,7 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
                     <div className="flex flex-col items-center justify-center gap-6 py-2 flex-grow">
                         <DigitalTimer elapsedTime={elapsedTime} />
                         <div className={`text-xl font-semibold ${isListening && isReady ? 'text-green-500' : 'text-muted-foreground'}`}>
-                            {isConnecting ? '○ Connecting...' : (isListening ? '● Listening...' : (isModelLoading ? 'Please wait...' : 'Idle'))}
+                            {getCardTitle()}
                         </div>
                         <Button
                             onClick={handleStartStop}
