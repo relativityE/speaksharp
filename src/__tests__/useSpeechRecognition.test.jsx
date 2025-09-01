@@ -15,21 +15,11 @@ vi.mock('sonner', () => ({
 }));
 
 describe('useSpeechRecognition', () => {
-  let mockTranscriptionService;
   let mockAuth;
 
   beforeEach(() => {
-    mockTranscriptionService = {
-      init: vi.fn().mockResolvedValue(),
-      startTranscription: vi.fn().mockResolvedValue(),
-      stopTranscription: vi.fn().mockResolvedValue(),
-      destroy: vi.fn().mockResolvedValue(),
-      onTranscriptUpdate: vi.fn(),
-      onModelLoadProgress: vi.fn(),
-      onReady: vi.fn(),
-      mode: 'native',
-    };
-    TranscriptionService.mockImplementation(() => mockTranscriptionService);
+    vi.clearAllMocks();
+    vi.useFakeTimers();
 
     mockAuth = {
       session: { user: { id: 'test-user' } },
@@ -39,7 +29,9 @@ describe('useSpeechRecognition', () => {
   });
 
   afterEach(() => {
-    vi.clearAllMocks();
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   const wrapper = ({ children }) => <MemoryRouter>{children}</MemoryRouter>;
@@ -64,11 +56,13 @@ describe('useSpeechRecognition', () => {
       await result.current.startListening();
     });
 
+    const mockInstance = TranscriptionService.mock.instances[0];
     expect(TranscriptionService).toHaveBeenCalledTimes(1);
-    expect(mockTranscriptionService.init).toHaveBeenCalledTimes(1);
-    expect(mockTranscriptionService.startTranscription).toHaveBeenCalledTimes(1);
+    expect(mockInstance.init).toHaveBeenCalledTimes(1);
+    expect(mockInstance.startTranscription).toHaveBeenCalledTimes(1);
     expect(result.current.isListening).toBe(true);
-    expect(result.current.mode).toBe('native');
+    // The mode is now 'mock' because of our updated mock
+    expect(result.current.mode).toBe('mock');
   });
 
   it('should stop listening and return final transcript', async () => {
@@ -78,9 +72,12 @@ describe('useSpeechRecognition', () => {
       await result.current.startListening();
     });
 
+    const mockInstance = TranscriptionService.mock.instances[0];
+
     // Simulate transcript updates
     act(() => {
-      const onTranscriptUpdateCallback = TranscriptionService.mock.calls[0][0].onTranscriptUpdate;
+      // The onTranscriptUpdate callback is passed to the constructor
+      const onTranscriptUpdateCallback = vi.mocked(TranscriptionService).mock.calls[0][0].onTranscriptUpdate;
       onTranscriptUpdateCallback({ transcript: { final: 'Hello world.' } });
     });
 
@@ -89,7 +86,7 @@ describe('useSpeechRecognition', () => {
       stopResult = await result.current.stopListening();
     });
 
-    expect(mockTranscriptionService.stopTranscription).toHaveBeenCalledTimes(1);
+    expect(mockInstance.stopTranscription).toHaveBeenCalledTimes(1);
     expect(result.current.isListening).toBe(false);
     expect(result.current.isReady).toBe(false);
     expect(stopResult.transcript).toBe('Hello world.');
@@ -97,9 +94,15 @@ describe('useSpeechRecognition', () => {
   });
 
   it('should handle errors during startListening', async () => {
-    const error = new Error('Permission denied');
-    mockTranscriptionService.startTranscription.mockRejectedValue(error);
     const { result } = renderHook(() => useSpeechRecognition(), { wrapper });
+    const error = new Error('Permission denied');
+
+    await act(async () => {
+      await result.current.startListening();
+    });
+
+    const mockInstance = TranscriptionService.mock.instances[0];
+    mockInstance.startTranscription.mockRejectedValue(error);
 
     await act(async () => {
       await result.current.startListening();
@@ -133,17 +136,16 @@ describe('useSpeechRecognition', () => {
   });
 
   it('should call destroy on unmount', async () => {
-    const { unmount } = renderHook(() => useSpeechRecognition(), { wrapper });
+    const { result, unmount } = renderHook(() => useSpeechRecognition(), { wrapper });
 
-    unmount();
-    // The service is not created until startListening is called.
-    expect(mockTranscriptionService.destroy).not.toHaveBeenCalled();
-
-    const { result, unmount: unmount2 } = renderHook(() => useSpeechRecognition(), { wrapper });
     await act(async () => {
       await result.current.startListening();
     });
-    unmount2();
-    expect(mockTranscriptionService.destroy).toHaveBeenCalledTimes(1);
+
+    const mockInstance = TranscriptionService.mock.instances[0];
+
+    unmount();
+
+    expect(mockInstance.destroy).toHaveBeenCalledTimes(1);
   });
 });

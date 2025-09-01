@@ -7,7 +7,11 @@
     "build": "vite build --mode test",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest",
+    "test": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest run",
+    "test:coverage": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest run --coverage",
+    "test:ui": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest --ui",
+    "test:single": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest run --reporter=verbose",
+    "test:isolated": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest run src/pages/__tests__/AuthPage.isolated.test.jsx",
     "test:e2e": "playwright test",
     "test:all": "pnpm build && run-s test test:e2e"
   },

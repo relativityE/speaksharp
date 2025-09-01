@@ -1,63 +1,63 @@
-# SpeakSharp Product Requirements Document
+# SpeakSharp System Architecture
 
-**Version 6.26** | **Last Updated: August 31, 2025**
+**Version 1.0** | **Last Updated: August 31, 2025**
 
-## 1. Executive Summary
+This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Project Board](./PROJECT_BOARD.md) respectively.
 
-SpeakSharp is a **privacy-first, real-time speech analysis tool** designed as a modern, serverless SaaS web application. Its architecture is strategically aligned with the core product goal: to provide instant, on-device feedback that helps users improve their public speaking skills, while rigorously protecting their privacy.
+## 1. Technology Stack
 
-The system is built for speed, both in user experience and development velocity. It leverages a **React (Vite)** frontend for a highly interactive UI and **Supabase** as an all-in-one backend for data, authentication, and user management.
+SpeakSharp is built on a modern, serverless technology stack designed for real-time applications.
 
+*   **Frontend:**
+    *   **Framework:** React (v18) with Vite
+    *   **Language:** TypeScript / JavaScript (JSX)
+    *   **Styling:** Tailwind CSS with a CVA-based design system
+    *   **State Management:** React Context and custom hooks
+*   **Backend (BaaS):**
+    *   **Platform:** Supabase
+    *   **Database:** Supabase Postgres
+    *   **Authentication:** Supabase Auth
+    *   **Serverless Functions:** Deno Edge Functions (for AssemblyAI token generation, Stripe integration, etc.)
+*   **Third-Party Services:**
+    *   **Cloud Transcription:** AssemblyAI (v3 Streaming API)
+    *   **Payments:** Stripe
+*   **Testing:**
+    *   **Unit/Integration:** Vitest
+    *   **E2E:** Playwright
 
-## 2. Recent Updates (v6.26)
-*August 31, 2025*
-- **Comprehensive Test Suite Expansion**: Implemented a full suite of new and refactored tests to enhance code quality and stability. This includes new tests for `AuthPage`, `useBrowserSupport`, and `useSpeechRecognition`, as well as significant enhancements to existing tests for `AnalyticsPage`, `SessionPage`, and `MainPage`.
-- **Hardened Test Environment**: Implemented a robust test environment with shims for external services (`Stripe`, `PostHog`, etc.) and network interception via Playwright to ensure deterministic E2E tests.
-- **Code Cleanup**: Deleted obsolete test files to streamline the codebase.
+## 2. Frontend Architecture
 
----
+The frontend is a single-page application (SPA) built with React and Vite.
 
-## 3. Known Issues
-- **Test Environment Memory Leak:** The test suite fails with a "JavaScript heap out of memory" error when running with coverage enabled (`pnpm test:coverage`). This prevents the generation of an up-to-date code coverage report.
-- **`useBrowserSupport` Hook Test Failures:** The unit tests for the `useBrowserSupport` hook are persistently failing due to issues with mocking global browser APIs in the JSDOM environment. The tests have been temporarily skipped.
-- **On-Device Transcription Needs Polish:** The `LocalWhisper` provider in `TranscriptionService` may require further UI/UX polishing.
+*   **Component Model:** The UI is built from a combination of page-level components (`src/pages`), feature-specific components (`src/components/session`, `src/components/landing`), and a reusable UI library (`src/components/ui`).
+*   **Design System:** The UI components in `src/components/ui` are built using `class-variance-authority` (CVA) for a flexible, type-safe, and maintainable design system. Design tokens are managed in `tailwind.config.ts`.
+*   **State Management:** Application state is managed primarily through React's built-in hooks (`useState`, `useContext`, `useReducer`). For cross-cutting concerns, custom hooks (`src/hooks`) are used (e.g., `useSessionManager`, `useSpeechRecognition`).
+*   **Routing:** Client-side routing is handled by `react-router-dom`.
 
----
+## 3. Backend Architecture
 
-## 4. Development Roadmap
-The project's development status is tracked in [`PROJECT_BOARD.md`](./PROJECT_BOARD.md).
+The backend is built entirely on the Supabase platform, leveraging its integrated services.
 
----
+*   **Database:** A PostgreSQL database managed by Supabase. The schema is defined and managed through migration files located in `supabase/migrations`. The schema includes tables for users, sessions, transcripts, and usage tracking.
+*   **Authentication:** Supabase Auth is used for user registration, login, and session management. It supports both email/password and OAuth providers.
+*   **Serverless Functions:** Deno-based Edge Functions are used for secure, server-side logic.
+    *   `assemblyai-token`: Securely generates temporary tokens for the AssemblyAI transcription service.
+    *   `stripe-checkout`: Handles the creation of Stripe checkout sessions.
+    *   `stripe-webhook`: Listens for and processes webhooks from Stripe to update user subscription status.
+    *   `get-ai-suggestions`: (Future) Intended to provide AI-powered suggestions based on transcript analysis.
 
-## 5. Software Quality Metrics
+## 4. Transcription Service (`src/services/transcription`)
 
-This section tracks key software quality metrics for the project.
+The `TranscriptionService.js` provides a unified abstraction layer over multiple transcription providers. This allows the application to seamlessly switch between modes.
 
-| Metric                        | Current Value | Date       | Notes                                           |
-| ----------------------------- | ------------- | ---------- | ----------------------------------------------- |
-| **Test Coverage (Lines)**     | `N/A`         | 2025-08-31 | Coverage generation failed due to memory leak.  |
-| **Total Tests**               | `64`          | 2025-08-31 | 4 tests skipped due to mocking issues.          |
-| **Test Suite RunTime**        | `16.14s`      | 2025-08-31 |                                                 |
----
+*   **Modes:**
+    *   **`CloudAssemblyAI`:** Uses the AssemblyAI v3 streaming API for high-accuracy cloud-based transcription. It communicates with the AssemblyAI service via WebSockets.
+    *   **`NativeBrowser`:** Uses the browser's built-in `SpeechRecognition` API for on-device transcription. This is a privacy-focused fallback.
+*   **Audio Processing:** The `audioUtils.js` and `audio-processor.worklet.js` are responsible for capturing microphone input, resampling it to the required 16kHz sample rate, and streaming it to the active transcription provider.
 
-## 6. Metrics and Success Criteria
+## 5. CI/CD
 
-### Service Level Indicators (SLIs) & Objectives (SLOs)
+The project includes a basic CI/CD pipeline defined in `.github/workflows/deploy.yml`.
 
-**SLIs (what we measure):**
-
-- 🕑 **Time to first transcript chunk (latency)** — ms between mic start and first transcript event.
-- ⚡ **End-to-end transcription latency (speed)** — avg delay between spoken word and displayed text.
-- 📉 **WebSocket error rate** — % of sessions terminated by non-1000 close codes.
-- 🔄 **Reconnect success rate** — % of reconnect attempts that resume within 2s.
-- 🔐 **Token issuance error rate** — % of failed requests to /assemblyai-token.
-- 💰 **Cost guardrail** — $/minute STT usage per active user session.
-
-**SLOs (targets):**
-
-- <2s to first transcript chunk (p95).
-- <500ms streaming transcription delay (p90).
-- <1% WebSocket error rate.
-- >95% reconnect success rate within 2s.
-- <0.5% token issuance failures.
-- <$0.05/min STT cost at MVP scale.
+*   **Current Implementation:** The workflow is triggered manually (`workflow_dispatch`) and handles the deployment of Supabase database migrations to a single environment.
+*   **Future Work:** The pipeline needs to be expanded to support multiple environments (e.g., `staging`, `production`) and automated deployments based on branch pushes.
