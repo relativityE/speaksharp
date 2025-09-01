@@ -33,7 +33,7 @@ const UpgradeBanner = () => {
 
 const AuthenticatedAnalyticsView = () => {
     const { sessionId } = useParams();
-    const { sessions, loading } = useSessionManager();
+    const { sessions, loading, error } = useSessionManager();
     const { user, profile } = useAuth();
     const [singleSession, setSingleSession] = useState(null);
     const [forceCloud, setForceCloud] = useState(false);
@@ -50,24 +50,7 @@ const AuthenticatedAnalyticsView = () => {
         }
     }, [sessionId, sessions]);
 
-    if (loading) {
-        return (
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-                <div className="lg:col-span-3">
-                    <div className="mb-8">
-                        <h1 className="text-3xl font-bold text-foreground">{sessionId ? "Session Analysis" : "Your Dashboard"}</h1>
-                        <p className="mt-2 text-base text-muted-foreground">Loading your data...</p>
-                    </div>
-                    <AnalyticsDashboardSkeleton />
-                </div>
-                <div className="lg:col-span-1">
-                    {/* Skeleton for sidebar */}
-                </div>
-            </div>
-        );
-    }
-
-    if (sessionId && !singleSession && !loading) {
+    if (sessionId && !singleSession && !loading && !error) {
          return (
             <div className="text-center py-16">
                 <h2 className="text-2xl font-semibold mb-4">Session Not Found</h2>
@@ -89,7 +72,12 @@ const AuthenticatedAnalyticsView = () => {
                         {sessionId ? "A detailed breakdown of your recent practice session." : "Here's an overview of your progress. Keep it up!"}
                     </p>
                 </div>
-                <AnalyticsDashboard sessionHistory={displaySessions} profile={profile} />
+                <AnalyticsDashboard
+                    sessionHistory={displaySessions}
+                    profile={profile}
+                    loading={loading}
+                    error={error}
+                />
             </div>
 
             <div className="lg:col-span-1 space-y-6 lg:sticky lg:top-24">
