@@ -26,6 +26,15 @@ vi.mock('sonner', () => ({
   },
 }));
 
+vi.mock('lucide-react', async (importOriginal) => {
+    const original = await importOriginal();
+    return {
+        ...original,
+        Cloud: () => <div data-testid="cloud-icon" />,
+        Computer: () => <div data-testid="computer-icon" />,
+    };
+});
+
 const defaultProps = {
   isListening: false,
   isReady: false,
@@ -64,8 +73,28 @@ describe('SessionSidebar', () => {
   it('renders in the listening state', () => {
     render(<SessionSidebar {...defaultProps} isListening={true} isReady={true} elapsedTime={30} />);
     expect(screen.getByText('Stop Session')).toBeInTheDocument();
-    expect(screen.getByText('● Listening...')).toBeInTheDocument();
+    expect(screen.getByText('Session Active')).toBeInTheDocument();
     expect(screen.getByText('00:30')).toBeInTheDocument();
+  });
+
+  describe('ModeIndicator', () => {
+    it('shows Cloud AI mode correctly', () => {
+      render(<SessionSidebar {...defaultProps} actualMode="cloud" />);
+      expect(screen.getByText('Cloud AI')).toBeInTheDocument();
+      expect(screen.getByTestId('cloud-icon')).toBeInTheDocument();
+    });
+
+    it('shows Browser mode correctly', () => {
+      render(<SessionSidebar {...defaultProps} actualMode="native" />);
+      expect(screen.getByText('Browser')).toBeInTheDocument();
+      expect(screen.getByTestId('computer-icon')).toBeInTheDocument();
+    });
+
+    it('does not render the indicator if mode is not set', () => {
+      render(<SessionSidebar {...defaultProps} actualMode={null} />);
+      expect(screen.queryByText('Cloud AI')).not.toBeInTheDocument();
+      expect(screen.queryByText('Browser')).not.toBeInTheDocument();
+    });
   });
 
   it('calls stopListening when the "Stop Session" button is clicked', async () => {

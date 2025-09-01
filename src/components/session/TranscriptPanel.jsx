@@ -1,5 +1,16 @@
 import React, { useEffect, useRef } from 'react';
 import { InitialStatePanel, ErrorStatePanel, LoadingStatePanel } from './StatefulPanel';
+import { MicOff } from 'lucide-react';
+
+const EmptyStatePanel = () => (
+    <div className="absolute inset-0 flex items-center justify-center">
+        <div className="text-center text-muted-foreground">
+            <MicOff className="w-12 h-12 mx-auto mb-4" />
+            <p className="text-lg font-semibold">Session Complete</p>
+            <p>No speech was detected during the session.</p>
+        </div>
+    </div>
+);
 
 const Chunk = ({ chunk, fillerData }) => {
     const fillerWords = Object.keys(fillerData);
@@ -56,6 +67,11 @@ export const TranscriptPanel = ({
 }) => {
     const scrollContainerRef = useRef(null);
     const scrollTimeoutRef = useRef(null);
+    const hasEverListened = useRef(false);
+
+    if (isListening) {
+        hasEverListened.current = true;
+    }
 
     useEffect(() => {
         if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
@@ -70,6 +86,7 @@ export const TranscriptPanel = ({
     }, [chunks, interimTranscript]);
 
     const showWaitingMessage = isListening && isReady && !chunks.length && !interimTranscript;
+    const showEmptyState = hasEverListened.current && !isListening && !isLoading && !error && chunks.length === 0;
 
     const renderContent = () => {
         if (error) {
@@ -77,6 +94,9 @@ export const TranscriptPanel = ({
         }
         if (isLoading) {
             return <LoadingStatePanel />;
+        }
+        if (showEmptyState) {
+            return <EmptyStatePanel />;
         }
         if (!isListening) {
             return <InitialStatePanel />;

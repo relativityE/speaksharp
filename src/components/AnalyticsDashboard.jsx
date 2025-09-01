@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ErrorDisplay } from './ErrorDisplay';
 import { generateSessionPdf } from '../lib/pdfGenerator';
 import { calculateTrends } from '../lib/analyticsUtils';
 import { supabase } from '@/lib/supabaseClient';
@@ -156,7 +157,15 @@ export const AnalyticsDashboardSkeleton = () => (
     </div>
 );
 
-export const AnalyticsDashboard = ({ sessionHistory, profile }) => {
+export const AnalyticsDashboard = ({ sessionHistory, profile, loading, error }) => {
+    if (loading) {
+        return <AnalyticsDashboardSkeleton />;
+    }
+
+    if (error) {
+        return <ErrorDisplay error={error} />;
+    }
+
     if (!sessionHistory || sessionHistory.length === 0) {
         return <EmptyState />;
     }

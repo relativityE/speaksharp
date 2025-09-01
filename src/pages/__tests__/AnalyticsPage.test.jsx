@@ -10,11 +10,15 @@ import { useSessionManager } from '../../hooks/useSessionManager';
 vi.mock('../../contexts/AuthContext');
 vi.mock('../../hooks/useSessionManager');
 vi.mock('../../components/AnalyticsDashboard', () => ({
-  AnalyticsDashboard: ({ sessionHistory }) => (
-    <div data-testid="analytics-dashboard">
-      {sessionHistory.length} session(s)
-    </div>
-  ),
+  AnalyticsDashboard: ({ sessionHistory, loading, error }) => {
+    if (loading) return <div data-testid="analytics-skeleton" />;
+    if (error) return <div data-testid="error-display">{error.message}</div>;
+    return (
+      <div data-testid="analytics-dashboard">
+        {sessionHistory.length} session(s)
+      </div>
+    );
+  },
   AnalyticsDashboardSkeleton: () => <div data-testid="analytics-skeleton" />,
 }));
 vi.mock('@/components/SessionStatus', () => ({
@@ -33,7 +37,8 @@ describe('AnalyticsPage', () => {
     });
     useSessionManager.mockReturnValue({
       sessions: [mockSession, { ...mockSession, id: 'session-2' }],
-      loading: false
+      loading: false,
+      error: null,
     });
   });
 
@@ -76,7 +81,7 @@ describe('AnalyticsPage', () => {
   });
 
   it('renders loading skeleton when loading', () => {
-    useSessionManager.mockReturnValue({ sessions: [], loading: true });
+    useSessionManager.mockReturnValue({ sessions: [], loading: true, error: null });
     renderWithRouter('/analytics');
     expect(screen.getByTestId('analytics-skeleton')).toBeInTheDocument();
   });
