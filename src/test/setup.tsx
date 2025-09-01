@@ -1,4 +1,5 @@
 import { vi, afterEach, beforeEach } from 'vitest';
+import { cleanup } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 // Track all mocked objects for cleanup
@@ -54,7 +55,8 @@ vi.mock('react-router-dom', async (importOriginal) => {
   return {
     ...actual,
     useNavigate: () => vi.fn(),
-    useLocation: () => ({ pathname: '/', search: '', hash: '', state: null }),
+    // We DON'T mock useLocation, so that MemoryRouter can provide state correctly.
+    // Let the actual implementation pass through.
   };
 });
 
@@ -212,42 +214,15 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // Nuclear cleanup
+  // Perform cleanup after each test
+  cleanup();
+
+  // Clear all mocks to prevent test cross-contamination
   vi.clearAllMocks();
-  vi.clearAllTimers();
   vi.restoreAllMocks();
+  vi.clearAllTimers();
 
-  // Clean up DOM
-  if (typeof document !== 'undefined') {
-    document.body.innerHTML = '';
-    document.head.innerHTML = '';
-  }
-
-  // Clean up window events
-  if (typeof window !== 'undefined') {
-    // Remove all event listeners
-    const events = [
-      'beforeunload', 'unload', 'resize', 'scroll', 'click', 'keydown',
-      'keyup', 'focus', 'blur', 'load', 'error', 'message'
-    ];
-
-    events.forEach(event => {
-      const listeners = window[`__${event}Listeners__`] || [];
-      listeners.forEach(listener => {
-        window.removeEventListener(event, listener);
-      });
-      window[`__${event}Listeners__`] = [];
-    });
-
-    // Clear any custom properties
-    Object.keys(window).forEach(key => {
-      if (key.startsWith('__') || key.includes('mock') || key.includes('test')) {
-        delete window[key];
-      }
-    });
-  }
-
-  // Force another GC
+  // Force garbage collection to help manage memory, which was a historical issue
   if (global.gc) {
     global.gc();
   }
