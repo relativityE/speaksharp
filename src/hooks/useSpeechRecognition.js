@@ -137,6 +137,7 @@ export const useSpeechRecognition = ({
     }, []);
 
     // FIX 9: Debounce filler word counting to prevent excessive recalculation
+    // FIX 9: Debounce filler word counting to prevent excessive recalculation
     const debouncedCountFillerWords = useMemo(() => {
         let timeoutId;
         return (text, callback) => {
