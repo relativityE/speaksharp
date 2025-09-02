@@ -10,6 +10,7 @@ import { ErrorDisplay } from './ErrorDisplay';
 import { generateSessionPdf } from '../lib/pdfGenerator';
 import { calculateTrends } from '../lib/analyticsUtils';
 import { supabase } from '@/lib/supabaseClient';
+import logger from '../lib/logger';
 
 const EmptyState = () => {
     const navigate = useNavigate();
@@ -179,7 +180,7 @@ export const AnalyticsDashboard = ({ sessionHistory, profile, loading, error }) 
             if (error) throw error;
             window.location.href = data.checkoutUrl;
         } catch (error) {
-            console.error('Error creating Stripe checkout session:', error);
+            logger.error({ error }, 'Error creating Stripe checkout session:');
         }
     };
 

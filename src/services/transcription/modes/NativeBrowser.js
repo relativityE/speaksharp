@@ -1,3 +1,5 @@
+import logger from '../../../lib/logger';
+
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
 export default class NativeBrowser {
@@ -41,16 +43,16 @@ export default class NativeBrowser {
           }
         }
       } catch (error) {
-        console.error("Error in NativeBrowser onresult handler:", error);
+        logger.error({ error }, "Error in NativeBrowser onresult handler:");
       }
     };
 
     this.recognition.onerror = (event) => {
       try {
-        console.error('Speech recognition error', event.error);
+        logger.error({ error: event.error }, 'Speech recognition error');
         // Maybe throw a custom event or call a callback to notify the UI
       } catch (error) {
-        console.error("Error in NativeBrowser onerror handler:", error);
+        logger.error({ error }, "Error in NativeBrowser onerror handler:");
       }
     };
 
@@ -62,7 +64,7 @@ export default class NativeBrowser {
           this.recognition.start();
         }
       } catch (error) {
-        console.error("Error in NativeBrowser onend handler:", error);
+        logger.error({ error }, "Error in NativeBrowser onend handler:");
       }
     };
   }
