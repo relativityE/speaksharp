@@ -106,6 +106,7 @@ A developer working in a stable local environment should now be able to:
 2.  Run the full test suite (`pnpm run test:clean`), which is now expected to pass.
 3.  Refactor existing tests (e.g., `src/__tests__/useSpeechRecognition.test.jsx`) to use the new `renderWithProviders` helper for rendering components. This will ensure they benefit from the fix and do not trigger the memory leak.
 
+
 ### Final Q&A / Handoff Summary
 
 A final review of the debugging process raised the following points:
@@ -125,6 +126,7 @@ A final review of the debugging process raised the following points:
 2.  Pull the new code containing the robust `AuthProvider` and test helpers.
 3.  Run the tests in a stable local environment. They are now expected to pass.
 4.  Refactor the remaining tests to use the new `renderWithProviders` helper to complete the migration.
+
 
 ## Linting
 
