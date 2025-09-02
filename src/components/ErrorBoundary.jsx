@@ -1,4 +1,5 @@
 import React from 'react';
+import logger from '../lib/logger';
 import { ErrorDisplay } from './ErrorDisplay';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
@@ -16,7 +17,7 @@ class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, errorInfo) {
     // You can also log the error to an error reporting service
-    console.error("Uncaught error:", error, errorInfo);
+    logger.error({ error, errorInfo }, "Uncaught error:");
   }
 
   render() {
