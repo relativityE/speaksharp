@@ -3,10 +3,9 @@ import { renderHook, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import TranscriptionService from '../services/transcription/TranscriptionService';
-import { useAuth } from '../contexts/AuthContext';
+import { AuthProvider } from '../contexts/AuthContext';
 
 // Mock dependencies
-vi.mock('../contexts/AuthContext');
 vi.mock('sonner', () => ({
   toast: {
     error: vi.fn(),
@@ -24,16 +23,8 @@ vi.mock('../services/transcription/TranscriptionService', () => ({
 
 
 describe('useSpeechRecognition Memory Test', () => {
-  let mockAuth;
-
   beforeEach(() => {
     vi.clearAllMocks();
-    mockAuth = {
-      session: { user: { id: 'test-user' } },
-      profile: { subscription_status: 'free' },
-    };
-    useAuth.mockReturnValue(mockAuth);
-
     mockTranscriptionServiceInstance = {
       init: vi.fn().mockResolvedValue(undefined),
       startTranscription: vi.fn(),
@@ -47,7 +38,15 @@ describe('useSpeechRecognition Memory Test', () => {
     cleanup();
   });
 
-  const wrapper = ({ children }) => <MemoryRouter>{children}</MemoryRouter>;
+  const session = { user: { id: 'test-user' } };
+
+  const wrapper = ({ children }) => (
+    <MemoryRouter>
+      <AuthProvider enableSubscription={false} initialSession={session}>
+        {children}
+      </AuthProvider>
+    </MemoryRouter>
+  );
 
   it('should render the hook without crashing', () => {
     const { result } = renderHook(() => useSpeechRecognition(), { wrapper });

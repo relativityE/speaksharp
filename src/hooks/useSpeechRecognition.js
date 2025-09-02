@@ -4,7 +4,6 @@ import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import TranscriptionService from '../services/transcription/TranscriptionService';
 import { FILLER_WORD_KEYS } from '../config';
-// import { supabase } from '../lib/supabaseClient';
 
 const defaultFillerPatterns = {
     [FILLER_WORD_KEYS.UM]: /\b(um|umm|ummm|uhm)\b/gi,
