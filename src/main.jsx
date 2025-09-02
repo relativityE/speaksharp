@@ -5,7 +5,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import './index.css';
 // NOTE: App is now dynamically imported below
-import { AuthProvider } from './contexts/AuthContext.jsx';
+import { AuthProvider } from './contexts/AuthContext';
 import posthog from 'posthog-js';
 import { PostHogProvider } from 'posthog-js/react';
 import { Elements } from '@stripe/react-stripe-js';
