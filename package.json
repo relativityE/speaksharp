@@ -7,7 +7,7 @@
     "build": "vite build --mode test",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest run",
+    "test": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest run --no-cache",
     "test:coverage": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest run --coverage",
     "test:ui": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest --ui",
     "test:single": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest run --reporter=verbose",

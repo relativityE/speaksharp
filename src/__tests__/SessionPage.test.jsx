@@ -87,8 +87,11 @@ describe('SessionPage', () => {
         vi.clearAllMocks();
     });
 
-    it('should call posthog.capture on mount', () => {
+    it('should call posthog.capture on mount', async () => {
         render(<SessionPage />);
+        await act(async () => {
+            await vi.runAllTimersAsync();
+        });
         expect(posthog.capture).toHaveBeenCalledWith('session_page_viewed');
     });
 
