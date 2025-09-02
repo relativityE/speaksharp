@@ -79,6 +79,26 @@ This project uses [Vitest](https://vitest.dev/) for unit and integration tests a
     pnpm test:e2e
     ```
 
+### Troubleshooting and Strategy
+
+The test suite has been historically unstable due to memory leaks and a persistent caching issue in the Vitest runner. When debugging tests, please refer to the following strategies:
+
+*   **Memory Leaks:** Leaks have been observed when tests do not properly clean up resources.
+    *   For tests involving classes that manage resources (e.g., WebSockets), ensure an `afterEach` hook calls a `destroy()` or `stop()` method on the instance.
+    *   For tests involving React hooks (`renderHook`), ensure `cleanup` from `@testing-library/react` is called in `afterEach` to unmount the component and trigger cleanup effects.
+
+*   **Mocking Classes:** To correctly mock a class constructor that is instantiated with `new` inside the code under test, you must mock the `default` export of the module:
+    ```javascript
+    vi.mock('./path/to/Service', () => ({
+      default: vi.fn().mockImplementation(() => myMockServiceInstance)
+    }));
+    ```
+
+*   **Caching Issues:** The test runner has a very aggressive cache that can ignore file changes, even after deleting/recreating files. If tests are not behaving as expected or failing to update, run the test command with the `--no-cache` flag:
+    ```bash
+    pnpm test -- --no-cache
+    ```
+
 ## Linting
 
 To check the code for linting errors, run:
