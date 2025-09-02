@@ -21,15 +21,15 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 - ✅ Fix cloud transcription connection: Use correct v3 endpoint and handle raw PCM audio instead of JSON.
 - ✅ Fix data flow race condition: Ensure session data is saved before navigation.
 - ✅ Fix state management & navigation bugs: Resolved issues in the session page.
-- ✅ Stabilize the Vitest test suite: All unit tests now pass without warnings. (Note: A memory leak currently prevents coverage runs, and 4 tests are skipped.)
+- 🔴 **Stabilize the Vitest test suite:** The suite is currently un-runnable due to a catastrophic memory leak.
 - ✅ Fix CSS Build Process & Styling: Resolved a cascade of issues including incompatible build plugins, incorrect dependencies, and a disconnected theme.
 - ✅ Reinstate session saving & analytics: Ensure new v3 transcripts are stored correctly.
 
 ### 🚧 Should-Have (Tech Debt)
-- 🔴 **Fix Test Suite Environment:** A parent task to investigate and fix the root causes of the test suite's instability.
-  - 🔴 1. Resolve Test Runner Hangs: Debug and fix the issue causing pnpm test to hang indefinitely.
-  - 🔴 2. Resolve Vitest Caching Issues: Identify and fix the severe caching problem that prevents updated test files from being executed.
-  - 🔴 3. Fix Skipped Tests: Address the underlying issues and re-enable the tests for CloudAssemblyAI, SessionSidebar, useSpeechRecognition, and AnalyticsPage.
+- 🟡 **Fix Test Suite Environment:** A parent task to investigate and fix the root causes of the test suite's instability.
+  - ✅ 1. Diagnose Root Cause: The memory leak has been traced to the Supabase `onAuthStateChange` listener.
+  - ✅ 2. Implement Code-Level Fix: A robust, prop-gated `AuthProvider` has been implemented to disable the listener in tests.
+  - 🔴 3. Verify Fix & Re-enable Tests: Verification is blocked by an unknown issue in the test environment. A local developer must run the tests to confirm the fix.
 - ✅ Improve toast notification styling: Toasts are now pill-shaped with appropriate styling.
 - ✅ Improve loading/waiting state feedback: The transcript panel now provides clearer UI feedback.
 - ✅ Add Page-Level Render Tests: Create a test for each main page (Home, Session, Analytics, Auth) to verify it renders without crashing.
