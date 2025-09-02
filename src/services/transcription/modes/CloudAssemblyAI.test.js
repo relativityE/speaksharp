@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import CloudAssemblyAI from './CloudAssemblyAI';
 
 // A robust mock for WebSocket
@@ -34,36 +34,42 @@ const mockMic = {
   sampleRate: 16000,
 };
 
-describe.skip('CloudAssemblyAI', () => {
+describe('CloudAssemblyAI', () => {
   let getAssemblyAITokenMock;
   const onTranscriptUpdate = vi.fn();
   const onReady = vi.fn();
+  let cloudAI;
 
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
     // Create a fresh mock for each test
     getAssemblyAITokenMock = vi.fn().mockResolvedValue('fake-token-123');
+    cloudAI = null;
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Clean up any running instance to prevent leaks
+    if (cloudAI && typeof cloudAI.stopTranscription === 'function') {
+      await cloudAI.stopTranscription();
+    }
     vi.useRealTimers();
   });
 
   it('should initialize correctly and not throw', async () => {
-    const cloudAI = new CloudAssemblyAI({ getAssemblyAIToken: getAssemblyAITokenMock });
+    cloudAI = new CloudAssemblyAI({ getAssemblyAIToken: getAssemblyAITokenMock });
     await expect(cloudAI.init()).resolves.toBeUndefined();
   });
 
   it('should throw an error if getAssemblyAIToken is not a function', async () => {
     // Instantiate without the required function
-    const cloudAI = new CloudAssemblyAI();
+    cloudAI = new CloudAssemblyAI();
     await expect(cloudAI.init()).rejects.toThrow('CloudAssemblyAI requires a getAssemblyAIToken function.');
   });
 
   describe('startTranscription', () => {
     it('should create a WebSocket with the correct URL', async () => {
-      const cloudAI = new CloudAssemblyAI({
+      cloudAI = new CloudAssemblyAI({
         getAssemblyAIToken: getAssemblyAITokenMock,
         onReady,
       });
@@ -90,7 +96,7 @@ describe.skip('CloudAssemblyAI', () => {
 
   describe('_handleAudioFrame', () => {
     it('should convert Float32Array to Int16Array and send', async () => {
-      const cloudAI = new CloudAssemblyAI({ getAssemblyAIToken: getAssemblyAITokenMock });
+      cloudAI = new CloudAssemblyAI({ getAssemblyAIToken: getAssemblyAITokenMock });
       await cloudAI.init();
       await cloudAI.startTranscription(mockMic);
       await vi.runAllTimersAsync();
@@ -106,7 +112,7 @@ describe.skip('CloudAssemblyAI', () => {
 
   describe('onmessage', () => {
     it('should handle final transcripts', async () => {
-      const cloudAI = new CloudAssemblyAI({
+      cloudAI = new CloudAssemblyAI({
         getAssemblyAIToken: getAssemblyAITokenMock,
         onTranscriptUpdate,
       });
@@ -123,7 +129,7 @@ describe.skip('CloudAssemblyAI', () => {
 
   describe('stopTranscription', () => {
     it('should detach from mic, send terminate message, and close socket', async () => {
-      const cloudAI = new CloudAssemblyAI({ getAssemblyAIToken: getAssemblyAITokenMock });
+      cloudAI = new CloudAssemblyAI({ getAssemblyAIToken: getAssemblyAITokenMock });
       await cloudAI.init();
       await cloudAI.startTranscription(mockMic);
       await vi.runAllTimersAsync();

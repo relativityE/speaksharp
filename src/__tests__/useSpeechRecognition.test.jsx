@@ -1,12 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import TranscriptionService from '../services/transcription/TranscriptionService';
 import { useAuth } from '../contexts/AuthContext';
 
 // Mock dependencies
-vi.mock('../services/transcription/TranscriptionService');
 vi.mock('../contexts/AuthContext');
 vi.mock('sonner', () => ({
   toast: {
@@ -14,9 +13,24 @@ vi.mock('sonner', () => ({
   },
 }));
 
-describe.skip('useSpeechRecognition', () => {
+// Define a mutable instance that our mock will return.
+let mockTranscriptionServiceInstance;
+
+// THIS IS THE CORRECT FIX: Mock the entire TranscriptionService class constructor
+vi.mock('../services/transcription/TranscriptionService', () => {
+  // This is the factory that Vitest will use for the module
+  return {
+    // The default export is the class constructor. We replace it with a mock function.
+    default: vi.fn().mockImplementation(() => {
+      // That mock function, when called with `new`, returns our mock instance.
+      return mockTranscriptionServiceInstance;
+    })
+  };
+});
+
+
+describe('useSpeechRecognition', () => {
   let mockAuth;
-  let mockTranscriptionServiceInstance;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -28,23 +42,20 @@ describe.skip('useSpeechRecognition', () => {
     };
     useAuth.mockReturnValue(mockAuth);
 
-    // Create a mock instance that the constructor will return
+    // Create a fresh mock instance for each test to ensure isolation.
     mockTranscriptionServiceInstance = {
       init: vi.fn().mockResolvedValue(undefined),
       startTranscription: vi.fn().mockResolvedValue(undefined),
       stopTranscription: vi.fn().mockResolvedValue({ transcript: 'Hello world.', total_words: 2 }),
-      destroy: vi.fn(),
+      destroy: vi.fn().mockResolvedValue(undefined),
       mode: 'mock',
     };
-
-    // Configure the mock constructor to return our mock instance
-    vi.mocked(TranscriptionService).mockImplementation(() => mockTranscriptionServiceInstance);
   });
 
-  afterEach(() => {
-    vi.runOnlyPendingTimers();
+  afterEach(async () => {
+    cleanup();
+    await vi.runAllTimersAsync();
     vi.useRealTimers();
-    vi.restoreAllMocks();
   });
 
   const wrapper = ({ children }) => <MemoryRouter>{children}</MemoryRouter>;
@@ -79,7 +90,6 @@ describe.skip('useSpeechRecognition', () => {
       await result.current.startListening();
     });
 
-    // Directly call the mocked stop function
     let stopResult;
     await act(async () => {
       stopResult = await result.current.stopListening();
@@ -94,7 +104,6 @@ describe.skip('useSpeechRecognition', () => {
 
   it('should handle errors during startListening', async () => {
     const error = new Error('Permission denied');
-    // Setup the mock to reject for this specific test
     mockTranscriptionServiceInstance.startTranscription.mockRejectedValue(error);
 
     const { result } = renderHook(() => useSpeechRecognition(), { wrapper });
@@ -111,13 +120,11 @@ describe.skip('useSpeechRecognition', () => {
   it('should reset the state', async () => {
     const { result } = renderHook(() => useSpeechRecognition(), { wrapper });
 
-    // Set some initial state by starting and stopping
     await act(async () => {
       await result.current.startListening();
       await result.current.stopListening();
     });
 
-    // Now reset
     act(() => {
       result.current.reset();
     });
@@ -131,12 +138,10 @@ describe.skip('useSpeechRecognition', () => {
   it('should call destroy on unmount', async () => {
     const { result, unmount } = renderHook(() => useSpeechRecognition(), { wrapper });
 
-    // Start listening to create the service instance
     await act(async () => {
       await result.current.startListening();
     });
 
-    // Now unmount the hook, which should trigger the cleanup effect
     unmount();
 
     expect(mockTranscriptionServiceInstance.destroy).toHaveBeenCalledTimes(1);
