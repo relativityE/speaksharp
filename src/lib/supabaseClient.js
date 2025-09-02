@@ -10,15 +10,12 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 // IMPORTANT: The VITE_SUPABASE_URL should be the API URL (e.g., https://<project-ref>.supabase.co),
 // NOT the dashboard URL (e.g., https://supabase.com/dashboard/project/...).
+const isTest = import.meta.env.MODE === 'test';
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    // This is the default, but it's good to be explicit.
-    // We are using the browser's localStorage to store the user's session.
-    // This is safe because Supabase's JWTs are stateless and stored in a secure,
-    // http-only cookie by default. The JS client needs access to the JWT to
-    // know if the user is authenticated.
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
-  }
+    autoRefreshToken: !isTest,
+    persistSession: !isTest,
+    detectSessionInUrl: !isTest,
+  },
 });
