@@ -45,7 +45,7 @@ export default defineConfig({
     hookTimeout: 5000,
     // Enable garbage collection
     globals: true,
-    environment: 'jsdom',
+    environment: 'happy-dom',
 
     // Explicit cache directory
     cache: {
