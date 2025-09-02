@@ -46,6 +46,15 @@ export default defineConfig({
     // Enable garbage collection
     globals: true,
     environment: 'jsdom',
+
+    // Explicit cache directory
+    cache: {
+      dir: '/tmp/vitest_cache',
+    },
+
+    // Good to keep test runs isolated from local noise
+    clearMocks: true,
+    restoreMocks: true,
     setupFiles: ['./src/test/setup.tsx'],
     // Run coverage only on successful tests
     coverage: {
