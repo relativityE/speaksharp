@@ -4,6 +4,7 @@ import { StrictMode } from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import './index.css';
+import logger from '@/lib/logger';
 // NOTE: App is now dynamically imported below
 import { AuthProvider } from './contexts/AuthContext';
 import posthog from 'posthog-js';
@@ -48,7 +49,7 @@ const renderApp = async () => {
           });
         }
       } catch (error) {
-        console.warn("PostHog failed to initialize:", error);
+        logger.warn({ error }, "PostHog failed to initialize:");
       }
 
       const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
@@ -67,7 +68,7 @@ const renderApp = async () => {
           sendDefaultPii: true,
         });
       } catch (error) {
-        console.warn("Sentry failed to initialize:", error);
+        logger.warn({ error }, "Sentry failed to initialize:");
       }
 
       root.render(

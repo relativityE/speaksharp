@@ -15,7 +15,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - 🔴 5. E2E Testing & Hardening: Write comprehensive tests and harden the feature for production use.
 - 🔴 **Harden and Polish the Native Transcription Experience:** Improve the reliability and UX of the default NativeBrowser (cloud) mode.
 - ✅ **Implement Conditional Rendering for Missing Env Vars:** The app should not crash if environment variables are missing, but instead show a graceful "offline" or "configuration needed" state.
-- 🔴 **Add structured logging:** Implement for both frontend and backend to improve debuggability.
+- ✅ **Add structured logging:** Implement for both frontend and backend to improve debuggability.
 - 🟡 **Update E2E tests for v3 transcription flow:** This is blocked by a critical rendering failure in the Playwright environment.
 - 🔴 **Add full unit test coverage for `CloudAssemblyAI.js`:** Target ≥80% coverage for core logic.
 - ✅ Fix cloud transcription connection: Use correct v3 endpoint and handle raw PCM audio instead of JSON.
