@@ -149,6 +149,19 @@ A final review of the debugging process raised the following points:
 4.  Refactor the remaining tests to use the new `renderWithProviders` helper to complete the migration.
 
 
+### Frontend Verification (Playwright) Debugging Learnings
+
+**Last Updated:** 2025-09-02
+
+During the implementation of UI changes, the Playwright-based frontend verification scripts repeatedly failed. A systematic debugging process revealed several key learnings about the application and test environment:
+
+1.  **Environment Variables are Critical:** The initial and most significant blocker was a missing `.env` file. The application correctly renders a fallback "Configuration Needed" page when environment variables are missing. This means any verification script will fail to find expected elements from the main application. **Lesson:** Always run an environment check (`jules-scratch/verification/env_check.py`) as the first step in debugging rendering issues.
+
+2.  **`networkidle` is Unreliable:** The deep diagnosis script revealed that the application's third-party libraries (PostHog, Sentry) enter aggressive retry loops when they fail to initialize due to placeholder keys or network blocks (e.g., from ad-blockers). This prevents the page's network from ever being truly "idle". **Lesson:** When writing verification scripts, avoid using `wait_until="networkidle"`. Prefer more robust waiting strategies like `wait_until="domcontentloaded"` and then waiting for specific elements to be visible.
+
+3.  **Strict Mode Violations are Informative:** A "strict mode violation" error in Playwright, which occurs when a selector matches multiple elements, is a positive signal. It confirms that the page *is* rendering and that the content is visible to the test runner. **Lesson:** Treat this error not as a failure, but as a prompt to create a more specific, unambiguous element selector.
+
+
 ## Linting
 
 To check the code for linting errors, run:
