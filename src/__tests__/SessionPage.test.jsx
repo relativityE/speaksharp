@@ -2,12 +2,14 @@ import { render, screen, act, fireEvent, within } from '@testing-library/react';
 import { vi } from 'vitest';
 import { SessionPage } from '../pages/SessionPage';
 import { useAuth } from '../contexts/AuthContext';
+import { useSession } from '../contexts/SessionContext';
 import { useSessionManager } from '../hooks/useSessionManager';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import posthog from 'posthog-js';
 
 // Mock dependencies
 vi.mock('../contexts/AuthContext');
+vi.mock('../contexts/SessionContext');
 vi.mock('../hooks/useSessionManager');
 vi.mock('../hooks/useSpeechRecognition');
 vi.mock('posthog-js', () => ({
@@ -49,16 +51,22 @@ vi.mock('@/components/ui/drawer', () => ({
 
 
 describe('SessionPage', () => {
+    console.log('[TEST LOG] Starting SessionPage tests...');
     let mockUseAuth;
     let mockUseSessionManager;
     let mockUseSpeechRecognition;
+    let mockUseSession;
 
     beforeEach(() => {
+        console.log('[TEST LOG] Running beforeEach...');
         mockUseAuth = { user: null, profile: null };
         mockUseSessionManager = {
             saveSession: vi.fn(),
             usageLimitExceeded: false,
             setUsageLimitExceeded: vi.fn(),
+        };
+        mockUseSession = {
+            addSession: vi.fn(),
         };
         mockUseSpeechRecognition = {
             isListening: false,
@@ -77,12 +85,14 @@ describe('SessionPage', () => {
 
         useAuth.mockReturnValue(mockUseAuth);
         useSessionManager.mockReturnValue(mockUseSessionManager);
+        useSession.mockReturnValue(mockUseSession);
         useSpeechRecognition.mockReturnValue(mockUseSpeechRecognition);
 
         vi.useFakeTimers();
     });
 
     afterEach(() => {
+        console.log('[TEST LOG] Running afterEach...');
         vi.useRealTimers();
         vi.clearAllMocks();
     });

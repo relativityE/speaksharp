@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { NavLink, useNavigate, useParams, useLocation } from 'react-router-dom';
 import { AnalyticsDashboard, AnalyticsDashboardSkeleton } from '../components/AnalyticsDashboard';
-import { useSessionManager } from '../hooks/useSessionManager';
+import { useSession } from '../contexts/SessionContext';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -33,22 +33,22 @@ const UpgradeBanner = () => {
 
 const AuthenticatedAnalyticsView = () => {
     const { sessionId } = useParams();
-    const { sessions, loading, error } = useSessionManager();
+    const { sessionHistory, loading, error } = useSession();
     const { user, profile } = useAuth();
     const [singleSession, setSingleSession] = useState(null);
     const [forceCloud, setForceCloud] = useState(false);
 
     const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
-    const displaySessions = sessionId ? (singleSession ? [singleSession] : []) : sessions;
+    const displaySessions = sessionId ? (singleSession ? [singleSession] : []) : sessionHistory;
 
     useEffect(() => {
-        if (sessionId && sessions.length > 0) {
-            const foundSession = sessions.find(s => s.id === sessionId);
+        if (sessionId && sessionHistory.length > 0) {
+            const foundSession = sessionHistory.find(s => s.id === sessionId);
             setSingleSession(foundSession);
         } else {
             setSingleSession(null);
         }
-    }, [sessionId, sessions]);
+    }, [sessionId, sessionHistory]);
 
     if (sessionId && !singleSession && !loading && !error) {
          return (

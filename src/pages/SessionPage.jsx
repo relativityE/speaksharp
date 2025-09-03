@@ -66,10 +66,12 @@ const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) =
 
 
 import { useAuth } from '../contexts/AuthContext';
+import { useSession } from '../contexts/SessionContext';
 
 export const SessionPage = () => {
     const { user, profile, session } = useAuth();
-    const { saveSession, usageLimitExceeded, setUsageLimitExceeded } = useSessionManager();
+    const { saveSession: saveSessionToBackend, usageLimitExceeded, setUsageLimitExceeded } = useSessionManager();
+    const { addSession } = useSession();
     const [customWords, setCustomWords] = useState([]);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
     const [elapsedTime, setElapsedTime] = useState(0);
@@ -113,6 +115,17 @@ export const SessionPage = () => {
         }
     }, [elapsedTime, isListening, user, profile, speechRecognition.stopListening, setUsageLimitExceeded]);
 
+    const saveAndBroadcastSession = async (sessionData) => {
+        const newSession = await saveSessionToBackend(sessionData);
+        if (newSession) {
+            // The session object from the DB might be slightly different, so we fetch it again
+            // to ensure the UI has the most accurate data.
+            // For now, we assume the returned object is sufficient.
+            addSession(newSession);
+        }
+        return newSession;
+    };
+
     return (
         <div className="container mx-auto px-component-px py-10">
             <UpgradePromptDialog
@@ -133,7 +146,7 @@ export const SessionPage = () => {
 
                 {/* Desktop Sidebar (Right Column) */}
                 <div className="hidden lg:block lg:w-1/3">
-                    <SessionSidebar {...speechRecognition} saveSession={saveSession} actualMode={speechRecognition.mode} elapsedTime={elapsedTime} modelLoadingProgress={modelLoadingProgress} />
+                    <SessionSidebar {...speechRecognition} saveSession={saveAndBroadcastSession} actualMode={speechRecognition.mode} elapsedTime={elapsedTime} modelLoadingProgress={modelLoadingProgress} />
                 </div>
 
                 {/* Mobile Drawer */}
@@ -147,7 +160,7 @@ export const SessionPage = () => {
                         </DrawerTrigger>
                         <DrawerContent>
                             <div className="p-4 overflow-y-auto h-[80vh]">
-                                <SessionSidebar {...speechRecognition} saveSession={saveSession} actualMode={speechRecognition.mode} elapsedTime={elapsedTime} modelLoadingProgress={modelLoadingProgress} />
+                                <SessionSidebar {...speechRecognition} saveSession={saveAndBroadcastSession} actualMode={speechRecognition.mode} elapsedTime={elapsedTime} modelLoadingProgress={modelLoadingProgress} />
                             </div>
                         </DrawerContent>
                     </Drawer>
