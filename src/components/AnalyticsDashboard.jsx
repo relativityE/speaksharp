@@ -8,8 +8,9 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorDisplay } from './ErrorDisplay';
 import { generateSessionPdf } from '../lib/pdfGenerator';
-import { calculateTrends } from '../lib/analyticsUtils';
+import { calculateOverallStats, calculateFillerWordTrends } from '../lib/analyticsUtils';
 import { formatDate, formatDateTime } from '../lib/dateUtils';
+import { FillerWordTable } from './analytics/FillerWordTable';
 import { supabase } from '@/lib/supabaseClient';
 import logger from '../lib/logger';
 
@@ -172,7 +173,8 @@ export const AnalyticsDashboard = ({ sessionHistory, profile, loading, error }) 
         return <EmptyState />;
     }
 
-    const trends = calculateTrends(sessionHistory);
+    const overallStats = calculateOverallStats(sessionHistory);
+    const fillerWordTrends = calculateFillerWordTrends(sessionHistory.slice(0, 5));
     const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
 
     const handleUpgrade = async () => {
@@ -202,10 +204,10 @@ export const AnalyticsDashboard = ({ sessionHistory, profile, loading, error }) 
                 </Card>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                <StatCard icon={<Layers size={24} className="text-muted-foreground" />} label="Total Sessions" value={trends.totalSessions} />
-                <StatCard icon={<TrendingUp size={24} className="text-muted-foreground" />} label="Avg. Filler Words / Min" value={trends.avgFillerWordsPerMin} />
-                <StatCard icon={<Clock size={24} className="text-muted-foreground" />} label="Total Practice Time" value={trends.totalPracticeTime} unit="mins" />
-                <StatCard icon={<Target size={24} className="text-muted-foreground" />} label="Avg. Accuracy" value={trends.avgAccuracy} unit="%" />
+                <StatCard icon={<Layers size={24} className="text-muted-foreground" />} label="Total Sessions" value={overallStats.totalSessions} />
+                <StatCard icon={<TrendingUp size={24} className="text-muted-foreground" />} label="Avg. Filler Words / Min" value={overallStats.avgFillerWordsPerMin} />
+                <StatCard icon={<Clock size={24} className="text-muted-foreground" />} label="Total Practice Time" value={overallStats.totalPracticeTime} unit="mins" />
+                <StatCard icon={<Target size={24} className="text-muted-foreground" />} label="Avg. Accuracy" value={overallStats.avgAccuracy} unit="%" />
             </div>
 
             <div className="grid grid-cols-1 gap-8 lg:grid-cols-5">
@@ -214,9 +216,9 @@ export const AnalyticsDashboard = ({ sessionHistory, profile, loading, error }) 
                         <CardTitle>Filler Word Trend</CardTitle>
                     </CardHeader>
                     <CardContent className="pl-2">
-                        {trends.chartData.length > 1 ? (
+                        {overallStats.chartData.length > 1 ? (
                             <ResponsiveContainer width="100%" height={300}>
-                                <LineChart data={trends.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                                <LineChart data={overallStats.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                                     <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
                                     <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
                                     <YAxis stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
@@ -240,35 +242,7 @@ export const AnalyticsDashboard = ({ sessionHistory, profile, loading, error }) 
                 </Card>
 
                 <Card className="col-span-1 lg:col-span-2">
-                    <CardHeader>
-                        <CardTitle>Top Filler Words</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        {trends.topFillerWords.length > 0 ? (
-                            <ResponsiveContainer width="100%" height={300}>
-                                <BarChart data={trends.topFillerWords} layout="vertical" margin={{ top: 0, right: 20, left: 10, bottom: 0 }}>
-                                    <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
-                                    <XAxis type="number" hide />
-                                    <YAxis type="category" dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} width={80} />
-                                    <Tooltip
-                                        cursor={{ fill: 'hsla(var(--secondary))' }}
-                                        contentStyle={{
-                                            backgroundColor: 'hsl(var(--card))',
-                                            borderColor: 'hsl(var(--border))',
-                                            color: 'hsl(var(--foreground))'
-                                        }}
-                                    />
-                                    <Bar dataKey="value" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]}>
-                                        <LabelList dataKey="value" position="right" className="fill-foreground font-bold" />
-                                    </Bar>
-                                </BarChart>
-                            </ResponsiveContainer>
-                        ) : (
-                            <div className="flex items-center justify-center h-[300px] text-muted-foreground">
-                                <p>No filler words detected yet. Keep practicing!</p>
-                            </div>
-                        )}
-                    </CardContent>
+                    <FillerWordTable trendData={fillerWordTrends} />
                 </Card>
             </div>
 

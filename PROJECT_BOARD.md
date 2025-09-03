@@ -19,6 +19,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 - 🟡 **Update E2E tests for v3 transcription flow:** This is blocked by a critical rendering failure in the Playwright environment.
 - 🔴 **Add full unit test coverage for `CloudAssemblyAI.js`:** Target ≥80% coverage for core logic.
 - ✅ Fix cloud transcription connection: Use correct v3 endpoint and handle raw PCM audio instead of JSON.
+- ✅ **Fix Session History Data Flow:** Repaired the data flow between session creation and the analytics page to ensure new sessions are displayed correctly.
 - ✅ Fix data flow race condition: Ensure session data is saved before navigation.
 - ✅ Fix state management & navigation bugs: Resolved issues in the session page.
 - ✅ **Stabilize the Vitest test suite:** The suite is now stable, with almost all previously disabled tests fixed and re-enabled.

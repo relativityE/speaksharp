@@ -64,7 +64,7 @@ export const useSessionManager = () => {
 
       if (newSession) {
         setSessions(prevSessions => [newSession, ...prevSessions]);
-        return newSession.id;
+        return newSession;
       }
       return null;
     } catch (err) {

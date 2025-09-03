@@ -72,11 +72,14 @@ const renderApp = async () => {
         logger.warn({ error }, "Sentry failed to initialize:");
       }
 
+      // In E2E tests, we can inject a mock session by setting a global variable.
+      const initialSession = window.__E2E_MOCK_SESSION__ || null;
+
       root.render(
         <StrictMode>
           <BrowserRouter>
             <PostHogProvider client={posthog}>
-              <AuthProvider>
+              <AuthProvider initialSession={initialSession}>
                 <SessionProvider>
                   <Elements stripe={stripePromise}>
                     <Sentry.ErrorBoundary fallback={<div>An error has occurred. Please refresh the page.</div>}>

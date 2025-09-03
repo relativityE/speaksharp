@@ -29,9 +29,12 @@ SpeakSharp is built on a modern, serverless technology stack designed for real-t
 
 The frontend is a single-page application (SPA) built with React and Vite.
 
-*   **Component Model:** The UI is built from a combination of page-level components (`src/pages`), feature-specific components (`src/components/session`, `src/components/landing`), and a reusable UI library (`src/components/ui`). The analytics dashboard features a table-based component for displaying per-session filler word statistics, including color-coded severity indicators and tooltips with trend data.
+*   **Component Model:** The UI is built from a combination of page-level components (`src/pages`), feature-specific components (`src/components/session`, `src/components/landing`), and a reusable UI library (`src/components/ui`). The analytics dashboard features a `FillerWordTable` component for displaying per-session filler word statistics for the 5 most recent sessions. This table includes color-coded severity indicators and tooltips with trend data.
 *   **Design System:** The UI components in `src/components/ui` are built using `class-variance-authority` (CVA) for a flexible, type-safe, and maintainable design system. Design tokens are managed in `tailwind.config.ts`.
-*   **State Management:** Global state for the authenticated user and session history is managed via React Context (`AuthContext`, `SessionContext`). For component-level and local state, React's built-in hooks (`useState`, `useReducer`) are used. For complex, cross-cutting concerns, custom hooks (`src/hooks`) are employed (e.g., `useSessionManager`, `useSpeechRecognition`).
+*   **State Management:** Global state is managed via a combination of React Context and custom hooks, ensuring a clear separation of concerns.
+    *   **`AuthContext`:** This is the primary source for authentication state. It provides the Supabase `session` object, the `user` object, and the user's `profile` data (fetched from the `profiles` table). Components that need to know the current user's status, role, or identity consume this context.
+    *   **`SessionContext`:** This context manages the collection of a user's practice sessions (`sessionHistory`). It is responsible for fetching the history and providing a function (`addSession`) to update the history in the application state after a new session is saved. This context is consumed by the `AnalyticsPage`.
+    *   **`useSessionManager`:** This custom hook encapsulates the logic for saving, deleting, and exporting sessions. It interacts with the `lib/storage.js` module to perform the actual database operations and is used by components like `SessionPage`. After a successful save, it returns the new session object to the calling component, which is then responsible for adding it to the `SessionContext`.
 *   **Routing:** Client-side routing is handled by `react-router-dom`.
 *   **Logging:** The application uses `pino` for structured logging to improve debuggability and provide more consistent log output. For development, `pino-pretty` is used to format logs in a human-readable way. A shared logger instance is configured in `src/lib/logger.js` and is used throughout the frontend application to replace standard `console.log` statements.
 
@@ -47,7 +50,26 @@ The backend is built entirely on the Supabase platform, leveraging its integrate
     *   `stripe-webhook`: Listens for and processes webhooks from Stripe to update user subscription status.
     *   `get-ai-suggestions`: (Future) Intended to provide AI-powered suggestions based on transcript analysis.
 
-## 4. Transcription Service (`src/services/transcription`)
+## 4. User Roles and Tiers
+
+The application defines several user tiers that control access to features and usage limits. The user's tier is determined by their authentication state and their subscription status in Stripe, managed via Supabase.
+
+*   **Anonymous User:**
+    *   **Definition:** A user who has not signed in.
+    *   **Flow:** Accesses the main landing page, can start a single practice session with a short, fixed duration (e.g., 2 minutes), and can view the analytics for that session. They are prompted to sign in to save history and unlock more features.
+
+*   **Free User (Authenticated):**
+    *   **Definition:** A user who has created an account and is logged in but does not have an active Pro subscription.
+    *   **Flow:** Can view their session history. They have a limited amount of free practice time per month. When this limit is exhausted, they are prompted by the `UpgradePromptDialog` to upgrade to a Pro plan. Their session duration is also limited (e.g., 30 minutes).
+
+*   **Pro User (Authenticated):**
+    *   **Definition:** A user with an active, paid subscription via Stripe.
+    *   **Flow:** Has unlimited practice time and no session duration limits. They have access to all current features and will have access to future premium features like on-device transcription.
+
+*   **Premium User:**
+    *   **Note:** While a "premium" tier was mentioned in initial requirements, there is currently no distinction in the codebase between a "Pro" and a "Premium" user. All paid features are gated under the "Pro" tier.
+
+## 5. Transcription Service (`src/services/transcription`)
 
 The `TranscriptionService.js` provides a unified abstraction layer over multiple transcription providers. This allows the application to seamlessly switch between modes.
 
@@ -56,14 +78,14 @@ The `TranscriptionService.js` provides a unified abstraction layer over multiple
     *   **`NativeBrowser`:** Uses the browser's built-in `SpeechRecognition` API for on-device transcription. This is a privacy-focused fallback.
 *   **Audio Processing:** The `audioUtils.js` and `audio-processor.worklet.js` are responsible for capturing microphone input, resampling it to the required 16kHz sample rate, and streaming it to the active transcription provider.
 
-## 5. CI/CD
+## 6. CI/CD
 
 The project includes a basic CI/CD pipeline defined in `.github/workflows/deploy.yml`.
 
 *   **Current Implementation:** The workflow is triggered manually (`workflow_dispatch`) and handles the deployment of Supabase database migrations to a single environment.
 *   **Future Work:** The pipeline needs to be expanded to support multiple environments (e.g., `staging`, `production`) and automated deployments based on branch pushes.
 
-## 6. Testing Strategy
+## 7. Testing Strategy
 
 This section outlines the official strategy for testing, debugging, and verification. It consolidates learnings from previous debugging sessions and establishes best practices for the project.
 
