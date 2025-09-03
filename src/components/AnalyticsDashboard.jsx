@@ -174,7 +174,7 @@ export const AnalyticsDashboard = ({ sessionHistory, profile, loading, error }) 
     }
 
     const overallStats = calculateOverallStats(sessionHistory);
-    const fillerWordTrends = calculateFillerWordTrends(sessionHistory);
+    const fillerWordTrends = calculateFillerWordTrends(sessionHistory.slice(0, 5));
     const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
 
     const handleUpgrade = async () => {
@@ -241,9 +241,9 @@ export const AnalyticsDashboard = ({ sessionHistory, profile, loading, error }) 
                     </CardContent>
                 </Card>
 
-                <div className="col-span-1 lg:col-span-5">
+                <Card className="col-span-1 lg:col-span-2">
                     <FillerWordTable trendData={fillerWordTrends} />
-                </div>
+                </Card>
             </div>
 
             <Card>
