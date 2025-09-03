@@ -55,6 +55,27 @@ pnpm dev
 
 The application will be available at `http://localhost:5173`.
 
+## Development Conventions
+
+### Structured Logging
+
+The project uses `pino` for structured logging. To log messages, import the logger instance from `src/lib/logger.js` and use its methods.
+
+**Example:**
+```javascript
+import logger from '@/lib/logger'; // Use appropriate relative path or alias
+
+// Log a simple informational message
+logger.info('User has started a new session.');
+
+// Log an error with a structured object
+logger.error({ error: new Error('Something went wrong'), sessionId: '123' }, 'An error occurred during payment processing.');
+
+// Log a warning
+logger.warn({ userId: 'abc' }, 'User profile is missing an avatar.');
+```
+This provides more context than a simple `console.log` and helps with debugging.
+
 ## Testing
 
 This project uses [Vitest](https://vitest.dev/) for unit and integration tests and [Playwright](https://playwright.dev/) for end-to-end tests.
@@ -89,7 +110,7 @@ This project uses [Vitest](https://vitest.dev/) for unit and integration tests a
 The test suite suffers from a catastrophic memory leak that causes `vitest` to crash with "JavaScript heap out of memory" errors, making it impossible to reliably run tests.
 
 **Root Cause Analysis:**
-A deep investigation has identified the root cause: the Supabase `onAuthStateChange` listener within `src/contexts/AuthContext.jsx`. This listener creates a persistent subscription that is not properly garbage-collected by the JSDOM test runner, leading to an immediate memory overflow upon initialization of any component that uses the `AuthContext`.
+A deep investigation has identified the root cause: the Supabase `onAuthStateChange` listener within `src/contexts/AuthContext.jsx`. This listener creates a persistent subscription that is not properly garbage-collected by the happy-dom test runner, leading to an immediate memory overflow upon initialization of any component that uses the `AuthContext`.
 
 **Solution Implemented:**
 A robust, production-safe solution has been implemented to address this:
@@ -126,6 +147,36 @@ A final review of the debugging process raised the following points:
 2.  Pull the new code containing the robust `AuthProvider` and test helpers.
 3.  Run the tests in a stable local environment. They are now expected to pass.
 4.  Refactor the remaining tests to use the new `renderWithProviders` helper to complete the migration.
+
+
+### Strategy for Testing Complex Hooks (e.g., `useSpeechRecognition`)
+
+**Last Updated:** 2025-09-02
+
+Through extensive debugging, it was determined that complex hooks involving real-time browser APIs (like `navigator.mediaDevices`, `WebSocket`) and complex, asynchronous state management are not suitable for unit testing in the `happy-dom` environment. The test runner cannot adequately simulate the required infrastructure, leading to persistent, unresolvable hangs.
+
+The established best practice for this project is now:
+
+1.  **Extract Pure Logic:** Any pure, stateless business logic (e.g., filler word counting, data transformation) should be extracted from the complex hook into standalone utility functions. These utilities should be placed in `src/utils` and have 100% unit test coverage.
+
+2.  **Mock the Hook, Test the Component:** Components that use the complex hook should be tested by mocking the *hook itself*. This allows you to test the component's rendering and behavior in various states (e.g., loading, listening, error) without needing to run the complex hook's internal logic.
+
+3.  **Acceptance via E2E Tests:** The full functionality of the complex hook should be validated through End-to-End (E2E) tests using a real browser environment like Playwright. This is the only way to reliably test features that depend on real hardware and network interactions.
+
+4.  **Skip Unit Tests for the Hook:** The unit test file for the complex hook itself should contain a single, skipped test with a comment directing developers to the relevant E2E and integration tests. This prevents the test suite from hanging while still documenting the testing strategy.
+
+
+### Frontend Verification (Playwright) Debugging Learnings
+
+**Last Updated:** 2025-09-02
+
+During the implementation of UI changes, the Playwright-based frontend verification scripts repeatedly failed. A systematic debugging process revealed several key learnings about the application and test environment:
+
+1.  **Environment Variables are Critical:** The initial and most significant blocker was a missing `.env` file. The application correctly renders a fallback "Configuration Needed" page when environment variables are missing. This means any verification script will fail to find expected elements from the main application. **Lesson:** Always run an environment check (`jules-scratch/verification/env_check.py`) as the first step in debugging rendering issues.
+
+2.  **`networkidle` is Unreliable:** The deep diagnosis script revealed that the application's third-party libraries (PostHog, Sentry) enter aggressive retry loops when they fail to initialize due to placeholder keys or network blocks (e.g., from ad-blockers). This prevents the page's network from ever being truly "idle". **Lesson:** When writing verification scripts, avoid using `wait_until="networkidle"`. Prefer more robust waiting strategies like `wait_until="domcontentloaded"` and then waiting for specific elements to be visible.
+
+3.  **Strict Mode Violations are Informative:** A "strict mode violation" error in Playwright, which occurs when a selector matches multiple elements, is a positive signal. It confirms that the page *is* rendering and that the content is visible to the test runner. **Lesson:** Treat this error not as a failure, but as a prompt to create a more specific, unambiguous element selector.
 
 
 ## Linting

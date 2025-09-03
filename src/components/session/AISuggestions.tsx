@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert } from '@/components/ui/alert';
 import { Loader2, Sparkles, AlertTriangle } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
+import logger from '@/lib/logger';
 
 interface SuggestionItem {
   title: string;
@@ -45,7 +46,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript }) => {
 
       setSuggestions(data.suggestions);
     } catch (err: any) {
-      console.error("Error fetching AI suggestions:", err);
+      logger.error({ err }, "Error fetching AI suggestions:");
       setError(err.message || 'An unexpected error occurred.');
     } finally {
       setIsLoading(false);

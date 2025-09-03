@@ -2,7 +2,8 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SessionSidebar } from '../SessionSidebar';
+
+// NOTE: SessionSidebar is dynamically imported below to bust the cache.
 
 // Mock dependencies
 const mockNavigate = vi.fn();
@@ -49,14 +50,18 @@ const defaultProps = {
 };
 
 describe('SessionSidebar', () => {
-  beforeEach(() => {
+  let SessionSidebar;
+
+  beforeEach(async () => {
     vi.clearAllMocks();
+    // Dynamically import the component with a cache-busting query
+    const module = await import(`../SessionSidebar.jsx?t=${Date.now()}`);
+    SessionSidebar = module.SessionSidebar;
   });
 
   it('renders in its initial idle state', () => {
     render(<SessionSidebar {...defaultProps} />);
     expect(screen.getByText('Start Session')).toBeInTheDocument();
-    // Use regex to find "Ready" within the status title
     expect(screen.getByText(/Ready/i)).toBeInTheDocument();
     expect(screen.getByText('00:00')).toBeInTheDocument();
   });
@@ -106,7 +111,7 @@ describe('SessionSidebar', () => {
     });
   });
 
-  it.skip('shows the end session dialog after stopping', async () => {
+  it('shows the end session dialog after stopping', async () => {
     const user = userEvent.setup();
     render(<SessionSidebar {...defaultProps} isListening={true} isReady={true} />);
     const stopButton = screen.getByText('Stop Session');
@@ -119,7 +124,7 @@ describe('SessionSidebar', () => {
     expect(screen.getByText('Go to Analytics')).toBeInTheDocument();
   });
 
-  it.skip('saves the session with duration and navigates to analytics', async () => {
+  it('saves the session with duration and navigates to analytics', async () => {
     const user = userEvent.setup();
     const propsWithTime = { ...defaultProps, elapsedTime: 123 };
     render(<SessionSidebar {...propsWithTime} isListening={true} isReady={true} />);
