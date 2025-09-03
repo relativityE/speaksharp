@@ -2,9 +2,10 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
-import { AnalyticsPage } from '../AnalyticsPage';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSessionManager } from '../../hooks/useSessionManager';
+
+// NOTE: AnalyticsPage is dynamically imported below to bust the cache.
 
 // Mock dependencies
 vi.mock('../../contexts/AuthContext');
@@ -28,8 +29,14 @@ vi.mock('@/components/SessionStatus', () => ({
 const mockSession = { id: 'session-1', transcript: 'Test session' };
 
 describe('AnalyticsPage', () => {
-  beforeEach(() => {
+  let AnalyticsPage;
+
+  beforeEach(async () => {
     vi.clearAllMocks();
+    // Dynamically import the component with a cache-busting query
+    const module = await import(`../AnalyticsPage.jsx?t=${Date.now()}`);
+    AnalyticsPage = module.AnalyticsPage;
+
     // Default mocks for a non-pro user
     useAuth.mockReturnValue({
       user: { id: 'user-1' },
@@ -59,17 +66,15 @@ describe('AnalyticsPage', () => {
     expect(screen.getByText('No Session Data')).toBeInTheDocument();
   });
 
-  it.skip('renders AnonymousAnalyticsView with data when passed in location state', () => {
+  it('renders AnonymousAnalyticsView with data when passed in location state', () => {
     useAuth.mockReturnValue({ user: null });
 
-    // Define a wrapper that provides the MemoryRouter with the required state
     const Wrapper = ({ children }) => (
       <MemoryRouter initialEntries={[{ pathname: '/analytics', state: { sessionData: mockSession } }]}>
         {children}
       </MemoryRouter>
     );
 
-    // Render the component within the Routes, using the wrapper
     render(
       <Routes>
         <Route path="/analytics" element={<AnalyticsPage />} />
