@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorDisplay } from './ErrorDisplay';
 import { generateSessionPdf } from '../lib/pdfGenerator';
 import { calculateTrends } from '../lib/analyticsUtils';
+import { formatDate, formatDateTime } from '../lib/dateUtils';
 import { supabase } from '@/lib/supabaseClient';
 import logger from '../lib/logger';
 
@@ -51,9 +52,9 @@ const SessionHistoryItem = ({ session, isPro }) => {
         <Card className="p-4 transition-all duration-200 hover:bg-secondary/50" data-testid="session-history-item">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div className="flex-grow">
-                    <p className="font-semibold text-foreground text-base">{session.title || `Session from ${new Date(session.created_at).toLocaleDateString()}`}</p>
+                    <p className="font-semibold text-foreground text-base">{session.title || `Session from ${formatDate(session.created_at)}`}</p>
                     <p className="text-xs text-muted-foreground">
-                        {new Date(session.created_at).toLocaleString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                        {formatDateTime(session.created_at)}
                     </p>
                 </div>
                 <div className="flex items-center gap-6 text-right">
@@ -248,7 +249,7 @@ export const AnalyticsDashboard = ({ sessionHistory, profile, loading, error }) 
                                 <BarChart data={trends.topFillerWords} layout="vertical" margin={{ top: 0, right: 20, left: 10, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
                                     <XAxis type="number" hide />
-                                    <YAxis type="category" dataKey="name" stroke="white" fontSize="0.875rem" tickLine={false} axisLine={false} width={80} />
+                                    <YAxis type="category" dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} width={80} />
                                     <Tooltip
                                         cursor={{ fill: 'hsla(var(--secondary))' }}
                                         contentStyle={{
@@ -258,7 +259,7 @@ export const AnalyticsDashboard = ({ sessionHistory, profile, loading, error }) 
                                         }}
                                     />
                                     <Bar dataKey="value" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]}>
-                                        <LabelList dataKey="value" position="right" className="fill-white font-bold" />
+                                        <LabelList dataKey="value" position="right" className="fill-foreground font-bold" />
                                     </Bar>
                                 </BarChart>
                             </ResponsiveContainer>

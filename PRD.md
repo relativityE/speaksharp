@@ -18,10 +18,8 @@ The system is built for speed, both in user experience and development velocity.
 ---
 
 ## 3. Known Issues
-- **Test Environment Memory Leak:** The test suite fails with a "JavaScript heap out of memory" error when running with coverage enabled (`pnpm test:coverage`). This prevents the generation of an up-to-date code coverage report. This issue is considered high-priority as it blocks our ability to track code quality.
-- **Full Test Suite Hang:** The `pnpm test` command does not run to completion. While many individual test suites have been fixed, this command still hangs, preventing a full report of passing/failing tests. This indicates a fundamental instability in the test runner's environment.
-- **`useSpeechRecognition.test.jsx` Test Hang:** The test suite for the `useSpeechRecognition` hook hangs indefinitely, even after a full refactoring of both the test and the hook itself. The issue is likely a fundamental incompatibility between the hook's complexity and the `happy-dom` test environment. The suite remains skipped.
-- **New Test Files Not Found:** The test runner sometimes fails to find new test files (e.g., `fillerWordUtils.test.js`) when run directly, even though the file exists and matches the include pattern. This is likely another symptom of the test environment's instability.
+- **Test Environment Instability:** The test suite has historically suffered from memory leaks and hangs, particularly when dealing with complex asynchronous operations or under specific test runners like `happy-dom`. While significant fixes have been implemented, some commands like `pnpm test:coverage` may still fail. For a detailed explanation of the issues and the official testing strategy, see the **[Testing Strategy documentation](./System Architecture.md#6-testing-strategy)**.
+- **`SessionSidebar.test.jsx` Dialog Failures:** Two tests within this suite are failing (`shows the end session dialog after stopping` and `saves the session with duration and navigates to analytics`). Both failures are due to an inability to find the `AlertDialog` component's content in the test environment. This is likely because the dialog component (from Radix UI) portals its content outside the main component tree, making it inaccessible to standard test queries. Attempts to mock the dialog have been unsuccessful so far.
 - **On-Device Transcription Needs Polish:** The `LocalWhisper` provider in `TranscriptionService` may require further UI/UX polishing.
 
 ---

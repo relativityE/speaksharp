@@ -157,7 +157,7 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
     const isButtonDisabled = isListening ? isEndingSession : (isModelLoading || isConnecting);
 
     const ModeIndicator = () => {
-        const modeText = actualMode === 'cloud' ? 'Cloud AI' : 'Browser';
+        const modeText = actualMode === 'cloud' ? 'Cloud AI' : 'Native Browser';
         const Icon = actualMode === 'cloud' ? Cloud : Computer;
         return (
             <Badge variant="outline" className="flex items-center gap-2 py-1 px-3">
@@ -173,7 +173,7 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
                 <CardHeader>
                      <div className="flex justify-between items-center">
                         <CardTitle className="text-base">
-                            Session Control
+                            Session Mode
                         </CardTitle>
                         {actualMode && <ModeIndicator />}
                     </div>

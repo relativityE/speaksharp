@@ -1,3 +1,5 @@
+import { formatDate } from './dateUtils';
+
 export const calculateTrends = (history) => {
     if (!history || history.length === 0) {
         return {
@@ -37,7 +39,7 @@ export const calculateTrends = (history) => {
         const fillerCount = getFillersCount(s);
         const fwPerMin = duration > 0 ? (fillerCount / (duration / 60)).toFixed(1) : "0.0";
         return {
-            date: new Date(s.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            date: formatDate(s.created_at),
             'FW/min': fwPerMin,
         };
     }).reverse();
