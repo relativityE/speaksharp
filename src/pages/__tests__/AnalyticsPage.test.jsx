@@ -3,13 +3,13 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { useSessionManager } from '../../hooks/useSessionManager';
+import { useSession } from '../../contexts/SessionContext';
 
-// NOTE: AnalyticsPage is dynamically imported below to bust the cache.
+import { AnalyticsPage } from '../AnalyticsPage';
 
 // Mock dependencies
 vi.mock('../../contexts/AuthContext');
-vi.mock('../../hooks/useSessionManager');
+vi.mock('../../contexts/SessionContext');
 vi.mock('../../components/AnalyticsDashboard', () => ({
   AnalyticsDashboard: ({ sessionHistory, loading, error }) => {
     if (loading) return <div data-testid="analytics-skeleton" />;
@@ -29,21 +29,15 @@ vi.mock('@/components/SessionStatus', () => ({
 const mockSession = { id: 'session-1', transcript: 'Test session' };
 
 describe('AnalyticsPage', () => {
-  let AnalyticsPage;
-
   beforeEach(async () => {
     vi.clearAllMocks();
-    // Dynamically import the component with a cache-busting query
-    const module = await import(`../AnalyticsPage.jsx?t=${Date.now()}`);
-    AnalyticsPage = module.AnalyticsPage;
-
     // Default mocks for a non-pro user
     useAuth.mockReturnValue({
       user: { id: 'user-1' },
       profile: { subscription_status: 'free' }
     });
-    useSessionManager.mockReturnValue({
-      sessions: [mockSession, { ...mockSession, id: 'session-2' }],
+    useSession.mockReturnValue({
+      sessionHistory: [mockSession, { ...mockSession, id: 'session-2' }],
       loading: false,
       error: null,
     });
@@ -86,7 +80,7 @@ describe('AnalyticsPage', () => {
   });
 
   it('renders loading skeleton when loading', () => {
-    useSessionManager.mockReturnValue({ sessions: [], loading: true, error: null });
+    useSession.mockReturnValue({ sessionHistory: [], loading: true, error: null });
     renderWithRouter('/analytics');
     expect(screen.getByTestId('analytics-skeleton')).toBeInTheDocument();
   });

@@ -18,10 +18,9 @@ The system is built for speed, both in user experience and development velocity.
 ---
 
 ## 3. Known Issues
-- **Test Environment Memory Leak:** The test suite fails with a "JavaScript heap out of memory" error when running with coverage enabled (`pnpm test:coverage`). This prevents the generation of an up-to-date code coverage report. This issue is considered high-priority as it blocks our ability to track code quality.
-- **Full Test Suite Hang:** The `pnpm test` command does not run to completion. While many individual test suites have been fixed, this command still hangs, preventing a full report of passing/failing tests. This indicates a fundamental instability in the test runner's environment.
-- **`useSpeechRecognition.test.jsx` Test Hang:** The test suite for the `useSpeechRecognition` hook hangs indefinitely, even after a full refactoring of both the test and the hook itself. The issue is likely a fundamental incompatibility between the hook's complexity and the `happy-dom` test environment. The suite remains skipped.
-- **New Test Files Not Found:** The test runner sometimes fails to find new test files (e.g., `fillerWordUtils.test.js`) when run directly, even though the file exists and matches the include pattern. This is likely another symptom of the test environment's instability.
+- **Test Environment Instability:** The test suite has historically suffered from memory leaks and hangs, particularly when dealing with complex asynchronous operations or under specific test runners like `happy-dom`. While significant fixes have been implemented, some commands like `pnpm test:coverage` may still fail. For a detailed explanation of the issues and the official testing strategy, see the **[Testing Strategy documentation](./System Architecture.md#6-testing-strategy)**.
+- **`SessionSidebar.test.jsx` Dialog Failures:** Two tests within this suite are failing (`shows the end session dialog after stopping` and `saves the session with duration and navigates to analytics`). Both failures are due to an inability to find the `AlertDialog` component's content in the test environment. This is likely because the dialog component (from Radix UI) portals its content outside the main component tree, making it inaccessible to standard test queries. Attempts to mock the dialog have been unsuccessful so far.
+- **Agent Tooling Instability:** The `replace_with_git_merge_diff` tool has been observed to hang indefinitely, blocking development. This requires a VM restart to resolve.
 - **On-Device Transcription Needs Polish:** The `LocalWhisper` provider in `TranscriptionService` may require further UI/UX polishing.
 
 ---
@@ -37,9 +36,19 @@ This section tracks key software quality metrics for the project.
 
 | Metric                        | Current Value | Date       | Notes                                           |
 | ----------------------------- | ------------- | ---------- | ----------------------------------------------- |
-| **Test Coverage (Lines)**     | `N/A`         | 2025-09-02 | Coverage generation still fails due to memory leak. |
-| **Total Tests**               | `~93`         | 2025-09-02 | Estimate. 1 suite (15 tests) skipped due to hang. |
-| **Test Suite RunTime**        | `N/A`         | 2025-09-02 | Full suite does not complete due to hang.       |
+| **Test Coverage (Lines)**     | `N/A`         | 2025-09-03 | Coverage generation still fails due to memory leak. |
+| **Total Tests**               | `98`          | 2025-09-03 | From full suite run. 15 tests are skipped.      |
+| **Test Suite RunTime**        | `~87s`        | 2025-09-03 | Last full run before heap crash.                  |
+
+### Latest Test Suite Run (Detailed)
+*   **Date:** 2025-09-03
+*   **Total Test Files:** 14
+*   **Total Tests:** 98
+*   **Passed:** 62
+*   **Failed:** 35
+*   **Skipped:** 15 (estimate from documentation)
+*   **Result:** Catastrophic failure (JavaScript heap out of memory). The test suite is currently unstable.
+
 ---
 
 ## 6. Metrics and Success Criteria

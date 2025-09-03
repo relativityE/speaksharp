@@ -7,6 +7,7 @@ import './index.css';
 import logger from '@/lib/logger';
 // NOTE: App is now dynamically imported below
 import { AuthProvider } from './contexts/AuthContext';
+import { SessionProvider } from './contexts/SessionContext';
 import posthog from 'posthog-js';
 import { PostHogProvider } from 'posthog-js/react';
 import { Elements } from '@stripe/react-stripe-js';
@@ -76,11 +77,13 @@ const renderApp = async () => {
           <BrowserRouter>
             <PostHogProvider client={posthog}>
               <AuthProvider>
-                <Elements stripe={stripePromise}>
-                  <Sentry.ErrorBoundary fallback={<div>An error has occurred. Please refresh the page.</div>}>
-                    <App />
-                  </Sentry.ErrorBoundary>
-                </Elements>
+                <SessionProvider>
+                  <Elements stripe={stripePromise}>
+                    <Sentry.ErrorBoundary fallback={<div>An error has occurred. Please refresh the page.</div>}>
+                      <App />
+                    </Sentry.ErrorBoundary>
+                  </Elements>
+                </SessionProvider>
               </AuthProvider>
             </PostHogProvider>
           </BrowserRouter>

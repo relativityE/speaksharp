@@ -1,14 +1,14 @@
 import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { useSessionManager } from '../hooks/useSessionManager';
+import { useSession } from '../contexts/SessionContext';
 import { Button } from './ui/button';
 import { SideNav } from './SideNav';
 import { Home, LogOut, UserCircle } from 'lucide-react';
 
 export const Header = () => {
     const { user, signOut } = useAuth();
-    const { sessions } = useSessionManager();
+    const { sessionHistory } = useSession();
     const location = useLocation();
 
     const navLinkClasses = "flex items-center px-3 py-2 rounded-md text-base font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors";
@@ -27,7 +27,7 @@ export const Header = () => {
                 <div className="flex items-center gap-4">
                     <nav className="hidden md:flex items-center gap-4">
                         <NavLink to="/session" className={({ isActive }) => `${navLinkClasses} ${isActive ? activeLinkClasses : ''}`}>Session</NavLink>
-                        {sessions && sessions.length > 0 ? (
+                        {sessionHistory && sessionHistory.length > 0 ? (
                             <NavLink to="/analytics" className={({ isActive }) => `${navLinkClasses} ${isActive ? activeLinkClasses : ''}`}>Analytics</NavLink>
                         ) : (
                             <span className={`${navLinkClasses} ${disabledLinkClasses}`} title="Complete a session to view analytics">Analytics</span>
