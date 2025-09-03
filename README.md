@@ -55,6 +55,27 @@ pnpm dev
 
 The application will be available at `http://localhost:5173`.
 
+## Development Conventions
+
+### Structured Logging
+
+The project uses `pino` for structured logging. To log messages, import the logger instance from `src/lib/logger.js` and use its methods.
+
+**Example:**
+```javascript
+import logger from '@/lib/logger'; // Use appropriate relative path or alias
+
+// Log a simple informational message
+logger.info('User has started a new session.');
+
+// Log an error with a structured object
+logger.error({ error: new Error('Something went wrong'), sessionId: '123' }, 'An error occurred during payment processing.');
+
+// Log a warning
+logger.warn({ userId: 'abc' }, 'User profile is missing an avatar.');
+```
+This provides more context than a simple `console.log` and helps with debugging.
+
 ## Testing
 
 This project uses [Vitest](https://vitest.dev/) for unit and integration tests and [Playwright](https://playwright.dev/) for end-to-end tests.
