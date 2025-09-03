@@ -95,3 +95,9 @@ temp/
 test-results/*.png
 test-results/*.webm
 test-results/
+
+# Ignore all files in the verification scratchpad...
+jules-scratch/verification/*
+
+# ...except for the python scripts.
+!jules-scratch/verification/*.py

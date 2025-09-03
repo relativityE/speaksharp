@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import logger from '../lib/logger';
 import { getSessionHistory, saveSession as saveSessionToDb, deleteSession as deleteSessionFromDb, exportData } from '../lib/storage';
 
 export const useSessionManager = () => {
@@ -27,7 +28,7 @@ export const useSessionManager = () => {
         }
       }
     } catch (err) {
-      console.error("Error loading sessions:", err);
+      logger.error({ err }, "Error loading sessions:");
       setError(err);
     } finally {
       setLoading(false);
@@ -67,7 +68,7 @@ export const useSessionManager = () => {
       }
       return null;
     } catch (err) {
-      console.error("Error saving session:", err);
+      logger.error({ err }, "Error saving session:");
       setError(err);
       return null;
     }
@@ -84,7 +85,7 @@ export const useSessionManager = () => {
         setSessions(prevSessions => prevSessions.filter(s => s.id !== sessionId));
       }
     } catch (err) {
-      console.error("Error deleting session:", err);
+      logger.error({ err }, "Error deleting session:");
       setError(err);
     }
   };
@@ -112,7 +113,7 @@ export const useSessionManager = () => {
 
       URL.revokeObjectURL(url);
     } catch (err) {
-      console.error("Error exporting sessions:", err);
+      logger.error({ err }, "Error exporting sessions:");
       setError(err);
     }
   };
