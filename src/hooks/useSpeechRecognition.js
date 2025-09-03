@@ -2,8 +2,10 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '@/lib/supabaseClient';
 import TranscriptionService from '../services/transcription/TranscriptionService';
 import { FILLER_WORD_KEYS } from '../config';
+import logger from '../lib/logger';
 
 const defaultFillerPatterns = {
     [FILLER_WORD_KEYS.UM]: /\b(um|umm|ummm|uhm)\b/gi,
@@ -171,42 +173,42 @@ export const useSpeechRecognition = ({
 
     const getAssemblyAIToken = useCallback(async () => {
         try {
-            console.log('[getAssemblyAIToken] Starting...');
-            console.log('[getAssemblyAIToken] Initial authSession:', authSession);
+            logger.info('[getAssemblyAIToken] Starting...');
+            logger.info({ authSession }, '[getAssemblyAIToken] Initial authSession:');
             let userSession = authSession;
 
             const isDevMode = import.meta.env.VITE_DEV_MODE === 'true';
-            console.log('[getAssemblyAIToken] VITE_DEV_MODE:', isDevMode);
+            logger.info({ isDevMode }, '[getAssemblyAIToken] VITE_DEV_MODE:');
 
             if (isDevMode && !userSession) {
-                console.log('[getAssemblyAIToken] Dev mode is on and no session, attempting anonymous sign-in...');
+                logger.info('[getAssemblyAIToken] Dev mode is on and no session, attempting anonymous sign-in...');
                 const { data, error } = await supabase.auth.signInAnonymously();
-                console.log('[getAssemblyAIToken] Anonymous sign-in result:', { data, error });
+                logger.info({ data, error }, '[getAssemblyAIToken] Anonymous sign-in result:');
                 if (error) throw new Error(`Anonymous sign-in failed: ${error.message}`);
                 if (!data.session) throw new Error('Anonymous sign-in did not return a session.');
                 userSession = data.session;
             }
 
-            console.log('[getAssemblyAIToken] Final userSession has access token:', userSession?.access_token ? 'Yes' : 'No');
+            logger.info(`[getAssemblyAIToken] Final userSession has access token: ${userSession?.access_token ? 'Yes' : 'No'}`);
 
             const { data, error } = await supabase.functions.invoke('assemblyai-token', {
                 body: {},
             });
 
             if (error) {
-                console.error("Error invoking assemblyai-token function:", error);
+                logger.error({ error }, "Error invoking assemblyai-token function:");
                 throw new Error(`Failed to invoke token function: ${error.message}`);
             }
 
             if (!data || !data.token) {
-                console.error("Unexpected token response:", data);
+                logger.error({ data }, "Unexpected token response:");
                 throw new Error("No valid AssemblyAI token returned.");
             }
 
-            console.log("✅ AssemblyAI token acquired:", data);
+            logger.info({ token: data.token }, "✅ AssemblyAI token acquired:");
             return data.token;
         } catch (err) {
-            console.error("❌ Error getting AssemblyAI token:", err);
+            logger.error({ err }, "❌ Error getting AssemblyAI token:");
             if (isMountedRef.current) {
                 toast.error("Unable to start transcription: " + err.message, {
                     className: "toast toast-md toast-error",

@@ -39,7 +39,7 @@ export const TestimonialsSection = () => {
       <div className="container px-4 md:px-6">
         <div className="flex flex-col items-center justify-center space-y-4 text-center">
           <div className="space-y-3">
-            <Badge variant="accent" size="md">
+            <Badge variant="accent" className="text-lg">
               Testimonials
             </Badge>
             <h2 className="text-3xl sm:text-4xl font-bold text-foreground leading-tight">

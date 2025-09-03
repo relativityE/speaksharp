@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabaseClient';
+import logger from '../../lib/logger';
 import { Mic, Square, Loader2, Zap, Cloud, Computer } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -81,11 +82,11 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
             const { sessionId } = data;
             const { error: stripeError } = await stripe.redirectToCheckout({ sessionId });
             if (stripeError) {
-                console.error("Stripe redirect error:", stripeError.message);
+                logger.error({ error: stripeError }, "Stripe redirect error:");
                 toast.error(<div className="toast toast-md toast-error">Error: {stripeError.message}</div>);
             }
         } catch (e) {
-            console.error("Upgrade process failed:", e);
+            logger.error({ error: e }, "Upgrade process failed:");
             toast.error(<div className="toast toast-md toast-error">Could not initiate the upgrade process. Please try again later.</div>);
         } finally {
             setIsUpgrading(false);
@@ -103,7 +104,7 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
             setCompletedSessionData(sessionData);
             setShowEndSessionDialog(true);
         } catch (e) {
-            console.error("Error ending session:", e);
+            logger.error({ error: e }, "Error ending session:");
             toast.error(<div className="toast toast-md toast-error">An unexpected error occurred while ending the session.</div>);
         } finally {
             setIsEndingSession(false);
