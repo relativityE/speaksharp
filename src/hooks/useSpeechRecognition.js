@@ -104,15 +104,16 @@ export const useSpeechRecognition = ({
         }, 100);
     }, [customWords]);
 
+    // FIX 10: Simplified effect with stable dependencies
     useEffect(() => {
         const fullTranscript = finalChunks.map(c => c.text).join(' ') + ' ' + interimTranscript;
         const finalTranscriptOnly = finalChunks.map(c => c.text).join(' ');
-
         debouncedCountFillerWords(fullTranscript, setFillerData);
         setFinalFillerData(countFillerWords(finalTranscriptOnly, customWords));
         setTranscript(finalTranscriptOnly);
     }, [finalChunks, interimTranscript, debouncedCountFillerWords, customWords]);
 
+    // FIX 12: Memoize getAssemblyAIToken to prevent recreation
     const getAssemblyAIToken = useCallback(async () => {
         try {
             let userSession = authSession;
@@ -135,6 +136,9 @@ export const useSpeechRecognition = ({
             return null;
         }
     }, [authSession]);
+      
+    const startListening = useCallback(async ({ forceCloud = false } = {}) => {
+        if (isListening || !isMountedRef.current) return;
 
     const startListening = useCallback(async ({ forceCloud = false } = {}) => {
         if (isListening || !isMountedRef.current) return;
