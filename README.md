@@ -110,7 +110,7 @@ This project uses [Vitest](https://vitest.dev/) for unit and integration tests a
 The test suite suffers from a catastrophic memory leak that causes `vitest` to crash with "JavaScript heap out of memory" errors, making it impossible to reliably run tests.
 
 **Root Cause Analysis:**
-A deep investigation has identified the root cause: the Supabase `onAuthStateChange` listener within `src/contexts/AuthContext.jsx`. This listener creates a persistent subscription that is not properly garbage-collected by the JSDOM test runner, leading to an immediate memory overflow upon initialization of any component that uses the `AuthContext`.
+A deep investigation has identified the root cause: the Supabase `onAuthStateChange` listener within `src/contexts/AuthContext.jsx`. This listener creates a persistent subscription that is not properly garbage-collected by the happy-dom test runner, leading to an immediate memory overflow upon initialization of any component that uses the `AuthContext`.
 
 **Solution Implemented:**
 A robust, production-safe solution has been implemented to address this:
