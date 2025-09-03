@@ -9,6 +9,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { supabase } from "@/lib/supabaseClient";
+import logger from "@/lib/logger";
 
 export function UpgradePromptDialog({ open, onOpenChange }) {
 
@@ -19,7 +20,7 @@ export function UpgradePromptDialog({ open, onOpenChange }) {
         // The edge function returns a URL to the Stripe checkout page
         window.location.href = data.checkoutUrl;
     } catch (error) {
-        console.error('Error creating Stripe checkout session:', error);
+        logger.error({error}, 'Error creating Stripe checkout session:');
         // You might want to show an error message to the user here
     }
   };
