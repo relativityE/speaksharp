@@ -224,7 +224,6 @@ export const useSpeechRecognition = ({
             if (!data || !data.token) {
                 throw new Error("No valid AssemblyAI token returned.");
             }
-
             return data.token;
         } catch (err) {
             logger.error({ err }, "❌ Error getting AssemblyAI token:");
