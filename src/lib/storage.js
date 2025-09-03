@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient';
+import logger from './logger';
 
 /**
  * Fetches the session history for a specific user.
@@ -7,7 +8,7 @@ import { supabase } from './supabaseClient';
  */
 export const getSessionHistory = async (userId) => {
   if (!userId) {
-    console.error('Get Session History: User ID is required.');
+    logger.error('Get Session History: User ID is required.');
     return [];
   }
   const { data, error } = await supabase
@@ -17,7 +18,7 @@ export const getSessionHistory = async (userId) => {
     .order('created_at', { ascending: false });
 
   if (error) {
-    console.error('Error fetching session history:', error);
+    logger.error({ error }, 'Error fetching session history:');
     return [];
   }
   return data;
@@ -31,7 +32,7 @@ export const getSessionHistory = async (userId) => {
  */
 export const saveSession = async (sessionData, profile) => {
   if (!sessionData || !sessionData.user_id) {
-    console.error('Save Session: Session data and user ID are required.');
+    logger.error('Save Session: Session data and user ID are required.');
     return { session: null, usageExceeded: false };
   }
   const { data, error } = await supabase
@@ -41,7 +42,7 @@ export const saveSession = async (sessionData, profile) => {
     .single();
 
   if (error) {
-    console.error('Error saving session:', error);
+    logger.error({ error }, 'Error saving session:');
     return { session: null, usageExceeded: false };
   }
 
@@ -53,7 +54,7 @@ export const saveSession = async (sessionData, profile) => {
     });
 
     if (rpcError) {
-      console.error('Error updating user usage:', rpcError);
+      logger.error({ error: rpcError }, 'Error updating user usage:');
       // Proceed even if RPC fails, not a critical failure
     }
 
@@ -73,7 +74,7 @@ export const saveSession = async (sessionData, profile) => {
  */
 export const deleteSession = async (sessionId) => {
   if (!sessionId) {
-    console.error('Delete Session: Session ID is required.');
+    logger.error('Delete Session: Session ID is required.');
     return false;
   }
   const { error } = await supabase
@@ -82,7 +83,7 @@ export const deleteSession = async (sessionId) => {
     .eq('id', sessionId);
 
   if (error) {
-    console.error('Error deleting session:', error);
+    logger.error({ error }, 'Error deleting session:');
     return false;
   }
   return true;
