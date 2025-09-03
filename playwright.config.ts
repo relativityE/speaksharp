@@ -2,7 +2,6 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests',
-  globalSetup: "./tests/setup.ts",
   retries: process.env.CI ? 2 : 0,
   use: {
     baseURL: 'http://localhost:5173',
@@ -16,8 +15,8 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   webServer: {
-    // IMPORTANT: bake “e2e” mode into the bundle so guards are compile-time
-    command: 'pnpm build -- --mode e2e && pnpm preview',
+    // Use the dedicated test dev server script
+    command: 'pnpm dev:test',
     url: 'http://localhost:5173',
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,

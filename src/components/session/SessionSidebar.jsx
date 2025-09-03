@@ -56,7 +56,10 @@ const ModelLoadingIndicator = ({ progress }) => {
     );
 };
 
-export const SessionSidebar = ({ isListening, isReady, error, startListening, stopListening, reset, actualMode, saveSession, elapsedTime, modelLoadingProgress }) => {
+export const SessionSidebar = ({
+    isListening, isReady, error, startListening, stopListening, reset, actualMode, saveSession, elapsedTime, modelLoadingProgress,
+    completedSessionData, setCompletedSessionData
+}) => {
     const navigate = useNavigate();
     const { user, profile } = useAuth();
     const stripe = useStripe();
@@ -64,7 +67,6 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
     const [isUpgrading, setIsUpgrading] = useState(false);
     const [forceCloud, setForceCloud] = useState(false);
     const [showEndSessionDialog, setShowEndSessionDialog] = useState(false);
-    const [completedSessionData, setCompletedSessionData] = useState(null);
 
     const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
     const isModelLoading = modelLoadingProgress && modelLoadingProgress.status !== 'ready' && modelLoadingProgress.status !== 'error';

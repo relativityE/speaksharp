@@ -13,6 +13,7 @@ import { SlidersHorizontal, AlertTriangle, Loader } from 'lucide-react';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { UpgradePromptDialog } from '@/components/UpgradePromptDialog';
+import { DebugPanel } from '@/components/session/DebugPanel';
 
 const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) => {
     const { error, isSupported, isListening, isReady, transcript, interimTranscript } = speechRecognition;
@@ -68,20 +69,34 @@ const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) =
 import { useAuth } from '../contexts/AuthContext';
 import { useSession } from '../contexts/SessionContext';
 
+import logger from '@/lib/logger';
+
 export const SessionPage = () => {
-    const { user, profile, session } = useAuth();
+    const { user, profile, session, loading } = useAuth();
     const { saveSession: saveSessionToBackend, usageLimitExceeded, setUsageLimitExceeded } = useSessionManager();
     const { addSession } = useSession();
     const [customWords, setCustomWords] = useState([]);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
     const [elapsedTime, setElapsedTime] = useState(0);
+    const [completedSessionData, setCompletedSessionData] = useState(null);
+    const [caughtError, setCaughtError] = useState(null);
 
     const speechRecognition = useSpeechRecognition({ customWords, session, profile });
     const { isListening, modelLoadingProgress } = speechRecognition;
 
+    logger.info({ profile, loading, usageLimitExceeded }, 'SessionPage render state');
+
     useEffect(() => {
         posthog.capture('session_page_viewed');
     }, []);
+
+    if (loading) {
+        return (
+            <div className="container mx-auto px-component-px py-10 flex justify-center items-center">
+                <Loader className="h-8 w-8 animate-spin" />
+            </div>
+        );
+    }
 
     useEffect(() => {
         let interval;
@@ -109,6 +124,13 @@ export const SessionPage = () => {
                 ? 1800 // 30 minutes for free users
                 : null; // No limit for pro users
 
+        logger.info({
+            isListening,
+            elapsedTime,
+            sessionLimit,
+            isPro: profile?.subscription_status === 'pro'
+        }, 'Session limit check');
+
         if (sessionLimit && elapsedTime >= sessionLimit) {
             speechRecognition.stopListening();
             setUsageLimitExceeded(true);
@@ -116,14 +138,18 @@ export const SessionPage = () => {
     }, [elapsedTime, isListening, user, profile, speechRecognition.stopListening, setUsageLimitExceeded]);
 
     const saveAndBroadcastSession = async (sessionData) => {
-        const newSession = await saveSessionToBackend(sessionData);
-        if (newSession) {
-            // The session object from the DB might be slightly different, so we fetch it again
-            // to ensure the UI has the most accurate data.
-            // For now, we assume the returned object is sufficient.
-            addSession(newSession);
+        setCaughtError(null); // Reset error on new save attempt
+        try {
+            const newSession = await saveSessionToBackend(sessionData);
+            if (newSession) {
+                addSession(newSession);
+            }
+            return newSession;
+        } catch (error) {
+            setCaughtError(error);
+            logger.error({ error }, "Error caught in saveAndBroadcastSession");
+            return null;
         }
-        return newSession;
     };
 
     return (
@@ -146,7 +172,7 @@ export const SessionPage = () => {
 
                 {/* Desktop Sidebar (Right Column) */}
                 <div className="hidden lg:block lg:w-1/3">
-                    <SessionSidebar {...speechRecognition} saveSession={saveAndBroadcastSession} actualMode={speechRecognition.mode} elapsedTime={elapsedTime} modelLoadingProgress={modelLoadingProgress} />
+                    <SessionSidebar {...speechRecognition} saveSession={saveAndBroadcastSession} actualMode={speechRecognition.mode} elapsedTime={elapsedTime} modelLoadingProgress={modelLoadingProgress} completedSessionData={completedSessionData} setCompletedSessionData={setCompletedSessionData} />
                 </div>
 
                 {/* Mobile Drawer */}
@@ -160,12 +186,20 @@ export const SessionPage = () => {
                         </DrawerTrigger>
                         <DrawerContent>
                             <div className="p-4 overflow-y-auto h-[80vh]">
-                                <SessionSidebar {...speechRecognition} saveSession={saveAndBroadcastSession} actualMode={speechRecognition.mode} elapsedTime={elapsedTime} modelLoadingProgress={modelLoadingProgress} />
+                                <SessionSidebar {...speechRecognition} saveSession={saveAndBroadcastSession} actualMode={speechRecognition.mode} elapsedTime={elapsedTime} modelLoadingProgress={modelLoadingProgress} completedSessionData={completedSessionData} setCompletedSessionData={setCompletedSessionData} />
                             </div>
                         </DrawerContent>
                     </Drawer>
                 </div>
             </div>
+            {import.meta.env.DEV && (
+                <DebugPanel
+                    user={user}
+                    profile={profile}
+                    sessionData={completedSessionData}
+                    error={caughtError}
+                />
+            )}
         </div>
     );
 };

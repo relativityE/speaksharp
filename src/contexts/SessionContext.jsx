@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { getSessionHistory } from '@/lib/storage';
 import { useAuth } from './AuthContext';
 import logger from '@/lib/logger';
 
@@ -24,15 +24,7 @@ export const SessionProvider = ({ children }) => {
     setError(null);
 
     try {
-      const { data, error } = await supabase
-        .from('sessions')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        throw error;
-      }
+      const data = await getSessionHistory(user.id);
       setSessionHistory(data || []);
     } catch (err) {
       logger.error({ err }, 'Failed to fetch session history');

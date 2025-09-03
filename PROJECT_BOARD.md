@@ -19,6 +19,9 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 - 🟡 **Update E2E tests for v3 transcription flow:** This is blocked by a critical rendering failure in the Playwright environment.
 - 🔴 **Add full unit test coverage for `CloudAssemblyAI.js`:** Target ≥80% coverage for core logic.
 - ✅ Fix cloud transcription connection: Use correct v3 endpoint and handle raw PCM audio instead of JSON.
+- ✅ **Fix Session History Data Flow:** Repaired the data flow between session creation and the analytics page to ensure new sessions are displayed correctly.
+- ✅ **Implement Filler Word Table:** Replaced the 'Top Filler Words' bar chart with a more detailed table view.
+- ✅ **Clean Up Analytics Page UI:** Removed unnecessary "Live Session" and "Developer Options" panels from the dashboard.
 - ✅ Fix data flow race condition: Ensure session data is saved before navigation.
 - ✅ Fix state management & navigation bugs: Resolved issues in the session page.
 - ✅ **Stabilize the Vitest test suite:** The suite is now stable, with almost all previously disabled tests fixed and re-enabled.
@@ -31,6 +34,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - ✅ 2. Implement Code-Level Fix: A robust, prop-gated `AuthProvider` has been implemented to disable the listener in tests.
   - ✅ 3. Verify Fix & Re-enable Tests: The test environment has been stabilized by fixing caching, mocking, and component-level issues.
 - ✅ Improve toast notification styling: Toasts are now pill-shaped with appropriate styling.
+- ✅ **Tune Highlight Performance:** Reduced debounce timer on filler word counting to improve perceived responsiveness of live transcript highlighting.
 - ✅ Improve loading/waiting state feedback: The transcript panel now provides clearer UI feedback.
 - ✅ Add Page-Level Render Tests: Create a test for each main page (Home, Session, Analytics, Auth) to verify it renders without crashing.
 - 🔴 **Create Troubleshooting Guide:** Add error recovery steps to the documentation.

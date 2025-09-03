@@ -51,6 +51,7 @@ export const useSessionManager = () => {
       }
 
       // Handle real users
+      logger.info({ user, profile }, 'Checking user and profile before saving session.');
       if (!user || !profile) {
         throw new Error("Cannot save session: no user or profile available.");
       }
@@ -64,7 +65,7 @@ export const useSessionManager = () => {
 
       if (newSession) {
         setSessions(prevSessions => [newSession, ...prevSessions]);
-        return newSession.id;
+        return newSession;
       }
       return null;
     } catch (err) {
