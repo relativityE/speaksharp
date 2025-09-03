@@ -1,48 +1,43 @@
 import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useSessionManager } from '../hooks/useSessionManager';
 import { Button } from './ui/button';
 import { SideNav } from './SideNav';
-import { LogOut, UserCircle } from 'lucide-react';
+import { Home, LogOut, UserCircle } from 'lucide-react';
 
 export const Header = () => {
     const { user, signOut } = useAuth();
+    const { sessions } = useSessionManager();
     const location = useLocation();
 
     const navLinkClasses = "flex items-center px-3 py-2 rounded-md text-base font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors";
     const activeLinkClasses = "bg-secondary text-foreground";
+    const disabledLinkClasses = "opacity-50 pointer-events-none";
 
     return (
         <header className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur-sm">
             <div className="container mx-auto flex h-16 items-center justify-between px-4">
                 <div className="flex items-center gap-4">
                     <SideNav />
-                    <NavLink to="/" className="text-xl font-bold text-primary">
-                        SpeakSharp
+                    <NavLink to="/" className="p-2 hover:bg-secondary rounded-md">
+                        <Home className="h-6 w-6 text-primary" />
                     </NavLink>
                 </div>
                 <div className="flex items-center gap-4">
-                    {user ? (
-                        <>
-                            {/* Desktop Navigation */}
-                            <nav className="hidden md:flex items-center gap-2">
-                                <NavLink to="/" className={({ isActive }) => `${navLinkClasses} ${isActive && location.pathname === '/' ? activeLinkClasses : ''}`} end>Home</NavLink>
-                                <NavLink to="/analytics" className={({ isActive }) => `${navLinkClasses} ${isActive ? activeLinkClasses : ''}`}>Analytics</NavLink>
-                                <NavLink to="/session" className={({ isActive }) => `${navLinkClasses} ${isActive ? activeLinkClasses : ''}`}>New Session</NavLink>
-                            </nav>
-                            <div className="hidden md:flex items-center gap-2">
-                                <Button variant="ghost" size="icon" onClick={signOut}><LogOut size={18} /></Button>
-                                <UserCircle size={24} className="text-muted-foreground" />
-                            </div>
-                        </>
-                    ) : (
-                        location.pathname !== '/auth' && (
-                            <nav className="flex items-center gap-4">
-                                <NavLink to="/analytics" className={navLinkClasses}>View Analytics</NavLink>
-                                <Button asChild><NavLink to="/auth">Login / Sign Up</NavLink></Button>
-                            </nav>
-                        )
-                    )}
+                    <nav className="hidden md:flex items-center gap-4">
+                        <NavLink to="/session" className={({ isActive }) => `${navLinkClasses} ${isActive ? activeLinkClasses : ''}`}>Session</NavLink>
+                        {sessions && sessions.length > 0 ? (
+                            <NavLink to="/analytics" className={({ isActive }) => `${navLinkClasses} ${isActive ? activeLinkClasses : ''}`}>Analytics</NavLink>
+                        ) : (
+                            <span className={`${navLinkClasses} ${disabledLinkClasses}`} title="Complete a session to view analytics">Analytics</span>
+                        )}
+                        {user ? (
+                            <Button variant="outline" onClick={signOut}>Logout</Button>
+                        ) : (
+                            <Button asChild><NavLink to="/auth">Sign In</NavLink></Button>
+                        )}
+                    </nav>
                 </div>
             </div>
         </header>
