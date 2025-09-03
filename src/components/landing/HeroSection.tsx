@@ -11,7 +11,7 @@ export const HeroSection = () => {
         <div className="grid gap-6 items-center">
           <div className="flex flex-col justify-center space-y-4 text-center">
             <div className="space-y-3">
-              <Badge variant="primary">Speaksharp</Badge>
+              <Badge variant="primary" className="text-lg">Speaksharp</Badge>
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-foreground leading-tight">
                 {APP_TAGLINE}
               </h1>
