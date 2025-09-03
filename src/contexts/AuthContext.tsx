@@ -1,43 +1,113 @@
-import React, { createContext, useContext, useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabaseClient'
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabaseClient';
+import logger from '../lib/logger';
 
-type AuthCtx = { session: any; loading: boolean }
-const AuthContext = createContext<AuthCtx>({ session: null, loading: true })
-export const useAuth = () => useContext(AuthContext)
+// Define a more specific type for our context
+type AuthContextType = {
+  session: object | null;
+  user: object | null;
+  profile: object | null;
+  loading: boolean;
+  signOut: () => Promise<void>;
+};
+
+const AuthContext = createContext<AuthContextType>({
+  session: null,
+  user: null,
+  profile: null,
+  loading: true,
+  signOut: async () => {},
+});
+
+export const useAuth = () => useContext(AuthContext);
 
 export function AuthProvider({
   children,
   enableSubscription = true,
   initialSession = null,
 }) {
-  const [session, setSession] = useState(initialSession)
-  const [loading, setLoading] = useState(true)
+  const [session, setSession] = useState(initialSession);
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!enableSubscription) {
-      setLoading(false)
-      return
-    }
+    const setData = async (currentSession) => {
+      if (currentSession) {
+        setSession(currentSession);
+        if (currentSession.user) {
+          try {
+            const { data: profileData, error } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', currentSession.user.id)
+              .single();
 
-    // important: return unsubscribe; supabase v2 returns { data: { subscription } }
-    const { data } = supabase.auth.onAuthStateChange((_event, s) => {
-      setSession(s)
-    })
+            if (error) {
+              logger.error({ error }, 'Error fetching profile');
+              setProfile(null);
+            } else {
+              setProfile(profileData);
+            }
+          } catch (e) {
+            logger.error(e, 'Catastrophic error fetching profile');
+            setProfile(null);
+          }
+        }
+      } else {
+        setSession(null);
+        setProfile(null);
+      }
+      setLoading(false);
+    };
 
-    // also fetch current session once, asynchronously
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session ?? null)
-      setLoading(false)
-    })
+    const setupAuth = async () => {
+      if (initialSession) {
+        await setData(initialSession);
+        return { subscription: null };
+      }
+
+      if (!enableSubscription) {
+        setLoading(false);
+        return { subscription: null };
+      }
+
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      await setData(currentSession);
+
+      const { data: authListener } = supabase.auth.onAuthStateChange(
+        async (_event, session) => {
+          await setData(session);
+        }
+      );
+      return authListener;
+    };
+
+    const authListenerPromise = setupAuth();
 
     return () => {
-      data?.subscription?.unsubscribe?.()
-    }
-  }, [enableSubscription])
+      authListenerPromise.then(authListener => {
+        authListener?.subscription?.unsubscribe();
+      });
+    };
+  }, [enableSubscription, initialSession]);
+
+  const signOut = async () => {
+    await supabase.auth.signOut();
+    setSession(null);
+    setProfile(null);
+  };
+
+  const value = {
+    session,
+    user: session?.user ?? null,
+    profile,
+    loading,
+    signOut,
+  };
 
   return (
-    <AuthContext.Provider value={{ session, loading }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
-  )
+  );
 }
