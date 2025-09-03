@@ -134,7 +134,26 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
         setIsEndingSession(false);
     };
 
-    const handleStayOnPage = () => {
+    const handleStayOnPage = async () => {
+        if (!completedSessionData) return;
+
+        const sessionWithDuration = {
+            ...completedSessionData,
+            duration: elapsedTime,
+        };
+
+        if (user) {
+            const savedSession = await saveSession(sessionWithDuration);
+            if (savedSession) {
+                toast.success("Session saved successfully!");
+            } else {
+                toast.warning("Could not save the session.");
+            }
+        }
+        // For anonymous users, the session is not saved to the backend,
+        // but it will be added to the global state by the parent component.
+        // We can just close the dialog.
+
         setShowEndSessionDialog(false);
     };
 

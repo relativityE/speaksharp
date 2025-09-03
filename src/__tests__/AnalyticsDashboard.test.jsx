@@ -91,6 +91,19 @@ describe('AnalyticsDashboard', () => {
     expect(screen.queryAllByRole('button', { name: /Download Session PDF/i })).toHaveLength(0);
   });
 
+  it('applies the correct contrast styling to the Upgrade Now button', () => {
+    useAuth.mockReturnValue({ profile: { subscription_status: 'free' } });
+    render(
+      <MemoryRouter>
+        <AnalyticsDashboard sessionHistory={mockSessionHistory} profile={{ subscription_status: 'free' }} />
+      </MemoryRouter>
+    );
+
+    const upgradeButton = screen.getByRole('button', { name: /Upgrade Now/i });
+    expect(upgradeButton.className).toContain('bg-white');
+    expect(upgradeButton.className).toContain('text-primary');
+  });
+
   it('renders the session history items with correct duration', () => {
     useAuth.mockReturnValue({ profile: { subscription_status: 'pro' } });
     render(

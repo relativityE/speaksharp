@@ -29,9 +29,9 @@ SpeakSharp is built on a modern, serverless technology stack designed for real-t
 
 The frontend is a single-page application (SPA) built with React and Vite.
 
-*   **Component Model:** The UI is built from a combination of page-level components (`src/pages`), feature-specific components (`src/components/session`, `src/components/landing`), and a reusable UI library (`src/components/ui`).
+*   **Component Model:** The UI is built from a combination of page-level components (`src/pages`), feature-specific components (`src/components/session`, `src/components/landing`), and a reusable UI library (`src/components/ui`). The analytics dashboard features a table-based component for displaying per-session filler word statistics, including color-coded severity indicators and tooltips with trend data.
 *   **Design System:** The UI components in `src/components/ui` are built using `class-variance-authority` (CVA) for a flexible, type-safe, and maintainable design system. Design tokens are managed in `tailwind.config.ts`.
-*   **State Management:** Application state is managed primarily through React's built-in hooks (`useState`, `useContext`, `useReducer`). For cross-cutting concerns, custom hooks (`src/hooks`) are used (e.g., `useSessionManager`, `useSpeechRecognition`).
+*   **State Management:** Global state for the authenticated user and session history is managed via React Context (`AuthContext`, `SessionContext`). For component-level and local state, React's built-in hooks (`useState`, `useReducer`) are used. For complex, cross-cutting concerns, custom hooks (`src/hooks`) are employed (e.g., `useSessionManager`, `useSpeechRecognition`).
 *   **Routing:** Client-side routing is handled by `react-router-dom`.
 *   **Logging:** The application uses `pino` for structured logging to improve debuggability and provide more consistent log output. For development, `pino-pretty` is used to format logs in a human-readable way. A shared logger instance is configured in `src/lib/logger.js` and is used throughout the frontend application to replace standard `console.log` statements.
 
