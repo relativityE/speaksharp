@@ -106,7 +106,7 @@ describe('SessionSidebar', () => {
     });
   });
 
-  it.skip('shows the end session dialog after stopping', async () => {
+  it('shows the end session dialog after stopping', async () => {
     const user = userEvent.setup();
     render(<SessionSidebar {...defaultProps} isListening={true} isReady={true} />);
     const stopButton = screen.getByText('Stop Session');
@@ -119,7 +119,7 @@ describe('SessionSidebar', () => {
     expect(screen.getByText('Go to Analytics')).toBeInTheDocument();
   });
 
-  it.skip('saves the session with duration and navigates to analytics', async () => {
+  it('saves the session with duration and navigates to analytics', async () => {
     const user = userEvent.setup();
     const propsWithTime = { ...defaultProps, elapsedTime: 123 };
     render(<SessionSidebar {...propsWithTime} isListening={true} isReady={true} />);
