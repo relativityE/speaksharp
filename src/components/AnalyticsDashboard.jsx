@@ -276,8 +276,8 @@ export const AnalyticsDashboard = ({ sessionHistory, profile, loading, error }) 
                     <CardTitle>Session History</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                    {sessionHistory.slice(0, 10).map(session => (
-                    <SessionHistoryItem key={session.id} session={session} isPro={isPro} />
+                {sessionHistory.slice(0, 10).map((session, index) => (
+                    <SessionHistoryItem key={index} session={session} isPro={isPro} />
                     ))}
                 </CardContent>
             </Card>
