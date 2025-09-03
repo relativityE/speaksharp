@@ -1,6 +1,12 @@
 import { formatDate } from './dateUtils';
+import { FILLER_WORD_KEYS } from '../config';
 
-export const calculateTrends = (history) => {
+/**
+ * Calculates overall aggregate statistics for a collection of sessions.
+ * @param {Array} history - An array of session objects.
+ * @returns {Object} An object containing aggregate stats like averages and totals.
+ */
+export const calculateOverallStats = (history) => {
     if (!history || history.length === 0) {
         return {
             avgFillerWordsPerMin: "0.0",
@@ -65,4 +71,58 @@ export const calculateTrends = (history) => {
         chartData,
         topFillerWords
     };
+};
+
+
+const getSeverity = (count) => {
+    if (count >= 10) return 'red';
+    if (count >= 7) return 'orange';
+    if (count >= 4) return 'yellow';
+    return 'green';
+};
+
+const formatTooltip = (word, currentCount, prevCount) => {
+    if (prevCount === null) {
+        return `Count: ${currentCount}`;
+    }
+    if (currentCount > prevCount) {
+        const change = prevCount > 0 ? Math.round(((currentCount - prevCount) / prevCount) * 100) : 100;
+        return `${change}% increase from last session (${prevCount} to ${currentCount})`;
+    }
+    if (currentCount < prevCount) {
+        const change = Math.round(((prevCount - currentCount) / prevCount) * 100);
+        return `${change}% decrease from last session (${prevCount} to ${currentCount})`;
+    }
+    return `No change from last session (Count: ${currentCount})`;
+};
+
+
+/**
+ * Calculates trends for filler words across multiple sessions for a table view.
+ * @param {Array} sessions - An array of session objects, sorted from most recent to oldest.
+ * @returns {Object} An object where keys are filler words and values are arrays of trend data.
+ */
+export const calculateFillerWordTrends = (sessions) => {
+    if (!sessions || sessions.length === 0) {
+        return {};
+    }
+
+    const trendData = {};
+    const fillerWords = Object.values(FILLER_WORD_KEYS);
+
+    for (const word of fillerWords) {
+        trendData[word] = sessions.map((session, index) => {
+            const prevSession = sessions[index + 1]; // The next session in the array is the previous one in time
+            const currentCount = session.filler_words?.[word]?.count || 0;
+            const prevCount = prevSession ? (prevSession.filler_words?.[word]?.count || 0) : null;
+
+            return {
+                count: currentCount,
+                severity: getSeverity(currentCount),
+                tooltip: formatTooltip(word, currentCount, prevCount),
+            };
+        });
+    }
+
+    return trendData;
 };

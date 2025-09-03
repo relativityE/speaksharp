@@ -47,7 +47,26 @@ The backend is built entirely on the Supabase platform, leveraging its integrate
     *   `stripe-webhook`: Listens for and processes webhooks from Stripe to update user subscription status.
     *   `get-ai-suggestions`: (Future) Intended to provide AI-powered suggestions based on transcript analysis.
 
-## 4. Transcription Service (`src/services/transcription`)
+## 4. User Roles and Tiers
+
+The application defines several user tiers that control access to features and usage limits. The user's tier is determined by their authentication state and their subscription status in Stripe, managed via Supabase.
+
+*   **Anonymous User:**
+    *   **Definition:** A user who has not signed in.
+    *   **Flow:** Accesses the main landing page, can start a single practice session with a short, fixed duration (e.g., 2 minutes), and can view the analytics for that session. They are prompted to sign in to save history and unlock more features.
+
+*   **Free User (Authenticated):**
+    *   **Definition:** A user who has created an account and is logged in but does not have an active Pro subscription.
+    *   **Flow:** Can view their session history. They have a limited amount of free practice time per month. When this limit is exhausted, they are prompted by the `UpgradePromptDialog` to upgrade to a Pro plan. Their session duration is also limited (e.g., 30 minutes).
+
+*   **Pro User (Authenticated):**
+    *   **Definition:** A user with an active, paid subscription via Stripe.
+    *   **Flow:** Has unlimited practice time and no session duration limits. They have access to all current features and will have access to future premium features like on-device transcription.
+
+*   **Premium User:**
+    *   **Note:** While a "premium" tier was mentioned in initial requirements, there is currently no distinction in the codebase between a "Pro" and a "Premium" user. All paid features are gated under the "Pro" tier.
+
+## 5. Transcription Service (`src/services/transcription`)
 
 The `TranscriptionService.js` provides a unified abstraction layer over multiple transcription providers. This allows the application to seamlessly switch between modes.
 
@@ -56,14 +75,14 @@ The `TranscriptionService.js` provides a unified abstraction layer over multiple
     *   **`NativeBrowser`:** Uses the browser's built-in `SpeechRecognition` API for on-device transcription. This is a privacy-focused fallback.
 *   **Audio Processing:** The `audioUtils.js` and `audio-processor.worklet.js` are responsible for capturing microphone input, resampling it to the required 16kHz sample rate, and streaming it to the active transcription provider.
 
-## 5. CI/CD
+## 6. CI/CD
 
 The project includes a basic CI/CD pipeline defined in `.github/workflows/deploy.yml`.
 
 *   **Current Implementation:** The workflow is triggered manually (`workflow_dispatch`) and handles the deployment of Supabase database migrations to a single environment.
 *   **Future Work:** The pipeline needs to be expanded to support multiple environments (e.g., `staging`, `production`) and automated deployments based on branch pushes.
 
-## 6. Testing Strategy
+## 7. Testing Strategy
 
 This section outlines the official strategy for testing, debugging, and verification. It consolidates learnings from previous debugging sessions and establishes best practices for the project.
 
