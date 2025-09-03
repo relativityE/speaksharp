@@ -68,8 +68,10 @@ const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) =
 import { useAuth } from '../contexts/AuthContext';
 import { useSession } from '../contexts/SessionContext';
 
+import logger from '@/lib/logger';
+
 export const SessionPage = () => {
-    const { user, profile, session } = useAuth();
+    const { user, profile, session, loading } = useAuth();
     const { saveSession: saveSessionToBackend, usageLimitExceeded, setUsageLimitExceeded } = useSessionManager();
     const { addSession } = useSession();
     const [customWords, setCustomWords] = useState([]);
@@ -79,9 +81,19 @@ export const SessionPage = () => {
     const speechRecognition = useSpeechRecognition({ customWords, session, profile });
     const { isListening, modelLoadingProgress } = speechRecognition;
 
+    logger.info({ profile, loading, usageLimitExceeded }, 'SessionPage render state');
+
     useEffect(() => {
         posthog.capture('session_page_viewed');
     }, []);
+
+    if (loading) {
+        return (
+            <div className="container mx-auto px-component-px py-10 flex justify-center items-center">
+                <Loader className="h-8 w-8 animate-spin" />
+            </div>
+        );
+    }
 
     useEffect(() => {
         let interval;
@@ -108,6 +120,13 @@ export const SessionPage = () => {
             : profile?.subscription_status !== 'pro'
                 ? 1800 // 30 minutes for free users
                 : null; // No limit for pro users
+
+        logger.info({
+            isListening,
+            elapsedTime,
+            sessionLimit,
+            isPro: profile?.subscription_status === 'pro'
+        }, 'Session limit check');
 
         if (sessionLimit && elapsedTime >= sessionLimit) {
             speechRecognition.stopListening();

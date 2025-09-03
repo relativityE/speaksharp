@@ -101,7 +101,7 @@ export const useSpeechRecognition = ({
                     logger.error({ err }, 'Error counting filler words');
                 }
             }
-        }, 100);
+        }, 50);
     }, [customWords]);
 
     useEffect(() => {

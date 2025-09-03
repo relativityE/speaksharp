@@ -29,9 +29,9 @@ const Chunk = ({ chunk, fillerData }) => {
                 const fillerInfo = fillerKey ? fillerData[fillerKey] : null;
 
                 return fillerInfo ? (
-                    <span key={index} className="px-1 rounded font-semibold" style={{ backgroundColor: fillerInfo.color, color: 'black' }}>
+                    <strong key={index} className="px-1 rounded" style={{ backgroundColor: fillerInfo.color, color: 'black' }} data-testid="highlighted-word">
                         {part}
-                    </span>
+                    </strong>
                 ) : (
                     <span key={index}>{part}</span>
                 );
@@ -44,7 +44,7 @@ const MemoizedChunk = React.memo(Chunk);
 
 const HighlightedTranscript = ({ chunks, interimTranscript, fillerData }) => {
     return (
-        <p className="text-lg leading-relaxed text-foreground">
+        <p className="text-lg leading-relaxed text-foreground" data-testid="transcript-container">
             {chunks.map((chunk, index) => (
                 <React.Fragment key={chunk.id}>
                     <MemoizedChunk chunk={chunk.text} fillerData={fillerData} />
