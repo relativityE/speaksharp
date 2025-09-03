@@ -21,6 +21,7 @@ The system is built for speed, both in user experience and development velocity.
 - **Test Environment Memory Leak:** The test suite fails with a "JavaScript heap out of memory" error when running with coverage enabled (`pnpm test:coverage`). This prevents the generation of an up-to-date code coverage report. This issue is considered high-priority as it blocks our ability to track code quality.
 - **Full Test Suite Hang:** The `pnpm test` command does not run to completion. While many individual test suites have been fixed, this command still hangs, preventing a full report of passing/failing tests. This indicates a fundamental instability in the test runner's environment.
 - **`useSpeechRecognition.test.jsx` Test Hang:** The test suite for the `useSpeechRecognition` hook hangs indefinitely, even after a full refactoring of both the test and the hook itself. The issue is likely a fundamental incompatibility between the hook's complexity and the `happy-dom` test environment. The suite remains skipped.
+- **New Test Files Not Found:** The test runner sometimes fails to find new test files (e.g., `fillerWordUtils.test.js`) when run directly, even though the file exists and matches the include pattern. This is likely another symptom of the test environment's instability.
 - **On-Device Transcription Needs Polish:** The `LocalWhisper` provider in `TranscriptionService` may require further UI/UX polishing.
 
 ---
