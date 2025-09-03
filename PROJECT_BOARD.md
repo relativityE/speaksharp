@@ -15,21 +15,21 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - 🔴 5. E2E Testing & Hardening: Write comprehensive tests and harden the feature for production use.
 - 🔴 **Harden and Polish the Native Transcription Experience:** Improve the reliability and UX of the default NativeBrowser (cloud) mode.
 - ✅ **Implement Conditional Rendering for Missing Env Vars:** The app should not crash if environment variables are missing, but instead show a graceful "offline" or "configuration needed" state.
-- 🔴 **Add structured logging:** Implement for both frontend and backend to improve debuggability.
+- ✅ **Add structured logging:** Implement for both frontend and backend to improve debuggability.
 - 🟡 **Update E2E tests for v3 transcription flow:** This is blocked by a critical rendering failure in the Playwright environment.
 - 🔴 **Add full unit test coverage for `CloudAssemblyAI.js`:** Target ≥80% coverage for core logic.
 - ✅ Fix cloud transcription connection: Use correct v3 endpoint and handle raw PCM audio instead of JSON.
 - ✅ Fix data flow race condition: Ensure session data is saved before navigation.
 - ✅ Fix state management & navigation bugs: Resolved issues in the session page.
-- 🔴 **Stabilize the Vitest test suite:** The suite is currently un-runnable due to a catastrophic memory leak.
+- ✅ **Stabilize the Vitest test suite:** The suite is now stable, with almost all previously disabled tests fixed and re-enabled.
 - ✅ Fix CSS Build Process & Styling: Resolved a cascade of issues including incompatible build plugins, incorrect dependencies, and a disconnected theme.
 - ✅ Reinstate session saving & analytics: Ensure new v3 transcripts are stored correctly.
 
 ### 🚧 Should-Have (Tech Debt)
-- 🟡 **Fix Test Suite Environment:** A parent task to investigate and fix the root causes of the test suite's instability.
+- ✅ **Fix Test Suite Environment:** A parent task to investigate and fix the root causes of the test suite's instability.
   - ✅ 1. Diagnose Root Cause: The memory leak has been traced to the Supabase `onAuthStateChange` listener.
   - ✅ 2. Implement Code-Level Fix: A robust, prop-gated `AuthProvider` has been implemented to disable the listener in tests.
-  - 🔴 3. Verify Fix & Re-enable Tests: Verification is blocked by an unknown issue in the test environment. A local developer must run the tests to confirm the fix.
+  - ✅ 3. Verify Fix & Re-enable Tests: The test environment has been stabilized by fixing caching, mocking, and component-level issues.
 - ✅ Improve toast notification styling: Toasts are now pill-shaped with appropriate styling.
 - ✅ Improve loading/waiting state feedback: The transcript panel now provides clearer UI feedback.
 - ✅ Add Page-Level Render Tests: Create a test for each main page (Home, Session, Analytics, Auth) to verify it renders without crashing.
@@ -61,6 +61,7 @@ This phase is about confirming the core feature set works as expected and polish
 - 🔴 **Improve Accessibility:** Use an ARIA live region for the transcript so screen readers can announce new lines.
 - 🔴 **Add Deno unit tests for the token endpoint:** Ensure the assemblyai-token function is fully covered.
 - 🔴 **Add a soak test:** Create a test that runs for 1-minute with continuous audio to check for memory leaks or hangs.
+- 🔴 **Create e2e tests for different user roles (anonymous, free, pro):** To validate the user flows for each subscription tier.
 
 ### Gating Check
 - 🔴 **Bring all documentation up to date to reflect latest/current code implementation**

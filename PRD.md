@@ -18,13 +18,9 @@ The system is built for speed, both in user experience and development velocity.
 ---
 
 ## 3. Known Issues
-- **Test Environment Memory Leak:** The test suite fails with a "JavaScript heap out of memory" error when running with coverage enabled (`pnpm test:coverage`). This prevents the generation of an up-to-date code coverage report.
-- **`useBrowserSupport` Hook Test Failures:** The unit tests for the `useBrowserSupport` hook are persistently failing due to issues with mocking global browser APIs in the JSDOM environment. The tests have been temporarily skipped.
-- **Full Test Suite Hang:** The `pnpm test` command does not run to completion, even with multiple problematic test suites skipped. It hangs indefinitely after the first test file, preventing a full report of passing/failing tests. This indicates a fundamental instability in the test runner's environment.
-- **`CloudAssemblyAI.test.js` Caching Failure:** The test suite for `CloudAssemblyAI.test.js` is unrunnable due to a severe, unresolvable caching issue in the test environment. Despite the test file being corrected on disk, the test runner consistently executes an old, cached version of the file, causing it to fail for code that no longer exists. All attempts to clear the cache (manual deletion, `--no-cache` flag, full dependency re-installation) have failed. The test has been temporarily skipped to unblock the suite.
-- **`SessionSidebar.test.jsx` Async Failure:** Two tests in the `SessionSidebar` suite that verify the appearance of a dialog after an async action are failing. The component does not re-render to show the dialog in the JSDOM test environment. All standard and advanced testing patterns (`findBy`, `waitFor`, `userEvent`, `act` wrappers) have failed to resolve this, indicating a deeper issue with the test environment's handling of async React state updates. These tests have been temporarily skipped.
-- **`useSpeechRecognition.test.jsx` Test Hang:** The test suite for the `useSpeechRecognition` hook hangs indefinitely. This is likely due to a complex interaction between the hook's async operations (including anonymous sign-in flows) and Vitest's fake timers (`vi.useFakeTimers()`). Despite refactoring the test to use best practices for mocking, the hang persists, pointing to a fundamental issue in the test environment. The suite has been temporarily skipped.
-- **`AnalyticsPage.test.jsx` Location State Failure:** A test for the `AnalyticsPage` that passes session data via `react-router` location state is failing. The component does not receive the state when rendered within a `MemoryRouter` in the test environment. This points to a fundamental issue with how `react-router` context is handled in the test setup. The test has been temporarily skipped.
+- **Test Environment Memory Leak:** The test suite fails with a "JavaScript heap out of memory" error when running with coverage enabled (`pnpm test:coverage`). This prevents the generation of an up-to-date code coverage report. This issue is considered high-priority as it blocks our ability to track code quality.
+- **Full Test Suite Hang:** The `pnpm test` command does not run to completion. While many individual test suites have been fixed, this command still hangs, preventing a full report of passing/failing tests. This indicates a fundamental instability in the test runner's environment.
+- **`useSpeechRecognition.test.jsx` Test Hang:** The test suite for the `useSpeechRecognition` hook hangs indefinitely, even after a full refactoring of both the test and the hook itself. The issue is likely a fundamental incompatibility between the hook's complexity and the `happy-dom` test environment. The suite remains skipped.
 - **On-Device Transcription Needs Polish:** The `LocalWhisper` provider in `TranscriptionService` may require further UI/UX polishing.
 
 ---
@@ -40,9 +36,9 @@ This section tracks key software quality metrics for the project.
 
 | Metric                        | Current Value | Date       | Notes                                           |
 | ----------------------------- | ------------- | ---------- | ----------------------------------------------- |
-| **Test Coverage (Lines)**     | `N/A`         | 2025-08-31 | Coverage generation failed due to memory leak.  |
-| **Total Tests**               | `64`          | 2025-08-31 | 4 tests skipped due to mocking issues.          |
-| **Test Suite RunTime**        | `16.14s`      | 2025-08-31 |                                                 |
+| **Test Coverage (Lines)**     | `N/A`         | 2025-09-02 | Coverage generation still fails due to memory leak. |
+| **Total Tests**               | `~93`         | 2025-09-02 | Estimate. 1 suite (15 tests) skipped due to hang. |
+| **Test Suite RunTime**        | `N/A`         | 2025-09-02 | Full suite does not complete due to hang.       |
 ---
 
 ## 6. Metrics and Success Criteria

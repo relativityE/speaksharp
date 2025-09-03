@@ -1,3 +1,4 @@
+import logger from '../../../lib/logger';
 // This file contains the actual implementation for creating a microphone stream
 // and is dynamically imported by the 'safe' wrapper file (audioUtils.js).
 
@@ -11,7 +12,7 @@ const getWorkletUrl = (audioContext) => {
       workletUrlPromise = import('./audio-processor.worklet.js?url')
         .then(module => module.default)
         .catch(error => {
-          console.error('Failed to load audio worklet:', error);
+          logger.error({ error }, 'Failed to load audio worklet:');
           return null;
         });
     } else {
