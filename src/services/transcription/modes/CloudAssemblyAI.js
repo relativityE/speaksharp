@@ -1,3 +1,5 @@
+import logger from '../../../lib/logger';
+
 export default class CloudAssemblyAI {
   constructor({ onTranscriptUpdate, onReady, getAssemblyAIToken } = {}) {
     this.onTranscriptUpdate = onTranscriptUpdate;
@@ -13,7 +15,7 @@ export default class CloudAssemblyAI {
     if (typeof this._getAssemblyAIToken !== 'function') {
       throw new Error('CloudAssemblyAI requires a getAssemblyAIToken function.');
     }
-    console.log('[CloudAssemblyAI] Initialized.');
+    logger.info('[CloudAssemblyAI] Initialized.');
   }
 
   async startTranscription(mic) {
@@ -21,21 +23,21 @@ export default class CloudAssemblyAI {
       throw new Error("A mic object with an onFrame method is required.");
     }
     this.mic = mic;
-    console.log('[CloudAssemblyAI] Starting transcription...');
+    logger.info('[CloudAssemblyAI] Starting transcription...');
 
     try {
-      console.log('[CloudAssemblyAI] Requesting AssemblyAI token...');
+      logger.info('[CloudAssemblyAI] Requesting AssemblyAI token...');
       const token = await this._getAssemblyAIToken();
       if (!token) {
         throw new Error("Failed to retrieve AssemblyAI token.");
       }
-      console.log('[CloudAssemblyAI] Token received.');
+      logger.info('[CloudAssemblyAI] Token received.');
 
       const url = `wss://streaming.assemblyai.com/v3/ws?sample_rate=${mic.sampleRate}&token=${token}&format_turns=true`;
       this.socket = new WebSocket(url);
 
       this.socket.onopen = () => {
-        console.log('✅ [CloudAssemblyAI] WebSocket connected to AssemblyAI.');
+        logger.info('✅ [CloudAssemblyAI] WebSocket connected to AssemblyAI.');
         if (this.onReady) this.onReady();
         // Start sending audio data
         this.mic.onFrame(this.frameHandler);
@@ -43,7 +45,7 @@ export default class CloudAssemblyAI {
 
       this.socket.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        console.log('[CloudAssemblyAI] Received message:', data);
+        logger.info({ data }, '[CloudAssemblyAI] Received message:');
 
         // The V3 API sends transcript data without a 'message_type' field.
         // We determine if it's partial or final based on 'end_of_turn' and 'turn_is_formatted'.
@@ -59,12 +61,12 @@ export default class CloudAssemblyAI {
       };
 
       this.socket.onerror = (error) => {
-        console.error('❌ [CloudAssemblyAI] WebSocket error:', error);
+        logger.error({ error }, '❌ [CloudAssemblyAI] WebSocket error:');
         this.stopTranscription(); // Clean up on error
       };
 
       this.socket.onclose = (event) => {
-        console.log(`🔌 [CloudAssemblyAI] WebSocket closed: ${event.code} ${event.reason}`);
+        logger.info({ code: event.code, reason: event.reason }, `🔌 [CloudAssemblyAI] WebSocket closed`);
         this.socket = null;
         // Ensure the mic listener is removed
         if (this.mic) {
@@ -73,7 +75,7 @@ export default class CloudAssemblyAI {
       };
 
     } catch (error) {
-      console.error('❌ [CloudAssemblyAI] Error starting cloud transcription:', error);
+      logger.error({ error }, '❌ [CloudAssemblyAI] Error starting cloud transcription:');
       throw error;
     }
   }
@@ -93,25 +95,25 @@ export default class CloudAssemblyAI {
     this.socket.send(int16Array.buffer);
 
     if (!this.firstPacketSent) {
-      console.log('[CloudAssemblyAI] Sent first audio packet.');
+      logger.info('[CloudAssemblyAI] Sent first audio packet.');
       this.firstPacketSent = true;
     }
   }
 
   async stopTranscription() {
-    console.log('[CloudAssemblyAI] Stopping transcription...');
+    logger.info('[CloudAssemblyAI] Stopping transcription...');
     if (this.mic) {
       this.mic.offFrame(this.frameHandler);
-      console.log('[CloudAssemblyAI] Mic frame handler removed.');
+      logger.info('[CloudAssemblyAI] Mic frame handler removed.');
       this.mic = null;
     }
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      console.log('[CloudAssemblyAI] Sending termination message.');
+      logger.info('[CloudAssemblyAI] Sending termination message.');
       this.socket.send(JSON.stringify({ type: "Terminate" }));
       this.socket.close(1000);
       this.socket = null;
     } else {
-      console.log('[CloudAssemblyAI] No active socket to stop.');
+      logger.info('[CloudAssemblyAI] No active socket to stop.');
     }
   }
 }
