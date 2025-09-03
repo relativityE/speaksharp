@@ -107,9 +107,10 @@ Complex hooks involving real-time browser APIs (e.g., `navigator.mediaDevices`, 
 The established best practice is as follows:
 
 1.  **Extract Pure Logic:** Any pure, stateless business logic (e.g., filler word counting, data transformation) must be extracted into standalone utility functions in `src/utils` and have 100% unit test coverage.
-2.  **Mock the Hook, Test the Component:** Components using a complex hook must be tested by mocking the *hook itself*. This allows for testing the component's rendering and behavior in various states (e.g., loading, error) without running the hook's internal logic.
-3.  **Validate via E2E Tests:** The full functionality of the complex hook must be validated through End-to-End (E2E) tests using a real browser environment like Playwright. This is the only reliable method for testing features dependent on real hardware and network interactions.
-4.  **Skip Unit Tests for the Hook:** The unit test file for the complex hook itself should contain a single, skipped test with a comment directing developers to the relevant E2E and component integration tests. This prevents the test suite from hanging while documenting the testing strategy.
+2.  **Debounce Expensive Operations:** For operations that run in response to frequent updates (like re-counting filler words on every transcript change), the hook uses a short debounce (e.g., 50ms). This prevents performance bottlenecks while maintaining a responsive feel for the UI.
+3.  **Mock the Hook, Test the Component:** Components using a complex hook must be tested by mocking the *hook itself*. This allows for testing the component's rendering and behavior in various states (e.g., loading, error) without running the hook's internal logic.
+4.  **Validate via E2E Tests:** The full functionality of the complex hook must be validated through End-to-End (E2E) tests using a real browser environment like Playwright. This is the only reliable method for testing features dependent on real hardware and network interactions.
+5.  **Skip Unit Tests for the Hook:** The unit test file for the complex hook itself should contain a single, skipped test with a comment directing developers to the relevant E2E and component integration tests. This prevents the test suite from hanging while documenting the testing strategy.
 
 ### 6.3. General Best Practices & Troubleshooting
 

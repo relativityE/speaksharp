@@ -64,7 +64,7 @@ const AuthenticatedAnalyticsView = () => {
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 items-start">
-            <div className="lg:col-span-3">
+            <div className="lg:col-span-4">
                 {user && !isPro && !sessionId && <UpgradeBanner />}
                 <div className="mb-8">
                     <h1 className="text-3xl font-bold text-foreground">{sessionId ? "Session Analysis" : "Your Dashboard"}</h1>
@@ -78,29 +78,6 @@ const AuthenticatedAnalyticsView = () => {
                     loading={loading}
                     error={error}
                 />
-            </div>
-
-            <div className="lg:col-span-1 space-y-6 lg:sticky lg:top-24">
-                <SessionStatus />
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <Settings className="w-5 h-5 text-primary" />
-                            Developer Options
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="flex items-center space-x-2">
-                            <Checkbox id="force-cloud" checked={forceCloud} onCheckedChange={setForceCloud} />
-                            <Label htmlFor="force-cloud" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                                Force Cloud AI
-                            </Label>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-2">
-                            Bypass browser-based speech recognition for testing cloud provider.
-                        </p>
-                    </CardContent>
-                </Card>
             </div>
         </div>
     );

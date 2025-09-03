@@ -1,6 +1,6 @@
 # SpeakSharp Product Requirements Document
 
-**Version 6.26** | **Last Updated: August 31, 2025**
+**Version 6.27** | **Last Updated: September 3, 2025**
 
 ## 1. Executive Summary
 
@@ -14,6 +14,12 @@ The system is built for speed, both in user experience and development velocity.
 - **Comprehensive Test Suite Expansion**: Implemented a full suite of new and refactored tests to enhance code quality and stability. This includes new tests for `AuthPage`, `useBrowserSupport`, and `useSpeechRecognition`, as well as significant enhancements to existing tests for `AnalyticsPage`, `SessionPage`, and `MainPage`.
 - **Hardened Test Environment**: Implemented a robust test environment with shims for external services (`Stripe`, `PostHog`, etc.) and network interception via Playwright to ensure deterministic E2E tests.
 - **Code Cleanup**: Deleted obsolete test files to streamline the codebase.
+
+## 2.1. Recent Updates (v6.27)
+*September 3, 2025*
+- **Critical Bug Fix**: Fixed a data flow issue where session data was not being correctly saved and passed to the analytics page.
+- **Analytics UI Update**: Replaced the "Top Filler Words" bar chart with a more detailed table view and removed unnecessary UI panels from the dashboard.
+- **Performance Tuning**: Improved the perceived responsiveness of the live transcript by reducing the debounce timer for filler word highlighting.
 
 ---
 
