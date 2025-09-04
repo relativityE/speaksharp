@@ -1,76 +1,99 @@
 import React from 'react';
-import { render, act, screen } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
-import { useSessionManager } from '../hooks/useSessionManager';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SessionProvider, useSession } from '../contexts/SessionContext';
-import { AuthContext } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext';
+import { useSessionManager } from '../hooks/useSessionManager';
 import * as storage from '../lib/storage';
-import '@testing-library/jest-dom';
 
-// Test component to trigger the hooks
+// Mock dependencies
+vi.mock('../contexts/AuthContext');
+vi.mock('../hooks/useSessionManager');
+vi.mock('../lib/storage');
+
+// A component to display session state and trigger actions
 const TestComponent = () => {
-    const { saveSession } = useSessionManager();
     const { sessionHistory, addSession } = useSession();
+    const { saveSession } = useSessionManager();
 
     const handleSave = async () => {
-        const mockSessionData = { duration: 123, transcript: 'hello world' };
-        const newSession = await saveSession(mockSessionData);
-        if (newSession) {
-            addSession(newSession);
+        const newSessionData = { transcript: 'New test session' };
+        const saved = await saveSession(newSessionData);
+        if (saved) {
+            addSession(saved);
         }
     };
 
     return (
         <div>
+            <div data-testid="session-count">{sessionHistory.length}</div>
             <button onClick={handleSave}>Save Session</button>
-            <div data-testid="history-length">{sessionHistory.length}</div>
-            {sessionHistory.length > 0 && (
-                <div data-testid="first-session-id">{sessionHistory[0].id}</div>
-            )}
+            <ul>
+                {sessionHistory.map(s => <li key={s.id}>{s.transcript}</li>)}
+            </ul>
         </div>
     );
 };
 
-describe('Session Data Flow Integration Test', () => {
-    const mockUser = { id: 'test-user-123', is_anonymous: false };
-    const mockProfile = { id: 'test-user-123', subscription_status: 'pro' };
-    const mockAuthContextValue = {
-        user: mockUser,
-        profile: mockProfile,
-        session: {},
-        loading: false,
-        signOut: async () => {},
-    };
+describe('Session Data Flow Integration', () => {
+    let mockSaveSession;
 
-    it('should correctly save a session and update the global session history', async () => {
-        // Mock the database save function from storage.js
-        const mockSavedSession = { id: 'new-session-456', duration: 123, transcript: 'hello world', user_id: mockUser.id };
-        vi.spyOn(storage, 'saveSession').mockResolvedValue({ session: mockSavedSession, usageExceeded: false });
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockSaveSession = vi.fn();
+        useSessionManager.mockReturnValue({ saveSession: mockSaveSession });
+        storage.getSessionHistory.mockResolvedValue({ sessions: [], error: null });
+    });
 
-        // Mock getSessionHistory to avoid initial load interference
-        vi.spyOn(storage, 'getSessionHistory').mockResolvedValue([]);
+    it('should correctly save a session for an authenticated user and update context', async () => {
+        useAuth.mockReturnValue({ user: { id: 'auth-user-1' }, profile: { id: 'prof-1' } });
+        const mockSavedSession = { id: 'session-1', transcript: 'New test session' };
+        mockSaveSession.mockResolvedValue(mockSavedSession);
 
         render(
-            <AuthContext.Provider value={mockAuthContextValue}>
-                <SessionProvider>
-                    <TestComponent />
-                </SessionProvider>
-            </AuthContext.Provider>
+            <SessionProvider>
+                <TestComponent />
+            </SessionProvider>
         );
 
-        // Initially, history should be empty
-        expect(screen.getByTestId('history-length')).toHaveTextContent('0');
-
-        // Simulate saving a session
-        const saveButton = screen.getByText('Save Session');
-        await act(async () => {
-            saveButton.click();
+        // Wait for initial load to complete
+        await waitFor(() => {
+            expect(screen.getByTestId('session-count')).toHaveTextContent('0');
         });
 
-        // After saving, history should have 1 item
-        expect(screen.getByTestId('history-length')).toHaveTextContent('1');
+        const saveButton = screen.getByText('Save Session');
+        fireEvent.click(saveButton);
 
-        // The item in history should be the full session object, not just an ID
-        expect(screen.getByTestId('first-session-id')).toHaveTextContent('new-session-456');
+        await waitFor(() => {
+            expect(screen.getByTestId('session-count')).toHaveTextContent('1');
+        });
+        expect(screen.getByText('New test session')).toBeInTheDocument();
+        expect(mockSaveSession).toHaveBeenCalledWith({ transcript: 'New test session' });
+    });
+
+    it('should create a temporary session for an anonymous user and update context', async () => {
+        useAuth.mockReturnValue({ user: { id: 'anon-user-1', is_anonymous: true }, profile: null });
+        const mockTempSession = { id: 'anonymous-session-xyz', transcript: 'New test session' };
+        mockSaveSession.mockResolvedValue(mockTempSession);
+
+        render(
+            <SessionProvider>
+                <TestComponent />
+            </SessionProvider>
+        );
+
+        // Wait for initial load to complete
+        await waitFor(() => {
+            expect(screen.getByTestId('session-count')).toHaveTextContent('0');
+        });
+
+        const saveButton = screen.getByText('Save Session');
+        fireEvent.click(saveButton);
+
+        await waitFor(() => {
+            expect(screen.getByTestId('session-count')).toHaveTextContent('1');
+        });
+        expect(screen.getByText('New test session')).toBeInTheDocument();
+        expect(mockSaveSession).toHaveBeenCalledWith({ transcript: 'New test session' });
     });
 });

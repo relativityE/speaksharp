@@ -35,15 +35,18 @@ These foundational rules govern all work and must be followed at all times.
 
 ## 1. Pre-Task Discipline
 
-Before starting any task, you must complete this checklist:
+Before starting any new task, you must complete this checklist. A "new task" includes a new feature request, a bug report, or any significant change in direction from the user.
 
-1.  **Contextual Review:** Read all documentation to understand product goals, user requirements, and existing architecture.
+1.  **Contextual Review:** Read all relevant documentation (`/docs`) to understand the project's current state, goals, and architecture.
 
-2.  **Codebase Deep Dive:** Explore the relevant parts of the codebase. Use tools like `ls -R` and `read_file` to understand the current implementation.
+2.  **Codebase Deep Dive & Evidence Gathering:** Explore the relevant parts of the codebase using tools like `ls -R`, `grep`, and `read_file`.
+    *   For **bug reports**, this deep dive is mandatory. Your analysis must be **definitive** and based on code evidence, not hypothesis. You must identify the specific lines of code causing the issue.
+    *   For **feature requests**, this dive is to understand the existing implementation and how a new feature would integrate.
 
-3.  **Strategic Consultation:** After your deep dive, you must pause and present your proposed solution to the user. This includes:
-    *   **Proposed Solution:** Propose 2–3 viable approaches with trade-offs. Do not lock into a single solution prematurely.
-    *   **Identified Risks:** Any potential issues with the existing code or your proposed changes (e.g., performance bottlenecks, security concerns, technical debt).
+3.  **Strategic Consultation:** After your deep dive, you must pause and present your findings and proposed solution to the user. This includes:
+    *   **Root Cause Analysis (for bugs):** A definitive explanation of why the bug is occurring, referencing specific code.
+    *   **Proposed Solution:** Propose 1-3 viable approaches with trade-offs.
+    *   **Identified Risks:** Any potential issues with your proposed changes (e.g., performance, security, technical debt).
     *   **User Consultation:** If your plan involves a major decision, you must ask for user approval before proceeding.
 
 ---

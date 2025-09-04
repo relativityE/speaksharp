@@ -1,188 +1,102 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { screen, fireEvent, act } from '@testing-library/react';
+import { vi } from 'vitest';
 import { SessionSidebar } from '../SessionSidebar';
+import { useAuth } from '../../../contexts/AuthContext';
+import { renderWithStripe } from '../../../test/utils/renderWithStripe';
 
-// Mock dependencies
-const mockNavigate = vi.fn();
-vi.mock('react-router-dom', () => ({
-  useNavigate: () => mockNavigate,
-}));
+// Mocks
+vi.mock('../../../contexts/AuthContext');
 
-vi.mock('../../../contexts/AuthContext', () => ({
-  useAuth: () => ({ user: { id: 'test-user' }, profile: { subscription_status: 'free' } }),
-}));
+describe('SessionSidebar', () => {
+    let mockStartListening;
+    let mockStopListening;
+    let mockReset;
+    let mockSaveSession;
+    let defaultProps;
 
-vi.mock('@stripe/react-stripe-js', () => ({
-  useStripe: () => ({ redirectToCheckout: vi.fn() }),
-}));
+    beforeEach(() => {
+        vi.clearAllMocks();
 
-vi.mock('sonner', () => ({
-  toast: {
-    error: vi.fn(),
-    info: vi.fn(),
-    success: vi.fn(),
-  },
-}));
+        mockStartListening = vi.fn();
+        mockStopListening = vi.fn().mockResolvedValue({ transcript: 'test transcript' });
+        mockReset = vi.fn();
+        mockSaveSession = vi.fn().mockResolvedValue({ id: 'new-session-id' });
 
-vi.mock('lucide-react', async (importOriginal) => {
-    const original = await importOriginal();
-    return {
-        ...original,
-        Cloud: () => <div data-testid="cloud-icon" />,
-        Computer: () => <div data-testid="computer-icon" />,
-    };
-});
+        useAuth.mockReturnValue({
+            user: { id: '123' },
+            profile: { subscription_status: 'pro' },
+        });
 
-vi.mock('@/components/ui/alert-dialog', () => ({
-    AlertDialog: ({ children, open }) => open ? <div data-testid="alert-dialog">{children}</div> : null,
-    AlertDialogAction: ({ children, asChild }) => asChild ? children : <button>{children}</button>,
-    AlertDialogCancel: ({ children }) => <button>{children}</button>,
-    AlertDialogContent: ({ children }) => <div>{children}</div>,
-    AlertDialogDescription: ({ children }) => <p>{children}</p>,
-    AlertDialogFooter: ({ children }) => <div>{children}</div>,
-    AlertDialogHeader: ({ children }) => <div>{children}</div>,
-    AlertDialogTitle: ({ children }) => <h3>{children}</h3>,
-}));
-
-const defaultProps = {
-  isListening: false,
-  isReady: false,
-  error: null,
-  startListening: vi.fn(),
-  stopListening: vi.fn().mockResolvedValue({ transcript: 'test transcript' }),
-  reset: vi.fn(),
-  actualMode: 'native',
-  saveSession: vi.fn().mockResolvedValue({ id: 'new-session-id' }),
-  elapsedTime: 0,
-  modelLoadingProgress: null,
-};
-
-describe.skip('SessionSidebar', () => {
-  beforeEach(async () => {
-    vi.clearAllMocks();
-  });
-
-  it('renders in its initial idle state', () => {
-    render(<SessionSidebar {...defaultProps} />);
-    expect(screen.getByText('Start Session')).toBeInTheDocument();
-    expect(screen.getByText(/Ready/i)).toBeInTheDocument();
-    expect(screen.getByText('00:00')).toBeInTheDocument();
-  });
-
-  it('calls startListening when the "Start Session" button is clicked', async () => {
-    render(<SessionSidebar {...defaultProps} />);
-    const startButton = screen.getByText('Start Session');
-    fireEvent.click(startButton);
-    await waitFor(() => {
-      expect(defaultProps.startListening).toHaveBeenCalled();
-    });
-  });
-
-  it('renders in the listening state', () => {
-    render(<SessionSidebar {...defaultProps} isListening={true} isReady={true} elapsedTime={30} />);
-    expect(screen.getByText('Stop Session')).toBeInTheDocument();
-    expect(screen.getByText('Session Active')).toBeInTheDocument();
-    expect(screen.getByText('00:30')).toBeInTheDocument();
-  });
-
-  describe('ModeIndicator', () => {
-    it('shows Cloud AI mode correctly', () => {
-      render(<SessionSidebar {...defaultProps} actualMode="cloud" />);
-      expect(screen.getByText('Cloud AI')).toBeInTheDocument();
-      expect(screen.getByTestId('cloud-icon')).toBeInTheDocument();
+        defaultProps = {
+            isListening: false,
+            isReady: true,
+            error: null,
+            startListening: mockStartListening,
+            stopListening: mockStopListening,
+            reset: mockReset,
+            actualMode: 'native',
+            saveSession: mockSaveSession,
+            elapsedTime: 0,
+            modelLoadingProgress: { status: 'ready' },
+        };
     });
 
-    it('shows Browser mode correctly', () => {
-      render(<SessionSidebar {...defaultProps} actualMode="native" />);
-      expect(screen.getByText('Native Browser')).toBeInTheDocument();
-      expect(screen.getByTestId('computer-icon')).toBeInTheDocument();
+    it('renders the initial state correctly', () => {
+        renderWithStripe(<SessionSidebar {...defaultProps} />);
+        expect(screen.getByText('Start Session')).toBeInTheDocument();
+        expect(screen.getByText('Native Browser')).toBeInTheDocument();
     });
 
-    it('does not render the indicator if mode is not set', () => {
-      render(<SessionSidebar {...defaultProps} actualMode={null} />);
-      expect(screen.queryByText('Cloud AI')).not.toBeInTheDocument();
-      expect(screen.queryByText('Browser')).not.toBeInTheDocument();
-    });
-  });
-
-  it('calls stopListening when the "Stop Session" button is clicked', async () => {
-    render(<SessionSidebar {...defaultProps} isListening={true} isReady={true} />);
-    const stopButton = screen.getByText('Stop Session');
-    fireEvent.click(stopButton);
-    await waitFor(() => {
-      expect(defaultProps.stopListening).toHaveBeenCalled();
-    });
-  });
-
-  it('shows the end session dialog after stopping', async () => {
-    const user = userEvent.setup();
-    render(<SessionSidebar {...defaultProps} isListening={true} isReady={true} />);
-    const stopButton = screen.getByText('Stop Session');
-
-    await act(async () => {
-      await user.click(stopButton);
+    it('calls reset and startListening when the start button is clicked', async () => {
+        renderWithStripe(<SessionSidebar {...defaultProps} />);
+        const startButton = screen.getByText('Start Session');
+        await act(async () => {
+            fireEvent.click(startButton);
+        });
+        expect(mockReset).toHaveBeenCalled();
+        expect(mockStartListening).toHaveBeenCalled();
     });
 
-    expect(await screen.findByText('Session Ended')).toBeInTheDocument();
-    expect(screen.getByText('Go to Analytics')).toBeInTheDocument();
-  });
-
-  it('saves the session with duration and navigates to analytics', async () => {
-    const user = userEvent.setup();
-    const propsWithTime = { ...defaultProps, elapsedTime: 123 };
-    render(<SessionSidebar {...propsWithTime} isListening={true} isReady={true} />);
-    const stopButton = screen.getByText('Stop Session');
-
-    await act(async () => {
-      await user.click(stopButton);
+    it('displays the timer and stop button when session is active', () => {
+        const activeProps = {
+            ...defaultProps,
+            isListening: true,
+            elapsedTime: 123,
+        };
+        renderWithStripe(<SessionSidebar {...activeProps} />);
+        expect(screen.getByText('Session Active')).toBeInTheDocument();
+        expect(screen.getByText('02:03')).toBeInTheDocument();
+        expect(screen.getByText('Stop Session')).toBeInTheDocument();
     });
 
-    const goToAnalyticsButton = await screen.findByText('Go to Analytics');
+    it('calls stopListening and shows end session dialog', async () => {
+        const activeProps = {
+            ...defaultProps,
+            isListening: true,
+        };
+        renderWithStripe(<SessionSidebar {...activeProps} />);
 
-    await act(async () => {
-      await user.click(goToAnalyticsButton);
+        const stopButton = screen.getByText('Stop Session');
+        await act(async () => {
+            fireEvent.click(stopButton);
+        });
+
+        expect(mockStopListening).toHaveBeenCalled();
+        expect(screen.getByText('Session Ended')).toBeInTheDocument();
     });
 
-    await waitFor(() => {
-      expect(propsWithTime.saveSession).toHaveBeenCalledWith(
-        expect.objectContaining({
-          transcript: 'test transcript',
-          duration: 123,
-        })
-      );
-    });
-    await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith('/analytics/new-session-id');
-    });
-  });
-
-  it('saves the session when "Stay on Page" is clicked', async () => {
-    const user = userEvent.setup();
-    const propsWithTime = { ...defaultProps, elapsedTime: 55 };
-    render(<SessionSidebar {...propsWithTime} isListening={true} isReady={true} />);
-    const stopButton = screen.getByText('Stop Session');
-
-    await act(async () => {
-      await user.click(stopButton);
+    it('shows upgrade prompt for non-pro users', () => {
+        useAuth.mockReturnValue({
+            user: { id: '123' },
+            profile: { subscription_status: 'free' },
+        });
+        renderWithStripe(<SessionSidebar {...defaultProps} />);
+        expect(screen.getByText('Upgrade to Pro')).toBeInTheDocument();
     });
 
-    const stayOnPageButton = await screen.findByText('Stay on Page');
-
-    await act(async () => {
-      await user.click(stayOnPageButton);
+    it('does not show upgrade prompt for pro users', () => {
+        renderWithStripe(<SessionSidebar {...defaultProps} />);
+        expect(screen.queryByText('Upgrade to Pro')).not.toBeInTheDocument();
     });
-
-    await waitFor(() => {
-      expect(propsWithTime.saveSession).toHaveBeenCalledWith(
-        expect.objectContaining({
-          transcript: 'test transcript',
-          duration: 55,
-        })
-      );
-    });
-
-    expect(mockNavigate).not.toHaveBeenCalled();
-  });
 });

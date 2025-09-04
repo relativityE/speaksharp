@@ -10,6 +10,9 @@ const ConnectionState = {
 
 export default class CloudAssemblyAI {
   constructor({ onTranscriptUpdate, onReady, getAssemblyAIToken } = {}) {
+    if (typeof getAssemblyAIToken !== 'function') {
+      throw new Error('CloudAssemblyAI requires a getAssemblyAIToken function.');
+    }
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onReady = onReady;
     this._getAssemblyAIToken = getAssemblyAIToken;
@@ -20,12 +23,6 @@ export default class CloudAssemblyAI {
     this.state = ConnectionState.IDLE;
     this.audioQueue = [];
     this.firstPacketSent = false;
-  }
-
-  async init() {
-    if (typeof this._getAssemblyAIToken !== 'function') {
-      throw new Error('CloudAssemblyAI requires a getAssemblyAIToken function.');
-    }
     logger.info('[CloudAssemblyAI] Initialized.');
   }
 

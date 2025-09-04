@@ -2,6 +2,24 @@ import { vi, afterEach, beforeEach } from 'vitest';
 import { cleanup } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
+// Environment variables for Supabase are now set in the test command in package.json
+// to ensure they are available before any modules are imported.
+
+// Mock SpeechRecognition API
+const mockSpeechRecognition = vi.fn(() => ({
+  start: vi.fn(),
+  stop: vi.fn(),
+  onresult: null,
+  onerror: null,
+  onend: null,
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+  dispatchEvent: vi.fn(),
+}));
+
+vi.stubGlobal('SpeechRecognition', mockSpeechRecognition);
+vi.stubGlobal('webkitSpeechRecognition', mockSpeechRecognition);
+
 // Track all mocked objects for cleanup
 const mockedObjects = new Set();
 const originalConsoleError = console.error;
@@ -24,28 +42,41 @@ console.warn = (...args) => {
 
 // AGGRESSIVE MOCKING - Mock everything that could cause memory leaks
 
-// Mock Supabase completely
 const mockSupabase = {
   auth: {
-    signInWithPassword: vi.fn(() => Promise.resolve({ error: null })),
-    signUp: vi.fn(() => Promise.resolve({ error: null })),
-    signOut: vi.fn(() => Promise.resolve({ error: null })),
-    signInAnonymously: vi.fn(() => Promise.resolve({
-      data: { session: { access_token: 'mock-token' } },
-      error: null
-    })),
-    getSession: vi.fn(() => Promise.resolve({ data: { session: null } })),
-    onAuthStateChange: vi.fn(() => {
-      const unsubscribe = vi.fn();
-      return { data: { subscription: { unsubscribe } } };
-    }),
+    signInWithPassword: vi.fn(),
+    signUp: vi.fn(),
+    signOut: vi.fn(),
+    signInAnonymously: vi.fn(),
+    getSession: vi.fn(),
+    onAuthStateChange: vi.fn(),
   },
+  from: vi.fn(),
   functions: {
-    invoke: vi.fn(() => Promise.resolve({ data: { token: 'mock-token' }, error: null })),
+    invoke: vi.fn(),
   },
 };
 
-vi.mock('./lib/supabaseClient', () => ({
+// Default implementations
+mockSupabase.auth.getSession.mockResolvedValue({ data: { session: null } });
+mockSupabase.auth.onAuthStateChange.mockReturnValue({
+  data: { subscription: { unsubscribe: vi.fn() } },
+});
+
+// Mock the chained query methods
+const queryChainer = {
+  select: vi.fn().mockReturnThis(),
+  insert: vi.fn().mockReturnThis(),
+  update: vi.fn().mockReturnThis(),
+  delete: vi.fn().mockReturnThis(),
+  eq: vi.fn().mockReturnThis(),
+  single: vi.fn().mockResolvedValue({ data: {}, error: null }),
+  order: vi.fn().mockReturnThis(),
+};
+
+mockSupabase.from.mockReturnValue(queryChainer);
+
+vi.mock('@/lib/supabaseClient', () => ({
   supabase: mockSupabase,
 }));
 
