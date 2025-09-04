@@ -116,7 +116,11 @@ The application defines several user tiers that control access to features and u
     *   **Flow:** Has unlimited practice time and no session duration limits. They have access to all current features and will have access to future premium features like on-device transcription.
 
 *   **Premium User:**
-    *   **Note:** While a "premium" tier was mentioned in initial requirements, there is currently no distinction in the codebase between a "Pro" and a "Premium" user. All paid features are gated under the "Pro" tier.
+    *   **Definition:** A user with an active premium subscription.
+    *   **Flow:** Has all features of the Pro tier, plus exclusive access to:
+        *   On-device (local) transcription via Transformers.js and Whisper WASM.
+        *   Detailed analytics dashboards.
+        *   The ability to download session data.
 
 ## 5. Transcription Service (`src/services/transcription`)
 

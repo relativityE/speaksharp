@@ -72,6 +72,8 @@ This section contains ASCII art diagrams illustrating the journey for each user 
                            | (Via Stripe)                        |
                            | - All Pro features                  |
                            | - On-device (local) transcription   |
+                           | - Detailed Analytics                |
+                           | - Download session data             |
                            +-------------------------------------+
 ```
 
