@@ -87,6 +87,7 @@ The frontend is a single-page application (SPA) built with React and Vite.
 *   **Routing:** Client-side routing is handled by `react-router-dom`.
 *   **Logging:** The application uses `pino` for structured logging to improve debuggability and provide more consistent log output. For development, `pino-pretty` is used to format logs in a human-readable way. A shared logger instance is configured in `src/lib/logger.js` and is used throughout the frontend application to replace standard `console.log` statements.
 
+
 ### Memory Leak Prevention
 Given the real-time nature of the application, proactive memory management is critical. Components involving continuous data streams (e.g., `useSpeechRecognition`, `TranscriptionService`) must be carefully audited for memory leaks. This includes:
 *   **Proper Cleanup:** Ensuring all `useEffect` hooks have proper cleanup functions to unsubscribe from events and clear intervals.
