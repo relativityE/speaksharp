@@ -1,131 +1,114 @@
-import { renderHook, waitFor, act } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { renderHook, act } from '@testing-library/react';
 import { useSessionManager } from '../useSessionManager';
+import * as storage from '../../lib/storage';
+import { useAuth } from '../../contexts/AuthContext';
+import { vi } from 'vitest';
 
 // Mock dependencies
-vi.mock('../../contexts/AuthContext', () => ({
-  useAuth: vi.fn(),
-}));
-
-// Mock the actual exported functions from storage
 vi.mock('../../lib/storage', () => ({
-  getSessionHistory: vi.fn(),
-  saveSession: vi.fn(),
-  deleteSession: vi.fn(),
-  exportData: vi.fn(),
+    saveSession: vi.fn(),
+    deleteSession: vi.fn(),
+    exportData: vi.fn(),
 }));
+vi.mock('../../contexts/AuthContext');
 
-// Import mocked dependencies so we can control them in tests
-import { useAuth } from '../../contexts/AuthContext';
-import { getSessionHistory, saveSession, deleteSession } from '../../lib/storage';
-
-const mockUser = { id: 'user-123' };
-const mockProfile = { subscription_status: 'free' };
-const mockSessions = [
-  { id: 'session-1', transcript: 'Hello world' },
-  { id: 'session-2', transcript: 'Another session' },
-];
+const mockUser = { id: 'test-user-123', is_anonymous: false };
+const mockAnonUser = { id: 'anon-user-456', is_anonymous: true };
+const mockProfile = { id: 'test-user-123', subscription_status: 'free' };
 
 describe('useSessionManager', () => {
-  beforeEach(() => {
-    // Reset all mocks before each test
-    vi.clearAllMocks();
-
-    // Default mock implementation for a logged-in user
-    useAuth.mockReturnValue({ user: mockUser, profile: mockProfile });
-    getSessionHistory.mockResolvedValue([...mockSessions]); // Return a copy
-  });
-
-  it('should initialize with loading true and empty sessions', async () => {
-    const { result } = renderHook(() => useSessionManager());
-    expect(result.current.loading).toBe(true);
-    expect(result.current.sessions).toEqual([]);
-    await waitFor(() => expect(result.current.loading).toBe(false));
-  });
-
-  it('should fetch and set sessions for a logged-in user on mount', async () => {
-    const { result } = renderHook(() => useSessionManager());
-
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
-      expect(result.current.sessions).toEqual(mockSessions);
+    beforeEach(() => {
+        vi.clearAllMocks();
+        useAuth.mockReturnValue({ user: mockUser, profile: mockProfile });
     });
 
-    expect(getSessionHistory).toHaveBeenCalledWith(mockUser.id);
-  });
+    describe('saveSession', () => {
+        it('should call storage.saveSession for an authenticated user and return the session', async () => {
+            const mockSessionData = { transcript: 'A new recording' };
+            const expectedSession = { id: 'session-1', ...mockSessionData };
+            storage.saveSession.mockResolvedValue({ session: expectedSession, error: null });
 
-  it('should not fetch sessions if there is no user', async () => {
-    useAuth.mockReturnValue({ user: null, profile: null });
-    const { result } = renderHook(() => useSessionManager());
+            const { result } = renderHook(() => useSessionManager());
 
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
+            let returnedValue;
+            await act(async () => {
+                returnedValue = await result.current.saveSession(mockSessionData);
+            });
+
+            expect(storage.saveSession).toHaveBeenCalledWith(mockSessionData, mockProfile);
+            expect(returnedValue).toEqual({ session: expectedSession, usageExceeded: false });
+        });
+
+        it('should NOT call storage.saveSession for an anonymous user but still return a temporary session object', async () => {
+            useAuth.mockReturnValue({ user: mockAnonUser, profile: null });
+            const mockSessionData = { transcript: 'An anonymous recording' };
+
+            const { result } = renderHook(() => useSessionManager());
+
+            let returnedValue;
+            await act(async () => {
+                returnedValue = await result.current.saveSession(mockSessionData);
+            });
+
+            expect(storage.saveSession).not.toHaveBeenCalled();
+            expect(returnedValue).toBeDefined();
+            expect(returnedValue.id.startsWith('anonymous-session')).toBe(true);
+            expect(returnedValue.transcript).toBe('An anonymous recording');
+        });
+
+        it('should return null if an authenticated user has no profile', async () => {
+           useAuth.mockReturnValue({ user: mockUser, profile: null });
+           const { result } = renderHook(() => useSessionManager());
+           const mockSessionData = { transcript: 'A new recording' };
+
+           let returnedValue;
+           await act(async () => {
+               returnedValue = await result.current.saveSession(mockSessionData);
+           });
+
+           expect(storage.saveSession).not.toHaveBeenCalled();
+           expect(returnedValue.session).toBeNull();
+        });
     });
 
-    expect(getSessionHistory).not.toHaveBeenCalled();
-    expect(result.current.sessions).toEqual([]);
-  });
+    describe('deleteSession', () => {
+        it('should call storage.deleteSession for a normal session ID', async () => {
+            useAuth.mockReturnValue({ user: mockUser, profile: mockProfile });
+            storage.deleteSession.mockResolvedValue(true);
+            const { result } = renderHook(() => useSessionManager());
 
-  it('should save a new session and add it to the list', async () => {
-    const { result } = renderHook(() => useSessionManager());
-    await waitFor(() => expect(result.current.loading).toBe(false));
+            await act(async () => {
+                await result.current.deleteSession('session-123');
+            });
 
-    const newSessionData = { transcript: 'A new recording' };
-    const savedSession = { id: 'session-3', ...newSessionData, user_id: mockUser.id };
-    saveSession.mockResolvedValue({ session: savedSession, usageExceeded: false });
+            expect(storage.deleteSession).toHaveBeenCalledWith('session-123');
+        });
 
-    let returnedValue;
-    await act(async () => {
-      returnedValue = await result.current.saveSession(newSessionData);
+        it('should NOT call storage.deleteSession for an anonymous session ID', async () => {
+            useAuth.mockReturnValue({ user: mockUser, profile: mockProfile });
+            const { result } = renderHook(() => useSessionManager());
+
+            await act(async () => {
+                await result.current.deleteSession('anonymous-session-abc');
+            });
+
+            expect(storage.deleteSession).not.toHaveBeenCalled();
+        });
     });
 
-    expect(saveSession).toHaveBeenCalledWith({ ...newSessionData, user_id: mockUser.id }, mockProfile);
-    expect(result.current.sessions).toEqual([savedSession, ...mockSessions]);
-    expect(returnedValue).toEqual(savedSession.id); // Check that the ID is returned
-    expect(result.current.usageLimitExceeded).toBe(false);
-  });
+    describe('exportSessions', () => {
+        it('should call storage.exportData for an authenticated user', async () => {
+            useAuth.mockReturnValue({ user: mockUser, profile: mockProfile });
+            const mockData = [{ id: '1', transcript: 'test' }];
+            storage.exportData.mockResolvedValue(mockData);
 
-  it('should set usageLimitExceeded flag when saving fails due to usage', async () => {
-    const { result } = renderHook(() => useSessionManager());
-    await waitFor(() => expect(result.current.loading).toBe(false));
+            const { result } = renderHook(() => useSessionManager());
 
-    const newSessionData = { transcript: 'This one will fail' };
-    saveSession.mockResolvedValue({ session: null, usageExceeded: true });
+            await act(async () => {
+                await result.current.exportSessions();
+            });
 
-    await act(async () => {
-      await result.current.saveSession(newSessionData);
+            expect(storage.exportData).toHaveBeenCalledWith(mockUser.id);
+        });
     });
-
-    expect(result.current.usageLimitExceeded).toBe(true);
-  });
-
-  it('should delete a session and remove it from the list', async () => {
-    const { result } = renderHook(() => useSessionManager());
-    await waitFor(() => expect(result.current.loading).toBe(false));
-
-    const sessionIdToDelete = 'session-1';
-    deleteSession.mockResolvedValue(true);
-
-    await act(async () => {
-      await result.current.deleteSession(sessionIdToDelete);
-    });
-
-    expect(deleteSession).toHaveBeenCalledWith(sessionIdToDelete);
-    expect(result.current.sessions.find(s => s.id === sessionIdToDelete)).toBeUndefined();
-    expect(result.current.sessions.length).toBe(mockSessions.length - 1);
-  });
-
-  it('should set an error state if getSessionHistory fails', async () => {
-    const testError = new Error('Network Failure');
-    getSessionHistory.mockRejectedValue(testError);
-
-    const { result } = renderHook(() => useSessionManager());
-
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
-    });
-
-    expect(result.current.error).toBe(testError);
-    expect(result.current.sessions).toEqual([]);
-  });
 });

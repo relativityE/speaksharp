@@ -2,17 +2,17 @@
 
 SpeakSharp is a privacy-first, real-time speech analysis tool designed to help users improve their public speaking skills. It provides instant, on-device feedback and is built as a modern, serverless SaaS web application using React (Vite) and Supabase.
 
-## Project Documentation
+## 📚 Documentation
 
-This repository contains several key documents that outline the project's goals, architecture, and status.
+All project documentation is located in the `/docs` directory. For a complete overview and map of the documentation, please see **[docs/OUTLINE.md](./docs/OUTLINE.md)**.
 
-*   **[Product Requirements Document (PRD.md)](./PRD.md):** Detailed information about the product, its features, user requirements, known issues, and success metrics.
-*   **[System Architecture](./System Architecture.md):** A description of the technical architecture, technology stack, and data flow.
-*   **[Project Board](./PROJECT_BOARD.md):** The canonical source for the development roadmap and task status, prioritized using the MoSCoW method.
-*   **[Agent Instructions](./AGENTS.md):** Core directives and instructions for AI agents working on this codebase.
-*   **[Testing Strategy](./System Architecture.md#6-testing-strategy):** The canonical guide to testing, debugging, and verification for this project.
+Here are the direct links to the core documents:
 
-## Getting Started
+*   **[PRD.md](./docs/PRD.md)**: The "What & Why" - Product Requirements Document.
+*   **[ARCHITECTURE.md](./docs/ARCHITECTURE.md)**: The "How" - System Architecture and technical deep dive.
+*   **[ROADMAP.md](./docs/ROADMAP.md)**: The "When & Status" - Development plan and project status.
+
+## 🚀 Getting Started
 
 ### Prerequisites
 
@@ -55,28 +55,12 @@ pnpm dev
 
 The application will be available at `http://localhost:5173`.
 
-## Development Conventions
+### Troubleshooting
+*   **`rounded-pill` error on startup:** This is often a caching issue with Vite. Try deleting the `node_modules/.vite` directory and restarting the dev server.
+*   **API Key errors (401 Unauthorized):** Ensure your `.env` file is correctly populated with the `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, and any other required keys. Refer to `.env.example` for the full list.
+*   **`toast` notifications not appearing:** This is a known issue in local development. Please see the full list of [Known Issues in the PRD](./docs/PRD.md#3-known-issues) for status.
 
-### Structured Logging
-
-The project uses `pino` for structured logging. To log messages, import the logger instance from `src/lib/logger.js` and use its methods.
-
-**Example:**
-```javascript
-import logger from '@/lib/logger'; // Use appropriate relative path or alias
-
-// Log a simple informational message
-logger.info('User has started a new session.');
-
-// Log an error with a structured object
-logger.error({ error: new Error('Something went wrong'), sessionId: '123' }, 'An error occurred during payment processing.');
-
-// Log a warning
-logger.warn({ userId: 'abc' }, 'User profile is missing an avatar.');
-```
-This provides more context than a simple `console.log` and helps with debugging.
-
-## Testing
+## ✅ Testing
 
 This project uses [Vitest](https://vitest.dev/) for unit and integration tests and [Playwright](https://playwright.dev/) for end-to-end tests.
 
@@ -88,12 +72,6 @@ This project uses [Vitest](https://vitest.dev/) for unit and integration tests a
 *   **Run tests with UI:**
     ```bash
     pnpm test:ui
-    ```
-
-*   **Run tests with coverage:**
-    *Note: This is currently broken due to a memory leak.*
-    ```bash
-    pnpm test:coverage
     ```
 
 *   **Run E2E tests:**

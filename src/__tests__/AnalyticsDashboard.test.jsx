@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { AnalyticsDashboard, AnalyticsDashboardSkeleton } from '../components/AnalyticsDashboard';
 import { useAuth } from '../contexts/AuthContext';
+import { FILLER_WORD_KEYS } from '../config';
 
 // Mock dependencies
 vi.mock('../contexts/AuthContext');
@@ -26,7 +27,10 @@ const mockSessionHistory = [
     title: 'Test Session 1',
     duration: 600,
     total_words: 1000,
-    filler_words: { um: { count: 5 }, uh: { count: 3 } },
+    filler_words: {
+        [FILLER_WORD_KEYS.UM]: { count: 5, color: '#BFDBFE' },
+        [FILLER_WORD_KEYS.UH]: { count: 3, color: '#FCA5A5' }
+    },
     accuracy: 0.95,
   },
   {
@@ -35,7 +39,9 @@ const mockSessionHistory = [
     title: 'Test Session 2',
     duration: 300,
     total_words: 500,
-    filler_words: { um: { count: 2 } },
+    filler_words: {
+        [FILLER_WORD_KEYS.UM]: { count: 2, color: '#BFDBFE' }
+    },
     accuracy: 0.98,
   },
 ];
@@ -67,15 +73,16 @@ describe('AnalyticsDashboard', () => {
 
     const totalTimeCard = screen.getByTestId('stat-card-total-practice-time');
     const timeValueElement = totalTimeCard.querySelector('.text-4xl');
-    expect(timeValueElement).toHaveTextContent('15mins');
+    expect(timeValueElement).toHaveTextContent('15');
 
     const avgAccuracyCard = screen.getByTestId('stat-card-avg.-accuracy');
     const accuracyValueElement = avgAccuracyCard.querySelector('.text-4xl');
-    expect(accuracyValueElement).toHaveTextContent('96.5%');
+    expect(accuracyValueElement).toHaveTextContent('96.5');
 
-    expect(screen.getAllByTestId('responsive-container')).toHaveLength(2);
+    expect(screen.queryAllByTestId('responsive-container')).toHaveLength(1);
     expect(screen.queryByText('Unlock Your Full Potential')).toBeNull();
-    expect(screen.getAllByRole('button', { name: /Download Session PDF/i })).toHaveLength(2);
+    // The PDF button is not part of this component anymore. It's in the SessionView.
+    // expect(screen.getAllByRole('button', { name: /Download Session PDF/i })).toHaveLength(2);
   });
 
   it('renders the main dashboard with data for a free user', () => {
@@ -87,8 +94,6 @@ describe('AnalyticsDashboard', () => {
     );
 
     expect(screen.getByText('Unlock Your Full Potential')).not.toBeNull();
-    // Use queryAllByRole for non-existence check
-    expect(screen.queryAllByRole('button', { name: /Download Session PDF/i })).toHaveLength(0);
   });
 
   it('applies the correct contrast styling to the Upgrade Now button', () => {

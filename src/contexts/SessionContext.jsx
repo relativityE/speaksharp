@@ -14,7 +14,8 @@ export const SessionProvider = ({ children }) => {
   const [error, setError] = useState(null);
 
   const fetchSessionHistory = useCallback(async () => {
-    if (!user) {
+    // Only fetch history for authenticated, non-anonymous users
+    if (!user || user.is_anonymous) {
       setSessionHistory([]);
       setLoading(false);
       return;
@@ -39,8 +40,18 @@ export const SessionProvider = ({ children }) => {
   }, [fetchSessionHistory]);
 
   const addSession = (newSession) => {
+    if (!newSession || typeof newSession !== 'object') {
+      logger.error({ newSession }, "addSession received invalid data type.");
+      return;
+    }
     setSessionHistory(prevHistory => [newSession, ...prevHistory]);
   };
+
+  const clearAnonymousSession = () => {
+      // This is used when an anonymous user has completed their one session
+      // and is being prompted to sign up.
+      setSessionHistory([]);
+  }
 
   const value = {
     sessionHistory,
@@ -48,6 +59,7 @@ export const SessionProvider = ({ children }) => {
     error,
     refreshHistory: fetchSessionHistory,
     addSession,
+    clearAnonymousSession,
   };
 
   return (
