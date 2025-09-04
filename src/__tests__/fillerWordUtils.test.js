@@ -5,15 +5,16 @@ import {
     calculateTranscriptStats,
     limitArray
 } from '../utils/fillerWordUtils';
+import { FILLER_WORD_KEYS } from '../config';
 
 describe('fillerWordUtils', () => {
     describe('createInitialFillerData', () => {
         it('creates initial data structure with default filler words', () => {
             const result = createInitialFillerData();
-            expect(result).toHaveProperty('um');
-            expect(result).toHaveProperty('uh');
-            expect(result).toHaveProperty('like');
-            expect(result.um).toEqual({ count: 0, color: expect.any(String) });
+            expect(result).toHaveProperty(FILLER_WORD_KEYS.UM);
+            expect(result).toHaveProperty(FILLER_WORD_KEYS.UH);
+            expect(result).toHaveProperty(FILLER_WORD_KEYS.LIKE);
+            expect(result[FILLER_WORD_KEYS.UM]).toEqual({ count: 0, color: expect.any(String) });
         });
 
         it('includes custom words in data structure', () => {
@@ -30,17 +31,17 @@ describe('fillerWordUtils', () => {
             const text = 'Um, so like, you know what I mean?';
             const result = countFillerWords(text);
 
-            expect(result.um.count).toBe(1);
-            expect(result.so.count).toBe(1);
-            expect(result.like.count).toBe(1);
-            expect(result['you know'].count).toBe(1);
-            expect(result['i mean'].count).toBe(1);
+            expect(result[FILLER_WORD_KEYS.UM].count).toBe(1);
+            expect(result[FILLER_WORD_KEYS.SO].count).toBe(1);
+            expect(result[FILLER_WORD_KEYS.LIKE].count).toBe(1);
+            expect(result[FILLER_WORD_KEYS.YOU_KNOW].count).toBe(1);
+            expect(result[FILLER_WORD_KEYS.I_MEAN].count).toBe(1);
         });
 
         it('is case insensitive', () => {
-            const text = 'Um UM Um';
+            const text = 'Um UM uM umm';
             const result = countFillerWords(text);
-            expect(result.um.count).toBe(3);
+            expect(result[FILLER_WORD_KEYS.UM].count).toBe(4);
         });
 
         it('counts custom words', () => {
@@ -51,29 +52,33 @@ describe('fillerWordUtils', () => {
         });
 
         it('only matches whole words', () => {
-            const text = 'umbrella contains um but should not match';
+            const text = 'This umbrella is for um... you.';
             const result = countFillerWords(text);
-            expect(result.um.count).toBe(1); // Only the standalone "um"
+            expect(result[FILLER_WORD_KEYS.UM].count).toBe(1);
         });
     });
 
     describe('calculateTranscriptStats', () => {
         it('calculates basic stats correctly', () => {
             const chunks = [
-                { text: 'Hello world' },
-                { text: 'This is a test' }
+                { text: 'Hello world.' },
+                { text: 'This is a test.' }
             ];
             const wordConfidences = [
                 { confidence: 0.9 },
                 { confidence: 0.8 },
-                { confidence: 0.95 }
+                { confidence: 0.95 },
+                { confidence: 0.9 },
+                { confidence: 0.85 },
+                { confidence: 0.9 },
+                { confidence: 0.95 },
             ];
 
             const result = calculateTranscriptStats(chunks, wordConfidences);
 
-            expect(result.transcript).toBe('Hello world This is a test');
-            expect(result.total_words).toBe(5);
-            expect(result.accuracy).toBeCloseTo(0.883, 2);
+            expect(result.transcript).toBe('Hello world. This is a test.');
+            expect(result.total_words).toBe(6);
+            expect(result.accuracy).toBeCloseTo(0.89, 2);
         });
 
         it('handles empty inputs', () => {

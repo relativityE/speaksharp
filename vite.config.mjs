@@ -55,6 +55,7 @@ export default defineConfig({
     // Good to keep test runs isolated from local noise
     clearMocks: true,
     restoreMocks: true,
+    globalSetup: './src/test/global-setup.js',
     setupFiles: ['./src/test/setup.tsx'],
     // Run coverage only on successful tests
     coverage: {

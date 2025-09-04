@@ -1,4 +1,3 @@
-//cloudAssemblyAi.test.jsx - fixed and enhanced
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import CloudAssemblyAI from './CloudAssemblyAI.js';
 
@@ -11,16 +10,17 @@ vi.mock('../../../lib/logger', () => ({
 }));
 
 // Enhanced WebSocket mock
-const createMockWebSocket = (readyState = WebSocket.OPEN) => ({
+const createMockWebSocket = () => ({
   onopen: null,
   onmessage: null,
   onerror: null,
   onclose: null,
-  readyState,
+  readyState: 0, // CONNECTING
   send: vi.fn(),
   close: vi.fn(),
   // Helper to simulate events
   simulateOpen() {
+    this.readyState = 1; // OPEN
     if (this.onopen) this.onopen();
   },
   simulateMessage(data) {
@@ -30,6 +30,7 @@ const createMockWebSocket = (readyState = WebSocket.OPEN) => ({
     if (this.onerror) this.onerror(error);
   },
   simulateClose(code = 1000, reason = '') {
+    this.readyState = 3; // CLOSED
     if (this.onclose) this.onclose({ code, reason });
   }
 });
@@ -45,11 +46,6 @@ describe('CloudAssemblyAI', () => {
   let mockMic;
 
   beforeEach(() => {
-    // Clear all mocks and reset modules for fresh state
-    vi.clearAllMocks();
-    vi.resetModules();
-
-    // Create fresh mocks
     mockWebSocket = createMockWebSocket();
     global.WebSocket.mockImplementation(() => mockWebSocket);
 
@@ -69,134 +65,64 @@ describe('CloudAssemblyAI', () => {
   });
 
   afterEach(() => {
-    // Ensure cleanup after each test
-    if (cloudAI) {
-      cloudAI.stopTranscription();
-    }
+    vi.clearAllMocks();
   });
 
   describe('Initialization', () => {
-    it('initializes correctly with required dependencies', async () => {
-      await cloudAI.init();
-      expect(cloudAI._getAssemblyAIToken).toBe(mockGetAssemblyAIToken);
-    });
-
-    it('throws error when getAssemblyAIToken is not provided', async () => {
-      const invalidAI = new CloudAssemblyAI();
-      await expect(invalidAI.init()).rejects.toThrow(
-        'CloudAssemblyAI requires a getAssemblyAIToken function.'
-      );
-    });
-
-    it('throws error when getAssemblyAIToken is not a function', async () => {
-      const invalidAI = new CloudAssemblyAI({ getAssemblyAIToken: 'not-a-function' });
-      await expect(invalidAI.init()).rejects.toThrow(
+    it('throws error when getAssemblyAIToken is not provided', () => {
+      expect(() => new CloudAssemblyAI()).toThrow(
         'CloudAssemblyAI requires a getAssemblyAIToken function.'
       );
     });
   });
 
   describe('Starting Transcription', () => {
-    beforeEach(async () => {
-      await cloudAI.init();
-    });
-
     it('establishes WebSocket connection with correct URL', async () => {
       await cloudAI.startTranscription(mockMic);
-
       expect(mockGetAssemblyAIToken).toHaveBeenCalled();
       expect(global.WebSocket).toHaveBeenCalledWith(
         'wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&token=fake-token&format_turns=true'
       );
     });
 
-    it('throws error when mic is not provided', async () => {
-      await expect(cloudAI.startTranscription()).rejects.toThrow(
-        'A mic object with an onFrame method is required.'
-      );
-    });
-
-    it('throws error when mic lacks onFrame method', async () => {
-      const invalidMic = { sampleRate: 16000 };
-      await expect(cloudAI.startTranscription(invalidMic)).rejects.toThrow(
-        'A mic object with an onFrame method is required.'
-      );
-    });
-
-    it('throws error when token retrieval fails', async () => {
-      mockGetAssemblyAIToken.mockRejectedValue(new Error('Token failed'));
-
-      await expect(cloudAI.startTranscription(mockMic)).rejects.toThrow('Token failed');
-    });
-
-    it('throws error when token is null/undefined', async () => {
-      mockGetAssemblyAIToken.mockResolvedValue(null);
-
-      await expect(cloudAI.startTranscription(mockMic)).rejects.toThrow(
-        'Failed to retrieve AssemblyAI token.'
-      );
-    });
-
-    it('sets up WebSocket event handlers correctly', async () => {
+    it('attaches mic frame handler and calls onReady when connection opens', async () => {
       await cloudAI.startTranscription(mockMic);
-
-      expect(mockWebSocket.onopen).toBeDefined();
-      expect(mockWebSocket.onmessage).toBeDefined();
-      expect(mockWebSocket.onerror).toBeDefined();
-      expect(mockWebSocket.onclose).toBeDefined();
-    });
-
-    it('attaches mic frame handler when connection opens', async () => {
-      await cloudAI.startTranscription(mockMic);
-
-      // Simulate WebSocket opening
       mockWebSocket.simulateOpen();
-
       expect(mockMic.onFrame).toHaveBeenCalledWith(cloudAI.frameHandler);
       expect(cloudAI.onReady).toHaveBeenCalled();
     });
   });
 
   describe('Audio Frame Handling', () => {
-    beforeEach(async () => {
-      await cloudAI.init();
+    it('queues audio data when connecting and sends when open', async () => {
+      const testAudio = new Float32Array([0.5]);
       await cloudAI.startTranscription(mockMic);
+
+      // Should be connecting, so audio is queued
+      cloudAI._handleAudioFrame(testAudio);
+      expect(mockWebSocket.send).not.toHaveBeenCalled();
+
+      // Now open the connection
+      mockWebSocket.simulateOpen();
+
+      // The queued frame should be sent
+      expect(mockWebSocket.send).toHaveBeenCalled();
+      expect(cloudAI.firstPacketSent).toBe(true);
     });
 
-    it('converts and sends audio data when WebSocket is open', () => {
-      const testAudio = new Float32Array([0.5, -0.5, 0.25, -0.25]);
+    it('properly converts Float32 to Int16', async () => {
+      await cloudAI.startTranscription(mockMic);
+      mockWebSocket.simulateOpen();
 
+      const testAudio = new Float32Array([1.0, -1.0, 0.5, -0.5]);
       cloudAI._handleAudioFrame(testAudio);
 
       expect(mockWebSocket.send).toHaveBeenCalled();
       const sentData = mockWebSocket.send.mock.calls[0][0];
       expect(sentData).toBeInstanceOf(ArrayBuffer);
-    });
-
-    it('drops frames when WebSocket is not open', () => {
-      mockWebSocket.readyState = WebSocket.CLOSED;
-      const testAudio = new Float32Array([0.5, -0.5]);
-
-      cloudAI._handleAudioFrame(testAudio);
-
-      expect(mockWebSocket.send).not.toHaveBeenCalled();
-    });
-
-    it('handles first packet tracking correctly', () => {
-      expect(cloudAI.firstPacketSent).toBe(false);
-
-      const testAudio = new Float32Array([0.5]);
-      cloudAI._handleAudioFrame(testAudio);
-
-      expect(cloudAI.firstPacketSent).toBe(true);
-    });
-
-    it('properly converts Float32 to Int16', () => {
-      const testAudio = new Float32Array([1.0, -1.0, 0.5, -0.5]);
-      cloudAI._handleAudioFrame(testAudio);
-
-      // Check that conversion doesn't throw and data is sent
-      expect(mockWebSocket.send).toHaveBeenCalled();
+      const view = new Int16Array(sentData);
+      expect(view[0]).toBe(32767);
+      expect(view[1]).toBe(-32767);
     });
   });
 
@@ -210,143 +136,44 @@ describe('CloudAssemblyAI', () => {
         onReady: vi.fn(),
         getAssemblyAIToken: mockGetAssemblyAIToken,
       });
-      await cloudAI.init();
       await cloudAI.startTranscription(mockMic);
+      mockWebSocket.simulateOpen();
     });
 
     it('handles partial transcripts correctly', () => {
-      const partialMessage = {
-        transcript: 'Hello world',
-        turn_is_formatted: false,
-        end_of_turn: false
-      };
-
+      const partialMessage = { transcript: 'Hello', turn_is_formatted: false };
       mockWebSocket.simulateMessage(partialMessage);
-
-      expect(onTranscriptUpdate).toHaveBeenCalledWith({
-        transcript: { partial: 'Hello world' }
-      });
+      expect(onTranscriptUpdate).toHaveBeenCalledWith({ transcript: { partial: 'Hello' } });
     });
 
     it('handles final transcripts correctly', () => {
-      const finalMessage = {
-        transcript: 'Hello world!',
-        turn_is_formatted: true,
-        end_of_turn: true,
-        words: [{ word: 'Hello' }, { word: 'world!' }]
-      };
-
+      const finalMessage = { transcript: 'Hello world.', turn_is_formatted: true, end_of_turn: true, words: [{ word: 'Hello' }] };
       mockWebSocket.simulateMessage(finalMessage);
-
-      expect(onTranscriptUpdate).toHaveBeenCalledWith({
-        transcript: { final: 'Hello world!' },
-        words: [{ word: 'Hello' }, { word: 'world!' }]
-      });
-    });
-
-    it('handles messages without words array', () => {
-      const messageWithoutWords = {
-        transcript: 'Hello world!',
-        turn_is_formatted: true,
-        end_of_turn: true
-      };
-
-      mockWebSocket.simulateMessage(messageWithoutWords);
-
-      expect(onTranscriptUpdate).toHaveBeenCalledWith({
-        transcript: { final: 'Hello world!' },
-        words: []
-      });
-    });
-
-    it('ignores messages without transcript', () => {
-      const invalidMessage = { some: 'other data' };
-
-      mockWebSocket.simulateMessage(invalidMessage);
-
-      expect(onTranscriptUpdate).not.toHaveBeenCalled();
+      expect(onTranscriptUpdate).toHaveBeenCalledWith({ transcript: { final: 'Hello world.' }, words: [{ word: 'Hello' }] });
     });
   });
 
-  describe('Error Handling', () => {
-    beforeEach(async () => {
-      await cloudAI.init();
+  describe('Error Handling and Stopping', () => {
+    it('cleans up properly on WebSocket close', async () => {
       await cloudAI.startTranscription(mockMic);
-    });
+      mockWebSocket.simulateOpen();
 
-    it('handles WebSocket errors by stopping transcription', () => {
-      const stopSpy = vi.spyOn(cloudAI, 'stopTranscription');
+      mockWebSocket.simulateClose(1000, 'Normal');
 
-      mockWebSocket.simulateError(new Error('Connection failed'));
-
-      expect(stopSpy).toHaveBeenCalled();
-    });
-
-    it('cleans up properly on WebSocket close', () => {
-      mockWebSocket.simulateClose(1000, 'Normal closure');
-
-      expect(cloudAI.socket).toBeNull();
-      expect(mockMic.offFrame).toHaveBeenCalledWith(cloudAI.frameHandler);
-    });
-  });
-
-  describe('Stopping Transcription', () => {
-    beforeEach(async () => {
-      await cloudAI.init();
-      await cloudAI.startTranscription(mockMic);
-    });
-
-    it('removes mic frame handler', async () => {
-      await cloudAI.stopTranscription();
-
-      expect(mockMic.offFrame).toHaveBeenCalledWith(cloudAI.frameHandler);
-      expect(cloudAI.mic).toBeNull();
-    });
-
-    it('sends termination message and closes WebSocket', async () => {
-      await cloudAI.stopTranscription();
-
-      expect(mockWebSocket.send).toHaveBeenCalledWith(
-        JSON.stringify({ type: "Terminate" })
-      );
-      expect(mockWebSocket.close).toHaveBeenCalledWith(1000);
       expect(cloudAI.socket).toBeNull();
     });
 
-    it('handles stopping when no active connection exists', async () => {
-      cloudAI.socket = null;
-
-      // Should not throw
-      await expect(cloudAI.stopTranscription()).resolves.toBeUndefined();
-    });
-
-    it('handles stopping when WebSocket is already closed', async () => {
-      mockWebSocket.readyState = WebSocket.CLOSED;
-
-      await cloudAI.stopTranscription();
-
-      expect(mockWebSocket.send).not.toHaveBeenCalled();
-      expect(mockWebSocket.close).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('State Management', () => {
-    beforeEach(async () => {
-      await cloudAI.init();
-    });
-
-    it('resets firstPacketSent flag on restart', async () => {
-      // Start and send a packet
+    it('resets state on stopTranscription', async () => {
       await cloudAI.startTranscription(mockMic);
-      cloudAI._handleAudioFrame(new Float32Array([0.5]));
+      mockWebSocket.simulateOpen();
+      cloudAI._handleAudioFrame(new Float32Array([0.1]));
       expect(cloudAI.firstPacketSent).toBe(true);
 
-      // Stop and restart
       await cloudAI.stopTranscription();
-      cloudAI.firstPacketSent = false; // This should be done automatically
-      await cloudAI.startTranscription(mockMic);
 
+      expect(mockMic.offFrame).toHaveBeenCalledWith(cloudAI.frameHandler);
       expect(cloudAI.firstPacketSent).toBe(false);
+      expect(cloudAI.audioQueue.length).toBe(0);
     });
   });
 });

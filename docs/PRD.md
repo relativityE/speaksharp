@@ -28,7 +28,7 @@ This section contains ASCII art diagrams illustrating the journey for each user 
                        |        [Anonymous User]           |
                        | - Practice session (2 min limit)  |
                        | - View single session analytics   |
-                       | - Prompted to Sign Up             |
+                       | - Prompted to Sign Up to continue |
                        +-----------------v-----------------+
                                          |
                                +-------------------+
