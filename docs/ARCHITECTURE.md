@@ -1,10 +1,59 @@
+[← Back to Docs README](./README.md)
+
 # SpeakSharp System Architecture
 
 **Version 1.0** | **Last Updated: August 31, 2025**
 
-This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Project Board](./PROJECT_BOARD.md) respectively.
+This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
-## 1. Technology Stack
+## 1. System Overview
+
+This section contains a high-level block diagram of the SpeakSharp full-stack architecture.
+
+```ascii
++------------------------------------------------------------------------------------------------------------------+
+|                                        SpeakSharp System Architecture                                            |
++------------------------------------------------------------------------------------------------------------------+
+|                                                                                                                  |
+|    +---------------------------------+       +---------------------------------+       +-----------------------+  |
+|    |      Frontend (Browser)         |       |      Backend (Supabase)         |       |   3rd Party Services  |  |
+|    |      (React SPA / Vite)         |       +---------------------------------+       +-----------------------+  |
+|    +---------------------------------+                   ^                                     ^         ^        |
+|              |      ^                                    |                                     |         |        |
+|              |      | HTTPS/WSS                          | Postgres/RPC                        |         |        |
+|              v      |                                    v                                     |         |        |
+|    +---------------------------------+       +---------------------------------+       +-----------------------+  |
+|    |    User Interface (React)       |       |      Supabase Auth              |       |      AssemblyAI       |  |
+|    |---------------------------------|       |---------------------------------|       | (Streaming STT API)   |  |
+|    | - `src/pages` (Routing)         |<----->| - User/Session Management       |<----->| (via WebSockets)      |  |
+|    | - `src/components` (UI)         |       | - RLS for Data Security         |       +-----------------------+  |
+|    | - `src/contexts` (State Mgmt)   |       +---------------------------------+                 ^              |
+|    |   - `AuthContext`               |                   ^                                       |              |
+|    |   - `SessionContext`            |                   |                                       |              |
+|    | - `src/hooks` (Logic)           |                   v                                       |              |
+|    |   - `useSessionManager`         |       +---------------------------------+       +-----------------------+  |
+|    |   - `useSpeechRecognition`      |       |    Supabase DB (Postgres)       |       |        Stripe         |  |
+|    +---------------------------------+       |---------------------------------|       |       (Payments)      |  |
+|              |                                | - `users`, `sessions`           |<----->| (via webhooks)        |  |
+|              v                                | - `transcripts`, `usage`        |       +-----------------------+  |
+|    +---------------------------------+       +---------------------------------+                 ^              |
+|    | TranscriptionService            |                   ^                                       |              |
+|    |---------------------------------|                   |                                       |              |
+|    | - `CloudAssemblyAI` (Pro)       |-------------------+                                       |              |
+|    | - `NativeBrowser` (Cloud Fallback)|                 |                                       |              |
+|    | - `LocalWhisper` (Premium, On-Device)|              |                                       |              |
+|    +---------------------------------+       +---------------------------------+                 |              |
+|              |                                | Deno Edge Functions             |-----------------+              |
+|              v                                |---------------------------------|                                |
+|    +---------------------------------+       | - `assemblyai-token` (secure)   |                                |
+|    |      Microphone (Audio Input)   |       | - `stripe-checkout`             |                                |
+|    +---------------------------------+       | - `stripe-webhook`              |                                |
+|                                                +---------------------------------+                                |
+|                                                                                                                  |
++------------------------------------------------------------------------------------------------------------------+
+```
+
+## 2. Technology Stack
 
 SpeakSharp is built on a modern, serverless technology stack designed for real-time applications.
 
@@ -52,7 +101,7 @@ The backend is built entirely on the Supabase platform, leveraging its integrate
 
 ## 4. User Roles and Tiers
 
-The application defines several user tiers that control access to features and usage limits. The user's tier is determined by their authentication state and their subscription status in Stripe, managed via Supabase.
+The application defines several user tiers that control access to features and usage limits. For a visual representation of the user journeys, see the [User Role Flows diagram in the PRD](./PRD.md#user-roles-&-flows). The user's tier is determined by their authentication state and their subscription status in Stripe, managed via Supabase.
 
 *   **Anonymous User:**
     *   **Definition:** A user who has not signed in.
@@ -74,8 +123,9 @@ The application defines several user tiers that control access to features and u
 The `TranscriptionService.js` provides a unified abstraction layer over multiple transcription providers. This allows the application to seamlessly switch between modes.
 
 *   **Modes:**
-    *   **`CloudAssemblyAI`:** Uses the AssemblyAI v3 streaming API for high-accuracy cloud-based transcription. It communicates with the AssemblyAI service via WebSockets.
-    *   **`NativeBrowser`:** Uses the browser's built-in `SpeechRecognition` API for on-device transcription. This is a privacy-focused fallback.
+    *   **`CloudAssemblyAI`:** Uses the AssemblyAI v3 streaming API for high-accuracy cloud-based transcription. This is the primary mode for Pro users.
+    *   **`NativeBrowser`:** Uses the browser's built-in `SpeechRecognition` API. This is a cloud-based service with average STT accuracy. It is the primary mode for Free users and serves as a fallback for Pro users if `CloudAssemblyAI` is unavailable.
+    *   **`LocalWhisper` (Future):** A planned on-device, privacy-first transcription mode for Premium users, using Transformers.js and a Whisper WASM model.
 *   **Audio Processing:** The `audioUtils.js` and `audio-processor.worklet.js` are responsible for capturing microphone input, resampling it to the required 16kHz sample rate, and streaming it to the active transcription provider.
 
 ## 6. CI/CD
@@ -83,7 +133,7 @@ The `TranscriptionService.js` provides a unified abstraction layer over multiple
 The project includes a basic CI/CD pipeline defined in `.github/workflows/deploy.yml`.
 
 *   **Current Implementation:** The workflow is triggered manually (`workflow_dispatch`) and handles the deployment of Supabase database migrations to a single environment.
-*   **Future Work:** The pipeline needs to be expanded to support multiple environments (e.g., `staging`, `production`) and automated deployments based on branch pushes.
+*   **Future Work:** The pipeline needs to be expanded to support multiple environments (e.g., `staging`, `production`) and automated deployments based on branch pushes. See the [Roadmap](./ROADMAP.md) for current status.
 
 ## 7. Testing Strategy
 
