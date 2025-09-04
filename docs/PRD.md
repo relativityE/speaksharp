@@ -18,7 +18,6 @@ The system is built for speed, both in user experience and development velocity.
 This section contains ASCII art diagrams illustrating the journey for each user role.
 *(For leadership analysis of conversion assumptions and role monetization, see [REVIEW.md – CFO & CEO perspectives](./REVIEW.md)).*
 
-
 ```ascii
                                +---------------------+
                                |   Landing Page      |
