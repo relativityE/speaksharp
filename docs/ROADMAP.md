@@ -1,19 +1,23 @@
-# SpeakSharp Project Board
+🔗 [Back to Outline](./OUTLINE.md)
+
+# SpeakSharp Roadmap
+*(For executive-level commentary on prioritization, see [REVIEW.md](./REVIEW.md)).*
+
 This board provides a two-dimensional view of our project tasks, combining Phased Milestones (timeline) with MoSCoW Prioritization.
 
 Status Key: ✅ Done | 🟡 In Progress | 🔴 Not Started
 ---
 ## Phase 1: Stabilize & Harden the MVP
-This phase focuses on fixing critical bugs, addressing code health, and ensuring the existing features are reliable and robust.
+This phase focuses on fixing critical bugs, addressing code health, and ensuring the existing features are reliable and robust. (Timeline: Extended by 1-2 weeks to ensure all Must-Haves are 100% complete before GTM).
 
 ### 🎯 Must-Have
-- 🔴 **Implement On-Device 'Local Transcript' Mode:** Implement a fully on-device, privacy-first transcription mode for Pro users.
-  - 🔴 1. Research & Select Model: Choose a suitable on-device speech recognition model (e.g., from Transformers.js) that balances performance and accuracy.
+- 🔴 **Implement On-Device 'Local Transcript' Mode:** Implement a fully on-device, privacy-first transcription mode for Premium users. (See [Architecture: Transcription Service](./ARCHITECTURE.md#5-transcription-service))
+  - 🔴 1. Research & Select Model: Choose a suitable on-device speech recognition model (e.g., from Transformers.js, Whisper WASM) that balances performance and accuracy.
   - 🔴 2. Create LocalWhisper Provider: Build a new provider class within the TranscriptionService that conforms to the existing service interface.
   - 🔴 3. Integrate Model & Audio Processing: Implement the logic to load the selected model into the provider and process audio chunks locally.
-  - 🔴 4. Add UI Selector: Create a UI control for Pro users to select the 'Local Transcript' mode.
+  - 🔴 4. Add UI Selector: Create a UI control for Premium users to select the 'Local Transcript' mode.
   - 🔴 5. E2E Testing & Hardening: Write comprehensive tests and harden the feature for production use.
-- 🔴 **Harden and Polish the Native Transcription Experience:** Improve the reliability and UX of the default NativeBrowser (cloud) mode.
+- 🔴 **Harden and Polish the Native Transcription Experience:** Improve the reliability and UX of the default NativeBrowser (cloud-based) mode.
 - ✅ **Implement Conditional Rendering for Missing Env Vars:** The app should not crash if environment variables are missing, but instead show a graceful "offline" or "configuration needed" state.
 - ✅ **Add structured logging:** Implement for both frontend and backend to improve debuggability.
 - 🟡 **Update E2E tests for v3 transcription flow:** This is blocked by a critical rendering failure in the Playwright environment.
@@ -48,6 +52,8 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 This phase is about confirming the core feature set works as expected and polishing the user experience before wider release.
 
 ### 🎯 Must-Have
+- 🔴 **Implement Speaking Pace Analysis:** Add real-time feedback on words per minute to the core analytics.
+- 🔴 **Implement Vocal Variety / Pause Detection:** Add a new Pro-tier feature to analyze vocal variety or pause duration, enhancing the value of the paid subscription.
 - ✅ **Explicit Mode Indication in UI:** The UI must be unambiguously clear about which transcription mode (Native vs. Cloud vs. Local) is active at all times.
 - 🔴 **User-Friendly Error Handling:** Implement specific, user-facing error messages for common issues (e.g., WebSocket disconnects, token failures).
 - 🔴 **Deploy & confirm live transcript UI works:** Ensure text appears within 2 seconds of speech in a live environment.
@@ -56,7 +62,7 @@ This phase is about confirming the core feature set works as expected and polish
 - ✅ Implement Analytics Page UI Components: Add the session status box and a developer checkbox for forcing cloud AI.
 
 ### 🚧 Should-Have (Tech Debt)
-- 🟡 **Implement new SpeakSharp Design System:**
+- 🟡 **Implement new SpeakSharp Design System:** (See [Architecture: Design System](./ARCHITECTURE.md#2-frontend-architecture))
   - ✅ 1. Configure Core Theme & Test
   - ✅ 2. Create Component Plugins & Test
   - 🟡 3. Refactor UI Components & Test
@@ -65,7 +71,7 @@ This phase is about confirming the core feature set works as expected and polish
 - 🔴 **Improve Accessibility:** Use an ARIA live region for the transcript so screen readers can announce new lines.
 - 🔴 **Add Deno unit tests for the token endpoint:** Ensure the assemblyai-token function is fully covered.
 - 🔴 **Add a soak test:** Create a test that runs for 1-minute with continuous audio to check for memory leaks or hangs.
-- 🔴 **Create e2e tests for different user roles (anonymous, free, pro):** To validate the user flows for each subscription tier.
+- 🔴 **Create e2e tests for different user roles (anonymous, free, pro):** To validate the user flows for each subscription tier. (See [PRD: User Roles & Flows](./PRD.md#user-roles-&-flows))
 
 ### Gating Check
 - 🔴 **Bring all documentation up to date to reflect latest/current code implementation**
