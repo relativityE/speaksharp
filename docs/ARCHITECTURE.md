@@ -1,4 +1,4 @@
-[← Back to Docs README](./README.md)
+🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp System Architecture
 
@@ -87,6 +87,12 @@ The frontend is a single-page application (SPA) built with React and Vite.
 *   **Routing:** Client-side routing is handled by `react-router-dom`.
 *   **Logging:** The application uses `pino` for structured logging to improve debuggability and provide more consistent log output. For development, `pino-pretty` is used to format logs in a human-readable way. A shared logger instance is configured in `src/lib/logger.js` and is used throughout the frontend application to replace standard `console.log` statements.
 
+
+### Memory Leak Prevention
+Given the real-time nature of the application, proactive memory management is critical. Components involving continuous data streams (e.g., `useSpeechRecognition`, `TranscriptionService`) must be carefully audited for memory leaks. This includes:
+*   **Proper Cleanup:** Ensuring all `useEffect` hooks have proper cleanup functions to unsubscribe from events and clear intervals.
+*   **Memory Profiling:** Regularly using tools like the Chrome DevTools Performance and Memory tabs during extended testing sessions (soak tests) to identify and fix potential leaks before they impact users.
+
 ## 3. Backend Architecture
 
 The backend is built entirely on the Supabase platform, leveraging its integrated services.
@@ -123,6 +129,7 @@ The application defines several user tiers that control access to features and u
         *   The ability to download session data.
 
 ## 5. Transcription Service (`src/services/transcription`)
+*(For leadership concerns on scalability and provider strategy, see [REVIEW.md – Engineering perspective](./REVIEW.md)).*
 
 The `TranscriptionService.js` provides a unified abstraction layer over multiple transcription providers. This allows the application to seamlessly switch between modes.
 
@@ -140,6 +147,7 @@ The project includes a basic CI/CD pipeline defined in `.github/workflows/deploy
 *   **Future Work:** The pipeline needs to be expanded to support multiple environments (e.g., `staging`, `production`) and automated deployments based on branch pushes. See the [Roadmap](./ROADMAP.md) for current status.
 
 ## 7. Testing Strategy
+*(For leadership concerns on scalability and test debt, see [REVIEW.md – Engineering perspective](./REVIEW.md)).*
 
 This section outlines the official strategy for testing, debugging, and verification. It consolidates learnings from previous debugging sessions and establishes best practices for the project.
 

@@ -1,4 +1,4 @@
-[← Back to Docs README](./README.md)
+🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp Product Requirements Document
 
@@ -16,6 +16,8 @@ The system is built for speed, both in user experience and development velocity.
 
 ### User Roles & Flows
 This section contains ASCII art diagrams illustrating the journey for each user role.
+*(For leadership analysis of conversion assumptions and role monetization, see [REVIEW.md – CFO & CEO perspectives](./REVIEW.md)).*
+
 
 ```ascii
                                +---------------------+
@@ -89,8 +91,12 @@ This section contains ASCII art diagrams illustrating the journey for each user 
 *   **vs. Poised:** More affordable, simpler to use, no installation required.
 
 ### Go-to-Market & Financials
-*   **GTM:** Product-led growth, targeting individual professionals and small teams.
-*   **Financials:** Freemium model with a Pro tier subscription. See internal documents for detailed projections.
+*(For leadership analysis of conversion assumptions and GTM strategy, see [REVIEW.md – CFO & CEO perspectives](./REVIEW.md)).*
+*   **GTM:** Adopt a phased GTM approach.
+    *   **Phase 1 (Validation):** Start with organic channels (Reddit, SEO content, public speaking forums) and community engagement (Toastmasters partnerships) to validate product-market fit and gather testimonials. Create a "How it Works" video demo for the landing page to increase conversion.
+    *   **Phase 2 (Growth):** Gradually increase paid advertising spend based on proven metrics from Phase 1.
+    *   A real-time revenue tracking dashboard (e.g., PostHog, ChartMogul) will be implemented to monitor KPIs.
+*   **Financials:** Freemium model with a Pro tier subscription. Financial models will account for multiple conversion rate scenarios (2%, 3.5%, and 5%) to ensure sufficient runway. See internal documents for detailed projections.
 
 ## 2. Recent Updates (v6.26)
 *August 31, 2025*
@@ -107,10 +113,13 @@ This section contains ASCII art diagrams illustrating the journey for each user 
 ---
 
 ## 3. Known Issues
-- **Test Environment Instability:** The test suite has historically suffered from memory leaks and hangs, particularly when dealing with complex asynchronous operations or under specific test runners like `happy-dom`. While significant fixes have been implemented, some commands like `pnpm test:coverage` may still fail. For a detailed explanation of the issues and the official testing strategy, see the **[Testing Strategy documentation](./ARCHITECTURE.md#6-testing-strategy)**.
-- **E2E Tests Blocked by Browser API Dependencies:** The Playwright E2E tests are currently blocked. The application's `useBrowserSupport` hook checks for the `SpeechRecognition` API on page load. This API is not available in the headless browser environment used by the test runner, causing the check to fail and preventing the main application from rendering. This blocks all E2E tests from running successfully. A potential solution is to mock this API in the test setup.
-- **`SessionSidebar.test.jsx` Dialog Failures:** Two tests within this suite are failing (`shows the end session dialog after stopping` and `saves the session with duration and navigates to analytics`). Both failures are due to an inability to find the `AlertDialog` component's content in the test environment. This is likely because the dialog component (from Radix UI) portals its content outside the main component tree, making it inaccessible to standard test queries. Attempts to mock the dialog have been unsuccessful so far.
-- **Agent Tooling Instability:** The `replace_with_git_merge_diff` tool has been observed to hang indefinitely, blocking development. This requires a VM restart to resolve.
+*(For leadership analysis of technical debt, see [REVIEW.md – Senior Engineer perspective](./REVIEW.md)).*
+- **Critical Bugs & Environment Instability:**
+    - **`rounded-pill` error:** A persistent, uncaught error related to `rounded-pill` suggests potential build, cache, or configuration issues.
+    - **`toast` function non-operational:** The `toast` notification does not work in local mode, hindering user feedback.
+    - **Cloud AssemblyAI API 401 Error:** The Supabase Edge Function for the AssemblyAI API returns a 401 Unauthorized error, blocking cloud transcription.
+    - **E2E Test Environment Instability:** The Playwright test environment often fails to render the application, resulting in a blank page and blocking E2E tests.
+- **Test Suite Memory Leaks:** The test suite has historically suffered from memory leaks, particularly when dealing with complex asynchronous operations or under specific test runners like `happy-dom`. While some fixes have been implemented, some commands like `pnpm test:coverage` may still fail. For a detailed explanation of the issues and the official testing strategy, see the **[Testing Strategy documentation](./ARCHITECTURE.md#7-testing-strategy)**.
 - **On-Device Transcription Needs Polish:** The `LocalWhisper` provider in `TranscriptionService` may require further UI/UX polishing.
 
 ---

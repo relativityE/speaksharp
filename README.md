@@ -55,6 +55,12 @@ pnpm dev
 
 The application will be available at `http://localhost:5173`.
 
+### Troubleshooting
+*   **`rounded-pill` error on startup:** This is often a caching issue with Vite. Try deleting the `node_modules/.vite` directory and restarting the dev server.
+*   **API Key errors (401 Unauthorized):** Ensure your `.env` file is correctly populated with the `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, and any other required keys. Refer to `.env.example` for the full list.
+*   **`toast` notifications not appearing:** This is a known issue in local development. Please see the full list of [Known Issues in the PRD](./docs/PRD.md#3-known-issues) for status.
+
+
 ## ✅ Testing
 
 This project uses [Vitest](https://vitest.dev/) for unit and integration tests and [Playwright](https://playwright.dev/) for end-to-end tests.
