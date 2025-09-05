@@ -21,12 +21,17 @@ const mockProSession = {
 
 test.describe('Authenticated User Flows', () => {
   test.beforeEach(async ({ page }) => {
-    await stubThirdParties(page);
+    // Set the E2E mode flag to bypass unsupported browser APIs like SpeechRecognition
+    await page.addInitScript(() => {
+      window.__E2E_MODE__ = true;
+    });
   });
 
   test('a Pro user can access the session page without limits', async ({ page }) => {
-    // Inject the mock session into the browser context
-    await page.evaluate((session) => {
+    await stubThirdParties(page);
+    // Use addInitScript to inject the mock session BEFORE any page scripts execute.
+    // This is critical to avoid race conditions.
+    await page.addInitScript((session) => {
       window.__E2E_MOCK_SESSION__ = session;
     }, mockProSession);
 
@@ -48,8 +53,47 @@ test.describe('Authenticated User Flows', () => {
     await expect(page.getByText(/Upgrade to Pro/i)).not.toBeVisible();
   });
 
-  // TODO: Add test for free user hitting usage limit
-  test.skip('a Free user is shown an upgrade prompt when they hit their usage limit', async ({ page }) => {
-    // This test will require mocking the API response that indicates the user is out of free credits.
+  test('a Free user is shown an upgrade prompt when they hit their usage limit', async ({ page }) => {
+    const mockFreeUser = {
+      id: 'free-user-id',
+      email: 'free@example.com',
+      user_metadata: { subscription_status: 'free' },
+    };
+    const mockFreeSession = {
+      access_token: 'mock-free-access-token',
+      refresh_token: 'mock-free-refresh-token',
+      user: mockFreeUser,
+      expires_in: 3600,
+      expires_at: Math.floor(Date.now() / 1000) + 3600,
+    };
+
+    // Stub third parties and specifically enable the usage exceeded mock
+    await stubThirdParties(page, { usageExceeded: true });
+
+    // Inject the mock session
+    await page.addInitScript((session) => {
+      window.__E2E_MOCK_SESSION__ = session;
+    }, mockFreeSession);
+
+
+    await page.goto('/session?e2e=1');
+
+    // Start a session
+    await page.getByRole('button', { name: /Start Session/i }).click();
+    // Wait for the session to be in the active listening state, indicated by the Stop button
+    await expect(page.getByRole('button', { name: /Stop Session/i })).toBeVisible({ timeout: 15000 });
+
+    // Immediately stop the session to trigger the save and usage check
+    await page.getByRole('button', { name: /Stop Session/i }).click();
+
+    // The "Session Ended" dialog should appear first
+    await expect(page.getByRole('heading', { name: 'Session Ended' })).toBeVisible();
+
+    // Click "Go to Analytics" to trigger the save
+    await page.getByRole('button', { name: 'Go to Analytics' }).click();
+
+    // NOW, because usageExceeded was true, the upgrade prompt should be shown.
+    await expect(page.getByRole('heading', { name: "You've Reached Your Free Limit" })).toBeVisible();
+    await expect(page.getByText(/You've used all your free practice time for this month/)).toBeVisible();
   });
 });
