@@ -1,3 +1,6 @@
+**Owner:** [Unassigned]
+**Last Reviewed:** 2025-09-05
+
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp Roadmap
@@ -33,15 +36,16 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 - ✅ Reinstate session saving & analytics: Ensure new v3 transcripts are stored correctly.
 
 ### 🚧 Should-Have (Tech Debt)
-- ✅ **Fix Test Suite Environment:** A parent task to investigate and fix the root causes of the test suite's instability.
-  - ✅ 1. Diagnose Root Cause: The memory leak has been traced to the Supabase `onAuthStateChange` listener.
-  - ✅ 2. Implement Code-Level Fix: A robust, prop-gated `AuthProvider` has been implemented to disable the listener in tests.
-  - ✅ 3. Verify Fix & Re-enable Tests: The test environment has been stabilized by fixing caching, mocking, and component-level issues.
+- ✅ **Fix Test Suite Environment:** The Vitest suite has been stabilized and the root memory leak was fixed.
 - ✅ Improve toast notification styling: Toasts are now pill-shaped with appropriate styling.
 - ✅ **Tune Highlight Performance:** Reduced debounce timer on filler word counting to improve perceived responsiveness of live transcript highlighting.
 - ✅ Improve loading/waiting state feedback: The transcript panel now provides clearer UI feedback.
 - ✅ Add Page-Level Render Tests: Create a test for each main page (Home, Session, Analytics, Auth) to verify it renders without crashing.
 - 🔴 **Create Troubleshooting Guide:** Add error recovery steps to the documentation.
+- 🔴 **Implement "Free User Quota" E2E test:** Close the critical gap in monetization flow testing.
+- 🔴 **Refactor Integration Tests:** Slim down component tests (`SessionSidebar`, `AnalyticsPage`, etc.) to remove redundant coverage now handled by E2E tests.
+- 🔴 **Enhance Anonymous and Pro E2E tests:** Update existing E2E tests to cover the full "golden path" for each role.
+- 🔴 **Isolate developer-only E2E tests:** Move the 'cloud mode' test to a separate suite to prevent test pollution.
 
 ### Gating Check
 - 🔴 **Bring all documentation up to date to reflect latest/current code implementation**

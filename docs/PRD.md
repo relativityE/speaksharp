@@ -1,8 +1,11 @@
+**Owner:** [Unassigned]
+**Last Reviewed:** 2025-09-05
+
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp Product Requirements Document
 
-**Version 6.27** | **Last Updated: September 3, 2025**
+**Version 6.28** | **Last Updated: 2025-09-05**
 
 ## 1. Executive Summary
 
@@ -120,6 +123,10 @@ This section contains ASCII art diagrams illustrating the journey for each user 
     - **E2E Test Environment Instability:** The Playwright test environment often fails to render the application, resulting in a blank page and blocking E2E tests.
 - **On-Device Transcription Needs Polish:** The `LocalWhisper` provider in `TranscriptionService` may require further UI/UX polishing.
 
+### Technical Debt
+*   **Test Suite Bloat:** Our test suite contains redundant integration tests that should be refactored or removed in favor of the high-value E2E tests. Key candidates for removal/refactor are `FullSessionSave.test.jsx`, `SessionDataFlow.test.jsx`, `SessionSidebar.test.jsx`, and `AnalyticsPage.test.jsx`.
+*   **Incomplete E2E Tests:** Our existing E2E tests for Anonymous and Pro users should be enhanced to cover the full "golden path" for each role. The "Free User" monetization flow is a critical missing test.
+
 ---
 
 ## 4. Development Roadmap
@@ -129,22 +136,23 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 ## 5. Software Quality Metrics
 
-This section tracks key software quality metrics for the project.
+This section tracks key software quality metrics for the project. For our testing principles, see the [Testing Strategy in the Architecture doc](./ARCHITECTURE.md#7-testing-strategy).
 
-| Metric                        | Current Value | Date       | Notes                                           |
-| ----------------------------- | ------------- | ---------- | ----------------------------------------------- |
-| **Test Coverage (Lines)**     | `8.85%`       | 2025-09-04 | Coverage is low but generation is now operational. |
-| **Total Tests**               | `85`          | 2025-09-04 | From full suite run.                               |
-| **Test Suite RunTime**        | `~5s`         | 2025-09-04 | Does not include coverage generation time.         |
+### E2E Coverage Status
 
-### Latest Test Suite Run (Detailed)
-*   **Date:** 2025-09-04
-*   **Total Test Files:** 19
-*   **Total Tests:** 85
-*   **Passed:** 85
-*   **Failed:** 0
-*   **Skipped:** 0
-*   **Result:** Success. The test suite is stable. The underlying memory leak in the test environment has been resolved.
+| E2E Golden Path | Status | Notes |
+| :--- | :--- | :--- |
+| **Anonymous User** | 🟡 Needs Enhancement | Existing test should be updated to assert on time limits and sign-up prompts. |
+| **Free User** | ❌ **CRITICAL GAP** | No E2E test exists for the monetization funnel. |
+| **Pro User** | 🟡 Needs Enhancement | Existing test should be updated to verify sessions can exceed the free time limit. |
+| **Premium User** | ⚪️ N/A | Feature not yet implemented. |
+
+### Latest Test Suite Run
+*   **Result:** ✅ Success & Stable
+*   **Date:** 2025-09-05
+*   **Total Tests:** 83
+*   **Passed/Failed:** 83 / 0
+*   **Coverage:** 8.85% (Lines)
 
 ---
 
