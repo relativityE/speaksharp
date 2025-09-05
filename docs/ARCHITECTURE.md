@@ -1,8 +1,11 @@
+**Owner:** [Unassigned]
+**Last Reviewed:** 2025-09-05
+
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp System Architecture
 
-**Version 1.0** | **Last Updated: August 31, 2025**
+**Version 1.1** | **Last Updated: 2025-09-05**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -147,39 +150,17 @@ The project includes a basic CI/CD pipeline defined in `.github/workflows/deploy
 *   **Future Work:** The pipeline needs to be expanded to support multiple environments (e.g., `staging`, `production`) and automated deployments based on branch pushes. See the [Roadmap](./ROADMAP.md) for current status.
 
 ## 7. Testing Strategy
-*(For leadership concerns on scalability and test debt, see [REVIEW.md – Engineering perspective](./REVIEW.md)).*
 
-This section outlines the official strategy for testing, debugging, and verification. It consolidates learnings from previous debugging sessions and establishes best practices for the project.
+Our testing strategy balances speed, cost, and confidence by adhering to the testing pyramid and focusing on business value. For the current status of our test coverage and gaps, see the [Software Quality Metrics in the PRD](./PRD.md#5-software-quality-metrics).
 
-### 6.1. Core Issue: Test Environment Memory Leak
+### Guiding Principles
+*   **The "One Good E2E Test per Role" Model:** We aim for one single, high-value E2E "golden path" test for each user role (Anonymous, Free, Pro). These tests are expensive and should focus on validating the core business flow, not UI details.
+*   **Fast, Isolated Component Tests:** We use `Vitest` and `React Testing Library` for fast integration tests of our React components. These tests should verify UI logic and state changes in isolation.
+*   **Pure Logic Unit Tests:** Business logic that can be extracted into pure functions (e.g., in `src/utils` or `src/lib`) must be tested with simple, fast unit tests.
 
-The test suite has historically suffered from a catastrophic memory leak that causes `vitest` to crash with "JavaScript heap out of memory" errors.
-
-*   **Root Cause:** The Supabase `onAuthStateChange` listener within `src/contexts/AuthContext.jsx` creates a persistent subscription that is not properly garbage-collected by the `happy-dom` test runner.
-*   **Solution:**
-    1.  **Prop-Gated `AuthProvider`:** The `AuthProvider` in `src/contexts/AuthContext.tsx` now accepts an `enableSubscription` prop, allowing tests to explicitly disable the leaky listener.
-    2.  **`renderWithProviders` Test Helper:** A dedicated test helper at `src/test/renderWithProviders.jsx` automatically renders components with the subscription disabled.
-    3.  **Test-Light Supabase Client:** The client at `src/lib/supabaseClient.js` is configured to disable session persistence and auto-refreshing in test environments.
-*   **Action:** All new and existing tests for components that consume `AuthContext` must use the `renderWithProviders` helper to prevent the memory leak.
-
-### 6.2. Strategy for Complex Hooks (e.g., `useSpeechRecognition`)
-
-Complex hooks involving real-time browser APIs (e.g., `navigator.mediaDevices`, `WebSocket`) and asynchronous state are not suitable for unit testing in the `happy-dom` environment due to simulation limitations.
-
-The established best practice is as follows:
-
-1.  **Extract Pure Logic:** Any pure, stateless business logic (e.g., filler word counting, data transformation) must be extracted into standalone utility functions in `src/utils` and have 100% unit test coverage.
-2.  **Debounce Expensive Operations:** For operations that run in response to frequent updates (like re-counting filler words on every transcript change), the hook uses a short debounce (e.g., 50ms). This prevents performance bottlenecks while maintaining a responsive feel for the UI.
-3.  **Mock the Hook, Test the Component:** Components using a complex hook must be tested by mocking the *hook itself*. This allows for testing the component's rendering and behavior in various states (e.g., loading, error) without running the hook's internal logic.
-4.  **Validate via E2E Tests:** The full functionality of the complex hook must be validated through End-to-End (E2E) tests using a real browser environment like Playwright. This is the only reliable method for testing features dependent on real hardware and network interactions.
-5.  **Skip Unit Tests for the Hook:** The unit test file for the complex hook itself should contain a single, skipped test with a comment directing developers to the relevant E2E and component integration tests. This prevents the test suite from hanging while documenting the testing strategy.
-
-### 6.3. General Best Practices & Troubleshooting
-
-*   **Environment First:** The most common cause of test failure is a missing or misconfigured `.env` file. The app will render a "Configuration Needed" page, causing tests to fail. Always validate your environment first.
-*   **Avoid `networkidle` in E2E Tests:** Third-party analytics and error-tracking scripts can enter aggressive retry loops, preventing the network from ever being truly "idle". In Playwright, prefer `wait_until="domcontentloaded"` and then wait for specific elements to become visible.
-*   **Isolate Hanging Tests:** If a test file hangs, use `.skip` on all individual test cases. If it still hangs, the issue is in the module-level setup (e.g., `vi.mock` factory functions), not the test logic.
-*   **Mocking:**
-    *   Use `vi.spyOn` for simple global API mocks.
-    *   Use mock factories (`createMock...`) in a `beforeEach` block for complex components.
-    *   Never use fake timers (`vi.useFakeTimers`) with real async operations like `fetch`, as it will cause tests to hang.
+### Required Practices
+1.  **Use the Unified Test Helper:** All component tests **must** use the `renderWithAllProviders` function from `src/test/test-utils.jsx`. This is a critical requirement to prevent memory leaks from Supabase listeners and to ensure components have access to all required contexts (Auth, Session, Router, etc.).
+2.  **Mock Strategically:**
+    *   For complex hooks like `useSpeechRecognition`, mock the hook itself to test the component's response to different states (loading, error, etc.). The hook's full functionality will be validated by the E2E test.
+    *   Avoid global mocks of libraries like `react-router-dom`. Use the `route` option in the test helper to simulate different URLs and route states.
+3.  **Clean Up Mocks:** All test files that use `vi.mock` or `vi.spyOn` should include an `afterEach(() => { vi.restoreAllMocks(); });` block to prevent test pollution.

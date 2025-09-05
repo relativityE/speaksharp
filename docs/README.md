@@ -1,49 +1,88 @@
-# 📚 SpeakSharp Documentation Outline
+# SpeakSharp
 
-This outline explains the structure and purpose of all project documentation.
-It serves as a **map** to help developers, contributors, and stakeholders quickly find the right information.
+SpeakSharp is a privacy-first, real-time speech analysis tool designed to help users improve their public speaking skills. It provides instant, on-device feedback and is built as a modern, serverless SaaS web application using React (Vite) and Supabase.
 
----
+## 📚 Documentation
 
-## 1. [README.md](../README.md) — Entry Point
-**Purpose:** A quick introduction to SpeakSharp.
-* What the project is, who it’s for, and its value proposition.
-* High-level setup & run instructions.
-* Links to the deeper docs below.
+All project documentation is located in the `/docs` directory. For a complete overview and map of the documentation, please see **[./OUTLINE.md](./OUTLINE.md)**.
 
----
+Here are the direct links to the core documents:
 
-## 2. [PRD.md](./PRD.md) — What & Why
-**Purpose:** The **Product Requirements Document** (PRD).
-* Product vision, goals, and features.
-* Market positioning and differentiation.
-* **User role flows** (Anonymous, Free, Pro, Premium) shown with **ASCII art diagrams**.
-* Success metrics and business objectives.
+*   **[PRD.md](./PRD.md)**: The "What & Why" - Product Requirements Document.
+*   **[ARCHITECTURE.md](./ARCHITECTURE.md)**: The "How" - System Architecture and technical deep dive.
+*   **[ROADMAP.md](./ROADMAP.md)**: The "When & Status" - Development plan and project status.
 
----
+## 🚀 Getting Started
 
-## 3. [ARCHITECTURE.md](./ARCHITECTURE.md) — How
-**Purpose:** Technical deep dive into **how SpeakSharp works**.
-* System block diagram in **ASCII art** for clarity.
-* Technology stack and design system.
-* Frontend & backend architecture.
-* Authentication, session management, and transcription flow.
-* Testing strategy, known challenges, and best practices.
+### Prerequisites
 
----
+*   [Node.js](https://nodejs.org/) (v18 or higher)
+*   [pnpm](https://pnpm.io/)
+*   [Supabase CLI](https://supabase.com/docs/guides/cli)
 
-## 4. [ROADMAP.md](./ROADMAP.md) — When & Status
-**Purpose:** Development plan and execution status.
-* Two-dimensional view: **Phases (timeline)** × **MoSCoW prioritization**.
-* ✅ Done | 🟡 In Progress | 🔴 Not Started markers.
-* Current and upcoming milestones.
-* Acts as the **single source of truth for project status**.
+### Installation and Setup
 
----
+1.  **Clone the repository:**
+    ```bash
+    git clone <repository-url>
+    cd speaksharp
+    ```
 
-## Usage Notes
-* Keep all documentation here in `/docs` for discoverability.
-* Use **cross-links** across docs when referencing product, architecture, or roadmap details.
-* **AGENTS.md** lives outside `/docs` and is reserved strictly for AI agent operating rules — never technical documentation.
+2.  **Install dependencies:**
+    ```bash
+    pnpm install
+    ```
 
----
+3.  **Set up environment variables:**
+    Create a `.env` file in the root of the project by copying the example file:
+    ```bash
+    cp .env.example .env
+    ```
+    Populate the `.env` file with your Supabase project URL and anon key, as well as any other required service keys.
+
+4.  **Run database migrations (if using a local Supabase instance):**
+    ```bash
+    supabase db reset
+    ```
+
+### Running the Development Server
+
+To start the Vite development server, run:
+
+```bash
+pnpm dev
+```
+
+The application will be available at `http://localhost:5173`.
+
+### Troubleshooting
+*   **`rounded-pill` error on startup:** This is often a caching issue with Vite. Try deleting the `node_modules/.vite` directory and restarting the dev server.
+*   **API Key errors (401 Unauthorized):** Ensure your `.env` file is correctly populated with the `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, and any other required keys. Refer to `.env.example` for the full list.
+*   **`toast` notifications not appearing:** This is a known issue in local development. Please see the full list of [Known Issues in the PRD](./PRD.md#3-known-issues) for status.
+
+## ✅ Testing
+
+This project uses [Vitest](https://vitest.dev/) for unit and integration tests and [Playwright](https://playwright.dev/) for end-to-end tests.
+
+*   **Run all tests:**
+    ```bash
+    pnpm test
+    ```
+
+*   **Run tests with UI:**
+    ```bash
+    pnpm test:ui
+    ```
+
+*   **Run E2E tests:**
+    ```bash
+    pnpm test:e2e
+    ```
+
+## Linting
+
+To check the code for linting errors, run:
+
+```bash
+pnpm run lint
+```
