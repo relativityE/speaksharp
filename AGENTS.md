@@ -82,6 +82,9 @@ Before starting any new task, you must complete this checklist. A "new task" inc
 
 **This is a critical, non-negotiable step for every commit.**
 
+**Core Principle: Single Source of Truth (SSOT)**
+All documentation must adhere to the SSOT principle. Information should exist in one canonical place. `docs/OUTLINE.md` defines these locations. Redundancy is to be actively eliminated and is a requirement for all documentation.
+
 1.  **Mandatory File Review:** With every set of changes, you **must** individually review the following six documentation files to ensure they are perfectly synchronized with the state of the code.
     *   `README.md`
     *   `docs/OUTLINE.md`
