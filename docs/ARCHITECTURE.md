@@ -150,6 +150,7 @@ The project includes a basic CI/CD pipeline defined in `.github/workflows/deploy
 *   **Future Work:** The pipeline needs to be expanded to support multiple environments (e.g., `staging`, `production`) and automated deployments based on branch pushes. See the [Roadmap](./ROADMAP.md) for current status.
 
 ## 7. Testing Strategy
+
 Our testing strategy balances speed, cost, and confidence by adhering to the testing pyramid and focusing on business value. For the current status of our test coverage and gaps, see the [Software Quality Metrics in the PRD](./PRD.md#5-software-quality-metrics).
 
 ### Guiding Principles

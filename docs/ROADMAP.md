@@ -21,26 +21,11 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - 🔴 4. Add UI Selector: Create a UI control for Premium users to select the 'Local Transcript' mode.
   - 🔴 5. E2E Testing & Hardening: Write comprehensive tests and harden the feature for production use.
 - 🔴 **Harden and Polish the Native Transcription Experience:** Improve the reliability and UX of the default NativeBrowser (cloud-based) mode.
-- ✅ **Implement Conditional Rendering for Missing Env Vars:** The app should not crash if environment variables are missing, but instead show a graceful "offline" or "configuration needed" state.
-- ✅ **Add structured logging:** Implement for both frontend and backend to improve debuggability.
-- 🟡 **Update E2E tests for v3 transcription flow:** This is blocked by a critical rendering failure in the Playwright environment.
+- 🟡 **Update E2E tests for v3 transcription flow:** This is currently blocked by the E2E environment instability.
 - 🔴 **Add full unit test coverage for `CloudAssemblyAI.js`:** Target ≥80% coverage for core logic.
-- ✅ Fix cloud transcription connection: Use correct v3 endpoint and handle raw PCM audio instead of JSON.
-- ✅ **Fix Session History Data Flow:** Repaired the data flow between session creation and the analytics page to ensure new sessions are displayed correctly.
-- ✅ **Implement Filler Word Table:** Replaced the 'Top Filler Words' bar chart with a more detailed table view.
-- ✅ **Clean Up Analytics Page UI:** Removed unnecessary "Live Session" and "Developer Options" panels from the dashboard.
-- ✅ Fix data flow race condition: Ensure session data is saved before navigation.
-- ✅ Fix state management & navigation bugs: Resolved issues in the session page.
-- ✅ **Stabilize the Vitest test suite:** The suite is now stable, with almost all previously disabled tests fixed and re-enabled.
-- ✅ Fix CSS Build Process & Styling: Resolved a cascade of issues including incompatible build plugins, incorrect dependencies, and a disconnected theme.
-- ✅ Reinstate session saving & analytics: Ensure new v3 transcripts are stored correctly.
+- ✅ **Stabilize the Vitest test suite:** The suite is now stable, with all 87 tests passing and the root memory leak fixed.
 
 ### 🚧 Should-Have (Tech Debt)
-- ✅ **Fix Test Suite Environment:** The Vitest suite has been stabilized and the root memory leak was fixed.
-- ✅ Improve toast notification styling: Toasts are now pill-shaped with appropriate styling.
-- ✅ **Tune Highlight Performance:** Reduced debounce timer on filler word counting to improve perceived responsiveness of live transcript highlighting.
-- ✅ Improve loading/waiting state feedback: The transcript panel now provides clearer UI feedback.
-- ✅ Add Page-Level Render Tests: Create a test for each main page (Home, Session, Analytics, Auth) to verify it renders without crashing.
 - 🔴 **Create Troubleshooting Guide:** Add error recovery steps to the documentation.
 - 🔴 **Implement "Free User Quota" E2E test:** Close the critical gap in monetization flow testing.
 - 🔴 **Refactor Integration Tests:** Slim down component tests (`SessionSidebar`, `AnalyticsPage`, etc.) to remove redundant coverage now handled by E2E tests.

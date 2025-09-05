@@ -5,57 +5,75 @@ It serves as a **map** to help developers, contributors, and stakeholders quickl
 
 ---
 
-## 1. [README.md](../README.md) — Entry Point
-**Purpose:** A quick introduction to SpeakSharp.
-* What the project is, who it’s for, and its value proposition.
-* High-level setup & run instructions.
-* Links to the deeper docs below.
+## 🚨 Documentation Maintenance Mandate 🚨
+
+**This is a strict requirement for all contributors, including AI agents.**
+
+With every commit, you **must** review the following six documents to ensure they are synchronized with your changes. If no updates are needed for a file, you must still verify it. This is not optional.
+
+1.  `README.md`
+2.  `docs/OUTLINE.md` (this file)
+3.  `docs/PRD.md`
+4.  `docs/ARCHITECTURE.md`
+5.  `docs/ROADMAP.md`
+6.  `docs/CHANGELOG.md`
+
+This process ensures our documentation remains a reliable Single Source of Truth (SSOT).
 
 ---
 
-## 2. [PRD.md](./PRD.md) — What & Why
-**Purpose:** The **Product Requirements Document** (PRD).
-* Product vision, goals, and features.
-* Market positioning and differentiation.
-* **User role flows** (Anonymous, Free, Pro, Premium) shown with **ASCII art diagrams**.
-* Success metrics and business objectives.
+## ✅ Final Buckets & What Goes Where
+
+This section defines the canonical location for every type of documentation.
+
+*   **[`README.md`](../README.md)**
+    *   **Content**: Entry point, quick start, repo structure, high-level links.
+    *   **Best fit for**: Installation/setup guides, onboarding notes.
+
+*   **[`OUTLINE.md`](./OUTLINE.md)** (this file)
+    *   **Content**: Map of all docs, cross-links, and this content strategy.
+    *   **Best fit for**: Index of documentation, navigation guide.
+
+*   **[`PRD.md`](./PRD.md)**
+    *   **Content**: Vision, goals, success metrics, requirements, user stories, product-level revision history.
+    *   **Best fit for**:
+        *   **Testing strategy** (from a *product quality requirement* perspective).
+        *   Any product constraints or acceptance criteria related to testing.
+
+*   **[`ARCHITECTURE.md`](./ARCHITECTURE.md)**
+    *   **Content**: Current system design snapshot.
+    *   **Best fit for**:
+        *   **Testing framework/tools in use** (technical implementation details, not strategy).
+        *   Integration points for QA/test automation in the system.
+
+*   **[`ROADMAP.md`](./ROADMAP.md)**
+    *   **Content**: Forward-looking milestones, phases, features in pipeline.
+    *   **Best fit for**:
+        *   Planned **testing improvements** (e.g., “Expand coverage to 90% in Phase 2”).
+        *   Planned **tech debt paydowns** tied to roadmap deliverables.
+
+*   **[`CHANGELOG.md`](./CHANGELOG.md)**
+    *   **Content**: Rolling history of major changes.
+    *   **Best fit for**:
+        *   Timestamped note when **tech debt items are closed**.
+        *   Logging when **known issues** are resolved.
+        *   Summaries of major testing shifts (e.g., “Added end-to-end testing suite”).
 
 ---
 
-## 3. [ARCHITECTURE.md](./ARCHITECTURE.md) — How
-**Purpose:** Technical deep dive into **how SpeakSharp works**.
-* System block diagram in **ASCII art** for clarity.
-* Technology stack and design system.
-* Frontend & backend architecture.
-* Authentication, session management, and transcription flow.
-* Testing strategy, known challenges, and best practices.
+## ⚖️ Rule of Thumb for Ambiguous Leftovers
 
----
+Use this guide to categorize documentation that doesn't neatly fit into one bucket.
 
-## 4. [ROADMAP.md](./ROADMAP.md) — When & Status
-**Purpose:** Development plan and execution status.
-* Two-dimensional view: **Phases (timeline)** × **MoSCoW prioritization**.
-* ✅ Done | 🟡 In Progress | 🔴 Not Started markers.
-* Current and upcoming milestones.
-* Acts as the **single source of truth for project status**.
+*   **Testing (Strategy vs. Execution):**
+    *   Strategy → `PRD.md`
+    *   Framework/implementation → `ARCHITECTURE.md`
+    *   Progress/closure → `CHANGELOG.md`
 
----
+*   **Tech Debt:**
+    *   Future cleanup work → `ROADMAP.md`
+    *   Closure → `CHANGELOG.md`
 
-## 5. [REVIEW.md](./REVIEW.md) — Who & So What
-**Purpose:** Leadership-level analysis and strategic direction.
-*   Provides high-level insights from PM, CFO, Engineering, and CEO perspectives.
-*   Serves as a strategic checkpoint for leadership and investors.
-
----
-## Cross-Reference Map
-* **PRD.md** → What & Why (vision, roles, financials)
-* **ARCHITECTURE.md** → How (system design, block diagrams)
-* **ROADMAP.md** → When & Status (tasks, milestones, gating checks)
-* **REVIEW.md** → Who & So What (leadership insight & direction)
-
----
-## Documentation Governance
-* **Ownership:** Each document has a primary owner responsible for its accuracy.
-* **Review Cadence:** All documents will be reviewed quarterly to ensure they are up-to-date.
-* **Scope:** Each document should have a single, clearly defined purpose.
----
+*   **Known Issues:**
+    *   Active → temporarily logged in `PRD.md` (as constraints/risks)
+    *   Resolved → `CHANGELOG.md`

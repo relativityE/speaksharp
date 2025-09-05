@@ -78,12 +78,25 @@ Before starting any new task, you must complete this checklist. A "new task" inc
 
 ---
 
-## 4. Documentation Governance
+## 4. 🚨 Mandatory Documentation Review 🚨
 
-*   **Always in Sync:** Code changes must be reflected in the `/docs` directory immediately (`PRD.md`, `System Architecture.md`, `PROJECT_BOARD.md`, `README.md`).
-*   **Update ASCII Diagrams:** If flows or architecture shift, update corresponding diagrams.
-*   **Inline Documentation:** Functions and classes must include TSDoc/JSDoc.
-*   **Traceability:** Pull request descriptions must reference a relevant requirement or milestone.
+**This is a critical, non-negotiable step for every commit.**
+
+1.  **Mandatory File Review:** With every set of changes, you **must** individually review the following six documentation files to ensure they are perfectly synchronized with the state of the code.
+    *   `README.md`
+    *   `docs/OUTLINE.md`
+    *   `docs/PRD.md`
+    *   `docs/ARCHITECTURE.md`
+    *   `docs/ROADMAP.md`
+    *   `docs/CHANGELOG.md`
+
+2.  **Consult the Outline:** You must follow the content and structure rules defined in `docs/OUTLINE.md`. This file is the single source of truth for what information belongs in each document.
+
+3.  **Update `CHANGELOG.md`:** A new entry in `docs/CHANGELOG.md` is required for any significant user-facing or architectural change.
+
+4.  **Inline Documentation:** Functions and classes must include TSDoc/JSDoc.
+
+5.  **Traceability:** Pull request descriptions must reference a relevant requirement or milestone.
 
 ---
 

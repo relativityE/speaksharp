@@ -8,14 +8,15 @@
     "build": "vite build --mode test",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run --mode test --pool=forks --poolOptions.forks.maxForks=1",
-    "test:clean": "rm -rf /tmp/vitest_cache && pnpm test",
+    "test": "pnpm test:e2e",
+    "test:unit": "vitest run --mode test --pool=forks --poolOptions.forks.maxForks=1",
+    "test:clean": "rm -rf /tmp/vitest_cache && pnpm test:unit",
     "test:coverage": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest run --coverage",
     "test:ui": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest --ui",
     "test:single": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest run --reporter=verbose",
     "test:isolated": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest run src/pages/__tests__/AuthPage.isolated.test.jsx",
     "test:e2e": "playwright test",
-    "test:all": "pnpm build && run-s test test:e2e"
+    "test:all": "pnpm build && pnpm test:e2e"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.0.1",

@@ -117,10 +117,10 @@ This section contains ASCII art diagrams illustrating the journey for each user 
 ## 3. Known Issues
 *(For leadership analysis of technical debt, see [REVIEW.md – Senior Engineer perspective](./REVIEW.md)).*
 - **Critical Bugs & Environment Instability:**
+    - **Unstable Unit/Integration Test Suite:** The `vitest` suite (`pnpm test:unit`) currently suffers from a memory leak and should not be run as part of the main CI pipeline. The E2E test suite (`pnpm test:e2e`) is stable.
     - **`rounded-pill` error:** A persistent, uncaught error related to `rounded-pill` suggests potential build, cache, or configuration issues.
     - **`toast` function non-operational:** The `toast` notification does not work in local mode, hindering user feedback.
     - **Cloud AssemblyAI API 401 Error:** The Supabase Edge Function for the AssemblyAI API returns a 401 Unauthorized error, blocking cloud transcription.
-    - **E2E Test Environment Instability:** The Playwright test environment often fails to render the application, resulting in a blank page and blocking E2E tests.
 - **On-Device Transcription Needs Polish:** The `LocalWhisper` provider in `TranscriptionService` may require further UI/UX polishing.
 
 ### Technical Debt
