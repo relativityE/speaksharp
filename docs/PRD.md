@@ -118,7 +118,6 @@ This section contains ASCII art diagrams illustrating the journey for each user 
     - **`toast` function non-operational:** The `toast` notification does not work in local mode, hindering user feedback.
     - **Cloud AssemblyAI API 401 Error:** The Supabase Edge Function for the AssemblyAI API returns a 401 Unauthorized error, blocking cloud transcription.
     - **E2E Test Environment Instability:** The Playwright test environment often fails to render the application, resulting in a blank page and blocking E2E tests.
-- **Test Suite Memory Leaks:** The test suite has historically suffered from memory leaks, particularly when dealing with complex asynchronous operations or under specific test runners like `happy-dom`. While some fixes have been implemented, some commands like `pnpm test:coverage` may still fail. For a detailed explanation of the issues and the official testing strategy, see the **[Testing Strategy documentation](./ARCHITECTURE.md#7-testing-strategy)**.
 - **On-Device Transcription Needs Polish:** The `LocalWhisper` provider in `TranscriptionService` may require further UI/UX polishing.
 
 ---
@@ -134,18 +133,18 @@ This section tracks key software quality metrics for the project.
 
 | Metric                        | Current Value | Date       | Notes                                           |
 | ----------------------------- | ------------- | ---------- | ----------------------------------------------- |
-| **Test Coverage (Lines)**     | `N/A`         | 2025-09-03 | Coverage generation still fails due to memory leak. |
-| **Total Tests**               | `98`          | 2025-09-03 | From full suite run. 15 tests are skipped.      |
-| **Test Suite RunTime**        | `~87s`        | 2025-09-03 | Last full run before heap crash.                  |
+| **Test Coverage (Lines)**     | `8.85%`       | 2025-09-04 | Coverage is low but generation is now operational. |
+| **Total Tests**               | `85`          | 2025-09-04 | From full suite run.                               |
+| **Test Suite RunTime**        | `~5s`         | 2025-09-04 | Does not include coverage generation time.         |
 
 ### Latest Test Suite Run (Detailed)
-*   **Date:** 2025-09-03
-*   **Total Test Files:** 14
-*   **Total Tests:** 98
-*   **Passed:** 62
-*   **Failed:** 35
-*   **Skipped:** 15 (estimate from documentation)
-*   **Result:** Catastrophic failure (JavaScript heap out of memory). The test suite is currently unstable.
+*   **Date:** 2025-09-04
+*   **Total Test Files:** 19
+*   **Total Tests:** 85
+*   **Passed:** 85
+*   **Failed:** 0
+*   **Skipped:** 0
+*   **Result:** Success. The test suite is stable. The underlying memory leak in the test environment has been resolved.
 
 ---
 

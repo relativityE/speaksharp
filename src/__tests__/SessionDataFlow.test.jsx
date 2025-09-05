@@ -1,7 +1,7 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '../test/test-utils';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SessionProvider, useSession } from '../contexts/SessionContext';
+import { useSession } from '../contexts/SessionContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useSessionManager } from '../hooks/useSessionManager';
 import * as storage from '../lib/storage';
@@ -24,12 +24,15 @@ const TestComponent = () => {
         }
     };
 
+    // Ensure sessionHistory is an array before mapping
+    const history = Array.isArray(sessionHistory) ? sessionHistory : [];
+
     return (
         <div>
-            <div data-testid="session-count">{sessionHistory.length}</div>
+            <div data-testid="session-count">{history.length}</div>
             <button onClick={handleSave}>Save Session</button>
             <ul>
-                {sessionHistory.map(s => <li key={s.id}>{s.transcript}</li>)}
+                {history.map(s => <li key={s.id}>{s.transcript}</li>)}
             </ul>
         </div>
     );
@@ -50,11 +53,7 @@ describe('Session Data Flow Integration', () => {
         const mockSavedSession = { id: 'session-1', transcript: 'New test session' };
         mockSaveSession.mockResolvedValue(mockSavedSession);
 
-        render(
-            <SessionProvider>
-                <TestComponent />
-            </SessionProvider>
-        );
+        render(<TestComponent />);
 
         // Wait for initial load to complete
         await waitFor(() => {
@@ -76,11 +75,7 @@ describe('Session Data Flow Integration', () => {
         const mockTempSession = { id: 'anonymous-session-xyz', transcript: 'New test session' };
         mockSaveSession.mockResolvedValue(mockTempSession);
 
-        render(
-            <SessionProvider>
-                <TestComponent />
-            </SessionProvider>
-        );
+        render(<TestComponent />);
 
         // Wait for initial load to complete
         await waitFor(() => {

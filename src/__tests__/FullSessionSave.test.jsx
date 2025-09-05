@@ -1,92 +1,101 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '../test/test-utils';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { SessionPage } from '../pages/SessionPage';
-import { AuthContext } from '../contexts/AuthContext';
-import { SessionProvider, useSession } from '../contexts/SessionContext';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { useSessionManager } from '../hooks/useSessionManager';
-import * as storage from '../lib/storage';
+import { useAuth } from '../contexts/AuthContext';
+import { useSession } from '../contexts/SessionContext';
 
 // Mock dependencies
 vi.mock('../hooks/useSpeechRecognition');
 vi.mock('../hooks/useSessionManager');
-vi.mock('../lib/storage');
+vi.mock('../contexts/AuthContext');
 vi.mock('../contexts/SessionContext');
 
+// Mock the entire stripe module as it's a dependency of SessionPage->SessionSidebar
+vi.mock('@stripe/react-stripe-js', () => ({
+    Elements: ({ children }) => <div>{children}</div>,
+    useStripe: () => ({
+        redirectToCheckout: vi.fn(),
+    }),
+}));
+
 describe('Full Session Save and Navigate Flow', () => {
-    let mockUseSpeechRecognition;
-    let mockUseSessionManager;
-    let mockAuthContextValue;
-    let mockUseSession;
+    let mockStopListening;
+    let mockSaveSession;
 
     beforeEach(() => {
         vi.clearAllMocks();
 
-        mockUseSpeechRecognition = {
-            isListening: false,
-            isReady: true,
+        mockStopListening = vi.fn().mockResolvedValue({
             transcript: 'This is a full session transcript.',
-            interimTranscript: '',
-            fillerData: { um: { count: 2 } },
-            wordCount: 6,
-            wpm: 120,
+            filler_words: { um: { count: 2 } },
+            word_count: 6,
+            words_per_minute: 120,
             accuracy: 0.95,
+        });
+
+        useSpeechRecognition.mockReturnValue({
+            isListening: true,
+            isReady: true,
             error: null,
-            isSupported: true,
             startListening: vi.fn(),
-            stopListening: vi.fn(),
+            stopListening: mockStopListening,
             reset: vi.fn(),
-        };
-        useSpeechRecognition.mockReturnValue(mockUseSpeechRecognition);
+        });
 
-        mockUseSessionManager = {
-            saveSession: vi.fn(),
-        };
-        useSessionManager.mockReturnValue(mockUseSessionManager);
+        mockSaveSession = vi.fn();
+        useSessionManager.mockReturnValue({
+            saveSession: mockSaveSession,
+        });
 
-        mockAuthContextValue = {
+        useAuth.mockReturnValue({
             user: { id: 'test-user-123', is_anonymous: false },
             profile: { id: 'test-user-123', subscription_status: 'pro' },
             loading: false,
-        };
+        });
 
-        mockUseSession = {
+        useSession.mockReturnValue({
             sessionHistory: [],
             addSession: vi.fn(),
-        };
-        useSession.mockReturnValue(mockUseSession);
-
-        storage.getSessionHistory.mockResolvedValue({ sessions: [], error: null });
+        });
     });
 
     it('should save the session and navigate to analytics when "Go to Analytics" is clicked', async () => {
         const mockSavedSession = { id: 'session-123', transcript: 'This is a full session transcript.' };
-        mockUseSessionManager.saveSession.mockResolvedValue(mockSavedSession);
+        mockSaveSession.mockResolvedValue(mockSavedSession);
 
-        render(
-            <MemoryRouter initialEntries={['/session']}>
-                <AuthContext.Provider value={mockAuthContextValue}>
-                    <SessionProvider>
-                        <Routes>
-                            <Route path="/session" element={<SessionPage />} />
-                            <Route path="/analytics/:sessionId" element={<div data-testid="analytics-page" />} />
-                        </Routes>
-                    </SessionProvider>
-                </AuthContext.Provider>
-            </MemoryRouter>
-        );
+        const mockNavigate = vi.fn();
+        vi.mock('react-router-dom', async () => {
+            const original = await vi.importActual('react-router-dom');
+            return {
+                ...original,
+                useNavigate: () => mockNavigate,
+            };
+        });
 
+        render(<SessionPage />);
+
+        // Simulate clicking the "Stop Session" button
+        const stopButton = screen.getByRole('button', { name: /stop session/i });
+        fireEvent.click(stopButton);
+
+        // Wait for the end-of-session dialog to appear
+        const dialogTitle = await screen.findByText('Session Ended');
+        expect(dialogTitle).toBeInTheDocument();
+
+        // Click the "Go to Analytics" button in the dialog
         const goToAnalyticsButton = screen.getByRole('button', { name: /go to analytics/i });
         fireEvent.click(goToAnalyticsButton);
 
+        // Assert that saveSession was called and navigation occurred
         await waitFor(() => {
-            expect(mockUseSessionManager.saveSession).toHaveBeenCalled();
+            expect(mockSaveSession).toHaveBeenCalled();
         });
 
         await waitFor(() => {
-            expect(screen.getByTestId('analytics-page')).toBeInTheDocument();
+            expect(mockNavigate).toHaveBeenCalledWith('/analytics/session-123');
         });
     });
 });

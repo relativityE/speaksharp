@@ -151,16 +151,35 @@ The project includes a basic CI/CD pipeline defined in `.github/workflows/deploy
 
 This section outlines the official strategy for testing, debugging, and verification. It consolidates learnings from previous debugging sessions and establishes best practices for the project.
 
-### 6.1. Core Issue: Test Environment Memory Leak
+### 6.1. Component Testing Strategy
 
-The test suite has historically suffered from a catastrophic memory leak that causes `vitest` to crash with "JavaScript heap out of memory" errors.
+After a major effort to stabilize the test suite, the following strategy has been established to ensure tests are robust, isolated, and free from memory leaks.
 
-*   **Root Cause:** The Supabase `onAuthStateChange` listener within `src/contexts/AuthContext.jsx` creates a persistent subscription that is not properly garbage-collected by the `happy-dom` test runner.
-*   **Solution:**
-    1.  **Prop-Gated `AuthProvider`:** The `AuthProvider` in `src/contexts/AuthContext.tsx` now accepts an `enableSubscription` prop, allowing tests to explicitly disable the leaky listener.
-    2.  **`renderWithProviders` Test Helper:** A dedicated test helper at `src/test/renderWithProviders.jsx` automatically renders components with the subscription disabled.
-    3.  **Test-Light Supabase Client:** The client at `src/lib/supabaseClient.js` is configured to disable session persistence and auto-refreshing in test environments.
-*   **Action:** All new and existing tests for components that consume `AuthContext` must use the `renderWithProviders` helper to prevent the memory leak.
+*   **Core Problem:** The test suite previously suffered from a catastrophic memory leak originating from the Supabase `onAuthStateChange` listener. It also suffered from test pollution, where mocks in one file would affect tests in another.
+
+*   **The Solution: Unified Test Renderer**
+    A single, unified test utility, `renderWithAllProviders`, now exists in `src/test/test-utils.jsx`. This is the **required** way to render any component in a test file.
+
+    ```javascript
+    // Example usage in a test file
+    import { render, screen } from '../../test/test-utils';
+    import { MyComponent } from './MyComponent';
+
+    it('should render correctly', () => {
+      render(<MyComponent />);
+      expect(screen.getByText('Hello World')).toBeInTheDocument();
+    });
+    ```
+
+*   **What `renderWithAllProviders` Does:**
+    1.  **Prevents Memory Leaks:** It automatically wraps all components in an `AuthProvider` with the `enableSubscription={false}` prop, which disables the leaky Supabase listener.
+    2.  **Provides All Contexts:** It includes all essential global providers: `AuthProvider`, `SessionProvider`, `MemoryRouter` (from `react-router-dom`), and Stripe's `Elements` provider with a mock. This prevents "empty render" bugs caused by missing context.
+    3.  **Enables Route Testing:** It allows passing a `route` option to simulate rendering a component on a specific URL or with specific route state, e.g., `render(<MyComponent />, { route: '/some/path' })`.
+
+*   **Best Practices for Mocks:**
+    1.  **Avoid Global Mocks:** Do not use top-level `vi.mock()` for libraries like `react-router-dom`. This was a primary source of test pollution. Use the `route` feature of the test helper instead.
+    2.  **Isolate Mocks:** When mocking hooks or modules, do so within the test file that needs the mock.
+    3.  **Clean Up:** Use `afterEach(() => { vi.restoreAllMocks(); });` in test files to ensure mocks do not leak between tests.
 
 ### 6.2. Strategy for Complex Hooks (e.g., `useSpeechRecognition`)
 
