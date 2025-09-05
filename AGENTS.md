@@ -21,15 +21,17 @@ Before starting any task, remember:
 
 These foundational rules govern all work and must be followed at all times.
 
-1.  **Act as a Senior Engineer:** Always approach work with the mindset of a seasoned developer—balance technical rigor, design patterns, and long-term maintainability. Avoid shortcuts that create future technical debt.
+1.  **Familiarization First:** Before taking any action or answering any user question, you must review the contents of this `agents.md` document to familiarize yourself with the current requirements and directives.
 
-2.  **Documentation as a Source of Truth:** Before beginning any work, review all markdown documents to understand requirements, architecture, and the project roadmap. You must not create any new top-level markdown (.md) files. All documentation and planning must be consolidated into the existing files.
+2.  **Act as a Senior Engineer:** Always approach work with the mindset of a seasoned developer—balance technical rigor, design patterns, and long-term maintainability. Avoid shortcuts that create future technical debt.
 
-3.  **Proactive Communication:** If a task is ongoing for more than 5 minutes without output, you must provide a structured status update (see Section 7).
+3.  **Documentation as a Source of Truth:** All official documentation lives under the `/docs` directory. You must not create any new markdown files. If you need to create new documentation, you must print the content to the screen and wait for user approval on which existing document to update. This ensures a single source of truth.
 
-4.  **Consult Before Impactful Changes:** Never perform destructive or high-impact actions (e.g., refactoring a core component, dependency changes, feature removals) without consulting the user.
+4.  **Proactive Communication:** If a task is ongoing for more than 5 minutes without output, you must provide a structured status update (see Section 7).
 
-5.  **Traceability:** Every change must link back to requirements (PRD.md), system design (System Architecture.md), or project progress (PROJECT_BOARD.md).
+5.  **Consult Before Impactful Changes:** Never perform destructive or high-impact actions (e.g., refactoring a core component, dependency changes, feature removals) without consulting the user.
+
+6.  **Traceability:** Every change must link back to requirements (PRD.md), system design (System Architecture.md), or project progress (PROJECT_BOARD.md).
 
 ---
 
@@ -76,12 +78,28 @@ Before starting any new task, you must complete this checklist. A "new task" inc
 
 ---
 
-## 4. Documentation Governance
+## 4. 🚨 Mandatory Documentation Review 🚨
 
-*   **Always in Sync:** Code changes must be reflected in the `/docs` directory immediately (`PRD.md`, `System Architecture.md`, `PROJECT_BOARD.md`, `README.md`).
-*   **Update ASCII Diagrams:** If flows or architecture shift, update corresponding diagrams.
-*   **Inline Documentation:** Functions and classes must include TSDoc/JSDoc.
-*   **Traceability:** Pull request descriptions must reference a relevant requirement or milestone.
+**This is a critical, non-negotiable step for every commit.**
+
+**Core Principle: Single Source of Truth (SSOT)**
+All documentation must adhere to the SSOT principle. Information should exist in one canonical place. `docs/OUTLINE.md` defines these locations. Redundancy is to be actively eliminated and is a requirement for all documentation.
+
+1.  **Mandatory File Review:** With every set of changes, you **must** individually review the following six documentation files to ensure they are perfectly synchronized with the state of the code.
+    *   `README.md`
+    *   `docs/OUTLINE.md`
+    *   `docs/PRD.md`
+    *   `docs/ARCHITECTURE.md`
+    *   `docs/ROADMAP.md`
+    *   `docs/CHANGELOG.md`
+
+2.  **Consult the Outline:** You must follow the content and structure rules defined in `docs/OUTLINE.md`. This file is the single source of truth for what information belongs in each document.
+
+3.  **Update `CHANGELOG.md`:** A new entry in `docs/CHANGELOG.md` is required for any significant user-facing or architectural change.
+
+4.  **Inline Documentation:** Functions and classes must include TSDoc/JSDoc.
+
+5.  **Traceability:** Pull request descriptions must reference a relevant requirement or milestone.
 
 ---
 

@@ -13,6 +13,20 @@ export default class NativeBrowser {
   }
 
   async init() {
+    // In an E2E test environment, the SpeechRecognition API is not available.
+    // We bypass the check and create a dummy object to prevent errors.
+    if (window.__E2E_MODE__) {
+      logger.info('[E2E STUB] Bypassing NativeBrowser init for E2E test.');
+      this.recognition = {
+        start: () => {},
+        stop: () => {},
+        onresult: null,
+        onerror: null,
+        onend: null,
+      };
+      return;
+    }
+
     if (!this.isSupported) {
       throw new Error('Native browser speech recognition not supported');
     }

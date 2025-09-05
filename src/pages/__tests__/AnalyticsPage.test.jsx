@@ -1,61 +1,58 @@
-import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { render, screen } from '../../test/test-utils';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AnalyticsPage } from '../AnalyticsPage';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSession } from '../../contexts/SessionContext';
-import { IS_DEV } from '../../config';
 
 // Mock dependencies
 vi.mock('../../contexts/AuthContext');
 vi.mock('../../contexts/SessionContext');
 vi.mock('../../config', () => ({
     IS_DEV: true,
+    FILLER_WORD_KEYS: {
+        "uh": "uh",
+        "um": "um",
+        "like": "like",
+        "you know": "you know",
+    }
 }));
-
-const mockNavigate = vi.fn();
-vi.mock('react-router-dom', async () => {
-    const original = await vi.importActual('react-router-dom');
-    return {
-        ...original,
-        useNavigate: () => mockNavigate,
-    };
-});
-
-const renderWithRouter = (ui, { initialEntries = ['/analytics'] } = {}) => {
-    return render(
-        <MemoryRouter initialEntries={initialEntries}>
-            <Routes>
-                <Route path="/analytics" element={ui} />
-                <Route path="/analytics/:sessionId" element={ui} />
-            </Routes>
-        </MemoryRouter>
-    );
-};
 
 describe('AnalyticsPage', () => {
     beforeEach(() => {
         vi.clearAllMocks();
     });
 
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
     it('renders AnonymousAnalyticsView with no data when user is anonymous and has no history', () => {
         useAuth.mockReturnValue({ user: null });
-        renderWithRouter(<AnalyticsPage />, { initialEntries: ['/analytics'] });
+        useSession.mockReturnValue({ sessionHistory: [], loading: false, error: null });
+        render(<AnalyticsPage />, { route: '/analytics' });
         expect(screen.getByText('No Session Data')).toBeInTheDocument();
     });
 
-    it('renders dashboard with data for an anonymous user with a temporary session', () => {
+    it('renders dashboard with data for an anonymous user with a temporary session', async () => {
         useAuth.mockReturnValue({ user: null });
-        const mockSessionData = { id: 'anon-123', transcript: 'temp data', filler_words: {}, duration: 120, accuracy: 0.95 };
-        renderWithRouter(<AnalyticsPage />, { initialEntries: [{ pathname: '/analytics', state: { sessionData: mockSessionData } }] });
-        expect(screen.getByText('Session Analysis')).toBeInTheDocument();
-        expect(screen.getByTestId('stat-card-total-sessions')).toBeInTheDocument();
+        useSession.mockReturnValue({ sessionHistory: [], loading: false, error: null });
+        const mockSessionData = { id: 'anon-123', transcript: 'temp data', filler_words: { um: 1 }, duration: 120, accuracy: 0.95 };
+
+        render(<AnalyticsPage />, {
+            route: {
+                pathname: '/analytics',
+                state: { sessionData: mockSessionData },
+            },
+        });
+
+        expect(await screen.findByText('Session Analysis')).toBeInTheDocument();
+        expect(await screen.findByTestId('stat-card-filler-words')).toBeInTheDocument();
     });
 
     it('renders loading skeleton when session context is loading', () => {
         useAuth.mockReturnValue({ user: { id: 'test-user' }, profile: {} });
         useSession.mockReturnValue({ sessionHistory: [], loading: true, error: null });
-        renderWithRouter(<AnalyticsPage />);
+        render(<AnalyticsPage />, { route: '/analytics' });
         expect(screen.getByTestId('analytics-dashboard-skeleton')).toBeInTheDocument();
     });
 
@@ -66,7 +63,7 @@ describe('AnalyticsPage', () => {
             loading: false,
             error: null,
         });
-        renderWithRouter(<AnalyticsPage />);
+        render(<AnalyticsPage />, { route: '/analytics' });
         expect(screen.getByText('Your Dashboard')).toBeInTheDocument();
     });
 
@@ -77,7 +74,7 @@ describe('AnalyticsPage', () => {
             loading: false,
             error: null,
         });
-        renderWithRouter(<AnalyticsPage />, { initialEntries: ['/analytics/session-123'] });
+        render(<AnalyticsPage />, { route: '/analytics/session-123' });
         expect(screen.getByText('Session Analysis')).toBeInTheDocument();
     });
 
@@ -88,7 +85,7 @@ describe('AnalyticsPage', () => {
             loading: false,
             error: null,
         });
-        renderWithRouter(<AnalyticsPage />, { initialEntries: ['/analytics/invalid-id'] });
+        render(<AnalyticsPage />, { route: '/analytics/invalid-id' });
         expect(screen.getByText('Session Not Found')).toBeInTheDocument();
     });
 });
