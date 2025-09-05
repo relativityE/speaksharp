@@ -117,7 +117,7 @@ This section contains ASCII art diagrams illustrating the journey for each user 
 ## 3. Known Issues
 *(For leadership analysis of technical debt, see [REVIEW.md – Senior Engineer perspective](./REVIEW.md)).*
 - **Critical Bugs & Environment Instability:**
-    - **Unstable Unit/Integration Test Suite:** The `vitest` suite (`pnpm test:unit`) currently suffers from a memory leak and should not be run as part of the main CI pipeline. The E2E test suite (`pnpm test:e2e`) is stable.
+    - **E2E Test Environment Blocker:** The Playwright E2E test suite is blocked. Tests that rely on mocking Supabase RPC calls (e.g., the "Free User Quota" test) are failing. This is caused by an environment-specific issue where Playwright's network interception (`page.route`) and `window.fetch` patching are both unable to intercept requests made by the Supabase client. This prevents the testing of any logic that depends on a mocked RPC response. The `vitest` unit/integration test suite is now stable after fixing a memory leak.
     - **`rounded-pill` error:** A persistent, uncaught error related to `rounded-pill` suggests potential build, cache, or configuration issues.
     - **`toast` function non-operational:** The `toast` notification does not work in local mode, hindering user feedback.
     - **Cloud AssemblyAI API 401 Error:** The Supabase Edge Function for the AssemblyAI API returns a 401 Unauthorized error, blocking cloud transcription.

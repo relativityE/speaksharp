@@ -19,11 +19,19 @@ export const AuthContext = createContext<AuthContextType>({
 export const useAuth = () => useContext(AuthContext);
 
 export function AuthProvider({ children }) {
-  const [session] = useState({ user: { id: 'test-user' } });
-  const [profile] = useState({ subscription_status: 'free' });
-  const [loading] = useState(false);
+  // In E2E tests, a mock session can be injected into the window object.
+  // This avoids a complex chain of mocks for Supabase's auth flow.
+  const mockSession = (window as any).__E2E_MOCK_SESSION__;
 
-  const signOut = async () => {};
+  const [session, setSession] = useState(mockSession || null);
+  const [profile, setProfile] = useState(mockSession?.user?.user_metadata || null);
+  const [loading, setLoading] = useState(!mockSession); // No loading needed if session is mocked
+
+  const signOut = async () => {
+    // In a real app, you'd call supabase.auth.signOut()
+    setSession(null);
+    setProfile(null);
+  };
 
   const value = {
     session,

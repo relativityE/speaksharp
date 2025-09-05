@@ -12,6 +12,7 @@ export const SessionProvider = ({ children }) => {
   const [sessionHistory, setSessionHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [usageLimitExceeded, setUsageLimitExceeded] = useState(false);
 
   const fetchSessionHistory = useCallback(async () => {
     // Only fetch history for authenticated, non-anonymous users
@@ -57,6 +58,8 @@ export const SessionProvider = ({ children }) => {
     sessionHistory,
     loading,
     error,
+    usageLimitExceeded,
+    setUsageLimitExceeded,
     refreshHistory: fetchSessionHistory,
     addSession,
     clearAnonymousSession,

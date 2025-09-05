@@ -38,10 +38,8 @@ vi.mock('../lib/supabaseClient', () => ({
 }));
 
 // NOW you can import everything else
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '../test/test-utils';
 import { SessionPage } from '../pages/SessionPage';
-import { AuthProvider } from '../contexts/AuthContext';
-import { SessionProvider } from '../contexts/SessionContext';
 import { useSessionManager } from '../hooks/useSessionManager';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 
@@ -92,13 +90,7 @@ describe('SessionPage', () => {
         single: vi.fn().mockResolvedValue({ data: { id: 'test-user', subscription_status: 'free' }, error: null })
     });
 
-    render(
-        <AuthProvider>
-            <SessionProvider>
-                <SessionPage />
-            </SessionProvider>
-        </AuthProvider>
-    );
+    render(<SessionPage />);
 
     await waitFor(() => {
       expect(screen.getByTestId('transcript-panel')).toBeInTheDocument();

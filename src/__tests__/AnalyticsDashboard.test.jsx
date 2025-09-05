@@ -1,6 +1,5 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within } from '../test/test-utils';
 import { describe, it, expect, vi } from 'vitest';
-import { MemoryRouter } from 'react-router-dom';
 import { AnalyticsDashboard, AnalyticsDashboardSkeleton } from '../components/AnalyticsDashboard';
 import { useAuth } from '../contexts/AuthContext';
 import { FILLER_WORD_KEYS } from '../config';
@@ -49,21 +48,13 @@ const mockSessionHistory = [
 describe('AnalyticsDashboard', () => {
   it('renders the empty state when no session history is provided', () => {
     useAuth.mockReturnValue({ profile: { subscription_status: 'free' } });
-    render(
-        <MemoryRouter>
-            <AnalyticsDashboard sessionHistory={[]} profile={{ subscription_status: 'free' }} />
-        </MemoryRouter>
-    );
+    render(<AnalyticsDashboard sessionHistory={[]} profile={{ subscription_status: 'free' }} />);
     expect(screen.getByText('Your Dashboard Awaits!')).not.toBeNull();
   });
 
   it('renders the main dashboard with data for a pro user', () => {
     useAuth.mockReturnValue({ profile: { subscription_status: 'pro' } });
-    render(
-        <MemoryRouter>
-            <AnalyticsDashboard sessionHistory={mockSessionHistory} profile={{ subscription_status: 'pro' }} />
-        </MemoryRouter>
-    );
+    render(<AnalyticsDashboard sessionHistory={mockSessionHistory} profile={{ subscription_status: 'pro' }} />);
 
     const totalSessionsCard = screen.getByTestId('stat-card-total-sessions');
     expect(within(totalSessionsCard).getByText('2')).not.toBeNull();
@@ -87,22 +78,14 @@ describe('AnalyticsDashboard', () => {
 
   it('renders the main dashboard with data for a free user', () => {
     useAuth.mockReturnValue({ profile: { subscription_status: 'free' } });
-    render(
-        <MemoryRouter>
-            <AnalyticsDashboard sessionHistory={mockSessionHistory} profile={{ subscription_status: 'free' }} />
-        </MemoryRouter>
-    );
+    render(<AnalyticsDashboard sessionHistory={mockSessionHistory} profile={{ subscription_status: 'free' }} />);
 
     expect(screen.getByText('Unlock Your Full Potential')).not.toBeNull();
   });
 
   it('applies the correct contrast styling to the Upgrade Now button', () => {
     useAuth.mockReturnValue({ profile: { subscription_status: 'free' } });
-    render(
-      <MemoryRouter>
-        <AnalyticsDashboard sessionHistory={mockSessionHistory} profile={{ subscription_status: 'free' }} />
-      </MemoryRouter>
-    );
+    render(<AnalyticsDashboard sessionHistory={mockSessionHistory} profile={{ subscription_status: 'free' }} />);
 
     const upgradeButton = screen.getByRole('button', { name: /Upgrade Now/i });
     expect(upgradeButton.className).toContain('bg-white');
@@ -111,11 +94,7 @@ describe('AnalyticsDashboard', () => {
 
   it('renders the session history items with correct duration', () => {
     useAuth.mockReturnValue({ profile: { subscription_status: 'pro' } });
-    render(
-      <MemoryRouter>
-        <AnalyticsDashboard sessionHistory={mockSessionHistory} profile={{ subscription_status: 'pro' }} />
-      </MemoryRouter>
-    );
+    render(<AnalyticsDashboard sessionHistory={mockSessionHistory} profile={{ subscription_status: 'pro' }} />);
 
     const sessionItems = screen.getAllByTestId('session-history-item');
     expect(sessionItems).toHaveLength(2);

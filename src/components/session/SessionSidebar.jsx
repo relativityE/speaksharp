@@ -114,21 +114,25 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
     const handleNavigateToAnalytics = async () => {
         if (!completedSessionData) return;
 
-        const sessionWithDuration = {
-            ...completedSessionData,
-            duration: elapsedTime,
-        };
+        const sessionWithDuration = { ...completedSessionData, duration: elapsedTime };
 
         if (user) {
-            const savedSession = await saveSession(sessionWithDuration);
-            if (savedSession && savedSession.id) {
-                toast.success(<div className="toast toast-md toast-success">Session saved successfully!</div>);
-                navigate(`/analytics/${savedSession.id}`);
+            const { session, usageExceeded } = await saveSession(sessionWithDuration);
+            // If usage is exceeded, the parent component will show the upgrade dialog.
+            // We should not navigate away.
+            if (usageExceeded) {
+                setShowEndSessionDialog(false);
+                return;
+            }
+
+            if (session && session.id) {
+                toast.success("Session saved successfully!");
+                navigate(`/analytics/${session.id}`);
             } else {
-                toast.warning(<div className="toast toast-md toast-warning">Could not save the session. This can happen in test mode or if the session was too short. Your data has not been lost.</div>);
+                toast.warning("Could not save the session.");
             }
         } else {
-            toast.info(<div className="toast toast-md toast-info">Session complete. View your results below.</div>);
+            toast.info("Session complete. View your results below.");
             navigate('/analytics', { state: { sessionData: sessionWithDuration } });
         }
         setIsEndingSession(false);
@@ -137,23 +141,15 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
     const handleStayOnPage = async () => {
         if (!completedSessionData) return;
 
-        const sessionWithDuration = {
-            ...completedSessionData,
-            duration: elapsedTime,
-        };
+        const sessionWithDuration = { ...completedSessionData, duration: elapsedTime };
 
         if (user) {
-            const savedSession = await saveSession(sessionWithDuration);
-            if (savedSession) {
-                toast.success("Session saved successfully!");
-            } else {
-                toast.warning("Could not save the session.");
-            }
+            // We still want to save the session, even if the user stays on the page.
+            // The parent component will handle the usage exceeded flag.
+            await saveSession(sessionWithDuration);
         }
-        // For anonymous users, the session is not saved to the backend,
-        // but it will be added to the global state by the parent component.
+        // For anonymous users, the session is not saved to the backend.
         // We can just close the dialog.
-
         setShowEndSessionDialog(false);
     };
 

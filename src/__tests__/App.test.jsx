@@ -1,5 +1,4 @@
-import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { render, screen } from '../test/test-utils';
 import { describe, it, expect, vi } from 'vitest';
 import App from '../App';
 
@@ -48,22 +47,14 @@ vi.mock('../hooks/useBrowserSupport', () => ({
 
 describe('App Component', () => {
   it('should render the main content area', () => {
-    render(
-      <MemoryRouter>
-        <App />
-      </MemoryRouter>
-    );
+    render(<App />);
 
     // Check for the main element to confirm the app shell renders
     expect(screen.getByTestId('app-main')).not.toBeNull();
   });
 
   it('should render the main page content as a smoke test', () => {
-    render(
-      <MemoryRouter initialEntries={['/']}>
-        <App />
-      </MemoryRouter>
-    );
+    render(<App />, { route: '/' });
 
     // Check for a key element from the MainPage to ensure it renders
     expect(screen.getByText('Start For Free')).not.toBeNull();

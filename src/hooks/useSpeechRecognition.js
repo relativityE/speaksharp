@@ -139,6 +139,15 @@ export const useSpeechRecognition = ({
     const startListening = useCallback(async ({ forceCloud = false } = {}) => {
         if (isListening || !isMountedRef.current) return;
 
+        // E2E Test Mode: Bypass real transcription service
+        if (window.__E2E_MODE__) {
+            logger.info('E2E Mode: Simulating transcription start.');
+            setIsListening(true);
+            setIsReady(true);
+            setCurrentMode('e2e-mock');
+            return;
+        }
+
         setIsListening(true);
         setError(null);
         setIsReady(false);
@@ -172,7 +181,24 @@ export const useSpeechRecognition = ({
     }, [isListening, profile, session, navigate, getAssemblyAIToken, onTranscriptUpdate, onModelLoadProgress, handleReady]);
 
     const stopListening = useCallback(async () => {
-        if (!isListening || !transcriptionServiceRef.current || !isMountedRef.current) return null;
+        if (!isListening || !isMountedRef.current) return null;
+
+        // E2E Test Mode: Bypass real transcription service
+        if (window.__E2E_MODE__) {
+            logger.info('E2E Mode: Simulating transcription stop.');
+            setIsListening(false);
+            setIsReady(false);
+            // Return mock stats so the session save logic can proceed
+            return {
+                transcript: 'This is a mock transcript from an E2E test.',
+                wordCount: 9,
+                duration: 10,
+                wpm: 54,
+                filler_words: finalFillerData,
+            };
+        }
+
+        if (!transcriptionServiceRef.current) return null;
 
         try {
             await transcriptionServiceRef.current.stopTranscription();

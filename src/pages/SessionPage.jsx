@@ -72,8 +72,8 @@ import logger from '@/lib/logger';
 
 export const SessionPage = () => {
     const { user, profile, session, loading } = useAuth();
-    const { saveSession: saveSessionToBackend, usageLimitExceeded, setUsageLimitExceeded } = useSessionManager();
-    const { addSession } = useSession();
+    const { saveSession: saveSessionToBackend } = useSessionManager();
+    const { addSession, usageLimitExceeded, setUsageLimitExceeded } = useSession();
     const [customWords, setCustomWords] = useState([]);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
     const [elapsedTime, setElapsedTime] = useState(0);
@@ -135,14 +135,15 @@ export const SessionPage = () => {
     }, [elapsedTime, isListening, user, profile, speechRecognition.stopListening, setUsageLimitExceeded]);
 
     const saveAndBroadcastSession = async (sessionData) => {
-        const newSession = await saveSessionToBackend(sessionData);
+        const { session: newSession, usageExceeded } = await saveSessionToBackend(sessionData);
         if (newSession) {
-            // The session object from the DB might be slightly different, so we fetch it again
-            // to ensure the UI has the most accurate data.
-            // For now, we assume the returned object is sufficient.
             addSession(newSession);
         }
-        return newSession;
+        if (usageExceeded) {
+            setUsageLimitExceeded(true);
+        }
+        // Return the full result so the caller can decide whether to navigate.
+        return { session: newSession, usageExceeded };
     };
 
     return (

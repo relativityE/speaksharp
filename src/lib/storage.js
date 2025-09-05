@@ -31,6 +31,10 @@ export const getSessionHistory = async (userId) => {
  * @returns {Promise<{session: object|null, usageExceeded: boolean}>} A promise that resolves to an object containing the saved session and a flag for usage limit.
  */
 export const saveSession = async (sessionData, profile) => {
+  logger.info({
+    e2e_mode: window.__E2E_MODE__,
+    e2e_usage_state: window.__E2E_USAGE_STATE__
+  }, 'saveSession called');
   if (!sessionData || !sessionData.user_id) {
     logger.error('Save Session: Session data and user ID are required.');
     return { session: null, usageExceeded: false };
@@ -48,6 +52,12 @@ export const saveSession = async (sessionData, profile) => {
 
   // After saving, check usage for free tier users
   if (profile.subscription_status === 'free') {
+    // In E2E tests, we can inject the desired usage state to bypass the network call.
+    if (window.__E2E_MODE__ && typeof window.__E2E_USAGE_STATE__?.usageExceeded === 'boolean') {
+      logger.info({ ...window.__E2E_USAGE_STATE__ }, '[E2E] Using injected usage state.');
+      return { session: data, usageExceeded: window.__E2E_USAGE_STATE__.usageExceeded };
+    }
+
     const { data: usageData, error: rpcError } = await supabase.rpc('update_user_usage', {
       user_id: profile.id,
       duration_seconds: sessionData.duration || 0,
