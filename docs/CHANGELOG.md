@@ -7,7 +7,9 @@ Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) style with sligh
 ---
 
 ## [Unreleased]
-- Planned or in-progress changes go here.
+### Fixed
+- Corrected a critical bug in the `AuthProvider` that hardcoded all users as 'free', preventing pro users from accessing premium features. The context now correctly handles real and mocked session data.
+- Fixed the `assemblyai-token` serverless function, which was failing to generate tokens due to an incorrect Authorization header. Cloud transcription for Pro users is now functional.
 
 ---
 

@@ -120,7 +120,6 @@ This section contains ASCII art diagrams illustrating the journey for each user 
     - **Unstable Unit/Integration Test Suite:** The `vitest` suite (`pnpm test:unit`) currently suffers from a memory leak and should not be run as part of the main CI pipeline. The E2E test suite (`pnpm test:e2e`) is stable.
     - **`rounded-pill` error:** A persistent, uncaught error related to `rounded-pill` suggests potential build, cache, or configuration issues.
     - **`toast` function non-operational:** The `toast` notification does not work in local mode, hindering user feedback.
-    - **Cloud AssemblyAI API 401 Error:** The Supabase Edge Function for the AssemblyAI API returns a 401 Unauthorized error, blocking cloud transcription.
 - **On-Device Transcription Needs Polish:** The `LocalWhisper` provider in `TranscriptionService` may require further UI/UX polishing.
 
 ### Technical Debt

@@ -8,15 +8,28 @@ export const test = base.extend({
     await page.route("**/*", async route => {
       const url = route.request().url();
 
-      // Intercept the profile fetch for our mock pro user
+      // Intercept profile fetches to return mock data based on user ID
       if (url.includes('/rest/v1/profiles') && route.request().method() === 'GET') {
-        console.log(`[mock] Intercepted profile fetch for pro user: ${url}`);
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          // Note: Supabase returns an array for a select query
-          body: JSON.stringify([{ id: 'pro-user-id', subscription_status: 'pro' }]),
-        });
+        const urlParams = new URLSearchParams(url.split('?')[1]);
+        const userId = urlParams.get('id')?.split('.')[1]; // e.g., 'eq.free-user-id' -> 'free-user-id'
+
+        if (userId === 'free-user-id') {
+          console.log(`[mock] Intercepted profile fetch for: ${userId}`);
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([{ id: userId, subscription_status: 'free' }]),
+          });
+        }
+
+        if (userId === 'pro-user-id') {
+          console.log(`[mock] Intercepted profile fetch for: ${userId}`);
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([{ id: userId, subscription_status: 'pro' }]),
+          });
+        }
       }
 
       // Allow Supabase + local dev
