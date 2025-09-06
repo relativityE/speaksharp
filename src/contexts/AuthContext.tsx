@@ -1,11 +1,28 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { supabase } from '../lib/supabaseClient'; // Ensure you have this file
+import { supabase } from '../lib/supabaseClient';
 import { Session } from '@supabase/supabase-js';
+
+// Helper to get the mock session if it exists
+const getMockSession = () => {
+    if (typeof window !== 'undefined' && window.__E2E_MOCK_SESSION__) {
+        return window.__E2E_MOCK_SESSION__;
+    }
+    return null;
+};
+
+const mockSession = getMockSession();
+
+const getInitialProfile = () => {
+    if (!mockSession) return null;
+    return {
+        id: mockSession.user.id,
+        subscription_status: mockSession.user.user_metadata?.subscription_status || 'free',
+    };
+};
 
 type Profile = {
   id: string;
   subscription_status: 'free' | 'pro' | 'premium';
-  // Add other profile properties as needed
 };
 
 type AuthContextType = {
@@ -20,90 +37,54 @@ export const AuthContext = createContext<AuthContextType>({
   session: null,
   user: null,
   profile: null,
-  loading: true,
+  loading: !mockSession, // If there's a mock, we are not loading.
   signOut: async () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
 
-// A helper function to get the profile from the database
-const getProfile = async (user_id: string): Promise<Profile | null> => {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user_id)
-    .single();
-
+const getProfileFromDb = async (user_id: string): Promise<Profile | null> => {
+  const { data, error } = await supabase.from('profiles').select('*').eq('id', user_id).single();
   if (error) {
     console.error('Error fetching profile:', error);
     return null;
   }
-  return data as Profile;
+  return data;
 };
 
-
 export function AuthProvider({ children }) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [session, setSession] = useState<Session | null>(mockSession);
+  const [profile, setProfile] = useState<Profile | null>(getInitialProfile());
+  const [loading, setLoading] = useState<boolean>(!mockSession); // Not loading if mocked
 
   useEffect(() => {
-    const setData = async () => {
-      // Check for E2E mock session first
-      if (window.__E2E_MOCK_SESSION__) {
-        const mockSession = window.__E2E_MOCK_SESSION__;
-        setSession(mockSession);
-        // In E2E, the profile might be part of the user object directly
-        // or we might need a mock profile table. For now, let's assume
-        // the test provides the necessary profile info within the mock session.
-        // The test provides `user.user_metadata.subscription_status`. Let's use that.
-        const mockProfile: Profile = {
-            id: mockSession.user.id,
-            subscription_status: mockSession.user.user_metadata.subscription_status || 'free',
-        };
-        setProfile(mockProfile);
-        setLoading(false);
-        return;
-      }
+    // If we're in an E2E test, don't run the real auth logic.
+    if (mockSession) return;
 
-      // If no mock session, proceed with real Supabase auth
+    const setData = async () => {
       const { data: { session }, error } = await supabase.auth.getSession();
       if (error) {
         console.error("Error getting session:", error);
-        setLoading(false);
-        return;
-      }
-
-      setSession(session);
-      if (session?.user) {
-        const userProfile = await getProfile(session.user.id);
+      } else if (session?.user) {
+        const userProfile = await getProfileFromDb(session.user.id);
         setProfile(userProfile);
       }
+      setSession(session);
       setLoading(false);
     };
 
-    // Only run `setData` if we are not in a test environment with a mock.
-    // The E2E mock setup will be handled by the `addInitScript` in the test itself.
-    if (!window.__E2E_MOCK_SESSION__) {
-      setData();
-    }
-
+    setData();
 
     const { data: listener } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        // Ignore auth state change if we are in an E2E test with a mock session
-        if (window.__E2E_MOCK_SESSION__) return;
-
-        setSession(session);
-        if (session?.user) {
+      async (_event, newSession) => {
+        setSession(newSession);
+        if (newSession?.user) {
           setLoading(true);
-          const userProfile = await getProfile(session.user.id);
+          const userProfile = await getProfileFromDb(newSession.user.id);
           setProfile(userProfile);
           setLoading(false);
         } else {
-          // Handle user logout
           setProfile(null);
-          setLoading(false);
         }
       }
     );
