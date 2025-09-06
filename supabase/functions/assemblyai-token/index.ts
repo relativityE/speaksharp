@@ -25,7 +25,7 @@ Deno.serve(async (req: Request) => {
     const resp = await fetch(tokenUrl, {
       method: "GET",
       headers: {
-        "Authorization": `Bearer ${ASSEMBLYAI_KEY}`,
+        "Authorization": ASSEMBLYAI_KEY,
       },
     });
 

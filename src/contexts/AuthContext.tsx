@@ -27,7 +27,7 @@ type Profile = {
 
 type AuthContextType = {
   session: Session | null;
-  user: any | null;
+  user: any | null; // Replace 'any' with a more specific User type if available
   profile: Profile | null;
   loading: boolean;
   signOut: () => Promise<void>;
