@@ -39,13 +39,13 @@ export const useSpeechRecognition = ({
     const [isSupported, setIsSupported] = useState(true);
     const [currentMode, setCurrentMode] = useState(null);
     const [modelLoadingProgress, setModelLoadingProgress] = useState(null);
+    const [elapsedTime, setElapsedTime] = useState(0); // Added for duration tracking
 
     const transcriptionServiceRef = useRef(null);
     const isMountedRef = useRef(true);
     const debounceTimerRef = useRef(null);
-    const stateRef = useRef({ finalChunks: [], wordConfidences: [], interimTranscript: '' });
+    const stateRef = useRef({ finalChunks: [], wordConfidences: [], interimTranscript: '', finalFillerData: initialFillerData, elapsedTime: 0 });
 
-    // FIX 1: Centralized state to prevent race conditions during initialization/destruction.
     const initializationStateRef = useRef({
         isInitializing: false,
         isStarting: false,
@@ -54,7 +54,6 @@ export const useSpeechRecognition = ({
 
     useEffect(() => {
         isMountedRef.current = true;
-        // FIX 2: Expose ref for E2E test debugging if in the right mode.
         if (typeof window !== 'undefined' && window.__E2E_MODE__) {
             window.transcriptionServiceRef = transcriptionServiceRef;
         }
@@ -71,6 +70,22 @@ export const useSpeechRecognition = ({
         };
     }, []);
 
+    // Timer effect
+    useEffect(() => {
+        let interval;
+        if (isListening) {
+            interval = setInterval(() => {
+                setElapsedTime(prevTime => prevTime + 1);
+            }, 1000);
+        } else {
+            setElapsedTime(0);
+        }
+        return () => {
+            if (interval) clearInterval(interval);
+        };
+    }, [isListening]);
+
+
     // Update the stateRef whenever state changes.
     useEffect(() => {
         stateRef.current = {
@@ -78,15 +93,15 @@ export const useSpeechRecognition = ({
             wordConfidences,
             interimTranscript,
             finalFillerData,
+            elapsedTime,
         };
-    }, [finalChunks, wordConfidences, interimTranscript, finalFillerData]);
+    }, [finalChunks, wordConfidences, interimTranscript, finalFillerData, elapsedTime]);
 
     const onModelLoadProgress = useCallback((progress) => {
         if (isMountedRef.current) setModelLoadingProgress(progress);
     }, []);
 
     const handleReady = useCallback(() => {
-        // FIX 3: Add a flag for E2E tests to synchronize with.
         if (typeof window !== 'undefined' && window.__E2E_MODE__) {
             window.__TRANSCRIPTION_READY__ = true;
         }
@@ -150,7 +165,6 @@ export const useSpeechRecognition = ({
     }, [authSession]);
 
     const startListening = useCallback(async ({ forceCloud = false } = {}) => {
-        // FIX 4: Prevent multiple initializations from happening at once.
         if (isListening || !isMountedRef.current || initializationStateRef.current.isInitializing) return;
 
         initializationStateRef.current.isInitializing = true;
@@ -171,8 +185,6 @@ export const useSpeechRecognition = ({
                 profile, forceCloud, session, navigate, getAssemblyAIToken,
             });
 
-            // FIX 6: Assign the service to the ref *before* initializing it.
-            // This is the critical fix for the race condition.
             transcriptionServiceRef.current = service;
             await service.init();
             if (!isMountedRef.current) return;
@@ -188,16 +200,12 @@ export const useSpeechRecognition = ({
                 }
             }
         } finally {
-            // Ensure we always reset the initialization lock.
             initializationStateRef.current.isInitializing = false;
         }
     }, [isListening, profile, session, navigate, getAssemblyAIToken, onTranscriptUpdate, onModelLoadProgress, handleReady]);
 
     const stopListening = useCallback(async () => {
-        // FIX 7: Minimal dependencies to prevent stale closures.
         if (!isListening || !isMountedRef.current) return null;
-
-        // FIX 8: Wait for initialization to complete before trying to stop.
         while (initializationStateRef.current.isInitializing) {
             await new Promise(resolve => setTimeout(resolve, 50));
         }
@@ -205,23 +213,20 @@ export const useSpeechRecognition = ({
         if (!transcriptionServiceRef.current) return null;
 
         try {
-            // FIX 9: Clear any pending debounced operations before stopping.
             if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
 
             await transcriptionServiceRef.current.stopTranscription();
             if (isMountedRef.current) {
                 setIsListening(false);
                 setIsReady(false);
-                // FIX 10: Get fresh state values directly from the ref instead of relying on closure.
-                const { finalChunks, wordConfidences, interimTranscript, finalFillerData } = stateRef.current;
-                const stats = calculateTranscriptStats(finalChunks, wordConfidences, interimTranscript);
+                const { finalChunks, wordConfidences, interimTranscript, finalFillerData, elapsedTime } = stateRef.current;
+                const stats = calculateTranscriptStats(finalChunks, wordConfidences, interimTranscript, elapsedTime);
                 return { ...stats, filler_words: finalFillerData };
             }
         } catch (err) {
             if (isMountedRef.current) setError(err);
         }
         return null;
-        // FIX 11: Minimal dependencies.
     }, [isListening]);
 
     const reset = useCallback(() => {
@@ -235,11 +240,12 @@ export const useSpeechRecognition = ({
         setError(null);
         setIsReady(false);
         setModelLoadingProgress(null);
+        setElapsedTime(0);
     }, [initialFillerData]);
 
     return {
         isListening, isReady, transcript, error, isSupported, mode: currentMode,
-        chunks: finalChunks, interimTranscript, fillerData, modelLoadingProgress,
+        chunks: finalChunks, interimTranscript, fillerData, modelLoadingProgress, elapsedTime,
         startListening, stopListening, reset,
     };
 };
