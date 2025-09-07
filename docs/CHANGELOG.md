@@ -8,6 +8,8 @@ Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) style with sligh
 
 ## [Unreleased]
 ### Fixed
+- **E2E Test Suite Overhaul:** Implemented a comprehensive fix for the E2E test suite to address stability and timing issues. This includes a new network stubbing layer (`sdkStubs.ts`), a media device mock (`mockMedia.ts`), and enhanced test helpers (`helpers.ts`) to manage state synchronization.
+- **Application Bugs:** Corrected multiple bugs in React components and hooks (`useSpeechRecognition`, `AuthContext`) that were discovered while debugging the test suites. These fixes address race conditions and incorrect state handling in a test environment.
 - Corrected a critical bug in the `AuthProvider` that hardcoded all users as 'free', preventing pro users from accessing premium features. The context now correctly handles real and mocked session data.
 - Fixed the `assemblyai-token` serverless function, which was failing to generate tokens due to an incorrect Authorization header. Cloud transcription for Pro users is now functional.
 

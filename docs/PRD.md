@@ -117,12 +117,7 @@ This section contains ASCII art diagrams illustrating the journey for each user 
 ## 3. Known Issues
 *(For leadership analysis of technical debt, see [REVIEW.md – Senior Engineer perspective](./REVIEW.md)).*
 - **Critical Bugs & Environment Instability:**
-    - **Unstable E2E Test Suite:** The Playwright suite (`pnpm test:e2e`) hangs when run in parallel. This is likely due to resource contention in the test environment. **Workaround:** The suite has been configured to run tests sequentially (`workers: 1`), which stabilizes the run but increases execution time.
-    - **Stripe Initialization Failure in Tests:** The application crashes during E2E tests because the Stripe.js third-party script is blocked by the test setup, causing an 'Invalid prop' error. The test stubs need to be updated to correctly mock the Stripe library.
-    - **AuthContext Logic Bug:** The `AuthContext.tsx` component has several bugs related to its handling of anonymous and authenticated user states within the E2E test environment, preventing tests for these flows from passing.
-    - **Unstable Unit/Integration Test Suite:** The `vitest` suite (`pnpm test:unit`) currently suffers from a memory leak and should not be run as part of the main CI pipeline.
-    - **`rounded-pill` error:** A persistent, uncaught error related to `rounded-pill` suggests potential build, cache, or configuration issues.
-    - **`toast` function non-operational:** The `toast` notification does not work in local mode, hindering user feedback.
+    - **[HIGH] E2E Test Suite Hangs:** The Playwright test suite (`pnpm test:e2e`) is currently in a non-functional state. After a comprehensive overhaul of the test stubs, mocks, and helpers, the test runner process now hangs indefinitely and must be manually terminated. This is likely due to a deep-seated race condition between the Vite dev server, the React application's lifecycle, and Playwright's test runner. This issue has blocked all E2E test validation and requires a VM restart to resolve the unresponsive environment.
 - **On-Device Transcription Needs Polish:** The `LocalWhisper` provider in `TranscriptionService` may require further UI/UX polishing.
 
 ### Technical Debt
