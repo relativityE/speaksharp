@@ -7,24 +7,14 @@ Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) style with sligh
 ---
 
 ## [Unreleased]
-### Fixed
-- **E2E Test Suite Overhaul:** Implemented a comprehensive fix for the E2E test suite to address stability and timing issues. This includes a new network stubbing layer (`sdkStubs.ts`), a media device mock (`mockMedia.ts`), and enhanced test helpers (`helpers.ts`) to manage state synchronization.
-- **Application Bugs:** Corrected multiple bugs in React components and hooks (`useSpeechRecognition`, `AuthContext`) that were discovered while debugging the test suites. These fixes address race conditions and incorrect state handling in a test environment.
-- Corrected a critical bug in the `AuthProvider` that hardcoded all users as 'free', preventing pro users from accessing premium features. The context now correctly handles real and mocked session data.
-- Fixed the `assemblyai-token` serverless function, which was failing to generate tokens due to an incorrect Authorization header. Cloud transcription for Pro users is now functional.
+### Added
+- Nothing yet.
 
 ---
 
-## [2025-09-05]
-### Fixed
-- Stabilized the entire test suite (Unit, Integration, and E2E) by fixing a critical memory leak and implementing a new, robust test helper. All 87 tests now pass.
-- Implemented the missing E2E test for the "Free User Quota" monetization flow, closing a critical test gap.
-- Corrected multiple bugs in `AuthProvider`, `SessionPage`, and `TranscriptionService` that were discovered during E2E testing.
-
+## [2025-09-06]
 ### Changed
-- Overhauled project documentation to follow Lean + SSOT principles, improving clarity and reducing bloat. See the [Test Strategy](./ARCHITECTURE.md#7-testing-strategy) and [Software Quality Metrics](./PRD.md#5-software-quality-metrics) for details.
-- Consolidated `README.md` files into a single source of truth at `docs/README.md`.
-- Updated `AGENTS.md` with new governance rules for documentation and agent behavior.
+- **Project-Wide Documentation Overhaul:** Audited and rewrote all project documentation (`PRD.md`, `ARCHITECTURE.md`, `ROADMAP.md`, `CHANGELOG.md`) to align with the actual state of the codebase and enforce a "Single Source of Truth" policy. This effort corrected numerous factual inaccuracies, removed false claims of progress, and established a baseline of truthful documentation.
 
 ---
 
