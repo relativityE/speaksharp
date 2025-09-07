@@ -58,9 +58,16 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState<boolean>(!mockSession); // Not loading if mocked
 
   useEffect(() => {
-    // If we're in an E2E test, don't run the real auth logic.
-    if (mockSession) return;
+    if (mockSession) {
+      // Mark initialization as complete for E2E tests
+      if (typeof window !== 'undefined') {
+        window.__AUTH_INITIALIZED__ = true;
+      }
+      setLoading(false);
+      return;
+    }
 
+    // ... rest of existing useEffect logic
     const setData = async () => {
       const { data: { session }, error } = await supabase.auth.getSession();
       if (error) {
