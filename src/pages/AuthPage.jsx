@@ -84,7 +84,7 @@ export default function AuthPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit}>
+          <form onSubmit={handleSubmit} data-testid={view === 'forgot_password' ? 'reset-password-form' : 'auth-form'}>
             <div className="grid gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="email">Email</Label>
@@ -95,6 +95,7 @@ export default function AuthPage() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  data-testid="email-input"
                 />
               </div>
               {view !== 'forgot_password' && (
@@ -102,7 +103,7 @@ export default function AuthPage() {
                   <div className="flex items-center">
                     <Label htmlFor="password">Password</Label>
                     {view === 'sign_in' && (
-                       <Button variant="link" type="button" onClick={() => handleViewChange('forgot_password')} className="ml-auto inline-block text-xs underline text-muted-foreground hover:text-primary h-auto p-0">
+                       <Button variant="link" type="button" onClick={() => handleViewChange('forgot_password')} className="ml-auto inline-block text-xs underline text-muted-foreground hover:text-primary h-auto p-0" data-testid="forgot-password-button">
                           Forgot Password?
                        </Button>
                     )}
@@ -113,12 +114,21 @@ export default function AuthPage() {
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    data-testid="password-input"
                   />
                 </div>
               )}
               {error && <p className="text-sm text-destructive font-semibold">{error}</p>}
               {message && <p className="text-sm text-green-600 font-semibold bg-green-100 border border-green-200 rounded-md p-3 text-center">{message}</p>}
-              <Button type="submit" className="w-full text-base py-6" disabled={isSubmitting} data-testid="sign-in-button">
+              <Button
+                type="submit"
+                className="w-full text-base py-6"
+                disabled={isSubmitting}
+                data-testid={
+                  view === 'sign_in' ? 'sign-in-submit' :
+                  view === 'sign_up' ? 'sign-up-submit' : 'reset-password-submit'
+                }
+              >
                 {isSubmitting ?
                   (view === 'sign_in' ? 'Signing In...' :
                    view === 'sign_up' ? 'Signing Up...' : 'Sending...') :
@@ -132,7 +142,7 @@ export default function AuthPage() {
             {view === 'sign_in' && "Don't have an account?"}
             {view === 'sign_up' && 'Already have an account?'}
             {view === 'forgot_password' && 'Remembered your password?'}
-            <Button variant="link" type="button" onClick={() => handleViewChange(view === 'sign_in' || view === 'forgot_password' ? 'sign_up' : 'sign_in')} className="text-primary font-semibold">
+            <Button variant="link" type="button" onClick={() => handleViewChange(view === 'sign_in' || view === 'forgot_password' ? 'sign_up' : 'sign_in')} className="text-primary font-semibold" data-testid="mode-toggle">
                 {view === 'sign_in' || view === 'forgot_password' ? 'Sign Up' : 'Sign In'}
             </Button>
           </div>
