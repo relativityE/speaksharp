@@ -19,7 +19,17 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - 🔴 `[C-02]` Flawed Auth Provider: Refactor `AuthContext.tsx` to remove anti-patterns and stabilize authentication logic.
   - 🔴 `[C-03]` Anonymous User Flow is Broken: Fix the session persistence logic for anonymous users.
   - 🔴 `[C-04]` Premium Users Do Not Receive Paid Features: Correct the monetization logic in `TranscriptionService.js`.
-- 🔴 **Stabilize the E2E and Vitest test suites:** This is blocked by the critical application bugs above. The suites cannot be stable until the application is.
+- 🔴 **Technical Debt: Remediate and Stabilize the Test Suite**
+  - **Problem Diagnosis:** A deep-dive analysis has concluded that the test suite's instability is not caused by application bugs, but by systemic issues within the test framework itself. The suite is slow, hangs, and is unreliable due to pervasive state leaks, memory leaks, and a brittle, overly complex mocking strategy. The current test configuration (`vite.config.mjs`) contains numerous workarounds (e.g., forced serial execution, process-per-file execution, manual garbage collection) that treat the symptoms but not the root cause.
+  - **Strategic Remediation Plan:** The following phased approach is required to pay down this technical debt and create a stable, reliable, and efficient test suite.
+    - **Phase 1: Stabilization & Exposure:** Make the existing problems visible.
+      - *Tasks:* Remove console error suppression to reveal all underlying warnings. Introduce automated leak detection for timers and network connections in the test setup to explicitly fail tests that do not clean up after themselves.
+    - **Phase 2: Refactoring for Testability:** Decouple components from their dependencies.
+      - *Tasks:* Refactor core components to use Dependency Injection. Replace fragile, global mocks with lightweight, test-specific mocks that are provided at the point of testing.
+    - **Phase 3: Performance Optimization:** Remove the performance-killing workarounds.
+      - *Tasks:* Remove manual garbage collection calls. Re-enable parallel test execution in the Vite configuration.
+    - **Phase 4: E2E Strategy Refinement:** Improve the reliability and focus of the E2E suite.
+      - *Tasks:* Audit and prune the E2E suite to focus only on critical user flows. Replace brittle selectors with `data-testid` attributes.
 - 🔴 **Implement "Free User Quota" E2E test:** Close the critical gap in monetization flow testing. This is also blocked by the critical bugs.
 
 ### 🚧 Should-Have (Tech Debt)
