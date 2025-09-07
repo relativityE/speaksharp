@@ -1,11 +1,11 @@
-**Owner:** [Unassigned]
-**Last Reviewed:** 2025-09-05
+**Owner:** Jules
+**Last Reviewed:** 2025-09-06
 
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp Product Requirements Document
 
-**Version 6.28** | **Last Updated: 2025-09-05**
+**Version 7.0** | **Last Updated: 2025-09-06**
 
 ## 1. Executive Summary
 
@@ -15,7 +15,7 @@ The system is built for speed, both in user experience and development velocity.
 
 ## 2. Vision & Positioning
 * **Vision:** To be the leading real-time speech coach for professionals, helping them communicate with confidence and clarity.
-* **Positioning:** SpeakSharp is the only privacy-first, [on-device speech analysis tool](./ARCHITECTURE.md#5-transcription-service) that provides instant feedback without sending sensitive conversations to the cloud.
+* **Positioning:** SpeakSharp is a real-time speech analysis tool. A key differentiator on the roadmap is a **privacy-first, on-device transcription mode** that will provide instant feedback without sending sensitive conversations to the cloud.
 
 ### User Roles & Flows
 This section contains ASCII art diagrams illustrating the journey for each user role.
@@ -75,7 +75,7 @@ This section contains ASCII art diagrams illustrating the journey for each user 
                            | [Premium User]                      |
                            | (Via Stripe)                        |
                            | - All Pro features                  |
-                           | - On-device (local) transcription   |
+                           | - On-device (local) transcription (FUTURE) |
                            | - Detailed Analytics                |
                            | - Download session data             |
                            +-------------------------------------+
@@ -89,67 +89,57 @@ This section contains ASCII art diagrams illustrating the journey for each user 
 *   **Won't-Have (at this time):** Mobile application.
 
 ### Differentiation
-*   **vs. Otter.ai:** Privacy-first (on-device option), focused on improvement, not just transcription.
+*   **vs. Otter.ai:** Privacy-first (on-device option is a key roadmap item), focused on improvement, not just transcription.
 *   **vs. Poised:** More affordable, simpler to use, no installation required.
 
 ### Go-to-Market & Financials
 *(For leadership analysis of conversion assumptions and GTM strategy, see [REVIEW.md – CFO & CEO perspectives](./REVIEW.md)).*
 *   **GTM:** Adopt a phased GTM approach.
     *   **Phase 1 (Validation):** Start with organic channels (Reddit, SEO content, public speaking forums) and community engagement (Toastmasters partnerships) to validate product-market fit and gather testimonials. Create a "How it Works" video demo for the landing page to increase conversion.
-    *   **Phase 2 (Growth):** Gradually increase paid advertising spend based on proven metrics from Phase 1.
+    *   **Phase 2 (Growth):** Gradually increase paid advertising spend on proven metrics from Phase 1.
     *   A real-time revenue tracking dashboard (e.g., PostHog, ChartMogul) will be implemented to monitor KPIs.
 *   **Financials:** Freemium model with a Pro tier subscription. Financial models will account for multiple conversion rate scenarios (2%, 3.5%, and 5%) to ensure sufficient runway. See internal documents for detailed projections.
 
-## 2. Recent Updates (v6.26)
-*August 31, 2025*
-- **Comprehensive Test Suite Expansion**: Implemented a full suite of new and refactored tests to enhance code quality and stability. This includes new tests for `AuthPage`, `useBrowserSupport`, and `useSpeechRecognition`, as well as significant enhancements to existing tests for `AnalyticsPage`, `SessionPage`, and `MainPage`.
-- **Hardened Test Environment**: Implemented a robust test environment with shims for external services (`Stripe`, `PostHog`, etc.) and network interception via Playwright to ensure deterministic E2E tests.
-- **Code Cleanup**: Deleted obsolete test files to streamline the codebase.
-
-## 2.1. Recent Updates (v6.27)
-*September 3, 2025*
-- **Critical Bug Fix**: Fixed a data flow issue where session data was not being correctly saved and passed to the analytics page.
-- **Analytics UI Update**: Replaced the "Top Filler Words" bar chart with a more detailed table view and removed unnecessary UI panels from the dashboard.
-- **Performance Tuning**: Improved the perceived responsiveness of the live transcript by reducing the debounce timer for filler word highlighting.
-
 ---
 
-## 3. Known Issues
-*(For leadership analysis of technical debt, see [REVIEW.md – Senior Engineer perspective](./REVIEW.md)).*
-- **Critical Bugs & Environment Instability:**
-    - **[HIGH] E2E Test Suite Hangs:** The Playwright test suite (`pnpm test:e2e`) is currently in a non-functional state. After a comprehensive overhaul of the test stubs, mocks, and helpers, the test runner process now hangs indefinitely and must be manually terminated. This is likely due to a deep-seated race condition between the Vite dev server, the React application's lifecycle, and Playwright's test runner. This issue has blocked all E2E test validation and requires a VM restart to resolve the unresponsive environment.
-- **On-Device Transcription Needs Polish:** The `LocalWhisper` provider in `TranscriptionService` may require further UI/UX polishing.
+## 3. Known Issues & Risks
 
-### Technical Debt
-*   **Test Suite Bloat:** Our test suite contains redundant integration tests that should be refactored or removed in favor of the high-value E2E tests. Key candidates for removal/refactor are `FullSessionSave.test.jsx`, `SessionDataFlow.test.jsx`, `SessionSidebar.test.jsx`, and `AnalyticsPage.test.jsx`.
-*   **Incomplete E2E Tests:** Our existing E2E tests for Anonymous and Pro users should be enhanced to cover the full "golden path" for each role. The "Free User" monetization flow is a critical missing test.
+This section tracks high-level product risks and constraints. For a detailed technical debt and task breakdown, see the [Roadmap](./ROADMAP.md).
+
+*   **[RISK] Critical Application Bugs:** The application currently has several unfixed critical bugs that prevent core features from working as intended.
+    *   `[C-01]` Lack of Protected Routes: Sensitive user pages are publicly accessible.
+    *   `[C-02]` Flawed Auth Provider: The authentication system is unstable and prevents reliable testing.
+    *   `[C-03]` Anonymous User Flow is Broken: The main user acquisition funnel is non-functional.
+    *   `[C-04]` Premium Users Do Not Receive Paid Features: A critical monetization bug is preventing users from accessing features they paid for.
+*   **[RISK] Unimplemented Features:** Core features described in this document, such as on-device transcription for Premium users, are not yet implemented.
 
 ---
 
 ## 4. Development Roadmap
-The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). This board provides a two-dimensional view of our project tasks, combining Phased Milestones (timeline) with MoSCoW Prioritization.
+The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). This board provides a two-dimensional view of our project tasks, combining Phased Milestones with MoSCoW Prioritization.
 
 ---
 
 ## 5. Software Quality Metrics
 
-This section tracks key software quality metrics for the project. For our testing principles, see the [Testing Strategy in the Architecture doc](./ARCHITECTURE.md#7-testing-strategy).
+This section defines the product's quality goals. For technical details on the testing frameworks in use, see the [Testing Strategy in the Architecture doc](./ARCHITECTURE.md#7-testing-strategy).
+
+### Testing Strategy
+The product's testing strategy is to use a combination of E2E, component, and unit tests to ensure a high level of quality and confidence. The primary goal is to have **one high-value "golden path" E2E test for each user role** (Anonymous, Free, Pro) that validates the core business flow.
 
 ### E2E Coverage Status
 
 | E2E Golden Path | Status | Notes |
 | :--- | :--- | :--- |
-| **Anonymous User** | 🟡 Needs Enhancement | Existing test should be updated to assert on time limits and sign-up prompts. |
-| **Free User** | ❌ **CRITICAL GAP** | No E2E test exists for the monetization funnel. |
-| **Pro User** | 🟡 Needs Enhancement | Existing test should be updated to verify sessions can exceed the free time limit. |
+| **Anonymous User** | 🔴 **UNTESTED** | The anonymous user flow is broken (`[C-03]`) and cannot be reliably tested. |
+| **Free User** | 🔴 **UNTESTED** | The monetization funnel has no reliable E2E test. |
+| **Pro User** | 🔴 **UNTESTED** | The Pro user flow is blocked by the flawed auth provider (`[C-02]`). |
 | **Premium User** | ⚪️ N/A | Feature not yet implemented. |
 
 ### Latest Test Suite Run
-*   **Result:** ✅ Success & Stable
-*   **Date:** 2025-09-05
-*   **Total Tests:** 83
-*   **Passed/Failed:** 83 / 0
-*   **Coverage:** 8.85% (Lines)
+*   **Result:** 🔴 **Unstable**
+*   **Date:** 2025-09-06
+*   **Notes:** The test suite is currently unreliable. Many tests fail or hang due to underlying application bugs (`[C-02]`). The reported coverage numbers are not meaningful until the application is stabilized.
 
 ---
 
