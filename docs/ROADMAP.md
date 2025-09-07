@@ -1,5 +1,5 @@
 **Owner:** Jules
-**Last Reviewed:** 2025-09-07
+**Last Reviewed:** 2025-09-06
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -14,12 +14,12 @@ Status Key: ✅ Done | 🟡 In Progress | 🔴 Not Started
 This phase focuses on fixing critical bugs, addressing code health, and ensuring the existing features are reliable and robust. (Timeline: Extended by 1-2 weeks to ensure all Must-Haves are 100% complete before GTM).
 
 ### 🎯 Must-Have
-- 🟡 **Fix Critical Application Bugs (BLOCKING ALL PROGRESS):** (Fixes implemented in local workspace, pending verification)
-  - 🟡 `[C-01]` Lack of Protected Routes
-  - 🟡 `[C-02]` Flawed Auth Provider
-  - 🟡 `[C-03]` Anonymous User Flow is Broken
-  - 🟡 `[C-04]` Premium Users Do Not Receive Paid Features
-- 🔴 **Stabilize the E2E and Vitest test suites:** This is blocked by the critical application bugs above. Once the fixes are verified, this becomes the next priority.
+- 🔴 **Fix Critical Application Bugs (BLOCKING ALL PROGRESS):**
+  - 🔴 `[C-01]` Lack of Protected Routes: Implement protected routes for all sensitive user pages.
+  - 🔴 `[C-02]` Flawed Auth Provider: Refactor `AuthContext.tsx` to remove anti-patterns and stabilize authentication logic.
+  - 🔴 `[C-03]` Anonymous User Flow is Broken: Fix the session persistence logic for anonymous users.
+  - 🔴 `[C-04]` Premium Users Do Not Receive Paid Features: Correct the monetization logic in `TranscriptionService.js`.
+- 🔴 **Stabilize the E2E and Vitest test suites:** This is blocked by the critical application bugs above. The suites cannot be stable until the application is.
 - 🔴 **Implement "Free User Quota" E2E test:** Close the critical gap in monetization flow testing. This is also blocked by the critical bugs.
 
 ### 🚧 Should-Have (Tech Debt)

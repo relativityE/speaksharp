@@ -84,10 +84,10 @@ The frontend is a single-page application (SPA) built with React and Vite.
 *   **Component Model:** The UI is built from a combination of page-level components (`src/pages`), feature-specific components (`src/components/session`, `src/components/landing`), and a reusable UI library (`src/components/ui`).
 *   **Design System:** The UI components in `src/components/ui` are built using `class-variance-authority` (CVA) for a flexible, type-safe, and maintainable design system. Design tokens are managed in `tailwind.config.ts`.
 *   **State Management:** Global state is managed via a combination of React Context and custom hooks.
-    *   **`AuthContext`:** The primary source for authentication state. It provides the Supabase `session` object, the `user` object, and the user's `profile` data. This context has been refactored to remove major stability issues. A 'dev' user role, activated by `VITE_DEV_USER=true`, has been added for testing.
-    *   **`SessionContext`:** Manages the collection of a user's practice sessions (`sessionHistory`). This now correctly loads anonymous sessions from `sessionStorage`.
-    *   **`useSessionManager`:** A custom hook that encapsulates the logic for saving, deleting, and exporting sessions. This now correctly saves anonymous sessions to `sessionStorage`.
-*   **Routing:** Client-side routing is handled by `react-router-dom`. Protected routes have been implemented for authenticated pages using the `ProtectedRoute` component.
+    *   **`AuthContext`:** The primary source for authentication state. It provides the Supabase `session` object, the `user` object, and the user's `profile` data. **WARNING:** This context contains a critical bug (`[C-02]`) that makes it unstable.
+    *   **`SessionContext`:** Manages the collection of a user's practice sessions (`sessionHistory`).
+    *   **`useSessionManager`:** A custom hook that encapsulates the logic for saving, deleting, and exporting sessions. **WARNING:** This hook contains a critical bug (`[C-03]`) that breaks the anonymous user flow.
+*   **Routing:** Client-side routing is handled by `react-router-dom`. **WARNING:** The application lacks protected routes, exposing all pages publicly (`[C-01]`).
 *   **Logging:** The application uses `pino` for structured logging.
 
 ### Memory Leak Prevention

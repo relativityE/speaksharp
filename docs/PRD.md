@@ -106,12 +106,11 @@ This section contains ASCII art diagrams illustrating the journey for each user 
 
 This section tracks high-level product risks and constraints. For a detailed technical debt and task breakdown, see the [Roadmap](./ROADMAP.md).
 
-*   **[RISK] Environment Instability:** The development environment is currently unstable, with file system operations (`read_file`, `grep`) and `pnpm` script execution failing intermittently. This is the primary blocker to further progress and requires a VM restart.
-*   **[IN PROGRESS] Critical Application Bug Fixes:** The following critical bugs have been fixed in the local workspace. These fixes are pending verification after the environment is stabilized.
-    *   `[C-01]` Lack of Protected Routes
-    *   `[C-02]` Flawed Auth Provider
-    *   `[C-03]` Anonymous User Flow is Broken
-    *   `[C-04]` Premium Users Do Not Receive Paid Features
+*   **[RISK] Critical Application Bugs:** The application currently has several unfixed critical bugs that prevent core features from working as intended.
+    *   `[C-01]` Lack of Protected Routes: Sensitive user pages are publicly accessible.
+    *   `[C-02]` Flawed Auth Provider: The authentication system is unstable and prevents reliable testing.
+    *   `[C-03]` Anonymous User Flow is Broken: The main user acquisition funnel is non-functional.
+    *   `[C-04]` Premium Users Do Not Receive Paid Features: A critical monetization bug is preventing users from accessing features they paid for.
 *   **[RISK] Unimplemented Features:** Core features described in this document, such as on-device transcription for Premium users, are not yet implemented.
 
 ---
