@@ -217,8 +217,9 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
                     </div>
 
                     {import.meta.env.DEV && (
-                        <div className="mt-auto pt-4 border-t">
-                             <Label
+                        <div className="mt-auto pt-4 border-t space-y-2">
+                            <div className="text-xs text-muted-foreground font-semibold">Dev Controls</div>
+                            <Label
                                 htmlFor="force-cloud"
                                 className="flex items-center gap-2 text-xs text-muted-foreground"
                                 onClick={() => {
@@ -230,6 +231,9 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
                                 <Checkbox id="force-cloud" checked={forceCloud} onCheckedChange={setForceCloud} disabled={isListening}/>
                                 Force Cloud (Disable Fallback)
                             </Label>
+                            <div className="text-xs text-muted-foreground pt-2">
+                                Current User: <span className="font-bold text-foreground">{user?.email || 'Anonymous'}</span>
+                            </div>
                         </div>
                     )}
 
