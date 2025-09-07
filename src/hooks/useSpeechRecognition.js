@@ -1,3 +1,4 @@
+// hooks/useSpeechRecognition.js - FIXED
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -6,11 +7,6 @@ import { supabase } from '@/lib/supabaseClient';
 import TranscriptionService from '../services/transcription/TranscriptionService';
 import { FILLER_WORD_KEYS } from '../config';
 import logger from '../lib/logger';
-
-// NOTE: The core logic for filler word counting and transcript processing
-// has been extracted to `src/utils/fillerWordUtils.js` to make it more
-// testable and maintainable. This hook now focuses on state management
-// and coordinating with the transcription service.
 import {
     createInitialFillerData,
     countFillerWords,
@@ -43,13 +39,24 @@ export const useSpeechRecognition = ({
     const [isSupported, setIsSupported] = useState(true);
     const [currentMode, setCurrentMode] = useState(null);
     const [modelLoadingProgress, setModelLoadingProgress] = useState(null);
+    const [elapsedTime, setElapsedTime] = useState(0); // Added for duration tracking
 
     const transcriptionServiceRef = useRef(null);
     const isMountedRef = useRef(true);
     const debounceTimerRef = useRef(null);
+    const stateRef = useRef({ finalChunks: [], wordConfidences: [], interimTranscript: '', finalFillerData: initialFillerData, elapsedTime: 0 });
+
+    const initializationStateRef = useRef({
+        isInitializing: false,
+        isStarting: false,
+        isDestroying: false,
+    });
 
     useEffect(() => {
         isMountedRef.current = true;
+        if (typeof window !== 'undefined' && window.__E2E_MODE__) {
+            window.transcriptionServiceRef = transcriptionServiceRef;
+        }
         return () => {
             isMountedRef.current = false;
             if (debounceTimerRef.current) {
@@ -63,35 +70,60 @@ export const useSpeechRecognition = ({
         };
     }, []);
 
+    // Timer effect
+    useEffect(() => {
+        let interval;
+        if (isListening) {
+            interval = setInterval(() => {
+                setElapsedTime(prevTime => prevTime + 1);
+            }, 1000);
+        } else {
+            setElapsedTime(0);
+        }
+        return () => {
+            if (interval) clearInterval(interval);
+        };
+    }, [isListening]);
+
+
+    // Update the stateRef whenever state changes.
+    useEffect(() => {
+        stateRef.current = {
+            finalChunks,
+            wordConfidences,
+            interimTranscript,
+            finalFillerData,
+            elapsedTime,
+        };
+    }, [finalChunks, wordConfidences, interimTranscript, finalFillerData, elapsedTime]);
+
     const onModelLoadProgress = useCallback((progress) => {
         if (isMountedRef.current) setModelLoadingProgress(progress);
     }, []);
 
     const handleReady = useCallback(() => {
+        if (typeof window !== 'undefined' && window.__E2E_MODE__) {
+            window.__TRANSCRIPTION_READY__ = true;
+        }
         if (isMountedRef.current) setIsReady(true);
     }, []);
 
     const onTranscriptUpdate = useCallback((data) => {
         if (!isMountedRef.current) return;
-
         if (data.transcript?.partial && !data.transcript.partial.startsWith('Downloading model')) {
             setInterimTranscript(data.transcript.partial);
         }
-
         if (data.transcript?.final) {
             setFinalChunks(prev => limitArray([...prev, { text: data.transcript.final, id: Date.now() + Math.random() }], MAX_CHUNKS));
             setInterimTranscript('');
         }
-
         if (data.words && data.words.length > 0) {
             setWordConfidences(prev => limitArray([...prev, ...data.words], MAX_WORD_CONFIDENCES));
         }
     }, []);
 
     const debouncedCountFillerWords = useCallback((text, callback) => {
-        if (debounceTimerRef.current) {
-            clearTimeout(debounceTimerRef.current);
-        }
+        if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
         debounceTimerRef.current = setTimeout(() => {
             if (isMountedRef.current) {
                 try {
@@ -107,7 +139,6 @@ export const useSpeechRecognition = ({
     useEffect(() => {
         const fullTranscript = finalChunks.map(c => c.text).join(' ') + ' ' + interimTranscript;
         const finalTranscriptOnly = finalChunks.map(c => c.text).join(' ');
-
         debouncedCountFillerWords(fullTranscript, setFillerData);
         setFinalFillerData(countFillerWords(finalTranscriptOnly, customWords));
         setTranscript(finalTranscriptOnly);
@@ -122,23 +153,21 @@ export const useSpeechRecognition = ({
                 if (!data.session) throw new Error('Anonymous sign-in did not return a session.');
                 userSession = data.session;
             }
-
             const { data, error } = await supabase.functions.invoke('assemblyai-token', { body: {} });
             if (error) throw new Error(`Failed to invoke token function: ${error.message}`);
             if (!data || !data.token) throw new Error("No valid AssemblyAI token returned.");
             return data.token;
         } catch (err) {
             logger.error({ err }, "Error getting AssemblyAI token");
-            if (isMountedRef.current) {
-                toast.error("Unable to start transcription: " + err.message);
-            }
+            if (isMountedRef.current) toast.error("Unable to start transcription: " + err.message);
             return null;
         }
     }, [authSession]);
 
     const startListening = useCallback(async ({ forceCloud = false } = {}) => {
-        if (isListening || !isMountedRef.current) return;
+        if (isListening || !isMountedRef.current || initializationStateRef.current.isInitializing) return;
 
+        initializationStateRef.current.isInitializing = true;
         setIsListening(true);
         setError(null);
         setIsReady(false);
@@ -147,6 +176,7 @@ export const useSpeechRecognition = ({
         try {
             if (transcriptionServiceRef.current) {
                 await transcriptionServiceRef.current.destroy();
+                transcriptionServiceRef.current = null;
             }
 
             const service = new TranscriptionService({
@@ -154,10 +184,10 @@ export const useSpeechRecognition = ({
                 profile, forceCloud, session, navigate, getAssemblyAIToken,
             });
 
+            transcriptionServiceRef.current = service;
             await service.init();
             if (!isMountedRef.current) return;
 
-            transcriptionServiceRef.current = service;
             await service.startTranscription();
             if (isMountedRef.current) setCurrentMode(service.mode);
         } catch (err) {
@@ -168,25 +198,36 @@ export const useSpeechRecognition = ({
                     setIsSupported(false);
                 }
             }
+        } finally {
+            initializationStateRef.current.isInitializing = false;
         }
     }, [isListening, profile, session, navigate, getAssemblyAIToken, onTranscriptUpdate, onModelLoadProgress, handleReady]);
 
     const stopListening = useCallback(async () => {
-        if (!isListening || !transcriptionServiceRef.current || !isMountedRef.current) return null;
+        if (!isListening || !isMountedRef.current) return null;
+
+        while (initializationStateRef.current.isInitializing) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+
+        if (!transcriptionServiceRef.current) return null;
 
         try {
+            if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+
             await transcriptionServiceRef.current.stopTranscription();
             if (isMountedRef.current) {
                 setIsListening(false);
                 setIsReady(false);
-                const stats = calculateTranscriptStats(finalChunks, wordConfidences, interimTranscript);
+                const { finalChunks, wordConfidences, interimTranscript, finalFillerData, elapsedTime } = stateRef.current;
+                const stats = calculateTranscriptStats(finalChunks, wordConfidences, interimTranscript, elapsedTime);
                 return { ...stats, filler_words: finalFillerData };
             }
         } catch (err) {
             if (isMountedRef.current) setError(err);
         }
         return null;
-    }, [isListening, finalChunks, interimTranscript, wordConfidences, finalFillerData]);
+    }, [isListening]);
 
     const reset = useCallback(() => {
         if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
@@ -199,11 +240,12 @@ export const useSpeechRecognition = ({
         setError(null);
         setIsReady(false);
         setModelLoadingProgress(null);
+        setElapsedTime(0);
     }, [initialFillerData]);
 
     return {
         isListening, isReady, transcript, error, isSupported, mode: currentMode,
-        chunks: finalChunks, interimTranscript, fillerData, modelLoadingProgress,
+        chunks: finalChunks, interimTranscript, fillerData, modelLoadingProgress, elapsedTime,
         startListening, stopListening, reset,
     };
 };

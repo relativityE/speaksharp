@@ -48,7 +48,7 @@ export const countFillerWords = (text, customWords = []) => {
     return counts;
 };
 
-export const calculateTranscriptStats = (finalChunks, wordConfidences, interimTranscript = '') => {
+export const calculateTranscriptStats = (finalChunks, wordConfidences, interimTranscript = '', duration = 0) => {
     const finalTranscriptText = [...finalChunks.map(c => c.text), interimTranscript].join(' ').trim();
     const averageConfidence = wordConfidences.length > 0
         ? wordConfidences.reduce((sum, word) => sum + word.confidence, 0) / wordConfidences.length
@@ -58,6 +58,7 @@ export const calculateTranscriptStats = (finalChunks, wordConfidences, interimTr
         transcript: finalTranscriptText,
         total_words: finalTranscriptText.split(/\s+/).filter(Boolean).length,
         accuracy: averageConfidence,
+        duration: duration,
     };
 };
 

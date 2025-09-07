@@ -120,10 +120,10 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
         };
 
         if (user) {
-            const savedSession = await saveSession(sessionWithDuration);
-            if (savedSession && savedSession.id) {
+            const { session: newSession, usageExceeded } = await saveSession(sessionWithDuration);
+            if (newSession && newSession.id) {
                 toast.success(<div className="toast toast-md toast-success">Session saved successfully!</div>);
-                navigate(`/analytics/${savedSession.id}`);
+                navigate(`/analytics/${newSession.id}`);
             } else {
                 toast.warning(<div className="toast toast-md toast-warning">Could not save the session. This can happen in test mode or if the session was too short. Your data has not been lost.</div>);
             }
@@ -143,8 +143,8 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
         };
 
         if (user) {
-            const savedSession = await saveSession(sessionWithDuration);
-            if (savedSession) {
+            const { session: newSession } = await saveSession(sessionWithDuration);
+            if (newSession) {
                 toast.success("Session saved successfully!");
             } else {
                 toast.warning("Could not save the session.");
@@ -217,8 +217,9 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
                     </div>
 
                     {import.meta.env.DEV && (
-                        <div className="mt-auto pt-4 border-t">
-                             <Label
+                        <div className="mt-auto pt-4 border-t space-y-2">
+                            <div className="text-xs text-muted-foreground font-semibold">Dev Controls</div>
+                            <Label
                                 htmlFor="force-cloud"
                                 className="flex items-center gap-2 text-xs text-muted-foreground"
                                 onClick={() => {
@@ -230,6 +231,9 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
                                 <Checkbox id="force-cloud" checked={forceCloud} onCheckedChange={setForceCloud} disabled={isListening}/>
                                 Force Cloud (Disable Fallback)
                             </Label>
+                            <div className="text-xs text-muted-foreground pt-2">
+                                Current User: <span className="font-bold text-foreground">{user?.email || 'Anonymous'}</span>
+                            </div>
                         </div>
                     )}
 

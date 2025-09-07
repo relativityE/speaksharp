@@ -37,4 +37,36 @@ test.describe('Anonymous User Flow', () => {
     const analyticsTranscriptText = await page.locator('[data-testid="transcript-panel-analytics"]').innerText();
     expect(analyticsTranscriptText).toContain('This is a mock transcript.');
   });
+
+  test('a user can save a session and see the correct analytics data', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: /Start For Free/i }).click();
+    await page.waitForURL('/session');
+    await page.getByRole('button', { name: /Start Session/i }).click();
+
+    // Wait for the service to be ready
+    await page.waitForFunction(() => window.__TRANSCRIPTION_READY__ === true, { timeout: 20000 });
+    await page.waitForTimeout(500);
+
+    // Stop the session
+    await page.getByRole('button', { name: /Stop Session/i }).click();
+    await expect(page.getByRole('heading', { name: 'Session Ended' })).toBeVisible();
+
+    // Click "Go to Analytics"
+    await page.getByRole('button', { name: 'Go to Analytics' }).click();
+    await page.waitForURL(/.*\/analytics\/.*/);
+
+    // Assert that the error toast is NOT visible
+    const errorToast = page.locator('text=Could not save the session');
+    await expect(errorToast).not.toBeVisible();
+
+    // Assert that the analytics data is present and non-zero
+    const avgFillerWords = await page.locator('[data-testid="avg-filler-words-min"]').innerText();
+    const totalPracticeTime = await page.locator('[data-testid="total-practice-time"]').innerText();
+    const avgAccuracy = await page.locator('[data-testid="avg-accuracy"]').innerText();
+
+    expect(avgFillerWords).not.toBe('0.0');
+    expect(totalPracticeTime).not.toBe('0 mins');
+    expect(avgAccuracy).not.toBe('0.0%');
+  });
 });
