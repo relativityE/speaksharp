@@ -44,7 +44,7 @@ export const AuthContext = createContext<AuthContextType>({
 export const useAuth = () => useContext(AuthContext);
 
 const getProfileFromDb = async (user_id: string): Promise<Profile | null> => {
-  const { data, error } = await supabase.from('profiles').select('*').eq('id', user_id).single();
+  const { data, error } = await supabase.from('user_profiles').select('*').eq('id', user_id).single();
   if (error) {
     console.error('Error fetching profile:', error);
     return null;
