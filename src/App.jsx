@@ -18,6 +18,7 @@ function App() {
             <Route path="/" element={<MainPage />} />
             <Route path="/session" element={<SessionPage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
+            <Route path="/analytics/:sessionId" element={<AnalyticsPage />} />
           </Routes>
       </main>
     </div>
