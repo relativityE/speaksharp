@@ -14,8 +14,20 @@ export const SessionProvider = ({ children }) => {
   const [error, setError] = useState(null);
 
   const fetchSessionHistory = useCallback(async () => {
+    // Handle anonymous user session from sessionStorage
+    if (user && user.is_anonymous) {
+      const savedSession = sessionStorage.getItem('anonymous-session');
+      if (savedSession) {
+        setSessionHistory([JSON.parse(savedSession)]);
+      } else {
+        setSessionHistory([]);
+      }
+      setLoading(false);
+      return;
+    }
+
     // Only fetch history for authenticated, non-anonymous users
-    if (!user || user.is_anonymous) {
+    if (!user) {
       setSessionHistory([]);
       setLoading(false);
       return;

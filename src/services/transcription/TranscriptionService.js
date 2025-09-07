@@ -46,7 +46,7 @@ export default class TranscriptionService {
       getAssemblyAIToken: this.getAssemblyAIToken,
     };
 
-    const useCloud = this.forceCloud || (this.profile && this.profile.is_pro_user);
+    const useCloud = this.forceCloud || (this.profile && (this.profile.subscription_status === 'pro' || this.profile.subscription_status === 'premium'));
     logger.info({ useCloud }, `[TranscriptionService] Decided on cloud mode`);
 
     if (useCloud) {

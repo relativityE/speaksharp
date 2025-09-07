@@ -10,14 +10,16 @@ export const useSessionManager = () => {
 
   const saveSession = async (sessionData) => {
     try {
-      // Handle anonymous users: create a temporary session object without saving to DB.
+      // Handle anonymous users: save to sessionStorage instead of DB.
       if (!user || user.is_anonymous) {
-        logger.info('Saving session for anonymous user (in-memory only).');
+        logger.info('Saving session for anonymous user to sessionStorage.');
         const tempSession = {
           ...sessionData,
           id: `anonymous-session-${Date.now()}`,
           user_id: user.id,
         };
+        // Use sessionStorage to persist across a single session.
+        sessionStorage.setItem('anonymous-session', JSON.stringify(tempSession));
         return tempSession;
       }
 
