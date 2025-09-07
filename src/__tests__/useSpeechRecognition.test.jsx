@@ -20,8 +20,9 @@ import { describe, it, expect, vi } from 'vitest';
 //    unit-tested in `src/__tests__/fillerWordUtils.test.js`.
 
 describe('useSpeechRecognition', () => {
-  it.skip('is tested via E2E and integration tests', () => {
+  it('is tested via E2E and integration tests', () => {
     // This test is intentionally skipped. See comments above for details.
+    // [Jules] Un-skipping this test temporarily to trigger the leak detector.
     expect(true).toBe(true);
   });
 });

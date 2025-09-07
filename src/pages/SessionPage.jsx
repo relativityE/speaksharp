@@ -87,14 +87,6 @@ export const SessionPage = () => {
         posthog.capture('session_page_viewed');
     }, []);
 
-    if (loading) {
-        return (
-            <div className="container mx-auto px-component-px py-10 flex justify-center items-center">
-                <Loader className="h-8 w-8 animate-spin" />
-            </div>
-        );
-    }
-
     useEffect(() => {
         let interval;
         if (isListening) {
@@ -133,6 +125,14 @@ export const SessionPage = () => {
             setUsageLimitExceeded(true);
         }
     }, [elapsedTime, isListening, user, profile, speechRecognition.stopListening, setUsageLimitExceeded]);
+
+    if (loading) {
+        return (
+            <div className="container mx-auto px-component-px py-10 flex justify-center items-center">
+                <Loader className="h-8 w-8 animate-spin" />
+            </div>
+        );
+    }
 
     const saveAndBroadcastSession = async (sessionData) => {
         const newSession = await saveSessionToBackend(sessionData);

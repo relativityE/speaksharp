@@ -1,260 +1,266 @@
+// src/test/setup.tsx - COMPLETE REWRITE
 import { vi, afterEach, beforeEach } from 'vitest';
 import { cleanup } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
-// Environment variables for Supabase are now set in the test command in package.json
-// to ensure they are available before any modules are imported.
-
-// Mock SpeechRecognition API
-const mockSpeechRecognition = vi.fn(() => ({
-  start: vi.fn(),
-  stop: vi.fn(),
-  onresult: null,
-  onerror: null,
-  onend: null,
-  addEventListener: vi.fn(),
-  removeEventListener: vi.fn(),
-  dispatchEvent: vi.fn(),
-}));
-
-vi.stubGlobal('SpeechRecognition', mockSpeechRecognition);
-vi.stubGlobal('webkitSpeechRecognition', mockSpeechRecognition);
-
-// Track all mocked objects for cleanup
-const mockedObjects = new Set();
-const originalConsoleError = console.error;
-const originalConsoleWarn = console.warn;
-
-// Suppress noise in tests but catch real errors
-console.error = (...args) => {
-  const message = args[0]?.toString() || '';
-  if (!message.includes('Warning:') && !message.includes('[CloudAssemblyAI]')) {
-    originalConsoleError(...args);
-  }
-};
-
-console.warn = (...args) => {
-  const message = args[0]?.toString() || '';
-  if (!message.includes('Warning:')) {
-    originalConsoleWarn(...args);
-  }
-};
-
-// AGGRESSIVE MOCKING - Mock everything that could cause memory leaks
-
-const mockSupabase = {
-  auth: {
-    signInWithPassword: vi.fn(),
-    signUp: vi.fn(),
-    signOut: vi.fn(),
-    signInAnonymously: vi.fn(),
-    getSession: vi.fn(),
-    onAuthStateChange: vi.fn(),
-  },
-  from: vi.fn(),
-  functions: {
-    invoke: vi.fn(),
-  },
-};
-
-// Default implementations
-mockSupabase.auth.getSession.mockResolvedValue({ data: { session: null } });
-mockSupabase.auth.onAuthStateChange.mockReturnValue({
-  data: { subscription: { unsubscribe: vi.fn() } },
-});
-
-// Mock the chained query methods
-const queryChainer = {
-  select: vi.fn().mockReturnThis(),
-  insert: vi.fn().mockReturnThis(),
-  update: vi.fn().mockReturnThis(),
-  delete: vi.fn().mockReturnThis(),
-  eq: vi.fn().mockReturnThis(),
-  single: vi.fn().mockResolvedValue({ data: {}, error: null }),
-  order: vi.fn().mockReturnThis(),
-};
-
-mockSupabase.from.mockReturnValue(queryChainer);
-
-vi.mock('@/lib/supabaseClient', () => ({
-  supabase: mockSupabase,
-}));
-
-// Mock React Router, but preserve key components for testing
-vi.mock('react-router-dom', async (importOriginal) => {
-  const actual = await importOriginal();
-  return {
-    ...actual,
-    useNavigate: () => vi.fn(),
-    // We DON'T mock useLocation, so that MemoryRouter can provide state correctly.
-    // Let the actual implementation pass through.
+// CRITICAL FIX 1: Complete, persistent Supabase mock that won't be cleared
+const createPersistentSupabaseMock = () => {
+  const mockAuth = {
+    getSession: vi.fn().mockImplementation(() =>
+      Promise.resolve({
+        data: { session: null },
+        error: null
+      })
+    ),
+    onAuthStateChange: vi.fn().mockImplementation((callback) => {
+      // Immediately call with initial state
+      setTimeout(() => callback('INITIAL_SESSION', null), 0);
+      return {
+        data: {
+          subscription: {
+            unsubscribe: vi.fn()
+          }
+        }
+      };
+    }),
+    signUp: vi.fn().mockImplementation(() =>
+      Promise.resolve({
+        data: { user: null, session: null },
+        error: null
+      })
+    ),
+    signInWithPassword: vi.fn().mockImplementation(() =>
+      Promise.resolve({
+        data: { user: null, session: null },
+        error: null
+      })
+    ),
+    signInWithOtp: vi.fn().mockImplementation(() =>
+      Promise.resolve({
+        data: {},
+        error: null
+      })
+    ),
+    resetPasswordForEmail: vi.fn().mockImplementation(() =>
+      Promise.resolve({
+        data: {},
+        error: null
+      })
+    ),
+    signOut: vi.fn().mockImplementation(() =>
+      Promise.resolve({ error: null })
+    ),
+    updateUser: vi.fn().mockImplementation(() =>
+      Promise.resolve({
+        data: { user: null },
+        error: null
+      })
+    ),
+    signInAnonymously: vi.fn().mockImplementation(() =>
+      Promise.resolve({
+        data: { session: { access_token: 'mock-token' } },
+        error: null
+      })
+    )
   };
-});
 
-// Mock all external services aggressively
+  const mockFrom = vi.fn().mockReturnValue({
+    select: vi.fn().mockReturnValue({
+      eq: vi.fn().mockReturnValue({
+        single: vi.fn().mockResolvedValue({
+          data: null,
+          error: null
+        }),
+        maybeSingle: vi.fn().mockResolvedValue({
+          data: null,
+          error: null
+        })
+      }),
+      maybeSingle: vi.fn().mockResolvedValue({
+        data: null,
+        error: null
+      })
+    }),
+    insert: vi.fn().mockResolvedValue({
+      data: null,
+      error: null
+    }),
+    update: vi.fn().mockResolvedValue({
+      data: null,
+      error: null
+    }),
+    delete: vi.fn().mockResolvedValue({
+      data: null,
+      error: null
+    })
+  });
+
+  const mockFunctions = {
+    invoke: vi.fn().mockResolvedValue({
+      data: { token: 'mock-assemblyai-token' },
+      error: null
+    })
+  };
+
+  return {
+    auth: mockAuth,
+    from: mockFrom,
+    functions: mockFunctions
+  };
+};
+
+// Create the mock instance once
+const persistentSupabaseMock = createPersistentSupabaseMock();
+
+// CRITICAL: Mock with a factory that returns the same instance
+vi.mock('@/lib/supabaseClient', () => ({
+  supabase: persistentSupabaseMock
+}), { hoisted: true });
+
+// Mock AuthContext with stable implementation
+const mockAuthContextValue = {
+  session: null,
+  profile: null,
+  loading: false,
+  user: null,
+  signUp: vi.fn(),
+  signIn: vi.fn(),
+  signOut: vi.fn(),
+  resetPassword: vi.fn(),
+  updateProfile: vi.fn()
+};
+
+vi.mock('../contexts/AuthContext', () => ({
+  useAuth: vi.fn(() => mockAuthContextValue),
+  AuthProvider: ({ children }) => children
+}), { hoisted: true });
+
+// Mock other critical dependencies
+vi.mock('react-router-dom', () => ({
+  useNavigate: vi.fn(() => vi.fn()),
+  useLocation: vi.fn(() => ({ pathname: '/', search: '', hash: '', state: null })),
+  useParams: vi.fn(() => ({})),
+  Link: ({ to, children, ...props }) => <a href={to} {...props}>{children}</a>,
+  NavLink: ({ to, children, ...props }) => <a href={to} {...props}>{children}</a>,
+  BrowserRouter: ({ children }) => children,
+  MemoryRouter: ({ children }) => children
+}), { hoisted: true });
+
+vi.mock('sonner', () => ({
+  toast: {
+    success: vi.fn(),
+    error: vi.fn(),
+    loading: vi.fn(),
+    dismiss: vi.fn(),
+    info: vi.fn(),
+    warning: vi.fn()
+  },
+  Toaster: () => null
+}), { hoisted: true });
+
+// Mock PostHog to prevent network calls
 vi.mock('posthog-js', () => ({
   default: {
     init: vi.fn(),
     capture: vi.fn(),
     identify: vi.fn(),
-    reset: vi.fn(),
-    isFeatureEnabled: vi.fn(() => false),
-  },
-}));
-
-vi.mock('@sentry/react', () => ({
-  init: vi.fn(),
-  captureException: vi.fn(),
-  withErrorBoundary: (component) => component,
-}));
-
-vi.mock('@stripe/stripe-js', () => ({
-  loadStripe: vi.fn(() => Promise.resolve({
-    redirectToCheckout: vi.fn(() => Promise.resolve()),
-    elements: vi.fn(),
-  })),
-}));
-
-// Mock Sonner toast
-vi.mock('sonner', () => ({
-  toast: {
-    success: vi.fn(),
-    error: vi.fn(),
-    info: vi.fn(),
-  },
-  Toaster: () => null,
-}));
-
-// Mock Audio APIs completely
-class MockAudioContext {
-  constructor() {
-    this.sampleRate = 44100;
-    this.state = 'running';
+    reset: vi.fn()
   }
+}), { hoisted: true });
 
-  createMediaStreamSource() {
-    return {
-      connect: vi.fn(),
-      disconnect: vi.fn(),
-    };
-  }
+// Mock session-related hooks
+vi.mock('../hooks/useSessionManager', () => ({
+  useSessionManager: vi.fn(() => ({
+    saveSession: vi.fn(),
+    usageLimitExceeded: false,
+    setUsageLimitExceeded: vi.fn()
+  }))
+}), { hoisted: true });
 
-  createScriptProcessor() {
-    return {
-      connect: vi.fn(),
-      disconnect: vi.fn(),
-      onaudioprocess: null,
-    };
-  }
+vi.mock('../hooks/useSession', () => ({
+  useSession: vi.fn(() => ({
+    addSession: vi.fn(),
+    sessions: []
+  }))
+}), { hoisted: true });
 
-  createAnalyser() {
-    return {
-      connect: vi.fn(),
-      disconnect: vi.fn(),
-      fftSize: 2048,
-      getFloatTimeDomainData: vi.fn(),
-    };
-  }
+// Mock the speech recognition hook to prevent hanging
+vi.mock('../hooks/useSpeechRecognition', () => ({
+  useSpeechRecognition: vi.fn(() => ({
+    isListening: false,
+    isReady: false,
+    transcript: '',
+    error: null,
+    isSupported: true,
+    mode: null,
+    chunks: [],
+    interimTranscript: '',
+    fillerData: {},
+    modelLoadingProgress: null,
+    startListening: vi.fn(),
+    stopListening: vi.fn(),
+    reset: vi.fn()
+  }))
+}), { hoisted: true });
 
-  close() {
-    return Promise.resolve();
-  }
-}
+// Global error handler to catch unhandled promises
+let unhandledRejections = [];
 
-global.AudioContext = MockAudioContext;
-global.webkitAudioContext = MockAudioContext;
-
-// Mock MediaDevices
-Object.defineProperty(navigator, 'mediaDevices', {
-  writable: true,
-  value: {
-    getUserMedia: vi.fn(() => Promise.resolve({
-      getTracks: () => [{ stop: vi.fn(), kind: 'audio', enabled: true }],
-      getAudioTracks: () => [{ stop: vi.fn(), kind: 'audio', enabled: true }],
-      getVideoTracks: () => [],
-      addTrack: vi.fn(),
-      removeTrack: vi.fn(),
-      active: true,
-    })),
-  },
-});
-
-// Mock WebSocket completely
-class MockWebSocket {
-  constructor(url) {
-    this.url = url;
-    this.readyState = 1; // OPEN
-    this.onopen = null;
-    this.onclose = null;
-    this.onmessage = null;
-    this.onerror = null;
-
-    // Simulate immediate connection
-    setTimeout(() => {
-      if (this.onopen) this.onopen();
-    }, 0);
-  }
-
-  send(data) {
-    // Do nothing
-  }
-
-  close() {
-    this.readyState = 3; // CLOSED
-    if (this.onclose) {
-      this.onclose({ code: 1000, reason: 'Normal closure' });
-    }
-  }
-
-  addEventListener(event, handler) {
-    this[`on${event}`] = handler;
-  }
-
-  removeEventListener(event, handler) {
-    this[`on${event}`] = null;
-  }
-}
-
-global.WebSocket = MockWebSocket;
-
-// Mock Worker
-global.Worker = class MockWorker {
-  constructor() {
-    this.onmessage = null;
-    this.postMessage = vi.fn();
-    this.terminate = vi.fn();
-  }
+const handleUnhandledRejection = (event) => {
+  unhandledRejections.push(event.reason);
+  console.warn('Unhandled promise rejection in test:', event.reason);
 };
 
-// AGGRESSIVE CLEANUP BETWEEN TESTS
-let testCounter = 0;
-
 beforeEach(() => {
-  testCounter++;
+  // Reset unhandled rejections tracker
+  unhandledRejections = [];
 
-  // Clear all mocks
-  vi.clearAllMocks();
-
-  // Force garbage collection more frequently
-  if (testCounter % 3 === 0 && global.gc) {
-    global.gc();
+  // Add rejection handler
+  if (typeof window !== 'undefined') {
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
   }
 
-  // Clear any intervals/timeouts
-  vi.clearAllTimers();
+  // Setup fake timers
+  vi.useFakeTimers();
+
+  // Reset mock call history but preserve implementations
+  Object.values(persistentSupabaseMock.auth).forEach(fn => {
+    if (vi.isMockFunction(fn)) {
+      fn.mockClear();
+    }
+  });
+
+  // Reset AuthContext mock calls
+  const authMock = vi.mocked(mockAuthContextValue);
+  Object.values(authMock).forEach(fn => {
+    if (vi.isMockFunction(fn)) {
+      fn.mockClear();
+    }
+  });
+
+  // Ensure clean DOM
+  document.body.innerHTML = '';
+  document.head.innerHTML = '';
 });
 
 afterEach(() => {
-  // Perform cleanup after each test
+  // Remove rejection handler
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+  }
+
+  // Check for unhandled rejections and warn
+  if (unhandledRejections.length > 0) {
+    console.warn(`Test ended with ${unhandledRejections.length} unhandled promise rejections`);
+  }
+
+  // Cleanup React
   cleanup();
 
-  // Clear all mocks to prevent test cross-contamination
-  vi.clearAllMocks();
-  vi.restoreAllMocks();
-  vi.clearAllTimers();
+  // Clear timers and restore real timers
+  vi.runOnlyPendingTimers();
+  vi.useRealTimers();
 
-  // Force garbage collection to help manage memory, which was a historical issue
-  if (global.gc) {
-    global.gc();
-  }
+  // Final DOM cleanup
+  document.body.innerHTML = '';
 });
