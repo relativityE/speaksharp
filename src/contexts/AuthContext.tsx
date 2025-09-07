@@ -75,6 +75,9 @@ export function AuthProvider({ children }) {
       } else if (session?.user) {
         const userProfile = await getProfileFromDb(session.user.id);
         setProfile(userProfile);
+      } else {
+        // This handles the case where there is no session or user is null
+        setProfile(null);
       }
       setSession(session);
       setLoading(false);
