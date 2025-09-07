@@ -20,25 +20,7 @@ const mockSpeechRecognition = vi.fn(() => ({
 vi.stubGlobal('SpeechRecognition', mockSpeechRecognition);
 vi.stubGlobal('webkitSpeechRecognition', mockSpeechRecognition);
 
-// Track all mocked objects for cleanup
-const mockedObjects = new Set();
-const originalConsoleError = console.error;
-const originalConsoleWarn = console.warn;
-
-// Suppress noise in tests but catch real errors
-console.error = (...args) => {
-  const message = args[0]?.toString() || '';
-  if (!message.includes('Warning:') && !message.includes('[CloudAssemblyAI]')) {
-    originalConsoleError(...args);
-  }
-};
-
-console.warn = (...args) => {
-  const message = args[0]?.toString() || '';
-  if (!message.includes('Warning:')) {
-    originalConsoleWarn(...args);
-  }
-};
+// [Jules] The console is no longer suppressed so that all test output can be captured.
 
 // AGGRESSIVE MOCKING - Mock everything that could cause memory leaks
 
