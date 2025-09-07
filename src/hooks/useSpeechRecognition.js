@@ -174,6 +174,7 @@ export const useSpeechRecognition = ({
         setIsSupported(true);
 
         try {
+            // FIX 5: Ensure the old service is fully destroyed before creating a new one.
             if (transcriptionServiceRef.current) {
                 await transcriptionServiceRef.current.destroy();
                 transcriptionServiceRef.current = null;
@@ -205,7 +206,6 @@ export const useSpeechRecognition = ({
 
     const stopListening = useCallback(async () => {
         if (!isListening || !isMountedRef.current) return null;
-
         while (initializationStateRef.current.isInitializing) {
             await new Promise(resolve => setTimeout(resolve, 50));
         }
