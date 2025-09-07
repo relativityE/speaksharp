@@ -15,6 +15,7 @@
     "test:ui": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest --ui",
     "test:single": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest run --reporter=verbose",
     "test:isolated": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest run src/pages/__tests__/AuthPage.isolated.test.jsx",
+    "test:leak-debug": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest run src/__tests__/useSpeechRecognition.test.jsx",
     "test:e2e": "playwright test",
     "test:all": "pnpm build && pnpm test:e2e"
   },
