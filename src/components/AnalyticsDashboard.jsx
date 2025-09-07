@@ -30,8 +30,8 @@ const EmptyState = () => {
     );
 };
 
-const StatCard = ({ icon, label, value, unit, className }) => (
-    <Card className={className} data-testid={`stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`}>
+const StatCard = ({ icon, label, value, unit, className, testId }) => (
+    <Card className={className} data-testid={testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`}>
         <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
             {icon}
@@ -205,9 +205,9 @@ export const AnalyticsDashboard = ({ sessionHistory, profile, loading, error }) 
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 <StatCard icon={<Layers size={24} className="text-muted-foreground" />} label="Total Sessions" value={overallStats.totalSessions} />
-                <StatCard icon={<TrendingUp size={24} className="text-muted-foreground" />} label="Avg. Filler Words / Min" value={overallStats.avgFillerWordsPerMin} />
-                <StatCard icon={<Clock size={24} className="text-muted-foreground" />} label="Total Practice Time" value={overallStats.totalPracticeTime} unit="mins" />
-                <StatCard icon={<Target size={24} className="text-muted-foreground" />} label="Avg. Accuracy" value={overallStats.avgAccuracy} unit="%" />
+                <StatCard icon={<TrendingUp size={24} className="text-muted-foreground" />} label="Avg. Filler Words / Min" value={overallStats.avgFillerWordsPerMin} testId="avg-filler-words-min" />
+                <StatCard icon={<Clock size={24} className="text-muted-foreground" />} label="Total Practice Time" value={overallStats.totalPracticeTime} unit="mins" testId="total-practice-time" />
+                <StatCard icon={<Target size={24} className="text-muted-foreground" />} label="Avg. Accuracy" value={overallStats.avgAccuracy} unit="%" testId="avg-accuracy" />
             </div>
 
             <div className="grid grid-cols-1 gap-8 lg:grid-cols-5">
