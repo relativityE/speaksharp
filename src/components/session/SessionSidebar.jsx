@@ -63,7 +63,7 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
     const [forceOnDevice, setForceOnDevice] = useState(false);
     const [forceNative, setForceNative] = useState(false);
     const [showEndSessionDialog, setShowEndSessionDialog] = useState(false);
-    const [completedSessionData, setCompletedSessionData] = useState(null);
+    const [completedSessions, setCompletedSessions] = useState([]);
 
     const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
     const isModelLoading = modelLoadingProgress && modelLoadingProgress.status !== 'ready' && modelLoadingProgress.status !== 'error';
@@ -78,7 +78,13 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
                 toast.error("No speech was detected. Session not saved.");
                 return;
             }
-            setCompletedSessionData(sessionData);
+            const sessionWithMetadata = {
+                ...sessionData,
+                duration: elapsedTime,
+                created_at: new Date().toISOString(),
+                title: `Session from ${formatDateTime(new Date())}`,
+            };
+            setCompletedSessions(prev => [...prev, sessionWithMetadata]);
             setShowEndSessionDialog(true);
         } catch (e) {
             logger.error({ error: e }, "Error ending session:");
@@ -89,48 +95,33 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
     };
 
     const handleNavigateToAnalytics = async () => {
-        if (!completedSessionData) return;
-
-        const sessionWithDuration = {
-            ...completedSessionData,
-            duration: elapsedTime,
-            created_at: new Date().toISOString(),
-            title: `Session from ${formatDateTime(new Date())}`,
-        };
+        if (completedSessions.length === 0) return;
 
         if (user && !isDevUser) {
-            const { session: newSession } = await saveSession(sessionWithDuration);
-            if (newSession && newSession.id) {
-                toast.success("Session saved successfully!");
-                navigate(`/analytics/${newSession.id}`);
-            } else {
-                toast.warning("Could not save the session.");
+            for (const session of completedSessions) {
+                await saveSession(session);
             }
+            toast.success(`${completedSessions.length} session(s) saved successfully!`);
+            navigate(`/analytics`);
         } else {
             toast.info("Session complete. View your results below.");
-            navigate('/analytics', { state: { sessionData: sessionWithDuration } });
+            navigate('/analytics', { state: { sessionHistory: completedSessions } });
         }
-        setIsEndingSession(false);
+        setCompletedSessions([]);
+        setShowEndSessionDialog(false);
     };
 
     const handleStayOnPage = async () => {
-        if (!completedSessionData) return;
-
-        const sessionWithDuration = {
-            ...completedSessionData,
-            duration: elapsedTime,
-            created_at: new Date().toISOString(),
-            title: `Session from ${formatDateTime(new Date())}`,
-        };
+        if (completedSessions.length === 0) return;
 
         if (user && !isDevUser) {
-            const { session: newSession } = await saveSession(sessionWithDuration);
-            if (newSession) {
-                toast.success("Session saved successfully!");
-            } else {
-                toast.warning("Could not save the session.");
+            for (const session of completedSessions) {
+                await saveSession(session);
             }
+            toast.success(`${completedSessions.length} session(s) saved successfully!`);
         }
+
+        setCompletedSessions([]);
         setShowEndSessionDialog(false);
     };
 
@@ -153,7 +144,7 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
     const isButtonDisabled = isListening ? isEndingSession : (isModelLoading || isConnecting);
 
     const ModeIndicator = () => {
-        const modeText = actualMode === 'cloud' ? 'Cloud AI' : 'Native Browser';
+        const modeText = actualMode === 'cloud' ? 'Cloud AI' : (actualMode === 'native' ? 'Native Browser' : 'On-Device');
         const Icon = actualMode === 'cloud' ? Cloud : Computer;
         return (
             <Badge variant="outline" className="flex items-center gap-2 py-1 px-3">

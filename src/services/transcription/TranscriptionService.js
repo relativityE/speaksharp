@@ -15,6 +15,8 @@ export default class TranscriptionService {
     this.navigate = navigate;
     this.getAssemblyAIToken = getAssemblyAIToken;
     this.forceCloud = forceCloud;
+    this.forceOnDevice = forceOnDevice;
+    this.forceNative = forceNative;
     this.instance = null;
     this.mic = null;
   }
@@ -46,7 +48,6 @@ export default class TranscriptionService {
       getAssemblyAIToken: this.getAssemblyAIToken,
     };
 
-    // Dev override for native
     if (this.forceNative) {
         logger.info('[TranscriptionService] Dev Toggle: Forcing Native Browser mode.');
         try {
@@ -61,27 +62,22 @@ export default class TranscriptionService {
         }
     }
 
-    // Dev override for on-device
     if (this.forceOnDevice) {
         logger.info('[TranscriptionService] Dev Toggle: Forcing On-Device mode. NOTE: Not yet implemented.');
-        // In the future, this would instantiate the LocalWhisper model.
-        // For now, we will fall through to native as a placeholder.
     }
 
     const useCloud = this.forceCloud || (this.profile && (this.profile.subscription_status === 'pro' || this.profile.subscription_status === 'premium'));
     logger.info({ useCloud }, `[TranscriptionService] Decided on cloud mode`);
 
-    if (useCloud && !this.forceOnDevice) { // Do not use cloud if forcing on-device
+    if (useCloud && !this.forceOnDevice) {
       logger.info('[TranscriptionService] Calling getAssemblyAIToken...');
       const token = await this.getAssemblyAIToken();
-      logger.info(`[TranscriptionService] getAssemblyAIToken returned: ${token ? 'a token' : 'null'}`);
       if (token) {
         logger.info('[TranscriptionService] Token acquired, starting CloudAssemblyAI.');
         this.instance = new CloudAssemblyAI(providerConfig);
         await this.instance.init();
         await this.instance.startTranscription(this.mic);
         this.mode = 'cloud';
-        logger.info('[TranscriptionService] Cloud transcription started successfully.');
         return;
       } else {
         logger.warn('[TranscriptionService] Failed to get AssemblyAI token.');
@@ -93,14 +89,12 @@ export default class TranscriptionService {
       }
     }
 
-    // Fallback to native if not using cloud or if token fetch failed
     try {
       logger.info('[TranscriptionService] Starting Native Browser mode.');
       this.instance = new NativeBrowser(providerConfig);
       await this.instance.init();
       await this.instance.startTranscription(this.mic);
       this.mode = 'native';
-      logger.info('[TranscriptionService] Native transcription started successfully.');
     } catch (fallbackError) {
       logger.error({ fallbackError }, '[TranscriptionService] Native mode failed.');
       throw fallbackError;
