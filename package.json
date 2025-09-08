@@ -18,7 +18,10 @@
     "test:leak-debug": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest run src/__tests__/useSpeechRecognition.test.jsx",
     "test:debug-auth": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest run src/pages/__tests__/AuthPage.test.jsx",
     "test:e2e": "playwright test",
-    "test:all": "pnpm build && pnpm test:e2e"
+    "test:all": "pnpm build && pnpm test:e2e",
+    "db:new": "pnpm exec supabase migrations new",
+    "db:reset": "pnpm exec supabase db reset",
+    "db:push": "pnpm exec supabase db push"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.0.1",

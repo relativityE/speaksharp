@@ -1,4 +1,4 @@
-**Owner:** Jules
+**Owner:** [unassigned]
 **Last Reviewed:** 2025-09-08
 
 🔗 [Back to Outline](./OUTLINE.md)
@@ -85,6 +85,7 @@ This phase focuses on long-term architecture, scalability, and preparing for fut
 ### 🌱 Could-Have (Future Enhancements)
 - ✅ **Add a Jitter Buffer & Audio Resampling Guard:** A critical resampling bug has been fixed, improving stability.
 - 🔴 **Implement Stripe "Pro Mode" Flag:** For feature gating and usage-based billing.
+- 🔴 **Automate On-Device Model Updates:** Create a script (e.g., GitHub Action) to automatically check for and download new versions of the locally-hosted Whisper model to prevent it from becoming stale.
 - 🟡 **Set up Multi-Env CI/CD:** A basic implementation for DB migrations exists, but needs expansion.
 
 ### Gating Check

@@ -1,4 +1,4 @@
-**Owner:** Jules
+**Owner:** [unassigned]
 **Last Reviewed:** 2025-09-08
 
 🔗 [Back to Outline](./OUTLINE.md)

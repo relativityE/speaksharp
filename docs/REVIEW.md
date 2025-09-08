@@ -1,5 +1,7 @@
 # SpeakSharp Multi-Role Review
 
+**Owner:** [unassigned]
+
 *Leadership Reference — PM, CFO, Engineering, CEO Perspectives*
 
 This document provides high-level insights into the SpeakSharp project from multiple senior perspectives. It is not required for day-to-day development but serves as a strategic checkpoint for leadership and investors.
