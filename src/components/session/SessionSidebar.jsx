@@ -63,8 +63,8 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
     const isDevUser = import.meta.env.VITE_DEV_USER === 'true';
     const isPremium = profile?.subscription_status === 'premium';
 
-    // Set initial state based on profile. Dev user defaults to cloud.
-    const [forceCloud, setForceCloud] = useState(isDevUser && isPremium);
+    // All force modes should be off by default.
+    const [forceCloud, setForceCloud] = useState(false);
     const [forceOnDevice, setForceOnDevice] = useState(false);
     const [forceNative, setForceNative] = useState(false);
 

@@ -1,7 +1,7 @@
 import logger from '../../../lib/logger';
 import { pipeline } from '@xenova/transformers';
 
-const MODEL_NAME = 'Xenova/whisper-tiny.en';
+const MODEL_NAME = '/models/whisper-tiny.en/';
 
 export default class LocalWhisper {
   constructor({ onTranscriptUpdate, onModelLoadProgress } = {}) {

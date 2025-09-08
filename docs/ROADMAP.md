@@ -26,6 +26,10 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 ### 🚧 Should-Have (Tech Debt)
 - 🔴 **Refactor Integration Tests:** Slim down component tests (`SessionSidebar`, `AnalyticsPage`, etc.) to remove redundant coverage now handled by E2E tests.
 - 🔴 **Create Troubleshooting Guide:** Add error recovery steps to the documentation.
+- 🔴 **Harden Supabase Security:** Address security advisor warnings.
+  - 🔴 1. Shorten OTP expiry to less than one hour.
+  - 🔴 2. Enable leaked password protection.
+  - 🔴 3. Upgrade the Postgres version.
 - ✅ **Enhance Anonymous and Pro E2E tests:** The E2E tests have been stabilized and now correctly test the full authentication flow.
 - ✅ **Add full unit test coverage for `CloudAssemblyAI.js`:** All unit tests for this module are now passing.
 

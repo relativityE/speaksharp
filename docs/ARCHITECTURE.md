@@ -128,7 +128,7 @@ The `TranscriptionService.js` provides a unified abstraction layer over multiple
 The `LocalWhisper` provider uses the [`@xenova/transformers.js`](https://github.com/xenova/transformers.js) library to run the `Xenova/whisper-tiny.en` model directly in the user's browser.
 
 *   **How it Works:**
-    1.  **Model Loading:** The first time a premium user accesses the feature, the `transformers.js` library downloads the ML model (approx. 150-200 MB) from the Hugging Face Hub.
+    1.  **Model Loading:** The application now hosts the model files locally in the `/public/models/` directory. When a premium user first accesses the feature, the `transformers.js` library fetches the model from the application's own domain. This removes the external dependency on the Hugging Face Hub, improving reliability.
     2.  **Caching:** The model is then cached in the browser's `CacheStorage`, making subsequent loads nearly instant.
     3.  **Inference Engine:** The library runs the model on a WebAssembly (WASM) version of the ONNX Runtime. This allows for near-native performance for model inference directly in the browser.
     4.  **Privacy:** All audio processing and transcription occurs entirely on the user's machine. No audio data is ever sent to a third-party server.
