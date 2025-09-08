@@ -1,11 +1,44 @@
-import js from '@eslint/js'
-import globals from 'globals'
-import vitest from '@vitest/eslint-plugin'
-import reactHooks from 'eslint-plugin-react-hooks'
-import reactRefresh from 'eslint-plugin-react-refresh'
+import tseslint from 'typescript-eslint';
+import js from '@eslint/js';
+import globals from 'globals';
+import vitest from '@vitest/eslint-plugin';
+import reactHooks from 'eslint-plugin-react-hooks';
+import reactRefresh from 'eslint-plugin-react-refresh';
 
-export default [
-  { ignores: ['dist'] },
+export default tseslint.config(
+  { ignores: ['dist', 'node_modules'] },
+
+  // Base configs
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
+
+  // General App Code
+  {
+    files: ['src/**/*.{js,jsx,ts,tsx}'],
+    plugins: {
+      'react-hooks': reactHooks,
+      'react-refresh': reactRefresh,
+    },
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+      },
+      parserOptions: {
+        ecmaFeatures: { jsx: true },
+      },
+    },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      '@typescript-eslint/no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      'no-unused-vars': 'off', // Disable base rule to prefer TS version
+      'react-refresh/only-export-components': [
+        'warn',
+        { allowConstantExport: true },
+      ],
+    },
+  },
+
+  // Config for Mocks
   {
     files: ['__mocks__/**/*.js'],
     languageOptions: {
@@ -14,33 +47,10 @@ export default [
       },
     },
   },
+
+  // Config for Test files
   {
-    files: ['**/*.{js,jsx}'],
-    languageOptions: {
-      ecmaVersion: 2020,
-      globals: globals.browser,
-      parserOptions: {
-        ecmaVersion: 'latest',
-        ecmaFeatures: { jsx: true },
-        sourceType: 'module',
-      },
-    },
-    plugins: {
-      'react-hooks': reactHooks,
-      'react-refresh': reactRefresh,
-    },
-    rules: {
-      ...js.configs.recommended.rules,
-      ...reactHooks.configs.recommended.rules,
-      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
-      'react-refresh/only-export-components': [
-        'warn',
-        { allowConstantExport: true },
-      ],
-    },
-  },
-  {
-    files: ['src/test/**/*.js', 'src/__tests__/**/*.jsx', 'vitest.config.js', 'vite.config.js'],
+    files: ['**/*.{test,spec}.{js,jsx,ts,tsx}'],
     plugins: {
       vitest,
     },
@@ -49,10 +59,19 @@ export default [
     },
     languageOptions: {
       globals: {
-        ...globals.browser,
         ...globals.node,
         ...vitest.environments.env.globals,
       },
     },
   },
-]
+
+  // Config for project-level config files
+  {
+    files: ['*.{js,cjs,mjs,ts}'],
+     languageOptions: {
+      globals: {
+        ...globals.node,
+      },
+    },
+  }
+);

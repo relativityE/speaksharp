@@ -161,3 +161,12 @@ The product's testing strategy is to use a combination of E2E, component, and un
 - >95% reconnect success rate within 2s.
 - <0.5% token issuance failures.
 - <$0.05/min STT cost at MVP scale.
+
+---
+
+## 7. Future Enhancements / Opportunities
+
+### Feature Proposal: Rolling Accuracy Comparison of STT Engines (Native, Cloud, On-device)
+**Goal:** Improve transparency and user trust.
+
+We can strengthen user confidence by adding a feature that compares accuracy across Native Browser, Cloud AI, and On-device modes. Instead of one-off tests, the system would track results from actual usage over time and compute a rolling accuracy percentage. This avoids storing large datasets while still giving users a clear view of performance differences.

@@ -37,7 +37,8 @@ export const calculateOverallStats = (history) => {
         return acc;
     }, { totalDuration: 0, totalFillerWords: 0, totalAccuracy: 0, sessionCountWithAccuracy: 0 });
 
-    const avgFillerWordsPerMin = totalDuration > 0 ? (totalFillerWords / (totalDuration / 60)) : 0;
+    const totalDurationMinutes = totalDuration / 60;
+    const avgFillerWordsPerMin = totalDurationMinutes >= 0.5 ? (totalFillerWords / totalDurationMinutes) : 0;
     const avgAccuracy = sessionCountWithAccuracy > 0 ? (totalAccuracy / sessionCountWithAccuracy) * 100 : 0;
 
     const chartData = history.map(s => {
@@ -66,7 +67,7 @@ export const calculateOverallStats = (history) => {
     return {
         avgFillerWordsPerMin: avgFillerWordsPerMin.toFixed(1),
         totalSessions,
-        totalPracticeTime: Math.round(totalDuration / 60),
+        totalPracticeTime: totalDurationMinutes.toFixed(1),
         avgAccuracy: avgAccuracy.toFixed(1),
         chartData,
         topFillerWords

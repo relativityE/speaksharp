@@ -47,7 +47,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 This phase is about confirming the core feature set works as expected and polishing the user experience before wider release.
 
 ### 🎯 Must-Have
-- 🔴 **Implement On-Device 'Local Transcript' Mode:** Implement a fully on-device, privacy-first transcription mode for Premium users.
+- 🔴 **Implement On-Device 'Local Transcript' Mode (`[C-04]`):** Implement a fully on-device, privacy-first transcription mode for Premium users. This also resolves the bug where Premium users do not receive their paid features.
   - 🔴 1. Research & Select Model
   - 🔴 2. Create LocalWhisper Provider
   - 🔴 3. Integrate Model & Audio Processing

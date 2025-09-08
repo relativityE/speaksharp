@@ -120,6 +120,7 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
             }
             toast.success(`${completedSessions.length} session(s) saved successfully!`);
         }
+
         setCompletedSessions([]);
         setShowEndSessionDialog(false);
     };
