@@ -61,6 +61,7 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
     const [isEndingSession, setIsEndingSession] = useState(false);
     const [forceCloud, setForceCloud] = useState(false);
     const [forceOnDevice, setForceOnDevice] = useState(false);
+    const [forceNative, setForceNative] = useState(false);
     const [showEndSessionDialog, setShowEndSessionDialog] = useState(false);
     const [completedSessionData, setCompletedSessionData] = useState(null);
 
@@ -138,7 +139,7 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
             await endSessionAndSave();
         } else {
             reset();
-            await startListening({ forceCloud, forceOnDevice });
+            await startListening({ forceCloud, forceOnDevice, forceNative });
         }
     };
 
@@ -218,6 +219,18 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
                              >
                                 <Checkbox id="force-on-device" checked={forceOnDevice} onCheckedChange={setForceOnDevice} disabled={isListening}/>
                                 Force On-device (WIP)
+                            </Label>
+                            <Label
+                                htmlFor="force-native"
+                                className="flex items-center gap-2 text-xs text-muted-foreground"
+                                onClick={() => {
+                                    if (isListening) {
+                                        toast.info("This option cannot be changed during an active session.");
+                                    }
+                                }}
+                             >
+                                <Checkbox id="force-native" checked={forceNative} onCheckedChange={setForceNative} disabled={isListening}/>
+                                Force Native Browser
                             </Label>
                             <div className="text-xs text-muted-foreground pt-2">
                                 Current User Role: <span className="font-bold text-foreground">

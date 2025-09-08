@@ -164,7 +164,7 @@ export const useSpeechRecognition = ({
         }
     }, [authSession]);
 
-    const startListening = useCallback(async ({ forceCloud = false } = {}) => {
+    const startListening = useCallback(async ({ forceCloud = false, forceOnDevice = false, forceNative = false } = {}) => {
         if (isListening || !isMountedRef.current || initializationStateRef.current.isInitializing) return;
 
         initializationStateRef.current.isInitializing = true;
@@ -182,7 +182,7 @@ export const useSpeechRecognition = ({
 
             const service = new TranscriptionService({
                 onTranscriptUpdate, onModelLoadProgress, onReady: handleReady,
-                profile, forceCloud, session, navigate, getAssemblyAIToken,
+                profile, forceCloud, forceOnDevice, forceNative, session, navigate, getAssemblyAIToken,
             });
 
             transcriptionServiceRef.current = service;

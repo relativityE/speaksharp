@@ -18,7 +18,6 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - 🔴 `[C-01]` Lack of Protected Routes: Implement protected routes for all sensitive user pages.
   - 🔴 `[C-02]` Flawed Auth Provider: Refactor `AuthContext.tsx` to remove anti-patterns and stabilize authentication logic.
   - 🔴 `[C-03]` Anonymous User Flow is Broken: Fix the session persistence logic for anonymous users.
-  - 🔴 `[C-04]` Premium Users Do Not Receive Paid Features: Correct the monetization logic in `TranscriptionService.js`.
 - 🔴 **Technical Debt: Remediate and Stabilize the Test Suite**
   - **Problem Diagnosis:** A deep-dive analysis has concluded that the test suite's instability is not caused by application bugs, but by systemic issues within the test framework itself. The suite is slow, hangs, and is unreliable due to pervasive state leaks, memory leaks, and a brittle, overly complex mocking strategy. The current test configuration (`vite.config.mjs`) contains numerous workarounds (e.g., forced serial execution, process-per-file execution, manual garbage collection) that treat the symptoms but not the root cause.
   - **Strategic Remediation Plan:** The following phased approach is required to pay down this technical debt and create a stable, reliable, and efficient test suite.
@@ -47,7 +46,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 This phase is about confirming the core feature set works as expected and polishing the user experience before wider release.
 
 ### 🎯 Must-Have
-- 🔴 **Implement On-Device 'Local Transcript' Mode:** Implement a fully on-device, privacy-first transcription mode for Premium users.
+- 🔴 **Implement On-Device 'Local Transcript' Mode (`[C-04]`):** Implement a fully on-device, privacy-first transcription mode for Premium users. This also resolves the bug where Premium users do not receive their paid features.
   - 🔴 1. Research & Select Model
   - 🔴 2. Create LocalWhisper Provider
   - 🔴 3. Integrate Model & Audio Processing

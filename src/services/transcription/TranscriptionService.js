@@ -4,8 +4,8 @@ import NativeBrowser from './modes/NativeBrowser';
 import { createMicStream } from './utils/audioUtils';
 
 export default class TranscriptionService {
-  constructor({ onTranscriptUpdate, onModelLoadProgress, onReady, profile, forceCloud = false, session, navigate, getAssemblyAIToken } = {}) {
-    logger.info({ forceCloud }, `[TranscriptionService] Constructor called`);
+  constructor({ onTranscriptUpdate, onModelLoadProgress, onReady, profile, forceCloud = false, forceOnDevice = false, forceNative = false, session, navigate, getAssemblyAIToken } = {}) {
+    logger.info({ forceCloud, forceOnDevice, forceNative }, `[TranscriptionService] Constructor called`);
     this.mode = null;
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onModelLoadProgress = onModelLoadProgress;
@@ -46,10 +46,32 @@ export default class TranscriptionService {
       getAssemblyAIToken: this.getAssemblyAIToken,
     };
 
+    // Dev override for native
+    if (this.forceNative) {
+        logger.info('[TranscriptionService] Dev Toggle: Forcing Native Browser mode.');
+        try {
+            this.instance = new NativeBrowser(providerConfig);
+            await this.instance.init();
+            await this.instance.startTranscription(this.mic);
+            this.mode = 'native';
+            return;
+        } catch (e) {
+            logger.error({ e }, '[TranscriptionService] Forced native mode failed.');
+            throw e;
+        }
+    }
+
+    // Dev override for on-device
+    if (this.forceOnDevice) {
+        logger.info('[TranscriptionService] Dev Toggle: Forcing On-Device mode. NOTE: Not yet implemented.');
+        // In the future, this would instantiate the LocalWhisper model.
+        // For now, we will fall through to native as a placeholder.
+    }
+
     const useCloud = this.forceCloud || (this.profile && (this.profile.subscription_status === 'pro' || this.profile.subscription_status === 'premium'));
     logger.info({ useCloud }, `[TranscriptionService] Decided on cloud mode`);
 
-    if (useCloud) {
+    if (useCloud && !this.forceOnDevice) { // Do not use cloud if forcing on-device
       logger.info('[TranscriptionService] Calling getAssemblyAIToken...');
       const token = await this.getAssemblyAIToken();
       logger.info(`[TranscriptionService] getAssemblyAIToken returned: ${token ? 'a token' : 'null'}`);
