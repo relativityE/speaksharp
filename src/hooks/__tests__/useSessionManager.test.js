@@ -10,10 +10,11 @@ vi.mock('../../lib/storage', () => ({
     deleteSession: vi.fn(),
     exportData: vi.fn(),
 }));
-vi.mock('../../contexts/AuthContext');
+vi.mock('../../contexts/AuthContext', () => ({
+    useAuth: vi.fn(),
+}));
 
 const mockUser = { id: 'test-user-123', is_anonymous: false };
-const mockAnonUser = { id: 'anon-user-456', is_anonymous: true };
 const mockProfile = { id: 'test-user-123', subscription_status: 'free' };
 
 describe('useSessionManager', () => {
@@ -39,8 +40,8 @@ describe('useSessionManager', () => {
             expect(returnedValue).toEqual({ session: expectedSession, usageExceeded: false });
         });
 
-        it('should NOT call storage.saveSession for an anonymous user but still return a temporary session object', async () => {
-            useAuth.mockReturnValue({ user: mockAnonUser, profile: null });
+        it('should NOT call storage.saveSession for a null (anonymous) user but return a temporary session', async () => {
+            useAuth.mockReturnValue({ user: null, profile: null }); // Test the real anonymous case
             const mockSessionData = { transcript: 'An anonymous recording' };
 
             const { result } = renderHook(() => useSessionManager());
@@ -53,6 +54,7 @@ describe('useSessionManager', () => {
             expect(storage.saveSession).not.toHaveBeenCalled();
             expect(returnedValue).toBeDefined();
             expect(returnedValue.id.startsWith('anonymous-session')).toBe(true);
+            expect(returnedValue.user_id.startsWith('anon-')).toBe(true);
             expect(returnedValue.transcript).toBe('An anonymous recording');
         });
 
@@ -73,7 +75,6 @@ describe('useSessionManager', () => {
 
     describe('deleteSession', () => {
         it('should call storage.deleteSession for a normal session ID', async () => {
-            useAuth.mockReturnValue({ user: mockUser, profile: mockProfile });
             storage.deleteSession.mockResolvedValue(true);
             const { result } = renderHook(() => useSessionManager());
 
@@ -85,7 +86,6 @@ describe('useSessionManager', () => {
         });
 
         it('should NOT call storage.deleteSession for an anonymous session ID', async () => {
-            useAuth.mockReturnValue({ user: mockUser, profile: mockProfile });
             const { result } = renderHook(() => useSessionManager());
 
             await act(async () => {
@@ -98,7 +98,6 @@ describe('useSessionManager', () => {
 
     describe('exportSessions', () => {
         it('should call storage.exportData for an authenticated user', async () => {
-            useAuth.mockReturnValue({ user: mockUser, profile: mockProfile });
             const mockData = [{ id: '1', transcript: 'test' }];
             storage.exportData.mockResolvedValue(mockData);
 

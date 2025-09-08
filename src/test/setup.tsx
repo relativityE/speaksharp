@@ -169,14 +169,6 @@ vi.mock('posthog-js', () => ({
 }), { hoisted: true });
 
 // Mock session-related hooks
-vi.mock('../hooks/useSessionManager', () => ({
-  useSessionManager: vi.fn(() => ({
-    saveSession: vi.fn(),
-    usageLimitExceeded: false,
-    setUsageLimitExceeded: vi.fn()
-  }))
-}), { hoisted: true });
-
 vi.mock('../hooks/useSession', () => ({
   useSession: vi.fn(() => ({
     addSession: vi.fn(),

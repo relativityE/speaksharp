@@ -105,16 +105,23 @@ const AnonymousAnalyticsView = () => {
                 <h1 className="text-3xl font-bold text-foreground">Session Analysis</h1>
                 <p className="mt-2 text-base text-muted-foreground">Here's the analysis of your practice session. Sign up to save your progress!</p>
             </div>
-            <AnalyticsDashboard sessionHistory={[sessionData]} />
+            <AnalyticsDashboard
+                sessionHistory={[sessionData]}
+                profile={null}
+                loading={false}
+                error={null}
+            />
         </>
     );
 };
 
 export const AnalyticsPage = () => {
     const { user } = useAuth();
+    const isDevUser = import.meta.env.VITE_DEV_USER === 'true';
+
     return (
         <div className="container mx-auto px-component-px py-10">
-            {user ? <AuthenticatedAnalyticsView /> : <AnonymousAnalyticsView />}
+            {(user && !isDevUser) ? <AuthenticatedAnalyticsView /> : <AnonymousAnalyticsView />}
         </div>
     );
 };
