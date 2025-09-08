@@ -1,4 +1,4 @@
-**Owner:** Jules
+**Owner:** [unassigned]
 **Last Reviewed:** 2025-09-08
 
 🔗 [Back to Outline](./OUTLINE.md)
@@ -78,6 +78,7 @@ This section contains ASCII art diagrams illustrating the journey for each user 
                            | - On-device (local) transcription (FUTURE) |
                            | - Detailed Analytics                |
                            | - Download session data             |
+                           | - Download session transcript (FUTURE) |
                            +-------------------------------------+
 ```
 

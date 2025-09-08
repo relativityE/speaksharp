@@ -52,6 +52,7 @@ const getMockSession = (user) => {
 
 export async function stubThirdParties(page: Page, options: {
   usageExceeded?: boolean;
+  forceOnDevice?: boolean;
 } = {}) {
 
   // Block external domains
@@ -119,7 +120,12 @@ export async function stubThirdParties(page: Page, options: {
       if (request.method() === 'GET') {
         const idParam = searchParams.get('id')?.replace('eq.', '');
         const user = Object.values(MOCK_USERS).find(u => u.id === idParam);
-        const profile = user ? { id: user.id, subscription_status: user.user_metadata.subscription_status } : {};
+        let profile = user ? { id: user.id, subscription_status: user.user_metadata.subscription_status } : {};
+
+        if (options.forceOnDevice) {
+          profile = { ...profile, preferred_mode: 'on-device' };
+        }
+
         return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([profile]) });
       }
     }

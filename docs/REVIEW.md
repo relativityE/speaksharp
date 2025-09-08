@@ -1,5 +1,7 @@
 # SpeakSharp Multi-Role Review
 
+**Owner:** [unassigned]
+
 *Leadership Reference — PM, CFO, Engineering, CEO Perspectives*
 
 This document provides high-level insights into the SpeakSharp project from multiple senior perspectives. It is not required for day-to-day development but serves as a strategic checkpoint for leadership and investors.
@@ -55,13 +57,13 @@ This document provides high-level insights into the SpeakSharp project from mult
 
 **Gaps / Risks:**
 
-*   Critical bugs in test suite & E2E rendering (documented in [ROADMAP.md](./ROADMAP.md)).
+*   **[Resolved]** The critical bugs in the test suite and E2E rendering have been fixed. The test suite is now stable.
 *   Memory leaks in `AuthContext` subscription (fixed via prop-gated provider).
-*   Disabled tests → reduced trust in CI/CD metrics.
+*   **[Resolved]** The test suite is now enabled and reliable, increasing trust in CI/CD metrics.
 
 **Recommendations:**
 
-*   Finish stabilizing test suite before adding features.
+*   **[Done]** The test suite has been stabilized.
 *   Invest in DevOps (multi-env CI/CD, secret management, reproducible test runners).
 *   Add memory profiling in long sessions (Chrome DevTools, soak tests).
 *   Enhance the **Local Development Guide** in the root `README.md` with troubleshooting tips.

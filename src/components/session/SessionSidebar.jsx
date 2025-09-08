@@ -59,16 +59,21 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
     const navigate = useNavigate();
     const { user, profile } = useAuth();
     const [isEndingSession, setIsEndingSession] = useState(false);
+
+    const isDevUser = import.meta.env.VITE_DEV_USER === 'true';
+    const isPremium = profile?.subscription_status === 'premium';
+
+    // All force modes should be off by default.
     const [forceCloud, setForceCloud] = useState(false);
     const [forceOnDevice, setForceOnDevice] = useState(false);
     const [forceNative, setForceNative] = useState(false);
+
     const [showEndSessionDialog, setShowEndSessionDialog] = useState(false);
     const [completedSessions, setCompletedSessions] = useState([]);
 
     const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
     const isModelLoading = modelLoadingProgress && modelLoadingProgress.status !== 'ready' && modelLoadingProgress.status !== 'error';
     const isConnecting = isListening && !isReady;
-    const isDevUser = import.meta.env.VITE_DEV_USER === 'true';
 
     const endSessionAndSave = async () => {
         setIsEndingSession(true);
@@ -196,7 +201,13 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
                                     }
                                 }}
                              >
-                                <Checkbox id="force-cloud" checked={forceCloud} onCheckedChange={setForceCloud} disabled={isListening}/>
+                                <Checkbox id="force-cloud" checked={forceCloud} onCheckedChange={(checked) => {
+                                    setForceCloud(checked);
+                                    if (checked) {
+                                        setForceOnDevice(false);
+                                        setForceNative(false);
+                                    }
+                                }} disabled={isListening}/>
                                 Force Cloud (Disable Fallback)
                             </Label>
                             <Label
@@ -208,7 +219,13 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
                                     }
                                 }}
                              >
-                                <Checkbox id="force-on-device" checked={forceOnDevice} onCheckedChange={setForceOnDevice} disabled={isListening}/>
+                                <Checkbox id="force-on-device" checked={forceOnDevice} onCheckedChange={(checked) => {
+                                    setForceOnDevice(checked);
+                                    if (checked) {
+                                        setForceCloud(false);
+                                        setForceNative(false);
+                                    }
+                                }} disabled={isListening}/>
                                 Force On-device (WIP)
                             </Label>
                             <Label
@@ -220,7 +237,13 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
                                     }
                                 }}
                              >
-                                <Checkbox id="force-native" checked={forceNative} onCheckedChange={setForceNative} disabled={isListening}/>
+                                <Checkbox id="force-native" checked={forceNative} onCheckedChange={(checked) => {
+                                    setForceNative(checked);
+                                    if (checked) {
+                                        setForceCloud(false);
+                                        setForceOnDevice(false);
+                                    }
+                                }} disabled={isListening}/>
                                 Force Native Browser
                             </Label>
                             <div className="text-xs text-muted-foreground pt-2">
