@@ -4,11 +4,14 @@ import { stubThirdParties } from './sdkStubs';
 
 test.describe('Authentication Flows', () => {
   test.beforeEach(async ({ page }) => {
-    // Stub all third-party services
+    // Navigate to a blank page to ensure no app code runs yet
+    await page.goto('about:blank');
+    // Stub all third-party services BEFORE navigating to the app
     await stubThirdParties(page);
   });
 
   test('a user can sign in and is redirected to the main page', async ({ page }) => {
+    // Now, with mocks in place, navigate to the page
     await page.goto('/auth');
 
     // Expect the sign-in form to be visible
