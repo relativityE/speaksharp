@@ -8,7 +8,15 @@ Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) style with sligh
 
 ## [Unreleased]
 ### Added
-- Nothing yet.
+- **On-Device Transcription for Premium Users:** Implemented a new privacy-first transcription mode using a local Whisper model via `@xenova/transformers`.
+- **E2E Tests for All User Roles:** Added new E2E tests for the 'Free' and 'Premium' user flows, ensuring coverage for all user roles.
+
+### Fixed
+- **Stabilized Entire Test Suite:** Resolved critical test environment conflicts and race conditions that made the E2E suite unusable. All unit and E2E tests now pass reliably in parallel.
+- **Fixed Dev User UI Controls:** Corrected a bug in the session sidebar where the developer-only controls for forcing transcription modes did not work correctly.
+
+### Changed
+- **Updated All Project Documentation:** Synchronized `ARCHITECTURE.md`, `PRD.md`, and `ROADMAP.md` to reflect the stabilized test suite and the new on-device transcription feature.
 
 ---
 

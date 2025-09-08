@@ -4,10 +4,14 @@ import { stubThirdParties } from './sdkStubs';
 
 test.describe('Anonymous User Flow', () => {
   test.beforeEach(async ({ page }) => {
+    // Navigate to a blank page to ensure no app code runs yet
+    await page.goto('about:blank');
+    // Stub all third-party services BEFORE navigating to the app
     await stubThirdParties(page);
   });
 
   test('an anonymous user can complete a session and see their analytics', async ({ page }) => {
+    // Now, with mocks in place, navigate to the page
     await page.goto('/');
 
     // From the landing page, start a session

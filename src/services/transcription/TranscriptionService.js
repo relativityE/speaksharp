@@ -1,6 +1,7 @@
 import logger from '../../lib/logger';
 import CloudAssemblyAI from './modes/CloudAssemblyAI';
 import NativeBrowser from './modes/NativeBrowser';
+import LocalWhisper from './modes/LocalWhisper';
 import { createMicStream } from './utils/audioUtils';
 
 export default class TranscriptionService {
@@ -63,13 +64,27 @@ export default class TranscriptionService {
     }
 
     if (this.forceOnDevice) {
-        logger.info('[TranscriptionService] Dev Toggle: Forcing On-Device mode. NOTE: Not yet implemented.');
+        logger.info('[TranscriptionService] Dev Toggle: Forcing On-Device mode.');
     }
 
-    const useCloud = this.forceCloud || (this.profile && (this.profile.subscription_status === 'pro' || this.profile.subscription_status === 'premium'));
+    // --- Provider Selection Logic ---
+    const isPremium = this.profile && this.profile.subscription_status === 'premium';
+    // The user can prefer on-device, or we can force it with a dev toggle.
+    const useOnDevice = this.forceOnDevice || (isPremium && this.profile.preferred_mode === 'on-device');
+
+    if (useOnDevice) {
+      logger.info('[TranscriptionService] Attempting to use On-Device (LocalWhisper) mode.');
+      this.instance = new LocalWhisper(providerConfig);
+      await this.instance.init();
+      await this.instance.startTranscription(this.mic);
+      this.mode = 'on-device';
+      return;
+    }
+
+    const useCloud = this.forceCloud || (this.profile && this.profile.subscription_status === 'pro');
     logger.info({ useCloud }, `[TranscriptionService] Decided on cloud mode`);
 
-    if (useCloud && !this.forceOnDevice) {
+    if (useCloud) {
       logger.info('[TranscriptionService] Calling getAssemblyAIToken...');
       const token = await this.getAssemblyAIToken();
       if (token) {
