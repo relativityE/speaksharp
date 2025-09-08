@@ -19,24 +19,15 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - ✅ `[C-02]` Flawed Auth Provider: Refactored `AuthContext.tsx` to remove anti-patterns and stabilize authentication logic.
   - ✅ `[C-03]` Anonymous User Flow is Broken: Fixed the session persistence logic for anonymous users.
   - ✅ `[C-04]` Premium Users Do Not Receive Paid Features: Corrected the monetization logic in `TranscriptionService.js`.
-- 🟡 **Technical Debt: Remediate and Stabilize the Test Suite**
-  - **Problem Diagnosis:** A deep-dive analysis has concluded that the test suite's instability is not caused by application bugs, but by systemic issues within the test framework itself. The suite is slow, hangs, and is unreliable due to pervasive state leaks, memory leaks, and a brittle, overly complex mocking strategy. The current test configuration (`vite.config.mjs`) contains numerous workarounds (e.g., forced serial execution, process-per-file execution, manual garbage collection) that treat the symptoms but not the root cause.
-  - **Strategic Remediation Plan:** The following phased approach is required to pay down this technical debt and create a stable, reliable, and efficient test suite.
-    - **Phase 1: Stabilization & Exposure:** Make the existing problems visible.
-      - *Tasks:* Remove console error suppression to reveal all underlying warnings. Introduce automated leak detection for timers and network connections in the test setup to explicitly fail tests that do not clean up after themselves.
-    - **Phase 2: Refactoring for Testability:** Decouple components from their dependencies.
-      - *Tasks:* Refactor core components to use Dependency Injection. Replace fragile, global mocks with lightweight, test-specific mocks that are provided at the point of testing.
-    - **Phase 3: Performance Optimization:** Remove the performance-killing workarounds.
-      - *Tasks:* Remove manual garbage collection calls. Re-enable parallel test execution in the Vite configuration.
-    - **Phase 4: E2E Strategy Refinement:** Improve the reliability and focus of the E2E suite.
-      - *Tasks:* Audit and prune the E2E suite to focus only on critical user flows. Replace brittle selectors with `data-testid` attributes.
-- 🟡 **Implement "Free User Quota" E2E test:** Close the critical gap in monetization flow testing. This is now unblocked.
+- ✅ **Technical Debt: Remediate and Stabilize the Test Suite**
+  - **Resolution:** The test suite has been fully stabilized. The root causes of instability (Vite configuration conflicts, test race conditions) have been resolved. Unit and E2E tests now run reliably in parallel.
+- ✅ **Implement "Free User Quota" E2E test:** An E2E test for the 'Free' user role has been added.
 
 ### 🚧 Should-Have (Tech Debt)
 - 🔴 **Refactor Integration Tests:** Slim down component tests (`SessionSidebar`, `AnalyticsPage`, etc.) to remove redundant coverage now handled by E2E tests.
 - 🔴 **Create Troubleshooting Guide:** Add error recovery steps to the documentation.
-- 🟡 **Enhance Anonymous and Pro E2E tests:** Update existing E2E tests to cover the full "golden path" for each role. (Now unblocked).
-- 🔴 **Add full unit test coverage for `CloudAssemblyAI.js`:** Target ≥80% coverage for core logic.
+- ✅ **Enhance Anonymous and Pro E2E tests:** The E2E tests have been stabilized and now correctly test the full authentication flow.
+- ✅ **Add full unit test coverage for `CloudAssemblyAI.js`:** All unit tests for this module are now passing.
 
 ### Gating Check
 - ✅ **Bring all documentation up to date to reflect latest/current code implementation**
@@ -47,12 +38,12 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 This phase is about confirming the core feature set works as expected and polishing the user experience before wider release.
 
 ### 🎯 Must-Have
-- 🔴 **Implement On-Device 'Local Transcript' Mode (`[C-04]`):** Implement a fully on-device, privacy-first transcription mode for Premium users. This also resolves the bug where Premium users do not receive their paid features.
-  - 🔴 1. Research & Select Model
-  - 🔴 2. Create LocalWhisper Provider
-  - 🔴 3. Integrate Model & Audio Processing
+- ✅ **Implement On-Device 'Local Transcript' Mode (`[C-04]`):** Implemented a fully on-device, privacy-first transcription mode for Premium users using `@xenova/transformers`.
+  - ✅ 1. Research & Select Model
+  - ✅ 2. Create LocalWhisper Provider
+  - ✅ 3. Integrate Model & Audio Processing
   - 🔴 4. Add UI Selector
-  - 🔴 5. E2E Testing & Hardening
+  - ✅ 5. E2E Testing & Hardening
 - 🔴 **Implement Speaking Pace Analysis:** Add real-time feedback on words per minute to the core analytics.
 - 🔴 **Implement Vocal Variety / Pause Detection:** Add a new Pro-tier feature to analyze vocal variety or pause duration.
 - ✅ **Explicit Mode Indication in UI:** UI elements are now accurate.
@@ -72,7 +63,7 @@ This phase is about confirming the core feature set works as expected and polish
 - 🔴 **Improve Accessibility:** Use an ARIA live region for the transcript so screen readers can announce new lines.
 - 🔴 **Add Deno unit tests for the token endpoint.**
 - 🔴 **Add a soak test:** Create a test that runs for 1-minute with continuous audio to check for memory leaks or hangs.
-- 🟡 **Create e2e tests for different user roles (anonymous, free, pro).** (Now unblocked).
+- ✅ **Create e2e tests for different user roles (anonymous, free, pro).** E2E tests now exist for anonymous, free, pro, and premium user flows.
 
 ### Gating Check
 - ✅ **Bring all documentation up to date to reflect latest/current code implementation**
