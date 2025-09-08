@@ -1,31 +1,23 @@
 /**
- * A simple AudioWorkletProcessor to downsample audio from the microphone.
- * It receives audio from the microphone (at the hardware's native sample rate)
- * and sends back buffers of 16-bit PCM audio at the target sample rate.
+ * An AudioWorkletProcessor for downsampling audio to a target sample rate.
+ * This implementation uses a simple averaging algorithm to resample the audio,
+ * which is a significant improvement over naive sample dropping.
  */
 class PcmDownsampler extends AudioWorkletProcessor {
   constructor(options) {
     super();
     this.targetSampleRate = options.processorOptions.targetSampleRate || 16000;
-    this.frameSize = options.processorOptions.frameSize || 1024;
-    this.sourceSampleRate = sampleRate; // sampleRate is a global in AudioWorkletGlobalScope
+    this.sourceSampleRate = sampleRate; // `sampleRate` is a global in AudioWorkletGlobalScope
 
+    // Calculate the ratio and initialize buffer for unprocessed samples
     this.resamplingRatio = this.sourceSampleRate / this.targetSampleRate;
-
-    // Buffer to hold incoming audio data until we have enough to process
-    this.inputBuffer = [];
-    this.inputBufferSize = 0;
-
-    // Buffer to hold downsampled audio data
-    this.outputBuffer = new Float32Array(this.frameSize);
-    this.outputBufferIndex = 0;
+    this.unprocessedSamples = new Float32Array(0);
   }
 
   /**
-   * This method is called for every block of 128 samples.
-   * @param {Float32Array[][]} inputs - An array of inputs, each with an array of channels.
-   *                                    We only process the first input and first channel.
-   * @returns {boolean} - Must return true to keep the node alive.
+   * This method is called for every block of 128 audio samples.
+   * @param {Float32Array[][]} inputs - The input audio data.
+   * @returns {boolean} - Must return true to keep the processor alive.
    */
   process(inputs) {
     const inputChannel = inputs[0][0];
@@ -35,24 +27,37 @@ class PcmDownsampler extends AudioWorkletProcessor {
       return true;
     }
 
-    // Naive down-sampling by simply picking samples.
-    // This is not high quality, but it's simple and fast.
-    let inputIndex = 0;
-    while (inputIndex < inputChannel.length) {
-      // Add the next sample from the input to our output buffer
-      this.outputBuffer[this.outputBufferIndex] = inputChannel[inputIndex];
-      this.outputBufferIndex++;
+    // Combine unprocessed samples from the previous block with the new input
+    const currentSamples = new Float32Array(this.unprocessedSamples.length + inputChannel.length);
+    currentSamples.set(this.unprocessedSamples, 0);
+    currentSamples.set(inputChannel, this.unprocessedSamples.length);
 
-      // If the output buffer is full, send it to the main thread
-      if (this.outputBufferIndex === this.frameSize) {
-        this.port.postMessage(this.outputBuffer);
-        // Reset the buffer index
-        this.outputBufferIndex = 0;
-      }
-
-      // Move the input index by the resampling ratio
-      inputIndex += this.resamplingRatio;
+    // Calculate how many full output samples we can produce
+    const numOutputSamples = Math.floor(currentSamples.length / this.resamplingRatio);
+    if (numOutputSamples === 0) {
+      // Not enough samples to produce an output frame, buffer them for the next block
+      this.unprocessedSamples = currentSamples;
+      return true;
     }
+
+    const outputData = new Float32Array(numOutputSamples);
+    for (let i = 0; i < numOutputSamples; i++) {
+      const startIndex = Math.floor(i * this.resamplingRatio);
+      const endIndex = Math.floor((i + 1) * this.resamplingRatio);
+
+      let sum = 0;
+      for (let j = startIndex; j < endIndex; j++) {
+        sum += currentSamples[j];
+      }
+      outputData[i] = sum / (endIndex - startIndex);
+    }
+
+    // Save any remaining samples that didn't form a full output sample
+    const processedSamplesCount = Math.floor(numOutputSamples * this.resamplingRatio);
+    this.unprocessedSamples = currentSamples.slice(processedSamplesCount);
+
+    // Send the downsampled audio back to the main thread
+    this.port.postMessage(outputData);
 
     return true; // Keep the processor alive
   }

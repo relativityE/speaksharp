@@ -16,7 +16,7 @@ export const useSessionManager = () => {
         const tempSession = {
           ...sessionData,
           id: `anonymous-session-${Date.now()}`,
-          user_id: user.id,
+          user_id: `anon-${crypto.randomUUID()}`,
         };
         // Use sessionStorage to persist across a single session.
         sessionStorage.setItem('anonymous-session', JSON.stringify(tempSession));

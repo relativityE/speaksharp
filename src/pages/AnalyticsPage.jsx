@@ -6,16 +6,13 @@ import { useAuth } from '../contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Zap, Sparkles, BarChart, Home, Settings } from 'lucide-react';
-import { SessionStatus } from '@/components/SessionStatus';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Label } from '@/components/ui/label';
 
 const UpgradeBanner = () => {
     const navigate = useNavigate();
     return (
         <Card className="mb-8 bg-gradient-to-r from-purple-500 to-indigo-600 text-white shadow-lg">
-            <CardContent className="p-component-py flex items-center justify-between">
-                <div className="flex items-center gap-component-gap">
+            <CardContent className="p-6 flex items-center justify-between">
+                <div className="flex items-center gap-4">
                     <Sparkles className="w-8 h-8 text-yellow-300" />
                     <div>
                         <h3 className="font-bold text-lg">Unlock Your Full Potential</h3>
@@ -36,7 +33,6 @@ const AuthenticatedAnalyticsView = () => {
     const { sessionHistory, loading, error } = useSession();
     const { user, profile } = useAuth();
     const [singleSession, setSingleSession] = useState(null);
-    const [forceCloud, setForceCloud] = useState(false);
 
     const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
     const displaySessions = sessionId ? (singleSession ? [singleSession] : []) : sessionHistory;
@@ -85,9 +81,9 @@ const AuthenticatedAnalyticsView = () => {
 
 const AnonymousAnalyticsView = () => {
     const location = useLocation();
-    const { sessionData } = location.state || {};
+    const { sessionHistory } = location.state || {};
 
-    if (!sessionData) {
+    if (!sessionHistory || sessionHistory.length === 0) {
         return (
             <div className="text-center py-16">
                 <h2 className="text-2xl font-semibold mb-4">No Session Data</h2>
@@ -105,16 +101,23 @@ const AnonymousAnalyticsView = () => {
                 <h1 className="text-3xl font-bold text-foreground">Session Analysis</h1>
                 <p className="mt-2 text-base text-muted-foreground">Here's the analysis of your practice session. Sign up to save your progress!</p>
             </div>
-            <AnalyticsDashboard sessionHistory={[sessionData]} />
+            <AnalyticsDashboard
+                sessionHistory={sessionHistory}
+                profile={null}
+                loading={false}
+                error={null}
+            />
         </>
     );
 };
 
 export const AnalyticsPage = () => {
     const { user } = useAuth();
+    const isDevUser = import.meta.env.VITE_DEV_USER === 'true';
+
     return (
-        <div className="container mx-auto px-component-px py-10">
-            {user ? <AuthenticatedAnalyticsView /> : <AnonymousAnalyticsView />}
+        <div className="container mx-auto px-4 py-10">
+            {(user && !isDevUser) ? <AuthenticatedAnalyticsView /> : <AnonymousAnalyticsView />}
         </div>
     );
 };

@@ -4,9 +4,7 @@ import { stubThirdParties } from './sdkStubs';
 
 test.describe('Authentication Flows', () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(() => {
-      window.localStorage.setItem('supabase.auth.token', '{"currentSession":null,"expiresAt":0}');
-    });
+    // Stub all third-party services
     await stubThirdParties(page);
   });
 

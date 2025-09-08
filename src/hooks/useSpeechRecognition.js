@@ -1,4 +1,3 @@
-// hooks/useSpeechRecognition.js - FIXED
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -39,12 +38,11 @@ export const useSpeechRecognition = ({
     const [isSupported, setIsSupported] = useState(true);
     const [currentMode, setCurrentMode] = useState(null);
     const [modelLoadingProgress, setModelLoadingProgress] = useState(null);
-    const [elapsedTime, setElapsedTime] = useState(0); // Added for duration tracking
 
     const transcriptionServiceRef = useRef(null);
     const isMountedRef = useRef(true);
     const debounceTimerRef = useRef(null);
-    const stateRef = useRef({ finalChunks: [], wordConfidences: [], interimTranscript: '', finalFillerData: initialFillerData, elapsedTime: 0 });
+    const stateRef = useRef({ finalChunks: [], wordConfidences: [], interimTranscript: '', finalFillerData: initialFillerData });
 
     const initializationStateRef = useRef({
         isInitializing: false,
@@ -70,32 +68,14 @@ export const useSpeechRecognition = ({
         };
     }, []);
 
-    // Timer effect
-    useEffect(() => {
-        let interval;
-        if (isListening) {
-            interval = setInterval(() => {
-                setElapsedTime(prevTime => prevTime + 1);
-            }, 1000);
-        } else {
-            setElapsedTime(0);
-        }
-        return () => {
-            if (interval) clearInterval(interval);
-        };
-    }, [isListening]);
-
-
-    // Update the stateRef whenever state changes.
     useEffect(() => {
         stateRef.current = {
             finalChunks,
             wordConfidences,
             interimTranscript,
             finalFillerData,
-            elapsedTime,
         };
-    }, [finalChunks, wordConfidences, interimTranscript, finalFillerData, elapsedTime]);
+    }, [finalChunks, wordConfidences, interimTranscript, finalFillerData]);
 
     const onModelLoadProgress = useCallback((progress) => {
         if (isMountedRef.current) setModelLoadingProgress(progress);
@@ -164,7 +144,7 @@ export const useSpeechRecognition = ({
         }
     }, [authSession]);
 
-    const startListening = useCallback(async ({ forceCloud = false } = {}) => {
+    const startListening = useCallback(async ({ forceCloud = false, forceOnDevice = false, forceNative = false } = {}) => {
         if (isListening || !isMountedRef.current || initializationStateRef.current.isInitializing) return;
 
         initializationStateRef.current.isInitializing = true;
@@ -174,7 +154,6 @@ export const useSpeechRecognition = ({
         setIsSupported(true);
 
         try {
-            // FIX 5: Ensure the old service is fully destroyed before creating a new one.
             if (transcriptionServiceRef.current) {
                 await transcriptionServiceRef.current.destroy();
                 transcriptionServiceRef.current = null;
@@ -182,7 +161,7 @@ export const useSpeechRecognition = ({
 
             const service = new TranscriptionService({
                 onTranscriptUpdate, onModelLoadProgress, onReady: handleReady,
-                profile, forceCloud, session, navigate, getAssemblyAIToken,
+                profile, forceCloud, forceOnDevice, forceNative, session, navigate, getAssemblyAIToken,
             });
 
             transcriptionServiceRef.current = service;
@@ -219,8 +198,8 @@ export const useSpeechRecognition = ({
             if (isMountedRef.current) {
                 setIsListening(false);
                 setIsReady(false);
-                const { finalChunks, wordConfidences, interimTranscript, finalFillerData, elapsedTime } = stateRef.current;
-                const stats = calculateTranscriptStats(finalChunks, wordConfidences, interimTranscript, elapsedTime);
+                const { finalChunks, wordConfidences, interimTranscript, finalFillerData } = stateRef.current;
+                const stats = calculateTranscriptStats(finalChunks, wordConfidences, interimTranscript);
                 return { ...stats, filler_words: finalFillerData };
             }
         } catch (err) {
@@ -240,12 +219,11 @@ export const useSpeechRecognition = ({
         setError(null);
         setIsReady(false);
         setModelLoadingProgress(null);
-        setElapsedTime(0);
     }, [initialFillerData]);
 
     return {
         isListening, isReady, transcript, error, isSupported, mode: currentMode,
-        chunks: finalChunks, interimTranscript, fillerData, modelLoadingProgress, elapsedTime,
+        chunks: finalChunks, interimTranscript, fillerData, modelLoadingProgress,
         startListening, stopListening, reset,
     };
 };

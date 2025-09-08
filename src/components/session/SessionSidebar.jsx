@@ -1,14 +1,13 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { supabase } from '../../lib/supabaseClient';
 import logger from '../../lib/logger';
 import { Mic, Square, Loader2, Zap, Cloud, Computer } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { useStripe } from '@stripe/react-stripe-js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { formatDateTime } from '../../lib/dateUtils';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -59,101 +58,69 @@ const ModelLoadingIndicator = ({ progress }) => {
 export const SessionSidebar = ({ isListening, isReady, error, startListening, stopListening, reset, actualMode, saveSession, elapsedTime, modelLoadingProgress }) => {
     const navigate = useNavigate();
     const { user, profile } = useAuth();
-    const stripe = useStripe();
     const [isEndingSession, setIsEndingSession] = useState(false);
-    const [isUpgrading, setIsUpgrading] = useState(false);
     const [forceCloud, setForceCloud] = useState(false);
+    const [forceOnDevice, setForceOnDevice] = useState(false);
+    const [forceNative, setForceNative] = useState(false);
     const [showEndSessionDialog, setShowEndSessionDialog] = useState(false);
-    const [completedSessionData, setCompletedSessionData] = useState(null);
+    const [completedSessions, setCompletedSessions] = useState([]);
 
     const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
     const isModelLoading = modelLoadingProgress && modelLoadingProgress.status !== 'ready' && modelLoadingProgress.status !== 'error';
     const isConnecting = isListening && !isReady;
-
-    const handleUpgrade = async () => {
-        if (!user) {
-            navigate('/auth');
-            return;
-        }
-        setIsUpgrading(true);
-        try {
-            const { data, error } = await supabase.functions.invoke('stripe-checkout', { body: { priceId: import.meta.env.VITE_STRIPE_PRICE_ID } });
-            if (error) throw new Error(`Function Error: ${error.message}`);
-            const { sessionId } = data;
-            const { error: stripeError } = await stripe.redirectToCheckout({ sessionId });
-            if (stripeError) {
-                logger.error({ error: stripeError }, "Stripe redirect error:");
-                toast.error(<div className="toast toast-md toast-error">Error: {stripeError.message}</div>);
-            }
-        } catch (e) {
-            logger.error({ error: e }, "Upgrade process failed:");
-            toast.error(<div className="toast toast-md toast-error">Could not initiate the upgrade process. Please try again later.</div>);
-        } finally {
-            setIsUpgrading(false);
-        }
-    };
+    const isDevUser = import.meta.env.VITE_DEV_USER === 'true';
 
     const endSessionAndSave = async () => {
         setIsEndingSession(true);
         try {
             const sessionData = await stopListening();
             if (!sessionData || !sessionData.transcript) {
-                toast.error(<div className="toast toast-md toast-error">Session was too short or no speech was detected.</div>);
+                toast.error("No speech was detected. Session not saved.");
                 return;
             }
-            setCompletedSessionData(sessionData);
+            const sessionWithMetadata = {
+                ...sessionData,
+                duration: elapsedTime,
+                created_at: new Date().toISOString(),
+                title: `Session from ${formatDateTime(new Date())}`,
+            };
+            setCompletedSessions(prev => [...prev, sessionWithMetadata]);
             setShowEndSessionDialog(true);
         } catch (e) {
             logger.error({ error: e }, "Error ending session:");
-            toast.error(<div className="toast toast-md toast-error">An unexpected error occurred while ending the session.</div>);
+            toast.error("An unexpected error occurred while ending the session.");
         } finally {
             setIsEndingSession(false);
         }
     };
 
     const handleNavigateToAnalytics = async () => {
-        if (!completedSessionData) return;
+        if (completedSessions.length === 0) return;
 
-        const sessionWithDuration = {
-            ...completedSessionData,
-            duration: elapsedTime,
-        };
-
-        if (user) {
-            const { session: newSession, usageExceeded } = await saveSession(sessionWithDuration);
-            if (newSession && newSession.id) {
-                toast.success(<div className="toast toast-md toast-success">Session saved successfully!</div>);
-                navigate(`/analytics/${newSession.id}`);
-            } else {
-                toast.warning(<div className="toast toast-md toast-warning">Could not save the session. This can happen in test mode or if the session was too short. Your data has not been lost.</div>);
+        if (user && !isDevUser) {
+            for (const session of completedSessions) {
+                await saveSession(session);
             }
+            toast.success(`${completedSessions.length} session(s) saved successfully!`);
+            navigate(`/analytics`);
         } else {
-            toast.info(<div className="toast toast-md toast-info">Session complete. View your results below.</div>);
-            navigate('/analytics', { state: { sessionData: sessionWithDuration } });
+            toast.info("Session complete. View your results below.");
+            navigate('/analytics', { state: { sessionHistory: completedSessions } });
         }
-        setIsEndingSession(false);
+        setCompletedSessions([]);
+        setShowEndSessionDialog(false);
     };
 
     const handleStayOnPage = async () => {
-        if (!completedSessionData) return;
+        if (completedSessions.length === 0) return;
 
-        const sessionWithDuration = {
-            ...completedSessionData,
-            duration: elapsedTime,
-        };
-
-        if (user) {
-            const { session: newSession } = await saveSession(sessionWithDuration);
-            if (newSession) {
-                toast.success("Session saved successfully!");
-            } else {
-                toast.warning("Could not save the session.");
+        if (user && !isDevUser) {
+            for (const session of completedSessions) {
+                await saveSession(session);
             }
+            toast.success(`${completedSessions.length} session(s) saved successfully!`);
         }
-        // For anonymous users, the session is not saved to the backend,
-        // but it will be added to the global state by the parent component.
-        // We can just close the dialog.
-
+        setCompletedSessions([]);
         setShowEndSessionDialog(false);
     };
 
@@ -162,7 +129,7 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
             await endSessionAndSave();
         } else {
             reset();
-            await startListening({ forceCloud });
+            await startListening({ forceCloud, forceOnDevice, forceNative });
         }
     };
 
@@ -176,7 +143,7 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
     const isButtonDisabled = isListening ? isEndingSession : (isModelLoading || isConnecting);
 
     const ModeIndicator = () => {
-        const modeText = actualMode === 'cloud' ? 'Cloud AI' : 'Native Browser';
+        const modeText = actualMode === 'cloud' ? 'Cloud AI' : (actualMode === 'native' ? 'Native Browser' : 'On-Device');
         const Icon = actualMode === 'cloud' ? Cloud : Computer;
         return (
             <Badge variant="outline" className="flex items-center gap-2 py-1 px-3">
@@ -224,15 +191,42 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
                                 className="flex items-center gap-2 text-xs text-muted-foreground"
                                 onClick={() => {
                                     if (isListening) {
-                                        toast.info(<div className="toast toast-md toast-info">This option cannot be changed during an active session.</div>);
+                                        toast.info("This option cannot be changed during an active session.");
                                     }
                                 }}
                              >
                                 <Checkbox id="force-cloud" checked={forceCloud} onCheckedChange={setForceCloud} disabled={isListening}/>
                                 Force Cloud (Disable Fallback)
                             </Label>
+                            <Label
+                                htmlFor="force-on-device"
+                                className="flex items-center gap-2 text-xs text-muted-foreground"
+                                onClick={() => {
+                                    if (isListening) {
+                                        toast.info("This option cannot be changed during an active session.");
+                                    }
+                                }}
+                             >
+                                <Checkbox id="force-on-device" checked={forceOnDevice} onCheckedChange={setForceOnDevice} disabled={isListening}/>
+                                Force On-device (WIP)
+                            </Label>
+                            <Label
+                                htmlFor="force-native"
+                                className="flex items-center gap-2 text-xs text-muted-foreground"
+                                onClick={() => {
+                                    if (isListening) {
+                                        toast.info("This option cannot be changed during an active session.");
+                                    }
+                                }}
+                             >
+                                <Checkbox id="force-native" checked={forceNative} onCheckedChange={setForceNative} disabled={isListening}/>
+                                Force Native Browser
+                            </Label>
                             <div className="text-xs text-muted-foreground pt-2">
-                                Current User: <span className="font-bold text-foreground">{user?.email || 'Anonymous'}</span>
+                                Current User Role: <span className="font-bold text-foreground">
+                                    {profile?.subscription_status || (user ? 'free' : 'anonymous')}
+                                    {isDevUser && ' (dev)'}
+                                </span>
                             </div>
                         </div>
                     )}
@@ -246,11 +240,8 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
                             <p className="text-xs text-muted-foreground mb-2">
                                 Get unlimited practice, advanced analytics, and priority support.
                             </p>
-                            <Button size="sm" className="w-full font-bold group" variant="outline" onClick={handleUpgrade} disabled={isUpgrading}>
-                                {isUpgrading
-                                    ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Upgrading...</>
-                                    : <>Get Unlimited Practice <span className="ml-2 transition-transform duration-200 group-hover:translate-x-1">→</span></>
-                                }
+                            <Button size="sm" className="w-full font-bold group" variant="outline" disabled={true}>
+                                Upgrade Now
                             </Button>
                         </div>
                     )}

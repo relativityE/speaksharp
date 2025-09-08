@@ -1,11 +1,11 @@
 **Owner:** Jules
-**Last Reviewed:** 2025-09-06
+**Last Reviewed:** 2025-09-08
 
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp Product Requirements Document
 
-**Version 7.0** | **Last Updated: 2025-09-06**
+**Version 7.1** | **Last Updated: 2025-09-08**
 
 ## 1. Executive Summary
 
@@ -106,11 +106,8 @@ This section contains ASCII art diagrams illustrating the journey for each user 
 
 This section tracks high-level product risks and constraints. For a detailed technical debt and task breakdown, see the [Roadmap](./ROADMAP.md).
 
-*   **[RISK] Critical Application Bugs:** The application currently has several unfixed critical bugs that prevent core features from working as intended.
-    *   `[C-01]` Lack of Protected Routes: Sensitive user pages are publicly accessible.
-    *   `[C-02]` Flawed Auth Provider: The authentication system is unstable and prevents reliable testing.
-    *   `[C-03]` Anonymous User Flow is Broken: The main user acquisition funnel is non-functional.
-    *   `[C-04]` Premium Users Do Not Receive Paid Features: A critical monetization bug is preventing users from accessing features they paid for.
+*   **[RISK] Critical Application Bugs:** All previously known critical bugs (`[C-01]` through `[C-04]`) have been **resolved**. The core application is now considered stable.
+*   **[RISK] E2E Test Suite Instability:** The E2E test suite is currently the primary source of project risk. It is unstable and does not accurately test the application's real-world behavior. A full refactor of the test suite is the highest priority technical task.
 *   **[RISK] Unimplemented Features:** Core features described in this document, such as on-device transcription for Premium users, are not yet implemented.
 
 ---
@@ -131,15 +128,15 @@ The product's testing strategy is to use a combination of E2E, component, and un
 
 | E2E Golden Path | Status | Notes |
 | :--- | :--- | :--- |
-| **Anonymous User** | 🔴 **UNTESTED** | The anonymous user flow is broken (`[C-03]`) and cannot be reliably tested. |
-| **Free User** | 🔴 **UNTESTED** | The monetization funnel has no reliable E2E test. |
-| **Pro User** | 🔴 **UNTESTED** | The Pro user flow is blocked by the flawed auth provider (`[C-02]`). |
+| **Anonymous User** | 🟡 **Needs Refactor** | The user flow is now functional, but the test is brittle and needs to be refactored. |
+| **Free User** | 🟡 **Needs Refactor** | The user flow is now functional, but the test is brittle and needs to be refactored. |
+| **Pro User** | 🟡 **Needs Refactor** | The user flow is now functional, but the test is brittle and needs to be refactored. |
 | **Premium User** | ⚪️ N/A | Feature not yet implemented. |
 
 ### Latest Test Suite Run
 *   **Result:** 🔴 **Unstable**
-*   **Date:** 2025-09-06
-*   **Notes:** The test suite is currently unreliable. Many tests fail or hang due to underlying application bugs (`[C-02]`). The reported coverage numbers are not meaningful until the application is stabilized.
+*   **Date:** 2025-09-08
+*   **Notes:** The test suite is currently unreliable due to a flawed testing strategy that bypasses the real authentication flow. The reported coverage numbers are not meaningful. A full refactor of the test suite is required.
 
 ---
 
