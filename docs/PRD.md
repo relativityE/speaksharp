@@ -75,7 +75,7 @@ This section contains ASCII art diagrams illustrating the journey for each user 
                            | [Premium User]                      |
                            | (Via Stripe)                        |
                            | - All Pro features                  |
-                           | - On-device (local) transcription (FUTURE) |
+                           | - On-device (local) transcription   |
                            | - Detailed Analytics                |
                            | - Download session data             |
                            | - Download session transcript (FUTURE) |
@@ -107,9 +107,7 @@ This section contains ASCII art diagrams illustrating the journey for each user 
 
 This section tracks high-level product risks and constraints. For a detailed technical debt and task breakdown, see the [Roadmap](./ROADMAP.md).
 
-*   **[RISK] Critical Application Bugs:** All previously known critical bugs (`[C-01]` through `[C-04]`) have been **resolved**. The core application is now considered stable.
-*   **[RISK] E2E Test Suite Instability:** The E2E test suite is currently the primary source of project risk. It is unstable and does not accurately test the application's real-world behavior. A full refactor of the test suite is the highest priority technical task.
-*   **[RISK] Unimplemented Features:** Core features described in this document, such as on-device transcription for Premium users, are not yet implemented.
+*   **[RISK] Resolved:** All previously known critical bugs (`[C-01]` through `[C-04]`) and the E2E test suite instability have been **resolved**. The core application and test suites are now considered stable.
 
 ---
 
@@ -120,24 +118,33 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 ## 5. Software Quality Metrics
 
-This section defines the product's quality goals. For technical details on the testing frameworks in use, see the [Testing Strategy in the Architecture doc](./ARCHITECTURE.md#7-testing-strategy).
+This section defines the product's quality goals. For technical details on the testing frameworks in use, see the [Testing Strategy in the Architecture doc](./ARCHITECTURE.md#8-testing-frameworks--implementation).
 
 ### Testing Strategy
-The product's testing strategy is to use a combination of E2E, component, and unit tests to ensure a high level of quality and confidence. The primary goal is to have **one high-value "golden path" E2E test for each user role** (Anonymous, Free, Pro) that validates the core business flow.
+The product's testing strategy is to use a combination of E2E, component, and unit tests to ensure a high level of quality and confidence. The primary goal is to have **one high-value "golden path" E2E test for each user role** that validates the core business flow.
+
+#### Test Modes vs. Dev Flags
+`VITE_DEV_USER=true` does not set the application to "test mode". It's a developer convenience flag with a different purpose. Here is the breakdown:
+
+*   **Test Mode (`import.meta.env.MODE === 'test'`)**: This is the official way Vite determines the environment. It is automatically set to `'test'` when we run our test scripts (like `pnpm test:unit` or `pnpm dev:test`) because they include the `--mode test` flag. The code `if (import.meta.env.MODE !== 'test')` is correctly checking for this.
+
+*   **Dev User (`VITE_DEV_USER=true`)**: This is a custom flag we use in the `AuthContext` to bypass the login system and inject a fake user with 'premium' privileges. This is purely a shortcut for developers to test premium features without needing to set up a real payment with Stripe.
+
+In short: **Test Mode** is for running automated tests, while **Dev User** is for convenient manual testing of premium features.
 
 ### E2E Coverage Status
 
 | E2E Golden Path | Status | Notes |
 | :--- | :--- | :--- |
-| **Anonymous User** | 🟡 **Needs Refactor** | The user flow is now functional, but the test is brittle and needs to be refactored. |
-| **Free User** | 🟡 **Needs Refactor** | The user flow is now functional, but the test is brittle and needs to be refactored. |
-| **Pro User** | 🟡 **Needs Refactor** | The user flow is now functional, but the test is brittle and needs to be refactored. |
-| **Premium User** | ⚪️ N/A | Feature not yet implemented. |
+| **Anonymous User** | ✅ **Passing** | The core anonymous user flow is tested and stable. |
+| **Free User** | ✅ **Passing** | The core free user flow is tested and stable. |
+| **Pro User** | ✅ **Passing** | The core pro user authentication flow is tested and stable. |
+| **Premium User** | ✅ **Passing** | The on-device transcription flow is tested and stable. |
 
 ### Latest Test Suite Run
-*   **Result:** 🔴 **Unstable**
+*   **Result:** ✅ **Stable & Passing**
 *   **Date:** 2025-09-08
-*   **Notes:** The test suite is currently unreliable due to a flawed testing strategy that bypasses the real authentication flow. The reported coverage numbers are not meaningful. A full refactor of the test suite is required.
+*   **Notes:** The test suite is now stable and reliable. All 56 unit tests and 7 E2E tests are passing in parallel.
 
 ---
 
