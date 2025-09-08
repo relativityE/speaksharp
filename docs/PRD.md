@@ -78,6 +78,7 @@ This section contains ASCII art diagrams illustrating the journey for each user 
                            | - On-device (local) transcription   |
                            | - Detailed Analytics                |
                            | - Download session data             |
+                           | - Download session transcript (FUTURE) |
                            +-------------------------------------+
 ```
 

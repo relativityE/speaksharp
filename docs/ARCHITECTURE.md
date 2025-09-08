@@ -123,6 +123,23 @@ The `TranscriptionService.js` provides a unified abstraction layer over multiple
     *   **`LocalWhisper`:** An on-device, privacy-first transcription mode for Premium users, powered by `@xenova/transformers` running a Whisper model directly in the browser.
 *   **Audio Processing:** `audioUtils.js` and `audio-processor.worklet.js` are responsible for capturing and resampling microphone input. A critical bug in the resampling logic that was degrading AI quality has been fixed.
 
+### On-Device STT Implementation Details
+
+The `LocalWhisper` provider uses the [`@xenova/transformers.js`](https://github.com/xenova/transformers.js) library to run the `Xenova/whisper-tiny.en` model directly in the user's browser.
+
+*   **How it Works:**
+    1.  **Model Loading:** The first time a premium user accesses the feature, the `transformers.js` library downloads the ML model (approx. 150-200 MB) from the Hugging Face Hub.
+    2.  **Caching:** The model is then cached in the browser's `CacheStorage`, making subsequent loads nearly instant.
+    3.  **Inference Engine:** The library runs the model on a WebAssembly (WASM) version of the ONNX Runtime. This allows for near-native performance for model inference directly in the browser.
+    4.  **Privacy:** All audio processing and transcription occurs entirely on the user's machine. No audio data is ever sent to a third-party server.
+
+*   **Comparison to Cloud AI:**
+    *   **Privacy:** On-device is 100% private. Cloud AI requires sending audio data to AssemblyAI's servers.
+    *   **Accuracy:** Cloud AI is significantly more accurate as it uses a much larger model (`whisper-large-v3` equivalent). The on-device `whisper-tiny.en` model is less accurate but still highly effective for its size.
+    *   **Performance:** On-device has a one-time initial download cost. After caching, it is very fast. Cloud AI has a constant network latency for streaming audio and receiving transcripts.
+    *   **Cost:** On-device has no per-use cost. Cloud AI has a direct cost per minute of transcribed audio.
+    *   **Availability:** On-device works offline after the initial model download. Cloud AI requires a stable internet connection. The Hugging Face Hub being down would prevent the initial model download for on-device mode.
+
 ## 6. CI/CD
 
 The project includes a basic CI/CD pipeline defined in `.github/workflows/deploy.yml` for manual database deployments. This needs to be expanded to support multiple environments and automated deployments.

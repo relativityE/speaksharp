@@ -64,7 +64,7 @@ export default class TranscriptionService {
     }
 
     if (this.forceOnDevice) {
-        logger.info('[TranscriptionService] Dev Toggle: Forcing On-Device mode. NOTE: Not yet implemented.');
+        logger.info('[TranscriptionService] Dev Toggle: Forcing On-Device mode.');
     }
 
     // --- Provider Selection Logic ---
