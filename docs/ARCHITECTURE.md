@@ -43,8 +43,8 @@ This section contains a high-level block diagram of the SpeakSharp full-stack ar
 |    | TranscriptionService            |                   ^                                       |              |
 |    |---------------------------------|                   |                                       |              |
 |    | - `CloudAssemblyAI` (Pro)       |-------------------+                                       |              |
-|    | - `NativeBrowser` (Cloud Fallback)|                 |                                       |              |
-|    | - `LocalWhisper` (Premium, FUTURE)|                 |                                       |              |
+|    | - `NativeBrowser` (Free/Fallback) |                 |                                       |              |
+|    | - `LocalWhisper` (Premium)      |                   |                                       |              |
 |    +---------------------------------+       +---------------------------------+                 |              |
 |              |                                | Deno Edge Functions             |-----------------+              |
 |              v                                |---------------------------------|                                |
@@ -111,18 +111,34 @@ The application defines several user tiers that control access to features and u
 *   **Anonymous User:** A user who has not signed in. The flow for this user is now functional.
 *   **Free User (Authenticated):** A user who has created an account but does not have an active Pro subscription.
 *   **Pro User (Authenticated):** A user with an active, paid subscription via Stripe.
-*   **Premium User:** A user with an active premium subscription. The monetization logic for this tier has been fixed.
-    *   **Future Features:** On-device transcription, detailed analytics, and data downloads are planned for this tier but are **not yet implemented**.
+*   **Premium User:** A user with an active premium subscription. This tier provides access to on-device, privacy-first transcription.
 
 ## 5. Transcription Service (`src/services/transcription`)
 
 The `TranscriptionService.js` provides a unified abstraction layer over multiple transcription providers.
 
 *   **Modes:**
-    *   **`CloudAssemblyAI`:** Uses the AssemblyAI v3 streaming API for high-accuracy cloud-based transcription.
+    *   **`CloudAssemblyAI`:** Uses the AssemblyAI v3 streaming API for high-accuracy cloud-based transcription. This is the primary mode for Pro users.
     *   **`NativeBrowser`:** Uses the browser's built-in `SpeechRecognition` API. This is the primary mode for Free users and a fallback for Pro users.
-    *   **`LocalWhisper` (Not Yet Implemented):** A planned on-device, privacy-first transcription mode for Premium users.
+    *   **`LocalWhisper`:** An on-device, privacy-first transcription mode for Premium users, powered by `@xenova/transformers` running a Whisper model directly in the browser.
 *   **Audio Processing:** `audioUtils.js` and `audio-processor.worklet.js` are responsible for capturing and resampling microphone input. A critical bug in the resampling logic that was degrading AI quality has been fixed.
+
+### On-Device STT Implementation Details
+
+The `LocalWhisper` provider uses the [`@xenova/transformers.js`](https://github.com/xenova/transformers.js) library to run the `Xenova/whisper-tiny.en` model directly in the user's browser.
+
+*   **How it Works:**
+    1.  **Model Loading:** The application now hosts the model files locally in the `/public/models/` directory. When a premium user first accesses the feature, the `transformers.js` library fetches the model from the application's own domain. This removes the external dependency on the Hugging Face Hub, improving reliability.
+    2.  **Caching:** The model is then cached in the browser's `CacheStorage`, making subsequent loads nearly instant.
+    3.  **Inference Engine:** The library runs the model on a WebAssembly (WASM) version of the ONNX Runtime. This allows for near-native performance for model inference directly in the browser.
+    4.  **Privacy:** All audio processing and transcription occurs entirely on the user's machine. No audio data is ever sent to a third-party server.
+
+*   **Comparison to Cloud AI:**
+    *   **Privacy:** On-device is 100% private. Cloud AI requires sending audio data to AssemblyAI's servers.
+    *   **Accuracy:** Cloud AI is significantly more accurate as it uses a much larger model (`whisper-large-v3` equivalent). The on-device `whisper-tiny.en` model is less accurate but still highly effective for its size.
+    *   **Performance:** On-device has a one-time initial download cost. After caching, it is very fast. Cloud AI has a constant network latency for streaming audio and receiving transcripts.
+    *   **Cost:** On-device has no per-use cost. Cloud AI has a direct cost per minute of transcribed audio.
+    *   **Availability:** On-device works offline after the initial model download. Cloud AI requires a stable internet connection. The Hugging Face Hub being down would prevent the initial model download for on-device mode.
 
 ## 6. CI/CD
 
@@ -130,7 +146,7 @@ The project includes a basic CI/CD pipeline defined in `.github/workflows/deploy
 
 ## 7. Known Issues
 
-*   **E2E Test Suite Instability:** The Playwright E2E test suite is currently unstable and produces unreliable results. The root cause has been identified as a flawed testing strategy that bypasses the real authentication flow. The tests need to be refactored to interact with the application as a real user would. This is the highest priority technical debt item.
+*   All major technical debt related to the test suite has been resolved. The remaining tech debt is tracked in the [Roadmap](./ROADMAP.md).
 
 ## 8. Testing Frameworks & Implementation
 
@@ -142,9 +158,8 @@ This section describes the tools and technical practices used for testing. For t
 3.  **Clean Up Mocks:** All test files that use `vi.mock` or `vi.spyOn` should include an `afterEach(() => { vi.restoreAllMocks(); });` block.
 
 ### E2E Test Architecture
-**WARNING: The current E2E test architecture is a known source of instability and unreliable test results.**
+The E2E test architecture is now stable and follows best practices.
 
-- **Network Stubbing (`tests/sdkStubs.ts`):** Uses `page.route()` to intercept outgoing network requests to third-party services and Supabase.
-- **Session Injection (`__E2E_MOCK_SESSION__`):** The current E2E tests use an invasive anti-pattern to test authenticated states. They inject a `__E2E_MOCK_SESSION__` global variable into the browser *before* the application loads. The `AuthContext` contains a **critical bug** where it detects this variable and bypasses all of its real authentication logic. This means the E2E tests **do not test the actual authentication flow of the application**, leading to a false sense of security and contributing to the test suite's instability. This must be refactored.
+- **Network Stubbing (`tests/sdkStubs.ts`):** Uses `page.route()` to intercept outgoing network requests to third-party services and Supabase. This is done after navigating to `about:blank` to prevent race conditions with the application's startup.
+- **Real Authentication Flow:** The tests now interact with the application like a real user. They fill out the login form on the `/auth` page, and the `sdkStubs.ts` file provides mock responses to the authentication API calls. This ensures the entire authentication flow is tested.
 - **Media Device Mocking (`tests/mockMedia.ts`):** Uses an init script to replace `navigator.mediaDevices.getUserMedia` with a function that returns a fake audio stream, bypassing browser permission prompts.
-- **State Synchronization (`waitForAppReady`):** A helper function that attempts to wait for the application to be ready before interacting with it. Its reliability is compromised by the underlying bugs in `AuthContext`.
