@@ -1,12 +1,9 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within } from '../test/test-utils'; // Use the custom render
 import { describe, it, expect, vi } from 'vitest';
-import { MemoryRouter } from 'react-router-dom';
 import { AnalyticsDashboard, AnalyticsDashboardSkeleton } from '../components/AnalyticsDashboard';
-import { useAuth } from '../contexts/AuthContext';
 import { FILLER_WORD_KEYS } from '../config';
 
 // Mock dependencies
-vi.mock('../contexts/AuthContext');
 vi.mock('../lib/pdfGenerator', () => ({
   generateSessionPdf: vi.fn(),
 }));
@@ -47,92 +44,83 @@ const mockSessionHistory = [
 ];
 
 describe('AnalyticsDashboard', () => {
-  it('renders the empty state when no session history is provided', () => {
-    useAuth.mockReturnValue({ profile: { subscription_status: 'free' } });
-    render(
-        <MemoryRouter>
-            <AnalyticsDashboard sessionHistory={[]} profile={{ subscription_status: 'free' }} />
-        </MemoryRouter>
-    );
-    expect(screen.getByText('Your Dashboard Awaits!')).not.toBeNull();
-  });
+    const proAuthMock = { profile: { subscription_status: 'pro' } };
+    const freeAuthMock = { profile: { subscription_status: 'free' } };
 
-  it('renders the main dashboard with data for a pro user', () => {
-    useAuth.mockReturnValue({ profile: { subscription_status: 'pro' } });
-    render(
-        <MemoryRouter>
-            <AnalyticsDashboard sessionHistory={mockSessionHistory} profile={{ subscription_status: 'pro' }} />
-        </MemoryRouter>
-    );
+    it('renders the empty state when no session history is provided', () => {
+        render(
+            <AnalyticsDashboard sessionHistory={[]} profile={freeAuthMock.profile} />,
+            { authMock: freeAuthMock }
+        );
+        expect(screen.getByText('Your Dashboard Awaits!')).toBeInTheDocument();
+    });
 
-    const totalSessionsCard = screen.getByTestId('stat-card-total-sessions');
-    expect(within(totalSessionsCard).getByText('2')).not.toBeNull();
+    it('renders the main dashboard with data for a pro user', () => {
+        render(
+            <AnalyticsDashboard sessionHistory={mockSessionHistory} profile={proAuthMock.profile} />,
+            { authMock: proAuthMock }
+        );
 
-    const avgFillerCard = screen.getByTestId('stat-card-avg.-filler-words-/-min');
-    expect(within(avgFillerCard).getByText('0.7')).not.toBeNull();
+        const totalSessionsCard = screen.getByTestId('stat-card-total-sessions');
+        expect(within(totalSessionsCard).getByText('2')).toBeInTheDocument();
 
-    const totalTimeCard = screen.getByTestId('stat-card-total-practice-time');
-    const timeValueElement = totalTimeCard.querySelector('.text-4xl');
-    expect(timeValueElement).toHaveTextContent('15');
+    const avgFillerCard = screen.getByTestId('avg-filler-words-min');
+        expect(within(avgFillerCard).getByText('0.7')).toBeInTheDocument();
 
-    const avgAccuracyCard = screen.getByTestId('stat-card-avg.-accuracy');
-    const accuracyValueElement = avgAccuracyCard.querySelector('.text-4xl');
-    expect(accuracyValueElement).toHaveTextContent('96.5');
+        const totalTimeCard = screen.getByTestId('total-practice-time');
+        const timeValueElement = totalTimeCard.querySelector('.text-4xl');
+        expect(timeValueElement).toHaveTextContent('15.0');
 
-    expect(screen.queryAllByTestId('responsive-container')).toHaveLength(1);
-    expect(screen.queryByText('Unlock Your Full Potential')).toBeNull();
-    // The PDF button is not part of this component anymore. It's in the SessionView.
-    // expect(screen.getAllByRole('button', { name: /Download Session PDF/i })).toHaveLength(2);
-  });
+        const avgAccuracyCard = screen.getByTestId('avg-accuracy');
+        const accuracyValueElement = avgAccuracyCard.querySelector('.text-4xl');
+        expect(accuracyValueElement).toHaveTextContent('96.5');
 
-  it('renders the main dashboard with data for a free user', () => {
-    useAuth.mockReturnValue({ profile: { subscription_status: 'free' } });
-    render(
-        <MemoryRouter>
-            <AnalyticsDashboard sessionHistory={mockSessionHistory} profile={{ subscription_status: 'free' }} />
-        </MemoryRouter>
-    );
+        expect(screen.queryAllByTestId('responsive-container')).toHaveLength(1);
+        expect(screen.queryByText('Unlock Your Full Potential')).not.toBeInTheDocument();
+    });
 
-    expect(screen.getByText('Unlock Your Full Potential')).not.toBeNull();
-  });
+    it('renders the main dashboard with data for a free user', () => {
+        render(
+            <AnalyticsDashboard sessionHistory={mockSessionHistory} profile={freeAuthMock.profile} />,
+            { authMock: freeAuthMock }
+        );
 
-  it('applies the correct contrast styling to the Upgrade Now button', () => {
-    useAuth.mockReturnValue({ profile: { subscription_status: 'free' } });
-    render(
-      <MemoryRouter>
-        <AnalyticsDashboard sessionHistory={mockSessionHistory} profile={{ subscription_status: 'free' }} />
-      </MemoryRouter>
-    );
+        expect(screen.getByText('Unlock Your Full Potential')).toBeInTheDocument();
+    });
 
-    const upgradeButton = screen.getByRole('button', { name: /Upgrade Now/i });
-    expect(upgradeButton.className).toContain('bg-white');
+    it('applies the correct contrast styling to the Upgrade Now button', () => {
+        render(
+          <AnalyticsDashboard sessionHistory={mockSessionHistory} profile={freeAuthMock.profile} />,
+          { authMock: freeAuthMock }
+        );
+
+        const upgradeButton = screen.getByRole('button', { name: /Upgrade Now/i });
+        expect(upgradeButton.className).toContain('bg-white');
     expect(upgradeButton.className).toContain('text-primary');
-  });
+    });
 
-  it('renders the session history items with correct duration', () => {
-    useAuth.mockReturnValue({ profile: { subscription_status: 'pro' } });
-    render(
-      <MemoryRouter>
-        <AnalyticsDashboard sessionHistory={mockSessionHistory} profile={{ subscription_status: 'pro' }} />
-      </MemoryRouter>
-    );
+    it('renders the session history items with correct duration', () => {
+        render(
+          <AnalyticsDashboard sessionHistory={mockSessionHistory} profile={proAuthMock.profile} />,
+          { authMock: proAuthMock }
+        );
 
-    const sessionItems = screen.getAllByTestId('session-history-item');
-    expect(sessionItems).toHaveLength(2);
+        const sessionItems = screen.getAllByTestId('session-history-item');
+        expect(sessionItems).toHaveLength(2);
 
-    // Check Session 1
-    expect(within(sessionItems[0]).getByText('Test Session 1')).toBeInTheDocument();
-    expect(within(sessionItems[0]).getByText('10.0 min')).toBeInTheDocument();
+        // Check Session 1
+        expect(within(sessionItems[0]).getByText('Test Session 1')).toBeInTheDocument();
+        expect(within(sessionItems[0]).getByText('10.0 min')).toBeInTheDocument();
 
-    // Check Session 2
-    expect(within(sessionItems[1]).getByText('Test Session 2')).toBeInTheDocument();
-    expect(within(sessionItems[1]).getByText('5.0 min')).toBeInTheDocument();
-  });
+        // Check Session 2
+        expect(within(sessionItems[1]).getByText('Test Session 2')).toBeInTheDocument();
+        expect(within(sessionItems[1]).getByText('5.0 min')).toBeInTheDocument();
+    });
 });
 
 describe('AnalyticsDashboardSkeleton', () => {
     it('renders the skeleton component', () => {
         const { container } = render(<AnalyticsDashboardSkeleton />);
-        expect(container.querySelector('.animate-pulse')).not.toBeNull();
+        expect(container.querySelector('.animate-pulse')).toBeInTheDocument();
     });
 });

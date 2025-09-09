@@ -21,7 +21,9 @@
     "test:all": "pnpm build && pnpm test:e2e",
     "db:new": "pnpm exec supabase migrations new",
     "db:reset": "pnpm exec supabase db reset",
-    "db:push": "pnpm exec supabase db push"
+    "db:seed": "pnpm exec supabase db reset && psql \"$SUPABASE_DB_URL\" -f supabase/seed.sql",
+    "db:push": "pnpm exec supabase db push",
+    "model:update": "bash scripts/update-model.sh"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.0.1",

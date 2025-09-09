@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within } from '../../test/test-utils'; // Use custom render
 import { describe, it, expect, vi } from 'vitest';
 import { AnalyticsDashboard } from '../AnalyticsDashboard';
 import '@testing-library/jest-dom';
@@ -12,31 +12,39 @@ vi.mock('../ErrorDisplay', () => ({
   ErrorDisplay: ({ error }) => <div data-testid="error-display">{error.message}</div>,
 }));
 
-vi.mock('react-router-dom', () => ({
-  ...vi.importActual('react-router-dom'),
-  useNavigate: () => vi.fn(),
-}));
+// We need to mock recharts for the same reason as the other test file
+vi.mock('recharts', async (importOriginal) => {
+    const original = await importOriginal();
+    return {
+        ...original,
+        ResponsiveContainer: ({ children }) => <div data-testid="responsive-container">{children}</div>,
+    };
+});
+
+// react-router-dom is already handled by our custom render's MemoryRouter
+// no need to mock it here anymore.
 
 describe('AnalyticsDashboard', () => {
   const mockSessionHistory = [
     { id: 1, created_at: new Date().toISOString(), duration: 60, filler_words: { um: { count: 1 } }, accuracy: 0.9, title: 'Test Session' },
   ];
   const mockProfile = { subscription_status: 'pro' };
+  const authMock = { profile: mockProfile, loading: false };
 
   it('renders skeleton when loading', () => {
-    const { container } = render(<AnalyticsDashboard loading={true} />);
+    const { container } = render(<AnalyticsDashboard loading={true} />, { authMock });
     expect(container.querySelector('.animate-pulse')).toBeInTheDocument();
   });
 
   it('renders error display when an error is provided', () => {
     const error = { message: 'Failed to load data' };
-    render(<AnalyticsDashboard error={error} />);
+    render(<AnalyticsDashboard error={error} />, { authMock });
     expect(screen.getByTestId('error-display')).toBeInTheDocument();
     expect(screen.getByText('Failed to load data')).toBeInTheDocument();
   });
 
   it('renders empty state when there is no session history', () => {
-    render(<AnalyticsDashboard sessionHistory={[]} loading={false} error={null} />);
+    render(<AnalyticsDashboard sessionHistory={[]} loading={false} error={null} />, { authMock });
     expect(screen.getByText('Your Dashboard Awaits!')).toBeInTheDocument();
   });
 
@@ -59,14 +67,14 @@ describe('AnalyticsDashboard', () => {
         </div>
     ));
 
-    render(<AnalyticsDashboard sessionHistory={mockSessionHistory} profile={mockProfile} loading={false} error={null} />);
+    render(<AnalyticsDashboard sessionHistory={mockSessionHistory} profile={mockProfile} loading={false} error={null} />, { authMock });
 
     // Check that stat cards are rendered with data from our mocked util
     const totalSessionsCard = screen.getByTestId('stat-card-total-sessions');
     expect(within(totalSessionsCard).getByText('Total Sessions')).toBeInTheDocument();
     expect(within(totalSessionsCard).getByText('5')).toBeInTheDocument();
 
-    const avgFwCard = screen.getByTestId('stat-card-avg.-filler-words-/-min');
+    const avgFwCard = screen.getByTestId('avg-filler-words-min');
     expect(within(avgFwCard).getByText('3.2')).toBeInTheDocument();
 
     // Check that the FillerWordTable is rendered

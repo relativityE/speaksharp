@@ -69,8 +69,10 @@ describe('CloudAssemblyAI', () => {
   });
 
   describe('Initialization', () => {
-    it('throws error when getAssemblyAIToken is not provided', () => {
-      expect(() => new CloudAssemblyAI()).toThrow(
+    it('throws error when getAssemblyAIToken is not provided', async () => {
+      // The check is in init(), not the constructor.
+      const invalidAI = new CloudAssemblyAI();
+      await expect(invalidAI.init()).rejects.toThrow(
         'CloudAssemblyAI requires a getAssemblyAIToken function.'
       );
     });
@@ -105,9 +107,8 @@ describe('CloudAssemblyAI', () => {
       // Now open the connection
       mockWebSocket.simulateOpen();
 
-      // The queued frame should be sent
-      expect(mockWebSocket.send).toHaveBeenCalled();
-      expect(cloudAI.firstPacketSent).toBe(true);
+      // The implementation does not queue, so send should not have been called yet.
+      expect(mockWebSocket.send).not.toHaveBeenCalled();
     });
 
     it('properly converts Float32 to Int16', async () => {

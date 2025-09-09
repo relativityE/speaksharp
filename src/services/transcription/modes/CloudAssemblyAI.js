@@ -7,6 +7,7 @@ export default class CloudAssemblyAI {
     this.mic = null;
     this.frameHandler = this._handleAudioFrame.bind(this);
     this.firstPacketSent = false;
+    this.audioQueue = [];
   }
 
   async init() {
@@ -109,9 +110,11 @@ export default class CloudAssemblyAI {
       console.log('[CloudAssemblyAI] Sending termination message.');
       this.socket.send(JSON.stringify({ type: "Terminate" }));
       this.socket.close(1000);
-      this.socket = null;
     } else {
       console.log('[CloudAssemblyAI] No active socket to stop.');
     }
+    // Reset state
+    this.socket = null;
+    this.firstPacketSent = false;
   }
 }

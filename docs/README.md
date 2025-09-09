@@ -40,10 +40,30 @@ Here are the direct links to the core documents:
     ```
     Populate the `.env` file with your Supabase project URL and anon key, as well as any other required service keys.
 
-4.  **Run database migrations (if using a local Supabase instance):**
+4.  **Set up the local database:**
+    To reset your local Supabase database and populate it with required test users (e.g., free, premium), run the following command:
     ```bash
-    supabase db reset
+    pnpm db:seed
     ```
+    This command completely resets the database, runs all migrations, and then executes the seed script.
+
+### Development Workflow
+
+Our goal is to make local development as smooth as possible. Here are some key scripts and variables to help you.
+
+*   **Testing Premium Features Locally:**
+    To test premium features without a real Stripe subscription, you can grant any user 'premium' status on the client-side. Add the following line to your `.env` file:
+    ```
+    VITE_DEV_PREMIUM_ACCESS=true
+    ```
+    When this variable is set, any user you are logged in as will have their subscription status overridden to `premium` in the app.
+
+*   **Managing On-Device ML Models:**
+    The on-device transcription feature requires ML model files to be hosted locally in the `/public/models` directory. To download or update a model from Hugging Face, use the `model:update` script:
+    ```bash
+    pnpm model:update Xenova/whisper-tiny.en
+    ```
+    Replace `Xenova/whisper-tiny.en` with the desired model name.
 
 ### Running the Development Server
 

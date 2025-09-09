@@ -40,39 +40,17 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
-    // Handle the 'dev' user role for testing purposes
-    if (import.meta.env.VITE_DEV_USER === 'true') {
-      const devUser = {
-        id: 'dev-user-id',
-        email: 'dev@example.com',
-        aud: 'authenticated',
-        role: 'authenticated',
-      };
-      const devSession = {
-        access_token: 'dev-access-token',
-        refresh_token: 'dev-refresh-token',
-        user: devUser,
-        token_type: 'bearer',
-        expires_in: 3600,
-        expires_at: Math.floor(Date.now() / 1000) + 3600,
-      };
-      const devProfile = {
-        id: 'dev-user-id',
-        subscription_status: 'premium',
-      };
-
-      setSession(devSession as any);
-      setProfile(devProfile);
-      setLoading(false);
-      return; // Skip real auth logic for dev user
-    }
-
     const setData = async () => {
       const { data: { session }, error } = await supabase.auth.getSession();
       if (error) {
         console.error("Error getting session:", error);
       } else if (session?.user) {
-        const userProfile = await getProfileFromDb(session.user.id);
+        let userProfile = await getProfileFromDb(session.user.id);
+        // For local development, allow overriding the subscription status to 'premium'
+        if (userProfile && import.meta.env.DEV && import.meta.env.VITE_DEV_PREMIUM_ACCESS === 'true') {
+            console.log("Developer premium access override enabled.");
+            userProfile.subscription_status = 'premium';
+        }
         setProfile(userProfile);
       }
       setSession(session);
@@ -86,7 +64,12 @@ export function AuthProvider({ children }) {
         setSession(newSession);
         if (newSession?.user) {
           setLoading(true);
-          const userProfile = await getProfileFromDb(newSession.user.id);
+          let userProfile = await getProfileFromDb(newSession.user.id);
+          // For local development, allow overriding the subscription status to 'premium'
+          if (userProfile && import.meta.env.DEV && import.meta.env.VITE_DEV_PREMIUM_ACCESS === 'true') {
+            console.log("Developer premium access override enabled.");
+            userProfile.subscription_status = 'premium';
+          }
           setProfile(userProfile);
           setLoading(false);
         } else {

@@ -152,6 +152,22 @@ The project includes a basic CI/CD pipeline defined in `.github/workflows/deploy
 
 This section describes the tools and technical practices used for testing. For the product-level testing strategy and quality goals, see the [Software Quality Metrics in the PRD](./PRD.md#5-software-quality-metrics).
 
+### Vite/Vitest Configuration
+
+The stability of the unit and component test suite hinges on several key configurations in `vite.config.mjs`:
+
+1.  **Static Configuration:** The configuration is exported as a single, static object rather than using a function with conditional logic. This was implemented to fix a critical bug where the test-specific configurations were not being reliably applied, causing the entire test suite to become unstable.
+2.  **JSDOM Environment:** The `test.environment` is explicitly set to `'jsdom'`. This provides a simulated browser environment, making critical objects like `window` and `document` available. This is essential for testing React components that need to render to a DOM.
+3.  **Strict Exclusion:** The `test.exclude` array is configured to explicitly ignore the `**/tests/**` directory. This is a critical separation of concerns, preventing the Vitest unit test runner from attempting to execute Playwright E2E tests, which use a different runner and syntax.
+
+### Global Test Mocks (`src/test/setup.tsx`)
+
+To create a stable and predictable test environment, several key dependencies and browser APIs are mocked globally in the test setup file:
+
+*   **Native Node.js Modules:** Modules with native C++ bindings, like `sharp`, often fail to build or run in containerized CI/CD environments. To prevent this, `sharp` is globally mocked to return a simple, non-functional version of itself.
+*   **Browser-Specific APIs:** The `jsdom` environment does not implement all browser APIs. Any components that rely on features like `SpeechRecognition`, `navigator.mediaDevices`, or `URL.createObjectURL` would fail. These APIs are mocked globally to ensure that the components can render and be tested without runtime errors.
+*   **Third-Party Services:** Services like Supabase, Stripe, PostHog, and Sonner are globally mocked to prevent tests from making actual network calls. This makes tests faster, more reliable, and prevents them from depending on external state.
+
 ### Required Practices
 1.  **Use the Unified Test Helper:** All component tests **must** use the `renderWithAllProviders` function from `src/test/test-utils.jsx` to prevent memory leaks and ensure access to necessary contexts.
 2.  **Mock Strategically:** For complex hooks like `useSpeechRecognition`, mock the hook itself to test the component's response to different states.

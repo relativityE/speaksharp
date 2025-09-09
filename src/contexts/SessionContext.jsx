@@ -3,7 +3,7 @@ import { getSessionHistory } from '@/lib/storage';
 import { useAuth } from './AuthContext';
 import logger from '@/lib/logger';
 
-const SessionContext = createContext();
+export const SessionContext = createContext();
 
 export const useSession = () => useContext(SessionContext);
 

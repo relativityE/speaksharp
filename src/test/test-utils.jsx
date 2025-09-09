@@ -1,50 +1,51 @@
 import React from 'react';
 import { render } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { Elements } from '@stripe/react-stripe-js';
 import { vi } from 'vitest';
 
-import { AuthProvider } from '../contexts/AuthContext';
-import { SessionProvider } from '../contexts/SessionContext';
+import { AuthContext } from '../contexts/AuthContext';
+import { SessionContext } from '../contexts/SessionContext';
 import { Toaster } from '@/components/ui/sonner';
 
-// A more robust mock for the Stripe object that satisfies the <Elements> provider
-const mockStripePromise = Promise.resolve({
-  elements: vi.fn(() => ({
-    create: vi.fn(),
-    getElement: vi.fn(),
-    update: vi.fn(),
-    fetchUpdates: vi.fn(),
-    on: vi.fn(),
-    off: vi.fn(),
-    destroy: vi.fn(),
-  })),
-  createPaymentMethod: vi.fn(),
-  confirmCardPayment: vi.fn(),
-});
+// Mock the Elements provider to do nothing but render its children.
+// This avoids needing a complex and brittle mock of the entire Stripe object.
+const MockElements = ({ children }) => <>{children}</>;
 
-const AllTheProviders = ({ children, initialSession, route = '/' }) => {
-  // The 'route' can be a string or a location object with state
+// Create a mock AuthProvider that provides a value directly
+const MockAuthProvider = ({ children, mockValue }) => (
+  <AuthContext.Provider value={mockValue}>{children}</AuthContext.Provider>
+);
+
+// Create a mock SessionProvider that provides a value directly
+const MockSessionProvider = ({ children, mockValue }) => (
+  <SessionContext.Provider value={mockValue}>{children}</SessionContext.Provider>
+);
+
+const AllTheProviders = ({ children, authMock, sessionMock, route = '/' }) => {
   const initialEntries = [typeof route === 'string' ? { pathname: route } : route];
+
+  // Provide default mocks if none are passed
+  const defaultAuthMock = { user: null, profile: null, loading: false, signOut: vi.fn() };
+  const defaultSessionMock = { sessionHistory: [], loading: false, error: null, addSession: vi.fn() };
 
   return (
     <MemoryRouter initialEntries={initialEntries}>
-      <AuthProvider enableSubscription={false} initialSession={initialSession}>
-        <SessionProvider>
-          <Elements stripe={mockStripePromise}>
+      <MockAuthProvider mockValue={authMock || defaultAuthMock}>
+        <MockSessionProvider mockValue={sessionMock || defaultSessionMock}>
+          <MockElements>
             {children}
             <Toaster />
-          </Elements>
-        </SessionProvider>
-      </AuthProvider>
+          </MockElements>
+        </MockSessionProvider>
+      </MockAuthProvider>
     </MemoryRouter>
   );
 };
 
 const renderWithAllProviders = (ui, options = {}) => {
-  const { initialSession, route, ...renderOptions } = options;
+  const { authMock, sessionMock, route, ...renderOptions } = options;
   const Wrapper = ({ children }) => (
-    <AllTheProviders initialSession={initialSession} route={route}>
+    <AllTheProviders authMock={authMock} sessionMock={sessionMock} route={route}>
       {children}
     </AllTheProviders>
   );

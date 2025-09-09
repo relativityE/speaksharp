@@ -117,33 +117,18 @@ vi.mock('@/lib/supabaseClient', () => ({
   supabase: persistentSupabaseMock
 }), { hoisted: true });
 
-// Mock AuthContext with stable implementation
-const mockAuthContextValue = {
-  session: null,
-  profile: null,
-  loading: false,
-  user: null,
-  signUp: vi.fn(),
-  signIn: vi.fn(),
-  signOut: vi.fn(),
-  resetPassword: vi.fn(),
-  updateProfile: vi.fn()
-};
-
-vi.mock('../contexts/AuthContext', () => ({
-  useAuth: vi.fn(() => mockAuthContextValue),
-  AuthProvider: ({ children }) => children
-}), { hoisted: true });
-
 // Mock other critical dependencies
-vi.mock('react-router-dom', () => ({
-  useNavigate: vi.fn(() => vi.fn()),
-  useLocation: vi.fn(() => ({ pathname: '/', search: '', hash: '', state: null })),
-  useParams: vi.fn(() => ({})),
-  Link: ({ to, children, ...props }) => <a href={to} {...props}>{children}</a>,
-  NavLink: ({ to, children, ...props }) => <a href={to} {...props}>{children}</a>,
-  BrowserRouter: ({ children }) => children,
-  MemoryRouter: ({ children }) => children
+
+// Mock sharp to prevent installation errors in test environments
+vi.mock('sharp', () => ({
+  default: vi.fn(() => ({
+    resize: vi.fn().mockReturnThis(),
+    jpeg: vi.fn().mockReturnThis(),
+    png: vi.fn().mockReturnThis(),
+    toBuffer: vi.fn().mockResolvedValue(Buffer.from('mock-image')),
+    toFile: vi.fn().mockResolvedValue(),
+    metadata: vi.fn().mockResolvedValue({ width: 100, height: 100 })
+  }))
 }), { hoisted: true });
 
 vi.mock('sonner', () => ({
@@ -168,14 +153,6 @@ vi.mock('posthog-js', () => ({
   }
 }), { hoisted: true });
 
-// Mock session-related hooks
-vi.mock('../hooks/useSession', () => ({
-  useSession: vi.fn(() => ({
-    addSession: vi.fn(),
-    sessions: []
-  }))
-}), { hoisted: true });
-
 // Mock the speech recognition hook to prevent hanging
 vi.mock('../hooks/useSpeechRecognition', () => ({
   useSpeechRecognition: vi.fn(() => ({
@@ -194,6 +171,42 @@ vi.mock('../hooks/useSpeechRecognition', () => ({
     reset: vi.fn()
   }))
 }), { hoisted: true });
+
+// Mock Browser APIs not present in JSDOM
+Object.defineProperty(window, 'SpeechRecognition', {
+  value: vi.fn().mockImplementation(() => ({
+    start: vi.fn(),
+    stop: vi.fn(),
+    onresult: null,
+    onerror: null,
+  })),
+  writable: true,
+});
+Object.defineProperty(window, 'webkitSpeechRecognition', {
+    value: vi.fn().mockImplementation(() => ({
+      start: vi.fn(),
+      stop: vi.fn(),
+      onresult: null,
+      onerror: null,
+    })),
+    writable: true,
+});
+Object.defineProperty(navigator, 'mediaDevices', {
+  value: {
+    getUserMedia: vi.fn().mockResolvedValue(null),
+  },
+  writable: true,
+});
+
+// Mock URL.createObjectURL for tests that use it (e.g., for downloading files)
+Object.defineProperty(window.URL, 'createObjectURL', {
+  writable: true,
+  value: vi.fn(),
+});
+Object.defineProperty(window.URL, 'revokeObjectURL', {
+  writable: true,
+  value: vi.fn(),
+});
 
 // Global error handler to catch unhandled promises
 let unhandledRejections = [];
@@ -217,14 +230,6 @@ beforeEach(() => {
 
   // Reset mock call history but preserve implementations
   Object.values(persistentSupabaseMock.auth).forEach(fn => {
-    if (vi.isMockFunction(fn)) {
-      fn.mockClear();
-    }
-  });
-
-  // Reset AuthContext mock calls
-  const authMock = vi.mocked(mockAuthContextValue);
-  Object.values(authMock).forEach(fn => {
     if (vi.isMockFunction(fn)) {
       fn.mockClear();
     }
