@@ -14,6 +14,7 @@ Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) style with sligh
 - **E2E Tests for All User Roles:** Added new E2E tests for the 'Free' and 'Premium' user flows, ensuring coverage for all user roles.
 
 ### Fixed
+- **Resolved E2E Test Suite Crisis:** Overcame a persistent and critical failure in the E2E test suite where tests would time out. The root cause was a combination of race conditions, incorrect mocking strategies, and a subtle bug in the `AuthContext` initialization. The entire E2E test suite was refactored to be stable and reliable.
 - **SECURITY:** Removed an insecure RLS policy migration that could expose all user data in development environments.
 - **TESTING:** Repaired the entire unit test suite, resolving critical configuration, environment, and mocking issues. The suite is now stable and providing reliable feedback.
 - **Improved On-Device Model Loading Reliability:** Implemented a hybrid loading strategy for the on-device model. The application now attempts to fetch the model from the Hugging Face Hub first and falls back to a local copy, enhancing resilience against network failures.

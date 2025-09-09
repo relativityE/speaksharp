@@ -9,14 +9,15 @@ It serves as a **map** to help developers, contributors, and stakeholders quickl
 
 **This is a strict requirement for all contributors, including AI agents.**
 
-With every commit, you **must** review the following six documents to ensure they are synchronized with your changes. If no updates are needed for a file, you must still verify it. This is not optional.
+With every commit, you **must** review the following seven documents to ensure they are synchronized with your changes. If no updates are needed for a file, you must still verify it. This is not optional.
 
 1.  `README.md`
-2.  `docs/OUTLINE.md` (this file)
-3.  `docs/PRD.md`
-4.  `docs/ARCHITECTURE.md`
-5.  `docs/ROADMAP.md`
-6.  `docs/CHANGELOG.md`
+2.  `AGENTS.md`
+3.  `docs/OUTLINE.md` (this file)
+4.  `docs/PRD.md`
+5.  `docs/ARCHITECTURE.md`
+6.  `docs/ROADMAP.md`
+7.  `docs/CHANGELOG.md`
 
 This process ensures our documentation remains a reliable Single Source of Truth (SSOT).
 
@@ -29,6 +30,10 @@ This section defines the canonical location for every type of documentation.
 *   **[`README.md`](../README.md)**
     *   **Content**: Entry point, quick start, repo structure, high-level links.
     *   **Best fit for**: Installation/setup guides, onboarding notes.
+
+*   **[`AGENTS.md`](../AGENTS.md)**
+    *   **Content**: Overview of all AI agents, their roles, capabilities, and integrations.
+    *   **Best fit for**: Agent-specific instructions, capabilities, and limitations.
 
 *   **[`OUTLINE.md`](./OUTLINE.md)** (this file)
     *   **Content**: Map of all docs, cross-links, and this content strategy.

@@ -55,15 +55,6 @@ export async function stubThirdParties(page: Page, options: {
   forceOnDevice?: boolean;
 } = {}) {
 
-  // Block external domains
-  await page.route('**/*', (route) => {
-    const url = new URL(route.request().url());
-    if (BLOCKED_DOMAINS.some(domain => url.hostname.endsWith(domain))) {
-      return route.fulfill({ status: 200, body: `Blocked by test: ${url.hostname}` });
-    }
-    return route.continue();
-  });
-
   // Mock Supabase endpoints
   await page.route('https://mock.supabase.co/**', async (route: Route) => {
     const url = new URL(route.request().url());
@@ -78,6 +69,9 @@ export async function stubThirdParties(page: Page, options: {
             const user = MOCK_USERS[postData.email];
             const session = getMockSession(user);
             if (session) {
+                await page.evaluate(([key, value]) => {
+                    window.localStorage.setItem(key, value);
+                }, [`sb-mock.supabase.co-auth-token`, JSON.stringify(session)]);
                 return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(session) });
             }
         }
@@ -116,6 +110,24 @@ export async function stubThirdParties(page: Page, options: {
       }
     }
 
+    if (pathname.includes('/rest/v1/rpc/get_user_details')) {
+      const authHeader = request.headers()['authorization'];
+      const token = authHeader?.split('Bearer ')[1];
+      const userId = token?.split('-access-token')[0];
+      const user = Object.values(MOCK_USERS).find(u => u.id === userId);
+
+      if (user) {
+        const userDetails = {
+          id: user.id,
+          email: user.email,
+          subscription_status: user.user_metadata.subscription_status,
+          preferred_mode: user.user_metadata.preferred_mode || 'cloud',
+        };
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([userDetails]) }); // Return as array
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }); // Return empty array
+    }
+
     if (pathname.includes('/rest/v1/user_profiles')) { // Corrected table name
       if (request.method() === 'GET') {
         const idParam = searchParams.get('id')?.replace('eq.', '');
@@ -126,11 +138,23 @@ export async function stubThirdParties(page: Page, options: {
           profile = { ...profile, preferred_mode: 'on-device' };
         }
 
-        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([profile]) });
+        // .single() expects a single object, not an array
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(profile) });
       }
     }
 
-    console.log(`Unhandled Supabase mock request: ${request.method()} ${url.href}`);
-    return route.fulfill({ status: 404, body: 'Not Found in Mock' });
+    // Throw an error for unhandled requests to make them obvious during test runs
+    const error = new Error(`Unhandled Supabase mock request: ${request.method()} ${url.href}`);
+    console.error(error);
+    return route.fulfill({ status: 404, body: `Not Found in Mock: ${url.href}` });
+  });
+
+  // Block external domains
+  await page.route('**/*', (route) => {
+    const url = new URL(route.request().url());
+    if (BLOCKED_DOMAINS.some(domain => url.hostname.endsWith(domain))) {
+      return route.fulfill({ status: 200, body: `Blocked by test: ${url.hostname}` });
+    }
+    return route.continue();
   });
 }
