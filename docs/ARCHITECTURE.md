@@ -77,7 +77,7 @@ SpeakSharp is built on a modern, serverless technology stack designed for real-t
     *   **Unit/Integration:** Vitest
     *   **E2E:** Playwright
 
-## 2. Frontend Architecture
+## 3. Frontend Architecture
 
 The frontend is a single-page application (SPA) built with React and Vite.
 
@@ -93,7 +93,7 @@ The frontend is a single-page application (SPA) built with React and Vite.
 ### Memory Leak Prevention
 Given the real-time nature of the application, proactive memory management is critical. Components involving continuous data streams (e.g., `useSpeechRecognition`, `TranscriptionService`) must be carefully audited for memory leaks. This includes ensuring all `useEffect` hooks have proper cleanup functions.
 
-## 3. Backend Architecture
+## 4. Backend Architecture
 
 The backend is built entirely on the Supabase platform, leveraging its integrated services.
 
@@ -104,7 +104,7 @@ The backend is built entirely on the Supabase platform, leveraging its integrate
     *   `stripe-checkout`: Handles the creation of Stripe checkout sessions.
     *   `stripe-webhook`: Listens for and processes webhooks from Stripe to update user subscription status.
 
-## 4. User Roles and Tiers
+## 5. User Roles and Tiers
 
 The application defines several user tiers that control access to features and usage limits.
 
@@ -113,7 +113,7 @@ The application defines several user tiers that control access to features and u
 *   **Pro User (Authenticated):** A user with an active, paid subscription via Stripe.
 *   **Premium User:** A user with an active premium subscription. This tier provides access to on-device, privacy-first transcription.
 
-## 5. Transcription Service (`src/services/transcription`)
+## 6. Transcription Service (`src/services/transcription`)
 
 The `TranscriptionService.js` provides a unified abstraction layer over multiple transcription providers.
 
@@ -141,15 +141,15 @@ The `LocalWhisper` provider uses the [`@xenova/transformers.js`](https://github.
     *   **Cost:** On-device has no per-use cost. Cloud AI has a direct cost per minute of transcribed audio.
     *   **Availability:** On-device mode is highly available. It works offline after the initial model download (from either the Hub or the local fallback). A failure of the Hugging Face Hub will not prevent the feature from working, as the local fallback will be used.
 
-## 6. CI/CD
+## 7. CI/CD
 
 The project includes a basic CI/CD pipeline defined in `.github/workflows/deploy.yml` for manual database deployments. This needs to be expanded to support multiple environments and automated deployments.
 
-## 7. Known Issues
+## 8. Known Issues
 
 *   All major technical debt related to the test suite has been resolved. The remaining tech debt is tracked in the [Roadmap](./ROADMAP.md).
 
-## 8. Testing Frameworks & Implementation
+## 9. Testing Frameworks & Implementation
 
 This section describes the tools and technical practices used for testing. For the product-level testing strategy and quality goals, see the [Software Quality Metrics in the PRD](./PRD.md#5-software-quality-metrics).
 
@@ -180,3 +180,23 @@ The E2E test architecture is now stable and follows best practices.
 - **Network Stubbing (`tests/sdkStubs.ts`):** Uses `page.route()` to intercept outgoing network requests to third-party services and Supabase. This is done after navigating to `about:blank` to prevent race conditions with the application's startup.
 - **Real Authentication Flow:** The tests now interact with the application like a real user. They fill out the login form on the `/auth` page, and the `sdkStubs.ts` file provides mock responses to the authentication API calls. This ensures the entire authentication flow is tested.
 - **Media Device Mocking (`tests/mockMedia.ts`):** Uses an init script to replace `navigator.mediaDevices.getUserMedia` with a function that returns a fake audio stream, bypassing browser permission prompts.
+
+## 10. Senior Engineer Perspective (Scalability & Technical Health)
+
+**Doing Well:**
+
+*   Modular [TranscriptionService](./ARCHITECTURE.md#5-transcription-service) with pluggable Cloud/Local providers.
+*   Hybrid testing strategy (Vitest + Playwright).
+
+**Gaps / Risks:**
+
+*   **[Resolved]** The critical bugs in the test suite and E2E rendering have been fixed. The test suite is now stable.
+*   Memory leaks in `AuthContext` subscription (fixed via prop-gated provider).
+*   **[Resolved]** The test suite is now enabled and reliable, increasing trust in CI/CD metrics.
+
+**Recommendations:**
+
+*   **[Done]** The test suite has been stabilized.
+*   Invest in DevOps (multi-env CI/CD, secret management, reproducible test runners).
+*   Add memory profiling in long sessions (Chrome DevTools, soak tests).
+*   Enhance the **Local Development Guide** in the root `README.md` with troubleshooting tips.

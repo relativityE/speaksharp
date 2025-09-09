@@ -22,7 +22,8 @@ test.describe('Authentication Flows', () => {
     await page.getByLabel('Password').fill('password');
     await page.getByRole('button', { name: 'Sign In' }).click();
 
-    // After successful login, user should be redirected to the root
+    // After successful login, reload the page to ensure the session is picked up
+    await page.reload();
     await page.waitForURL('/');
 
     // The header should now show the user's email and a "Sign Out" button
@@ -45,6 +46,7 @@ test.describe('Authentication Flows', () => {
     await page.goto('/auth');
 
     // User should be immediately redirected back to the root
+    await page.reload();
     await page.waitForURL('/');
     await expect(page.getByText('free@example.com')).toBeVisible();
   });

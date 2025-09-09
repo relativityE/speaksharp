@@ -106,3 +106,29 @@ To check the code for linting errors, run:
 ```bash
 pnpm run lint
 ```
+
+## Project Governance
+
+### PM Perspective (Process & Documentation)
+
+**Doing Well:**
+
+*   Comprehensive [PRD.md](./PRD.md) and [ARCHITECTURE.md](./ARCHITECTURE.md).
+*   Phased milestones + MoSCoW prioritization in [ROADMAP.md](./ROADMAP.md).
+
+**Gaps / Fixes:**
+
+*   Documentation was scattered; now consolidated into `/docs`.
+*   Outdated root `README.md` replaced with accurate project overview.
+
+**Strategic Guidance:**
+
+*   Enforce **documentation governance**: each doc has a single purpose, reviewed quarterly.
+*   For scaling: consider migrating to GitBook/Docusaurus once team >10 contributors.
+
+### Cross-Reference Map
+
+*   **PRD.md** → What & Why (vision, roles, financials)
+*   **ARCHITECTURE.md** → How (system design, block diagrams)
+*   **ROADMAP.md** → When & Status (tasks, milestones, gating checks)
+*   **REVIEW.md** → Who & So What (leadership insight & direction)

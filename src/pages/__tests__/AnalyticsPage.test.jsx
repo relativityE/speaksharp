@@ -71,7 +71,7 @@ describe('AnalyticsPage', () => {
                 loading: false,
                 error: null,
             };
-            render(<AnalyticsPage />, { authMock, sessionMock, route: '/analytics/session-123' });
+            render(<AnalyticsPage />, { authMock, sessionMock, route: '/analytics/session-123', path: '/analytics/:sessionId' });
             expect(await screen.findByText('Session Analysis', {}, { timeout: 5000 })).toBeInTheDocument();
         });
 
@@ -82,7 +82,7 @@ describe('AnalyticsPage', () => {
                 loading: false,
                 error: null,
             };
-            render(<AnalyticsPage />, { authMock, sessionMock, route: '/analytics/invalid-id' });
+            render(<AnalyticsPage />, { authMock, sessionMock, route: '/analytics/invalid-id', path: '/analytics/:sessionId' });
             expect(await screen.findByText('Session Not Found', {}, { timeout: 5000 })).toBeInTheDocument();
         });
     });

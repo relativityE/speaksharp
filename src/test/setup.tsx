@@ -1,4 +1,5 @@
 // src/test/setup.tsx - COMPLETE REWRITE
+console.log("Executing setup.tsx");
 import { vi, afterEach, beforeEach } from 'vitest';
 import { cleanup } from '@testing-library/react';
 import '@testing-library/jest-dom';
@@ -64,36 +65,33 @@ const createPersistentSupabaseMock = () => {
     )
   };
 
-  const mockFrom = vi.fn().mockReturnValue({
-    select: vi.fn().mockReturnValue({
-      eq: vi.fn().mockReturnValue({
-        single: vi.fn().mockResolvedValue({
-          data: null,
-          error: null
-        }),
-        maybeSingle: vi.fn().mockResolvedValue({
-          data: null,
-          error: null
-        })
-      }),
-      maybeSingle: vi.fn().mockResolvedValue({
-        data: null,
-        error: null
-      })
-    }),
-    insert: vi.fn().mockResolvedValue({
-      data: null,
-      error: null
-    }),
-    update: vi.fn().mockResolvedValue({
-      data: null,
-      error: null
-    }),
-    delete: vi.fn().mockResolvedValue({
-      data: null,
-      error: null
-    })
-  });
+  const createMockQueryBuilder = () => {
+    const builder = {
+      select: vi.fn().mockReturnThis(),
+      insert: vi.fn().mockReturnThis(),
+      update: vi.fn().mockReturnThis(),
+      delete: vi.fn().mockReturnThis(),
+      from: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      neq: vi.fn().mockReturnThis(),
+      gt: vi.fn().mockReturnThis(),
+      gte: vi.fn().mockReturnThis(),
+      lt: vi.fn().mockReturnThis(),
+      lte: vi.fn().mockReturnThis(),
+      in: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      range: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: null, error: null }),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+      then: vi.fn().mockResolvedValue({ data: [], error: null }), // Make it thenable
+    };
+    // Make the builder itself a promise-like object
+    builder.then.mockImplementation((onFulfilled) => Promise.resolve({ data: [], error: null }).then(onFulfilled));
+    return builder;
+  };
+
+  const mockFrom = vi.fn().mockImplementation(() => createMockQueryBuilder());
 
   const mockFunctions = {
     invoke: vi.fn().mockResolvedValue({
@@ -225,9 +223,6 @@ beforeEach(() => {
     window.addEventListener('unhandledrejection', handleUnhandledRejection);
   }
 
-  // Setup fake timers
-  vi.useFakeTimers();
-
   // Reset mock call history but preserve implementations
   Object.values(persistentSupabaseMock.auth).forEach(fn => {
     if (vi.isMockFunction(fn)) {
@@ -253,10 +248,6 @@ afterEach(() => {
 
   // Cleanup React
   cleanup();
-
-  // Clear timers and restore real timers
-  vi.runOnlyPendingTimers();
-  vi.useRealTimers();
 
   // Final DOM cleanup
   document.body.innerHTML = '';

@@ -47,6 +47,12 @@ export default class LocalWhisper {
   }
 
   async startTranscription(mic) {
+    if (window.__MOCK_LOCAL_WHISPER__) {
+      logger.info('Using mocked LocalWhisper for E2E test.');
+      this.onTranscriptUpdate('This is a test transcript from a mocked LocalWhisper.', true, []);
+      this.status = 'stopped';
+      return;
+    }
     this.mic = mic;
     logger.info('[LocalWhisper] startTranscription() called.');
     if (this.status !== 'idle' || !this.pipe) {

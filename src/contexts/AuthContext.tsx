@@ -1,15 +1,18 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { Session } from '@supabase/supabase-js';
+import logger from '../lib/logger';
+import { toast } from 'sonner';
 
 type Profile = {
   id: string;
   subscription_status: 'free' | 'pro' | 'premium';
+  preferred_mode?: 'cloud' | 'on-device';
 };
 
 type AuthContextType = {
   session: Session | null;
-  user: any | null; // Replace 'any' with a more specific User type if available
+  user: any | null;
   profile: Profile | null;
   loading: boolean;
   signOut: () => Promise<void>;
@@ -25,36 +28,46 @@ export const AuthContext = createContext<AuthContextType>({
 
 export const useAuth = () => useContext(AuthContext);
 
-const getProfileFromDb = async (user_id: string): Promise<Profile | null> => {
-  const { data, error } = await supabase.from('user_profiles').select('*').eq('id', user_id).single();
-  if (error) {
-    console.error('Error fetching profile:', error);
-    return null;
-  }
-  return data;
-};
-
 export function AuthProvider({ children }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
+  const getProfileFromDb = useCallback(async (user_id: string): Promise<Profile | null> => {
+    try {
+      const { data, error } = await supabase.from('user_profiles').select('*').eq('id', user_id).single();
+      if (error) throw error;
+
+      // For local development, allow overriding the subscription status
+      if (data && import.meta.env.DEV && import.meta.env.VITE_DEV_PREMIUM_ACCESS === 'true') {
+        data.subscription_status = 'premium';
+      }
+      return data;
+    } catch (err) {
+      logger.error({ err }, 'Error fetching profile');
+      toast.error('Could not fetch your profile.');
+      return null;
+    }
+  }, []);
+
   useEffect(() => {
     const setData = async () => {
-      const { data: { session }, error } = await supabase.auth.getSession();
-      if (error) {
-        console.error("Error getting session:", error);
-      } else if (session?.user) {
-        let userProfile = await getProfileFromDb(session.user.id);
-        // For local development, allow overriding the subscription status to 'premium'
-        if (userProfile && import.meta.env.DEV && import.meta.env.VITE_DEV_PREMIUM_ACCESS === 'true') {
-            console.log("Developer premium access override enabled.");
-            userProfile.subscription_status = 'premium';
+      try {
+        const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+
+        setSession(currentSession);
+        if (currentSession) {
+          const userProfile = await getProfileFromDb(currentSession.user.id);
+          setProfile(userProfile);
         }
-        setProfile(userProfile);
+      } catch (err) {
+        logger.error({ err }, 'Error setting initial auth data');
+        setSession(null);
+        setProfile(null);
+      } finally {
+        setLoading(false);
       }
-      setSession(session);
-      setLoading(false);
     };
 
     setData();
@@ -63,15 +76,8 @@ export function AuthProvider({ children }) {
       async (_event, newSession) => {
         setSession(newSession);
         if (newSession?.user) {
-          setLoading(true);
-          let userProfile = await getProfileFromDb(newSession.user.id);
-          // For local development, allow overriding the subscription status to 'premium'
-          if (userProfile && import.meta.env.DEV && import.meta.env.VITE_DEV_PREMIUM_ACCESS === 'true') {
-            console.log("Developer premium access override enabled.");
-            userProfile.subscription_status = 'premium';
-          }
+          const userProfile = await getProfileFromDb(newSession.user.id);
           setProfile(userProfile);
-          setLoading(false);
         } else {
           setProfile(null);
         }
@@ -81,7 +87,7 @@ export function AuthProvider({ children }) {
     return () => {
       listener?.subscription.unsubscribe();
     };
-  }, []);
+  }, [getProfileFromDb]);
 
   const signOut = async () => {
     await supabase.auth.signOut();

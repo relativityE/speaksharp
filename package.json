@@ -2,28 +2,31 @@
   "name": "speaksharp",
   "private": true,
   "version": "0.0.0",
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "dev:test": "vite --mode test",
     "build": "vite build --mode test",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "pnpm test:e2e",
-    "test:unit": "vitest run --mode test",
+    "test": "echo 'Use test:unit or test:e2e separately!'",
+    "test:unit": "vitest run",
+    "test:e2e": "VITE_SUPABASE_URL=https://mock.supabase.co VITE_SUPABASE_ANON_KEY=mock_anon_key VITE_STRIPE_PUBLISHABLE_KEY=pk_test_TYooMQauvdEDq54NiTphI7jx playwright test --reporter=json > e2e-results.json",
+    "test:e2e:ui": "playwright test --ui",
     "test:clean": "rm -rf /tmp/vitest_cache && pnpm test:unit",
-    "test:coverage": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest run --coverage",
+    "test:coverage": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest run --coverage --coverage.reporter=json-summary",
     "test:ui": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest --ui",
     "test:single": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest run --reporter=verbose",
     "test:isolated": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest run src/pages/__tests__/AuthPage.isolated.test.jsx",
     "test:leak-debug": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest run src/__tests__/useSpeechRecognition.test.jsx",
     "test:debug-auth": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' vitest run src/pages/__tests__/AuthPage.test.jsx",
-    "test:e2e": "playwright test",
     "test:all": "pnpm build && pnpm test:e2e",
     "db:new": "pnpm exec supabase migrations new",
     "db:reset": "pnpm exec supabase db reset",
     "db:seed": "pnpm exec supabase db reset && psql \"$SUPABASE_DB_URL\" -f supabase/seed.sql",
     "db:push": "pnpm exec supabase db push",
-    "model:update": "bash scripts/update-model.sh"
+    "model:update": "bash scripts/update-model.sh",
+    "postinstall": "playwright install-deps"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.0.1",
@@ -130,7 +133,12 @@
       "supabase"
     ],
     "onlyBuiltDependencies": [
-      "supabase"
+      "supabase",
+      "core-js",
+      "deno-bin",
+      "esbuild",
+      "protobufjs",
+      "sharp"
     ]
   }
 }

@@ -92,9 +92,10 @@ dist
 tmp/
 temp/
 
-test-results/*.png
-test-results/*.webm
+# Test Reports
 test-results/
+unit-results.json
+e2e-results.json
 
 # Ignore all files in the verification scratchpad...
 jules-scratch/verification/*
