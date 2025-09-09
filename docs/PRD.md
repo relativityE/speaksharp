@@ -19,7 +19,6 @@ The system is built for speed, both in user experience and development velocity.
 
 ### User Roles & Flows
 This section contains ASCII art diagrams illustrating the journey for each user role.
-*(For leadership analysis of conversion assumptions and role monetization, see [REVIEW.md – CFO & CEO perspectives](./REVIEW.md)).*
 
 ```ascii
                                +---------------------+
@@ -94,7 +93,6 @@ This section contains ASCII art diagrams illustrating the journey for each user 
 *   **vs. Poised:** More affordable, simpler to use, no installation required.
 
 ### Go-to-Market & Financials
-*(For leadership analysis of conversion assumptions and GTM strategy, see [REVIEW.md – CFO & CEO perspectives](./REVIEW.md)).*
 *   **GTM:** Adopt a phased GTM approach.
     *   **Phase 1 (Validation):** Start with organic channels (Reddit, SEO content, public speaking forums) and community engagement (Toastmasters partnerships) to validate product-market fit and gather testimonials. Create a "How it Works" video demo for the landing page to increase conversion.
     *   **Phase 2 (Growth):** Gradually increase paid advertising spend on proven metrics from Phase 1.
@@ -118,33 +116,44 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 ## 5. Software Quality Metrics
 
-This section defines the product's quality goals. For technical details on the testing frameworks in use, see the [Testing Strategy in the Architecture doc](./ARCHITECTURE.md#8-testing-frameworks--implementation).
+This document provides a snapshot of the current state of the test suite. It is automatically updated by the `run-tests.sh` script.
 
-### Testing Strategy
-The product's testing strategy is to use a combination of E2E, component, and unit tests to ensure a high level of quality and confidence. The primary goal is to have **one high-value "golden path" E2E test for each user role** that validates the core business flow.
+**Last Updated:** `(not yet run)`
 
-#### Test Modes vs. Dev Flags
-`VITE_DEV_USER=true` does not set the application to "test mode". It's a developer convenience flag with a different purpose. Here is the breakdown:
+---
 
-*   **Test Mode (`import.meta.env.MODE === 'test'`)**: This is the official way Vite determines the environment. It is automatically set to `'test'` when we run our test scripts (like `pnpm test:unit` or `pnpm dev:test`) because they include the `--mode test` flag. The code `if (import.meta.env.MODE !== 'test')` is correctly checking for this.
+### Test Suite State
 
-*   **Dev User (`VITE_DEV_USER=true`)**: This is a custom flag we use in the `AuthContext` to bypass the login system and inject a fake user with 'premium' privileges. This is purely a shortcut for developers to test premium features without needing to set up a real payment with Stripe.
+| Metric                  | Value |
+| ----------------------- | ----- |
+| Total tests             | N/A   |
+| Unit tests              | N/A   |
+| E2E tests (Playwright)  | N/A   |
+| Passing tests           | N/A   |
+| Failing tests           | N/A   |
+| Disabled/skipped tests  | N/A   |
+| Unit tests passing      | N/A   |
+| E2E tests failing       | N/A   |
+| Total runtime           | N/A   |
 
-In short: **Test Mode** is for running automated tests, while **Dev User** is for convenient manual testing of premium features.
+---
 
-### E2E Coverage Status
+### Coverage Summary
 
-| E2E Golden Path | Status | Notes |
-| :--- | :--- | :--- |
-| **Anonymous User** | ✅ **Passing** | The core anonymous user flow is tested and stable. |
-| **Free User** | ✅ **Passing** | The core free user flow is tested and stable. |
-| **Pro User** | ✅ **Passing** | The core pro user authentication flow is tested and stable. |
-| **Premium User** | ✅ **Passing** | The on-device transcription flow is tested and stable. |
+| Metric     | Value |
+| ---------- | ----- |
+| Statements | N/A   |
+| Branches   | N/A   |
+| Functions  | N/A   |
+| Lines      | N/A   |
 
-### Latest Test Suite Run
-*   **Result:** ✅ **Stable & Passing**
-*   **Date:** 2025-09-08
-*   **Notes:** The test suite is now stable and reliable. All 56 unit tests and 7 E2E tests are passing in parallel.
+---
+
+### Code Bloat Metrics
+
+| Metric                  | Value |
+| ----------------------- | ----- |
+| Total `src/` directory size | N/A   |
 
 ---
 
@@ -178,3 +187,59 @@ In short: **Test Mode** is for running automated tests, while **Dev User** is fo
 **Goal:** Improve transparency and user trust.
 
 We can strengthen user confidence by adding a feature that compares accuracy across Native Browser, Cloud AI, and On-device modes. Instead of one-off tests, the system would track results from actual usage over time and compute a rolling accuracy percentage. This avoids storing large datasets while still giving users a clear view of performance differences.
+
+---
+
+## 8. Strategic Review & Analysis
+
+This section provides high-level insights into the SpeakSharp project from multiple senior perspectives.
+
+### 💰 CFO Perspective (Financials & GTM)
+
+**Doing Well:**
+
+*   [PRD.md](./PRD.md) captures LTV, CAC, and conversion assumptions.
+*   Aggressive GTM strategy (SEO, Product Hunt, Ads).
+
+**Risks:**
+
+*   Free → Paid conversion assumption of 5% is optimistic (industry avg. 2–3%).
+*   Current MVP still has technical debt (see [ROADMAP.md](./ROADMAP.md)), delaying monetization readiness.
+
+**Recommendations:**
+
+*   Extend Phase 1 until Stripe & QA are 100% hardened.
+*   Model financial scenarios at 2%, 3.5%, and 5% conversion.
+*   Set up **real-time financial tracking** (PostHog + ChartMogul or similar).
+*   Adopt a **phased GTM approach**: organic channels first, then scale paid ads.
+
+### 🚀 CEO Perspective (Product & Market)
+
+**Doing Well:**
+
+*   Clear niche: *privacy-first, real-time speech analysis* (filler words, speaking pace).
+*   Strong freemium model with clear upgrade path.
+
+**Gaps / Market Risks:**
+
+*   Limited feature set at MVP (filler words only). Competitors offer richer analytics.
+*   No social proof (testimonials, coach endorsements, beta case studies).
+
+**Recommendations:**
+
+*   Prioritize “speaking pace” analysis in Phase 2 ([ROADMAP.md](./ROADMAP.md#phase-2-user-validation--polish)).
+*   Add at least one more Pro-only feature for stronger differentiation (e.g., vocal variety, pause detection).
+*   Build trust: beta testimonials, Toastmasters/speech coach partnerships.
+*   Produce a “How it Works” demo video for the landing page.
+*   Actively engage with online communities (Reddit, forums) to build brand awareness.
+
+### 💰 Updated Pricing Tiers & Recommendations
+
+*   **Anonymous User:**
+    *   **Recommendation:** Ensure the 2-minute anonymous session provides a truly compelling "aha!" moment. Focus on highlighting the immediate value of real-time feedback and the pain point it solves. The CTA to sign up should be prominent and frictionless.
+*   **Free User (Authenticated):**
+    *   **Recommendation:** The 10 minutes/month and 20-minute session limits are good for encouraging upgrades. Ensure the UpgradePromptDialog is well-designed, clearly communicates the benefits of upgrading, and appears at the moment of highest user engagement.
+*   **Pro User (Authenticated):**
+    *   **Recommendation:** This remains the core paid offering. Ensure the value proposition of "unlimited practice" and "Cloud AI transcription" is clearly communicated. The fallback to Native Browser is a good technical resilience feature.
+*   **Premium User (New Tier):**
+    *   **Recommendation:** This new tier effectively segments users who prioritize privacy (on-device transcription) and data ownership (download session data). Position this as the ultimate privacy and control tier. Consider a slightly higher price point than Pro, as it offers unique benefits. Ensure the technical implementation of on-device transcription is robust and performs well to justify the premium.
