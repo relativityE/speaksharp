@@ -1,18 +1,7 @@
 import React from 'react';
-import { render, screen, fireEvent, act } from '../../../test/test-utils';
-import { vi } from 'vitest';
+import { render, screen, fireEvent } from '../../../test/test-utils';
+import { vi, describe, it, expect, beforeEach, beforeAll, afterAll } from 'vitest';
 import { SessionSidebar } from '../SessionSidebar';
-import { useAuth } from '../../../contexts/AuthContext';
-
-// Mocks
-vi.mock('../../../contexts/AuthContext');
-vi.mock('@stripe/react-stripe-js', () => ({
-    Elements: ({ children }) => <div>{children}</div>,
-    useStripe: () => ({
-        redirectToCheckout: vi.fn(),
-    }),
-}));
-
 
 describe('SessionSidebar', () => {
     let mockStartListening;
@@ -20,19 +9,26 @@ describe('SessionSidebar', () => {
     let mockReset;
     let mockSaveSession;
     let defaultProps;
+    let proAuthMock;
+    let freeAuthMock;
 
     beforeEach(() => {
-        vi.clearAllMocks();
-
         mockStartListening = vi.fn();
         mockStopListening = vi.fn().mockResolvedValue({ transcript: 'test transcript' });
         mockReset = vi.fn();
         mockSaveSession = vi.fn().mockResolvedValue({ id: 'new-session-id' });
 
-        useAuth.mockReturnValue({
+        proAuthMock = {
             user: { id: '123' },
             profile: { subscription_status: 'pro' },
-        });
+            loading: false,
+        };
+
+        freeAuthMock = {
+            user: { id: '456' },
+            profile: { subscription_status: 'free' },
+            loading: false,
+        };
 
         defaultProps = {
             isListening: false,
@@ -48,18 +44,17 @@ describe('SessionSidebar', () => {
         };
     });
 
+    // These tests pass with fake timers
     it('renders the initial state correctly', () => {
-        render(<SessionSidebar {...defaultProps} />);
-        expect(screen.getByText('Start Session')).toBeInTheDocument();
+        render(<SessionSidebar {...defaultProps} />, { authMock: proAuthMock });
+        expect(screen.getByRole('button', { name: /start session/i })).toBeInTheDocument();
         expect(screen.getByText('Native Browser')).toBeInTheDocument();
     });
 
     it('calls reset and startListening when the start button is clicked', async () => {
-        render(<SessionSidebar {...defaultProps} />);
-        const startButton = screen.getByText('Start Session');
-        await act(async () => {
-            fireEvent.click(startButton);
-        });
+        render(<SessionSidebar {...defaultProps} />, { authMock: proAuthMock });
+        const startButton = screen.getByRole('button', { name: /start session/i });
+        fireEvent.click(startButton);
         expect(mockReset).toHaveBeenCalled();
         expect(mockStartListening).toHaveBeenCalled();
     });
@@ -70,39 +65,44 @@ describe('SessionSidebar', () => {
             isListening: true,
             elapsedTime: 123,
         };
-        render(<SessionSidebar {...activeProps} />);
-        expect(screen.getByText('Session Active')).toBeInTheDocument();
+        render(<SessionSidebar {...activeProps} />, { authMock: proAuthMock });
+        expect(screen.getByText(/session active/i)).toBeInTheDocument();
         expect(screen.getByText('02:03')).toBeInTheDocument();
-        expect(screen.getByText('Stop Session')).toBeInTheDocument();
-    });
-
-    it('calls stopListening and shows end session dialog', async () => {
-        const activeProps = {
-            ...defaultProps,
-            isListening: true,
-        };
-        render(<SessionSidebar {...activeProps} />);
-
-        const stopButton = screen.getByText('Stop Session');
-        await act(async () => {
-            fireEvent.click(stopButton);
-        });
-
-        expect(mockStopListening).toHaveBeenCalled();
-        expect(screen.getByText('Session Ended')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /stop session/i })).toBeInTheDocument();
     });
 
     it('shows upgrade prompt for non-pro users', () => {
-        useAuth.mockReturnValue({
-            user: { id: '123' },
-            profile: { subscription_status: 'free' },
-        });
-        render(<SessionSidebar {...defaultProps} />);
-        expect(screen.getByText('Upgrade to Pro')).toBeInTheDocument();
+        render(<SessionSidebar {...defaultProps} />, { authMock: freeAuthMock });
+        expect(screen.getByRole('heading', { name: /upgrade to pro/i })).toBeInTheDocument();
     });
 
     it('does not show upgrade prompt for pro users', () => {
-        render(<SessionSidebar {...defaultProps} />);
-        expect(screen.queryByText('Upgrade to Pro')).not.toBeInTheDocument();
+        render(<SessionSidebar {...defaultProps} />, { authMock: proAuthMock });
+        expect(screen.queryByRole('heading', { name: /upgrade to pro/i })).not.toBeInTheDocument();
+    });
+
+    // This test was timing out. Let's run it with real timers.
+    describe('with real timers', () => {
+        beforeAll(() => {
+            vi.useRealTimers();
+        });
+
+        afterAll(() => {
+            vi.useFakeTimers();
+        });
+
+        it('calls stopListening and shows end session dialog', async () => {
+            const activeProps = {
+                ...defaultProps,
+                isListening: true,
+            };
+            render(<SessionSidebar {...activeProps} />, { authMock: proAuthMock });
+
+            const stopButton = screen.getByRole('button', { name: /stop session/i });
+            fireEvent.click(stopButton);
+
+            expect(await screen.findByText('Session Ended', {}, { timeout: 5000 })).toBeInTheDocument();
+            expect(mockStopListening).toHaveBeenCalled();
+        });
     });
 });
