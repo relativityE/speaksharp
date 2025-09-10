@@ -1,7 +1,6 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
-import { FillerWordTable } from '../FillerWordTable';
-import '@testing-library/jest-dom';
+import { FillerWordTable } from '../components/analytics/FillerWordTable';
 
 const mockTrendData = {
     'um': [

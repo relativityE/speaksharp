@@ -105,6 +105,7 @@ This section contains ASCII art diagrams illustrating the journey for each user 
 
 This section tracks high-level product risks and constraints. For a detailed technical debt and task breakdown, see the [Roadmap](./ROADMAP.md).
 
+*   **[RISK] Unstable Test Environment:** The `vitest` unit test runner is currently unstable, with tests frequently timing out. This is a critical issue that is blocking further development and must be resolved.
 *   **[RISK] Resolved:** All previously known critical bugs (`[C-01]` through `[C-04]`) and the E2E test suite instability have been **resolved**. The core application and test suites are now considered stable.
 
 ---
