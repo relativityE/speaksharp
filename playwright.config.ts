@@ -19,6 +19,7 @@ export default defineConfig({
 
   // Global test settings
   use: {
+    headless: true,
     baseURL: 'http://localhost:5173',
 
     // Timeouts - be more aggressive to catch real issues
