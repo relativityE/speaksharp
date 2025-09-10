@@ -164,8 +164,17 @@ run_e2e_tests() {
     # Run Playwright tests
     log "Running E2E tests..."
 
+    # Determine Playwright command with headless mode logic
+    local playwright_cmd="pnpm playwright test"
+    if [ "${CI:-false}" = "true" ] && [ "${HEADED:-false}" != "true" ]; then
+        log "CI environment detected. Using headless mode."
+        playwright_cmd="pnpm playwright test --headless"
+    elif [ "${HEADED:-false}" = "true" ]; then
+        log "HEADED mode enabled. Running with UI."
+    fi
+
     local e2e_result=0
-    if pnpm playwright test; then
+    if $playwright_cmd; then
         local end_time=$(date +%s)
         local duration=$((end_time - start_time))
         success "E2E tests completed in ${duration}s"
