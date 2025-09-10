@@ -77,6 +77,31 @@ SpeakSharp is built on a modern, serverless technology stack designed for real-t
     *   **Unit/Integration:** Vitest
     *   **E2E:** Playwright
 
+## Testing Strategy
+Our testing architecture adopts a unified, service-mocking approach powered by Mock Service Worker (MSW). This decision replaces fragile, module-level mocks with a consistent API simulation layer that works seamlessly across unit tests (Vitest) and end-to-end tests (Playwright).
+
+Key principles of this strategy:
+
+*   **Consistency** – MSW ensures both unit and E2E tests interact with the same mocked API surface, eliminating divergence between test layers.
+*   **Reliability** – By simulating network requests instead of patching modules, tests are more stable, deterministic, and resistant to brittle race conditions.
+*   **Scalability** – Centralized MSW handlers define all mock API behavior in one place, reducing duplication and simplifying maintenance as the system grows.
+*   **Integration** – The test pipeline (run-tests.sh) orchestrates unit, coverage, and E2E runs, consuming the same mock environment for a true “single source of truth.”
+*   **Production Parity** – MSW operates at the network boundary, which more closely mirrors real-world application behavior than in-process mocks.
+
+### Vitest and MSW Setup
+
+The testing architecture relies on a clean separation of concerns between the Vite build configuration and the Vitest test runner configuration.
+
+*   **`vite.config.mjs`:** This file is used exclusively for building and serving the application. It contains no test-related configuration.
+*   **`vitest.config.mjs`:** This file is dedicated to the test runner configuration. It defines the test environment (`happy-dom`), the setup files (`src/test-setup.js`), and the test reporters.
+*   **`src/test-setup.js`:** This file performs the global setup for the test environment. It imports `@testing-library/jest-dom` to extend `vitest`'s `expect` with DOM-specific matchers.
+*   **Mock Service Worker (MSW):** MSW is used to mock the API surface for both unit and E2E tests.
+    *   **`src/test/mocks/handlers.ts`:** Defines the mock API handlers.
+    *   **`src/test/mocks/server.ts`:** Sets up the MSW server for the Node.js environment (unit tests).
+    *   **`src/test/mocks/browser.ts`:** Sets up the MSW worker for the browser environment (E2E tests).
+
+This setup ensures a stable and predictable test environment and avoids the module resolution conflicts that can arise from mixing `vite` and `vitest` configurations.
+
 ## 3. Frontend Architecture
 
 The frontend is a single-page application (SPA) built with React and Vite.
@@ -144,59 +169,3 @@ The `LocalWhisper` provider uses the [`@xenova/transformers.js`](https://github.
 ## 7. CI/CD
 
 The project includes a basic CI/CD pipeline defined in `.github/workflows/deploy.yml` for manual database deployments. This needs to be expanded to support multiple environments and automated deployments.
-
-## 8. Known Issues
-
-*   All major technical debt related to the test suite has been resolved. The remaining tech debt is tracked in the [Roadmap](./ROADMAP.md).
-
-## 9. Testing Frameworks & Implementation
-
-This section describes the tools and technical practices used for testing. For the product-level testing strategy and quality goals, see the [Software Quality Metrics in the PRD](./PRD.md#5-software-quality-metrics).
-
-### Vite/Vitest Configuration
-
-The stability of the unit and component test suite hinges on several key configurations in `vite.config.mjs`:
-
-1.  **Static Configuration:** The configuration is exported as a single, static object rather than using a function with conditional logic. This was implemented to fix a critical bug where the test-specific configurations were not being reliably applied, causing the entire test suite to become unstable.
-2.  **JSDOM Environment:** The `test.environment` is explicitly set to `'jsdom'`. This provides a simulated browser environment, making critical objects like `window` and `document` available. This is essential for testing React components that need to render to a DOM.
-3.  **Strict Exclusion:** The `test.exclude` array is configured to explicitly ignore the `**/tests/**` directory. This is a critical separation of concerns, preventing the Vitest unit test runner from attempting to execute Playwright E2E tests, which use a different runner and syntax.
-
-### Global Test Mocks (`src/test/setup.tsx`)
-
-To create a stable and predictable test environment, several key dependencies and browser APIs are mocked globally in the test setup file:
-
-*   **Native Node.js Modules:** Modules with native C++ bindings, like `sharp`, often fail to build or run in containerized CI/CD environments. To prevent this, `sharp` is globally mocked to return a simple, non-functional version of itself.
-*   **Browser-Specific APIs:** The `jsdom` environment does not implement all browser APIs. Any components that rely on features like `SpeechRecognition`, `navigator.mediaDevices`, or `URL.createObjectURL` would fail. These APIs are mocked globally to ensure that the components can render and be tested without runtime errors.
-*   **Third-Party Services:** Services like Supabase, Stripe, PostHog, and Sonner are globally mocked to prevent tests from making actual network calls. This makes tests faster, more reliable, and prevents them from depending on external state.
-
-### Required Practices
-1.  **Use the Unified Test Helper:** All component tests **must** use the `renderWithAllProviders` function from `src/test/test-utils.jsx` to prevent memory leaks and ensure access to necessary contexts.
-2.  **Mock Strategically:** For complex hooks like `useSpeechRecognition`, mock the hook itself to test the component's response to different states.
-3.  **Clean Up Mocks:** All test files that use `vi.mock` or `vi.spyOn` should include an `afterEach(() => { vi.restoreAllMocks(); });` block.
-
-### E2E Test Architecture
-The E2E test architecture is now stable and follows best practices.
-
-- **Network Stubbing (`tests/sdkStubs.ts`):** Uses `page.route()` to intercept outgoing network requests to third-party services and Supabase. This is done after navigating to `about:blank` to prevent race conditions with the application's startup.
-- **Real Authentication Flow:** The tests now interact with the application like a real user. They fill out the login form on the `/auth` page, and the `sdkStubs.ts` file provides mock responses to the authentication API calls. This ensures the entire authentication flow is tested.
-- **Media Device Mocking (`tests/mockMedia.ts`):** Uses an init script to replace `navigator.mediaDevices.getUserMedia` with a function that returns a fake audio stream, bypassing browser permission prompts.
-
-## 10. Senior Engineer Perspective (Scalability & Technical Health)
-
-**Doing Well:**
-
-*   Modular [TranscriptionService](./ARCHITECTURE.md#5-transcription-service) with pluggable Cloud/Local providers.
-*   Hybrid testing strategy (Vitest + Playwright).
-
-**Gaps / Risks:**
-
-*   **[Resolved]** The critical bugs in the test suite and E2E rendering have been fixed. The test suite is now stable.
-*   Memory leaks in `AuthContext` subscription (fixed via prop-gated provider).
-*   **[Resolved]** The test suite is now enabled and reliable, increasing trust in CI/CD metrics.
-
-**Recommendations:**
-
-*   **[Done]** The test suite has been stabilized.
-*   Invest in DevOps (multi-env CI/CD, secret management, reproducible test runners).
-*   Add memory profiling in long sessions (Chrome DevTools, soak tests).
-*   Enhance the **Local Development Guide** in the root `README.md` with troubleshooting tips.

@@ -1,133 +1,396 @@
 #!/bin/bash
+# run-tests.sh - Production-grade test orchestration script
 
-# A script to run all tests and generate a Software Quality Metrics report.
-# This script relies on `jq` for parsing JSON. Please ensure it is installed.
+set -euxo pipefail
 
-# Exit immediately if a command exits with a non-zero status.
-set -e
+# Configuration
+TEST_RESULTS_DIR="test-results"
+METRICS_FILE="$TEST_RESULTS_DIR/metrics.json"
+COVERAGE_DIR="coverage"
+LOG_FILE="$TEST_RESULTS_DIR/test-execution.log"
 
-echo "==============================================="
-echo "🔹 Comprehensive Test Suite Runner"
-echo "==============================================="
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
 
-# --- Configuration ---
-TARGET_FILE="docs/ARCHITECTURE.md"
-UNIT_JSON_REPORT="unit-results.json"
-E2E_JSON_REPORT="e2e-results.json"
-COVERAGE_JSON_SUMMARY="coverage/coverage-summary.json"
-
-# --- Pre-flight Check ---
-if ! command -v jq &> /dev/null; then
-    echo "Error: jq is not installed. Please install it to continue."
-    echo "On macOS: brew install jq"
-    echo "On Debian/Ubuntu: sudo apt-get install jq"
-    exit 1
-fi
-
-# --- Test Execution ---
-echo "Running all tests and generating reports..."
-
-# Run unit tests and generate a JSON report for counts
-echo "Running unit tests for pass/fail counts..."
-pnpm test:unit --reporter=json --outputFile=${UNIT_JSON_REPORT} > /dev/null 2>&1
-
-# Run coverage and generate a JSON summary for coverage percentage
-echo "Running unit tests for coverage percentage..."
-pnpm test:coverage > /dev/null 2>&1
-
-# Run E2E tests (script in package.json already directs output to e2e-results.json)
-echo "Running E2E tests..."
-pnpm test:e2e > /dev/null 2>&1
-
-echo "All tests completed."
-
-# --- Metrics Parsing (Robust) ---
-echo "Parsing test metrics from JSON reports..."
-
-# Unit Test Metrics
-UNIT_PASSED=$(jq '.numPassedTests' ${UNIT_JSON_REPORT})
-UNIT_FAILED=$(jq '.numFailedTests' ${UNIT_JSON_REPORT})
-UNIT_SKIPPED=$(jq '.numPendingTests' ${UNIT_JSON_REPORT})
-UNIT_TOTAL=$(jq '.numTotalTests' ${UNIT_JSON_REPORT})
-
-# E2E Test Metrics
-E2E_PASSED=$(jq '.stats.passed' ${E2E_JSON_REPORT})
-E2E_FAILED=$(jq '.stats.failed' ${E2E_JSON_REPORT})
-E2E_SKIPPED=$(jq '.stats.skipped' ${E2E_JSON_REPORT})
-E2E_TOTAL=$(jq '.stats.total' ${E2E_JSON_REPORT})
-
-# Overall Metrics
-TOTAL_TESTS=$((UNIT_TOTAL + E2E_TOTAL))
-PASSING_TESTS=$((UNIT_PASSED + E2E_PASSED))
-FAILING_TESTS=$((UNIT_FAILED + E2E_FAILED))
-DISABLED_TESTS=$((UNIT_SKIPPED + E2E_SKIPPED))
-
-# Coverage Metrics
-COVERAGE_STMTS=$(jq '.total.statements.pct' ${COVERAGE_JSON_SUMMARY})
-COVERAGE_BRANCHES=$(jq '.total.branches.pct' ${COVERAGE_JSON_SUMMARY})
-COVERAGE_FUNCS=$(jq '.total.functions.pct' ${COVERAGE_JSON_SUMMARY})
-COVERAGE_LINES=$(jq '.total.lines.pct' ${COVERAGE_JSON_SUMMARY})
-
-# --- SQM File Generation ---
-echo "Updating Software Quality Metrics in ${TARGET_FILE}..."
-
-# Create a temporary file to build the new report
-TMP_FILE=$(mktemp)
-
-# Use a single, chained sed command to perform all replacements and write to the temp file
-# This is more efficient and portable than multiple `sed -i` calls.
-# Note: The backslash before the pipe `|` is important for sed to treat it literally.
-sed -e "s/Last Updated: .*/Last Updated: $(date)/" \
-    -e "s/\| Total tests             \| N\/A/\| Total tests             \| ${TOTAL_TESTS}/" \
-    -e "s/\| Unit tests              \| N\/A/\| Unit tests              \| ${UNIT_TOTAL}/" \
-    -e "s/\| E2E tests (Playwright)  \| N\/A/\| E2E tests (Playwright)  \| ${E2E_TOTAL}/" \
-    -e "s/\| Passing tests           \| N\/A/\| Passing tests           \| ${PASSING_TESTS}/" \
-    -e "s/\| Failing tests           | N\/A/\| Failing tests           | ${FAILING_TESTS}/" \
-    -e "s/\| Disabled\/skipped tests  \| N\/A/\| Disabled\/skipped tests  \| ${DISABLED_TESTS}/" \
-    -e "s/\| Unit tests passing      \| N\/A/\| Unit tests passing      \| ${UNIT_PASSED}/" \
-    -e "s/\| E2E tests failing       \| N\/A/| E2E tests failing       | ${E2E_FAILED}/" \
-    -e "s/\| Statements \| N\/A/\| Statements \| ${COVERAGE_STMTS}%/" \
-    -e "s/\| Branches   \| N\/A/\| Branches   \| ${COVERAGE_BRANCHES}%/" \
-    -e "s/| Functions  | N\/A/| Functions  | ${COVERAGE_FUNCS}%/" \
-    -e "s/| Lines      | N\/A/| Lines      | ${COVERAGE_LINES}%/" \
-    "${TARGET_FILE}" > "${TMP_FILE}"
-
-# Overwrite the original file with the updated temp file
-mv "$TMP_FILE" "$TARGET_FILE"
-
-echo "✅ Metrics updated successfully!"
-
-# --- Final Summary ---
-print_summary() {
-    printf "\n"
-    printf "================================================\n"
-    printf "✅ SpeakSharp Quality Gate: PASSED\n"
-    printf "================================================\n"
-    printf "📊 TEST RESULTS\n"
-    printf "------------------------------------------------\n"
-    printf "| Suite      | Passed | Failed | Skipped | Total |\n"
-    printf "|------------|--------|--------|---------|-------|\n"
-    printf "| Unit Tests | %-6s | %-6s | %-7s | %-5s |\n" "$UNIT_PASSED" "$UNIT_FAILED" "$UNIT_SKIPPED" "$UNIT_TOTAL"
-    printf "| E2E Tests  | %-6s | %-6s | %-7s | %-5s |\n" "$E2E_PASSED" "$E2E_FAILED" "$E2E_SKIPPED" "$E2E_TOTAL"
-    printf "------------------------------------------------\n"
-    printf "📈 COVERAGE\n"
-    printf "------------------------------------------------\n"
-    printf "| Statements: %s%% | Branches: %s%% | Functions: %s%% | Lines: %s%% |\n" "$COVERAGE_STMTS" "$COVERAGE_BRANCHES" "$COVERAGE_FUNCS" "$COVERAGE_LINES"
-    printf "================================================\n"
+# Logging function
+log() {
+    echo -e "${BLUE}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} $1" | tee -a "$LOG_FILE"
 }
 
-# --- Final Check ---
-if [ "${UNIT_FAILED}" -gt 0 ] || [ "${E2E_FAILED}" -gt 0 ]; then
-    # Modify the summary for failure
-    print_summary | sed 's/✅ SpeakSharp Quality Gate: PASSED/❌ SpeakSharp Quality Gate: FAILED/'
-    echo "\nError: One or more tests failed. Please review the output."
-    exit 1
-else
-    print_summary
-    echo "\nAll tests passed successfully!"
-fi
-  echo "Error: One or more tests failed. Please review the output."
-  exit 1
-fi
+error() {
+    echo -e "${RED}[ERROR]${NC} $1" | tee -a "$LOG_FILE"
+}
 
-echo "All tests passed successfully!"
+success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1" | tee -a "$LOG_FILE"
+}
+
+warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1" | tee -a "$LOG_FILE"
+}
+
+# Initialize test environment
+initialize() {
+    # Create directories first, so logging can work
+    mkdir -p "$TEST_RESULTS_DIR" "$COVERAGE_DIR"
+    touch "$LOG_FILE"
+
+    log "Initializing test environment..."
+
+    # Clear previous results
+    rm -f "$METRICS_FILE"
+
+    # Verify dependencies
+    if ! command -v jq &> /dev/null; then
+        error "jq is required for metrics processing"
+        exit 1
+    fi
+
+    # Verify node modules
+    if [ ! -d "node_modules" ]; then
+        log "Installing dependencies..."
+        pnpm install
+    fi
+
+    success "Environment initialized"
+}
+
+# Run unit tests with coverage
+run_unit_tests() {
+    log "Running unit tests with coverage..."
+
+    local start_time=$(date +%s)
+
+    # Run vitest with coverage and JSON output
+    if pnpm vitest run --coverage --reporter=json --outputFile="$TEST_RESULTS_DIR/unit-results.json" --reporter=default; then
+        local end_time=$(date +%s)
+        local duration=$((end_time - start_time))
+
+        success "Unit tests completed in ${duration}s"
+
+        # Extract unit test metrics
+        extract_unit_metrics "$duration"
+        return 0
+    else
+        error "Unit tests failed"
+        return 1
+    fi
+}
+
+# Extract unit test metrics
+extract_unit_metrics() {
+    local duration=$1
+
+    if [ -f "$TEST_RESULTS_DIR/unit-results.json" ]; then
+        local total_tests=$(jq -r '.numTotalTests // 0' "$TEST_RESULTS_DIR/unit-results.json")
+        local passed_tests=$(jq -r '.numPassedTests // 0' "$TEST_RESULTS_DIR/unit-results.json")
+        local failed_tests=$(jq -r '.numFailedTests // 0' "$TEST_RESULTS_DIR/unit-results.json")
+        local skipped_tests=$(jq -r '.numPendingTests // 0' "$TEST_RESULTS_DIR/unit-results.json")
+
+        # Coverage metrics (if available)
+        local coverage_file="$COVERAGE_DIR/coverage-summary.json"
+        local line_coverage="0"
+        local branch_coverage="0"
+
+        if [ -f "$coverage_file" ]; then
+            line_coverage=$(jq -r '.total.lines.pct // 0' "$coverage_file")
+            branch_coverage=$(jq -r '.total.branches.pct // 0' "$coverage_file")
+        fi
+
+        # Create unit test metrics
+        jq -n \
+            --arg duration "$duration" \
+            --arg total "$total_tests" \
+            --arg passed "$passed_tests" \
+            --arg failed "$failed_tests" \
+            --arg skipped "$skipped_tests" \
+            --arg line_cov "$line_coverage" \
+            --arg branch_cov "$branch_coverage" \
+            '{
+                "unit_tests": {
+                    "duration": ($duration | tonumber),
+                    "total": ($total | tonumber),
+                    "passed": ($passed | tonumber),
+                    "failed": ($failed | tonumber),
+                    "skipped": ($skipped | tonumber),
+                    "success_rate": (($passed | tonumber) / ($total | tonumber) * 100),
+                    "coverage": {
+                        "lines": ($line_cov | tonumber),
+                        "branches": ($branch_cov | tonumber)
+                    }
+                }
+            }' > "$TEST_RESULTS_DIR/unit-metrics.json"
+    fi
+}
+
+# Run E2E tests
+run_e2e_tests() {
+    log "Starting E2E test environment..."
+
+    local start_time=$(date +%s)
+    local dev_server_pid=""
+
+    # Start dev server in background
+    echo "[RUN-TESTS.SH] run_e2e_tests: Starting development server..."
+    log "Starting development server..."
+    pnpm dev:test > "$TEST_RESULTS_DIR/dev-server.log" 2>&1 &
+    dev_server_pid=$!
+
+    # Wait for server to be ready
+    local max_attempts=30
+    local attempt=0
+
+    while [ $attempt -lt $max_attempts ]; do
+        if curl -s http://localhost:5173 > /dev/null 2>&1; then
+            success "Development server is ready"
+            break
+        fi
+
+        attempt=$((attempt + 1))
+        log "Waiting for dev server... (attempt $attempt/$max_attempts)"
+        sleep 2
+    done
+
+    if [ $attempt -eq $max_attempts ]; then
+        error "Development server failed to start"
+        cleanup_dev_server "$dev_server_pid"
+        return 1
+    fi
+
+    # Run Playwright tests
+    log "Running E2E tests..."
+
+    local e2e_result=0
+    if pnpm playwright test; then
+        local end_time=$(date +%s)
+        local duration=$((end_time - start_time))
+        success "E2E tests completed in ${duration}s"
+
+        # Extract E2E metrics
+        extract_e2e_metrics "$duration"
+    else
+        error "E2E tests failed"
+        e2e_result=1
+    fi
+
+    # Cleanup
+    cleanup_dev_server "$dev_server_pid"
+
+    return $e2e_result
+}
+
+# Extract E2E test metrics
+extract_e2e_metrics() {
+    local duration=$1
+
+    # Parse Playwright results (format varies by version)
+    local results_file="$TEST_RESULTS_DIR/e2e-results/results.json"
+
+    if [ -f "$results_file" ]; then
+        local total_tests=$(jq -r '.suites[].specs | length' "$results_file" 2>/dev/null || echo "0")
+        local passed_tests=$(jq -r '[.suites[].specs[].tests[] | select(.results[0].status == "passed")] | length' "$results_file" 2>/dev/null || echo "0")
+        local failed_tests=$(jq -r '[.suites[].specs[].tests[] | select(.results[0].status == "failed")] | length' "$results_file" 2>/dev/null || echo "0")
+        local skipped_tests=$(jq -r '[.suites[].specs[].tests[] | select(.results[0].status == "skipped")] | length' "$results_file" 2>/dev/null || echo "0")
+
+        jq -n \
+            --arg duration "$duration" \
+            --arg total "$total_tests" \
+            --arg passed "$passed_tests" \
+            --arg failed "$failed_tests" \
+            --arg skipped "$skipped_tests" \
+            '{
+                "e2e_tests": {
+                    "duration": ($duration | tonumber),
+                    "total": ($total | tonumber),
+                    "passed": ($passed | tonumber),
+                    "failed": ($failed | tonumber),
+                    "skipped": ($skipped | tonumber),
+                    "success_rate": (($passed | tonumber) / (($total | tonumber) + 0.001) * 100)
+                }
+            }' > "$TEST_RESULTS_DIR/e2e-metrics.json"
+    else
+        warning "E2E results file not found"
+        jq -n '{"e2e_tests": {"duration": 0, "total": 0, "passed": 0, "failed": 0, "skipped": 0, "success_rate": 0}}' > "$TEST_RESULTS_DIR/e2e-metrics.json"
+    fi
+}
+
+# Cleanup dev server
+cleanup_dev_server() {
+    echo "[RUN-TESTS.SH] cleanup_dev_server: Cleaning up dev server..."
+    local pid=$1
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        log "Stopping development server (PID: $pid)..."
+        kill "$pid"
+        wait "$pid" 2>/dev/null || true
+    fi
+}
+
+# Bundle analysis
+analyze_bundle() {
+    log "Analyzing bundle size..."
+
+    if command -v npx &> /dev/null; then
+        # Build for production
+        pnpm build > "$TEST_RESULTS_DIR/build.log" 2>&1
+
+        # Analyze bundle (if build succeeded)
+        if [ $? -eq 0 ] && [ -d "dist" ]; then
+            local bundle_size=$(du -sh dist | cut -f1)
+
+            jq -n \
+                --arg size "$bundle_size" \
+                '{
+                    "bundle": {
+                        "size": $size,
+                        "timestamp": (now | strftime("%Y-%m-%d %H:%M:%S"))
+                    }
+                }' > "$TEST_RESULTS_DIR/bundle-metrics.json"
+
+            success "Bundle analysis completed: $bundle_size"
+        else
+            warning "Build failed, skipping bundle analysis"
+            echo '{"bundle": {"size": "unknown", "timestamp": ""}}' > "$TEST_RESULTS_DIR/bundle-metrics.json"
+        fi
+    else
+        warning "npm/npx not available for bundle analysis"
+        echo '{"bundle": {"size": "unknown", "timestamp": ""}}' > "$TEST_RESULTS_DIR/bundle-metrics.json"
+    fi
+}
+
+# Combine all metrics
+combine_metrics() {
+    log "Combining metrics..."
+
+    local combined_metrics="{}"
+
+    # Merge all metric files
+    for metric_file in "$TEST_RESULTS_DIR"/*-metrics.json; do
+        if [ -f "$metric_file" ]; then
+            combined_metrics=$(echo "$combined_metrics" | jq -s '.[0] * .[1]' - "$metric_file")
+        fi
+    done
+
+    # Add timestamp and summary
+    combined_metrics=$(echo "$combined_metrics" | jq --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '. + {
+        "timestamp": $timestamp,
+        "summary": {
+            "total_duration": ((.unit_tests.duration // 0) + (.e2e_tests.duration // 0)),
+            "overall_success_rate": (((.unit_tests.passed // 0) + (.e2e_tests.passed // 0)) * 100 / ((.unit_tests.total // 0) + (.e2e_tests.total // 0) + 0.001))
+        }
+    }')
+
+    echo "$combined_metrics" > "$METRICS_FILE"
+    success "Metrics saved to $METRICS_FILE"
+}
+
+# Update documentation
+update_documentation() {
+    log "Updating PRD.md with metrics..."
+
+    if [ -f "$METRICS_FILE" ] && [ -f "docs/PRD.md" ]; then
+        # Extract key metrics
+        local unit_tests_passed=$(jq -r '.unit_tests.passed // 0' "$METRICS_FILE")
+        local unit_tests_total=$(jq -r '.unit_tests.total // 0' "$METRICS_FILE")
+        local e2e_tests_passed=$(jq -r '.e2e_tests.passed // 0' "$METRICS_FILE")
+        local e2e_tests_total=$(jq -r '.e2e_tests.total // 0' "$METRICS_FILE")
+        local line_coverage=$(jq -r '.unit_tests.coverage.lines // 0' "$METRICS_FILE")
+        local bundle_size=$(jq -r '.bundle.size // "unknown"' "$METRICS_FILE")
+
+        # Create metrics section
+        local metrics_section="## Software Quality Metrics (Last Updated: $(date))
+
+| Metric | Value |
+|--------|-------|
+| Unit Tests | $unit_tests_passed/$unit_tests_total passed |
+| E2E Tests | $e2e_tests_passed/$e2e_tests_total passed |
+| Code Coverage | ${line_coverage}% |
+| Bundle Size | $bundle_size |
+
+*Metrics updated automatically by \`run-tests.sh\`*"
+
+        # Update or append to PRD.md
+        if grep -q "Software Quality Metrics" docs/PRD.md; then
+            # Replace existing section
+            sed -i '/## Software Quality Metrics/,/^\*Metrics updated automatically/c\'"$metrics_section" docs/PRD.md
+        else
+            # Append new section
+            echo -e "\n$metrics_section" >> docs/PRD.md
+        fi
+
+        success "PRD.md updated with current metrics"
+    else
+        warning "Could not update documentation (missing files)"
+    fi
+}
+
+# Print summary
+print_summary() {
+    log "Test execution summary:"
+
+    if [ -f "$METRICS_FILE" ]; then
+        echo
+        jq -r '
+            "=== TEST RESULTS SUMMARY ===" +
+            "\nUnit Tests: " + (.unit_tests.passed // 0 | tostring) + "/" + (.unit_tests.total // 0 | tostring) + " passed" +
+            "\nE2E Tests: " + (.e2e_tests.passed // 0 | tostring) + "/" + (.e2e_tests.total // 0 | tostring) + " passed" +
+            "\nCode Coverage: " + (.unit_tests.coverage.lines // 0 | tostring) + "%" +
+            "\nTotal Duration: " + (.summary.total_duration // 0 | tostring) + "s" +
+            "\nOverall Success Rate: " + (.summary.overall_success_rate // 0 | round | tostring) + "%" +
+            "\n=========================="
+        ' "$METRICS_FILE"
+    fi
+}
+
+# Main execution
+main() {
+    # Initialize environment first to ensure log file directory exists
+    initialize
+
+    local start_time=$(date +%s)
+    local exit_code=0
+
+    log "Starting comprehensive test execution..."
+
+    # Run unit tests
+    if ! run_unit_tests; then
+        exit_code=1
+    fi
+
+    # Run E2E tests
+    if ! run_e2e_tests; then
+        exit_code=1
+    fi
+
+    # Bundle analysis (non-blocking)
+    analyze_bundle
+
+    # Combine metrics
+    combine_metrics
+
+    # Update documentation
+    update_documentation
+
+    # Print summary
+    print_summary
+
+    local end_time=$(date +%s)
+    local total_duration=$((end_time - start_time))
+
+    if [ $exit_code -eq 0 ]; then
+        success "All tests completed successfully in ${total_duration}s"
+    else
+        error "Some tests failed (total time: ${total_duration}s)"
+    fi
+
+    exit $exit_code
+}
+
+# Handle script termination
+trap 'cleanup_dev_server "$dev_server_pid"; exit 130' INT TERM
+
+# Run main function
+main "$@"

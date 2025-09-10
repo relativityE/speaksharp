@@ -2,10 +2,9 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { TranscriptPanel } from '../TranscriptPanel';
-import '@testing-library/jest-dom';
 
 // Mock the logger
-vi.mock('../../../lib/logger', () => ({
+vi.mock('../../../../lib/logger', () => ({
     default: {
         info: vi.fn(),
         warn: vi.fn(),

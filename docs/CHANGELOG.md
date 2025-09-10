@@ -8,6 +8,7 @@ Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) style with sligh
 
 ## [Unreleased]
 ### Added
+- **New Testing Architecture:** Implemented a new testing architecture based on Mock Service Worker (MSW) to provide a stable and reliable testing environment. This includes a new `vitest.config.mjs` file, a new test setup file (`src/test-setup.js`), and a set of mock API handlers.
 - **Developer Workflow Automation:** Implemented a secure database seeding strategy (`pnpm db:seed`) and a script to automate ML model management (`pnpm model:update`).
 - **Local Premium Feature Testing:** Added a `VITE_DEV_PREMIUM_ACCESS` environment variable to allow for easy local testing of premium features without a real subscription.
 - **On-Device Transcription for Premium Users:** Implemented a new privacy-first transcription mode using a local Whisper model via `@xenova/transformers`.

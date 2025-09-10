@@ -25,8 +25,21 @@ const AllTheProviders = ({ children, authMock, sessionMock, route = '/', path })
   const initialEntries = [typeof route === 'string' ? { pathname: route } : route];
 
   // Provide default mocks if none are passed
-  const defaultAuthMock = { user: null, profile: null, loading: false, signOut: vi.fn() };
-  const defaultSessionMock = { sessionHistory: [], loading: false, error: null, addSession: vi.fn() };
+  // FIXED: Complete auth mock matching AuthContext shape
+  const defaultAuthMock = {
+    session: null,
+    user: null,
+    profile: null,
+    loading: false,  // Critical: false so components render immediately in tests
+    signOut: vi.fn().mockResolvedValue(undefined)
+  };
+
+  const defaultSessionMock = {
+    sessionHistory: [],
+    loading: false,
+    error: null,
+    addSession: vi.fn()
+  };
 
   const content = path ? <Routes><Route path={path} element={children} /></Routes> : children;
 

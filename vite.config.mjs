@@ -1,3 +1,4 @@
+// vite.config.mjs
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
@@ -8,18 +9,30 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   plugins: [react()],
-  test: {
-    globals: true,
-    environment: 'happy-dom',
-    include: ['src/**/*.test.{js,jsx,ts,tsx}'],
-    setupFiles: 'src/test/setup.tsx',
-    reporters: 'verbose',
-    threads: true,
-    watch: false
+  server: {
+    port: 5173,
+    host: true,
+    watch: {
+      ignored: [
+        'test-results/',
+        'coverage/',
+        '**/*.log',
+        'docs/PRD.md'
+      ]
+    }
+  },
+  build: {
+    sourcemap: true,
+    outDir: 'dist',
+    rollupOptions: {
+      output: {
+        manualChunks: undefined,
+      }
+    }
   },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
-  },
+  }
 });

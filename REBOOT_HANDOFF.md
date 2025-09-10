@@ -1,18 +1,41 @@
-# Reboot Handoff - 2025-09-09
+# REBOOT_HANDOFF.md
 
-**To the next developer (or me after a reboot):**
+**Last Updated:** 2025-09-10 07:25:52
 
-The repository has been reset to its initial state to resolve a series of cascading failures and incorrect states. The previous work resulted in a fully functional test suite and corrected documentation, but the process was flawed.
+This document summarizes the current state of the project, the issues encountered, and the plan for after the VM reboot.
 
-The immediate goal is to re-implement the complete, known-good solution from scratch on this clean base.
+## Current Status
 
-**Next Steps (The Restoration Plan):**
+The primary goal is to implement a new, production-grade testing architecture based on Mock Service Worker (MSW). The following changes have been made:
 
-1.  **Initial Setup & Configuration:** Apply baseline configuration changes to `package.json` (add `postinstall` script), `postcss.config.js` (rename to `.cjs`), and create `.env.test`.
-2.  **Fix Unit Tests:** Re-apply the final, correct versions of `test-utils.jsx`, `AuthContext.tsx`, `AuthPage.jsx`, and the `AuthPage.test.jsx`.
-3.  **Fix E2E Tests:** Re-apply the final, correct versions of all E2E-related files (`useSpeechRecognition.js`, `LocalWhisper.js`, `sdkStubs.ts`, and all `*.e2e.spec.ts` files).
-4.  **Documentation Cleanup:** Re-apply all documentation fixes: update `OUTLINE.md` and `AGENTS.md`, relocate content from unapproved markdown files, and delete them.
-5.  **Implement Reporting Script:** Re-create the final, robust `run-tests.sh` script, update `package.json` with JSON reporters, and update `docs/PRD.md` with the SQM template.
-6.  **Final Validation:** Run the script, get user approval, and prepare for final submission.
+*   **New Testing Architecture:** A new testing architecture has been implemented, including a separate `vitest.config.mjs` file, a new test setup file (`src/test-setup.js`), and a set of mock API handlers.
+*   **Documentation Updates:** The `docs/ARCHITECTURE.md` and `docs/CHANGELOG.md` files have been updated to reflect the new testing architecture. The `docs/PRD.md` file has been updated with a "Known Issue" about the unstable test environment.
 
-This handoff marks the starting point for the full restoration of the correct solution.
+## Problems Encountered
+
+The project is currently blocked by a persistent issue with the `vitest` unit test runner. The tests are timing out without providing any useful error messages.
+
+**Debugging Steps Taken:**
+*   Separated the `vite` and `vitest` configurations.
+*   Improved the test cleanup logic in the test files.
+*   Added extensive logging to the test setup, a complex test file, and the test script.
+*   Isolated the tests and ran them one by one.
+*   Confirmed that a simple test file runs correctly, but more complex tests are timing out.
+
+**Hypothesis:**
+The issue is likely a fundamental problem with the test runner setup or the execution environment, rather than a problem with the test files themselves.
+
+## Plan for After Reboot
+
+1.  **Read this file** to get up to speed on the current status.
+2.  **Delete this file.**
+3.  **Attempt to run the full unit test suite** (`pnpm test:unit`) to see if the environment reset has resolved the timeout issue.
+4.  **If the tests still fail, proceed with the user's last debugging plan:**
+    *   Systematically isolate the problematic test file by running them one by one.
+    *   Fix the problematic test file.
+    *   Run the full test suite to validate the fix.
+5.  **Clean up** the temporary test files and directories.
+6.  **Run the full test suite** (`./run-tests.sh`) to validate the fix.
+7.  **Add `test-results/` to `.gitignore`**.
+8.  **Documentation Review**.
+9.  **Submit**.
