@@ -43,4 +43,5 @@ const Alert = React.forwardRef<HTMLDivElement, AlertProps>(
 );
 Alert.displayName = 'Alert';
 
+// eslint-disable-next-line react-refresh/only-export-components
 export { Alert, alertVariants };

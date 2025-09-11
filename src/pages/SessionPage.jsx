@@ -15,7 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { UpgradePromptDialog } from '@/components/UpgradePromptDialog';
 
 const LeftColumnContent = ({ speechRecognition, customWords, setCustomWords }) => {
-    const { error, isSupported, isListening, isReady, transcript, interimTranscript } = speechRecognition;
+    const { error, isSupported, isListening, isReady, transcript } = speechRecognition;
 
     if (!isSupported) {
         return (
@@ -124,6 +124,7 @@ export const SessionPage = () => {
             speechRecognition.stopListening();
             setUsageLimitExceeded(true);
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [elapsedTime, isListening, user, profile, speechRecognition.stopListening, setUsageLimitExceeded]);
 
     if (loading) {

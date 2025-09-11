@@ -61,7 +61,6 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
     const [isEndingSession, setIsEndingSession] = useState(false);
 
     const isDevUser = import.meta.env.VITE_DEV_USER === 'true';
-    const isPremium = profile?.subscription_status === 'premium';
 
     // All force modes should be off by default.
     const [forceCloud, setForceCloud] = useState(false);

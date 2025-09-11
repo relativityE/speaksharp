@@ -21,6 +21,7 @@ export async function waitForAppReady(page: Page, options: {
     await page.waitForSelector(`button:has-text("${buttonText}")`, { timeout: 15000 });
   } catch (err) {
     // Enhanced debugging
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const milestones = await page.evaluate(() => (window as any).__boot?.history ?? []);
     const sessionReady = await page.evaluate(() => window.__SESSION_READY__);
     const stubsReady = await page.evaluate(() => window.__STUBS_READY__);

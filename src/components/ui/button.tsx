@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils"
 import * as React from "react"
 import { Slot } from "@radix-ui/react-slot"
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const buttonVariants = cva(
   "inline-flex items-center justify-center font-medium transition rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2",
   {

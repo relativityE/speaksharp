@@ -1,7 +1,7 @@
 // src/contexts/AuthContext.tsx - Debug Version
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import { Session } from '@supabase/supabase-js';
+import { Session, User } from '@supabase/supabase-js';
 
 type Profile = {
   id: string;
@@ -10,12 +10,13 @@ type Profile = {
 
 type AuthContextType = {
   session: Session | null;
-  user: any | null;
+  user: User | null;
   profile: Profile | null;
   loading: boolean;
   signOut: () => Promise<void>;
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const AuthContext = createContext<AuthContextType>({
   session: null,
   user: null,
@@ -24,6 +25,7 @@ export const AuthContext = createContext<AuthContextType>({
   signOut: async () => {},
 });
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => useContext(AuthContext);
 
 const getProfileFromDb = async (user_id: string): Promise<Profile | null> => {
@@ -66,7 +68,7 @@ export function AuthProvider({ children }) {
 
           if (session?.user) {
             console.log('👤 User found, fetching profile...');
-            let userProfile = await getProfileFromDb(session.user.id);
+            const userProfile = await getProfileFromDb(session.user.id);
 
             // For local development, allow overriding the subscription status to 'premium'
             if (userProfile && import.meta.env.DEV && import.meta.env.VITE_DEV_PREMIUM_ACCESS === 'true') {
@@ -107,7 +109,7 @@ export function AuthProvider({ children }) {
           setLoading(true);
 
           try {
-            let userProfile = await getProfileFromDb(newSession.user.id);
+            const userProfile = await getProfileFromDb(newSession.user.id);
 
             // For local development, allow overriding the subscription status to 'premium'
             if (userProfile && import.meta.env.DEV && import.meta.env.VITE_DEV_PREMIUM_ACCESS === 'true') {

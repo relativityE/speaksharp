@@ -68,6 +68,8 @@ const renderWithAllProviders = (ui, options = {}) => {
 };
 
 // Re-export everything from testing-library
+// eslint-disable-next-line react-refresh/only-export-components
 export * from '@testing-library/react';
 // Override the render method with our custom one
+// eslint-disable-next-line react-refresh/only-export-components
 export { renderWithAllProviders as render };

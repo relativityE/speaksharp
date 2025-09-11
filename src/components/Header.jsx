@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSession } from '../contexts/SessionContext';
 import { Button } from './ui/button';
@@ -9,7 +9,6 @@ import { Home, LogOut, UserCircle } from 'lucide-react';
 export const Header = () => {
     const { user, signOut } = useAuth();
     const { sessionHistory } = useSession();
-    const location = useLocation();
 
     const navLinkClasses = "flex items-center px-3 py-2 rounded-md text-base font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors";
     const activeLinkClasses = "bg-secondary text-foreground";

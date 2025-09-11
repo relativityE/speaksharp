@@ -9,7 +9,7 @@ if (import.meta.env.MODE === 'development') {
       colorize: true,
     },
   };
-} else if (import.meta.env.MODE === 'test' || process.env.NODE_ENV === 'test') {
+} else if (import.meta.env.MODE === 'test') {
   options.level = 'silent';
 }
 

@@ -1,7 +1,6 @@
 import { useAuth } from '../contexts/AuthContext';
 import logger from '../lib/logger';
-import { getSessionHistory, saveSession as saveSessionToDb, deleteSession as deleteSessionFromDb, exportData } from '../lib/storage';
-import { useCallback } from 'react';
+import { saveSession as saveSessionToDb, deleteSession as deleteSessionFromDb, exportData } from '../lib/storage';
 
 // This hook is now "headless" and only contains the logic for actions.
 // The state itself is managed in SessionContext.

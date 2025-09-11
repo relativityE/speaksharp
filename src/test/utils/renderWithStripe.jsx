@@ -1,6 +1,7 @@
 // test-utils/renderWithStripe.jsx
 import React from 'react';
 import { render } from '@testing-library/react';
+import { vi } from 'vitest';
 import { Elements } from '@stripe/react-stripe-js';
 import { MemoryRouter } from 'react-router-dom';
 import { Toaster } from '@/components/ui/sonner';

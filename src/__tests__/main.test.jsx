@@ -1,9 +1,8 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import App from '../App';
 import ConfigurationNeededPage from '../pages/ConfigurationNeededPage';
-import { supabase } from '../lib/supabaseClient';
 
 // Mock child components and dependencies to isolate the logic of the entry point.
 vi.mock('../App', () => ({

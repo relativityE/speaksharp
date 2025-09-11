@@ -1,3 +1,5 @@
+/* globals sampleRate */
+
 /**
  * An AudioWorkletProcessor for downsampling audio to a target sample rate.
  * This implementation uses a simple averaging algorithm to resample the audio,

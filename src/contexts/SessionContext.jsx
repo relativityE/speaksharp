@@ -3,8 +3,10 @@ import { getSessionHistory } from '@/lib/storage';
 import { useAuth } from './AuthContext';
 import logger from '@/lib/logger';
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const SessionContext = createContext();
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useSession = () => useContext(SessionContext);
 
 export const SessionProvider = ({ children }) => {
