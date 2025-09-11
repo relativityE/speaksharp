@@ -14,6 +14,11 @@ interface SessionRequestBody {
   [key: string]: unknown;
 }
 
+interface Metrics {
+  words_per_minute: number;
+  accuracy: number;
+}
+
 // Mock user profiles
 const mockProfiles = {
   'user-123': { id: 'user-123', subscription_status: 'free' },
@@ -145,12 +150,14 @@ export const handlers = [
   }),
 
   http.post('https://*.supabase.co/rest/v1/sessions', async ({ request }) => {
-    const body = await request.json() as SessionRequestBody;
+    const body = await request.json() as { session_duration: number, metrics: Metrics, user_id?: string };
 
     const newSession = {
       id: `session-${Date.now()}`,
-      ...body,
-      created_at: new Date().toISOString()
+      user_id: body.user_id || 'user-123',
+      session_duration: body.session_duration,
+      created_at: new Date().toISOString(),
+      metrics: body.metrics,
     };
 
     mockSessions.push(newSession);

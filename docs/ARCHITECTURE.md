@@ -102,6 +102,17 @@ The testing architecture relies on a clean separation of concerns between the Vi
 
 This setup ensures a stable and predictable test environment and avoids the module resolution conflicts that can arise from mixing `vite` and `vitest` configurations.
 
+### Code Quality and Automation
+
+To maintain a high standard of code quality and prevent common errors, the project utilizes an automated pre-commit workflow.
+
+*   **TypeScript Configuration (`tsconfig.json`):** A strict `tsconfig.json` is now in place to enforce type safety across the entire codebase. It is configured to work with Vite's modern tooling, using `moduleResolution: "bundler"`, and allows for mixed JavaScript/TypeScript files with `allowJs: true`.
+*   **Automated Checks (`lint-staged` and `husky`):** A `husky` pre-commit hook triggers `lint-staged` to run checks on all staged files. This configuration ensures that:
+    *   **ESLint (`eslint --fix`):** Automatically fixes linting and style errors.
+    *   **TypeScript Compiler (`tsc --noEmit`):** Performs a full type check to catch any TypeScript errors before they are committed.
+
+This automated gatekeeping ensures that code entering the repository is clean, consistent, and type-safe.
+
 ## 3. Frontend Architecture
 
 The frontend is a single-page application (SPA) built with React and Vite.

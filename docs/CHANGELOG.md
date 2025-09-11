@@ -8,6 +8,7 @@ Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) style with sligh
 
 ## [Unreleased]
 ### Added
+- **Automated Code Quality Checks:** Implemented `lint-staged` and a `husky` pre-commit hook to automatically run `eslint` and `tsc` on staged files. This improves code quality and prevents errors from being committed.
 - **New Testing Architecture:** Implemented a new testing architecture based on Mock Service Worker (MSW) to provide a stable and reliable testing environment. This includes a new `vitest.config.mjs` file, a new test setup file (`src/test-setup.js`), and a set of mock API handlers.
 - **Developer Workflow Automation:** Implemented a secure database seeding strategy (`pnpm db:seed`) and a script to automate ML model management (`pnpm model:update`).
 - **Local Premium Feature Testing:** Added a `VITE_DEV_PREMIUM_ACCESS` environment variable to allow for easy local testing of premium features without a real subscription.
@@ -15,6 +16,7 @@ Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) style with sligh
 - **E2E Tests for All User Roles:** Added new E2E tests for the 'Free' and 'Premium' user flows, ensuring coverage for all user roles.
 
 ### Fixed
+- **Codebase Type Safety:** Resolved a large number of TypeScript errors across the entire codebase, enabling strict type checking to pass. This significantly improves code quality and reduces the risk of runtime errors.
 - **Resolved E2E Test Suite Crisis:** Overcame a persistent and critical failure in the E2E test suite where tests would time out. The root cause was a combination of race conditions, incorrect mocking strategies, and a subtle bug in the `AuthContext` initialization. The entire E2E test suite was refactored to be stable and reliable.
 - **SECURITY:** Removed an insecure RLS policy migration that could expose all user data in development environments.
 - **TESTING:** Repaired the entire unit test suite, resolving critical configuration, environment, and mocking issues. The suite is now stable and providing reliable feedback.

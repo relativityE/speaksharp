@@ -114,6 +114,16 @@ To check the code for linting errors, run:
 pnpm run lint
 ```
 
+## Code Quality
+
+This project uses a pre-commit hook to enforce code quality standards. The hook is managed by [Husky](https://typicode.github.io/husky/) and [lint-staged](https://github.com/okonet/lint-staged).
+
+Before each commit, the following checks are run on the staged files:
+- **ESLint:** Fixes formatting and style issues.
+- **TypeScript Compiler (`tsc`):** Performs a type check to catch any type-related errors.
+
+If any of these checks fail, the commit will be aborted. This ensures that only high-quality, error-free code is committed to the repository.
+
 ## Project Governance
 
 ### PM Perspective (Process & Documentation)

@@ -12,7 +12,20 @@ const BLOCKED_DOMAINS = [
 
 // --- Mock Data ---
 
-const MOCK_USERS = {
+interface UserMetadata {
+  subscription_status: 'pro' | 'premium' | 'free';
+  preferred_mode?: 'on-device' | 'cloud';
+}
+
+interface MockUser {
+  id: string;
+  email: string;
+  user_metadata: UserMetadata;
+  aud: 'authenticated';
+  role: 'authenticated';
+}
+
+const MOCK_USERS: { [email: string]: MockUser } = {
   'pro@example.com': {
     id: 'pro-user-id',
     email: 'pro@example.com',
@@ -36,7 +49,7 @@ const MOCK_USERS = {
   },
 };
 
-const getMockSession = (user) => {
+const getMockSession = (user: MockUser | undefined) => {
   if (!user) return null;
   return {
     access_token: `${user.id}-access-token`,
@@ -65,7 +78,7 @@ export async function stubThirdParties(page: Page, options: {
     try {
       // --- Auth Endpoints ---
       if (pathname.includes('/auth/v1/token')) {
-          const postData = request.postDataJSON();
+          const postData = request.postDataJSON() as { email?: string; refresh_token?: string };
           if (postData.email) {
               const user = MOCK_USERS[postData.email];
               const session = getMockSession(user);
@@ -138,7 +151,11 @@ export async function stubThirdParties(page: Page, options: {
         if (request.method() === 'GET') {
           const idParam = searchParams.get('id')?.replace('eq.', '');
           const user = Object.values(MOCK_USERS).find(u => u.id === idParam);
-          let profile = user ? { id: user.id, subscription_status: user.user_metadata.subscription_status } : {};
+          let profile: {
+            id?: string;
+            subscription_status?: 'free' | 'pro' | 'premium';
+            preferred_mode?: 'on-device' | 'cloud';
+          } = user ? { id: user.id, subscription_status: user.user_metadata.subscription_status } : {};
 
           if (options.forceOnDevice) {
             profile = { ...profile, preferred_mode: 'on-device' };

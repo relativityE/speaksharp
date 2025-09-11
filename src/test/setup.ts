@@ -149,16 +149,29 @@ global.AudioContext = vi.fn().mockImplementation(() => ({
 }));
 
 // Mock window.location for navigation tests
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-delete (window as any).location;
-window.location = {
-  ...window.location,
-  assign: vi.fn(),
-  replace: vi.fn(),
-  reload: vi.fn(),
-  href: 'http://localhost:5173',
-  origin: 'http://localhost:5173',
-};
+Object.defineProperty(window, 'location', {
+  writable: true,
+  value: {
+    ...window.location,
+    assign: vi.fn(),
+    replace: vi.fn(),
+    reload: vi.fn(),
+    href: 'http://localhost:5173',
+    origin: 'http://localhost:5173',
+    ancestorOrigins: {
+      length: 0,
+      contains: () => false,
+      item: () => null
+    },
+    hash: '',
+    host: 'localhost:5173',
+    hostname: 'localhost',
+    pathname: '/',
+    port: '5173',
+    protocol: 'http:',
+    search: '',
+  },
+});
 
 // Mock environment variables for consistent testing
 vi.stubEnv('VITE_SUPABASE_URL', 'https://test.supabase.co');
@@ -192,8 +205,4 @@ afterAll(() => {
 });
 
 // Global test utilities
-declare global {
-  let TEST_MODE: boolean;
-}
-
-global.TEST_MODE = true;
+window.TEST_MODE = true;
