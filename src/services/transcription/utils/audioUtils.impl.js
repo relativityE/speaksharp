@@ -59,7 +59,7 @@ export async function createMicStreamImpl({ sampleRate = 16000, frameSize = 1024
     onFrame: (cb) => listeners.add(cb),
     offFrame: (cb) => listeners.delete(cb),
     stop: () => {
-      try { source.disconnect(); node.disconnect(); } catch (e) { /* best effort */ }
+      try { source.disconnect(); node.disconnect(); } catch { /* best effort */ }
       audioCtx.close().catch(() => { /* best effort */ });
       mediaStream.getTracks().forEach(t => t.stop());
     },

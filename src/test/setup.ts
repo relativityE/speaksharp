@@ -149,6 +149,7 @@ global.AudioContext = vi.fn().mockImplementation(() => ({
 }));
 
 // Mock window.location for navigation tests
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 delete (window as any).location;
 window.location = {
   ...window.location,
@@ -169,7 +170,7 @@ vi.stubEnv('VITE_TEST_MODE', 'true');
 // Global error handling
 const originalConsoleError = console.error;
 beforeAll(() => {
-  console.error = (...args: any[]) => {
+  console.error = (...args: unknown[]) => {
     // Suppress known React warnings in test environment
     const message = args[0];
     if (
@@ -192,7 +193,7 @@ afterAll(() => {
 
 // Global test utilities
 declare global {
-  var TEST_MODE: boolean;
+  let TEST_MODE: boolean;
 }
 
 global.TEST_MODE = true;

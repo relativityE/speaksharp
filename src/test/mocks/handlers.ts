@@ -1,6 +1,19 @@
 // src/test/mocks/handlers.ts
 import { http, HttpResponse } from 'msw';
 
+interface TokenRequestBody {
+  grant_type: 'password' | 'refresh_token' | 'anonymous';
+  email?: string;
+}
+
+interface SignupRequestBody {
+  email?: string;
+}
+
+interface SessionRequestBody {
+  [key: string]: unknown;
+}
+
 // Mock user profiles
 const mockProfiles = {
   'user-123': { id: 'user-123', subscription_status: 'free' },
@@ -22,7 +35,7 @@ const mockSessions = [
 export const handlers = [
   // Supabase Auth endpoints
   http.post('https://*.supabase.co/auth/v1/token', async ({ request }) => {
-    const body = await request.json() as any;
+    const body = await request.json() as TokenRequestBody;
 
     if (body.grant_type === 'password') {
       // Sign in with email/password
@@ -61,7 +74,7 @@ export const handlers = [
 
   // Sign up
   http.post('https://*.supabase.co/auth/v1/signup', async ({ request }) => {
-    const body = await request.json() as any;
+    const body = await request.json() as SignupRequestBody;
 
     if (body.email?.includes('existing@')) {
       return HttpResponse.json(
@@ -111,7 +124,7 @@ export const handlers = [
   }),
 
   // Database endpoints - User profiles
-  http.get('https://*.supabase.co/rest/v1/user_profiles', ({ request, params }) => {
+  http.get('https://*.supabase.co/rest/v1/user_profiles', ({ request }) => {
     const url = new URL(request.url);
     const userId = url.searchParams.get('id')?.replace('eq.', '');
 
@@ -132,7 +145,7 @@ export const handlers = [
   }),
 
   http.post('https://*.supabase.co/rest/v1/sessions', async ({ request }) => {
-    const body = await request.json() as any;
+    const body = await request.json() as SessionRequestBody;
 
     const newSession = {
       id: `session-${Date.now()}`,
@@ -163,7 +176,7 @@ export const handlers = [
 export const anonymousHandlers = [
   // Anonymous sign-in
   http.post('https://*.supabase.co/auth/v1/token', async ({ request }) => {
-    const body = await request.json() as any;
+    const body = await request.json() as TokenRequestBody;
 
     if (body.grant_type === 'anonymous') {
       return HttpResponse.json({
@@ -184,7 +197,7 @@ export const anonymousHandlers = [
 
   // Anonymous sessions storage
   http.post('https://*.supabase.co/rest/v1/anonymous_sessions', async ({ request }) => {
-    const body = await request.json() as any;
+    const body = await request.json() as SessionRequestBody;
 
     return HttpResponse.json({
       id: `anon-session-${Date.now()}`,

@@ -3,6 +3,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 import * as React from "react"
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const toastVariants = cva(
   "flex items-start gap-3 rounded-lg shadow-md transition-all",
   {

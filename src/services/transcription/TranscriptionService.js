@@ -134,13 +134,13 @@ export default class TranscriptionService {
 
   async destroy() {
     logger.info('[TranscriptionService] Destroying service.');
-    try { await this.stopTranscription(); } catch (e) { /* best effort */ }
+    try { await this.stopTranscription(); } catch { /* best effort */ }
     try {
       if (this.mic) {
         this.mic.stop();
         logger.info('[TranscriptionService] Mic stream stopped.');
       }
-    } catch (e) { /* best effort */ }
+    } catch { /* best effort */ }
     this.instance = null;
     this.mic = null;
     logger.info('[TranscriptionService] Service destroyed.');

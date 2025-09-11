@@ -66,7 +66,7 @@ describe('TranscriptPanel', () => {
     });
 
     it('renders waiting message when listening but no text is available', () => {
-        const { container } = render(
+        render(
             <TranscriptPanel
                 chunks={[]}
                 interimTranscript=""

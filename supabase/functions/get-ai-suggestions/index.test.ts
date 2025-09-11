@@ -1,9 +1,9 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { handler } from './index.ts';
 import { assertEquals, assertExists } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { assert } from 'https://deno.land/std@0.224.0/assert/assert.ts';
 
 // Mock the global fetch to avoid real API calls
-globalThis.fetch = async (url, options) => {
+globalThis.fetch = async (url) => {
   if (url.toString().includes('generativelanguage.googleapis.com')) {
     const mockApiResponse = {
       candidates: [{

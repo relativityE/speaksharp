@@ -45,9 +45,13 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript }) => {
       }
 
       setSuggestions(data.suggestions);
-    } catch (err: any) {
+    } catch (err: unknown) {
       logger.error({ err }, "Error fetching AI suggestions:");
-      setError(err.message || 'An unexpected error occurred.');
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('An unexpected error occurred.');
+      }
     } finally {
       setIsLoading(false);
     }

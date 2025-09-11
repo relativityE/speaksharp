@@ -201,10 +201,14 @@ export type SpeakSharpTheme = typeof speakSharpTheme;
 Theme Utilities Helper functions for consistent theme application across pages */ // Get theme values with fallbacks
 export const getThemeValue = (path: string, fallback?: string) => {
     const keys = path.split('.');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let value: any = speakSharpTheme;
 
     for (const key of keys) {
-        value = value?.[key];
+        if (typeof value !== 'object' || value === null) {
+            return fallback;
+        }
+        value = value[key];
         if (value === undefined) return fallback;
     }
 

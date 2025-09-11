@@ -1,6 +1,5 @@
 // tests/auth.e2e.spec.ts - REFACTORED
 import { expect, test } from '@playwright/test';
-import { stubThirdParties } from './sdkStubs';
 
 test.describe('Authentication Flows', () => {
   test.beforeEach(async ({ page }) => {
