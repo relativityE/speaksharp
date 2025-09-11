@@ -18,7 +18,7 @@ describe('fillerWordUtils', () => {
         });
 
         it('includes custom words in data structure', () => {
-            const customWords = ['basically', 'literally'];
+            const customWords: string[] = ['basically', 'literally'];
             const result = createInitialFillerData(customWords);
             expect(result).toHaveProperty('basically');
             expect(result).toHaveProperty('literally');
@@ -65,13 +65,13 @@ describe('fillerWordUtils', () => {
                 { text: 'This is a test.' }
             ];
             const wordConfidences = [
-                { confidence: 0.9 },
-                { confidence: 0.8 },
-                { confidence: 0.95 },
-                { confidence: 0.9 },
-                { confidence: 0.85 },
-                { confidence: 0.9 },
-                { confidence: 0.95 },
+                { word: 'dummy', confidence: 0.9 },
+                { word: 'dummy', confidence: 0.8 },
+                { word: 'dummy', confidence: 0.95 },
+                { word: 'dummy', confidence: 0.9 },
+                { word: 'dummy', confidence: 0.85 },
+                { word: 'dummy', confidence: 0.9 },
+                { word: 'dummy', confidence: 0.95 },
             ];
 
             const result = calculateTranscriptStats(chunks, wordConfidences);
@@ -98,13 +98,13 @@ describe('fillerWordUtils', () => {
 
     describe('limitArray', () => {
         it('limits array to max length', () => {
-            const array = [1, 2, 3, 4, 5];
+            const array: number[] = [1, 2, 3, 4, 5];
             const result = limitArray(array, 3);
             expect(result).toEqual([3, 4, 5]);
         });
 
         it('returns original array if under limit', () => {
-            const array = [1, 2];
+            const array: number[] = [1, 2];
             const result = limitArray(array, 5);
             expect(result).toEqual([1, 2]);
         });
