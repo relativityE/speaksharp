@@ -24,6 +24,11 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 - ✅ **Implement "Free User Quota" E2E test:** An E2E test for the 'Free' user role has been added.
 
 ### 🚧 Should-Have (Tech Debt)
+- 🟡 **Migrate "Low Hanging Fruit" JS to TypeScript:** Convert simple, non-critical JavaScript files to TypeScript to improve type safety.
+  - ✅ `src/utils/fillerWordUtils.js`
+  - 🔴 `src/lib/dateUtils.js`
+  - 🔴 `src/lib/analyticsUtils.js`
+  - 🔴 `src/hooks/useBrowserSupport.js`
 - 🔴 **Refactor Integration Tests:** Slim down component tests (`SessionSidebar`, `AnalyticsPage`, etc.) to remove redundant coverage now handled by E2E tests.
 - 🔴 **Create Troubleshooting Guide:** Add error recovery steps to the documentation.
 - 🔴 **Harden Supabase Security:** Address security advisor warnings.
