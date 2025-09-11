@@ -106,7 +106,7 @@ This section contains ASCII art diagrams illustrating the journey for each user 
 This section tracks high-level product risks and constraints. For a detailed technical debt and task breakdown, see the [Roadmap](./ROADMAP.md).
 
 *   **[RISK] Unstable Test Environment:** The `vitest` unit test runner is currently unstable, with tests frequently timing out. This is a critical issue that is blocking further development and must be resolved.
-*   **[RISK] Resolved:** All previously known critical bugs (`[C-01]` through `[C-04]`) and the E2E test suite instability have been **resolved**. The core application and test suites are now considered stable.
+*   **[RISK] E2E Test Suite Hang:** The Playwright E2E test suite is currently non-functional. Tests that import mocking utilities (`tests/sdkStubs.ts`) hang indefinitely without producing logs. The root cause appears to be a deep, unresolvable issue with the test environment's interaction with Playwright. This is a critical blocker for validating user-facing flows.
 
 ---
 

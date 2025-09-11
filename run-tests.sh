@@ -132,45 +132,19 @@ run_e2e_tests() {
     log "Starting E2E test environment..."
 
     local start_time=$(date +%s)
-    local dev_server_pid=""
 
-    # Start dev server in background
-    echo "[RUN-TESTS.SH] run_e2e_tests: Starting development server..."
-    log "Starting development server..."
-    pnpm dev:test > "$TEST_RESULTS_DIR/dev-server.log" 2>&1 &
-    dev_server_pid=$!
-
-    # Wait for server to be ready
-    local max_attempts=30
-    local attempt=0
-
-    while [ $attempt -lt $max_attempts ]; do
-        if curl -s http://localhost:5173 > /dev/null 2>&1; then
-            success "Development server is ready"
-            break
-        fi
-
-        attempt=$((attempt + 1))
-        log "Waiting for dev server... (attempt $attempt/$max_attempts)"
-        sleep 2
-    done
-
-    if [ $attempt -eq $max_attempts ]; then
-        error "Development server failed to start"
-        cleanup_dev_server "$dev_server_pid"
-        return 1
-    fi
+    # The dev server is now started automatically by Playwright's webServer config.
+    # No need to start it manually here.
 
     # Run Playwright tests
     log "Running E2E tests..."
 
-    # Determine Playwright command with headless mode logic
+    # The --headless flag is now controlled by playwright.config.ts,
+    # so it's not needed here. We can add --headed for local debugging.
     local playwright_cmd="pnpm playwright test"
-    if [ "${CI:-false}" = "true" ] && [ "${HEADED:-false}" != "true" ]; then
-        log "CI environment detected. Using headless mode."
-        playwright_cmd="pnpm playwright test --headless"
-    elif [ "${HEADED:-false}" = "true" ]; then
+    if [ "${HEADED:-false}" = "true" ]; then
         log "HEADED mode enabled. Running with UI."
+        playwright_cmd="pnpm playwright test --headed"
     fi
 
     local e2e_result=0
@@ -186,8 +160,7 @@ run_e2e_tests() {
         e2e_result=1
     fi
 
-    # Cleanup
-    cleanup_dev_server "$dev_server_pid"
+    # No need to cleanup dev server, Playwright handles it.
 
     return $e2e_result
 }
@@ -224,17 +197,6 @@ extract_e2e_metrics() {
     else
         warning "E2E results file not found"
         jq -n '{"e2e_tests": {"duration": 0, "total": 0, "passed": 0, "failed": 0, "skipped": 0, "success_rate": 0}}' > "$TEST_RESULTS_DIR/e2e-metrics.json"
-    fi
-}
-
-# Cleanup dev server
-cleanup_dev_server() {
-    echo "[RUN-TESTS.SH] cleanup_dev_server: Cleaning up dev server..."
-    local pid=$1
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-        log "Stopping development server (PID: $pid)..."
-        kill "$pid"
-        wait "$pid" 2>/dev/null || true
     fi
 }
 
@@ -399,7 +361,7 @@ main() {
 }
 
 # Handle script termination
-trap 'cleanup_dev_server "$dev_server_pid"; exit 130' INT TERM
+trap 'exit 130' INT TERM
 
 # Run main function
 main "$@"

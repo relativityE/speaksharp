@@ -1,35 +1,32 @@
-**Last Updated:** 2025-09-10 09:59:56
+**Last Updated:** 2025-09-11
 
-This document summarizes the current state of the project, the issues encountered, and the plan for after the VM reboot.
+This document summarizes the current state of the project, the critical environmental issues, and the plan for after the next VM reboot.
 
-## Current Status
+### 1. Current Status & Task
 
-The primary goal is to get all unit tests and E2E tests passing.
+*   **Current Task:** The primary goal is to resolve E2E test failures. The immediate task was to debug `tests/auth.e2e.spec.ts`, which is timing out.
+*   **Critical Blocker:** The VM environment is in an unstable and unrecoverable state. All E2E tests that import `tests/sdkStubs.ts` hang indefinitely without producing any logs, even after extensive debugging. This prevents any productive work on the E2E suite.
+*   **Progress Made:**
+    *   A critical bug in `tests/sdkStubs.ts` that caused unhandled network routes was fixed.
+    *   The Playwright browser binaries were successfully installed.
+    *   The `dev:test` script in `package.json` was made more robust.
+    *   Extensive documentation was added to `docs/PRD.md` and `docs/ROADMAP.md` to track the unresolved issues.
 
-*   **Unit Tests:** All unit tests are now passing. This was achieved by installing missing dependencies (`tailwindcss`, `autoprefixer`) and removing temporary, broken test files.
-*   **E2E Tests:** The E2E test suite is unstable.
-    *   `tests/anon.e2e.spec.ts`: **Passed**
-    *   `tests/auth.e2e.spec.ts`: **Timed Out**
-    *   `tests/free.e2e.spec.ts`: **Timed Out**
-*   **Environment:** The development environment has been extremely unstable, with many tool calls (`read_file`, `grep`, `pnpm install`, `pnpm playwright test`) timing out. This has significantly hindered debugging efforts.
+### 2. Key Changes to Preserve
 
-## Key Findings & Changes
+The following files have been modified and their changes are critical to preserve across the reboot to avoid losing progress:
 
-1.  **Missing Dependencies:** The `dev_server.log` revealed a large number of missing dependencies that were not installed by the initial `pnpm install`. These are critical for the application to run correctly. An attempt to install these also timed out. The list of missing dependencies is in the plan below.
-2.  **Refactored Auth Test:** The `tests/auth.e2e.spec.ts` file was found to be refactored to use stubs (`stubThirdParties`), which is a positive change and should eliminate dependencies on external services during the test run. However, the test still times out.
-3.  **Headless Mode Config:** The `run-tests.sh` script was modified to handle headless mode in CI environments, and `playwright.config.ts` was updated to explicitly set `headless: true`. You have requested to keep these changes.
+*   **`tests/sdkStubs.ts`**: The fixed version with proper route handling.
+*   **`package.json`**: Updated with the `--clearScreen false` flag in the `dev:test` script.
+*   **`docs/PRD.md`**: Updated with the "Known Issue" of the E2E test hang.
+*   **`docs/ROADMAP.md`**: Updated with the "Technical Debt" of the missing system dependencies.
+*   **`pnpm-lock.yaml`**: The lockfile reflecting any new dependencies installed during the session.
 
-## Plan for After Reboot
+### 3. Plan for After Reboot
 
-1.  **Read this file** to get up to speed.
-2.  **Delete this file.**
-3.  **Install All Dependencies:** Run `pnpm install`. Then, run a second command to explicitly install the long list of dependencies that were found to be missing from the `dev_server.log`. This is the most critical first step.
-    ```bash
-    pnpm add -D posthog-js @stripe/react-stripe-js @stripe/stripe-js @sentry/react sonner @radix-ui/react-slot @radix-ui/react-label recharts vaul @radix-ui/react-alert-dialog @radix-ui/react-dialog @radix-ui/react-progress jspdf jspdf-autotable @radix-ui/react-checkbox @xenova/transformers @tailwindcss/postcss
-    ```
-4.  **Verify Dev Server:** Start the dev server (`pnpm dev:test`) and check its logs to ensure it starts without any dependency-related errors.
-5.  **Run E2E Tests Systematically:** Run the E2E tests one by one, starting with `auth.e2e.spec.ts`.
-6.  **Debug Remaining Timeouts:** If tests still time out, use the advanced debugging techniques you provided (adding console logging, network logging, and screenshots to the Playwright tests) to diagnose the root cause. The primary suspect is the application's state after the stubbed login.
-7.  **Run Full Test Suite:** Once all E2E tests are passing individually, run the full test suite (`./run-tests.sh`) to ensure everything is working correctly and to generate the final metrics.
-8.  **Final Documentation Review:** Perform a final review of all documentation before submission.
-9.  **Submit.**
+1.  **Restore Critical Files:** Before doing anything else, restore the contents of the five files listed above.
+2.  **Install Dependencies:** Run `pnpm install`.
+3.  **Install Playwright Browsers:** Run `pnpm exec playwright install --with-deps`.
+4.  **Verify a Minimal Test:** Run the minimal `basic.e2e.spec.ts` test (which will need to be re-created) against a manually started server to confirm the baseline environment is working.
+5.  **Re-evaluate the E2E Hang:** With a fresh environment, attempt to run `auth.e2e.spec.ts` again. If it still hangs, the issue is confirmed to be a fundamental incompatibility between the project and the sandbox environment, and will require escalation to system administrators.
+6.  **If tests pass, submit the code fixes.** If the fresh environment resolves the hang, the issue was transient, and the code fixes can be submitted.
