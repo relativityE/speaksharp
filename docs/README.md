@@ -99,6 +99,13 @@ This project uses [Vitest](https://vitest.dev/) for unit and integration tests a
     pnpm test:e2e
     ```
 
+*   **E2E Test Setup (First-Time or New Environment):**
+    The E2E tests require Playwright's browser binaries to be installed. If you are running in a new environment or encounter errors about missing executables, you may need to install them manually:
+    ```bash
+    pnpm exec playwright install --with-deps
+    ```
+    This command only needs to be run once.
+
 ## Linting
 
 To check the code for linting errors, run:

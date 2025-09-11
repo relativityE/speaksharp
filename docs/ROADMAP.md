@@ -32,6 +32,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - 🔴 3. Upgrade the Postgres version.
 - ✅ **Enhance Anonymous and Pro E2E tests:** The E2E tests have been stabilized and now correctly test the full authentication flow.
 - ✅ **Add full unit test coverage for `CloudAssemblyAI.js`:** All unit tests for this module are now passing.
+- 🔴 **Resolve Playwright Missing System Dependencies:** The test environment warns about missing system-level libraries for Playwright. While not currently a blocker, these should be installed in the base environment to prevent future issues with rendering or video recording.
 
 ### Gating Check
 - ✅ **Bring all documentation up to date to reflect latest/current code implementation**

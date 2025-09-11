@@ -20,7 +20,7 @@ export default defineConfig({
   // Global test settings
   use: {
     headless: true,
-    baseURL: 'http://localhost:5173',
+    baseURL: 'http://127.0.0.1:5173',
 
     // Timeouts - be more aggressive to catch real issues
     actionTimeout: 10_000,
@@ -56,8 +56,14 @@ export default defineConfig({
     // },
   ],
 
-  // REMOVED: webServer configuration to avoid conflicts
-  // The run-tests.sh script will handle server startup
+  // webServer: {
+  //   command: 'pnpm dev:test',
+  //   url: 'http://127.0.0.1:5173',
+  //   reuseExistingServer: !process.env.CI,
+  //   timeout: 120 * 1000, // Give server 2 minutes to start
+  //   stdout: 'pipe',
+  //   stderr: 'pipe',
+  // },
 
   // Output directory
   outputDir: 'test-results/e2e-artifacts',
