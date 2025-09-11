@@ -2,7 +2,12 @@ import * as React from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { Alert } from '@/components/ui/alert';
 
-export const BrowserWarning = ({ isSupported, supportError }) => {
+interface BrowserWarningProps {
+  isSupported: boolean;
+  supportError: string | null;
+}
+
+export const BrowserWarning: React.FC<BrowserWarningProps> = ({ isSupported, supportError }) => {
   if (isSupported) {
     return null;
   }

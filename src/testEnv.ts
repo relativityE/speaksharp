@@ -35,7 +35,8 @@ if (import.meta.env.MODE === "test") {
   const RealWS = globalThis.WebSocket;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (globalThis as any).WebSocket = class extends RealWS {
-    constructor(url: string, ...args: unknown[]) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    constructor(url: string, ...args: any[]) {
       if (url.includes("assemblyai.com")) {
         console.warn("[testEnv] Blocking AssemblyAI WebSocket:", url);
         super("ws://localhost:9", ...args); // dead socket

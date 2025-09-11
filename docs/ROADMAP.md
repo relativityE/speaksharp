@@ -57,6 +57,7 @@ This phase is about confirming the core feature set works as expected and polish
 - 🔴 **Remove all temporary console.logs:** Clean up the codebase for production.
 - ✅ **Implement Universal Navigation:** The sidebar is now fully functional and accessible from all pages.
 - ✅ **Implement Analytics Page UI Components:** Components are now fed by correct data flows.
+- ✅ **Automate Code Quality Checks:** Implemented `lint-staged` and a `husky` pre-commit hook to automatically run `eslint` and `tsc` on staged files.
 
 ### 🚧 Should-Have (Tech Debt)
 - 🟡 **Implement new SpeakSharp Design System:** (See [Architecture: Design System](./ARCHITECTURE.md#2-frontend-architecture))

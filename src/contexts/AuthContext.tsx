@@ -46,7 +46,9 @@ const getProfileFromDb = async (user_id: string): Promise<Profile | null> => {
   }
 };
 
-export function AuthProvider({ children }) {
+import { ReactNode } from 'react';
+
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
