@@ -98,3 +98,44 @@ This phase focuses on long-term architecture, scalability, and preparing for fut
 ### Gating Check
 - ✅ **Bring all documentation up to a-date to reflect latest/current code implementation**
 - 🔴 **Do a Gap Analysis of current implementation against the Current Phase requirements.**
+
+---
+## Technical Debt
+
+### Debugging E2E Test Failures
+
+**Last Updated:** 2025-09-12
+
+**Symptom:**
+E2E tests hang indefinitely without producing logs, even with `DEBUG=pw:api,vite:*` enabled. The test process never completes and eventually times out.
+
+**Root Cause Analysis:**
+The investigation concluded that this is not a Playwright issue but a silent crash in the Vite development server. The crash is caused by an error in the Tailwind CSS compilation, specifically when processing custom CSS classes defined with CSS variables (e.g., `bg-background`).
+
+The sequence of events is as follows:
+1.  Playwright starts the test and navigates to the application URL (`page.goto()`).
+2.  The Vite dev server receives the request and attempts to build the application.
+3.  During the build, the `@tailwindcss/vite` plugin encounters an unknown utility class in `src/index.css` and throws an error.
+4.  This error causes the Vite server to crash silently, without sending a response back to the browser.
+5.  Playwright's `page.goto()` waits indefinitely for a response that never comes, resulting in a deadlock-like hang.
+
+**Effective Debugging Strategy:**
+Because the server crashes silently, running tests with `concurrently` hides the root cause. The most effective way to debug this is to run the Vite server and the Playwright tests as separate, concurrent processes.
+
+1.  **Start the dev server with verbose logging** in one terminal (or in the background, redirecting output to a log file):
+    ```bash
+    DEBUG=vite:* pnpm run dev:test > vite.log 2>&1 &
+    ```
+2.  **Run the Playwright test** in a second terminal:
+    ```bash
+    pnpm exec playwright test tests/<your-test-file>.spec.ts
+    ```
+3.  **Inspect the server log (`vite.log`)** for crash information. The log will contain the stack trace of the Tailwind CSS error.
+
+**Global Test Hardening (Watchdog):**
+To prevent tests from hanging silently in the future, a global watchdog has been implemented in `tests/global-setup.ts`. This setup file monkey-patches Playwright's `page.goto()`, `page.waitForURL()`, and `page.waitForLoadState()` methods.
+
+Key features of the watchdog:
+*   **Fast Fail:** It enforces a 15-second timeout on these navigation methods. If the page fails to load, the test fails immediately instead of hanging.
+*   **Artifact Capture:** On timeout, it automatically captures a screenshot and the page's HTML, saving them to `test-results/e2e-artifacts/`. This provides immediate visual evidence of the page's state at the time of the hang.
+*   **Global Application:** The watchdog is applied to all tests automatically via the `globalSetup` option in `playwright.config.ts`.
