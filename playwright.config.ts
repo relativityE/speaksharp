@@ -56,14 +56,14 @@ export default defineConfig({
     // },
   ],
 
-  // webServer: {
-  //   command: 'pnpm dev:test',
-  //   url: 'http://127.0.0.1:5173',
-  //   reuseExistingServer: !process.env.CI,
-  //   timeout: 120 * 1000, // Give server 2 minutes to start
-  //   stdout: 'pipe',
-  //   stderr: 'pipe',
-  // },
+  webServer: {
+    command: 'pnpm dev:test',
+    url: 'http://127.0.0.1:5173',
+    reuseExistingServer: !process.env.CI,
+    timeout: 120 * 1000, // Give server 2 minutes to start
+    stdout: 'pipe',
+    stderr: 'pipe',
+  },
 
   // Output directory
   outputDir: 'test-results/e2e-artifacts',
