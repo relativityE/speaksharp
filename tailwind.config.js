@@ -1,14 +1,14 @@
-import type { Config } from "tailwindcss"
 import { fontFamily } from "tailwindcss/defaultTheme"
 import tailwindcssAnimate from "tailwindcss-animate"
 
-const config: Config = {
+/** @type {import('tailwindcss').Config} */
+const config = {
   darkMode: ["class"],
   content: [
     './pages/**/*.{ts,tsx}',
     './components/**/*.{ts,tsx}',
     './app/**/*.{ts,tsx}',
-    './src/**/*.{ts,tsx,js,jsx,mdx}',
+    './src/**/*.{ts,tsx,js,jsx,mdx,css}',
     './index.html'
 	],
   theme: {

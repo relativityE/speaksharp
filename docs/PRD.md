@@ -107,6 +107,7 @@ This section tracks high-level product risks and constraints. For a detailed tec
 
 *   **[RISK] Unstable Test Environment:** The `vitest` unit test runner is currently unstable, with tests frequently timing out. This is a critical issue that is blocking further development and must be resolved.
 *   **[RISK] E2E Test Suite Hang:** The Playwright E2E test suite is currently non-functional. Tests that import mocking utilities (`tests/sdkStubs.ts`) hang indefinitely without producing logs. The root cause appears to be a deep, unresolvable issue with the test environment's interaction with Playwright. This is a critical blocker for validating user-facing flows.
+*   **[CRITICAL BLOCKER] Intractable Vite Server Hang:** The Vite development server is consistently hanging or crashing during startup when running E2E tests. Despite extensive debugging of dependencies, build toolchains (PostCSS, Tailwind CSS v4), and configuration files, the issue persists. This points to a fundamental, non-deterministic issue with the containerized environment that requires a hard reboot to resolve.
 
 ---
 

@@ -16,6 +16,7 @@ Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) style with sligh
 - **E2E Tests for All User Roles:** Added new E2E tests for the 'Free' and 'Premium' user flows, ensuring coverage for all user roles.
 
 ### Fixed
+- **Refactored Build System and Dependencies:** Addressed critical build issues by installing numerous missing npm dependencies and migrating the toolchain to use the recommended `@tailwindcss/vite` plugin. This work has stabilized the development server but has not yet resolved all E2E test failures.
 - **Codebase Type Safety:** Resolved a large number of TypeScript errors across the entire codebase, enabling strict type checking to pass. This significantly improves code quality and reduces the risk of runtime errors.
 - **Resolved E2E Test Suite Crisis:** Overcame a persistent and critical failure in the E2E test suite where tests would time out. The root cause was a combination of race conditions, incorrect mocking strategies, and a subtle bug in the `AuthContext` initialization. The entire E2E test suite was refactored to be stable and reliable.
 - **SECURITY:** Removed an insecure RLS policy migration that could expose all user data in development environments.

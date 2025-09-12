@@ -8,6 +8,20 @@ export const test = base.extend({
     await page.route("**/*", async route => {
       const url = route.request().url();
 
+      // MOCK: Intercept the browser support hook to always return true for E2E tests
+      if (url.endsWith('/src/hooks/useBrowserSupport.js')) {
+        console.log(`[mock] Intercepted useBrowserSupport.js`);
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/javascript',
+          body: `
+            export const useBrowserSupport = () => {
+              return { isSupported: true, error: null };
+            };
+          `
+        });
+      }
+
       // Intercept profile fetches to return mock data based on user ID
       if (url.includes('/rest/v1/profiles') && route.request().method() === 'GET') {
         const urlParams = new URLSearchParams(url.split('?')[1]);
