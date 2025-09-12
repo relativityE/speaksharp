@@ -1,122 +1,93 @@
-//Fixed E2E Test - free.e2e.spec.ts
-
-// tests/free.e2e.spec.ts
-import { expect, test, Page, Response } from '@playwright/test';
+import { test, expect, Page, Response } from './helpers';
 import { stubThirdParties } from './sdkStubs';
 
 test.describe('Free User Flow', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('about:blank');
-    await stubThirdParties(page);
+    await page.goto('about:blank', { timeout: 5000 }); // sandbox-safe
+    await stubThirdParties(page); // stub third parties
   });
 
-  // Helper function to login with better error handling
+  // Safe login helper
   async function loginUser(page: Page, email: string, password: string) {
-    console.log(`Attempting to login with: ${email}`);
+    console.log(`Logging in: ${email}`);
 
-    await page.goto('/auth');
+    // Navigation with hard timeout
+    await page.goto('/auth', { timeout: 15000 });
+    await page.waitForLoadState('networkidle', { timeout: 10000 });
 
-    // Wait for the auth form to be ready
-    await page.waitForLoadState('networkidle');
-
-    console.log(await page.content());
-
-    // Verify form elements exist before filling
     const emailField = page.getByLabel('Email');
     const passwordField = page.getByLabel('Password');
     const signInButton = page.getByRole('button', { name: 'Sign In' });
 
-    await expect(emailField).toBeVisible();
-    await expect(passwordField).toBeVisible();
-    await expect(signInButton).toBeVisible();
+    await expect(emailField).toBeVisible({ timeout: 5000 });
+    await expect(passwordField).toBeVisible({ timeout: 5000 });
+    await expect(signInButton).toBeVisible({ timeout: 5000 });
 
     await emailField.fill(email);
     await passwordField.fill(password);
+    await expect(signInButton).toBeEnabled({ timeout: 5000 });
 
-    // Wait for button to be enabled (in case there's form validation)
-    await expect(signInButton).toBeEnabled();
-
-    // Click and wait for either success redirect or error
+    // Wrap in catch so it never hangs forever
     const responsePromise = page.waitForResponse(
-      (response: Response) => response.url().includes('/auth') || response.url().includes('/login'),
+      (res: Response) => res.url().includes('/auth') || res.url().includes('/login'),
       { timeout: 10000 }
-    );
+    ).catch(() => null);
 
     await signInButton.click();
 
-    try {
-      await responsePromise;
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    } catch (error) {
-      console.log('No auth response received, continuing...');
-    }
+    await responsePromise;
 
-    // Wait for redirect with longer timeout
+    // Fail fast if redirect never happens
     try {
       await page.waitForURL('/', { timeout: 15000 });
-      console.log('Successfully redirected to home page');
+      console.log('Redirected to home page');
     } catch (error) {
-      console.log(`Login redirect failed for ${email}:`, error);
-      // Log current URL for debugging
-      console.log('Current URL:', page.url());
-      // Take screenshot for debugging
+      console.log('Login redirect failed. Current URL:', page.url());
       await page.screenshot({ path: `debug-login-${email.replace('@', '-')}.png` });
-      throw new Error(`Login failed for ${email}: ${error}`);
+      throw error;
     }
 
-    // Verify we're actually logged in by checking for user-specific elements
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('networkidle', { timeout: 10000 });
   }
 
-  test('a free user sees the upgrade prompt in the sidebar', async ({ page }) => {
+  test('a free user sees the upgrade prompt', async ({ page }) => {
     await loginUser(page, 'free@example.com', 'password');
 
-    // Navigate to session page with better error handling
-    console.log('Navigating to session page...');
-    await page.goto('/session');
+    try {
+      await page.goto('/session', { timeout: 15000 });
+      await page.waitForLoadState('networkidle', { timeout: 10000 });
+    } catch (error) {
+      console.log('Failed to navigate to /session', error);
+      await page.screenshot({ path: 'debug-session-page.png' });
+      throw error;
+    }
 
-    // Wait for page to load completely
-    await page.waitForLoadState('networkidle');
-
-    // Add debugging: log what elements are actually present
-    const buttons = await page.locator('button').allTextContents();
-    console.log('Available buttons:', buttons);
-
-    // Look for upgrade button with multiple possible selectors
     const upgradeButton = page.getByRole('button', { name: 'Upgrade Now' });
-
     try {
       await expect(upgradeButton).toBeVisible({ timeout: 10000 });
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    } catch (error) {
-      // If not found, try alternative selectors
-      const altUpgradeButton = page.locator('button:has-text("Upgrade")');
-      await expect(altUpgradeButton).toBeVisible({ timeout: 5000 });
+    } catch {
+      const altButton = page.locator('button:has-text("Upgrade")');
+      await expect(altButton).toBeVisible({ timeout: 5000 });
     }
   });
 
-  test('a pro user does not see the upgrade prompt in the sidebar', async ({ page }) => {
+  test('a pro user does not see the upgrade prompt', async ({ page }) => {
     await loginUser(page, 'pro@example.com', 'password');
 
-    console.log('Navigating to session page...');
-    await page.goto('/session');
-    await page.waitForLoadState('networkidle');
-
-    // Wait a moment for any dynamic content to load
+    await page.goto('/session', { timeout: 15000 });
+    await page.waitForLoadState('networkidle', { timeout: 10000 });
     await page.waitForTimeout(2000);
 
-    // Check that upgrade button is not present
     const upgradeButton = page.getByRole('button', { name: 'Upgrade Now' });
-    await expect(upgradeButton).not.toBeVisible();
+    await expect(upgradeButton).not.toBeVisible({ timeout: 5000 });
 
-    // Alternative check in case the button exists but is hidden
     const upgradeButtons = page.locator('button:has-text("Upgrade")');
-    await expect(upgradeButtons).toHaveCount(0);
+    await expect(upgradeButtons).toHaveCount(0, { timeout: 5000 });
   });
 });
 
-// Add a test configuration with longer timeouts
+// Suite-wide fallback timeout (safety net)
 test.describe.configure({
-  timeout: 60000, // Increase overall test timeout
-  retries: 1 // Add retry for flaky tests
+  timeout: 60000,
+  retries: 1,
 });

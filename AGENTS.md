@@ -145,6 +145,9 @@ If a task runs longer than 5 minutes, provide an update:
 > **Status:** [on track | investigating | blocked]
 > **Percent Complete:** [XX%]
 > **ETA:** [time or "next update in 5 min"]
+> **Next 2 tasks:**
+> <1>
+> <2>
 
 ---
 
