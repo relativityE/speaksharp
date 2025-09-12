@@ -83,9 +83,6 @@ export async function stubThirdParties(page: Page, options: {
               const user = MOCK_USERS[postData.email];
               const session = getMockSession(user);
               if (session) {
-                  await page.evaluate(([key, value]) => {
-                      window.localStorage.setItem(key, value);
-                  }, [`sb-mock.supabase.co-auth-token`, JSON.stringify(session)]);
                   return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(session) });
               }
           }
@@ -180,11 +177,20 @@ export async function stubThirdParties(page: Page, options: {
   });
 
   // Block external domains
-  await page.route('**/*', (route) => {
+  await page.route('**/*', async (route) => {
     const url = new URL(route.request().url());
     if (BLOCKED_DOMAINS.some(domain => url.hostname.endsWith(domain))) {
       return route.fulfill({ status: 200, body: `Blocked by test: ${url.hostname}` });
     }
-    return route.continue();
+
+    // Add debugging and safer continuation
+    console.log(`Allowing request to: ${url.href}`);
+    try {
+      return await route.continue();
+    } catch (error) {
+      console.error(`Route continuation failed for ${url.href}:`, error);
+      // Abort the request if continuation fails, instead of hanging
+      return route.abort();
+    }
   });
 }

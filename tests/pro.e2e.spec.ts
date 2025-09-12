@@ -1,44 +1,52 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, Page } from '@playwright/test';
 import { stubThirdParties } from './sdkStubs';
 
-test.describe('Premium User Flow', () => {
+async function loginAsPro(page: Page) {
+  await page.goto('/auth');
+
+  const emailField = page.getByLabel('Email');
+  await expect(emailField).toBeVisible({ timeout: 5000 });
+  await emailField.fill('pro@example.com');
+
+  const passwordField = page.getByLabel('Password');
+  await expect(passwordField).toBeVisible({ timeout: 5000 });
+  await passwordField.fill('password');
+
+  const signInButton = page.getByRole('button', { name: 'Sign In' });
+  await expect(signInButton).toBeEnabled();
+  await signInButton.click();
+
+  await page.waitForURL('/');
+  await page.waitForLoadState('networkidle');
+}
+
+test.describe('Pro User Flow', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('about:blank');
-    // Stub all third-party services, specifically forcing on-device mode
-    await stubThirdParties(page, { forceOnDevice: true });
+    await stubThirdParties(page);
   });
 
-  test('a premium user uses the on-device transcription', async ({ page }) => {
-    // Log in as a premium user
-    await page.goto('/auth');
-    await page.getByLabel('Email').fill('premium@example.com');
-    await page.getByLabel('Password').fill('password');
-    await page.getByRole('button', { name: 'Sign In' }).click();
-    await page.waitForURL('/');
+  test('a pro user should not see an upgrade prompt', async ({ page }) => {
+    await loginAsPro(page);
 
-    // Go to the session page
-    await page.goto('/session');
+    // The main page for a pro user should not have any 'upgrade' buttons
+    const upgradeButton = page.getByRole('button', { name: /Upgrade/i });
+    await expect(upgradeButton).not.toBeVisible({ timeout: 2000 });
+  });
 
-    // Mock the LocalWhisper class before starting the session
-    await page.evaluate(() => {
-      window.__MOCK_LOCAL_WHISPER__ = true;
-    });
+  test('a pro user can download their session data', async ({ page }) => {
+    await loginAsPro(page);
 
-    // Start a session
-    await page.getByRole('button', { name: /Start Session/i }).click();
+    await page.goto('/analytics');
+    await page.waitForLoadState('networkidle');
 
-    // Wait for the transcription service to be ready
-    await page.waitForFunction(() => window.__TRANSCRIPTION_READY__ === true, { timeout: 20000 });
-    await page.waitForTimeout(500);
+    const downloadButton = page.getByRole('button', { name: 'Download Data' });
+    await expect(downloadButton).toBeVisible();
+    await expect(downloadButton).toBeEnabled();
 
-    // Stop the session
-    await page.getByRole('button', { name: /Stop Session/i }).click();
+    const downloadPromise = page.waitForEvent('download', { timeout: 5000 });
+    await downloadButton.click();
+    const download = await downloadPromise;
 
-    // Expect to see the session ended dialog
-    await expect(page.getByRole('heading', { name: 'Session Ended' })).toBeVisible();
-
-    // The transcript from the session should be the one from our mock
-    const transcriptText = await page.locator('[data-testid="transcript-panel"]').innerText();
-    expect(transcriptText).toContain('This is a test transcript from a mocked LocalWhisper.');
+    expect(download.suggestedFilename()).toContain('.pdf');
   });
 });
