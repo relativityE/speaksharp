@@ -112,7 +112,7 @@ export const TranscriptPanel = ({
     };
 
     return (
-        <div>
+        <div data-testid="transcript-panel">
             <div className="mb-4">
                 <h2 className="text-2xl font-bold text-foreground">Live Transcript</h2>
                 <p className="text-base text-muted-foreground">

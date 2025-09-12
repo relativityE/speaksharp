@@ -1,7 +1,9 @@
-// playwright.config.ts
 import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
+  timeout: 30000,
+  globalSetup: './tests/global-setup.ts',
+
   testDir: './tests',
 
   // Test execution

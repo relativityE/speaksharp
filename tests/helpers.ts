@@ -1,37 +1,70 @@
-// tests/helpers.ts - ENHANCED VERSION
-import { Page } from '@playwright/test';
+import { test as base, Page, expect, Response } from '@playwright/test';
+import fs from 'fs';
+import path from 'path';
 
-export async function waitForAppReady(page: Page, options: {
-  authenticated?: boolean,
-  waitForButton?: string
-} = {}) {
-  // Wait for React root
-  await page.waitForFunction(() => !!document.querySelector('#root')?.children.length, { timeout: 10000 });
+const WATCHDOG_TIMEOUT = 15000; // 15 seconds
+const ARTIFACT_DIR = 'test-results/e2e-artifacts';
 
-  // Wait for session initialization if authenticated
-  if (options.authenticated) {
-    await page.waitForFunction(() => {
-      return window.__SESSION_READY__ === true && window.__STUBS_READY__ === true;
-    }, { timeout: 15000 });
-  }
+async function captureArtifacts(page: Page, label: string) {
+  const safeLabel = label.replace(/[^a-z0-9-_]/gi, '_');
+  const screenshotPath = path.join(ARTIFACT_DIR, `${safeLabel}.png`);
+  const htmlPath = path.join(ARTIFACT_DIR, `${safeLabel}.html`);
+  fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
 
-  // Wait for specific button or default landing button
-  const buttonText = options.waitForButton || "Start For Free";
   try {
-    await page.waitForSelector(`button:has-text("${buttonText}")`, { timeout: 15000 });
+    await page.screenshot({ path: screenshotPath, fullPage: true });
   } catch (err) {
-    // Enhanced debugging
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const milestones = await page.evaluate(() => (window as any).__boot?.history ?? []);
-    const sessionReady = await page.evaluate(() => window.__SESSION_READY__);
-    const stubsReady = await page.evaluate(() => window.__STUBS_READY__);
-    const mockSession = await page.evaluate(() => window.__E2E_MOCK_SESSION__);
-
-    console.log('BOOT HISTORY:', milestones.join('\n'));
-    console.log('SESSION_READY:', sessionReady);
-    console.log('STUBS_READY:', stubsReady);
-    console.log('MOCK_SESSION:', !!mockSession);
-
-    throw err;
+    console.error('Failed to take screenshot:', err);
   }
+
+  try {
+    const html = await page.content();
+    fs.writeFileSync(htmlPath, html, 'utf8');
+  } catch (err) {
+    console.error('Failed to save page content:', err);
+  }
+
+  console.error(`❌ Watchdog captured artifacts for "${label}" at:`);
+  console.error(`   - ${screenshotPath}`);
+  console.error(`   - ${htmlPath}`);
 }
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function withWatchdog<T extends (...args: any[]) => Promise<any>>(page: Page, fn: T, name: string): T {
+  return (async (...args: Parameters<T>) => {
+    return await Promise.race([
+      fn(...args),
+      new Promise((_, reject) =>
+        setTimeout(async () => {
+          await captureArtifacts(page, `watchdog-${name}`);
+          reject(new Error(`❌ Watchdog: ${name} took longer than ${WATCHDOG_TIMEOUT / 1000}s`));
+        }, WATCHDOG_TIMEOUT)
+      )
+    ]);
+  }) as T;
+}
+
+type TestFixtures = {
+  page: Page;
+};
+
+export const test = base.extend<TestFixtures>({
+  page: async ({ page }, use) => {
+    page.on('console', msg => console.log('BROWSER LOG:', msg.text()));
+    page.on('pageerror', err => console.error('BROWSER ERROR:', err));
+
+    const originalGoto = page.goto.bind(page);
+    page.goto = withWatchdog(page, originalGoto, 'page.goto');
+
+    const originalWaitForURL = page.waitForURL.bind(page);
+    page.waitForURL = withWatchdog(page, originalWaitForURL, 'page.waitForURL');
+
+    const originalWaitForLoadState = page.waitForLoadState.bind(page);
+    page.waitForLoadState = withWatchdog(page, originalWaitForLoadState, 'page.waitForLoadState');
+
+    await use(page);
+  },
+});
+
+export { expect };
+export type { Response, Page };

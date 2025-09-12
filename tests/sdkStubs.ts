@@ -1,4 +1,3 @@
-// tests/sdkStubs.ts - FIXED HANGING ISSUES
 import { Page, Route } from '@playwright/test';
 
 const BLOCKED_DOMAINS = [
@@ -11,7 +10,6 @@ const BLOCKED_DOMAINS = [
 ];
 
 // --- Mock Data ---
-
 interface UserMetadata {
   subscription_status: 'pro' | 'premium' | 'free';
   preferred_mode?: 'on-device' | 'cloud';
@@ -62,12 +60,10 @@ const getMockSession = (user: MockUser | undefined) => {
 };
 
 // --- Main Stubbing Function ---
-
 export async function stubThirdParties(page: Page, options: {
   usageExceeded?: boolean;
   forceOnDevice?: boolean;
 } = {}) {
-
   // Mock Supabase endpoints
   await page.route('https://mock.supabase.co/**', async (route: Route) => {
     const url = new URL(route.request().url());
@@ -78,44 +74,40 @@ export async function stubThirdParties(page: Page, options: {
     try {
       // --- Auth Endpoints ---
       if (pathname.includes('/auth/v1/token')) {
-          const postData = request.postDataJSON() as { email?: string; refresh_token?: string };
-          if (postData.email) {
-              const user = MOCK_USERS[postData.email];
-              const session = getMockSession(user);
-              if (session) {
-                  return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(session) });
-              }
+        const postData = request.postDataJSON() as { email?: string; refresh_token?: string };
+        if (postData.email) {
+          const user = MOCK_USERS[postData.email];
+          const session = getMockSession(user);
+          if (session) {
+            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(session) });
           }
-          // Handle refresh token
-          if (postData.refresh_token) {
-              const userId = postData.refresh_token.split('-refresh-token')[0];
-              const user = Object.values(MOCK_USERS).find(u => u.id === userId);
-              const session = getMockSession(user);
-               if (session) {
-                  return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(session) });
-              }
+        }
+        // Handle refresh token
+        if (postData.refresh_token) {
+          const userId = postData.refresh_token.split('-refresh-token')[0];
+          const user = Object.values(MOCK_USERS).find(u => u.id === userId);
+          const session = getMockSession(user);
+          if (session) {
+            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(session) });
           }
-          // FIXED: Always handle the route, even for bad requests
-          return route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'Bad Request' }) });
+        }
+        // FIXED: Always handle the route, even for bad requests
+        return route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'Bad Request' }) });
       }
 
       if (pathname.includes('/auth/v1/user')) {
-          const authHeader = request.headers()['authorization'];
-          const token = authHeader?.split('Bearer ')[1];
-          const userId = token?.split('-access-token')[0];
-          const user = Object.values(MOCK_USERS).find(u => u.id === userId);
-          // FIXED: Always return a proper response
-          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(user || null) });
+        const authHeader = request.headers()['authorization'];
+        const token = authHeader?.split('Bearer ')[1];
+        const userId = token?.split('-access-token')[0];
+        const user = Object.values(MOCK_USERS).find(u => u.id === userId);
+        // FIXED: Always return a proper response
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(user || null) });
       }
 
       // --- Database Endpoints ---
       if (pathname.includes('/rest/v1/sessions')) {
         if (request.method() === 'POST') {
-          return route.fulfill({
-            status: 201,
-            contentType: 'application/json',
-            body: JSON.stringify({ id: 'mock-session-id', created_at: new Date().toISOString(), duration: 0 })
-          });
+          return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 'mock-session-id', created_at: new Date().toISOString(), duration: 0 }) });
         }
         if (request.method() === 'GET') {
           const sessions = options.usageExceeded ? [{ id: 1, duration: 1800, created_at: new Date().toISOString(), user_id: 'free-user-id' }] : [];
@@ -130,7 +122,6 @@ export async function stubThirdParties(page: Page, options: {
         const token = authHeader?.split('Bearer ')[1];
         const userId = token?.split('-access-token')[0];
         const user = Object.values(MOCK_USERS).find(u => u.id === userId);
-
         if (user) {
           const userDetails = {
             id: user.id,
@@ -148,16 +139,13 @@ export async function stubThirdParties(page: Page, options: {
         if (request.method() === 'GET') {
           const idParam = searchParams.get('id')?.replace('eq.', '');
           const user = Object.values(MOCK_USERS).find(u => u.id === idParam);
-          let profile: {
-            id?: string;
-            subscription_status?: 'free' | 'pro' | 'premium';
-            preferred_mode?: 'on-device' | 'cloud';
-          } = user ? { id: user.id, subscription_status: user.user_metadata.subscription_status } : {};
-
+          let profile: { id?: string; subscription_status?: 'free' | 'pro' | 'premium'; preferred_mode?: 'on-device' | 'cloud'; } = user ? {
+            id: user.id,
+            subscription_status: user.user_metadata.subscription_status
+          } : {};
           if (options.forceOnDevice) {
             profile = { ...profile, preferred_mode: 'on-device' };
           }
-
           // .single() expects a single object, not an array
           return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(profile) });
         }
@@ -168,7 +156,6 @@ export async function stubThirdParties(page: Page, options: {
       // FIXED: Always handle unmatched routes
       console.error(`Unhandled Supabase mock request: ${request.method()} ${url.href}`);
       return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: `Not Found in Mock: ${url.href}` }) });
-
     } catch (error) {
       // FIXED: Add error handling to prevent hanging
       console.error('Error in Supabase route handler:', error);
@@ -182,7 +169,6 @@ export async function stubThirdParties(page: Page, options: {
     if (BLOCKED_DOMAINS.some(domain => url.hostname.endsWith(domain))) {
       return route.fulfill({ status: 200, body: `Blocked by test: ${url.hostname}` });
     }
-
     // Add debugging and safer continuation
     console.log(`Allowing request to: ${url.href}`);
     try {

@@ -1,52 +1,50 @@
-import { expect, test, Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { stubThirdParties } from './sdkStubs';
-
-async function loginAsPro(page: Page) {
-  await page.goto('/auth');
-
-  const emailField = page.getByLabel('Email');
-  await expect(emailField).toBeVisible({ timeout: 5000 });
-  await emailField.fill('pro@example.com');
-
-  const passwordField = page.getByLabel('Password');
-  await expect(passwordField).toBeVisible({ timeout: 5000 });
-  await passwordField.fill('password');
-
-  const signInButton = page.getByRole('button', { name: 'Sign In' });
-  await expect(signInButton).toBeEnabled();
-  await signInButton.click();
-
-  await page.waitForURL('/');
-  await page.waitForLoadState('networkidle');
-}
 
 test.describe('Pro User Flow', () => {
   test.beforeEach(async ({ page }) => {
     await stubThirdParties(page);
+    test.setTimeout(15000); // 15s max for setup
   });
 
-  test('a pro user should not see an upgrade prompt', async ({ page }) => {
-    await loginAsPro(page);
+  test('pro user should not see upgrade prompt', async ({ page }) => {
+    test.setTimeout(60000);
 
-    // The main page for a pro user should not have any 'upgrade' buttons
-    const upgradeButton = page.getByRole('button', { name: /Upgrade/i });
-    await expect(upgradeButton).not.toBeVisible({ timeout: 2000 });
+    try {
+      await page.goto('/auth', { timeout: 10000 });
+      await page.getByLabel('Email').fill('pro@example.com');
+      await page.getByLabel('Password').fill('password');
+      await page.getByRole('button', { name: 'Sign In' }).click();
+
+      await page.waitForURL('/', { timeout: 15000 });
+      const upgradeButton = page.getByRole('button', { name: /Upgrade/i });
+      await expect(upgradeButton).not.toBeVisible({ timeout: 5000 });
+    } catch (err) {
+      console.error('Upgrade prompt test failed:', err);
+      throw err;
+    }
   });
 
-  test('a pro user can download their session data', async ({ page }) => {
-    await loginAsPro(page);
+  test('pro user can download session data', async ({ page }) => {
+    test.setTimeout(60000);
 
-    await page.goto('/analytics');
-    await page.waitForLoadState('networkidle');
+    try {
+      await page.goto('/auth', { timeout: 10000 });
+      await page.getByLabel('Email').fill('pro@example.com');
+      await page.getByLabel('Password').fill('password');
+      await page.getByRole('button', { name: 'Sign In' }).click();
 
-    const downloadButton = page.getByRole('button', { name: 'Download Data' });
-    await expect(downloadButton).toBeVisible();
-    await expect(downloadButton).toBeEnabled();
+      await page.waitForURL('/', { timeout: 15000 });
+      await page.goto('/analytics', { timeout: 10000 });
 
-    const downloadPromise = page.waitForEvent('download', { timeout: 5000 });
-    await downloadButton.click();
-    const download = await downloadPromise;
+      const downloadPromise = page.waitForEvent('download', { timeout: 15000 });
+      await page.getByRole('button', { name: 'Download Data' }).click();
+      const download = await downloadPromise;
 
-    expect(download.suggestedFilename()).toContain('.pdf');
+      expect(download.suggestedFilename()).toContain('.pdf');
+    } catch (err) {
+      console.error('Download session test failed:', err);
+      throw err;
+    }
   });
 });

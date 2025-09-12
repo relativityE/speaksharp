@@ -48,12 +48,23 @@ const getProfileFromDb = async (user_id: string): Promise<Profile | null> => {
 
 import { ReactNode } from 'react';
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
+type AuthProviderProps = {
+  children: ReactNode;
+  initialSession?: Session | null;
+};
+
+export function AuthProvider({ children, initialSession = null }: AuthProviderProps) {
+  const [session, setSession] = useState<Session | null>(initialSession);
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(!initialSession);
 
   useEffect(() => {
+    // If a session is injected (e.g. in E2E tests), don't run the initial fetch.
+    if (initialSession) {
+        console.log('✅ AuthProvider initialized with injected session.');
+        return;
+    }
+
     console.log('🚀 AuthProvider useEffect starting');
 
     const setData = async () => {
@@ -140,7 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.log('🧹 Cleaning up auth listener');
       listener?.subscription.unsubscribe();
     };
-  }, []);
+  }, [initialSession]);
 
   const signOut = async () => {
     try {
