@@ -7,6 +7,12 @@ Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) style with sligh
 ---
 
 ## [Unreleased]
+### Fixed
+- **Resolved Critical E2E Test Blockers:** Diagnosed and fixed multiple independent issues causing the E2E test suite to hang or crash. This included a Tailwind CSS bug that crashed the Vite server and several deadlocks/race-conditions within the network stubbing logic (`sdkStubs.ts`).
+
+### Changed
+- **Comprehensive E2E Test Suite Refactoring:** Refactored the entire E2E test suite (`auth`, `free`, `anon`, `pro`) for robustness and maintainability. This included adding explicit waits, improving selectors, and creating helper functions to reduce code duplication, following best practices.
+
 ### Added
 - **Automated Code Quality Checks:** Implemented `lint-staged` and a `husky` pre-commit hook to automatically run `eslint` and `tsc` on staged files. This improves code quality and prevents errors from being committed.
 - **New Testing Architecture:** Implemented a new testing architecture based on Mock Service Worker (MSW) to provide a stable and reliable testing environment. This includes a new `vitest.config.mjs` file, a new test setup file (`src/test-setup.js`), and a set of mock API handlers.

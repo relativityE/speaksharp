@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port 5173",
-    "dev:test": "VITE_TEST_MODE=true vite --port 5173 --host",
+    "dev:test": "VITE_TEST_MODE=true vite --port 5173 --host --clearScreen false",
     "build": "vite build",
     "preview": "vite preview",
     "test:ui": "vitest --ui",
@@ -61,6 +61,7 @@
     "@vitest/ui": "^2.1.9",
     "autoprefixer": "^10.4.21",
     "class-variance-authority": "^0.7.1",
+    "concurrently": "^9.2.1",
     "eslint": "^8.55.0",
     "eslint-plugin-react": "^7.33.2",
     "eslint-plugin-react-hooks": "^4.6.0",

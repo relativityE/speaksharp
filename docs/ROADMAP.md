@@ -19,8 +19,8 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - ✅ `[C-02]` Flawed Auth Provider: Refactored `AuthContext.tsx` to remove anti-patterns and stabilize authentication logic.
   - ✅ `[C-03]` Anonymous User Flow is Broken: Fixed the session persistence logic for anonymous users.
   - ✅ `[C-04]` Premium Users Do Not Receive Paid Features: Corrected the monetization logic in `TranscriptionService.js`.
-- ✅ **Technical Debt: Remediate and Stabilize the Test Suite**
-  - **Resolution:** The test suite has been fully stabilized. The root causes of instability (Vite configuration conflicts, test race conditions) have been resolved. Unit and E2E tests now run reliably in parallel.
+- 🟡 **Technical Debt: Remediate and Stabilize the Test Suite**
+  - **Resolution:** Multiple underlying bugs causing server crashes (Tailwind CSS) and test hangs (network stubbing deadlocks) have been identified and fixed. The E2E test files have been significantly refactored for robustness. However, the suite remains non-functional due to a persistent environmental issue causing tests to hang.
 - ✅ **Implement "Free User Quota" E2E test:** An E2E test for the 'Free' user role has been added.
 
 ### 🚧 Should-Have (Tech Debt)
@@ -35,9 +35,9 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - 🔴 1. Shorten OTP expiry to less than one hour.
   - 🔴 2. Enable leaked password protection.
   - 🔴 3. Upgrade the Postgres version.
-- ✅ **Enhance Anonymous and Pro E2E tests:** The E2E tests have been stabilized and now correctly test the full authentication flow.
+- ✅ **Enhance Anonymous and Pro E2E tests:** The E2E tests for all user flows (anonymous, free, pro, auth) have been significantly refactored for robustness, maintainability, and clearer error reporting.
 - ✅ **Add full unit test coverage for `CloudAssemblyAI.js`:** All unit tests for this module are now passing.
-- 🔴 **Resolve Playwright Missing System Dependencies:** The test environment warns about missing system-level libraries for Playwright. While not currently a blocker, these should be installed in the base environment to prevent future issues with rendering or video recording.
+- ✅ **Resolve Playwright Missing System Dependencies:** The necessary system-level libraries and browser binaries for Playwright have been installed in the test environment.
 
 ### Gating Check
 - ✅ **Bring all documentation up to date to reflect latest/current code implementation**
