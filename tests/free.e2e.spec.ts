@@ -19,6 +19,8 @@ test.describe('Free User Flow', () => {
     // Wait for the auth form to be ready
     await page.waitForLoadState('networkidle');
 
+    console.log(await page.content());
+
     // Verify form elements exist before filling
     const emailField = page.getByLabel('Email');
     const passwordField = page.getByLabel('Password');

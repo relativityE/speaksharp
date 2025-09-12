@@ -8,12 +8,15 @@ Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) style with sligh
 
 ## [Unreleased]
 ### Fixed
+- **Fixed Tailwind CSS Bug:** Resolved a critical bug where the Vite server would crash when processing `src/index.css`. The fix involved updating the CSS file to use the modern `@import "tailwindcss";` syntax.
 - **Resolved Critical E2E Test Blockers:** Diagnosed and fixed multiple independent issues causing the E2E test suite to hang or crash. This included a Tailwind CSS bug that crashed the Vite server and several deadlocks/race-conditions within the network stubbing logic (`sdkStubs.ts`).
 
 ### Changed
+- **Updated E2E Test Documentation:** Updated `docs/ROADMAP.md` and `docs/PRD.md` to reflect the current state of the E2E tests, including the resolution of the hanging issue and the new application-level failures.
 - **Comprehensive E2E Test Suite Refactoring:** Refactored the entire E2E test suite (`auth`, `free`, `anon`, `pro`) for robustness and maintainability. This included adding explicit waits, improving selectors, and creating helper functions to reduce code duplication, following best practices.
 
 ### Added
+- **Global Playwright Test Watchdog:** Implemented a global setup for Playwright in `tests/global-setup.ts` that adds a watchdog to `page.goto()`, `page.waitForURL()`, and `page.waitForLoadState()`. This prevents silent test hangs and captures artifacts (screenshots and HTML) on timeout.
 - **Automated Code Quality Checks:** Implemented `lint-staged` and a `husky` pre-commit hook to automatically run `eslint` and `tsc` on staged files. This improves code quality and prevents errors from being committed.
 - **New Testing Architecture:** Implemented a new testing architecture based on Mock Service Worker (MSW) to provide a stable and reliable testing environment. This includes a new `vitest.config.mjs` file, a new test setup file (`src/test-setup.js`), and a set of mock API handlers.
 - **Developer Workflow Automation:** Implemented a secure database seeding strategy (`pnpm db:seed`) and a script to automate ML model management (`pnpm model:update`).

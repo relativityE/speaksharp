@@ -105,9 +105,9 @@ This section contains ASCII art diagrams illustrating the journey for each user 
 
 This section tracks high-level product risks and constraints. For a detailed technical debt and task breakdown, see the [Roadmap](./ROADMAP.md).
 
-*   **[RESOLVED] Intractable Vite Server Hang:** The Vite server was previously crashing on startup when running E2E tests. This was diagnosed as a bug in the project's Tailwind CSS configuration and has been fixed.
-*   **[IMPROVED BUT UNVERIFIED] E2E Test Suite:** The entire E2E test suite (`auth`, `free`, `anon`, `pro`) has been significantly refactored for robustness and maintainability. The network stubbing logic in `tests/sdkStubs.ts` has also been hardened to prevent deadlocks and unhandled requests.
-*   **[CRITICAL BLOCKER] E2E Test Environment Hang:** Despite comprehensive fixes to the application and test code, the Playwright E2E tests still hang indefinitely when run in the provided sandbox environment. The test processes become unresponsive and produce no logs, indicating a low-level incompatibility between the test runner and the execution environment. This is the primary blocker preventing verification of the application's functionality.
+*   **[RESOLVED] Intractable Vite Server Hang:** The Vite server was previously crashing on startup when running E2E tests. This was diagnosed and fixed by updating `src/index.css` to use the modern `@import "tailwindcss";` syntax.
+*   **[IMPROVED] E2E Test Suite:** The entire E2E test suite (`auth`, `free`, `anon`, `pro`) has been significantly refactored for robustness and maintainability. A global watchdog has been implemented in `tests/global-setup.ts` to prevent silent hangs and capture artifacts on timeout.
+*   **[NEW] E2E Tests Failing:** With the environment issues resolved, the E2E tests are no longer hanging. However, they are now failing due to application-level issues. The `free.e2e.spec.ts` test is failing because it cannot find the email input field on the `/auth` page. This is the current primary blocker.
 
 ---
 
