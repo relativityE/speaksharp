@@ -30,6 +30,9 @@ Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) style with sligh
 - **Global Test Mocks:** Enhanced the global test setup (`src/test/setup.tsx`) with robust mocks for browser APIs (`SpeechRecognition`, `URL.createObjectURL`) and native modules (`sharp`).
 - **Updated All Project Documentation:** Synchronized `ARCHITECTURE.md`, `PRD.md`, and `ROADMAP.md` to reflect the stabilized test suite and the new on-device transcription feature.
 
+### TYPE SAFETY
+- **Migrated `fillerWordUtils.js` to TypeScript:** Converted the file to TypeScript, adding strict types for all functions and data structures to improve type safety and developer experience.
+
 ---
 
 ## [2025-09-06]
