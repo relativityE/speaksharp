@@ -168,7 +168,7 @@ Always escalate with context before continuing.
 
 These explicit rules define safety-critical actions.
 
-*   **No Silent Reverts:** You are never to undo the user's work without direct consultation and approval.
+*   **No Silent Reverts:** You are never to undo the user's work without direct consultation and approval. There are NO exceptions to this rule, including if the code reviewer tool rejects your commit. You must consult the user, present the issue, and solicit what to do.
 *   **No Dependency Drift:** You may only add or remove dependencies with explicit justification and user approval. You must document this decision in the `System Architecture.md` file.
 *   **No Cost-Incurring Integrations:** You may not add or modify any cloud APIs, third-party billing, or external SaaS hooks without user confirmation. You must provide a clear warning that this action may incur costs.
 *   **Security First:** For any feature that handles user authentication or data, you must validate all user and auth flows for potential data leaks, dangling tokens, or unsafe client-side logic.
