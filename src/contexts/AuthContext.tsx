@@ -1,7 +1,7 @@
 // src/contexts/AuthContext.tsx - Debug Version
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import { Session, User } from '@supabase/supabase-js';
+import { Session, User, AuthChangeEvent } from '@supabase/supabase-js';
 
 type Profile = {
   id: string;
@@ -112,7 +112,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
 
     console.log('🎧 Setting up auth state listener...');
     const { data: listener } = supabase.auth.onAuthStateChange(
-      async (event, newSession) => {
+      async (event: AuthChangeEvent, newSession: Session | null) => {
         console.log(`🔄 Auth state changed: ${event}`, newSession ? 'session exists' : 'no session');
 
         setSession(newSession);

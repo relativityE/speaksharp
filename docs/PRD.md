@@ -107,7 +107,7 @@ This section tracks high-level product risks and constraints. For a detailed tec
 
 *   **[RESOLVED] Intractable Vite Server Hang:** The Vite server was previously crashing on startup when running E2E tests. This was diagnosed and fixed by updating `src/index.css` to use the modern `@import "tailwindcss";` syntax.
 *   **[IMPROVED] E2E Test Suite:** The entire E2E test suite (`auth`, `free`, `anon`, `pro`) has been significantly refactored for robustness and maintainability. A global watchdog has been implemented in `tests/global-setup.ts` to prevent silent hangs and capture artifacts on timeout.
-*   **[NEW] E2E Tests Failing:** With the environment issues resolved, the E2E tests are no longer hanging. However, they are now failing due to application-level issues. The `free.e2e.spec.ts` test is failing because it cannot find the email input field on the `/auth` page. This is the current primary blocker.
+*   **[IN PROGRESS] E2E Tests Failing:** The E2E test suite is currently unstable. For a detailed breakdown of test status and discovered issues, see the [E2E Testing Report](./testing/E2E_TESTING_REPORT.md).
 
 ---
 
