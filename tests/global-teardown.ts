@@ -1,8 +1,6 @@
 import fs from 'fs';
-import { resolve } from 'path';
-import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
-import { dirname } from 'path';
+import { dirname, resolve } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -11,36 +9,31 @@ export default async function globalTeardown() {
   const pidFile = resolve(__dirname, 'dev-server.pid');
 
   if (!fs.existsSync(pidFile)) {
-    console.log('[global-teardown] No PID file found. Nothing to kill.');
+    console.log('[global-teardown] No PID file found, nothing to clean up.');
     return;
   }
 
-  const pid = parseInt(fs.readFileSync(pidFile, 'utf-8'), 10);
-
-  if (!pid) {
-    console.log('[global-teardown] PID file empty or invalid.');
-    return;
-  }
-
-  console.log(`[global-teardown] Killing dev server with PID ${pid}...`);
+  const pid = Number(fs.readFileSync(pidFile, 'utf-8'));
+  console.log(`[global-teardown] Attempting to kill dev server with PID ${pid}...`);
 
   try {
-    // cross-platform kill using spawn
-    if (process.platform === 'win32') {
-      // Windows: taskkill
-      spawn('taskkill', ['/PID', String(pid), '/F']);
-    } else {
-      // Unix-like: kill
-      process.kill(pid, 'SIGTERM');
+    process.kill(pid, 'SIGTERM');
+    console.log('[global-teardown] Sent SIGTERM. Waiting 3s for graceful shutdown...');
+
+    await new Promise((res) => setTimeout(res, 3000));
+
+    try {
+      // Check if still alive
+      process.kill(pid, 0);
+      console.warn('[global-teardown] Process still alive. Sending SIGKILL...');
+      process.kill(pid, 'SIGKILL');
+      console.log('[global-teardown] ✅ Dev server force killed');
+    } catch {
+      console.log('[global-teardown] ✅ Dev server terminated gracefully');
     }
-
-    // Wait a short time for process to exit
-    await new Promise((r) => setTimeout(r, 2000));
-
-    if (fs.existsSync(pidFile)) fs.unlinkSync(pidFile);
-
-    console.log('[global-teardown] Dev server terminated and PID file removed.');
   } catch (err) {
-    console.error('[global-teardown] Failed to terminate dev server:', err);
+    console.warn(`[global-teardown] ⚠️ Failed to kill process ${pid}:`, err);
   }
+
+  fs.unlinkSync(pidFile);
 }
