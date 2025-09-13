@@ -102,6 +102,45 @@ The testing architecture relies on a clean separation of concerns between the Vi
 
 This setup ensures a stable and predictable test environment and avoids the module resolution conflicts that can arise from mixing `vite` and `vitest` configurations.
 
+### E2E Testing Framework
+
+The E2E tests are built using **Playwright**. The tests are located in the `tests/` directory and are run using the `pnpm test:e2e` command.
+
+The tests are configured to run against a local development server, which is started automatically by Playwright's `global-setup.ts` script. The server runs on port `5173` and uses the `test` mode, which loads the `.env.test` file for environment variables.
+
+The tests use a mock service worker (MSW) to mock API calls to external services like Supabase and Stripe. The mock handlers are defined in `src/test/mocks/handlers.ts`.
+
+**Known Issues:**
+
+*   **Test Server Lifecycle:** There are persistent issues with the test server not being terminated correctly after a test run, which causes "Port in use" errors.
+*   **Tool Unreliability:** The development tools in this environment have been unreliable, which has made debugging difficult.
+
+### E2E Testing Framework
+
+The E2E tests are built using **Playwright**. The tests are located in the `tests/` directory and are run using the `pnpm test:e2e` command.
+
+The tests are configured to run against a local development server, which is started automatically by Playwright's `global-setup.ts` script. The server runs on port `5173` and uses the `test` mode, which loads the `.env.test` file for environment variables.
+
+The tests use a mock service worker (MSW) to mock API calls to external services like Supabase and Stripe. The mock handlers are defined in `src/test/mocks/handlers.ts`.
+
+**Known Issues:**
+
+*   **Test Server Lifecycle:** There are persistent issues with the test server not being terminated correctly after a test run, which causes "Port in use" errors.
+*   **Tool Unreliability:** The development tools in this environment have been unreliable, which has made debugging difficult.
+
+### E2E Testing Framework
+
+The E2E tests are built using **Playwright**. The tests are located in the `tests/` directory and are run using the `pnpm test:e2e` command.
+
+The tests are configured to run against a local development server, which is started automatically by Playwright's `global-setup.ts` script. The server runs on port `5173` and uses the `test` mode, which loads the `.env.test` file for environment variables.
+
+The tests use a mock service worker (MSW) to mock API calls to external services like Supabase and Stripe. The mock handlers are defined in `src/test/mocks/handlers.ts`.
+
+**Known Issues:**
+
+*   **Test Server Lifecycle:** There are persistent issues with the test server not being terminated correctly after a test run, which causes "Port in use" errors.
+*   **Tool Unreliability:** The development tools in this environment have been unreliable, which has made debugging difficult.
+
 ### Code Quality and Automation
 
 To maintain a high standard of code quality and prevent common errors, the project utilizes an automated pre-commit workflow.

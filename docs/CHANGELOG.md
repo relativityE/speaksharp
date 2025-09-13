@@ -8,6 +8,25 @@ Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) style with sligh
 
 ## [Unreleased]
 ### Fixed
+- **Fixed `SessionPage.jsx` bugs:**
+  - Corrected the usage of the `useSessionManager` hook to manage the `usageLimitExceeded` state locally within the component.
+  - Fixed the `saveAndBroadcastSession` function to correctly handle the `usageExceeded` flag returned from the backend.
+- **Updated `UpgradePromptDialog.jsx`:**
+  - Updated the title and description to match the E2E test's expectations.
+- **Fixed Husky pre-commit hook:** The pre-commit hook now only runs on `git commit`, not on other file operations.
+- **Resolved TypeScript errors:**
+  - Added `allowJs: true` to `tsconfig.json` to allow importing JavaScript modules in TypeScript files.
+  - Added type definitions for `AuthChangeEvent` in `src/contexts/AuthContext.tsx`.
+
+### Changed
+- **Improved E2E test stability:**
+  - Modified `playwright.config.ts` to disable server reuse, which should prevent "port in use" errors.
+  - Updated `package.json` to attempt to kill any lingering server processes before running tests.
+- **Updated `.gitignore`:** Added `*.png` and `*.bin` to prevent test artifacts from being committed.
+
+### Added
+- **E2E Testing Report:** Created a new report at `docs/testing/E2E_TESTING_REPORT.md` to track the status of the E2E tests and document findings.
+### Fixed
 - **Fixed Tailwind CSS Bug:** Resolved a critical bug where the Vite server would crash when processing `src/index.css`. The fix involved updating the CSS file to use the modern `@import "tailwindcss";` syntax.
 - **Resolved Critical E2E Test Blockers:** Diagnosed and fixed multiple independent issues causing the E2E test suite to hang or crash. This included a Tailwind CSS bug that crashed the Vite server and several deadlocks/race-conditions within the network stubbing logic (`sdkStubs.ts`).
 

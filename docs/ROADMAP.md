@@ -22,6 +22,8 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 - 🟡 **Technical Debt: Remediate and Stabilize the Test Suite**
   - **Resolution:** Multiple underlying bugs causing server crashes (Tailwind CSS) and test hangs (network stubbing deadlocks) have been identified and fixed. The E2E test files have been significantly refactored for robustness. However, the suite remains non-functional due to a persistent environmental issue causing tests to hang.
 - ✅ **Implement "Free User Quota" E2E test:** An E2E test for the 'Free' user role has been added.
+- 🔴 **Create `premium.e2e.spec.ts` Test:** Create a new E2E test for the premium user flow to verify on-device transcription and other premium features.
+- 🔴 **Create `premium.e2e.spec.ts` Test:** Create a new E2E test for the premium user flow to verify on-device transcription and other premium features.
 
 ### 🚧 Should-Have (Tech Debt)
 - 🟡 **Migrate "Low Hanging Fruit" JS to TypeScript:** Convert simple, non-critical JavaScript files to TypeScript to improve type safety.
