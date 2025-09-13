@@ -29,9 +29,9 @@ export function UpgradePromptDialog({ open, onOpenChange }) {
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>You've Reached Your Free Limit</AlertDialogTitle>
+          <AlertDialogTitle>Unlock Your Full Potential</AlertDialogTitle>
           <AlertDialogDescription>
-            You've used all your free practice time for this month. Please upgrade to the Pro plan to continue practicing without limits and unlock all features.
+            You've had a great session! Upgrade to Pro to save your full session history, get advanced analytics, and practice without limits.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
