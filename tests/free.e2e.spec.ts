@@ -43,7 +43,7 @@ test.describe('Free User Flow', () => {
       console.log('Redirected to home page');
     } catch (error) {
       console.log('Login redirect failed. Current URL:', page.url());
-      await page.screenshot({ path: `debug-login-${email.replace('@', '-')}.png` });
+      await page.screenshot({ path: `test-results/e2e-artifacts/debug-login-${email.replace('@', '-')}.png` });
       throw error;
     }
 
