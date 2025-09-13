@@ -21,7 +21,6 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
 
-  // --- Global setup/teardown ---
   globalSetup: resolve(__dirname, './tests/global-setup.ts'),
   globalTeardown: resolve(__dirname, './tests/global-teardown.ts'),
 
