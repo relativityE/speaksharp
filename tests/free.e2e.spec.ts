@@ -15,9 +15,9 @@ test.describe('Free User Flow', () => {
     await page.goto('/auth', { timeout: 15000 });
     await page.waitForLoadState('networkidle', { timeout: 10000 });
 
-    const emailField = page.getByLabel('Email');
-    const passwordField = page.getByLabel('Password');
-    const signInButton = page.getByRole('button', { name: 'Sign In' });
+    const emailField = page.getByTestId('email-input');
+    const passwordField = page.getByTestId('password-input');
+    const signInButton = page.getByTestId('sign-in-submit');
 
     await expect(emailField).toBeVisible({ timeout: 5000 });
     await expect(passwordField).toBeVisible({ timeout: 5000 });
