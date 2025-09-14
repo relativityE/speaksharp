@@ -1,9 +1,7 @@
-import { test, expect } from './helpers';
-import { sandboxPage, loginUser } from './helpers';
+import { test, expect, loginUser } from './helpers';
 
 test.describe('Authentication Flows', () => {
-  test.beforeEach(async ({ page }) => {
-    await sandboxPage(page);
+  test.beforeEach(async () => {
     test.setTimeout(15000);
   });
 
