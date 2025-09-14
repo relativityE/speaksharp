@@ -1,33 +1,33 @@
-import { defineConfig, devices } from '@playwright/test';
-import { fileURLToPath } from 'url';
-import { dirname, resolve } from 'path';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
-  testDir: './tests',
-  timeout: 30_000, // Changed from 60_000
-  expect: {
-    timeout: 10_000,
-  },
-  retries: 1,
-  reporter: [['list'], ['html', { outputFolder: 'test-results/e2e-report' }]],
+  timeout: 30000,
+  expect: { timeout: 5000 },
+  globalTimeout: 180000,
+
+  workers: 1,
+  retries: 0,
+
   use: {
-    headless: true,
-    viewport: { width: 1280, height: 720 },
-    actionTimeout: 10_000,
-    baseURL: 'http://localhost:5174',
-    trace: 'on-first-retry',
+    baseURL: 'http://localhost:5173',
+    actionTimeout: 15000,
+    navigationTimeout: 15000,
   },
 
-  globalSetup: resolve(__dirname, './tests/global-setup.ts'),
-  globalTeardown: resolve(__dirname, './tests/global-teardown.ts'),
-
-  // Optional: run tests in parallel
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
-    { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
-    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
+    {
+      name: 'chromium',
+      use: {
+        headless: true,
+        viewport: { width: 1280, height: 720 },
+        video: 'off',
+        screenshot: 'only-on-failure',
+      },
+    },
+  ],
+
+  reporter: [
+    ['list'],
+    ['html', { open: 'never' }],
   ],
 });

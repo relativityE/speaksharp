@@ -94,6 +94,7 @@ tmp/
 temp/
 
 # Test Reports
+playwright-report/
 test-results/
 unit-results.json
 e2e-results.json
