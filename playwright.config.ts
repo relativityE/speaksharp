@@ -3,9 +3,9 @@ import { defineConfig } from '@playwright/test';
 import { pathToFileURL } from 'url';
 
 export default defineConfig({
-  // ✅ Start/stop dev server manually
   globalSetup: pathToFileURL('./tests/global-setup.ts').href,
   globalTeardown: pathToFileURL('./tests/global-teardown.ts').href,
+  testDir: './tests/e2e',
 
   timeout: 30000,
   expect: { timeout: 5000 },

@@ -185,7 +185,7 @@ class E2ETestRunner {
 
   async startDevServer(): Promise<boolean> {
     try {
-      await this.startProcess('vite', 'pnpm', ['run', 'dev:test']);
+      await this.startProcess('vite', 'npm', ['run', 'dev']);
       const serverReady = await this.waitForServer('http://localhost:5173');
 
       if (serverReady) {
@@ -292,9 +292,7 @@ class E2ETestRunner {
 }
 
 // Usage
-if (require.main === module) {
-  const runner = new E2ETestRunner();
-  runner.run().then(success => {
-    process.exit(success ? 0 : 1);
-  });
-}
+const runner = new E2ETestRunner();
+runner.run().then(success => {
+  process.exit(success ? 0 : 1);
+});

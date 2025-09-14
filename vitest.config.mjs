@@ -14,7 +14,7 @@ export default defineConfig({
     environment: 'happy-dom',
     include: ['src/**/*.test.{js,jsx,ts,tsx}'],
     exclude: ['node_modules/', 'dist/', 'build/', 'tests/'],
-    setupFiles: ['./src/test-setup.js'],
+    setupFiles: 'tests/unit/setup.js',
     testTimeout: 10000,
     hookTimeout: 10000,
     teardownTimeout: 5000,
