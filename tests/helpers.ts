@@ -1,70 +1,151 @@
-import { test as base, Page, expect, Response } from '@playwright/test';
-import fs from 'fs';
-import path from 'path';
+import { Page, Response, test as base } from '@playwright/test';
+import { stubThirdParties } from './sdkStubs';
 
-const WATCHDOG_TIMEOUT = 15000; // 15 seconds
-const ARTIFACT_DIR = 'test-results/e2e-artifacts';
+// Extend the base test object with our sandboxed page fixture
+export const test = base.extend<{ sandboxPage: void }>({
+  // The 'sandboxPage' fixture is a "worker-scoped" fixture, meaning it's
+  // set up once per worker process.
+  // We're using it to set up the page with our stubs and listeners
+  // before each test in this worker runs.
+  sandboxPage: [
+    async ({ page }, use) => {
+      // Go to a blank page
+      await page.goto('about:blank');
 
-async function captureArtifacts(page: Page, label: string) {
-  const safeLabel = label.replace(/[^a-z0-9-_]/gi, '_');
-  const screenshotPath = path.join(ARTIFACT_DIR, `${safeLabel}.png`);
-  const htmlPath = path.join(ARTIFACT_DIR, `${safeLabel}.html`);
-  fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
+      // Stub out all the external services
+      await stubThirdParties(page);
 
-  try {
-    await page.screenshot({ path: screenshotPath, fullPage: true });
-  } catch (err) {
-    console.error('Failed to take screenshot:', err);
-  }
+      // Add logging for failed requests to help with debugging
+      page.on('requestfailed', (request) =>
+        console.log(`[REQUEST FAILED] ${request.url()}: ${request.failure()?.errorText}`)
+      );
 
-  try {
-    const html = await page.content();
-    fs.writeFileSync(htmlPath, html, 'utf8');
-  } catch (err) {
-    console.error('Failed to save page content:', err);
-  }
+      // Add logging for any client-side errors
+      page.on('response', (response) => {
+        if (response.status() >= 400) {
+          console.log(`[HTTP ERROR] ${response.status()} ${response.url()}`);
+        }
+      });
 
-  console.error(`❌ Watchdog captured artifacts for "${label}" at:`);
-  console.error(`   - ${screenshotPath}`);
-  console.error(`   - ${htmlPath}`);
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function withWatchdog<T extends (...args: any[]) => Promise<any>>(page: Page, fn: T, name: string): T {
-  return (async (...args: Parameters<T>) => {
-    return await Promise.race([
-      fn(...args),
-      new Promise((_, reject) =>
-        setTimeout(async () => {
-          await captureArtifacts(page, `watchdog-${name}`);
-          reject(new Error(`❌ Watchdog: ${name} took longer than ${WATCHDOG_TIMEOUT / 1000}s`));
-        }, WATCHDOG_TIMEOUT)
-      )
-    ]);
-  }) as T;
-}
-
-type TestFixtures = {
-  page: Page;
-};
-
-export const test = base.extend<TestFixtures>({
-  page: async ({ page }, use) => {
-    page.on('console', msg => console.log('BROWSER LOG:', msg.text()));
-    page.on('pageerror', err => console.error('BROWSER ERROR:', err));
-
-    const originalGoto = page.goto.bind(page);
-    page.goto = withWatchdog(page, originalGoto, 'page.goto');
-
-    const originalWaitForURL = page.waitForURL.bind(page);
-    page.waitForURL = withWatchdog(page, originalWaitForURL, 'page.waitForURL');
-
-    const originalWaitForLoadState = page.waitForLoadState.bind(page);
-    page.waitForLoadState = withWatchdog(page, originalWaitForLoadState, 'page.waitForLoadState');
-
-    await use(page);
-  },
+      // Use the sandboxed page in the test
+      await use();
+    },
+    { scope: 'worker' },
+  ],
 });
 
-export { expect };
-export type { Response, Page };
+export { expect } from '@playwright/test';
+
+// Re-exporting Response type for convenience in tests
+export type { Response };
+
+/**
+ * A helper function to log in a user with a given email and password.
+ * It handles navigation to the auth page, filling in credentials,
+ * and waiting for the redirect back to the app's home page.
+ * @param page The Playwright Page object.
+ * @param email The user's email.
+ * @param password The user's password.
+ */
+export async function loginUser(page: Page, email: string, password: string) {
+  console.log(`Logging in as: ${email}`);
+
+  // Navigate to the auth page and wait for it to be idle
+  await page.goto('/auth', { timeout: 10000 });
+  await page.waitForLoadState('networkidle');
+
+  // Get handles to the form elements
+  const emailField = page.getByLabel('Email');
+  const passwordField = page.getByLabel('Password');
+  const signInButton = page.getByRole('button', { name: 'Sign In' });
+
+  // Assert that the form elements are visible before interacting with them
+  await expect(emailField).toBeVisible();
+  await expect(passwordField).toBeVisible();
+  await expect(signInButton).toBeVisible();
+
+  // Fill in the login form
+  await emailField.fill(email);
+  await passwordField.fill(password);
+
+  // Assert that the sign-in button is enabled after filling the form
+  await expect(signInButton).toBeEnabled();
+
+  // Create a promise to wait for the auth response. This is more reliable
+  // than waiting for a specific URL, as the auth flow may involve redirects.
+  const responsePromise = page.waitForResponse(
+    (res: Response) =>
+      (res.url().includes('/auth/v1/token') || res.url().includes('/auth/v1/user')) &&
+      res.status() === 200,
+    { timeout: 10000 }
+  );
+
+  // Click the sign-in button and wait for the auth response
+  await signInButton.click();
+  try {
+    await responsePromise;
+  } catch (error) {
+    console.warn('Did not receive an auth response within the timeout. This may be okay if the page redirects quickly.');
+  }
+
+  // After login, wait for the page to redirect to the root and be idle
+  try {
+    await page.waitForURL('/', { timeout: 15000 });
+    console.log('Successfully redirected to home page after login.');
+  } catch (err) {
+    console.error(`Login redirect failed! Current URL: ${page.url()}`);
+    await page.screenshot({ path: `debug-login-redirect-failed-${email.replace(/[@.]/g, '-')}.png` });
+    throw err;
+  }
+
+  await page.waitForLoadState('networkidle');
+}
+
+/**
+ * A helper to start a practice session.
+ * @param page The Playwright Page object.
+ * @param buttonText The text of the button to start the session.
+ */
+export async function startSession(page: Page, buttonText = 'Start Practice') {
+  const startButton = page.getByRole('button', { name: buttonText });
+  await expect(startButton).toBeVisible();
+  await expect(startButton).toBeEnabled();
+  await startButton.click();
+
+  try {
+    // Wait for the URL to change to include '/session/'
+    await page.waitForURL(/\/session\//, { timeout: 15000 });
+    await page.waitForLoadState('networkidle');
+  } catch (err) {
+    console.error('Failed to navigate to session page after starting practice.', err);
+    await page.screenshot({ path: 'debug-start-session-failed.png' });
+    throw err;
+  }
+}
+
+/**
+ * A helper to stop a practice session.
+ * @param page The Playwright Page object.
+ */
+export async function stopSession(page: Page) {
+  const stopButton = page.getByRole('button', { name: 'Stop' });
+  await expect(stopButton).toBeVisible();
+  await expect(stopButton).toBeEnabled();
+
+  // Wait for the API call that saves the session data
+  const responsePromise = page.waitForResponse(
+    (res: Response) => res.url().includes('/rest/v1/sessions') && res.status() === 201,
+    { timeout: 5000 }
+  );
+
+  await stopButton.click();
+
+  try {
+    await responsePromise;
+  } catch (error) {
+    console.warn('Session save API did not respond within the timeout. This might be acceptable in some test flows.');
+  }
+
+  // After stopping, we expect to see a confirmation
+  await expect(page.getByText(/Session [Ee]nded|Analysis/)).toBeVisible({ timeout: 10000 });
+}

@@ -108,17 +108,19 @@ export const handlers = [
   http.get('https://*.supabase.co/auth/v1/user', ({ request }) => {
     const authorization = request.headers.get('authorization');
 
-    if (!authorization?.includes('Bearer')) {
-      return HttpResponse.json(
-        { error: 'Invalid token' },
-        { status: 401 }
-      );
+    // If no valid authorization header, return null user (logged out)
+    if (!authorization || !authorization.startsWith('Bearer mock-')) {
+      return HttpResponse.json({ user: null });
     }
 
-    // Return user based on token (simplified)
+    // If there is a mock token, return the corresponding user
+    // This simulates a logged-in state after a successful sign-in
+    const email = authorization.includes('pro') ? 'pro@example.com' : 'test@example.com';
+    const id = email.includes('pro') ? 'pro-user' : 'user-123';
+
     return HttpResponse.json({
-      id: 'user-123',
-      email: 'test@example.com',
+      id,
+      email,
       created_at: '2024-01-01T00:00:00Z'
     });
   }),
