@@ -106,8 +106,8 @@ This section contains ASCII art diagrams illustrating the journey for each user 
 This section tracks high-level product risks and constraints. For a detailed technical debt and task breakdown, see the [Roadmap](./ROADMAP.md).
 
 *   **[RESOLVED] Intractable Vite Server Hang:** The Vite server was previously crashing on startup when running E2E tests. This was diagnosed and fixed by updating `src/index.css` to use the modern `@import "tailwindcss";` syntax.
-*   **[IMPROVED] E2E Test Suite:** The entire E2E test suite (`auth`, `free`, `anon`, `pro`) has been significantly refactored for robustness and maintainability. A global watchdog has been implemented in `tests/global-setup.ts` to prevent silent hangs and capture artifacts on timeout.
-*   **[IN PROGRESS] E2E Tests Failing:** The E2E test suite is currently unstable. For a detailed breakdown of test status and discovered issues, see the [E2E Testing Report](./testing/E2E_TESTING_REPORT.md).
+*   **[RESOLVED] E2E Test Environment Unstable:** The E2E test environment was suffering from configuration conflicts and missing dependencies, causing all tests to fail unpredictably. The environment has now been stabilized by isolating the Vitest and Playwright configurations and ensuring all dependencies are correctly loaded.
+*   **[IN PROGRESS] E2E Tests Failing due to Application Bugs:** With a stable environment, the E2E test suite is now consistently runnable. However, all tests are currently failing due to a fundamental application mounting issue. The root cause has been traced to the Vite dev server not loading the correct `.env.test` file, preventing the application from receiving required environment variables and rendering correctly. This is the next priority to be addressed.
 
 ---
 

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",
-    "dev:test": "VITE_TEST_MODE=true vite --port 5173 --host --clearScreen false",
+    "dev:test": "vite --mode test --port 5173 --host --clearScreen false",
     "build": "vite build",
     "preview": "vite preview",
     "test:ui": "vitest --ui",

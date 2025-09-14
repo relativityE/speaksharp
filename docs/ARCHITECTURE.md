@@ -88,23 +88,35 @@ Key principles of this strategy:
 *   **Integration** – The test pipeline (run-tests.sh) orchestrates unit, coverage, and E2E runs, consuming the same mock environment for a true “single source of truth.”
 *   **Production Parity** – MSW operates at the network boundary, which more closely mirrors real-world application behavior than in-process mocks.
 
+### Test Environment Isolation
+
+To prevent conflicts between the Vitest (unit) and Playwright (E2E) test environments, the project employs a strict isolation strategy:
+
+*   **Physical Separation:** Unit tests and their setup files reside in `tests/unit/`, while E2E tests and their helpers are located in `tests/e2e/`. This prevents test runners from accidentally discovering the wrong files.
+*   **Configuration Scoping:** Each test runner is configured to look only within its designated directory.
+    *   `vitest.config.mjs` is configured with `exclude: ['tests/e2e']`.
+    *   `playwright.config.ts` uses `testDir: './tests/e2e'` to scope its search.
+*   **TypeScript Isolation:** A dedicated `tsconfig.e2e.json` is used for Playwright tests. This file has its own minimal `types` and `include` settings, ensuring that global types from Vitest and Jest-DOM do not leak into the Playwright compilation context.
+
+This separation guarantees that the two test environments cannot interfere with each other.
+
 ### Vitest and MSW Setup
 
 The testing architecture relies on a clean separation of concerns between the Vite build configuration and the Vitest test runner configuration.
 
 *   **`vite.config.mjs`:** This file is used exclusively for building and serving the application. It contains no test-related configuration.
-*   **`vitest.config.mjs`:** This file is dedicated to the test runner configuration. It defines the test environment (`happy-dom`), the setup files (`src/test-setup.js`), and the test reporters.
-*   **`src/test-setup.js`:** This file performs the global setup for the test environment. It imports `@testing-library/jest-dom` to extend `vitest`'s `expect` with DOM-specific matchers.
+*   **`vitest.config.mjs`:** This file is dedicated to the unit test runner configuration. It defines the test environment (`happy-dom`), the setup files (`tests/unit/setup.js`), and the test reporters.
+*   **`tests/unit/setup.js`:** This file performs the global setup for the Vitest environment. It imports `@testing-library/jest-dom` to extend `vitest`'s `expect` with DOM-specific matchers.
 *   **Mock Service Worker (MSW):** MSW is used to mock the API surface for both unit and E2E tests.
     *   **`src/test/mocks/handlers.ts`:** Defines the mock API handlers.
     *   **`src/test/mocks/server.ts`:** Sets up the MSW server for the Node.js environment (unit tests).
     *   **`src/test/mocks/browser.ts`:** Sets up the MSW worker for the browser environment (E2E tests).
 
-This setup ensures a stable and predictable test environment and avoids the module resolution conflicts that can arise from mixing `vite` and `vitest` configurations.
-
 ### E2E Testing Framework
 
-The End-to-End (E2E) test suite is built with **Playwright** and is located in the `tests/` directory. The tests are executed via the `pnpm test:e2e` command.
+The End-to-End (E2E) test suite is built with **Playwright** and is located in the `tests/e2e/` directory. The tests are executed via the `pnpm test:e2e` command.
+
+The test runner is invoked with `TS_NODE_PROJECT=tsconfig.e2e.json tsx ...`, which forces the TypeScript runtime to use the isolated E2E configuration, preventing environment conflicts.
 
 To address persistent stability issues within the sandboxed VM environment, the test suite uses a custom, robust server management strategy instead of Playwright's built-in `webServer` option. This provides greater control, visibility, and hang-prevention.
 
@@ -112,14 +124,14 @@ The architecture consists of three key files:
 
 1.  **`tests/global-setup.ts`**: This script is executed once before the entire test suite runs. It is responsible for:
     *   **Port Availability Check**: It first checks if the server port (`5173`) is free to prevent conflicts.
-    *   **Spawning the Dev Server**: It manually starts the Vite dev server (`pnpm run dev:test`) as a child process.
-    *   **Live Logging**: It pipes the server's `stdout` and `stderr` directly to the console, providing real-time visibility into the startup process.
+    *   **Spawning the Dev Server**: It manually starts the Vite dev server using `pnpm run dev:test`. The `dev:test` script is configured to run Vite in `--mode test`, which ensures the correct `.env.test` file is loaded.
+    *   **Live Logging**: It pipes the server's `stdout` and `stderr` directly to the console.
     *   **PID Tracking**: It saves the server process's PID to a `dev-server.pid` file.
-    *   **Readiness Probe**: It actively polls the server's URL (`http://localhost:5173`) and includes a watchdog timer and a hard timeout to ensure tests only begin when the server is ready, preventing indefinite hangs.
+    *   **Readiness Probe**: It actively polls the server's URL (`http://localhost:5173`) to ensure tests only begin when the server is ready.
 
-2.  **`tests/global-teardown.ts`**: This script runs once after all tests have completed. It reads the PID from `dev-server.pid` and forcefully terminates the server process, ensuring a clean shutdown and preventing orphaned processes.
+2.  **`tests/global-teardown.ts`**: This script runs once after all tests have completed. It reads the PID from `dev-server.pid` and forcefully terminates the server process, ensuring a clean shutdown.
 
-3.  **`playwright.config.ts`**: The main configuration file is set up to be ESM-safe and explicitly points to the custom setup and teardown scripts using `pathToFileURL`. Crucially, the `webServer` option is **omitted**, delegating all server management responsibilities to the global scripts.
+3.  **`playwright.config.ts`**: The main configuration file points to the E2E test directory (`testDir: './tests/e2e'`) and the custom setup/teardown scripts. Crucially, the `webServer` option is **omitted**, delegating all server management responsibilities to the global scripts.
 
 This manual, robust approach was chosen specifically because the standard `webServer` was too opaque and brittle for the sandboxed VM, often leading to silent hangs and difficult-to-debug failures. This new architecture ensures a stable, reliable, and transparent E2E testing environment.
 
