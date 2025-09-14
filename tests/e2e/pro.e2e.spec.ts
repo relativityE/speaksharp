@@ -1,9 +1,7 @@
-import { test, expect } from './helpers';
-import { sandboxPage, loginUser, startSession, stopSession } from './helpers';
+import { test, expect, loginUser, startSession, stopSession } from './helpers';
 
 test.describe('Pro User Flow', () => {
-  test.beforeEach(async ({ page }) => {
-    await sandboxPage(page);
+  test.beforeEach(async () => {
     test.setTimeout(15000);
   });
 

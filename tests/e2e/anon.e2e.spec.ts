@@ -1,9 +1,7 @@
-import { test, expect } from './helpers';
-import { sandboxPage, startSession, stopSession } from './helpers';
+import { test, expect, startSession, stopSession } from './helpers';
 
 test.describe('Anonymous User Flow', () => {
-  test.beforeEach(async ({ page }) => {
-    await sandboxPage(page);
+  test.beforeEach(async () => {
     test.setTimeout(15000);
   });
 

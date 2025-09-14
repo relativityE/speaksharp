@@ -93,7 +93,7 @@ export async function loginUser(page: Page, email: string, password: string) {
  * @param page The Playwright Page object.
  * @param buttonText The text of the button to start the session.
  */
-export async function startSession(page: Page, buttonText = 'Start Practice') {
+export async function startSession(page: Page, buttonText = 'Start For Free') {
   const startButton = page.getByRole('button', { name: buttonText });
   await expect(startButton).toBeVisible();
   await expect(startButton).toBeEnabled();
