@@ -104,42 +104,24 @@ This setup ensures a stable and predictable test environment and avoids the modu
 
 ### E2E Testing Framework
 
-The E2E tests are built using **Playwright**. The tests are located in the `tests/` directory and are run using the `pnpm test:e2e` command.
+The End-to-End (E2E) test suite is built with **Playwright** and is located in the `tests/` directory. The tests are executed via the `pnpm test:e2e` command.
 
-The tests are configured to run against a local development server, which is started automatically by Playwright's `global-setup.ts` script. The server runs on port `5173` and uses the `test` mode, which loads the `.env.test` file for environment variables.
+To address persistent stability issues within the sandboxed VM environment, the test suite uses a custom, robust server management strategy instead of Playwright's built-in `webServer` option. This provides greater control, visibility, and hang-prevention.
 
-The tests use a mock service worker (MSW) to mock API calls to external services like Supabase and Stripe. The mock handlers are defined in `src/test/mocks/handlers.ts`.
+The architecture consists of three key files:
 
-**Known Issues:**
+1.  **`tests/global-setup.ts`**: This script is executed once before the entire test suite runs. It is responsible for:
+    *   **Port Availability Check**: It first checks if the server port (`5173`) is free to prevent conflicts.
+    *   **Spawning the Dev Server**: It manually starts the Vite dev server (`pnpm run dev:test`) as a child process.
+    *   **Live Logging**: It pipes the server's `stdout` and `stderr` directly to the console, providing real-time visibility into the startup process.
+    *   **PID Tracking**: It saves the server process's PID to a `dev-server.pid` file.
+    *   **Readiness Probe**: It actively polls the server's URL (`http://localhost:5173`) and includes a watchdog timer and a hard timeout to ensure tests only begin when the server is ready, preventing indefinite hangs.
 
-*   **Test Server Lifecycle:** There are persistent issues with the test server not being terminated correctly after a test run, which causes "Port in use" errors.
-*   **Tool Unreliability:** The development tools in this environment have been unreliable, which has made debugging difficult.
+2.  **`tests/global-teardown.ts`**: This script runs once after all tests have completed. It reads the PID from `dev-server.pid` and forcefully terminates the server process, ensuring a clean shutdown and preventing orphaned processes.
 
-### E2E Testing Framework
+3.  **`playwright.config.ts`**: The main configuration file is set up to be ESM-safe and explicitly points to the custom setup and teardown scripts using `pathToFileURL`. Crucially, the `webServer` option is **omitted**, delegating all server management responsibilities to the global scripts.
 
-The E2E tests are built using **Playwright**. The tests are located in the `tests/` directory and are run using the `pnpm test:e2e` command.
-
-The tests are configured to run against a local development server, which is started automatically by Playwright's `global-setup.ts` script. The server runs on port `5173` and uses the `test` mode, which loads the `.env.test` file for environment variables.
-
-The tests use a mock service worker (MSW) to mock API calls to external services like Supabase and Stripe. The mock handlers are defined in `src/test/mocks/handlers.ts`.
-
-**Known Issues:**
-
-*   **Test Server Lifecycle:** There are persistent issues with the test server not being terminated correctly after a test run, which causes "Port in use" errors.
-*   **Tool Unreliability:** The development tools in this environment have been unreliable, which has made debugging difficult.
-
-### E2E Testing Framework
-
-The E2E tests are built using **Playwright**. The tests are located in the `tests/` directory and are run using the `pnpm test:e2e` command.
-
-The tests are configured to run against a local development server, which is started automatically by Playwright's `global-setup.ts` script. The server runs on port `5173` and uses the `test` mode, which loads the `.env.test` file for environment variables.
-
-The tests use a mock service worker (MSW) to mock API calls to external services like Supabase and Stripe. The mock handlers are defined in `src/test/mocks/handlers.ts`.
-
-**Known Issues:**
-
-*   **Test Server Lifecycle:** There are persistent issues with the test server not being terminated correctly after a test run, which causes "Port in use" errors.
-*   **Tool Unreliability:** The development tools in this environment have been unreliable, which has made debugging difficult.
+This manual, robust approach was chosen specifically because the standard `webServer` was too opaque and brittle for the sandboxed VM, often leading to silent hangs and difficult-to-debug failures. This new architecture ensures a stable, reliable, and transparent E2E testing environment.
 
 ### Code Quality and Automation
 
