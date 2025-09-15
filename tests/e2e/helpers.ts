@@ -1,5 +1,29 @@
 import { Page, Response, test as base, expect } from '@playwright/test';
 import { stubThirdParties } from './sdkStubs';
+import fs from 'fs';
+
+export async function dumpPageState(page: Page, name = 'failure') {
+  try {
+    const html = await page.content();
+    const htmlPath = `debug-${name}.html`;
+    const screenshotPath = `debug-${name}.png`;
+
+    fs.writeFileSync(htmlPath, html);
+    await page.screenshot({ path: screenshotPath, fullPage: true });
+    console.log(`Saved debug state to ${htmlPath} and ${screenshotPath}`);
+
+    // Read the screenshot back and log it as base64 as a workaround for artifact deletion
+    if (fs.existsSync(screenshotPath)) {
+      const screenshotContent = fs.readFileSync(screenshotPath, { encoding: 'base64' });
+      console.log(`--- DEBUG_SCREENSHOT_BASE64_START_${name} ---`);
+      console.log(screenshotContent);
+      console.log(`--- DEBUG_SCREENSHOT_BASE64_END_${name} ---`);
+    }
+
+  } catch (err) {
+    console.error('Failed to dump page state', err);
+  }
+}
 
 // Extend the base test object with our sandboxed page fixture
 export const test = base.extend<{ sandboxPage: void }>({
@@ -7,14 +31,6 @@ export const test = base.extend<{ sandboxPage: void }>({
     async ({ page }, use) => {
       await page.goto('about:blank');
       await stubThirdParties(page);
-      page.on('requestfailed', (request) =>
-        console.log(`[REQUEST FAILED] ${request.url()}: ${request.failure()?.errorText}`)
-      );
-      page.on('response', (response) => {
-        if (response.status() >= 400) {
-          console.log(`[HTTP ERROR] ${response.status()} ${response.url()}`);
-        }
-      });
       await use();
     },
     { auto: true },
@@ -71,7 +87,7 @@ export async function loginUser(page: Page, email: string, password: string) {
   await signInButton.click();
   try {
     await responsePromise;
-  } catch (error) {
+  } catch {
     console.warn('Did not receive an auth response within the timeout. This may be okay if the page redirects quickly.');
   }
 
@@ -94,9 +110,19 @@ export async function loginUser(page: Page, email: string, password: string) {
  * @param buttonText The text of the button to start the session.
  */
 export async function startSession(page: Page, buttonText = 'Start For Free') {
+  // Ensure we are at the root of the application before starting a session
+  if (!page.url().endsWith('/')) {
+    await page.goto('/', { waitUntil: 'networkidle' });
+  }
+
+  // First, wait for any loading/connecting indicators to disappear.
+  // This makes the test more robust against race conditions where the button
+  // is temporarily in a loading state.
+  await expect(page.getByRole('button', { name: /Initializing|Connecting/ })).not.toBeVisible({ timeout: 20000 });
+
   const startButton = page.getByRole('button', { name: buttonText });
-  await expect(startButton).toBeVisible();
-  await expect(startButton).toBeEnabled();
+  await expect(startButton).toBeVisible({ timeout: 10000 });
+  await expect(startButton).toBeEnabled({ timeout: 10000 });
   await startButton.click();
 
   try {
@@ -129,10 +155,18 @@ export async function stopSession(page: Page) {
 
   try {
     await responsePromise;
-  } catch (error) {
+  } catch {
     console.warn('Session save API did not respond within the timeout. This might be acceptable in some test flows.');
   }
 
   // After stopping, we expect to see a confirmation
   await expect(page.getByText(/Session [Ee]nded|Analysis/)).toBeVisible({ timeout: 10000 });
 }
+
+test.afterEach(async ({ page }, testInfo) => {
+  if (testInfo.status !== testInfo.expectedStatus) {
+    const html = await page.content();
+    console.error(`[E2E DEBUG] Page HTML at failure:\n${html.slice(0, 500)}...`);
+    await page.screenshot({ path: `debug-${testInfo.title.replace(/\s+/g, '-')}.png` });
+  }
+});
