@@ -1,3 +1,4 @@
+import './test.setup';
 import { test, expect, startSession, stopSession } from './helpers';
 
 test.describe('Anonymous User Flow', () => {

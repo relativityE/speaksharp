@@ -1,81 +1,88 @@
-// tests/global-setup.ts
-import { spawn } from 'child_process';
+import { spawn, ChildProcess } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 import fetch from 'node-fetch';
-import fs from 'fs';
-import net from 'net';
-import { fileURLToPath } from 'url';
-import { dirname, resolve } from 'path';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const PID_FILE = path.join(process.cwd(), '.vite.pid');
+const ENV_FILE = path.join(process.cwd(), '.env.test');
 
-const SERVER_URL = 'http://localhost:5173';
-const PORT = 5173;
-const TIMEOUT_MS = 30000;        // max wait for server to boot
-const CHECK_INTERVAL = 1000;     // how often to check
-const WATCHDOG_INTERVAL = 5000;  // reassure logs while waiting
-
-// Helper: Check if port is free
-function isPortAvailable(port: number): Promise<boolean> {
-  return new Promise((resolvePort) => {
-    const tester = net.createServer()
-      .once('error', () => resolvePort(false))
-      .once('listening', () => tester.close(() => resolvePort(true)))
-      .listen(port);
-  });
-}
-
-export default async function globalSetup() {
-  console.log('[global-setup] Checking if port is available...');
-
-  const available = await isPortAvailable(PORT);
-  if (!available) {
-    throw new Error(`[global-setup] Port ${PORT} is already in use. Aborting.`);
+// Function to load environment variables from a file into process.env
+function loadEnvVars() {
+  if (!fs.existsSync(ENV_FILE)) {
+    console.warn(`.env.test file not found at ${ENV_FILE}`);
+    return;
   }
-
-  console.log('[global-setup] Starting Vite dev server...');
-  const child = spawn('pnpm', ['run', 'dev:test'], {
-    stdio: 'pipe',
-    shell: true,
-    env: {
-      ...process.env,
-      NODE_ENV: 'test',
-      CI: 'true'
-    }
-  });
-
-  // Print real-time logs
-  child.stdout.on('data', (d) => process.stdout.write(`[server] ${d}`));
-  child.stderr.on('data', (d) => process.stderr.write(`[server-err] ${d}`));
-
-  // Save PID for teardown
-  const pidFile = resolve(__dirname, 'dev-server.pid');
-  fs.writeFileSync(pidFile, String(child.pid));
-
-  // Watchdog
-  const watchdog = setInterval(() => {
-    console.log('[global-setup] Waiting for dev server to be ready...');
-  }, WATCHDOG_INTERVAL);
-
-  const start = Date.now();
-  while (true) {
-    if (Date.now() - start > TIMEOUT_MS) {
-      clearInterval(watchdog);
-      child.kill();
-      throw new Error('[global-setup] Dev server failed to start within timeout');
-    }
-
-    try {
-      const res = await fetch(SERVER_URL);
-      if (res.ok) {
-        clearInterval(watchdog);
-        console.log('[global-setup] Dev server is up!');
-        return;
+  const envFileContent = fs.readFileSync(ENV_FILE, 'utf-8');
+  envFileContent.split('\n').forEach(line => {
+    const trimmedLine = line.trim();
+    if (trimmedLine && !trimmedLine.startsWith('#')) {
+      const [key, ...valueParts] = trimmedLine.split('=');
+      const value = valueParts.join('=').replace(/"/g, ''); // Simple parsing
+      if (key && value) {
+        process.env[key] = value;
       }
-    } catch {
-      // server not ready yet
     }
-
-    await new Promise((r) => setTimeout(r, CHECK_INTERVAL));
-  }
+  });
+  console.log('Successfully loaded environment variables from .env.test');
 }
+
+async function globalSetup() {
+  // Load environment variables before doing anything else
+  loadEnvVars();
+
+  console.log('Starting Vite server for E2E tests...');
+
+  const serverProcess: ChildProcess = spawn('pnpm', ['vite', '--mode', 'test'], {
+    stdio: 'inherit',
+    detached: true,
+    env: {
+      ...process.env, // Pass the current environment variables to the child process
+      NODE_ENV: 'test', // Explicitly set NODE_ENV to ensure test mode is recognized
+    },
+  });
+
+  if (!serverProcess.pid) {
+    throw new Error('Failed to start Vite server: No PID assigned.');
+  }
+
+  fs.writeFileSync(PID_FILE, String(serverProcess.pid));
+  console.log(`Vite server started with PID: ${serverProcess.pid}. PID file created.`);
+
+  // Wait for the server to be ready
+  const serverUrl = 'http://localhost:5173';
+  const timeout = 60000; // 60 seconds
+  const startTime = Date.now();
+  let serverReady = false;
+
+  while (Date.now() - startTime < timeout) {
+    try {
+      const response = await fetch(serverUrl);
+      if (response.ok) {
+        console.log('Vite server is ready.');
+        serverReady = true;
+        break;
+      }
+    } catch (err) {
+      // Ignore errors, server is likely not up yet
+    }
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+
+  if (!serverReady) {
+    console.error('Vite server failed to start within the timeout period.');
+    // Ensure the process is killed if the server never becomes ready
+    if (serverProcess.pid) {
+      try {
+        process.kill(serverProcess.pid);
+      } catch (e) {
+        console.warn(`Could not kill process ${serverProcess.pid}. It may have already exited.`);
+      }
+    }
+    throw new Error('Vite server failed to start.');
+  }
+
+  // Unref the child process to allow the setup script to exit independently
+  serverProcess.unref();
+}
+
+export default globalSetup;

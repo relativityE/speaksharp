@@ -2,18 +2,6 @@
 if (import.meta.env.MODE === "test") {
   console.warn("[testEnv] Initializing runtime shims");
 
-  // Stripe stub
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (globalThis as any).Stripe = function StripeStub() {
-    console.warn("[testEnv] Stripe called");
-    return {
-      redirectToCheckout: async () => {
-        console.warn("[testEnv] redirectToCheckout stubbed");
-        return { error: null };
-      },
-    };
-  };
-
   // PostHog stub
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (globalThis as any).posthog = {
