@@ -19,7 +19,7 @@ test.describe('Pro User Flow', () => {
   test('start and stop session for pro', async ({ page }) => {
     test.setTimeout(60000);
     await loginUser(page, 'pro@example.com', 'password');
-    await startSession(page);
+    await startSession(page, 'Start Session');
     await stopSession(page);
   });
 });

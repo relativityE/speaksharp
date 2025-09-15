@@ -115,9 +115,14 @@ export async function startSession(page: Page, buttonText = 'Start For Free') {
     await page.goto('/', { waitUntil: 'networkidle' });
   }
 
+  // First, wait for any loading/connecting indicators to disappear.
+  // This makes the test more robust against race conditions where the button
+  // is temporarily in a loading state.
+  await expect(page.getByRole('button', { name: /Initializing|Connecting/ })).not.toBeVisible({ timeout: 20000 });
+
   const startButton = page.getByRole('button', { name: buttonText });
-  await expect(startButton).toBeVisible();
-  await expect(startButton).toBeEnabled();
+  await expect(startButton).toBeVisible({ timeout: 10000 });
+  await expect(startButton).toBeEnabled({ timeout: 10000 });
   await startButton.click();
 
   try {
@@ -157,3 +162,11 @@ export async function stopSession(page: Page) {
   // After stopping, we expect to see a confirmation
   await expect(page.getByText(/Session [Ee]nded|Analysis/)).toBeVisible({ timeout: 10000 });
 }
+
+test.afterEach(async ({ page }, testInfo) => {
+  if (testInfo.status !== testInfo.expectedStatus) {
+    const html = await page.content();
+    console.error(`[E2E DEBUG] Page HTML at failure:\n${html.slice(0, 500)}...`);
+    await page.screenshot({ path: `debug-${testInfo.title.replace(/\s+/g, '-')}.png` });
+  }
+});

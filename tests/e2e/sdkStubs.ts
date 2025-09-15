@@ -1,5 +1,6 @@
 // sdkStubs.ts
 import { Page, Route } from '@playwright/test';
+import { randomUUID } from 'crypto';
 
 // --- Blocked external domains ---
 const BLOCKED_DOMAINS = [
@@ -31,29 +32,27 @@ interface MockUser {
   role: 'authenticated';
 }
 
-const MOCK_USERS: Record<string, MockUser> = {
-  'pro@example.com': {
-    id: 'pro-user-id',
-    email: 'pro@example.com',
-    user_metadata: { subscription_status: 'pro' },
+// MOCK_USERS is now a cache for dynamically created users.
+const MOCK_USERS: { [email: string]: MockUser } = {};
+
+function getOrCreateMockUser(email: string): MockUser {
+  if (MOCK_USERS[email]) {
+    return MOCK_USERS[email];
+  }
+
+  const subscription_status = (email.split('@')[0] || 'free') as 'pro' | 'premium' | 'free';
+  const newUser: MockUser = {
+    id: `user_${randomUUID()}`,
+    email: email,
+    user_metadata: { subscription_status },
     aud: 'authenticated',
     role: 'authenticated',
-  },
-  'premium@example.com': {
-    id: 'premium-user-id',
-    email: 'premium@example.com',
-    user_metadata: { subscription_status: 'premium' },
-    aud: 'authenticated',
-    role: 'authenticated',
-  },
-  'free@example.com': {
-    id: 'free-user-id',
-    email: 'free@example.com',
-    user_metadata: { subscription_status: 'free' },
-    aud: 'authenticated',
-    role: 'authenticated',
-  },
-};
+  };
+
+  MOCK_USERS[email] = newUser;
+  return newUser;
+}
+
 
 const getMockSession = (user?: MockUser) => {
   if (!user) return null;
@@ -83,7 +82,7 @@ export async function stubThirdParties(page: Page, options: { usageExceeded?: bo
         if (pathname.includes('/auth/v1/token')) {
           const postData = request.postDataJSON() as { email?: string; refresh_token?: string };
           if (postData?.email) {
-            const user = MOCK_USERS[postData.email];
+            const user = getOrCreateMockUser(postData.email); // DYNAMIC
             const session = getMockSession(user);
             return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(session) });
           }
