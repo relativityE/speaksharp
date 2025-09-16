@@ -1,22 +1,20 @@
 import React from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { Toaster } from '@/components/ui/sonner';
-import { Header } from './components/Header';
-import { MainPage } from './pages/MainPage';
 import { SessionPage } from './pages/SessionPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import AuthPage from './pages/AuthPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { HomePage } from './pages/HomePage';
 
 function App() {
   return (
     <div>
-      <Header />
       <main data-testid="app-main">
         <Toaster />
         <Routes>
           <Route path="/auth" element={<AuthPage />} />
-          <Route path="/" element={<MainPage />} />
+          <Route path="/" element={<HomePage />} />
           <Route
             path="/session"
             element={
