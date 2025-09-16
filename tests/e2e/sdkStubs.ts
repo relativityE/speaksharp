@@ -162,7 +162,6 @@ export async function stubThirdParties(page: Page, options: { usageExceeded?: bo
             body: JSON.stringify([profile]),
           });
         }
-
         console.warn(`[UNMOCKED] Supabase request: ${url.href}`);
         return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: `Not Found in Mock: ${url.href}` }) });
       }
