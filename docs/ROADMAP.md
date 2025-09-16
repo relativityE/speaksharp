@@ -40,6 +40,13 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 - ✅ **Enhance Anonymous and Pro E2E tests:** The E2E tests for all user flows (anonymous, free, pro, auth) have been significantly refactored for robustness, maintainability, and clearer error reporting.
 - ✅ **Add full unit test coverage for `CloudAssemblyAI.js`:** All unit tests for this module are now passing.
 - ✅ **Resolve Playwright Missing System Dependencies:** The necessary system-level libraries and browser binaries for Playwright have been installed in the test environment.
+- 🔴 **Diagnose the final "Start Session" button issue**:
+    -   Analyze the `trace.zip` file from the last failed test run to understand the component state and console output at the moment of failure.
+    -   Determine why the `SessionSidebar` component is not rendering the button for the test runner.
+- 🔴 **Fix the remaining E2E tests**:
+    -   Run and fix the `anon.e2e.spec.ts` suite.
+    -   Run and fix the `free.e2e.spec.ts` suite.
+    -   Run and fix the `basic.e2e.spec.ts` suite.
 
 ### Gating Check
 - ✅ **Bring all documentation up to date to reflect latest/current code implementation**
@@ -104,40 +111,14 @@ This phase focuses on long-term architecture, scalability, and preparing for fut
 ---
 ## Technical Debt
 
-### Debugging E2E Test Failures
+### Items from E2E Debugging Session (Sept 2025)
 
-**Last Updated:** 2025-09-12
+The process of debugging the E2E suite revealed several areas of technical debt:
 
-**Symptom:**
-E2E tests hang indefinitely without producing logs, even with `DEBUG=pw:api,vite:*` enabled. The test process never completes and eventually times out.
+1.  **Fragile E2E Environment**: The initial test environment was brittle, suffering from dependency issues (`pnpm`), configuration problems (Vite, PostCSS), and race conditions. The new architecture documented in `ARCHITECTURE.md` is a significant improvement, but the history of instability suggests the frontend build and test pipeline could benefit from further simplification and hardening.
 
-**Root Cause Analysis:**
-The investigation concluded that this is not a Playwright issue but a silent crash in the Vite development server. The crash is caused by an error in the Tailwind CSS compilation, specifically when processing custom CSS classes defined with CSS variables (e.g., `bg-background`).
+2.  **Implicit Dependencies**: Components like `SessionSidebar` have implicit, unhandled dependencies on external scripts like Stripe.js. The component currently crashes silently if the script fails to load. This should be refactored to be more resilient, perhaps by displaying an error state or gracefully degrading functionality.
 
-The sequence of events is as follows:
-1.  Playwright starts the test and navigates to the application URL (`page.goto()`).
-2.  The Vite dev server receives the request and attempts to build the application.
-3.  During the build, the `@tailwindcss/vite` plugin encounters an unknown utility class in `src/index.css` and throws an error.
-4.  This error causes the Vite server to crash silently, without sending a response back to the browser.
-5.  Playwright's `page.goto()` waits indefinitely for a response that never comes, resulting in a deadlock-like hang.
+3.  **Incomplete Test Coverage**: While the `pro` user flow has been the focus, other test suites (`anon.e2e.spec.ts`, `free.e2e.spec.ts`, `basic.e2e.spec.ts`) have not been run against the new, stabilized environment. They will likely need similar updates and fixes.
 
-**Effective Debugging Strategy:**
-Because the server crashes silently, running tests with `concurrently` hides the root cause. The most effective way to debug this is to run the Vite server and the Playwright tests as separate, concurrent processes.
-
-1.  **Start the dev server with verbose logging** in one terminal (or in the background, redirecting output to a log file):
-    ```bash
-    DEBUG=vite:* pnpm run dev:test > vite.log 2>&1 &
-    ```
-2.  **Run the Playwright test** in a second terminal:
-    ```bash
-    pnpm exec playwright test tests/<your-test-file>.spec.ts
-    ```
-3.  **Inspect the server log (`vite.log`)** for crash information. The log will contain the stack trace of the Tailwind CSS error.
-
-**Global Test Hardening (Watchdog):**
-To prevent tests from hanging silently in the future, a global watchdog has been implemented in `tests/global-setup.ts`. This setup file monkey-patches Playwright's `page.goto()`, `page.waitForURL()`, and `page.waitForLoadState()` methods.
-
-Key features of the watchdog:
-*   **Fast Fail:** It enforces a 15-second timeout on these navigation methods. If the page fails to load, the test fails immediately instead of hanging.
-*   **Artifact Capture:** On timeout, it automatically captures a screenshot and the page's HTML, saving them to `test-results/e2e-artifacts/`. This provides immediate visual evidence of the page's state at the time of the hang.
-*   **Global Application:** The watchdog is applied to all tests automatically via the `globalSetup` option in `playwright.config.ts`.
+4.  **Redundant Mocking Logic**: The current Stripe mock is defined in `tests/mocks/stripe.js` and applied in `vite.config.mjs`. A cleaner, more maintainable approach would be to create a global `beforeEach` hook in the Playwright setup to apply this and other mocks to all test files automatically, reducing code duplication.

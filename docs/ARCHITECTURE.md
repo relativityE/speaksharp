@@ -5,7 +5,7 @@
 
 # SpeakSharp System Architecture
 
-**Version 2.1** | **Last Updated: 2025-09-08**
+**Version 2.2** | **Last Updated: 2025-09-16**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -114,26 +114,41 @@ The testing architecture relies on a clean separation of concerns between the Vi
 
 ### E2E Testing Framework
 
-The End-to-End (E2E) test suite is built with **Playwright** and is located in the `tests/e2e/` directory. The tests are executed via the `pnpm test:e2e` command.
+The E2E test suite is built using **Playwright**. It is designed to simulate real user flows in a controlled environment. The architecture has several key components to ensure tests are reliable and isolated from external services.
 
-The test runner is invoked with `TS_NODE_PROJECT=tsconfig.e2e.json tsx ...`, which forces the TypeScript runtime to use the isolated E2E configuration, preventing environment conflicts.
+#### 1. Test Server Management
 
-To address persistent stability issues within the sandboxed VM environment, the test suite uses a custom, robust server management strategy instead of Playwright's built-in `webServer` option. This provides greater control, visibility, and hang-prevention.
+To run the tests, a Vite development server is started and managed automatically. This is handled by Playwright's global setup and teardown mechanism.
 
-The architecture consists of three key files:
+-   **`tests/global-setup.ts`**: This script is executed once before any tests run. Its responsibilities are:
+    -   Loading environment variables from `.env.test`.
+    -   Spawning the `vite` dev server as a detached child process.
+    -   Injecting necessary environment variables (like `VITE_SUPABASE_URL`) into the Vite process.
+    -   Performing a health check (`waitForVite`) to poll the Vite server until it returns a `200 OK` status, ensuring it is fully ready before tests begin. This prevents race conditions.
+    -   Storing the server's process ID (PID) in a `.vite.pid` file.
 
-1.  **`tests/global-setup.ts`**: This script is executed once before the entire test suite runs. It is responsible for:
-    *   **Port Availability Check**: It first checks if the server port (`5173`) is free to prevent conflicts.
-    *   **Spawning the Dev Server**: It manually starts the Vite dev server using `pnpm run dev:test`. The `dev:test` script is configured to run Vite in `--mode test`, which ensures the correct `.env.test` file is loaded.
-    *   **Live Logging**: It pipes the server's `stdout` and `stderr` directly to the console.
-    *   **PID Tracking**: It saves the server process's PID to a `dev-server.pid` file.
-    *   **Readiness Probe**: It actively polls the server's URL (`http://localhost:5173`) to ensure tests only begin when the server is ready.
+-   **`tests/global-teardown.ts`**: This script runs once after all tests are complete. It reads the PID from the `.vite.pid` file and terminates the Vite server process, ensuring a clean shutdown.
 
-2.  **`tests/global-teardown.ts`**: This script runs once after all tests have completed. It reads the PID from `dev-server.pid` and forcefully terminates the server process, ensuring a clean shutdown.
+#### 2. Mocking Strategy
 
-3.  **`playwright.config.ts`**: The main configuration file points to the E2E test directory (`testDir: './tests/e2e'`) and the custom setup/teardown scripts. Crucially, the `webServer` option is **omitted**, delegating all server management responsibilities to the global scripts.
+To isolate the tests from external network dependencies and ensure deterministic behavior, the suite employs a robust mocking strategy.
 
-This manual, robust approach was chosen specifically because the standard `webServer` was too opaque and brittle for the sandboxed VM, often leading to silent hangs and difficult-to-debug failures. This new architecture ensures a stable, reliable, and transparent E2E testing environment.
+-   **Supabase Mocking**:
+    -   **File**: `tests/e2e/sdkStubs.ts`
+    -   **Mechanism**: This file uses Playwright's `page.route()` method to intercept all network requests (`**/*`).
+    -   **Functionality**: It intercepts calls to any `*.supabase.co` domain, provides dynamic mock users, and includes console logging for visibility.
+
+-   **Stripe Mocking**:
+    -   **Problem**: The application's session page depends on `@stripe/stripe-js` and `@stripe/react-stripe-js`, which crash the component tree when their external scripts are blocked in the test environment.
+    -   **Solution**: We use a **module-level mock** to replace the Stripe libraries during tests.
+    -   **Mechanism**:
+        1.  **Mock File**: A mock implementation at `tests/mocks/stripe.js` exports fake versions of the necessary Stripe components and functions.
+        2.  **Vite Alias**: The `vite.config.mjs` file uses a conditional alias to resolve imports of the Stripe packages to the mock file, but only when `process.env.PLAYWRIGHT_TEST` is true.
+
+#### 3. Test Helpers
+
+-   **File**: `tests/e2e/helpers.ts`
+-   **Functionality**: This file contains reusable functions to simplify test writing (`loginUser`, `startSession`, etc.) and includes a global `test.afterEach` hook to automatically capture debug artifacts on test failure.
 
 ### Code Quality and Automation
 

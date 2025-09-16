@@ -107,7 +107,7 @@ This section tracks high-level product risks and constraints. For a detailed tec
 
 *   **[RESOLVED] Intractable Vite Server Hang:** The Vite server was previously crashing on startup when running E2E tests. This was diagnosed and fixed by updating `src/index.css` to use the modern `@import "tailwindcss";` syntax.
 *   **[RESOLVED] E2E Test Environment Unstable:** The E2E test environment was suffering from configuration conflicts and missing dependencies, causing all tests to fail unpredictably. The environment has now been stabilized by isolating the Vitest and Playwright configurations and ensuring all dependencies are correctly loaded.
-*   **[IN PROGRESS] E2E Tests Failing due to Application Bugs:** With a stable environment, the E2E test suite is now consistently runnable. However, all tests are currently failing due to a fundamental application mounting issue. The root cause has been traced to the Vite dev server not loading the correct `.env.test` file, preventing the application from receiving required environment variables and rendering correctly. This is the next priority to be addressed.
+*   **[ACTIVE] E2E Test Failure: "Start Session" Button Not Found:** Despite a massive effort to stabilize the End-to-End (E2E) test environment, a single test case remains stubbornly failing (`tests/e2e/pro.e2e.spec.ts` - "start and stop session for pro"). After a successful login, the test times out because it cannot find the "Start Session" button. This is the primary blocker for a fully green E2E test suite. The failure points to a subtle bug in the application's component rendering logic that only manifests under the specific conditions of the Playwright test environment.
 
 ---
 
