@@ -32,9 +32,10 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
-      // Conditionally mock Stripe.js only in test mode
-      ...(mode === 'test' && {
+      // Conditionally mock Stripe modules only when Playwright is running
+      ...(process.env.PLAYWRIGHT_TEST && {
         '@stripe/stripe-js': path.resolve(__dirname, 'tests/mocks/stripe.js'),
+        '@stripe/react-stripe-js': path.resolve(__dirname, 'tests/mocks/stripe.js'),
       }),
     },
   }

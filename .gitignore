@@ -109,3 +109,4 @@ jules-scratch/verification/*
 # Debug artifacts
 debug-*.html
 debug-*.png
+*.zip
