@@ -107,7 +107,12 @@ jules-scratch/verification/*
 !jules-scratch/verification/*.py
 
 # Debug artifacts
+<<<<<<< HEAD
 *.html
 *.png
 *.bin
+=======
+debug-*.html
+debug-*.png
+>>>>>>> main
 *.zip

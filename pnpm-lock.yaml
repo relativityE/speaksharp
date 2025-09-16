@@ -77,7 +77,7 @@ importers:
         version: 4.1.13
       '@tailwindcss/vite':
         specifier: ^4.1.13
-        version: 4.1.13(vite@5.4.19(@types/node@24.3.0)(lightningcss@1.30.1))
+        version: 4.1.13
       '@testing-library/jest-dom':
         specifier: ^6.1.5
         version: 6.8.0
@@ -5021,6 +5021,17 @@ snapshots:
       '@tailwindcss/oxide-win32-x64-msvc': 4.1.13
 
   '@tailwindcss/postcss@4.1.13':
+<<<<<<< HEAD
+    dependencies:
+      '@alloc/quick-lru': 5.2.0
+      '@tailwindcss/node': 4.1.13
+      '@tailwindcss/oxide': 4.1.13
+      postcss: 8.5.6
+      tailwindcss: 4.1.13
+
+  '@tailwindcss/vite@4.1.13(vite@5.4.19(@types/node@24.3.0)(lightningcss@1.30.1))':
+=======
+>>>>>>> main
     dependencies:
       '@alloc/quick-lru': 5.2.0
       '@tailwindcss/node': 4.1.13
@@ -5030,10 +5041,11 @@ snapshots:
 
   '@tailwindcss/vite@4.1.13(vite@5.4.19(@types/node@24.3.0)(lightningcss@1.30.1))':
     dependencies:
+      '@alloc/quick-lru': 5.2.0
       '@tailwindcss/node': 4.1.13
       '@tailwindcss/oxide': 4.1.13
+      postcss: 8.5.6
       tailwindcss: 4.1.13
-      vite: 5.4.19(@types/node@24.3.0)(lightningcss@1.30.1)
 
   '@testing-library/dom@10.4.1':
     dependencies:
