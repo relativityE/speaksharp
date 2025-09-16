@@ -107,9 +107,9 @@ export async function loginUser(page: Page, email: string, password: string) {
 /**
  * A helper to start a practice session.
  * @param page The Playwright Page object.
- * @param buttonText The text of the button to start the session.
+ * @param buttonText The text or regex of the button to start the session.
  */
-export async function startSession(page: Page, buttonText = 'Start For Free') {
+export async function startSession(page: Page, buttonText: string | RegExp = 'Start For Free') {
   // Ensure we are at the root of the application before starting a session
   if (!page.url().endsWith('/')) {
     await page.goto('/', { waitUntil: 'networkidle' });
