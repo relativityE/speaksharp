@@ -105,5 +105,7 @@ jules-scratch/verification/*
 
 # ...except for the python scripts.
 !jules-scratch/verification/*.py
-*.png
-*.bin
+
+# Debug artifacts
+debug-*.html
+debug-*.png

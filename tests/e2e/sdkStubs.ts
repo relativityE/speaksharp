@@ -1,5 +1,8 @@
+// sdkStubs.ts
 import { Page, Route } from '@playwright/test';
+import { randomUUID } from 'crypto';
 
+// --- Blocked external domains ---
 const BLOCKED_DOMAINS = [
   'sentry.io',
   'posthog.com',
@@ -9,7 +12,13 @@ const BLOCKED_DOMAINS = [
   'gstatic.com',
 ];
 
-// --- Mock Data ---
+// --- Mock Users ---
+interface UserProfile {
+  id: string;
+  subscription_status: 'pro' | 'premium' | 'free';
+  preferred_mode?: 'on-device' | 'cloud';
+}
+
 interface UserMetadata {
   subscription_status: 'pro' | 'premium' | 'free';
   preferred_mode?: 'on-device' | 'cloud';
@@ -23,31 +32,29 @@ interface MockUser {
   role: 'authenticated';
 }
 
-const MOCK_USERS: { [email: string]: MockUser } = {
-  'pro@example.com': {
-    id: 'pro-user-id',
-    email: 'pro@example.com',
-    user_metadata: { subscription_status: 'pro' },
-    aud: 'authenticated',
-    role: 'authenticated',
-  },
-  'premium@example.com': {
-    id: 'premium-user-id',
-    email: 'premium@example.com',
-    user_metadata: { subscription_status: 'premium' },
-    aud: 'authenticated',
-    role: 'authenticated',
-  },
-  'free@example.com': {
-    id: 'free-user-id',
-    email: 'free@example.com',
-    user_metadata: { subscription_status: 'free' },
-    aud: 'authenticated',
-    role: 'authenticated',
-  },
-};
+// MOCK_USERS is now a cache for dynamically created users.
+const MOCK_USERS: { [email: string]: MockUser } = {};
 
-const getMockSession = (user: MockUser | undefined) => {
+function getOrCreateMockUser(email: string): MockUser {
+  if (MOCK_USERS[email]) {
+    return MOCK_USERS[email];
+  }
+
+  const subscription_status = (email.split('@')[0] || 'free') as 'pro' | 'premium' | 'free';
+  const newUser: MockUser = {
+    id: `user_${randomUUID()}`,
+    email: email,
+    user_metadata: { subscription_status },
+    aud: 'authenticated',
+    role: 'authenticated',
+  };
+
+  MOCK_USERS[email] = newUser;
+  return newUser;
+}
+
+
+const getMockSession = (user?: MockUser) => {
   if (!user) return null;
   return {
     access_token: `${user.id}-access-token`,
@@ -60,122 +67,100 @@ const getMockSession = (user: MockUser | undefined) => {
 };
 
 // --- Main Stubbing Function ---
-export async function stubThirdParties(page: Page, options: {
-  usageExceeded?: boolean;
-  forceOnDevice?: boolean;
-} = {}) {
-  // Mock Supabase endpoints
-  await page.route('https://mock.supabase.co/**', async (route: Route) => {
-    const url = new URL(route.request().url());
+export async function stubThirdParties(page: Page, options: { usageExceeded?: boolean; forceOnDevice?: boolean } = {}) {
+  // A single, comprehensive route handler is more reliable than multiple handlers.
+  await page.route('**/*', async (route: Route) => {
     const request = route.request();
+    const url = new URL(request.url());
+    const hostname = url.hostname;
     const pathname = url.pathname;
-    const searchParams = url.searchParams;
 
     try {
-      // --- Auth Endpoints ---
-      if (pathname.includes('/auth/v1/token')) {
-        const postData = request.postDataJSON() as { email?: string; refresh_token?: string };
-        if (postData.email) {
-          const user = MOCK_USERS[postData.email];
-          const session = getMockSession(user);
-          if (session) {
+      // 1️⃣ Handle Supabase mocks
+      if (hostname.endsWith('mock.supabase.co')) {
+        // --- Auth endpoints ---
+        if (pathname.includes('/auth/v1/token')) {
+          const postData = request.postDataJSON() as { email?: string; refresh_token?: string };
+          if (postData?.email) {
+            const user = getOrCreateMockUser(postData.email); // DYNAMIC
+            const session = getMockSession(user);
             return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(session) });
           }
+          if (postData?.refresh_token) {
+            const userId = postData.refresh_token.split('-refresh-token')[0];
+            const user = Object.values(MOCK_USERS).find(u => u.id === userId);
+            const session = getMockSession(user);
+            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(session) });
+          }
+          return route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'Bad Request' }) });
         }
-        // Handle refresh token
-        if (postData.refresh_token) {
-          const userId = postData.refresh_token.split('-refresh-token')[0];
+
+        if (pathname.includes('/auth/v1/user')) {
+          const token = request.headers()['authorization']?.split('Bearer ')[1];
+          const userId = token?.split('-access-token')[0];
           const user = Object.values(MOCK_USERS).find(u => u.id === userId);
-          const session = getMockSession(user);
-          if (session) {
-            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(session) });
+          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(user || null) });
+        }
+
+        // --- Sessions ---
+        if (pathname.includes('/rest/v1/sessions')) {
+          if (request.method() === 'POST') {
+            return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 'mock-session-id', created_at: new Date().toISOString(), duration: 0 }) });
           }
-        }
-        // FIXED: Always handle the route, even for bad requests
-        return route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'Bad Request' }) });
-      }
-
-      if (pathname.includes('/auth/v1/user')) {
-        const authHeader = request.headers()['authorization'];
-        const token = authHeader?.split('Bearer ')[1];
-        const userId = token?.split('-access-token')[0];
-        const user = Object.values(MOCK_USERS).find(u => u.id === userId);
-        // FIXED: Always return a proper response
-        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(user || null) });
-      }
-
-      // --- Database Endpoints ---
-      if (pathname.includes('/rest/v1/sessions')) {
-        if (request.method() === 'POST') {
-          return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 'mock-session-id', created_at: new Date().toISOString(), duration: 0 }) });
-        }
-        if (request.method() === 'GET') {
-          const sessions = options.usageExceeded ? [{ id: 1, duration: 1800, created_at: new Date().toISOString(), user_id: 'free-user-id' }] : [];
-          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(sessions) });
-        }
-        // FIXED: Handle other HTTP methods
-        return route.fulfill({ status: 405, contentType: 'application/json', body: JSON.stringify({ error: 'Method Not Allowed' }) });
-      }
-
-      if (pathname.includes('/rest/v1/rpc/get_user_details')) {
-        const authHeader = request.headers()['authorization'];
-        const token = authHeader?.split('Bearer ')[1];
-        const userId = token?.split('-access-token')[0];
-        const user = Object.values(MOCK_USERS).find(u => u.id === userId);
-        if (user) {
-          const userDetails = {
-            id: user.id,
-            email: user.email,
-            subscription_status: user.user_metadata.subscription_status,
-            preferred_mode: user.user_metadata.preferred_mode || 'cloud',
-          };
-          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([userDetails]) }); // Return as array
-        }
-        // FIXED: Always return a response
-        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }); // Return empty array
-      }
-
-      if (pathname.includes('/rest/v1/user_profiles')) {
-        if (request.method() === 'GET') {
-          const idParam = searchParams.get('id')?.replace('eq.', '');
-          const user = Object.values(MOCK_USERS).find(u => u.id === idParam);
-          let profile: { id?: string; subscription_status?: 'free' | 'pro' | 'premium'; preferred_mode?: 'on-device' | 'cloud'; } = user ? {
-            id: user.id,
-            subscription_status: user.user_metadata.subscription_status
-          } : {};
-          if (options.forceOnDevice) {
-            profile = { ...profile, preferred_mode: 'on-device' };
+          if (request.method() === 'GET') {
+            const sessions = options.usageExceeded
+              ? [{ id: 1, duration: 1800, created_at: new Date().toISOString(), user_id: 'free-user-id' }]
+              : [];
+            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(sessions) });
           }
-          // .single() expects a single object, not an array
-          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(profile) });
+          return route.fulfill({ status: 405, contentType: 'application/json', body: JSON.stringify({ error: 'Method Not Allowed' }) });
         }
-        // FIXED: Handle other HTTP methods
-        return route.fulfill({ status: 405, contentType: 'application/json', body: JSON.stringify({ error: 'Method Not Allowed' }) });
+
+        // --- RPC get_user_details ---
+        if (pathname.includes('/rest/v1/rpc/get_user_details')) {
+          const token = request.headers()['authorization']?.split('Bearer ')[1];
+          const userId = token?.split('-access-token')[0];
+          const user = Object.values(MOCK_USERS).find(u => u.id === userId);
+          const userDetails = user
+            ? [{
+                id: user.id,
+                email: user.email,
+                subscription_status: user.user_metadata.subscription_status,
+                preferred_mode: user.user_metadata.preferred_mode || 'cloud',
+              }]
+            : [];
+          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(userDetails) });
+        }
+
+        // --- User Profiles ---
+        if (pathname.includes('/rest/v1/user_profiles')) {
+          if (request.method() === 'GET') {
+            const idParam = url.searchParams.get('id')?.replace('eq.', '');
+            const user = Object.values(MOCK_USERS).find(u => u.id === idParam);
+            const profile: Partial<UserProfile> = user ? { id: user.id, subscription_status: user.user_metadata.subscription_status } : {};
+            if (options.forceOnDevice) {
+              profile.preferred_mode = 'on-device';
+            }
+            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([profile]) });
+          }
+          return route.fulfill({ status: 405, contentType: 'application/json', body: JSON.stringify({ error: 'Method Not Allowed' }) });
+        }
+
+        // Catch-all for unmatched Supabase paths
+        console.warn(`[UNMOCKED] Supabase request: ${url.href}`);
+        return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: `Not Found in Mock: ${url.href}` }) });
       }
 
-      // FIXED: Always handle unmatched routes
-      console.error(`Unhandled Supabase mock request: ${request.method()} ${url.href}`);
-      return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: `Not Found in Mock: ${url.href}` }) });
-    } catch (error) {
-      // FIXED: Add error handling to prevent hanging
-      console.error('Error in Supabase route handler:', error);
-      return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Internal Server Error' }) });
-    }
-  });
+      // 2️⃣ Block unwanted external domains
+      if (BLOCKED_DOMAINS.some(d => hostname.endsWith(d))) {
+        console.log(`[BLOCKED] ${hostname}`);
+        return route.abort('connectionrefused');
+      }
 
-  // Block external domains
-  await page.route('**/*', async (route) => {
-    const url = new URL(route.request().url());
-    if (BLOCKED_DOMAINS.some(domain => url.hostname.endsWith(domain))) {
-      return route.fulfill({ status: 200, body: `Blocked by test: ${url.hostname}` });
-    }
-    // Add debugging and safer continuation
-    console.log(`Allowing request to: ${url.href}`);
-    try {
-      return await route.continue();
-    } catch (error) {
-      console.error(`Route continuation failed for ${url.href}:`, error);
-      // Abort the request if continuation fails, instead of hanging
+      // 3️⃣ Allow all other requests to continue
+      return route.continue();
+    } catch (err) {
+      console.error('Error in route handler:', err);
       return route.abort();
     }
   });
