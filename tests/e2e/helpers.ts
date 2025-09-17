@@ -102,6 +102,20 @@ export async function loginUser(page: Page, email: string, password: string) {
   }
 
   await page.waitForLoadState('networkidle');
+
+  // Wait for the user profile to be loaded into the window object by AuthProvider.
+  // This is a crucial step to prevent race conditions. We wait for the __USER__
+  // object to be non-null, as it's set to null on initial load.
+  try {
+    await page.waitForFunction(() => (window as any).__USER__ != null, { timeout: 10000 });
+    console.log('User profile loaded successfully after login.');
+  } catch (err) {
+    console.error(`User profile was not set or was null on window object after login for ${email}.`);
+    const finalUserState = await page.evaluate(() => (window as any).__USER__);
+    console.error(`Final window.__USER__ state: ${JSON.stringify(finalUserState)}`);
+    await page.screenshot({ path: `debug-profile-load-failed-${email.replace(/[@.]/g, '-')}.png` });
+    throw err;
+  }
 }
 
 /**
@@ -161,6 +175,29 @@ export async function stopSession(page: Page) {
 
   // After stopping, we expect to see a confirmation
   await expect(page.getByText(/Session [Ee]nded|Analysis/)).toBeVisible({ timeout: 10000 });
+}
+
+/**
+ * Waits for the user profile to be loaded and asserts upgrade button visibility
+ * @param page Playwright Page
+ * @param subscription 'free' | 'pro' | 'premium'
+ */
+export async function expectSubscriptionButton(page: Page, subscription: 'free' | 'pro' | 'premium') {
+  // Wait until the profile is loaded in test mode and has the correct subscription status
+  await page.waitForFunction(
+    (sub) => (window as any).__USER__?.subscription_status === sub,
+    subscription
+  );
+
+  const upgradeButton = page.getByRole('button', { name: 'Upgrade Now' });
+
+  if (subscription === 'free') {
+    await expect(upgradeButton).toBeVisible({ timeout: 10000 });
+  } else {
+    await expect(upgradeButton).not.toBeVisible({ timeout: 10000 });
+    const otherUpgradeButtons = page.locator('button:has-text("Upgrade")');
+    await expect(otherUpgradeButtons).toHaveCount(0);
+  }
 }
 
 test.afterEach(async ({ page }, testInfo) => {

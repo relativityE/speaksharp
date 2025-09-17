@@ -24,7 +24,7 @@ async function globalTeardown() {
     } else {
       console.warn(`Screenshot not found at path: ${screenshotPath}`);
     }
-  } catch (e) {
+  } catch (e: any) {
     console.warn('Could not read screenshot file:', e.message);
   }
 
@@ -46,7 +46,7 @@ async function globalTeardown() {
     process.kill(pid, 'SIGTERM');
     console.log('Sent SIGTERM to Vite server.');
 
-  } catch (error) {
+  } catch (error: any) {
     if (error.code === 'ESRCH') {
       console.log(`Process with PID ${error.pid} not found. It may have already been stopped.`);
     } else {

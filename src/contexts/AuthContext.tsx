@@ -1,184 +1,121 @@
-// src/contexts/AuthContext.tsx - Debug Version
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { Session, User, AuthChangeEvent } from '@supabase/supabase-js';
+import { Skeleton } from '@/components/ui/skeleton';
 
-type Profile = {
+// --- Types ---
+
+export type SubscriptionStatus = 'free' | 'pro' | 'premium';
+
+export interface UserProfile {
   id: string;
-  subscription_status: 'free' | 'pro' | 'premium';
-};
+  subscription_status: SubscriptionStatus;
+  preferred_mode?: 'on-device' | 'cloud';
+}
 
-type AuthContextType = {
+export interface AuthContextType {
   session: Session | null;
   user: User | null;
-  profile: Profile | null;
+  profile: UserProfile | null;
   loading: boolean;
+  is_anonymous: boolean;
   signOut: () => Promise<void>;
+}
+
+// --- Context and Hook ---
+
+export const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export const useAuth = () => {
+    const context = useContext(AuthContext);
+    if (context === undefined) {
+        throw new Error('useAuth must be used within an AuthProvider');
+    }
+    return context;
 };
 
-// eslint-disable-next-line react-refresh/only-export-components
-export const AuthContext = createContext<AuthContextType>({
-  session: null,
-  user: null,
-  profile: null,
-  loading: true,
-  signOut: async () => {},
-});
+// --- Helper Functions ---
 
-// eslint-disable-next-line react-refresh/only-export-components
-export const useAuth = () => useContext(AuthContext);
-
-const getProfileFromDb = async (user_id: string): Promise<Profile | null> => {
+const getProfileFromDb = async (userId: string): Promise<UserProfile | null> => {
   try {
-    console.log('🔍 Fetching profile for user:', user_id);
-    const { data, error } = await supabase.from('user_profiles').select('*').eq('id', user_id).single();
-
-    if (error) {
-      console.error('❌ Error fetching profile:', error);
-      return null;
-    }
-
-    console.log('✅ Profile fetched:', data);
+    const { data, error } = await supabase.from('user_profiles').select('*').eq('id', userId).single();
+    if (error) return null;
     return data;
   } catch (err) {
-    console.error('💥 Exception in getProfileFromDb:', err);
     return null;
   }
 };
 
-import { ReactNode } from 'react';
+// --- AuthProvider Component ---
 
-type AuthProviderProps = {
+interface AuthProviderProps {
   children: ReactNode;
-  initialSession?: Session | null;
-};
+}
 
-export function AuthProvider({ children, initialSession = null }: AuthProviderProps) {
-  const [session, setSession] = useState<Session | null>(initialSession);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [loading, setLoading] = useState<boolean>(!initialSession);
+export function AuthProvider({ children }: AuthProviderProps) {
+  const [session, setSession] = useState<Session | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // If a session is injected (e.g. in E2E tests), don't run the initial fetch.
-    if (initialSession) {
-        console.log('✅ AuthProvider initialized with injected session.');
-        return;
-    }
-
-    console.log('🚀 AuthProvider useEffect starting');
-
-    const setData = async () => {
+    const fetchSessionAndProfile = async () => {
       try {
-        console.log('📡 Getting initial session...');
         const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) throw error;
 
-        if (error) {
-          console.error("❌ Error getting session:", error);
-          setSession(null);
-          setProfile(null);
-        } else {
-          console.log('📝 Initial session:', session ? 'exists' : 'null');
-
-          if (session?.user) {
-            console.log('👤 User found, fetching profile...');
-            const userProfile = await getProfileFromDb(session.user.id);
-
-            // For local development, allow overriding the subscription status to 'premium'
-            if (userProfile && import.meta.env.DEV && import.meta.env.VITE_DEV_PREMIUM_ACCESS === 'true') {
-              console.log("🔧 Developer premium access override enabled.");
-              userProfile.subscription_status = 'premium';
-            }
-
-            setProfile(userProfile);
-            console.log('✅ Profile set:', userProfile);
-          } else {
-            console.log('❌ No user in session');
-            setProfile(null);
-          }
-
-          setSession(session);
+        let userProfile: UserProfile | null = null;
+        if (session?.user) {
+          userProfile = await getProfileFromDb(session.user.id);
         }
-      } catch (err) {
-        console.error('💥 Exception in setData:', err);
-        setSession(null);
-        setProfile(null);
+        setProfile(userProfile);
+        if (import.meta.env.VITE_TEST_MODE) {
+          (window as any).__USER__ = userProfile;
+        }
+        setSession(session);
+      } catch (e) {
+        // Handle error if needed
       } finally {
-        console.log('✅ Initial auth setup complete, setting loading to false');
         setLoading(false);
       }
     };
 
-    setData();
+    fetchSessionAndProfile();
 
-    console.log('🎧 Setting up auth state listener...');
     const { data: listener } = supabase.auth.onAuthStateChange(
-      async (event: AuthChangeEvent, newSession: Session | null) => {
-        console.log(`🔄 Auth state changed: ${event}`, newSession ? 'session exists' : 'no session');
-
-        setSession(newSession);
-
+      async (_event, newSession) => {
+        let userProfile: UserProfile | null = null;
         if (newSession?.user) {
-          console.log('👤 New session has user, fetching profile...');
-          setLoading(true);
-
-          try {
-            const userProfile = await getProfileFromDb(newSession.user.id);
-
-            // For local development, allow overriding the subscription status to 'premium'
-            if (userProfile && import.meta.env.DEV && import.meta.env.VITE_DEV_PREMIUM_ACCESS === 'true') {
-              console.log("🔧 Developer premium access override enabled.");
-              userProfile.subscription_status = 'premium';
-            }
-
-            setProfile(userProfile);
-            console.log('✅ Profile updated:', userProfile);
-          } catch (err) {
-            console.error('💥 Exception updating profile:', err);
-            setProfile(null);
-          } finally {
-            setLoading(false);
-            console.log('✅ Auth state change handling complete');
-          }
-        } else {
-          console.log('❌ No user in new session, clearing profile');
-          setProfile(null);
-          setLoading(false);
+          userProfile = await getProfileFromDb(newSession.user.id);
         }
+        setProfile(userProfile);
+        if (import.meta.env.VITE_TEST_MODE) {
+          (window as any).__USER__ = userProfile;
+        }
+        setSession(newSession);
       }
     );
 
     return () => {
-      console.log('🧹 Cleaning up auth listener');
       listener?.subscription.unsubscribe();
     };
-  }, [initialSession]);
+  }, []);
 
-  const signOut = async () => {
-    try {
-      console.log('🚪 Signing out...');
-      await supabase.auth.signOut();
-      setSession(null);
-      setProfile(null);
-      console.log('✅ Signed out successfully');
-    } catch (err) {
-      console.error('💥 Error signing out:', err);
-    }
-  };
+  if (loading) {
+    return (
+        <div className="w-full h-screen flex justify-center items-center">
+            <Skeleton className="h-24 w-24 rounded-full" />
+        </div>
+    );
+  }
 
-  const value = {
+  const value: AuthContextType = {
     session,
     user: session?.user ?? null,
     profile,
     loading,
-    signOut,
+    signOut: () => supabase.auth.signOut(),
+    is_anonymous: !session?.user || session.user.is_anonymous,
   };
-
-  console.log('🔄 AuthProvider rendering with:', {
-    hasSession: !!session,
-    hasUser: !!session?.user,
-    hasProfile: !!profile,
-    loading
-  });
 
   return (
     <AuthContext.Provider value={value}>

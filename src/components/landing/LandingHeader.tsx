@@ -17,7 +17,7 @@ export const LandingHeader = () => {
         >
           Practice
         </Link>
-        <Button variant="primary" size="sm" asChild>
+        <Button variant="default" size="sm" asChild>
           <Link to="/session">Start a Session</Link>
         </Button>
       </nav>

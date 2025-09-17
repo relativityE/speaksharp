@@ -6,7 +6,7 @@ import { randomUUID } from 'crypto';
 const BLOCKED_DOMAINS = [
   'sentry.io',
   'posthog.com',
-  'stripe.com',
+  // 'stripe.com', // Stripe is required for the Upgrade button to render
   'google.com',
   'googleapis.com',
   'gstatic.com',
@@ -152,20 +152,27 @@ export async function stubThirdParties(page: Page, options: { usageExceeded?: bo
         if (pathname.includes('/rest/v1/user_profiles') && request.method() === 'GET') {
           const idParam = url.searchParams.get('id')?.replace('eq.', '');
           const user = Object.values(MOCK_USERS).find(u => u.id === idParam);
-          const profile: Partial<UserProfile> = user ? { id: user.id, subscription_status: user.user_metadata.subscription_status } : {};
+
+          // Ensure consistent runtime shape
+          const profile: UserProfile = user
+            ? {
+                id: user.id,
+                subscription_status: user.user_metadata.subscription_status ?? 'free',
+                preferred_mode: user.user_metadata.preferred_mode ?? 'cloud',
+              }
+            : { id: 'unknown', subscription_status: 'free', preferred_mode: 'cloud' };
+
           if (options.forceOnDevice) {
             profile.preferred_mode = 'on-device';
           }
+
           return route.fulfill({
             status: 200,
             contentType: 'application/json',
-            body: JSON.stringify([profile]),
+            body: JSON.stringify(profile), // .single() expects an object, not an array of one
           });
         }
-<<<<<<< HEAD
 
-=======
->>>>>>> main
         console.warn(`[UNMOCKED] Supabase request: ${url.href}`);
         return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: `Not Found in Mock: ${url.href}` }) });
       }
