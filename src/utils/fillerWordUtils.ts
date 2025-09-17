@@ -6,7 +6,7 @@ interface FillerData {
     color: string;
 }
 
-interface FillerCounts {
+export interface FillerCounts {
     [key: string]: FillerData;
 }
 

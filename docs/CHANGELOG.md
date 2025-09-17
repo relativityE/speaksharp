@@ -6,6 +6,10 @@ Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) style with sligh
 
 ---
 
+## [2025-09-17]
+### Changed
+- **Full Codebase Conversion to TypeScript:** Migrated the entire frontend application from JavaScript (`.js`/`.jsx`) to TypeScript (`.ts`/`.tsx`). This included all components, pages, hooks, contexts, utilities, and test files. This massive refactoring effort has significantly improved type safety, code quality, and maintainability across the project. The `tsconfig.json` has been configured with `"allowJs": false` to enforce a pure TypeScript environment going forward.
+
 ## [2025-09-14]
 ### Fixed
 - **Stabilized E2E Test Environment:** Resolved critical configuration conflicts between the Vitest and Playwright test environments. This was achieved by physically isolating test files into `tests/e2e` and `tests/unit` directories, creating a dedicated `tsconfig.e2e.json` for Playwright, and updating all relevant scripts and configuration files. The test suite is now stable and runnable, though application-level bugs still cause some tests to fail.

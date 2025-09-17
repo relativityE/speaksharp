@@ -1,3 +1,5 @@
+import type { Session } from '@supabase/supabase-js';
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
   interface Window {
@@ -8,8 +10,9 @@ declare global {
     transcriptionServiceRef: any;
     __SESSION_READY__: boolean;
     __STUBS_READY__: boolean;
-    __E2E_MOCK_SESSION__: any;
+    __E2E_MOCK_SESSION__?: Session | null;
     __MOCK_LOCAL_WHISPER__: boolean;
+    _speakSharpRootInitialized?: boolean;
   }
 }
 

@@ -5,7 +5,7 @@
 
 # SpeakSharp System Architecture
 
-**Version 2.2** | **Last Updated: 2025-09-16**
+**Version 2.3** | **Last Updated: 2025-09-17**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -62,7 +62,7 @@ SpeakSharp is built on a modern, serverless technology stack designed for real-t
 
 *   **Frontend:**
     *   **Framework:** React (v18) with Vite
-    *   **Language:** TypeScript / JavaScript (JSX)
+    *   **Language:** TypeScript (TSX)
     *   **Styling:** Tailwind CSS with a CVA-based design system
     *   **State Management:** React Context and custom hooks
 *   **Backend (BaaS):**
@@ -105,8 +105,8 @@ This separation guarantees that the two test environments cannot interfere with 
 The testing architecture relies on a clean separation of concerns between the Vite build configuration and the Vitest test runner configuration.
 
 *   **`vite.config.mjs`:** This file is used exclusively for building and serving the application. It contains no test-related configuration.
-*   **`vitest.config.mjs`:** This file is dedicated to the unit test runner configuration. It defines the test environment (`happy-dom`), the setup files (`tests/unit/setup.js`), and the test reporters.
-*   **`tests/unit/setup.js`:** This file performs the global setup for the Vitest environment. It imports `@testing-library/jest-dom` to extend `vitest`'s `expect` with DOM-specific matchers.
+*   **`vitest.config.mjs`:** This file is dedicated to the unit test runner configuration. It defines the test environment (`happy-dom`), the setup files (`tests/unit/setup.ts`), and the test reporters.
+*   **`tests/unit/setup.ts`:** This file performs the global setup for the Vitest environment. It imports `@testing-library/jest-dom` to extend `vitest`'s `expect` with DOM-specific matchers.
 *   **Mock Service Worker (MSW):** MSW is used to mock the API surface for both unit and E2E tests.
     *   **`src/test/mocks/handlers.ts`:** Defines the mock API handlers.
     *   **`src/test/mocks/server.ts`:** Sets up the MSW server for the Node.js environment (unit tests).
@@ -154,7 +154,7 @@ To isolate the tests from external network dependencies and ensure deterministic
 
 To maintain a high standard of code quality and prevent common errors, the project utilizes an automated pre-commit workflow.
 
-*   **TypeScript Configuration (`tsconfig.json`):** A strict `tsconfig.json` is now in place to enforce type safety across the entire codebase. It is configured to work with Vite's modern tooling, using `moduleResolution: "bundler"`, and allows for mixed JavaScript/TypeScript files with `allowJs: true`.
+*   **TypeScript Configuration (`tsconfig.json`):** A strict `tsconfig.json` is now in place to enforce type safety across the entire codebase. It is configured to work with Vite's modern tooling, using `moduleResolution: "bundler"`, and now enforces a pure TypeScript environment with `allowJs: false`.
 *   **Automated Checks (`lint-staged` and `husky`):** A `husky` pre-commit hook triggers `lint-staged` to run checks on all staged files. This configuration ensures that:
     *   **ESLint (`eslint --fix`):** Automatically fixes linting and style errors.
     *   **TypeScript Compiler (`tsc --noEmit`):** Performs a full type check to catch any TypeScript errors before they are committed.
