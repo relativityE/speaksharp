@@ -114,41 +114,28 @@ The testing architecture relies on a clean separation of concerns between the Vi
 
 ### E2E Testing Framework
 
-The E2E test suite is built using **Playwright**. It is designed to simulate real user flows in a controlled environment. The architecture has several key components to ensure tests are reliable and isolated from external services.
+The E2E test suite is built using **Playwright** and follows the **Page Object Model (POM)** design pattern for improved maintainability and readability.
 
-#### 1. Test Server Management
+#### 1. Page Object Models (POMs)
 
-To run the tests, a Vite development server is started and managed automatically. This is handled by Playwright's global setup and teardown mechanism.
+-   **Location**: `tests/e2e/poms/`
+-   **Description**: Each POM file (e.g., `authPage.pom.ts`, `sessionPage.pom.ts`) encapsulates the selectors and actions for a specific page or component. This abstracts the test logic from the implementation details of the UI.
 
--   **`tests/global-setup.ts`**: This script is executed once before any tests run. Its responsibilities are:
-    -   Loading environment variables from `.env.test`.
-    -   Spawning the `vite` dev server as a detached child process.
-    -   Injecting necessary environment variables (like `VITE_SUPABASE_URL`) into the Vite process.
-    -   Performing a health check (`waitForVite`) to poll the Vite server until it returns a `200 OK` status, ensuring it is fully ready before tests begin. This prevents race conditions.
-    -   Storing the server's process ID (PID) in a `.vite.pid` file.
+#### 2. Test Server Management
 
--   **`tests/global-teardown.ts`**: This script runs once after all tests are complete. It reads the PID from the `.vite.pid` file and terminates the Vite server process, ensuring a clean shutdown.
+-   **`playwright.config.ts`**: The `webServer` configuration in this file is responsible for starting the Vite development server before the tests run.
+-   **`tests/global-setup.ts`**: This script uses the `get-port` library to find a free port, ensuring that the test server does not conflict with other running processes. It then starts the Vite server on that port.
+-   **`vm-recovery.sh`**: A recovery script, executed via the `pretest:e2e` hook in `package.json`, ensures a clean test environment by killing any lingering processes from previous test runs.
 
-#### 2. Mocking Strategy
+#### 3. Mocking Strategy
 
-To isolate the tests from external network dependencies and ensure deterministic behavior, the suite employs a robust mocking strategy.
+-   **Supabase Mocking (`tests/e2e/sdkStubs.ts`)**: Uses Playwright's `page.route()` to intercept and mock all requests to Supabase, providing consistent and predictable data for tests.
+-   **Stripe Mocking (`tests/mocks/stripe.jsx`)**: A mock React component is used to replace the Stripe Elements components during tests. This is handled via a Vite alias in `vite.config.mjs`, which is activated when `process.env.PLAYWRIGHT_TEST` is true.
 
--   **Supabase Mocking**:
-    -   **File**: `tests/e2e/sdkStubs.ts`
-    -   **Mechanism**: This file uses Playwright's `page.route()` method to intercept all network requests (`**/*`).
-    -   **Functionality**: It intercepts calls to any `*.supabase.co` domain, provides dynamic mock users, and includes console logging for visibility.
+#### 4. Test Helpers and Execution
 
--   **Stripe Mocking**:
-    -   **Problem**: The application's session page depends on `@stripe/stripe-js` and `@stripe/react-stripe-js`, which crash the component tree when their external scripts are blocked in the test environment.
-    -   **Solution**: We use a **module-level mock** to replace the Stripe libraries during tests.
-    -   **Mechanism**:
-        1.  **Mock File**: A mock implementation at `tests/mocks/stripe.js` exports fake versions of the necessary Stripe components and functions.
-        2.  **Vite Alias**: The `vite.config.mjs` file uses a conditional alias to resolve imports of the Stripe packages to the mock file, but only when `process.env.PLAYWRIGHT_TEST` is true.
-
-#### 3. Test Helpers
-
--   **File**: `tests/e2e/helpers.ts`
--   **Functionality**: This file contains reusable functions to simplify test writing (`loginUser`, `startSession`, etc.) and includes a global `test.afterEach` hook to automatically capture debug artifacts on test failure.
+-   **`tests/e2e/helpers.ts`**: Contains reusable helper functions, such as `loginUser`, and a global `afterEach` hook that captures screenshots and HTML dumps on test failure.
+-   **Test Execution**: Tests are run using the `pnpm test:e2e` command.
 
 ### Code Quality and Automation
 

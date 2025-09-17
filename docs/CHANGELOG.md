@@ -7,6 +7,15 @@ Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) style with sligh
 ---
 
 ## [2025-09-17]
+### Fixed
+- **E2E Test Suite:** Resolved critical E2E test failures by implementing the Page Object Model (POM) pattern, adding stable `data-testid` attributes to components, and fixing configuration issues in Playwright and Vite.
+- **Test Environment:** Stabilized the test environment by adding a VM recovery script (`vm-recovery.sh`) and implementing dynamic port allocation for the test server.
+
+### Changed
+- **E2E Test Architecture:** Refactored the E2E test suite to use the Page Object Model (POM) pattern, improving maintainability and readability.
+- **Documentation:** Consolidated and updated all project documentation, including `PRD.md`, `ARCHITECTURE.md`, and `ROADMAP.md`, to reflect the current state of the codebase and test suite.
+
+## [Unreleased]
 ### Changed
 - **Full Codebase Conversion to TypeScript:** Migrated the entire frontend application from JavaScript (`.js`/`.jsx`) to TypeScript (`.ts`/`.tsx`). This included all components, pages, hooks, contexts, utilities, and test files. This massive refactoring effort has significantly improved type safety, code quality, and maintainability across the project. The `tsconfig.json` has been configured with `"allowJs": false` to enforce a pure TypeScript environment going forward.
 
