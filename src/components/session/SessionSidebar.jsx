@@ -70,7 +70,7 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
     const [showEndSessionDialog, setShowEndSessionDialog] = useState(false);
     const [completedSessions, setCompletedSessions] = useState([]);
 
-    const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
+    const isPro = profile?.subscription_status === 'pro';
     const isModelLoading = modelLoadingProgress && modelLoadingProgress.status !== 'ready' && modelLoadingProgress.status !== 'error';
     const isConnecting = isListening && !isReady;
 
@@ -263,8 +263,8 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
                             <p className="text-xs text-muted-foreground mb-2">
                                 Get unlimited practice, advanced analytics, and priority support.
                             </p>
-                            <Button size="sm" className="w-full font-bold group" variant="outline" disabled={true}>
-                                Upgrade Now
+                            <Button size="sm" className="w-full font-bold group" variant="outline">
+                                Upgrade
                             </Button>
                         </div>
                     )}

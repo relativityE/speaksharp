@@ -68,9 +68,10 @@ export default class TranscriptionService {
     }
 
     // --- Provider Selection Logic ---
-    const isPremium = this.profile && this.profile.subscription_status === 'premium';
+    const isPro = this.profile && this.profile.subscription_status === 'pro';
+
     // The user can prefer on-device, or we can force it with a dev toggle.
-    const useOnDevice = this.forceOnDevice || (isPremium && this.profile.preferred_mode === 'on-device');
+    const useOnDevice = this.forceOnDevice || (isPro && this.profile.preferred_mode === 'on-device');
 
     if (useOnDevice) {
       logger.info('[TranscriptionService] Attempting to use On-Device (LocalWhisper) mode.');
@@ -81,7 +82,9 @@ export default class TranscriptionService {
       return;
     }
 
-    const useCloud = this.forceCloud || (this.profile && this.profile.subscription_status === 'pro');
+    // Pro users without a preference for on-device will use the cloud mode.
+    // We can also force it with a dev toggle.
+    const useCloud = this.forceCloud || isPro;
     logger.info({ useCloud }, `[TranscriptionService] Decided on cloud mode`);
 
     if (useCloud) {
@@ -104,6 +107,7 @@ export default class TranscriptionService {
       }
     }
 
+    // Fallback for free users or if cloud fails for a pro user without forceCloud.
     try {
       logger.info('[TranscriptionService] Starting Native Browser mode.');
       this.instance = new NativeBrowser(providerConfig);

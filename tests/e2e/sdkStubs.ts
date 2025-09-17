@@ -148,6 +148,15 @@ export async function stubThirdParties(page: Page, options: { usageExceeded?: bo
           });
         }
 
+        // --- Functions: assemblyai-token ---
+        if (pathname.includes('/functions/v1/assemblyai-token')) {
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ token: 'mock-assemblyai-token' }),
+          });
+        }
+
         // --- User Profiles ---
         if (pathname.includes('/rest/v1/user_profiles') && request.method() === 'GET') {
           const idParam = url.searchParams.get('id')?.replace('eq.', '');
@@ -162,10 +171,6 @@ export async function stubThirdParties(page: Page, options: { usageExceeded?: bo
             body: JSON.stringify([profile]),
           });
         }
-<<<<<<< HEAD
-
-=======
->>>>>>> main
         console.warn(`[UNMOCKED] Supabase request: ${url.href}`);
         return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: `Not Found in Mock: ${url.href}` }) });
       }

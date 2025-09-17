@@ -6,6 +6,16 @@ Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) style with sligh
 
 ---
 
+## [2025-09-17]
+### Changed
+- **Consolidated Subscription Tiers:** Merged the 'premium' and 'pro' subscription tiers into a single 'pro' tier. This change simplifies the user experience and the backend logic.
+- **Updated Database Schema:** The `user_profiles` table no longer has a 'premium' tier.
+- **Updated Backend Logic:** The `TranscriptionService` now correctly routes 'pro' users to either on-device or cloud-based transcription based on their preference.
+- **Updated Frontend Components:** Removed all references to the 'premium' tier from the frontend code.
+
+### Known Issues
+- **E2E Test Suite Failing:** The entire E2E test suite is currently failing due to a fundamental rendering issue in the test environment.
+
 ## [2025-09-14]
 ### Fixed
 - **Stabilized E2E Test Environment:** Resolved critical configuration conflicts between the Vitest and Playwright test environments. This was achieved by physically isolating test files into `tests/e2e` and `tests/unit` directories, creating a dedicated `tsconfig.e2e.json` for Playwright, and updating all relevant scripts and configuration files. The test suite is now stable and runnable, though application-level bugs still cause some tests to fail.

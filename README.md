@@ -4,13 +4,13 @@ SpeakSharp is a privacy-first, real-time speech analysis tool designed to help u
 
 ## 📚 Documentation
 
-All project documentation is located in the `/docs` directory. For a complete overview and map of the documentation, please see **[./OUTLINE.md](./OUTLINE.md)**.
+All project documentation is located in the `/docs` directory. For a complete overview and map of the documentation, please see **[docs/OUTLINE.md](./docs/OUTLINE.md)**.
 
 Here are the direct links to the core documents:
 
-*   **[PRD.md](./PRD.md)**: The "What & Why" - Product Requirements Document.
-*   **[ARCHITECTURE.md](./ARCHITECTURE.md)**: The "How" - System Architecture and technical deep dive.
-*   **[ROADMAP.md](./ROADMAP.md)**: The "When & Status" - Development plan and project status.
+*   **[docs/PRD.md](./docs/PRD.md)**: The "What & Why" - Product Requirements Document.
+*   **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)**: The "How" - System Architecture and technical deep dive.
+*   **[docs/ROADMAP.md](./docs/ROADMAP.md)**: The "When & Status" - Development plan and project status.
 
 ## 🚀 Getting Started
 
@@ -41,7 +41,7 @@ Here are the direct links to the core documents:
     Populate the `.env` file with your Supabase project URL and anon key, as well as any other required service keys.
 
 4.  **Set up the local database:**
-    To reset your local Supabase database and populate it with required test users (e.g., free, premium), run the following command:
+    To reset your local Supabase database and populate it with required test users (e.g., free, pro), run the following command:
     ```bash
     pnpm db:seed
     ```
@@ -51,12 +51,12 @@ Here are the direct links to the core documents:
 
 Our goal is to make local development as smooth as possible. Here are some key scripts and variables to help you.
 
-*   **Testing Premium Features Locally:**
-    To test premium features without a real Stripe subscription, you can grant any user 'premium' status on the client-side. Add the following line to your `.env` file:
+*   **Testing Pro Features Locally:**
+    To test pro features without a real Stripe subscription, you can grant any user 'pro' status on the client-side. Add the following line to your `.env` file:
     ```
-    VITE_DEV_PREMIUM_ACCESS=true
+    VITE_DEV_PRO_ACCESS=true
     ```
-    When this variable is set, any user you are logged in as will have their subscription status overridden to `premium` in the app.
+    When this variable is set, any user you are logged in as will have their subscription status overridden to `pro` in the app.
 
 *   **Managing On-Device ML Models:**
     The on-device transcription feature requires ML model files to be hosted locally in the `/public/models` directory. To download or update a model from Hugging Face, use the `model:update` script:
@@ -78,7 +78,7 @@ The application will be available at `http://localhost:5173`.
 ### Troubleshooting
 *   **`rounded-pill` error on startup:** This is often a caching issue with Vite. Try deleting the `node_modules/.vite` directory and restarting the dev server.
 *   **API Key errors (401 Unauthorized):** Ensure your `.env` file is correctly populated with the `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, and any other required keys. Refer to `.env.example` for the full list.
-*   **`toast` notifications not appearing:** This is a known issue in local development. Please see the full list of [Known Issues in the PRD](./PRD.md#3-known-issues) for status.
+*   **`toast` notifications not appearing:** This is a known issue in local development. Please see the full list of [Known Issues in the PRD](./docs/PRD.md#3-known-issues) for status.
 
 ## ✅ Testing
 
@@ -130,8 +130,8 @@ If any of these checks fail, the commit will be aborted. This ensures that only 
 
 **Doing Well:**
 
-*   Comprehensive [PRD.md](./PRD.md) and [ARCHITECTURE.md](./ARCHITECTURE.md).
-*   Phased milestones + MoSCoW prioritization in [ROADMAP.md](./ROADMAP.md).
+*   Comprehensive [PRD.md](./docs/PRD.md) and [ARCHITECTURE.md](./docs/ARCHITECTURE.md).
+*   Phased milestones + MoSCoW prioritization in [ROADMAP.md](./docs/ROADMAP.md).
 
 **Gaps / Fixes:**
 
@@ -145,7 +145,7 @@ If any of these checks fail, the commit will be aborted. This ensures that only 
 
 ### Cross-Reference Map
 
-*   **PRD.md** → What & Why (vision, roles, financials)
-*   **ARCHITECTURE.md** → How (system design, block diagrams)
-*   **ROADMAP.md** → When & Status (tasks, milestones, gating checks)
-*   **REVIEW.md** → Who & So What (leadership insight & direction)
+*   **[docs/PRD.md](./docs/PRD.md)** → What & Why (vision, roles, financials)
+*   **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** → How (system design, block diagrams)
+*   **[docs/ROADMAP.md](./docs/ROADMAP.md)** → When & Status (tasks, milestones, gating checks)
+*   **[docs/REVIEW.md](./docs/REVIEW.md)** → Who & So What (leadership insight & direction)

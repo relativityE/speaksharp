@@ -67,13 +67,6 @@ This section contains ASCII art diagrams illustrating the journey for each user 
                            | (Via Stripe)                        |
                            | - Unlimited Time                    |
                            | - Cloud AI (Native fallback)        |
-                           +-------------------------------------+
-                                              |
-                                              v
-                           +-------------------------------------+
-                           | [Premium User]                      |
-                           | (Via Stripe)                        |
-                           | - All Pro features                  |
                            | - On-device (local) transcription   |
                            | - Detailed Analytics                |
                            | - Download session data             |
@@ -105,9 +98,7 @@ This section contains ASCII art diagrams illustrating the journey for each user 
 
 This section tracks high-level product risks and constraints. For a detailed technical debt and task breakdown, see the [Roadmap](./ROADMAP.md).
 
-*   **[RESOLVED] Intractable Vite Server Hang:** The Vite server was previously crashing on startup when running E2E tests. This was diagnosed and fixed by updating `src/index.css` to use the modern `@import "tailwindcss";` syntax.
-*   **[RESOLVED] E2E Test Environment Unstable:** The E2E test environment was suffering from configuration conflicts and missing dependencies, causing all tests to fail unpredictably. The environment has now been stabilized by isolating the Vitest and Playwright configurations and ensuring all dependencies are correctly loaded.
-*   **[ACTIVE] E2E Test Failure: "Start Session" Button Not Found:** Despite a massive effort to stabilize the End-to-End (E2E) test environment, a single test case remains stubbornly failing (`tests/e2e/pro.e2e.spec.ts` - "start and stop session for pro"). After a successful login, the test times out because it cannot find the "Start Session" button. This is the primary blocker for a fully green E2E test suite. The failure points to a subtle bug in the application's component rendering logic that only manifests under the specific conditions of the Playwright test environment.
+*   **[ACTIVE] E2E Test Suite Failing:** The entire E2E test suite is currently failing due to a fundamental rendering issue in the test environment. The application fails to render any content, causing all tests to time out. This is the primary blocker for all development and must be resolved before any other work can proceed.
 
 ---
 
@@ -242,6 +233,4 @@ This section provides high-level insights into the SpeakSharp project from multi
 *   **Free User (Authenticated):**
     *   **Recommendation:** The 10 minutes/month and 20-minute session limits are good for encouraging upgrades. Ensure the UpgradePromptDialog is well-designed, clearly communicates the benefits of upgrading, and appears at the moment of highest user engagement.
 *   **Pro User (Authenticated):**
-    *   **Recommendation:** This remains the core paid offering. Ensure the value proposition of "unlimited practice" and "Cloud AI transcription" is clearly communicated. The fallback to Native Browser is a good technical resilience feature.
-*   **Premium User (New Tier):**
-    *   **Recommendation:** This new tier effectively segments users who prioritize privacy (on-device transcription) and data ownership (download session data). Position this as the ultimate privacy and control tier. Consider a slightly higher price point than Pro, as it offers unique benefits. Ensure the technical implementation of on-device transcription is robust and performs well to justify the premium.
+    *   **Recommendation:** This is the core paid offering. The value proposition of "unlimited practice", "Cloud AI transcription", "on-device transcription", "detailed analytics", and "download session data" should be clearly communicated.

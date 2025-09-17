@@ -18,12 +18,11 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - ✅ `[C-01]` Lack of Protected Routes: Implemented protected routes for all sensitive user pages.
   - ✅ `[C-02]` Flawed Auth Provider: Refactored `AuthContext.tsx` to remove anti-patterns and stabilize authentication logic.
   - ✅ `[C-03]` Anonymous User Flow is Broken: Fixed the session persistence logic for anonymous users.
-  - ✅ `[C-04]` Premium Users Do Not Receive Paid Features: Corrected the monetization logic in `TranscriptionService.js`.
-- ✅ **Technical Debt: Remediate and Stabilize the Test Suite Environment**
+  - ✅ `[C-04]` Pro Users Do Not Receive Paid Features: Corrected the monetization logic in `TranscriptionService.js`.
+- 🟡 **Technical Debt: Remediate and Stabilize the Test Suite Environment**
   - **Resolution:** The E2E test environment has been completely stabilized. All configuration conflicts, dependency issues, and environment variable loading problems have been resolved. The test suite is now fully runnable. The remaining E2E test failures are due to specific, identifiable bugs in the application's UI code, which can now be addressed.
 - ✅ **Implement "Free User Quota" E2E test:** An E2E test for the 'Free' user role has been added.
-- 🔴 **Create `premium.e2e.spec.ts` Test:** Create a new E2E test for the premium user flow to verify on-device transcription and other premium features.
-- 🔴 **Create `premium.e2e.spec.ts` Test:** Create a new E2E test for the premium user flow to verify on-device transcription and other premium features.
+- ✅ **Consolidate Subscription Tiers:** Merged the 'premium' and 'pro' subscription tiers into a single 'pro' tier.
 
 ### 🚧 Should-Have (Tech Debt)
 - 🟡 **Migrate "Low Hanging Fruit" JS to TypeScript:** Convert simple, non-critical JavaScript files to TypeScript to improve type safety.
@@ -40,10 +39,10 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 - ✅ **Enhance Anonymous and Pro E2E tests:** The E2E tests for all user flows (anonymous, free, pro, auth) have been significantly refactored for robustness, maintainability, and clearer error reporting.
 - ✅ **Add full unit test coverage for `CloudAssemblyAI.js`:** All unit tests for this module are now passing.
 - ✅ **Resolve Playwright Missing System Dependencies:** The necessary system-level libraries and browser binaries for Playwright have been installed in the test environment.
-- 🔴 **Diagnose the final "Start Session" button issue**:
+- 🟡 **Diagnose the final "Start Session" button issue**:
     -   Analyze the `trace.zip` file from the last failed test run to understand the component state and console output at the moment of failure.
     -   Determine why the `SessionSidebar` component is not rendering the button for the test runner.
-- 🔴 **Fix the remaining E2E tests**:
+- 🟡 **Fix the remaining E2E tests**:
     -   Run and fix the `anon.e2e.spec.ts` suite.
     -   Run and fix the `free.e2e.spec.ts` suite.
     -   Run and fix the `basic.e2e.spec.ts` suite.
@@ -57,7 +56,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 This phase is about confirming the core feature set works as expected and polishing the user experience before wider release.
 
 ### 🎯 Must-Have
-- ✅ **Implement On-Device 'Local Transcript' Mode (`[C-04]`):** Implemented a fully on-device, privacy-first transcription mode for Premium users using `@xenova/transformers`.
+- ✅ **Implement On-Device 'Local Transcript' Mode (`[C-04]`):** Implemented a fully on-device, privacy-first transcription mode for Pro users using `@xenova/transformers`.
   - ✅ 1. Research & Select Model
   - ✅ 2. Create LocalWhisper Provider
   - ✅ 3. Integrate Model & Audio Processing
@@ -83,7 +82,7 @@ This phase is about confirming the core feature set works as expected and polish
 - 🔴 **Improve Accessibility:** Use an ARIA live region for the transcript so screen readers can announce new lines.
 - 🔴 **Add Deno unit tests for the token endpoint.**
 - 🔴 **Add a soak test:** Create a test that runs for 1-minute with continuous audio to check for memory leaks or hangs.
-- ✅ **Create e2e tests for different user roles (anonymous, free, pro).** E2E tests now exist for anonymous, free, pro, and premium user flows.
+- ✅ **Create e2e tests for different user roles (anonymous, free, pro).** E2E tests now exist for anonymous, free, and pro user flows.
 
 ### Gating Check
 - ✅ **Bring all documentation up to date to reflect latest/current code implementation**
@@ -122,3 +121,5 @@ The process of debugging the E2E suite revealed several areas of technical debt:
 3.  **Incomplete Test Coverage**: While the `pro` user flow has been the focus, other test suites (`anon.e2e.spec.ts`, `free.e2e.spec.ts`, `basic.e2e.spec.ts`) have not been run against the new, stabilized environment. They will likely need similar updates and fixes.
 
 4.  **Redundant Mocking Logic**: The current Stripe mock is defined in `tests/mocks/stripe.js` and applied in `vite.config.mjs`. A cleaner, more maintainable approach would be to create a global `beforeEach` hook in the Playwright setup to apply this and other mocks to all test files automatically, reducing code duplication.
+
+5.  **E2E Test Suite Failing:** The entire E2E test suite is currently failing due to a fundamental rendering issue in the test environment.

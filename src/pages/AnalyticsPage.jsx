@@ -34,7 +34,7 @@ const AuthenticatedAnalyticsView = () => {
     const { user, profile } = useAuth();
     const [singleSession, setSingleSession] = useState(null);
 
-    const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
+    const isPro = profile?.subscription_status === 'pro';
     const displaySessions = sessionId ? (singleSession ? [singleSession] : []) : sessionHistory;
 
     useEffect(() => {

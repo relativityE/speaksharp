@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -16,23 +17,18 @@ export default defineConfig(({ mode }) => ({
         'test-results/',
         'coverage/',
         '**/*.log',
-        'docs/PRD.md'
+        'playwright-report/'
       ]
     }
   },
   build: {
     sourcemap: true,
     outDir: 'dist',
-    rollupOptions: {
-      output: {
-        manualChunks: undefined,
-      }
-    }
+    rollupOptions: { output: { manualChunks: undefined } }
   },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
-      // Conditionally mock Stripe modules only when Playwright is running
       ...(process.env.PLAYWRIGHT_TEST && {
         '@stripe/stripe-js': path.resolve(__dirname, 'tests/mocks/stripe.js'),
         '@stripe/react-stripe-js': path.resolve(__dirname, 'tests/mocks/stripe.js'),

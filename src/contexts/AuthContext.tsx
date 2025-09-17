@@ -5,7 +5,7 @@ import { Session, User, AuthChangeEvent } from '@supabase/supabase-js';
 
 type Profile = {
   id: string;
-  subscription_status: 'free' | 'pro' | 'premium';
+  subscription_status: 'free' | 'pro';
 };
 
 type AuthContextType = {
@@ -59,97 +59,47 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
   const [loading, setLoading] = useState<boolean>(!initialSession);
 
   useEffect(() => {
-    // If a session is injected (e.g. in E2E tests), don't run the initial fetch.
-    if (initialSession) {
-        console.log('✅ AuthProvider initialized with injected session.');
-        return;
-    }
+    const handleAuthChange = async (session) => {
+      setLoading(true);
+      setSession(session);
+      let userProfile = null;
 
-    console.log('🚀 AuthProvider useEffect starting');
+      if (session?.user) {
+        console.log(`[Auth] Session found for user ${session.user.id}. Fetching profile.`);
+        userProfile = await getProfileFromDb(session.user.id);
 
-    const setData = async () => {
-      try {
-        console.log('📡 Getting initial session...');
-        const { data: { session }, error } = await supabase.auth.getSession();
-
-        if (error) {
-          console.error("❌ Error getting session:", error);
-          setSession(null);
-          setProfile(null);
+        if (userProfile) {
+          console.log(`[Auth] Profile set:`, userProfile);
         } else {
-          console.log('📝 Initial session:', session ? 'exists' : 'null');
-
-          if (session?.user) {
-            console.log('👤 User found, fetching profile...');
-            const userProfile = await getProfileFromDb(session.user.id);
-
-            // For local development, allow overriding the subscription status to 'premium'
-            if (userProfile && import.meta.env.DEV && import.meta.env.VITE_DEV_PREMIUM_ACCESS === 'true') {
-              console.log("🔧 Developer premium access override enabled.");
-              userProfile.subscription_status = 'premium';
-            }
-
-            setProfile(userProfile);
-            console.log('✅ Profile set:', userProfile);
-          } else {
-            console.log('❌ No user in session');
-            setProfile(null);
-          }
-
-          setSession(session);
+          console.warn(`[Auth] No profile found for user ${session.user.id}`);
         }
-      } catch (err) {
-        console.error('💥 Exception in setData:', err);
-        setSession(null);
-        setProfile(null);
-      } finally {
-        console.log('✅ Initial auth setup complete, setting loading to false');
-        setLoading(false);
+      } else {
+        console.log('[Auth] No session or user, clearing profile.');
       }
+
+      setProfile(userProfile);
+      setLoading(false);
     };
 
-    setData();
+    // Handle the initial state, whether from a mock or Supabase
+    if (initialSession) {
+      console.log('[Auth] Using initial (mock) session.');
+      handleAuthChange(initialSession);
+    } else {
+      console.log('[Auth] No initial session, fetching from Supabase.');
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        handleAuthChange(session);
+      });
+    }
 
-    console.log('🎧 Setting up auth state listener...');
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      async (event: AuthChangeEvent, newSession: Session | null) => {
-        console.log(`🔄 Auth state changed: ${event}`, newSession ? 'session exists' : 'no session');
-
-        setSession(newSession);
-
-        if (newSession?.user) {
-          console.log('👤 New session has user, fetching profile...');
-          setLoading(true);
-
-          try {
-            const userProfile = await getProfileFromDb(newSession.user.id);
-
-            // For local development, allow overriding the subscription status to 'premium'
-            if (userProfile && import.meta.env.DEV && import.meta.env.VITE_DEV_PREMIUM_ACCESS === 'true') {
-              console.log("🔧 Developer premium access override enabled.");
-              userProfile.subscription_status = 'premium';
-            }
-
-            setProfile(userProfile);
-            console.log('✅ Profile updated:', userProfile);
-          } catch (err) {
-            console.error('💥 Exception updating profile:', err);
-            setProfile(null);
-          } finally {
-            setLoading(false);
-            console.log('✅ Auth state change handling complete');
-          }
-        } else {
-          console.log('❌ No user in new session, clearing profile');
-          setProfile(null);
-          setLoading(false);
-        }
-      }
-    );
+    // Listen for subsequent auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log(`[Auth] Auth state changed, event: ${event}`);
+      handleAuthChange(session);
+    });
 
     return () => {
-      console.log('🧹 Cleaning up auth listener');
-      listener?.subscription.unsubscribe();
+      subscription.unsubscribe();
     };
   }, [initialSession]);
 
