@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { supabase } from '@/lib/supabaseClient';
 import { useAuth } from '@/contexts/AuthContext';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 
 // A map of Supabase error messages to more user-friendly ones.
 const friendlyErrors = {
@@ -19,7 +19,8 @@ const mapError = (message) => {
 };
 
 export default function AuthPage() {
-  const { session } = useAuth();
+  const { session, loading } = useAuth();
+  const location = useLocation();
   const [view, setView] = useState('sign_in'); // 'sign_in', 'sign_up', or 'forgot_password'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -54,8 +55,12 @@ export default function AuthPage() {
     }
   };
 
+  if (loading) {
+    return null; // or a loading spinner
+  }
+
   if (session) {
-    return <Navigate to="/" />;
+    return <Navigate to="/" replace />;
   }
 
   const handleViewChange = (newView) => {

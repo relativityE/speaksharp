@@ -36,7 +36,7 @@ export function UpgradePromptDialog({ open, onOpenChange }) {
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Maybe Later</AlertDialogCancel>
-          <AlertDialogAction onClick={handleUpgrade}>Upgrade to Pro</AlertDialogAction>
+          <AlertDialogAction onClick={handleUpgrade} data-testid="upgrade-prompt-dialog-upgrade-button">Upgrade to Pro</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

@@ -15,7 +15,7 @@ export default defineConfig({
   retries: 0,
 
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: process.env.WEB_SERVER_URL || 'http://localhost:5173',
     actionTimeout: 15000,
     navigationTimeout: 15000,
     trace: 'on-first-retry',

@@ -21,7 +21,7 @@ export const HeroSection = () => {
             </div>
             <div className="w-full max-w-sm sm:max-w-md mx-auto flex gap-4">
               <Button variant="primary" size="lg" className="flex-1" asChild>
-                <Link to="/session">Start For Free</Link>
+                <Link to="/session" data-testid="start-free-session-button">Start For Free</Link>
               </Button>
               <Button variant="outline" size="lg" className="flex-1">
                 Learn More

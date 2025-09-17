@@ -48,7 +48,7 @@ const ModelLoadingIndicator = ({ progress }) => {
         statusText = `Downloading model: ${progress.file} (${loaded}MB / ${total}MB)`;
     }
     return (
-        <div className="space-y-2 pt-2">
+        <div className="space-y-2 pt-2" data-testid="model-loading-indicator">
             <p className="text-xs text-muted-foreground text-center">{statusText}</p>
             {progress.status === 'download' && <Progress value={progressPercent} />}
         </div>
@@ -159,8 +159,8 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
     };
 
     return (
-        <div className="flex flex-col gap-6 h-full">
-            <Card className="w-full flex flex-col flex-grow">
+        <div className="flex flex-col gap-6 h-full" data-testid="session-sidebar">
+            <Card className="w-full flex flex-col flex-grow" data-testid="session-sidebar-card">
                 <CardHeader>
                      <div className="flex justify-between items-center">
                         <CardTitle className="text-base">
@@ -183,6 +183,7 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
                             variant={isListening ? 'destructive' : 'default'}
                             className="w-full h-16 text-xl font-bold rounded-lg"
                             disabled={isButtonDisabled}
+                            data-testid="session-start-stop-button"
                         >
                             {isListening ? <><Square className="w-4 h-4 mr-2" /> Stop Session</> : (isModelLoading || isConnecting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {isConnecting ? 'Connecting...' : 'Initializing...'}</> : <><Mic className="w-4 h-4 mr-2" /> Start Session</>)}
                         </Button>
@@ -263,7 +264,7 @@ export const SessionSidebar = ({ isListening, isReady, error, startListening, st
                             <p className="text-xs text-muted-foreground mb-2">
                                 Get unlimited practice, advanced analytics, and priority support.
                             </p>
-                            <Button size="sm" className="w-full font-bold group" variant="outline" disabled={true}>
+                            <Button size="sm" className="w-full font-bold group" variant="outline" disabled={true} data-testid="session-sidebar-upgrade-button">
                                 Upgrade Now
                             </Button>
                         </div>

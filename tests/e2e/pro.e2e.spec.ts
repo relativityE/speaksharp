@@ -1,26 +1,41 @@
-import { test, expect, loginUser, startSession, stopSession } from './helpers';
+import { test, expect } from './helpers';
+import { AuthPage } from './poms/authPage.pom';
+import { SessionPage } from './poms/sessionPage.pom';
 
 test.describe('Pro User Flow', () => {
-  test.beforeEach(async () => {
-    test.setTimeout(15000);
+  let authPage: AuthPage;
+  let sessionPage: SessionPage;
+
+  test.beforeEach(async ({ page }) => {
+    authPage = new AuthPage(page);
+    sessionPage = new SessionPage(page);
   });
 
   test('no upgrade prompt for pro', async ({ page }) => {
     test.setTimeout(60000);
-    await loginUser(page, 'pro@example.com', 'password');
+    await authPage.goto();
+    await authPage.login('pro@example.com', 'password');
+    await sessionPage.verifyOnPage();
 
-    await page.goto('/session');
+    await page.goto('/analytics');
     await page.waitForLoadState('networkidle');
 
-    const upgradeButton = page.getByRole('button', { name: 'Upgrade Now' });
+    const upgradeButton = page.getByTestId('analytics-page-upgrade-button');
     await expect(upgradeButton).not.toBeVisible();
   });
 
   test('start and stop session for pro', async ({ page }) => {
     test.setTimeout(60000);
-    await loginUser(page, 'pro@example.com', 'password');
-    await startSession(page, /Start Session/);
-    await stopSession(page);
+    await authPage.goto();
+    await authPage.login('pro@example.com', 'password');
+
+    await sessionPage.verifyOnPage();
+
+    await sessionPage.startStopButton.click();
+    await expect(sessionPage.startStopButton).toHaveText(/Stop Session/);
+
+    await sessionPage.startStopButton.click();
+    await expect(sessionPage.startStopButton).toHaveText(/Start Session/);
   });
 });
 

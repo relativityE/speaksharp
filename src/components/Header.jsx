@@ -32,9 +32,9 @@ export const Header = () => {
                             <span className={`${navLinkClasses} ${disabledLinkClasses}`} title="Complete a session to view analytics">Analytics</span>
                         )}
                         {user ? (
-                            <Button variant="outline" onClick={signOut}>Logout</Button>
+                            <Button variant="outline" onClick={signOut} data-testid="sign-out-button">Logout</Button>
                         ) : (
-                            <Button asChild><NavLink to="/auth">Sign In</NavLink></Button>
+                            <Button asChild><NavLink to="/auth" data-testid="sign-in-link">Sign In</NavLink></Button>
                         )}
                     </nav>
                 </div>

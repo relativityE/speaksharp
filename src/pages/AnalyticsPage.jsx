@@ -19,7 +19,7 @@ const UpgradeBanner = () => {
                         <p className="text-sm opacity-90">Get unlimited practice, advanced analytics, and more with Pro.</p>
                     </div>
                 </div>
-                <Button variant="secondary" className="bg-white text-purple-600 hover:bg-gray-100" onClick={() => navigate('/#pricing')}>
+                <Button variant="secondary" className="bg-white text-purple-600 hover:bg-gray-100" onClick={() => navigate('/#pricing')} data-testid="analytics-page-upgrade-button">
                     <Zap className="w-4 h-4 mr-2" />
                     Upgrade Now
                 </Button>

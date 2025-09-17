@@ -2,6 +2,7 @@ import { spawn, ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import http from 'http';
+import getPort from 'get-port';
 
 const PID_FILE = path.join(process.cwd(), '.vite.pid');
 const ENV_FILE = path.join(process.cwd(), '.env.test');
@@ -27,11 +28,11 @@ function loadEnvVars() {
 }
 
 // Wait until server responds with HTML
-async function waitForVite() {
+async function waitForVite(url: string) {
   for (let i = 0; i < 30; i++) {
     try {
       await new Promise((resolve, reject) => {
-        http.get('http://localhost:5173', (res) => {
+        http.get(url, (res) => {
           if (res.statusCode === 200) {
             console.log('[global-setup] Vite responded with 200 OK.');
             resolve(null);
@@ -54,9 +55,13 @@ async function globalSetup() {
   // Load environment variables before doing anything else
   loadEnvVars();
 
+  const port = await getPort({ port: 5173 });
+  const url = `http://localhost:${port}`;
+  process.env.WEB_SERVER_URL = url;
+
   console.log('Starting Vite server for E2E tests...');
 
-  const serverProcess: ChildProcess = spawn('pnpm', ['vite', '--mode', 'test'], {
+  const serverProcess: ChildProcess = spawn('pnpm', ['vite', '--mode', 'test', '--port', String(port)], {
     stdio: 'inherit',
     detached: true,
     env: {
@@ -75,7 +80,7 @@ async function globalSetup() {
   console.log(`Vite server started with PID: ${serverProcess.pid}. PID file created.`);
 
   // Wait for the server to be ready
-  await waitForVite();
+  await waitForVite(url);
 
   // Unref the child process to allow the setup script to exit independently
   serverProcess.unref();

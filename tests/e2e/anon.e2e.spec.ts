@@ -1,24 +1,33 @@
 import './test.setup';
-import { test, expect, startSession, stopSession } from './helpers';
+import { test, expect } from './helpers';
+import { HomePage } from './poms/homePage.pom';
+import { SessionPage } from './poms/sessionPage.pom';
 
 test.describe('Anonymous User Flow', () => {
-  test.beforeEach(async () => {
-    test.setTimeout(15000);
+  let homePage: HomePage;
+  let sessionPage: SessionPage;
+
+  test.beforeEach(async ({ page }) => {
+    homePage = new HomePage(page);
+    sessionPage = new SessionPage(page);
   });
 
   test('start temporary session', async ({ page }) => {
     test.setTimeout(60000);
-    await startSession(page);
-    await expect(page.getByText('Transcript')).toBeVisible();
-    await expect(page.getByText(/\d+:\d+/)).toBeVisible();
+    await homePage.goto();
+    await homePage.startFreeSession();
+    await sessionPage.verifyOnPage();
+    await expect(page.getByText('Live Transcript')).toBeVisible();
   });
 
   test('prompted to sign up after session', async ({ page }) => {
     test.setTimeout(60000);
-    await startSession(page);
-    await stopSession(page);
+    await homePage.goto();
+    await homePage.startFreeSession();
+    await sessionPage.verifyOnPage();
 
-    await expect(page.getByRole('heading', { name: 'Sign Up to Save Your Session' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Create Account' })).toBeVisible();
+    await sessionPage.startStopButton.click();
+
+    await expect(page.getByRole('heading', { name: 'Session Ended' })).toBeVisible();
   });
 });

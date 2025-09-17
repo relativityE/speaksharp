@@ -198,7 +198,7 @@ export const AnalyticsDashboard = ({ sessionHistory, profile, loading, error }) 
                             <p className="text-sm opacity-90">Upgrade to Pro to get unlimited practice time, PDF exports, and more detailed analytics.</p>
                         </div>
                     </div>
-                    <Button variant="secondary" className="w-full sm:w-auto flex-shrink-0 bg-white text-primary hover:bg-gray-200" onClick={handleUpgrade}>
+                    <Button variant="secondary" className="w-full sm:w-auto flex-shrink-0 bg-white text-primary hover:bg-gray-200" onClick={handleUpgrade} data-testid="analytics-dashboard-upgrade-button">
                         Upgrade Now
                     </Button>
                 </Card>
