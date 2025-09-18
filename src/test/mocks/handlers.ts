@@ -22,7 +22,6 @@ interface Metrics {
 // Mock user profiles
 const mockProfiles = {
   'user-123': { id: 'user-123', subscription_status: 'free' },
-  'premium-user': { id: 'premium-user', subscription_status: 'premium' },
   'pro-user': { id: 'pro-user', subscription_status: 'pro' },
 };
 
@@ -50,8 +49,7 @@ export const handlers = [
           refresh_token: 'mock-refresh-token',
           expires_in: 3600,
           user: {
-            id: body.email.includes('premium') ? 'premium-user' :
-                body.email.includes('pro') ? 'pro-user' : 'user-123',
+            id: body.email.includes('pro') ? 'pro-user' : 'user-123',
             email: body.email,
             created_at: '2024-01-01T00:00:00Z'
           }

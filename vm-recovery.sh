@@ -1,6 +1,6 @@
 #!/bin/bash
-# vm-recovery.sh - Safe VM recovery, patch application, and code push (TypeScript-ready)
 
+# vm-recovery.sh - Safe VM recovery, patch application, and code push (TypeScript-ready)
 echo "🔄 Starting VM recovery process..."
 
 # --- Step 1: Gentle process cleanup ---
@@ -81,6 +81,6 @@ git push origin "$current_branch" --no-verify || {
 
 echo "✅ Recovery and push completed!"
 echo "🎯 Next steps:"
-echo "   1. Verify push succeeded on GitHub"
-echo "   2. Run full test suite in a fresh VM/environment"
-echo "   3. Apply AI agent for JavaScript → TypeScript conversion on patch if needed"
+echo "  1. Verify push succeeded on GitHub"
+echo "  2. Run full test suite in a fresh VM/environment"
+echo "  3. Apply AI agent for JavaScript → TypeScript conversion on patch if needed"

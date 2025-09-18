@@ -78,104 +78,43 @@ SpeakSharp is built on a modern, serverless technology stack designed for real-t
     *   **E2E:** Playwright
 
 ## Testing Strategy
-Our testing architecture adopts a unified, service-mocking approach powered by Mock Service Worker (MSW). This decision replaces fragile, module-level mocks with a consistent API simulation layer that works seamlessly across unit tests (Vitest) and end-to-end tests (Playwright).
 
-Key principles of this strategy:
+The project employs a robust, integrated E2E testing environment orchestrated by Playwright's `global-setup.ts` and `global-teardown.ts` scripts. This setup ensures a stable and deterministic environment for running tests, both locally and in CI.
 
-*   **Consistency** – MSW ensures both unit and E2E tests interact with the same mocked API surface, eliminating divergence between test layers.
-*   **Reliability** – By simulating network requests instead of patching modules, tests are more stable, deterministic, and resistant to brittle race conditions.
-*   **Scalability** – Centralized MSW handlers define all mock API behavior in one place, reducing duplication and simplifying maintenance as the system grows.
-*   **Integration** – The test pipeline (run-tests.sh) orchestrates unit, coverage, and E2E runs, consuming the same mock environment for a true “single source of truth.”
-*   **Production Parity** – MSW operates at the network boundary, which more closely mirrors real-world application behavior than in-process mocks.
+### Test Environment Overview
 
-### Test Environment Isolation
+The test configuration creates a controlled environment with the following flow:
+1.  **Playwright Test Start:** The test runner (`pnpm playwright test`) first invokes `global-setup.ts`.
+2.  **Vite Server Launch (`global-setup.ts`):**
+    *   Spawns the Vite dev server in a detached process group (`--mode test --host`).
+    *   Captures all `stdout` and `stderr` from the Vite process into a `vite.log` file for debugging.
+    *   Parses the Vite logs to **dynamically detect the port** the server is running on, avoiding hardcoded port conflicts.
+    *   Performs a **robust health check** by polling the detected URL until it returns a `200 OK` status, ensuring the application is fully ready before any tests begin.
+3.  **E2E Test Execution:** Once the health check passes, Playwright proceeds to run the test suites (e.g., `basic.e2e.spec.ts`).
+4.  **Teardown & Cleanup (`global-teardown.ts`):** After all tests complete, Playwright invokes `global-teardown.ts`.
+    *   It safely kills the entire Vite process group, first with a graceful `SIGTERM` and then with a `SIGKILL` if necessary, preventing zombie processes.
+    *   It cleans up the `.vite.pid` file.
+    *   For debugging purposes, it prints the last 20 lines of `vite.log` to the console.
 
-To prevent conflicts between the Vitest (unit) and Playwright (E2E) test environments, the project employs a strict isolation strategy:
+### Core Artifacts
 
-*   **Physical Separation:** Unit tests and their setup files reside in `tests/unit/`, while E2E tests and their helpers are located in `tests/e2e/`. This prevents test runners from accidentally discovering the wrong files.
-*   **Configuration Scoping:** Each test runner is configured to look only within its designated directory.
-    *   `vitest.config.mjs` is configured with `exclude: ['tests/e2e']`.
-    *   `playwright.config.ts` uses `testDir: './tests/e2e'` to scope its search.
-*   **TypeScript Isolation:** A dedicated `tsconfig.e2e.json` is used for Playwright tests. This file has its own minimal `types` and `include` settings, ensuring that global types from Vitest and Jest-DOM do not leak into the Playwright compilation context.
+| File | Purpose |
+|---|---|
+| `vite.config.mjs` | Vite dev server configuration, including test-specific aliases. |
+| `.env.test` | Environment variables for the test environment. |
+| `tests/global-setup.ts` | Starts the Vite server and waits for it to be fully ready. |
+| `tests/global-teardown.ts` | Safely stops the Vite server and provides diagnostic logs. |
+| `playwright.config.ts` | Configures Playwright projects, including the smoke test, and hooks in the global setup/teardown scripts. |
+| `vite.log` | Captures all output from the Vite server during a test run. |
+| `.vite.pid` | Stores the Process ID of the running Vite server for teardown. |
+| `tests/e2e/basic.e2e.spec.ts` | A baseline smoke test that validates the environment's stability. |
 
-This separation guarantees that the two test environments cannot interfere with each other.
+### Key Advantages of This Architecture
 
-### Vitest and MSW Setup
-
-The testing architecture relies on a clean separation of concerns between the Vite build configuration and the Vitest test runner configuration.
-
-*   **`vite.config.mjs`:** This file is used exclusively for building and serving the application. It contains no test-related configuration.
-*   **`vitest.config.mjs`:** This file is dedicated to the unit test runner configuration. It defines the test environment (`happy-dom`), the setup files (`tests/unit/setup.ts`), and the test reporters.
-*   **`tests/unit/setup.ts`:** This file performs the global setup for the Vitest environment. It imports `@testing-library/jest-dom` to extend `vitest`'s `expect` with DOM-specific matchers.
-*   **Mock Service Worker (MSW):** MSW is used to mock the API surface for both unit and E2E tests.
-    *   **`src/test/mocks/handlers.ts`:** Defines the mock API handlers.
-    *   **`src/test/mocks/server.ts`:** Sets up the MSW server for the Node.js environment (unit tests).
-    *   **`src/test/mocks/browser.ts`:** Sets up the MSW worker for the browser environment (E2E tests).
-
-### E2E Testing Framework
-
-The E2E test suite is built using **Playwright**. It is designed to simulate real user flows in a controlled environment. The architecture has several key components to ensure tests are reliable and isolated from external services.
-
-#### 1. Test Server Management
-
-To run the tests, a Vite development server is started and managed automatically. This is handled by Playwright's global setup and teardown mechanism.
-
--   **`tests/global-setup.ts`**: This script is executed once before any tests run. Its responsibilities are:
-    -   Loading environment variables from `.env.test`.
-    -   Spawning the `vite` dev server as a detached child process.
-    -   Injecting necessary environment variables (like `VITE_SUPABASE_URL`) into the Vite process.
-    -   Performing a health check (`waitForVite`) to poll the Vite server until it returns a `200 OK` status, ensuring it is fully ready before tests begin. This prevents race conditions.
-    -   Storing the server's process ID (PID) in a `.vite.pid` file.
-
--   **`tests/global-teardown.ts`**: This script runs once after all tests are complete. It reads the PID from the `.vite.pid` file and terminates the Vite server process, ensuring a clean shutdown.
-
-#### 2. Mocking Strategy
-
-To isolate the tests from external network dependencies and ensure deterministic behavior, the suite employs a robust mocking strategy.
-
--   **Supabase Mocking**:
-    -   **File**: `tests/e2e/sdkStubs.ts`
-    -   **Mechanism**: This file uses Playwright's `page.route()` method to intercept all network requests (`**/*`).
-    -   **Functionality**: It intercepts calls to any `*.supabase.co` domain, provides dynamic mock users, and includes console logging for visibility.
-
--   **Stripe Mocking**:
-    -   **Problem**: The application's session page depends on `@stripe/stripe-js` and `@stripe/react-stripe-js`, which crash the component tree when their external scripts are blocked in the test environment.
-    -   **Solution**: We use a **module-level mock** to replace the Stripe libraries during tests.
-    -   **Mechanism**:
-        1.  **Mock File**: A mock implementation at `tests/mocks/stripe.js` exports fake versions of the necessary Stripe components and functions.
-        2.  **Vite Alias**: The `vite.config.mjs` file uses a conditional alias to resolve imports of the Stripe packages to the mock file, but only when `process.env.PLAYWRIGHT_TEST` is true.
-
-#### 3. Test Helpers
-
--   **File**: `tests/e2e/helpers.ts`
--   **Functionality**: This file contains reusable functions to simplify test writing (`loginUser`, `startSession`, etc.) and includes a global `test.afterEach` hook to automatically capture debug artifacts on test failure.
-
-#### 4. Page Object Model (POM)
-
-To improve the maintainability and readability of the E2E tests, we have adopted the Page Object Model (POM) pattern.
-
--   **Location**: POMs are located in `tests/e2e/poms/`.
--   **Structure**: Each POM represents a page or a significant component in the application (e.g., `AuthPage`, `HomePage`). It encapsulates the selectors and the methods to interact with the elements on that page.
--   **Benefits**: This approach separates the test logic from the page structure, making the tests more robust against UI changes.
-
-#### 5. Authentication Setup
-
-The E2E test suite uses a dedicated setup test to handle authentication.
-
--   **File**: `tests/e2e/test.setup.ts`
--   **Mechanism**: This file contains a Playwright `setup` test that logs in as different user types (pro, free, premium) and saves their authentication state into `.json` files in the `storage/` directory.
--   **Usage**: The Playwright projects in `playwright.config.ts` are configured to use these storage state files, allowing tests to start in an authenticated state without having to log in each time. This significantly speeds up the test runs and makes them more reliable.
-
-### Code Quality and Automation
-
-To maintain a high standard of code quality and prevent common errors, the project utilizes an automated pre-commit workflow.
-
-*   **TypeScript Configuration (`tsconfig.json`):** A strict `tsconfig.json` is now in place to enforce type safety across the entire codebase. It is configured to work with Vite's modern tooling, using `moduleResolution: "bundler"`, and now enforces a pure TypeScript environment with `allowJs: false`.
-*   **Automated Checks (`lint-staged` and `husky`):** A `husky` pre-commit hook triggers `lint-staged` to run checks on all staged files. This configuration ensures that:
-    *   **ESLint (`eslint --fix`):** Automatically fixes linting and style errors.
-    *   **TypeScript Compiler (`tsc --noEmit`):** Performs a full type check to catch any TypeScript errors before they are committed.
-
-This automated gatekeeping ensures that code entering the repository is clean, consistent, and type-safe.
+*   **Isolation:** The test server is isolated from any local development server.
+*   **Deterministic:** Tests are only executed once the environment is confirmed to be ready, eliminating race conditions.
+*   **Reliable Cleanup:** The teardown process ensures no zombie Vite processes are left running, even if tests crash or time out.
+*   **CI-Friendly:** The architecture works identically on CI and locally, and it surfaces logs for easy debugging of failures.
 
 ## 3. Frontend Architecture
 

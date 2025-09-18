@@ -122,3 +122,5 @@ The process of debugging the E2E suite revealed several areas of technical debt:
 3.  **Incomplete Test Coverage**: While the `pro` user flow has been the focus, other test suites (`anon.e2e.spec.ts`, `free.e2e.spec.ts`, `basic.e2e.spec.ts`) have not been run against the new, stabilized environment. They will likely need similar updates and fixes.
 
 4.  **Redundant Mocking Logic**: The current Stripe mock is defined in `tests/mocks/stripe.js` and applied in `vite.config.mjs`. A cleaner, more maintainable approach would be to create a global `beforeEach` hook in the Playwright setup to apply this and other mocks to all test files automatically, reducing code duplication.
+
+5.  **Skipped DB Migration for Tier Consolidation**: The task to consolidate user tiers from four to two requires a database migration to update existing 'premium' users to 'pro'. This was skipped due to a persistent, unresolvable issue with the `create_file_with_block` tool, which prevented the creation of the SQL migration file. This must be addressed before the consolidation can be considered complete.
