@@ -6,18 +6,19 @@ Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) style with sligh
 
 ---
 
+## [2025-09-18]
+### Changed
+- **Prepared for User Tier Consolidation:** This change prepares the application for a user tier consolidation from four tiers to two.
+  - **Added:** A database migration script (`20250918093711_consolidate_premium_to_pro.sql`) was created to migrate 'premium' users to 'pro'.
+  - **Changed:** Updated all relevant documentation (`ROADMAP.md`, `ARCHITECTURE.md`) to reflect the in-progress nature of this task and to provide a clear path forward for the next developer to complete the necessary code and test changes.
+
 ## [2025-09-17]
 ### Merged
 - **`jules-e2e-test-fixes` branch:**
   - Refactored the E2E test suite to use the Page Object Model (POM) pattern for improved maintainability and readability.
   - Introduced a robust authentication setup for E2E tests using a dedicated setup test and storage states, significantly speeding up test runs.
   - Stabilized the E2E test environment by resolving configuration conflicts and race conditions.
-- **`feature/tier-consolidation` branch:**
-  - Introduced a new "Premium" user tier.
-  - Added a new pricing page to display the available tiers.
-  - Updated the application to handle the new "Premium" tier, including UI changes and updated E2E tests.
 
-## [2025-09-17]
 ### Changed
 - **Full Codebase Conversion to TypeScript:** Migrated the entire frontend application from JavaScript (`.js`/`.jsx`) to TypeScript (`.ts`/`.tsx`). This included all components, pages, hooks, contexts, utilities, and test files. This massive refactoring effort has significantly improved type safety, code quality, and maintainability across the project. The `tsconfig.json` has been configured with `"allowJs": false` to enforce a pure TypeScript environment going forward.
 

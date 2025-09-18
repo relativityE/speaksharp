@@ -41,7 +41,7 @@ const getProfileFromDb = async (userId: string): Promise<UserProfile | null> => 
     const { data, error } = await supabase.from('user_profiles').select('*').eq('id', userId).single();
     if (error) return null;
     return data;
-  } catch (err) {
+  } catch (_err) {
     return null;
   }
 };
@@ -72,7 +72,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           (window as any).__USER__ = userProfile;
         }
         setSession(session);
-      } catch (e) {
+      } catch (_e) {
         // Handle error if needed
       } finally {
         setLoading(false);

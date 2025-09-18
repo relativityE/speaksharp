@@ -43,7 +43,7 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
   const handleUpgrade = async () => {
     try {
       const { data, error } = await supabase.functions.invoke('stripe-checkout', {
-        body: { priceId: tier.name.toLowerCase() }, // e.g., 'pro', 'premium'
+        body: { priceId: tier.name.toLowerCase() }, // e.g., 'pro'
       });
       if (error) throw error;
       if (data.checkoutUrl) window.location.href = data.checkoutUrl;
