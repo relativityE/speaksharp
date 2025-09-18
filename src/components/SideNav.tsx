@@ -40,12 +40,12 @@ export const SideNav: React.FC = () => {
                         Analytics
                     </NavLink>
                     {user ? (
-                        <Button variant="ghost" onClick={handleSignOut} className="justify-start gap-3 px-3 py-2">
+                        <Button variant="ghost" onClick={handleSignOut} className="justify-start gap-3 px-3 py-2" data-testid="sign-out-button">
                             <LogOut className="h-5 w-5 text-muted-foreground" />
                             Sign Out
                         </Button>
                     ) : (
-                        <NavLink to="/auth" className={getNavLinkClass}>
+                        <NavLink to="/auth" className={({ isActive }) => `${navLinkClasses} ${isActive ? 'bg-secondary text-foreground' : ''}`} data-testid="sign-in-link">
                             <User className="mr-3 h-5 w-5" />
                             Sign In
                         </NavLink>

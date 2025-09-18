@@ -1,27 +1,24 @@
-import { test, expect, loginUser, startSession, stopSession } from './helpers';
+import { test, expect, loginUser, startSession, stopSession, expectSubscriptionButton } from './helpers';
+import { TEST_USER_PRO, TEST_USER_PREMIUM } from '../constants';
+import { HomePage } from './poms/homePage.pom';
 
-test.describe('Pro User Flow', () => {
-  test.beforeEach(async () => {
-    test.setTimeout(15000);
+const paidUsers = [
+  { name: 'Pro', user: TEST_USER_PRO },
+  { name: 'Premium', user: TEST_USER_PREMIUM },
+];
+
+for (const { name, user } of paidUsers) {
+  test.describe(`${name} User E2E Flow`, () => {
+    test.beforeEach(async ({ page }) => {
+      await loginUser(page, user.email, user.password);
+    });
+
+    test(`allows a ${name.toLowerCase()} user to start and stop a session`, async ({ page }) => {
+      const homePage = new HomePage(page);
+      await homePage.assertOnHomePage();
+      await homePage.assertNotUpgradeButton();
+      await homePage.startSession();
+      await homePage.stopSession();
+    });
   });
-
-  test('no upgrade prompt for pro', async ({ page }) => {
-    test.setTimeout(60000);
-    await loginUser(page, 'pro@example.com', 'password');
-
-    await page.goto('/session');
-    await page.waitForLoadState('networkidle');
-
-    const upgradeButton = page.getByRole('button', { name: 'Upgrade Now' });
-    await expect(upgradeButton).not.toBeVisible();
-  });
-
-  test('start and stop session for pro', async ({ page }) => {
-    test.setTimeout(60000);
-    await loginUser(page, 'pro@example.com', 'password');
-    await startSession(page, /Start Session/);
-    await stopSession(page);
-  });
-});
-
-test.describe.configure({ timeout: 60000, retries: 1 });
+}

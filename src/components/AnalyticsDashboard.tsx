@@ -149,7 +149,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ sessionH
             {!isPro && (
                 <Card className="bg-gradient-to-r from-primary/80 to-primary text-primary-foreground p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div className="flex items-center gap-4"><Sparkles className="h-8 w-8" /><div><h3 className="font-bold text-lg">Unlock Your Full Potential</h3><p className="text-sm opacity-90">Upgrade to Pro to get unlimited practice time, PDF exports, and more detailed analytics.</p></div></div>
-                    <Button variant="secondary" className="w-full sm:w-auto flex-shrink-0 bg-white text-primary hover:bg-gray-200" onClick={handleUpgrade}>Upgrade Now</Button>
+                    <Button variant="secondary" className="w-full sm:w-auto flex-shrink-0 bg-white text-primary hover:bg-gray-200" onClick={handleUpgrade} data-testid="analytics-dashboard-upgrade-button">Upgrade Now</Button>
                 </Card>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">

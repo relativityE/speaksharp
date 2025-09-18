@@ -1,6 +1,7 @@
 import { Page, Response, test as base, expect } from '@playwright/test';
 import { stubThirdParties } from './sdkStubs';
 import fs from 'fs';
+import { AuthPage } from './poms/authPage.pom';
 
 export async function dumpPageState(page: Page, name = 'failure') {
   try {
@@ -12,7 +13,6 @@ export async function dumpPageState(page: Page, name = 'failure') {
     await page.screenshot({ path: screenshotPath, fullPage: true });
     console.log(`Saved debug state to ${htmlPath} and ${screenshotPath}`);
 
-    // Read the screenshot back and log it as base64 as a workaround for artifact deletion
     if (fs.existsSync(screenshotPath)) {
       const screenshotContent = fs.readFileSync(screenshotPath, { encoding: 'base64' });
       console.log(`--- DEBUG_SCREENSHOT_BASE64_START_${name} ---`);
@@ -26,7 +26,10 @@ export async function dumpPageState(page: Page, name = 'failure') {
 }
 
 // Extend the base test object with our sandboxed page fixture
-export const test = base.extend<{ sandboxPage: void }>({
+export const test = base.extend<{
+  sandboxPage: void;
+  authPage: AuthPage;
+}>({
   sandboxPage: [
     async ({ page }, use) => {
       await page.goto('about:blank');
@@ -35,6 +38,9 @@ export const test = base.extend<{ sandboxPage: void }>({
     },
     { auto: true },
   ],
+  authPage: async ({ page }, use) => {
+    await use(new AuthPage(page));
+  },
 });
 
 export { expect };
@@ -52,70 +58,11 @@ export type { Response };
  */
 export async function loginUser(page: Page, email: string, password: string) {
   console.log(`Logging in as: ${email}`);
-
-  // Navigate to the auth page and wait for it to be idle
-  await page.goto('/auth', { timeout: 10000 });
-  await page.waitForLoadState('networkidle');
-
-  // Get handles to the form elements
-  const emailField = page.getByLabel('Email');
-  const passwordField = page.getByLabel('Password');
-  const signInButton = page.getByRole('button', { name: 'Sign In' });
-
-  // Assert that the form elements are visible before interacting with them
-  await expect(emailField).toBeVisible();
-  await expect(passwordField).toBeVisible();
-  await expect(signInButton).toBeVisible();
-
-  // Fill in the login form
-  await emailField.fill(email);
-  await passwordField.fill(password);
-
-  // Assert that the sign-in button is enabled after filling the form
-  await expect(signInButton).toBeEnabled();
-
-  // Create a promise to wait for the auth response. This is more reliable
-  // than waiting for a specific URL, as the auth flow may involve redirects.
-  const responsePromise = page.waitForResponse(
-    (res: Response) =>
-      (res.url().includes('/auth/v1/token') || res.url().includes('/auth/v1/user')) &&
-      res.status() === 200,
-    { timeout: 10000 }
-  );
-
-  // Click the sign-in button and wait for the auth response
-  await signInButton.click();
-  try {
-    await responsePromise;
-  } catch {
-    console.warn('Did not receive an auth response within the timeout. This may be okay if the page redirects quickly.');
-  }
-
-  // After login, wait for the page to redirect to the root and be idle
-  try {
-    await page.waitForURL('/', { timeout: 15000 });
-    console.log('Successfully redirected to home page after login.');
-  } catch (err) {
-    console.error(`Login redirect failed! Current URL: ${page.url()}`);
-    await page.screenshot({ path: `debug-login-redirect-failed-${email.replace(/[@.]/g, '-')}.png` });
-    throw err;
-  }
-
-  await page.waitForLoadState('networkidle');
-
-  // Wait for the user profile to be loaded into the window object by AuthProvider.
-  // This is a crucial step to prevent race conditions. We wait for the __USER__
-  // object to be non-null, as it's set to null on initial load.
-  try {
-    await page.waitForFunction(() => (window as any).__USER__ != null, { timeout: 10000 });
-    console.log('User profile loaded successfully after login.');
-  } catch (err) {
-    console.error(`User profile was not set or was null on window object after login for ${email}.`);
-    const finalUserState = await page.evaluate(() => (window as any).__USER__);
-    console.error(`Final window.__USER__ state: ${JSON.stringify(finalUserState)}`);
-    await page.screenshot({ path: `debug-profile-load-failed-${email.replace(/[@.]/g, '-')}.png` });
-    throw err;
-  }
+  const authPage = new AuthPage(page);
+  await authPage.goto();
+  await authPage.login(email, password);
+  await page.waitForURL('/');
+  console.log('Successfully redirected to home page after login.');
 }
 
 /**
@@ -202,8 +149,8 @@ export async function expectSubscriptionButton(page: Page, subscription: 'free' 
 
 test.afterEach(async ({ page }, testInfo) => {
   if (testInfo.status !== testInfo.expectedStatus) {
-    const html = await page.content();
-    console.error(`[E2E DEBUG] Page HTML at failure:\n${html.slice(0, 500)}...`);
-    await page.screenshot({ path: `debug-${testInfo.title.replace(/\s+/g, '-')}.png` });
+    const sanitizedTitle = testInfo.title.replace(/\s+/g, '-').toLowerCase();
+    console.warn(`[E2E DEBUG] Test failed: ${testInfo.title}. Dumping page state...`);
+    await dumpPageState(page, sanitizedTitle);
   }
 });

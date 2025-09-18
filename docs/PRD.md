@@ -62,23 +62,16 @@ This section contains ASCII art diagrams illustrating the journey for each user 
                                     +---------------------+
                                               |
                                               v
-                           +-------------------------------------+
-                           | [Pro User]                          |
-                           | (Via Stripe)                        |
-                           | - Unlimited Time                    |
-                           | - Cloud AI (Native fallback)        |
-                           +-------------------------------------+
-                                              |
-                                              v
-                           +-------------------------------------+
-                           | [Premium User]                      |
-                           | (Via Stripe)                        |
-                           | - All Pro features                  |
-                           | - On-device (local) transcription   |
-                           | - Detailed Analytics                |
-                           | - Download session data             |
-                           | - Download session transcript (FUTURE) |
-                           +-------------------------------------+
+                                    +---------------------+
+                                    |    Pricing Page     |
+                                    +---------------------+
+                                     |                 |
+                           +---------v---------+     +---------v---------+
+                           | [Pro User]          |     | [Premium User]      |
+                           | (Via Stripe)        |     | (Via Stripe)        |
+                           | - Unlimited Time    |     | - All Pro features  |
+                           | - Cloud AI          |     | - On-device STT     |
+                           +---------------------+     +---------------------+
 ```
 
 ### Feature Set (MoSCoW)
@@ -107,7 +100,7 @@ This section tracks high-level product risks and constraints. For a detailed tec
 
 *   **[RESOLVED] Intractable Vite Server Hang:** The Vite server was previously crashing on startup when running E2E tests. This was diagnosed and fixed by updating `src/index.css` to use the modern `@import "tailwindcss";` syntax.
 *   **[RESOLVED] E2E Test Environment Unstable:** The E2E test environment was suffering from configuration conflicts and missing dependencies, causing all tests to fail unpredictably. The environment has now been stabilized by isolating the Vitest and Playwright configurations and ensuring all dependencies are correctly loaded.
-*   **[ACTIVE] E2E Test Failure: "Start Session" Button Not Found:** Despite a massive effort to stabilize the End-to-End (E2E) test environment, a single test case remains stubbornly failing (`tests/e2e/pro.e2e.spec.ts` - "start and stop session for pro"). After a successful login, the test times out because it cannot find the "Start Session" button. This is the primary blocker for a fully green E2E test suite. The failure points to a subtle bug in the application's component rendering logic that only manifests under the specific conditions of the Playwright test environment.
+*   **[RESOLVED] E2E Test Failure: "Start Session" Button Not Found:** The failing E2E test (`tests/e2e/pro.e2e.spec.ts`) was caused by a race condition where the test tried to interact with the "Start Session" button before it was fully rendered and enabled. This has been resolved by refactoring the tests to use the Page Object Model (POM) pattern and adding more robust waiting mechanisms in the test helpers. The E2E test suite is now more stable.
 
 ---
 

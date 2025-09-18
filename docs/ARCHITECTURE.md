@@ -150,6 +150,22 @@ To isolate the tests from external network dependencies and ensure deterministic
 -   **File**: `tests/e2e/helpers.ts`
 -   **Functionality**: This file contains reusable functions to simplify test writing (`loginUser`, `startSession`, etc.) and includes a global `test.afterEach` hook to automatically capture debug artifacts on test failure.
 
+#### 4. Page Object Model (POM)
+
+To improve the maintainability and readability of the E2E tests, we have adopted the Page Object Model (POM) pattern.
+
+-   **Location**: POMs are located in `tests/e2e/poms/`.
+-   **Structure**: Each POM represents a page or a significant component in the application (e.g., `AuthPage`, `HomePage`). It encapsulates the selectors and the methods to interact with the elements on that page.
+-   **Benefits**: This approach separates the test logic from the page structure, making the tests more robust against UI changes.
+
+#### 5. Authentication Setup
+
+The E2E test suite uses a dedicated setup test to handle authentication.
+
+-   **File**: `tests/e2e/test.setup.ts`
+-   **Mechanism**: This file contains a Playwright `setup` test that logs in as different user types (pro, free, premium) and saves their authentication state into `.json` files in the `storage/` directory.
+-   **Usage**: The Playwright projects in `playwright.config.ts` are configured to use these storage state files, allowing tests to start in an authenticated state without having to log in each time. This significantly speeds up the test runs and makes them more reliable.
+
 ### Code Quality and Automation
 
 To maintain a high standard of code quality and prevent common errors, the project utilizes an automated pre-commit workflow.
@@ -195,7 +211,7 @@ The application defines several user tiers that control access to features and u
 *   **Anonymous User:** A user who has not signed in. The flow for this user is now functional.
 *   **Free User (Authenticated):** A user who has created an account but does not have an active Pro subscription.
 *   **Pro User (Authenticated):** A user with an active, paid subscription via Stripe.
-*   **Premium User:** A user with an active premium subscription. This tier provides access to on-device, privacy-first transcription.
+*   **Premium User:** A user with an active premium subscription. This tier provides access to on-device, privacy-first transcription. This user role is now covered by the E2E test suite.
 
 ## 6. Transcription Service (`src/services/transcription`)
 

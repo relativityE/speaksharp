@@ -1,12 +1,11 @@
-import React, { useState, FormEvent, ChangeEvent } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { supabase } from '@/lib/supabaseClient';
 import { useAuth } from '@/contexts/AuthContext';
-import { Navigate } from 'react-router-dom';
-import type { AuthError } from '@supabase/supabase-js';
+import { Navigate, useLocation } from 'react-router-dom';
 
 // --- Types and Constants ---
 
@@ -24,14 +23,12 @@ const mapError = (message: string): string => {
 
 // --- Main Component ---
 
-export const AuthPage: React.FC = () => {
-  const { session } = useAuth();
-  const [view, setView] = useState<AuthView>('sign_in');
+export default function AuthPage() {
+  const { session, loading } = useAuth();
+  const location = useLocation();
+  const [view, setView] = useState('sign_in'); // 'sign_in', 'sign_up', or 'forgot_password'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState('');
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -60,11 +57,15 @@ export const AuthPage: React.FC = () => {
     }
   };
 
-  if (session) {
-    return <Navigate to="/" />;
+  if (loading) {
+    return null; // or a loading spinner
   }
 
-  const handleViewChange = (newView: AuthView) => {
+  if (session) {
+    return <Navigate to="/" replace />;
+  }
+
+  const handleViewChange = (newView) => {
     setView(newView);
     setError(null);
     setMessage('');
@@ -129,5 +130,3 @@ export const AuthPage: React.FC = () => {
     </div>
   );
 }
-
-export default AuthPage;
