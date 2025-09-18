@@ -1,66 +1,66 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import fs from 'fs';
+import path from 'path';
 
 const PID_FILE = path.join(process.cwd(), '.vite.pid');
+const VITE_LOG = path.join(process.cwd(), 'vite.log');
 
-async function globalTeardown() {
-  console.log('--- In global teardown ---');
-  console.log('Tearing down Vite server...');
+export default async function globalTeardown() {
+  console.log('[global-teardown] Starting Vite cleanup...');
 
-  try {
-    if (!fs.existsSync(PID_FILE)) {
-      console.log('PID file not found, server may have already stopped.');
-      return;
-    }
+  let pid: number | null = null;
 
-    const pid = parseInt(fs.readFileSync(PID_FILE, 'utf-8'), 10);
-    if (isNaN(pid)) {
-      console.error('Invalid PID found in .vite.pid file.');
-      return;
-    }
+  if (fs.existsSync(PID_FILE)) {
+    pid = parseInt(fs.readFileSync(PID_FILE, 'utf-8'), 10);
+    if (isNaN(pid)) pid = null;
+  }
 
-    console.log(`Stopping server with PID group: ${pid}...`);
-    // Use negative PID to kill the entire process group, as enabled by `detached: true`
-    process.kill(-pid, 'SIGTERM');
-    console.log('Sent SIGTERM to Vite process group. Waiting for shutdown...');
-
-    // Wait up to 5 seconds for it to exit
-    const waitMs = 5000;
-    const start = Date.now();
-    while (Date.now() - start < waitMs) {
-      try {
-        process.kill(-pid, 0); // check if still alive
-        await new Promise((r) => setTimeout(r, 250));
-      } catch {
-        console.log('Vite process group exited cleanly.');
-        return;
-      }
-    }
-
-    console.warn('Vite process group did not exit after SIGTERM. Forcing SIGKILL...');
+  if (pid) {
     try {
-      process.kill(-pid, 'SIGKILL');
-      console.log('Sent SIGKILL to Vite process group.');
+      console.log(`[global-teardown] Sending SIGTERM to Vite (PID ${pid})`);
+      process.kill(-pid, 'SIGTERM');
+
+      // Wait up to 5 seconds for graceful shutdown
+      const start = Date.now();
+      while (Date.now() - start < 5000) {
+        try {
+          process.kill(pid, 0); // check if process is still alive
+          await new Promise((r) => setTimeout(r, 250));
+        } catch {
+          console.log('[global-teardown] Vite exited cleanly.');
+          break;
+        }
+      }
+
+      // Force kill if still alive
+      try {
+        process.kill(-pid, 'SIGKILL');
+        console.log('[global-teardown] Vite forcibly killed.');
+      } catch {}
     } catch (err: any) {
       if (err.code === 'ESRCH') {
-        console.log('Process group already gone before SIGKILL.');
+        console.log('[global-teardown] Process already stopped.');
       } else {
-        console.error('Error sending SIGKILL:', err);
+        console.error('[global-teardown] Error killing Vite:', err);
       }
     }
-
-  } catch (error: any) {
-    if (error.code === 'ESRCH') {
-      console.log(`Process group not found. It may have already been stopped.`);
-    } else {
-      console.error('Error during teardown:', error);
-    }
-  } finally {
-    if (fs.existsSync(PID_FILE)) {
-      fs.unlinkSync(PID_FILE);
-      console.log('Cleaned up PID file.');
-    }
+  } else {
+    console.warn('[global-teardown] PID not found or invalid.');
   }
-}
 
-export default globalTeardown;
+  // Print last 20 lines of vite.log if it exists
+  if (fs.existsSync(VITE_LOG)) {
+    console.log('--- Last 20 lines of vite.log (teardown) ---');
+    const lines = fs.readFileSync(VITE_LOG, 'utf-8').split('\n');
+    const lastLines = lines.slice(-20);
+    lastLines.forEach((line) => console.log(line));
+    console.log('--- End of vite.log ---');
+  }
+
+  // Cleanup PID file
+  if (fs.existsSync(PID_FILE)) {
+    fs.unlinkSync(PID_FILE);
+    console.log('[global-teardown] PID file cleaned up.');
+  }
+
+  console.log('[global-teardown] Finished Vite cleanup.');
+}

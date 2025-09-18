@@ -1,59 +1,70 @@
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import fetch from 'node-fetch';
 
 const PID_FILE = path.join(process.cwd(), '.vite.pid');
-let viteProcess: ChildProcess | null = null;
+const VITE_LOG = path.join(process.cwd(), 'vite.log');
+const MAX_WAIT = 30; // seconds
+const POLL_INTERVAL = 1000; // ms
 
-async function waitForVite() {
-  const maxAttempts = 30;
-  const delay = 1000;
+let vitePort = 5173; // default fallback
 
-  for (let i = 0; i < maxAttempts; i++) {
+/**
+ * Wait until Vite server responds with HTTP 200
+ */
+async function waitForVite(url: string) {
+  for (let i = 0; i < MAX_WAIT; i++) {
     try {
-      const res = await fetch('http://localhost:5173', { method: 'GET', timeout: 1000 });
-      const text = await res.text();
-      if (res.ok && text.includes('<title>SpeakSharp</title>')) {
-        console.log('[global-setup] Health check passed. Vite is fully ready.');
+      const res = await fetch(url);
+      if (res.ok) {
+        console.log(`[global-setup] Vite responded with 200 OK at ${url}`);
         return;
       }
-    } catch (err) {
-      // still starting, ignore
+    } catch {
+      // ignore errors while server is starting
     }
-    console.log(`[global-setup] Waiting for Vite to be ready... (${i + 1}/${maxAttempts})`);
-    await new Promise(r => setTimeout(r, delay));
+    console.log(`[global-setup] Waiting for Vite at ${url}... (${i + 1}/${MAX_WAIT})`);
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL));
   }
+  throw new Error(`Vite did not become ready at ${url} in time.`);
+}
 
-  // Safety Guard: If Vite never becomes ready, kill the process and throw an error.
-  console.error('[global-setup] Vite did not become ready in time. Tearing down...');
-  if (viteProcess && viteProcess.pid) {
-    // Kill the entire process group
-    try {
-        process.kill(-viteProcess.pid, 'SIGKILL');
-    } catch (e) {
-        console.error('[global-setup] Failed to kill Vite process group.', e);
-    }
+/**
+ * Parse Vite stdout for actual port
+ */
+function detectPortFromStdout(line: string) {
+  const match = line.match(/Local:\s+http:\/\/localhost:(\d+)/);
+  if (match) {
+    vitePort = parseInt(match[1], 10);
+    console.log(`[global-setup] Vite URL detected: http://localhost:${vitePort}/`);
   }
-  throw new Error('Vite did not become ready in time.');
 }
 
 export default async function globalSetup() {
-  console.log('[global-setup] Starting Vite...');
+  console.log('[global-setup] Starting Vite server...');
 
-  viteProcess = spawn('pnpm', ['run', 'dev:test'], {
-    stdio: 'pipe',
-    detached: true // This is the key to creating a new process group
-  });
+  // Spawn Vite in detached mode
+  const vite: ChildProcessWithoutNullStreams = spawn(
+    'pnpm',
+    ['vite', '--mode', 'test', '--host', '--port', '5173'],
+    { shell: true, detached: true }
+  );
 
-  if (!viteProcess || !viteProcess.pid) {
-    throw new Error('Vite process failed to start.');
-  }
+  if (!vite.pid) throw new Error('Failed to start Vite server.');
+  fs.writeFileSync(PID_FILE, String(vite.pid));
+  console.log(`[global-setup] Vite PID: ${vite.pid}, logs at ${VITE_LOG}`);
 
-  fs.writeFileSync(PID_FILE, String(viteProcess.pid));
+  // Pipe stdout/stderr to vite.log and detect actual port
+  const logStream = fs.createWriteStream(VITE_LOG, { flags: 'a' });
+  vite.stdout.pipe(logStream);
+  vite.stderr.pipe(logStream);
 
-  viteProcess.stdout?.on('data', (data) => process.stdout.write(`[vite] ${data}`));
-  viteProcess.stderr?.on('data', (data) => process.stderr.write(`[vite:err] ${data}`));
+  vite.stdout.on('data', (chunk) => detectPortFromStdout(chunk.toString()));
 
-  await waitForVite();
+  // Wait until Vite responds on the detected port
+  const viteUrl = `http://localhost:${vitePort}/`;
+  await waitForVite(viteUrl);
+
+  console.log('[global-setup] Vite server ready. Playwright can now run tests.');
 }
