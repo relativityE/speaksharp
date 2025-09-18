@@ -48,6 +48,16 @@ export default tseslint.config(
     },
   },
 
+  // Config for scripts
+  {
+    files: ['scripts/**/*.js'],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
+    },
+  },
+
   // Config for Test files
   {
     files: ['**/*.{test,spec}.{js,jsx,ts,tsx}'],

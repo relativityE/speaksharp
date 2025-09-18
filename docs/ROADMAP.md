@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-09-08
+**Last Reviewed:** 2025-09-18
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -22,8 +22,6 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 - ✅ **Technical Debt: Remediate and Stabilize the Test Suite Environment**
   - **Resolution:** The E2E test environment has been completely stabilized. All configuration conflicts, dependency issues, and environment variable loading problems have been resolved. The test suite is now fully runnable. The remaining E2E test failures are due to specific, identifiable bugs in the application's UI code, which can now be addressed.
 - ✅ **Implement "Free User Quota" E2E test:** An E2E test for the 'Free' user role has been added.
-- 🔴 **Create `premium.e2e.spec.ts` Test:** Create a new E2E test for the premium user flow to verify on-device transcription and other premium features.
-- 🔴 **Create `premium.e2e.spec.ts` Test:** Create a new E2E test for the premium user flow to verify on-device transcription and other premium features.
 
 ### 🚧 Should-Have (Tech Debt)
 - 🟡 **Migrate "Low Hanging Fruit" JS to TypeScript:** Convert simple, non-critical JavaScript files to TypeScript to improve type safety.
@@ -57,7 +55,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 This phase is about confirming the core feature set works as expected and polishing the user experience before wider release.
 
 ### 🎯 Must-Have
-- ✅ **Implement On-Device 'Local Transcript' Mode (`[C-04]`):** Implemented a fully on-device, privacy-first transcription mode for Premium users using `@xenova/transformers`.
+- ✅ **Implement On-Device 'Local Transcript' Mode (`[C-04]`):** Implemented a fully on-device, privacy-first transcription mode for Pro users using `@xenova/transformers`.
   - ✅ 1. Research & Select Model
   - ✅ 2. Create LocalWhisper Provider
   - ✅ 3. Integrate Model & Audio Processing
@@ -83,7 +81,7 @@ This phase is about confirming the core feature set works as expected and polish
 - 🔴 **Improve Accessibility:** Use an ARIA live region for the transcript so screen readers can announce new lines.
 - 🔴 **Add Deno unit tests for the token endpoint.**
 - 🔴 **Add a soak test:** Create a test that runs for 1-minute with continuous audio to check for memory leaks or hangs.
-- ✅ **Create e2e tests for different user roles (anonymous, free, pro).** E2E tests now exist for anonymous, free, pro, and premium user flows.
+- ✅ **Create e2e tests for different user roles (anonymous, free, pro).** E2E tests now exist for anonymous, free, and pro user flows.
 
 ### Gating Check
 - ✅ **Bring all documentation up to date to reflect latest/current code implementation**
@@ -123,4 +121,10 @@ The process of debugging the E2E suite revealed several areas of technical debt:
 
 4.  **Redundant Mocking Logic**: The current Stripe mock is defined in `tests/mocks/stripe.js` and applied in `vite.config.mjs`. A cleaner, more maintainable approach would be to create a global `beforeEach` hook in the Playwright setup to apply this and other mocks to all test files automatically, reducing code duplication.
 
-5.  **Skipped DB Migration for Tier Consolidation**: The task to consolidate user tiers from four to two requires a database migration to update existing 'premium' users to 'pro'. This was skipped due to a persistent, unresolvable issue with the `create_file_with_block` tool, which prevented the creation of the SQL migration file. This must be addressed before the consolidation can be considered complete.
+5.  **[IN PROGRESS] Tier Consolidation from 4 Tiers to 2**: This task is to consolidate the user tiers from four (Anonymous, Free, Pro, Premium) to two (Free, Pro).
+    *   **DONE:** A database migration script (`20250918093711_consolidate_premium_to_pro.sql`) has been created to migrate existing 'premium' users to 'pro'.
+    *   **TO DO:** The application code and tests have **not** been updated to reflect this change. The next developer must:
+        *   Update the `SubscriptionStatus` type in `src/types/user.ts`.
+        *   Update the feature gating logic in `src/services/transcription/TranscriptionService.ts` to grant Pro users access to on-device transcription.
+        *   Update `supabase/seed.sql` to remove any 'premium' test users.
+        *   Update the E2E tests in `tests/e2e/` to remove the 'premium' user flow and validate the new Pro tier features.

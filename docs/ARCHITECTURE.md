@@ -5,7 +5,7 @@
 
 # SpeakSharp System Architecture
 
-**Version 2.3** | **Last Updated: 2025-09-17**
+**Version 3.0** | **Last Updated: 2025-09-18**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -42,9 +42,8 @@ This section contains a high-level block diagram of the SpeakSharp full-stack ar
 |    +---------------------------------+       +---------------------------------+                 ^              |
 |    | TranscriptionService            |                   ^                                       |              |
 |    |---------------------------------|                   |                                       |              |
-|    | - `CloudAssemblyAI` (Pro)       |-------------------+                                       |              |
+|    | - `CloudAssemblyAI / LocalWhisper` (Pro)       |-------------------+                                       |
 |    | - `NativeBrowser` (Free/Fallback) |                 |                                       |              |
-|    | - `LocalWhisper` (Premium)      |                   |                                       |              |
 |    +---------------------------------+       +---------------------------------+                 |              |
 |              |                                | Deno Edge Functions             |-----------------+              |
 |              v                                |---------------------------------|                                |
@@ -145,21 +144,20 @@ The backend is built entirely on the Supabase platform, leveraging its integrate
 
 ## 5. User Roles and Tiers
 
-The application defines several user tiers that control access to features and usage limits.
+The application is in the process of consolidating its user tiers. See [ROADMAP.md](./ROADMAP.md) for current status. The target state is:
 
-*   **Anonymous User:** A user who has not signed in. The flow for this user is now functional.
+*   **Anonymous User:** A user who has not signed in.
 *   **Free User (Authenticated):** A user who has created an account but does not have an active Pro subscription.
-*   **Pro User (Authenticated):** A user with an active, paid subscription via Stripe.
-*   **Premium User:** A user with an active premium subscription. This tier provides access to on-device, privacy-first transcription. This user role is now covered by the E2E test suite.
+*   **Pro User (Authenticated):** A user with an active, paid subscription via Stripe. This tier includes all features, such as unlimited practice time, cloud-based AI transcription, and privacy-preserving on-device transcription.
 
 ## 6. Transcription Service (`src/services/transcription`)
 
-The `TranscriptionService.js` provides a unified abstraction layer over multiple transcription providers.
+The `TranscriptionService.ts` provides a unified abstraction layer over multiple transcription providers.
 
 *   **Modes:**
-    *   **`CloudAssemblyAI`:** Uses the AssemblyAI v3 streaming API for high-accuracy cloud-based transcription. This is the primary mode for Pro users.
+    *   **`CloudAssemblyAI`:** Uses the AssemblyAI v3 streaming API for high-accuracy cloud-based transcription. This is one of the modes available to Pro users.
     *   **`NativeBrowser`:** Uses the browser's built-in `SpeechRecognition` API. This is the primary mode for Free users and a fallback for Pro users.
-    *   **`LocalWhisper`:** An on-device, privacy-first transcription mode for Premium users, powered by `@xenova/transformers` running a Whisper model directly in the browser.
+    *   **`LocalWhisper`:** An on-device, privacy-first transcription mode for Pro users, powered by `@xenova/transformers` running a Whisper model directly in the browser.
 *   **Audio Processing:** `audioUtils.js` and `audio-processor.worklet.js` are responsible for capturing and resampling microphone input. A critical bug in the resampling logic that was degrading AI quality has been fixed.
 
 ### On-Device STT Implementation Details

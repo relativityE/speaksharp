@@ -5,7 +5,7 @@
 
 # SpeakSharp Product Requirements Document
 
-**Version 7.1** | **Last Updated: 2025-09-08**
+**Version 8.0** | **Last Updated: 2025-09-18**
 
 ## 1. Executive Summary
 
@@ -65,13 +65,14 @@ This section contains ASCII art diagrams illustrating the journey for each user 
                                     +---------------------+
                                     |    Pricing Page     |
                                     +---------------------+
-                                     |                 |
-                           +---------v---------+     +---------v---------+
-                           | [Pro User]          |     | [Premium User]      |
-                           | (Via Stripe)        |     | (Via Stripe)        |
-                           | - Unlimited Time    |     | - All Pro features  |
-                           | - Cloud AI          |     | - On-device STT     |
-                           +---------------------+     +---------------------+
+                                              |
+                                    +---------------------+
+                                    | [Pro User]          |
+                                    | (Via Stripe)        |
+                                    | - Unlimited Time    |
+                                    | - Cloud AI          |
+                                    | - On-device STT     |
+                                    +---------------------+
 ```
 
 ### Feature Set (MoSCoW)
@@ -235,6 +236,4 @@ This section provides high-level insights into the SpeakSharp project from multi
 *   **Free User (Authenticated):**
     *   **Recommendation:** The 10 minutes/month and 20-minute session limits are good for encouraging upgrades. Ensure the UpgradePromptDialog is well-designed, clearly communicates the benefits of upgrading, and appears at the moment of highest user engagement.
 *   **Pro User (Authenticated):**
-    *   **Recommendation:** This remains the core paid offering. Ensure the value proposition of "unlimited practice" and "Cloud AI transcription" is clearly communicated. The fallback to Native Browser is a good technical resilience feature.
-*   **Premium User (New Tier):**
-    *   **Recommendation:** This new tier effectively segments users who prioritize privacy (on-device transcription) and data ownership (download session data). Position this as the ultimate privacy and control tier. Consider a slightly higher price point than Pro, as it offers unique benefits. Ensure the technical implementation of on-device transcription is robust and performs well to justify the premium.
+    *   **Recommendation:** This remains the core paid offering. The value proposition should be clear: "unlimited practice," "Cloud AI transcription," and the key differentiator of "on-device transcription" for enhanced privacy. The fallback to Native Browser is a good technical resilience feature.
