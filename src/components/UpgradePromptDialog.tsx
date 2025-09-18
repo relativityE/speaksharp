@@ -39,12 +39,12 @@ export const UpgradePromptDialog: React.FC<UpgradePromptDialogProps> = ({ open, 
         <AlertDialogHeader>
           <AlertDialogTitle>Unlock Your Full Potential</AlertDialogTitle>
           <AlertDialogDescription>
-            You've had a great session! Upgrade to Pro to save your full session history, get advanced analytics, and practice without limits.
+            You've had a great session! Upgrade to a paid plan to save your full session history, get advanced analytics, and practice without limits.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Maybe Later</AlertDialogCancel>
-          <AlertDialogAction onClick={handleUpgrade}>Upgrade to Pro</AlertDialogAction>
+          <AlertDialogAction onClick={handleUpgrade} data-testid="upgrade-prompt-dialog-upgrade-button">View Plans</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

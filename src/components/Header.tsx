@@ -29,15 +29,16 @@ export const Header: React.FC = () => {
                 <div className="flex items-center gap-4">
                     <nav className="hidden md:flex items-center gap-4">
                         <NavLink to="/session" className={getNavLinkClass}>Session</NavLink>
+                        <NavLink to="/pricing" className={getNavLinkClass}>Pricing</NavLink>
                         {sessionHistory && sessionHistory.length > 0 ? (
                             <NavLink to="/analytics" className={getNavLinkClass}>Analytics</NavLink>
                         ) : (
                             <span className={`flex items-center px-3 py-2 rounded-md text-base font-medium text-muted-foreground ${disabledLinkClasses}`} title="Complete a session to view analytics">Analytics</span>
                         )}
                         {user ? (
-                            <Button variant="outline" onClick={signOut}>Logout</Button>
+                            <Button variant="outline" onClick={signOut} data-testid="sign-out-button">Logout</Button>
                         ) : (
-                            <Button asChild><NavLink to="/auth">Sign In</NavLink></Button>
+                            <Button asChild><NavLink to="/auth" data-testid="sign-in-link">Sign In</NavLink></Button>
                         )}
                     </nav>
                 </div>

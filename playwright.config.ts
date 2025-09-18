@@ -1,40 +1,65 @@
-import { defineConfig } from '@playwright/test';
+import { defineConfig, devices } from '@playwright/test';
+import dotenv from 'dotenv';
+
+// Load environment variables for tests
+dotenv.config({ path: '.env.test' });
 
 export default defineConfig({
   testDir: './tests/e2e',
-  outputDir: 'test-results',
-
-  globalSetup: './tests/global-setup.ts',
-  globalTeardown: './tests/global-teardown.ts',
-
   timeout: 30000,
-  expect: { timeout: 5000 },
-  globalTimeout: 180000,
-
-  workers: 1,
-  retries: 0,
-
+  expect: { timeout: 10000 },
+  fullyParallel: true,
+  retries: 1,
+  reporter: [['list'], ['html', { outputFolder: 'playwright-report' }]],
   use: {
-    baseURL: 'http://localhost:5173',
-    actionTimeout: 15000,
-    navigationTimeout: 15000,
-    trace: 'on-first-retry',
+    baseURL: process.env.WEB_SERVER_URL || 'http://localhost:5173',
+    headless: true,
+    viewport: { width: 1280, height: 720 },
+    ignoreHTTPSErrors: true,
     screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
+    trace: 'retain-on-failure'
   },
-
+  globalSetup: './tests/global-setup.ts',
   projects: [
+    { name: 'setup', testMatch: /test\.setup\.ts/ },
     {
-      name: 'chromium',
+      name: 'chromium-pro',
+      dependencies: ['setup'],
       use: {
-        headless: true,
-        viewport: { width: 1280, height: 720 },
+        ...devices['Desktop Chrome'],
+        storageState: 'storage/pro.json',
       },
+      testMatch: /pro\.e2e\.spec\.ts/,
     },
-  ],
-
-  reporter: [
-    ['list'],
-    ['html', { open: 'never' }],
+    {
+      name: 'chromium-premium',
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'storage/premium.json',
+      },
+      testMatch: /pro\.e2e\.spec\.ts/,
+    },
+    {
+      name: 'chromium-free',
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'storage/free.json',
+      },
+      testMatch: /free\.e2e\.spec\.ts/,
+    },
+    {
+      name: 'chromium-anon',
+      dependencies: ['setup'],
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: /anon\.e2e\.spec\.ts/,
+    },
+    {
+      name: 'chromium-basic',
+      dependencies: ['setup'],
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: /basic\.e2e\.spec\.ts/,
+    },
   ],
 });

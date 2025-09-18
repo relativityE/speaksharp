@@ -4,6 +4,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { SessionPage } from './pages/SessionPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import AuthPage from './pages/AuthPage';
+import { PricingPage } from './pages/PricingPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { HomePage } from './pages/HomePage';
 
@@ -15,6 +16,7 @@ const App: React.FC = () => {
         <Routes>
           <Route path="/auth" element={<AuthPage />} />
           <Route path="/" element={<HomePage />} />
+          <Route path="/pricing" element={<PricingPage />} />
           <Route
             path="/session"
             element={

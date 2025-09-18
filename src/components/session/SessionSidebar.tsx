@@ -82,7 +82,7 @@ const ModelLoadingIndicator: React.FC<ModelLoadingIndicatorProps> = ({ progress 
         statusText = `Downloading model: ${progress.file} (${loaded}MB / ${total}MB)`;
     }
     return (
-        <div className="space-y-2 pt-2">
+        <div className="space-y-2 pt-2" data-testid="model-loading-indicator">
             <p className="text-xs text-muted-foreground text-center">{statusText}</p>
             {progress.status === 'download' && <Progress value={progressPercent} />}
         </div>
@@ -103,9 +103,9 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
     const [forceNative, setForceNative] = useState(false);
 
     const [showEndSessionDialog, setShowEndSessionDialog] = useState(false);
-    const [completedSessions, setCompletedSessions] = useState<PracticeSession[]>([]);
+    const [completedSessions, setCompletedSessions] = useState([]);
 
-    const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
+    const isPro = profile?.subscription_status === 'pro';
     const isModelLoading = modelLoadingProgress && modelLoadingProgress.status !== 'ready' && modelLoadingProgress.status !== 'error';
     const isConnecting = isListening && !isReady;
 
@@ -194,8 +194,8 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
     };
 
     return (
-        <div className="flex flex-col gap-6 h-full">
-            <Card className="w-full flex flex-col flex-grow">
+        <div className="flex flex-col gap-6 h-full" data-testid="session-sidebar">
+            <Card className="w-full flex flex-col flex-grow" data-testid="session-sidebar-card">
                 <CardHeader>
                      <div className="flex justify-between items-center">
                         <CardTitle className="text-base">Session Mode</CardTitle>
@@ -210,7 +210,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                         <div className={`text-xl font-semibold ${isListening && isReady ? 'text-green-500' : 'text-muted-foreground'}`}>
                             {isConnecting ? 'Connecting...' : (isListening ? 'Session Active' : (isModelLoading ? 'Initializing...' : 'Ready'))}
                         </div>
-                        <Button onClick={handleStartStop} size="lg" variant={isListening ? 'destructive' : 'default'} className="w-full h-16 text-xl font-bold rounded-lg" disabled={isListening ? isEndingSession : (isModelLoading || isConnecting)}>
+                        <Button onClick={handleStartStop} size="lg" variant={isListening ? 'destructive' : 'default'} className="w-full h-16 text-xl font-bold rounded-lg" disabled={isListening ? isEndingSession : (isModelLoading || isConnecting)} data-testid="session-start-stop-button">
                             {isListening ? <><Square className="w-4 h-4 mr-2" /> Stop Session</> : (isModelLoading || isConnecting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {isConnecting ? 'Connecting...' : 'Initializing...'}</> : <><Mic className="w-4 h-4 mr-2" /> Start Session</>)}
                         </Button>
                     </div>
@@ -236,8 +236,12 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                     {!isPro && (
                         <div className="mt-auto pt-4 border-t">
                             <div className="flex items-center gap-2 text-primary mb-2"><Zap className="w-4 h-4" /><h4 className="font-semibold text-sm">Upgrade to Pro</h4></div>
-                            <p className="text-xs text-muted-foreground mb-2">Get unlimited practice, advanced analytics, and priority support.</p>
-                            <Button size="sm" className="w-full font-bold group" onClick={() => navigate('/#pricing')} >Upgrade Now</Button>
+                            <p className="text-xs text-muted-foreground mb-2">
+                                Get unlimited practice, advanced analytics, and priority support.
+                            </p>
+                            <Button size="sm" className="w-full font-bold group" variant="outline" disabled={true} data-testid="session-sidebar-upgrade-button">
+                                Upgrade
+                            </Button>
                         </div>
                     )}
                 </CardContent>

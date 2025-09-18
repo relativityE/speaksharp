@@ -14,7 +14,7 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({ error }) => {
   const errorMessage = typeof error === 'string' ? error : error.message;
 
   return (
-    <Alert variant="error" size="md" className="mb-6 max-w-2xl mx-auto">
+    <Alert variant="error" size="md" className="mb-6 max-w-2xl mx-auto" data-testid="error-display">
       <AlertCircle className="h-5 w-5" />
       <div>
         <h5 className="font-bold">An Error Occurred</h5>
