@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, FormEvent, ChangeEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { supabase } from '@/lib/supabaseClient';
+import { AuthError } from '@supabase/supabase-js';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate, useLocation } from 'react-router-dom';
 
@@ -29,6 +30,9 @@ export default function AuthPage() {
   const [view, setView] = useState('sign_in'); // 'sign_in', 'sign_up', or 'forgot_password'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -65,7 +69,7 @@ export default function AuthPage() {
     return <Navigate to="/" replace />;
   }
 
-  const handleViewChange = (newView) => {
+  const handleViewChange = (newView: AuthView) => {
     setView(newView);
     setError(null);
     setMessage('');

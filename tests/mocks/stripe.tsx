@@ -9,10 +9,12 @@ export async function loadStripe(): Promise<Stripe | null> {
   return Promise.resolve(mockStripe);
 }
 
+import { StripeElementsOptions } from '@stripe/stripe-js';
+
 interface ElementsProps {
   children: React.ReactNode;
   stripe?: Promise<Stripe | null> | Stripe | null;
-  options?: any;
+  options?: StripeElementsOptions;
 }
 
 export const Elements: React.FC<ElementsProps> = ({ children }) => {

@@ -1,16 +1,28 @@
-import { test as setup } from '@playwright/test';
+import { test as setup, Page } from '@playwright/test';
 import { TEST_USER_PRO, TEST_USER_FREE } from '../constants';
 import { loginUser } from './helpers';
 
 const PRO_STORAGE_STATE = 'storage/pro.json';
 const FREE_STORAGE_STATE = 'storage/free.json';
 
+const mockStripe = async (page: Page) => {
+  await page.route('https://js.stripe.com/v3/', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/javascript',
+      body: 'console.log("Stripe.js mocked");',
+    });
+  });
+};
+
 setup('authenticate users', async ({ browser }) => {
   const proPage = await browser.newPage();
+  await mockStripe(proPage);
   await loginUser(proPage, TEST_USER_PRO.email, TEST_USER_PRO.password);
   await proPage.context().storageState({ path: PRO_STORAGE_STATE });
 
   const freePage = await browser.newPage();
+  await mockStripe(freePage);
   await loginUser(freePage, TEST_USER_FREE.email, TEST_USER_FREE.password);
   await freePage.context().storageState({ path: FREE_STORAGE_STATE });
 });

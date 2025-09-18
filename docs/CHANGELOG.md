@@ -7,10 +7,12 @@ Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) style with sligh
 ---
 
 ## [2025-09-18]
+### Fixed
+- **Stabilized TypeScript Build:** Resolved all critical `tsc` compilation errors across the entire codebase. The application is now fully type-safe and buildable. This involved fixing missing dependencies, correcting dozens of type mismatches in component props and state hooks, and updating type definitions to be consistent.
+
 ### Changed
-- **Prepared for User Tier Consolidation:** This change prepares the application for a user tier consolidation from four tiers to two.
-  - **Added:** A database migration script (`20250918093711_consolidate_premium_to_pro.sql`) was created to migrate 'premium' users to 'pro'.
-  - **Changed:** Updated all relevant documentation (`ROADMAP.md`, `ARCHITECTURE.md`) to reflect the in-progress nature of this task and to provide a clear path forward for the next developer to complete the necessary code and test changes.
+- **Completed User Tier Consolidation:** Finished the consolidation of user tiers from four to two ('Free' and 'Pro'). All application code, database seeds, and test files have been updated to remove the legacy 'premium' tier.
+- **Refactored E2E Test Mocks:** The Stripe mock for E2E tests was refactored from a Vite build-time alias to a more robust network-level intercept in the Playwright global setup.
 
 ## [2025-09-17]
 ### Merged
