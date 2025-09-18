@@ -1,63 +1,66 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import fs from 'fs';
+import path from 'path';
 
 const PID_FILE = path.join(process.cwd(), '.vite.pid');
+const VITE_LOG = path.join(process.cwd(), 'vite.log');
 
-async function globalTeardown() {
-  console.log('--- In global teardown ---');
+export default async function globalTeardown() {
+  console.log('[global-teardown] Starting Vite cleanup...');
 
-  // Try to read the screenshot file and log it as base64
-  const screenshotPath = path.join(
-    process.cwd(),
-    'test-results',
-    'anon.e2e-Anonymous-User-Flow-start-temporary-session-chromium',
-    'test-failed-1.png'
-  );
+  let pid: number | null = null;
 
-  try {
-    if (fs.existsSync(screenshotPath)) {
-      console.log(`Attempting to read screenshot from: ${screenshotPath}`);
-      const screenshotContent = fs.readFileSync(screenshotPath, { encoding: 'base64' });
-      console.log('--- SCREENSHOT_BASE64_START ---');
-      console.log(screenshotContent);
-      console.log('--- SCREENSHOT_BASE64_END ---');
-    } else {
-      console.warn(`Screenshot not found at path: ${screenshotPath}`);
-    }
-  } catch (e: any) {
-    console.warn('Could not read screenshot file:', e.message);
+  if (fs.existsSync(PID_FILE)) {
+    pid = parseInt(fs.readFileSync(PID_FILE, 'utf-8'), 10);
+    if (isNaN(pid)) pid = null;
   }
 
-  console.log('Tearing down Vite server...');
+  if (pid) {
+    try {
+      console.log(`[global-teardown] Sending SIGTERM to Vite (PID ${pid})`);
+      process.kill(-pid, 'SIGTERM');
 
-  try {
-    if (!fs.existsSync(PID_FILE)) {
-      console.log('PID file not found, server may have already stopped.');
-      return;
-    }
+      // Wait up to 5 seconds for graceful shutdown
+      const start = Date.now();
+      while (Date.now() - start < 5000) {
+        try {
+          process.kill(pid, 0); // check if process is still alive
+          await new Promise((r) => setTimeout(r, 250));
+        } catch {
+          console.log('[global-teardown] Vite exited cleanly.');
+          break;
+        }
+      }
 
-    const pid = parseInt(fs.readFileSync(PID_FILE, 'utf-8'), 10);
-    if (isNaN(pid)) {
-      console.error('Invalid PID found in .vite.pid file.');
-      return;
+      // Force kill if still alive
+      try {
+        process.kill(-pid, 'SIGKILL');
+        console.log('[global-teardown] Vite forcibly killed.');
+      } catch {}
+    } catch (err: any) {
+      if (err.code === 'ESRCH') {
+        console.log('[global-teardown] Process already stopped.');
+      } else {
+        console.error('[global-teardown] Error killing Vite:', err);
+      }
     }
-
-    console.log(`Stopping server with PID: ${pid}...`);
-    process.kill(pid, 'SIGTERM');
-    console.log('Sent SIGTERM to Vite server.');
-
-  } catch (error: any) {
-    if (error.code === 'ESRCH') {
-      console.log(`Process with PID ${error.pid} not found. It may have already been stopped.`);
-    } else {
-      console.error('Error during teardown:', error);
-    }
-  } finally {
-    if (fs.existsSync(PID_FILE)) {
-      fs.unlinkSync(PID_FILE);
-      console.log('Cleaned up PID file.');
-    }
+  } else {
+    console.warn('[global-teardown] PID not found or invalid.');
   }
+
+  // Print last 20 lines of vite.log if it exists
+  if (fs.existsSync(VITE_LOG)) {
+    console.log('--- Last 20 lines of vite.log (teardown) ---');
+    const lines = fs.readFileSync(VITE_LOG, 'utf-8').split('\n');
+    const lastLines = lines.slice(-20);
+    lastLines.forEach((line) => console.log(line));
+    console.log('--- End of vite.log ---');
+  }
+
+  // Cleanup PID file
+  if (fs.existsSync(PID_FILE)) {
+    fs.unlinkSync(PID_FILE);
+    console.log('[global-teardown] PID file cleaned up.');
+  }
+
+  console.log('[global-teardown] Finished Vite cleanup.');
 }
-
-export default globalTeardown;

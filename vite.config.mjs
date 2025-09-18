@@ -35,8 +35,8 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
       // Conditionally mock Stripe modules only when Playwright is running
       ...(process.env.PLAYWRIGHT_TEST && {
-        '@stripe/stripe-js': path.resolve(__dirname, 'tests/mocks/stripe.js'),
-        '@stripe/react-stripe-js': path.resolve(__dirname, 'tests/mocks/stripe.js'),
+        '@stripe/stripe-js': path.resolve(__dirname, 'tests/mocks/stripe.jsx'),
+        '@stripe/react-stripe-js': path.resolve(__dirname, 'tests/mocks/stripe.jsx'),
       }),
     },
   }

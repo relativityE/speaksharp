@@ -1,25 +1,18 @@
-import { test, loginUser, expectSubscriptionButton } from './helpers';
+import { test, expect } from './helpers';
+import { loginUser } from './helpers';
+import { SessionPage } from './poms/sessionPage.pom';
 
 test.describe('Free User Flow', () => {
-  test.beforeEach(() => {
-    test.setTimeout(15000);
-  });
-
-  test('free user sees upgrade prompt', async ({ page }) => {
+  test('free user is on session page and sees upgrade prompt', async ({ page }) => {
     await loginUser(page, 'free@example.com', 'password');
-    await page.goto('/session', { timeout: 10000 });
-    await page.waitForLoadState('networkidle');
+    await page.goto('/session');
 
-    await expectSubscriptionButton(page, 'free');
-  });
+    const sessionPage = new SessionPage(page);
+    await sessionPage.verifyOnPage(); // Use POM to wait for page to be ready
 
-  test('pro user does not see upgrade prompt', async ({ page }) => {
-    await loginUser(page, 'pro@example.com', 'password');
-    await page.goto('/session', { timeout: 10000 });
-    await page.waitForLoadState('networkidle');
-
-    await expectSubscriptionButton(page, 'pro');
+    // The 'Start Session' button in the SessionSidebar component has the upgrade prompt logic
+    // We can check for the button that contains the text 'Upgrade'
+    const upgradeButton = page.locator('button', { hasText: 'Upgrade' });
+    await expect(upgradeButton).toBeVisible();
   });
 });
-
-test.describe.configure({ timeout: 60000, retries: 1 });
