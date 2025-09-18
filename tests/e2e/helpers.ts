@@ -3,6 +3,10 @@ import { stubThirdParties } from './sdkStubs';
 import fs from 'fs';
 import { AuthPage } from './poms/authPage.pom';
 
+interface WindowWithUser extends Window {
+  __USER__?: { subscription_status: 'free' | 'pro' };
+}
+
 export async function dumpPageState(page: Page, name = 'failure') {
   try {
     const html = await page.content();
@@ -127,12 +131,12 @@ export async function stopSession(page: Page) {
 /**
  * Waits for the user profile to be loaded and asserts upgrade button visibility
  * @param page Playwright Page
- * @param subscription 'free' | 'pro' | 'premium'
+ * @param subscription 'free' | 'pro'
  */
-export async function expectSubscriptionButton(page: Page, subscription: 'free' | 'pro' | 'premium') {
+export async function expectSubscriptionButton(page: Page, subscription: 'free' | 'pro') {
   // Wait until the profile is loaded in test mode and has the correct subscription status
   await page.waitForFunction(
-    (sub) => (window as any).__USER__?.subscription_status === sub,
+    (sub) => (window as WindowWithUser).__USER__?.subscription_status === sub,
     subscription
   );
 
