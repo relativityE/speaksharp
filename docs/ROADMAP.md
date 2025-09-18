@@ -24,11 +24,12 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 - ✅ **Implement "Free User Quota" E2E test:** An E2E test for the 'Free' user role has been added.
 
 ### 🚧 Should-Have (Tech Debt)
-- 🟡 **Migrate "Low Hanging Fruit" JS to TypeScript:** Convert simple, non-critical JavaScript files to TypeScript to improve type safety.
+- ✅ **Migrate "Low Hanging Fruit" JS to TypeScript:** Convert simple, non-critical JavaScript files to TypeScript to improve type safety.
   - ✅ `src/utils/fillerWordUtils.js`
-  - 🔴 `src/lib/dateUtils.js`
-  - 🔴 `src/lib/analyticsUtils.js`
-  - 🔴 `src/hooks/useBrowserSupport.js`
+  - ✅ `src/lib/dateUtils.js`
+  - ✅ `src/lib/analyticsUtils.js`
+  - ✅ `src/hooks/useBrowserSupport.js`
+  - ✅ `tests/mocks/stripe.jsx`
 - 🔴 **Refactor Integration Tests:** Slim down component tests (`SessionSidebar`, `AnalyticsPage`, etc.) to remove redundant coverage now handled by E2E tests.
 - 🔴 **Create Troubleshooting Guide:** Add error recovery steps to the documentation.
 - 🔴 **Harden Supabase Security:** Address security advisor warnings.
@@ -119,12 +120,6 @@ The process of debugging the E2E suite revealed several areas of technical debt:
 
 3.  **Incomplete Test Coverage**: While the `pro` user flow has been the focus, other test suites (`anon.e2e.spec.ts`, `free.e2e.spec.ts`, `basic.e2e.spec.ts`) have not been run against the new, stabilized environment. They will likely need similar updates and fixes.
 
-4.  **Redundant Mocking Logic**: The current Stripe mock is defined in `tests/mocks/stripe.js` and applied in `vite.config.mjs`. A cleaner, more maintainable approach would be to create a global `beforeEach` hook in the Playwright setup to apply this and other mocks to all test files automatically, reducing code duplication.
+4.  **✅ Redundant Mocking Logic**: The Stripe mock has been refactored from a Vite alias into a global network intercept in the Playwright setup, improving test stability and maintainability.
 
-5.  **[IN PROGRESS] Tier Consolidation from 4 Tiers to 2**: This task is to consolidate the user tiers from four (Anonymous, Free, Pro, Premium) to two (Free, Pro).
-    *   **DONE:** A database migration script (`20250918093711_consolidate_premium_to_pro.sql`) has been created to migrate existing 'premium' users to 'pro'.
-    *   **TO DO:** The application code and tests have **not** been updated to reflect this change. The next developer must:
-        *   Update the `SubscriptionStatus` type in `src/types/user.ts`.
-        *   Update the feature gating logic in `src/services/transcription/TranscriptionService.ts` to grant Pro users access to on-device transcription.
-        *   Update `supabase/seed.sql` to remove any 'premium' test users.
-        *   Update the E2E tests in `tests/e2e/` to remove the 'premium' user flow and validate the new Pro tier features.
+5.  **✅ Tier Consolidation from 4 Tiers to 2**: The user tiers have been consolidated to two (`Free`, `Pro`). All application code, database seeds, and tests have been updated to reflect this change.

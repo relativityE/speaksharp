@@ -1,14 +1,6 @@
 import logger from '../../../lib/logger';
 import { ITranscriptionMode, TranscriptionModeOptions, Transcript } from './types';
 
-// Extend the window object for non-standard properties
-declare global {
-  interface Window {
-    webkitSpeechRecognition: any;
-    __E2E_MODE__?: boolean;
-  }
-}
-
 // A simplified interface for the SpeechRecognition event
 interface SpeechRecognitionEvent extends Event {
   resultIndex: number;

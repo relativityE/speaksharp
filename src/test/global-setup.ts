@@ -1,4 +1,4 @@
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+
 const dotenv = require('dotenv');
 import path from 'path';
 
