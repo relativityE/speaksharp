@@ -1,56 +1,59 @@
-import { spawn } from 'child_process';
-import * as fs from 'fs';
-import * as path from 'path';
-import http from 'http';
+import { spawn, ChildProcess } from 'child_process';
+import fs from 'fs';
+import path from 'path';
+import fetch from 'node-fetch';
 
 const PID_FILE = path.join(process.cwd(), '.vite.pid');
+let viteProcess: ChildProcess | null = null;
 
-function loadEnvVars() {
-  const envFile = path.resolve('.env.test');
-  if (!fs.existsSync(envFile)) return;
-  for (const line of fs.readFileSync(envFile, 'utf-8').split('\n')) {
-    const m = line.match(/^([^#=]+)=(.*)$/);
-    if (m) process.env[m[1]] = m[2].replace(/"/g, '');
-  }
-  console.log('[global-setup] Loaded .env.test');
-}
+async function waitForVite() {
+  const maxAttempts = 30;
+  const delay = 1000;
 
-async function waitForViteReady() {
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < maxAttempts; i++) {
     try {
-      await new Promise<void>((resolve, reject) => {
-        const req = http.get('http://localhost:5173', { timeout: 1000 }, res => {
-          if (res.statusCode === 200) resolve();
-          else reject(new Error('Bad status: ' + res.statusCode));
-        });
-        req.on('error', reject);
-        req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
-      });
-      console.log('[global-setup] Vite is ready.');
-      return;
-    } catch {
-      console.log(`[global-setup] Waiting for Vite...`);
-      await new Promise(r => setTimeout(r, 1000));
+      const res = await fetch('http://localhost:5173', { method: 'GET', timeout: 1000 });
+      const text = await res.text();
+      if (res.ok && text.includes('<title>SpeakSharp</title>')) {
+        console.log('[global-setup] Health check passed. Vite is fully ready.');
+        return;
+      }
+    } catch (err) {
+      // still starting, ignore
+    }
+    console.log(`[global-setup] Waiting for Vite to be ready... (${i + 1}/${maxAttempts})`);
+    await new Promise(r => setTimeout(r, delay));
+  }
+
+  // Safety Guard: If Vite never becomes ready, kill the process and throw an error.
+  console.error('[global-setup] Vite did not become ready in time. Tearing down...');
+  if (viteProcess && viteProcess.pid) {
+    // Kill the entire process group
+    try {
+        process.kill(-viteProcess.pid, 'SIGKILL');
+    } catch (e) {
+        console.error('[global-setup] Failed to kill Vite process group.', e);
     }
   }
-  throw new Error('Vite never became ready');
+  throw new Error('Vite did not become ready in time.');
 }
 
 export default async function globalSetup() {
-  loadEnvVars();
-
   console.log('[global-setup] Starting Vite...');
-  const vite = spawn('pnpm', ['run', 'dev:test'], {
-    env: { ...process.env, NODE_ENV: 'test' },
-    stdio: ['ignore', 'pipe', 'pipe'],
-    detached: true
+
+  viteProcess = spawn('pnpm', ['run', 'dev:test'], {
+    stdio: 'pipe',
+    detached: true // This is the key to creating a new process group
   });
 
-  vite.stdout.on('data', d => process.stdout.write('[vite] ' + d));
-  vite.stderr.on('data', d => process.stderr.write('[vite:err] ' + d));
+  if (!viteProcess || !viteProcess.pid) {
+    throw new Error('Vite process failed to start.');
+  }
 
-  if (!vite.pid) throw new Error('Vite failed to start');
-  fs.writeFileSync(PID_FILE, String(vite.pid));
+  fs.writeFileSync(PID_FILE, String(viteProcess.pid));
 
-  await waitForViteReady();
+  viteProcess.stdout?.on('data', (data) => process.stdout.write(`[vite] ${data}`));
+  viteProcess.stderr?.on('data', (data) => process.stderr.write(`[vite:err] ${data}`));
+
+  await waitForVite();
 }

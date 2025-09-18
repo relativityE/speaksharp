@@ -33,15 +33,6 @@ export default defineConfig({
       testMatch: /pro\.e2e\.spec\.ts/,
     },
     {
-      name: 'chromium-premium',
-      dependencies: ['setup'],
-      use: {
-        ...devices['Desktop Chrome'],
-        storageState: 'storage/premium.json',
-      },
-      testMatch: /pro\.e2e\.spec\.ts/,
-    },
-    {
       name: 'chromium-free',
       dependencies: ['setup'],
       use: {

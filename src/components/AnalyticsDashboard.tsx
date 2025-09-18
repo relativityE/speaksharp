@@ -132,7 +132,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ sessionH
 
     const overallStats = calculateOverallStats(sessionHistory);
     const fillerWordTrends = calculateFillerWordTrends(sessionHistory.slice(0, 5));
-    const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
+    const isPro = profile?.subscription_status === 'pro';
 
     const handleUpgrade = async () => {
         try {

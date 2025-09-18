@@ -8,7 +8,3 @@ export const TEST_USER_FREE = {
   password: 'password',
 };
 
-export const TEST_USER_PREMIUM = {
-  email: 'premium@example.com',
-  password: 'password',
-};

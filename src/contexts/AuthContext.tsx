@@ -5,7 +5,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 // --- Types ---
 
-export type SubscriptionStatus = 'free' | 'pro' | 'premium';
+export type SubscriptionStatus = 'free' | 'pro';
 
 export interface UserProfile {
   id: string;

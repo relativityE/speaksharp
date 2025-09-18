@@ -5,10 +5,9 @@ test.describe('Basic Environment Verification', () => {
     // Navigate to the app's base URL
     await page.goto('/');
 
-    // Wait for the page to be fully loaded
-    await page.waitForLoadState('networkidle');
-
-    // Assert that the page title is what we expect
+    // The expect().toHaveTitle() call includes an auto-wait,
+    // making it a robust way to ensure the page is ready.
+    // The explicit page.waitForLoadState('networkidle') is removed as it's unreliable.
     await expect(page).toHaveTitle(/SpeakSharp/);
   });
 });
