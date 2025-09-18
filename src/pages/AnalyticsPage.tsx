@@ -35,7 +35,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
     const { sessionHistory, loading, error } = useSession();
     const { user, profile } = useAuth();
-    const [singleSession, setSingleSession] = useState(null);
+    const [singleSession, setSingleSession] = useState<PracticeSession | null>(null);
 
     const isPro = profile?.subscription_status === 'pro';
     const displaySessions = sessionId ? (singleSession ? [singleSession] : []) : sessionHistory;

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import { Session, User, AuthChangeEvent } from '@supabase/supabase-js';
+import { Session, User, AuthChangeEvent, AuthError } from '@supabase/supabase-js';
 import { Skeleton } from '@/components/ui/skeleton';
 
 // --- Types ---
@@ -19,7 +19,7 @@ export interface AuthContextType {
   profile: UserProfile | null;
   loading: boolean;
   is_anonymous: boolean;
-  signOut: () => Promise<void>;
+  signOut: () => Promise<{ error: AuthError | null }>;
 }
 
 // --- Context and Hook ---
@@ -50,10 +50,12 @@ const getProfileFromDb = async (userId: string): Promise<UserProfile | null> => 
 
 interface AuthProviderProps {
   children: ReactNode;
+  initialSession?: Session | null;
+  enableSubscription?: boolean;
 }
 
-export function AuthProvider({ children }: AuthProviderProps) {
-  const [session, setSession] = useState<Session | null>(null);
+export function AuthProvider({ children, initialSession }: AuthProviderProps) {
+  const [session, setSession] = useState<Session | null>(initialSession || null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -114,7 +116,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     profile,
     loading,
     signOut: () => supabase.auth.signOut(),
-    is_anonymous: !session?.user || session.user.is_anonymous,
+    is_anonymous: !session?.user || (session.user.is_anonymous ?? false),
   };
 
   return (

@@ -55,7 +55,7 @@ export default class LocalWhisper implements ITranscriptionMode {
         this.status = 'idle';
         logger.info(`[LocalWhisper] Model loaded successfully from local path: ${LOCAL_MODEL_PATH}.`);
       } catch (localError) {
-        logger.error('[LocalWhisper] CRITICAL: Failed to load model from both Hub and local path.', localError);
+        logger.error('[LocalWhisper] CRITICAL: Failed to load model from both Hub and local path.', localError as any);
         this.status = 'error';
         throw localError;
       }
