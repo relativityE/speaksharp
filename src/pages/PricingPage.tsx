@@ -26,16 +26,16 @@ const tiers: Tier[] = [
     name: 'Pro',
     price: '$10',
     priceDescription: 'per month',
-    features: ['Unlimited practice time', 'Advanced analytics', 'Save all sessions', 'Export data as PDF'],
+    features: [
+      'Unlimited practice time',
+      'Advanced analytics',
+      'Save all sessions',
+      'Export data as PDF',
+      'On-device transcription for privacy',
+      'AI-powered feedback (coming soon)',
+    ],
     cta: 'Upgrade to Pro',
     isPopular: true,
-  },
-  {
-    name: 'Premium',
-    price: '$20',
-    priceDescription: 'per month',
-    features: ['All Pro features', 'AI-powered feedback (coming soon)', 'Priority support'],
-    cta: 'Upgrade to Premium',
   },
 ];
 

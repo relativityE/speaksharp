@@ -1,84 +1,59 @@
 import { spawn, ChildProcess } from 'child_process';
-import * as fs from 'fs';
-import * as path from 'path';
-import http from 'http';
+import fs from 'fs';
+import path from 'path';
+import fetch from 'node-fetch';
 
 const PID_FILE = path.join(process.cwd(), '.vite.pid');
-const ENV_FILE = path.join(process.cwd(), '.env.test');
+let viteProcess: ChildProcess | null = null;
 
-// Function to load environment variables from a file into process.env
-function loadEnvVars() {
-  if (!fs.existsSync(ENV_FILE)) {
-    console.warn(`.env.test file not found at ${ENV_FILE}`);
-    return;
-  }
-  const envFileContent = fs.readFileSync(ENV_FILE, 'utf-8');
-  envFileContent.split('\n').forEach(line => {
-    const trimmedLine = line.trim();
-    if (trimmedLine && !trimmedLine.startsWith('#')) {
-      const [key, ...valueParts] = trimmedLine.split('=');
-      const value = valueParts.join('=').replace(/"/g, ''); // Simple parsing
-      if (key && value) {
-        process.env[key] = value;
-      }
-    }
-  });
-  console.log('Successfully loaded environment variables from .env.test');
-}
-
-// Wait until server responds with HTML
 async function waitForVite() {
-  for (let i = 0; i < 30; i++) {
+  const maxAttempts = 30;
+  const delay = 1000;
+
+  for (let i = 0; i < maxAttempts; i++) {
     try {
-      await new Promise((resolve, reject) => {
-        http.get('http://localhost:5173', (res) => {
-          if (res.statusCode === 200) {
-            console.log('[global-setup] Vite responded with 200 OK.');
-            resolve(null);
-          } else {
-            reject(new Error(`Bad status: ${res.statusCode}`));
-          }
-        }).on('error', reject);
-      });
-      console.log('[global-setup] Vite is ready.');
-      return;
+      const res = await fetch('http://localhost:5173', { method: 'GET', timeout: 1000 });
+      const text = await res.text();
+      if (res.ok && text.includes('<title>SpeakSharp</title>')) {
+        console.log('[global-setup] Health check passed. Vite is fully ready.');
+        return;
+      }
     } catch (err) {
-      console.log(`[global-setup] Waiting for Vite... attempt ${i + 1}/30`);
-      await new Promise(r => setTimeout(r, 1000));
+      // still starting, ignore
+    }
+    console.log(`[global-setup] Waiting for Vite to be ready... (${i + 1}/${maxAttempts})`);
+    await new Promise(r => setTimeout(r, delay));
+  }
+
+  // Safety Guard: If Vite never becomes ready, kill the process and throw an error.
+  console.error('[global-setup] Vite did not become ready in time. Tearing down...');
+  if (viteProcess && viteProcess.pid) {
+    // Kill the entire process group
+    try {
+        process.kill(-viteProcess.pid, 'SIGKILL');
+    } catch (e) {
+        console.error('[global-setup] Failed to kill Vite process group.', e);
     }
   }
-  throw new Error('Vite never became ready');
+  throw new Error('Vite did not become ready in time.');
 }
 
-async function globalSetup() {
-  // Load environment variables before doing anything else
-  loadEnvVars();
+export default async function globalSetup() {
+  console.log('[global-setup] Starting Vite...');
 
-  console.log('Starting Vite server for E2E tests...');
-
-  const serverProcess: ChildProcess = spawn('pnpm', ['vite', '--mode', 'test'], {
-    stdio: 'inherit',
-    detached: true,
-    env: {
-      ...process.env, // Pass the current environment variables to the child process
-      NODE_ENV: 'test', // Explicitly set NODE_ENV to ensure test mode is recognized
-      VITE_SUPABASE_URL: process.env.VITE_SUPABASE_URL,
-      VITE_SUPABASE_ANON_KEY: process.env.VITE_SUPABASE_ANON_KEY,
-    },
+  viteProcess = spawn('pnpm', ['run', 'dev:test'], {
+    stdio: 'pipe',
+    detached: true // This is the key to creating a new process group
   });
 
-  if (!serverProcess.pid) {
-    throw new Error('Failed to start Vite server: No PID assigned.');
+  if (!viteProcess || !viteProcess.pid) {
+    throw new Error('Vite process failed to start.');
   }
 
-  fs.writeFileSync(PID_FILE, String(serverProcess.pid));
-  console.log(`Vite server started with PID: ${serverProcess.pid}. PID file created.`);
+  fs.writeFileSync(PID_FILE, String(viteProcess.pid));
 
-  // Wait for the server to be ready
+  viteProcess.stdout?.on('data', (data) => process.stdout.write(`[vite] ${data}`));
+  viteProcess.stderr?.on('data', (data) => process.stderr.write(`[vite:err] ${data}`));
+
   await waitForVite();
-
-  // Unref the child process to allow the setup script to exit independently
-  serverProcess.unref();
 }
-
-export default globalSetup;

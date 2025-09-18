@@ -45,7 +45,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       });
     }
 
-    const isPro = profile?.subscription_status === 'pro' || profile?.subscription_status === 'premium';
+    const isPro = profile?.subscription_status === 'pro';
     if (!isPro) {
       return new Response(JSON.stringify({ error: 'User is not on a Pro plan' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

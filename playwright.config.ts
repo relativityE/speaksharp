@@ -20,6 +20,7 @@ export default defineConfig({
     trace: 'retain-on-failure'
   },
   globalSetup: './tests/global-setup.ts',
+  globalTeardown: './tests/global-teardown.ts',
   projects: [
     { name: 'setup', testMatch: /test\.setup\.ts/ },
     {
@@ -28,15 +29,6 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         storageState: 'storage/pro.json',
-      },
-      testMatch: /pro\.e2e\.spec\.ts/,
-    },
-    {
-      name: 'chromium-premium',
-      dependencies: ['setup'],
-      use: {
-        ...devices['Desktop Chrome'],
-        storageState: 'storage/premium.json',
       },
       testMatch: /pro\.e2e\.spec\.ts/,
     },

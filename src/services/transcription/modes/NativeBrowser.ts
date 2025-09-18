@@ -1,9 +1,41 @@
 import logger from '../../../lib/logger';
+import { ITranscriptionMode, TranscriptionModeOptions, Transcript } from './types';
+
+// Extend the window object for non-standard properties
+declare global {
+  interface Window {
+    webkitSpeechRecognition: any;
+    __E2E_MODE__?: boolean;
+  }
+}
+
+// A simplified interface for the SpeechRecognition event
+interface SpeechRecognitionEvent extends Event {
+  resultIndex: number;
+  results: {
+    isFinal: boolean;
+    [key: number]: {
+      transcript: string;
+    };
+  }[];
+}
+
+// A simplified interface for the SpeechRecognition error event
+interface SpeechRecognitionErrorEvent extends Event {
+  error: string;
+}
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-export default class NativeBrowser {
-  constructor({ onTranscriptUpdate, onReady } = {}) {
+export default class NativeBrowser implements ITranscriptionMode {
+  private onTranscriptUpdate: (update: { transcript: Transcript }) => void;
+  private onReady: () => void;
+  private recognition: any; // The SpeechRecognition API is non-standard and complex to type fully
+  private isSupported: boolean;
+  private transcript: string;
+  private isListening: boolean;
+
+  constructor({ onTranscriptUpdate, onReady }: TranscriptionModeOptions) {
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onReady = onReady;
     this.recognition = null;
@@ -12,9 +44,7 @@ export default class NativeBrowser {
     this.isListening = false;
   }
 
-  async init() {
-    // In an E2E test environment, the SpeechRecognition API is not available.
-    // We bypass the check and create a dummy object to prevent errors.
+  public async init(): Promise<void> {
     if (window.__E2E_MODE__) {
       logger.info('[E2E STUB] Bypassing NativeBrowser init for E2E test.');
       this.recognition = {
@@ -34,7 +64,7 @@ export default class NativeBrowser {
     this.recognition.interimResults = true;
     this.recognition.continuous = true;
 
-    this.recognition.onresult = (event) => {
+    this.recognition.onresult = (event: SpeechRecognitionEvent) => {
       try {
         let interimTranscript = '';
         let finalTranscript = '';
@@ -61,10 +91,9 @@ export default class NativeBrowser {
       }
     };
 
-    this.recognition.onerror = (event) => {
+    this.recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       try {
         logger.error({ error: event.error }, 'Speech recognition error');
-        // Maybe throw a custom event or call a callback to notify the UI
       } catch (error) {
         logger.error({ error }, "Error in NativeBrowser onerror handler:");
       }
@@ -73,8 +102,6 @@ export default class NativeBrowser {
     this.recognition.onend = () => {
       try {
         if (this.isListening) {
-          // The service may stop listening automatically after a period of silence.
-          // We can restart it to keep it listening continuously.
           this.recognition.start();
         }
       } catch (error) {
@@ -83,7 +110,7 @@ export default class NativeBrowser {
     };
   }
 
-  async startTranscription() {
+  public async startTranscription(): Promise<void> {
     if (this.onReady) {
       this.onReady();
     }
@@ -98,7 +125,7 @@ export default class NativeBrowser {
     this.recognition.start();
   }
 
-  async stopTranscription() {
+  public async stopTranscription(): Promise<string> {
     if (!this.recognition || !this.isListening) {
       return this.transcript;
     }
@@ -107,7 +134,7 @@ export default class NativeBrowser {
     return this.transcript;
   }
 
-  async getTranscript() {
+  public async getTranscript(): Promise<string> {
     return this.transcript;
   }
 }
