@@ -13,7 +13,7 @@ test.describe('Pro User E2E Flow', () => {
     await homePage.goto();
     await homePage.assertOnHomePage();
     await homePage.assertNotUpgradeButton();
-    await homePage.startSession();
+    await homePage.startFreeSession();
 
     const sessionPage = new SessionPage(page);
     await sessionPage.verifyOnPage();
@@ -40,7 +40,7 @@ test.describe('Pro User E2E Flow', () => {
 
     const homePage = new HomePage(page);
     await homePage.goto();
-    await homePage.startSession();
+    await homePage.startFreeSession();
 
     const sessionPage = new SessionPage(page);
     await sessionPage.verifyOnPage();

@@ -45,7 +45,7 @@ export const SideNav: React.FC = () => {
                             Sign Out
                         </Button>
                     ) : (
-                        <NavLink to="/auth" className={({ isActive }) => `${navLinkClasses} ${isActive ? 'bg-secondary text-foreground' : ''}`} data-testid="sign-in-link">
+                        <NavLink to="/auth" className={getNavLinkClass} data-testid="sign-in-link">
                             <User className="mr-3 h-5 w-5" />
                             Sign In
                         </NavLink>

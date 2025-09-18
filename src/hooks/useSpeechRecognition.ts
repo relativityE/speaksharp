@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '@/lib/supabaseClient';
-import TranscriptionService from '../services/transcription/TranscriptionService';
+import TranscriptionService, { TranscriptionServiceOptions } from '../services/transcription/TranscriptionService';
 import logger from '../lib/logger';
 import {
     createInitialFillerData,
@@ -47,21 +47,9 @@ interface ITranscriptionService {
   startTranscription: () => Promise<void>;
   stopTranscription: () => Promise<any>;
   destroy: () => Promise<void>;
-  mode: string | null;
+  getMode: () => 'native' | 'cloud' | 'on-device' | null;
 }
 
-interface TranscriptionServiceOptions {
-    onTranscriptUpdate: (data: any) => void;
-    onModelLoadProgress: (progress: number) => void;
-    onReady: () => void;
-    profile?: UserProfile | null;
-    forceCloud?: boolean;
-    forceOnDevice?: boolean;
-    forceNative?: boolean;
-    session?: SupabaseSession | null;
-    navigate: (path: string) => void;
-    getAssemblyAIToken: () => Promise<string | null>;
-}
 
 export const useSpeechRecognition = ({
     customWords = [],
@@ -209,7 +197,10 @@ export const useSpeechRecognition = ({
 
             const serviceOptions: TranscriptionServiceOptions = {
                 onTranscriptUpdate, onModelLoadProgress, onReady: handleReady,
-                profile, forceCloud, forceOnDevice, forceNative, session, navigate, getAssemblyAIToken,
+                profile: profile ?? null,
+                forceCloud, forceOnDevice, forceNative,
+                session: session ?? null,
+                navigate, getAssemblyAIToken,
             };
             const service = new TranscriptionService(serviceOptions);
 
@@ -218,7 +209,7 @@ export const useSpeechRecognition = ({
             if (!isMountedRef.current) return;
 
             await service.startTranscription();
-            if (isMountedRef.current) setCurrentMode(service.mode);
+            if (isMountedRef.current) setCurrentMode(service.getMode());
         } catch (err: any) {
             if (isMountedRef.current) {
                 setError(err);

@@ -41,7 +41,7 @@ Here are the direct links to the core documents:
     Populate the `.env` file with your Supabase project URL and anon key, as well as any other required service keys.
 
 4.  **Set up the local database:**
-    To reset your local Supabase database and populate it with required test users (e.g., free, premium), run the following command:
+    To reset your local Supabase database and populate it with required test users (e.g., free, pro), run the following command:
     ```bash
     pnpm db:seed
     ```
@@ -51,12 +51,12 @@ Here are the direct links to the core documents:
 
 Our goal is to make local development as smooth as possible. Here are some key scripts and variables to help you.
 
-*   **Testing Premium Features Locally:**
-    To test premium features without a real Stripe subscription, you can grant any user 'premium' status on the client-side. Add the following line to your `.env` file:
+*   **Testing Pro Features Locally:**
+    To test Pro features without a real Stripe subscription, you can grant any user 'pro' status on the client-side. Add the following line to your `.env` file:
     ```
-    VITE_DEV_PREMIUM_ACCESS=true
+    VITE_DEV_PRO_ACCESS=true
     ```
-    When this variable is set, any user you are logged in as will have their subscription status overridden to `premium` in the app.
+    When this variable is set, any user you are logged in as will have their subscription status overridden to `pro` in the app.
 
 *   **Managing On-Device ML Models:**
     The on-device transcription feature requires ML model files to be hosted locally in the `/public/models` directory. To download or update a model from Hugging Face, use the `model:update` script:
