@@ -5,29 +5,6 @@ const PID_FILE = path.join(process.cwd(), '.vite.pid');
 
 async function globalTeardown() {
   console.log('--- In global teardown ---');
-
-  // Try to read the screenshot file and log it as base64
-  const screenshotPath = path.join(
-    process.cwd(),
-    'test-results',
-    'anon.e2e-Anonymous-User-Flow-start-temporary-session-chromium',
-    'test-failed-1.png'
-  );
-
-  try {
-    if (fs.existsSync(screenshotPath)) {
-      console.log(`Attempting to read screenshot from: ${screenshotPath}`);
-      const screenshotContent = fs.readFileSync(screenshotPath, { encoding: 'base64' });
-      console.log('--- SCREENSHOT_BASE64_START ---');
-      console.log(screenshotContent);
-      console.log('--- SCREENSHOT_BASE64_END ---');
-    } else {
-      console.warn(`Screenshot not found at path: ${screenshotPath}`);
-    }
-  } catch (e: any) {
-    console.warn('Could not read screenshot file:', e.message);
-  }
-
   console.log('Tearing down Vite server...');
 
   try {
@@ -42,13 +19,39 @@ async function globalTeardown() {
       return;
     }
 
-    console.log(`Stopping server with PID: ${pid}...`);
-    process.kill(pid, 'SIGTERM');
-    console.log('Sent SIGTERM to Vite server.');
+    console.log(`Stopping server with PID group: ${pid}...`);
+    // Use negative PID to kill the entire process group, as enabled by `detached: true`
+    process.kill(-pid, 'SIGTERM');
+    console.log('Sent SIGTERM to Vite process group. Waiting for shutdown...');
+
+    // Wait up to 5 seconds for it to exit
+    const waitMs = 5000;
+    const start = Date.now();
+    while (Date.now() - start < waitMs) {
+      try {
+        process.kill(-pid, 0); // check if still alive
+        await new Promise((r) => setTimeout(r, 250));
+      } catch {
+        console.log('Vite process group exited cleanly.');
+        return;
+      }
+    }
+
+    console.warn('Vite process group did not exit after SIGTERM. Forcing SIGKILL...');
+    try {
+      process.kill(-pid, 'SIGKILL');
+      console.log('Sent SIGKILL to Vite process group.');
+    } catch (err: any) {
+      if (err.code === 'ESRCH') {
+        console.log('Process group already gone before SIGKILL.');
+      } else {
+        console.error('Error sending SIGKILL:', err);
+      }
+    }
 
   } catch (error: any) {
     if (error.code === 'ESRCH') {
-      console.log(`Process with PID ${error.pid} not found. It may have already been stopped.`);
+      console.log(`Process group not found. It may have already been stopped.`);
     } else {
       console.error('Error during teardown:', error);
     }
