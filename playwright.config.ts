@@ -20,6 +20,7 @@ export default defineConfig({
     trace: 'retain-on-failure'
   },
   globalSetup: './tests/global-setup.ts',
+  globalTeardown: './tests/global-teardown.ts',
   projects: [
     { name: 'setup', testMatch: /test\.setup\.ts/ },
     {
