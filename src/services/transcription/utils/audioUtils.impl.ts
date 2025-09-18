@@ -55,12 +55,9 @@ export async function createMicStreamImpl(
     for (const cb of listeners) cb(e.data);
   };
 
-  source.connect(node).connect(audioCtx.destination); // destination keeps graph alive (muted)
-  if (audioCtx.destination.gain) {
-    audioCtx.destination.gain.value = 0; // Standard way
-  } else {
-    (audioCtx.destination as any).volume = 0; // Non-standard fallback for older browsers
-  }
+  const gainNode = audioCtx.createGain();
+  gainNode.gain.value = 0; // Mute the output to prevent feedback
+  source.connect(node).connect(gainNode).connect(audioCtx.destination); // destination keeps graph alive
 
   return {
     sampleRate,

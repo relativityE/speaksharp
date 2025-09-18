@@ -3,9 +3,11 @@ import type { Session } from '@supabase/supabase-js';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
   interface Window {
+    SpeechRecognition?: any;
     webkitSpeechRecognition: any;
     webkitAudioContext: any;
     TEST_MODE: boolean;
+    __E2E_MODE__?: boolean;
     __TRANSCRIPTION_READY__: boolean;
     transcriptionServiceRef: any;
     __SESSION_READY__: boolean;

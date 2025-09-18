@@ -17,7 +17,8 @@ export default defineConfig(() => ({
         'test-results/',
         'coverage/',
         '**/*.log',
-        'docs/PRD.md'
+        'docs/PRD.md',
+        'vite.config.mjs'
       ]
     }
   },
@@ -33,11 +34,6 @@ export default defineConfig(() => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
-      // Conditionally mock Stripe modules only when Playwright is running
-      ...(process.env.PLAYWRIGHT_TEST && {
-        '@stripe/stripe-js': path.resolve(__dirname, 'tests/mocks/stripe.jsx'),
-        '@stripe/react-stripe-js': path.resolve(__dirname, 'tests/mocks/stripe.jsx'),
-      }),
     },
   }
 }));

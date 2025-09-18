@@ -1,4 +1,4 @@
-import { Page, Locator } from '@playwright/test';
+import { Page, Locator, expect } from '@playwright/test';
 
 export class HomePage {
   readonly page: Page;
@@ -15,5 +15,17 @@ export class HomePage {
 
   async startFreeSession() {
     await this.startFreeSessionButton.click();
+  }
+
+  async assertOnHomePage() {
+    await expect(this.page).toHaveURL('/');
+  }
+
+  async assertNotUpgradeButton() {
+    await expect(this.page.getByRole('button', { name: /Upgrade/ })).toBeHidden();
+  }
+
+  async startSession() {
+    await this.page.getByRole('button', { name: /Start Session/ }).click();
   }
 }

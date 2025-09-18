@@ -103,7 +103,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
     const [forceNative, setForceNative] = useState(false);
 
     const [showEndSessionDialog, setShowEndSessionDialog] = useState(false);
-    const [completedSessions, setCompletedSessions] = useState([]);
+    const [completedSessions, setCompletedSessions] = useState<PracticeSession[]>([]);
 
     const isPro = profile?.subscription_status === 'pro';
     const isModelLoading = modelLoadingProgress && modelLoadingProgress.status !== 'ready' && modelLoadingProgress.status !== 'error';
