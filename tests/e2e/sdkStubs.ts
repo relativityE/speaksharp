@@ -15,12 +15,12 @@ const BLOCKED_DOMAINS = [
 // --- Mock Users ---
 interface UserProfile {
   id: string;
-  subscription_status: 'pro' | 'premium' | 'free';
+  subscription_status: 'pro' | 'free';
   preferred_mode?: 'on-device' | 'cloud';
 }
 
 interface UserMetadata {
-  subscription_status: 'pro' | 'premium' | 'free';
+  subscription_status: 'pro' | 'free';
   preferred_mode?: 'on-device' | 'cloud';
 }
 
@@ -37,7 +37,7 @@ const MOCK_USERS: Record<string, MockUser> = {};
 function getOrCreateMockUser(email: string): MockUser {
   if (MOCK_USERS[email]) return MOCK_USERS[email];
 
-  const subscription_status = (email.split('@')[0] || 'free') as 'pro' | 'premium' | 'free';
+  const subscription_status = (email.split('@')[0] || 'free') as 'pro' | 'free';
   const newUser: MockUser = {
     id: `user_${randomUUID()}`,
     email,
