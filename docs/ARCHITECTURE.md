@@ -5,7 +5,7 @@
 
 # SpeakSharp System Architecture
 
-**Version 3.0** | **Last Updated: 2025-09-18**
+**Version 3.1** | **Last Updated: 2025-09-19**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -78,7 +78,9 @@ SpeakSharp is built on a modern, serverless technology stack designed for real-t
 
 ## Testing Strategy
 
-The project employs a robust, integrated E2E testing environment orchestrated by Playwright's `global-setup.ts` and `global-teardown.ts` scripts. This setup ensures a stable and deterministic environment for running tests, both locally and in CI.
+The project's testing strategy emphasizes E2E and integration tests to ensure reliable user flows. This is supported by a robust, deterministic E2E testing environment orchestrated by Playwright.
+
+Core services and contexts (e.g., `TranscriptionService`, `AuthContext`) are tested implicitly through the hooks and components that use them. The individual modes of the `TranscriptionService` (e.g., `CloudAssemblyAI`) have dedicated unit tests. This approach prioritizes the testing of integrated functionality as it is experienced by the user.
 
 ### Test Environment Overview
 
@@ -144,7 +146,7 @@ The backend is built entirely on the Supabase platform, leveraging its integrate
 
 ## 5. User Roles and Tiers
 
-The application is in the process of consolidating its user tiers. See [ROADMAP.md](./ROADMAP.md) for current status. The target state is:
+The application's user tiers have been consolidated into the following structure:
 
 *   **Anonymous User:** A user who has not signed in.
 *   **Free User (Authenticated):** A user who has created an account but does not have an active Pro subscription.
@@ -158,7 +160,7 @@ The `TranscriptionService.ts` provides a unified abstraction layer over multiple
     *   **`CloudAssemblyAI`:** Uses the AssemblyAI v3 streaming API for high-accuracy cloud-based transcription. This is one of the modes available to Pro users.
     *   **`NativeBrowser`:** Uses the browser's built-in `SpeechRecognition` API. This is the primary mode for Free users and a fallback for Pro users.
     *   **`LocalWhisper`:** An on-device, privacy-first transcription mode for Pro users, powered by `@xenova/transformers` running a Whisper model directly in the browser.
-*   **Audio Processing:** `audioUtils.js` and `audio-processor.worklet.js` are responsible for capturing and resampling microphone input. A critical bug in the resampling logic that was degrading AI quality has been fixed.
+*   **Audio Processing:** `audioUtils.ts`, `audioUtils.impl.ts`, and `audio-processor.worklet.js` are responsible for capturing and resampling microphone input. A critical bug in the resampling logic that was degrading AI quality has been fixed.
 
 ### On-Device STT Implementation Details
 
