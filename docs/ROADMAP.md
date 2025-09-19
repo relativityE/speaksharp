@@ -110,16 +110,20 @@ This phase focuses on long-term architecture, scalability, and preparing for fut
 ---
 ## Technical Debt
 
-### Items from E2E Debugging Session (Sept 2025)
+### Items from Code Audit (Sept 2025)
 
-The process of debugging the E2E suite revealed several areas of technical debt:
+A recent code audit identified the following areas of technical debt:
 
-1.  **Fragile E2E Environment**: The initial test environment was brittle, suffering from dependency issues (`pnpm`), configuration problems (Vite, PostCSS), and race conditions. The new architecture documented in `ARCHITECTURE.md` is a significant improvement, but the history of instability suggests the frontend build and test pipeline could benefit from further simplification and hardening.
+1.  **✅ Tier Consolidation from 4 Tiers to 2**: The core application logic, database, and UI have been fully consolidated to two authenticated tiers (`Free`, `Pro`), retiring the legacy `Premium` tier. All related inchstones are complete.
 
-2.  **Implicit Dependencies**: Components like `SessionSidebar` have implicit, unhandled dependencies on external scripts like Stripe.js. The component currently crashes silently if the script fails to load. This should be refactored to be more resilient, perhaps by displaying an error state or gracefully degrading functionality.
+2.  **🟡 Incomplete TypeScript Migration**: While the core application services have been migrated to TypeScript, several test-related files and utilities remain as JavaScript.
+    *   **Files to migrate:** `__mocks__/*.js`, `src/services/transcription/utils/audio-processor.worklet.js`.
 
-3.  **Incomplete Test Coverage**: While the `pro` user flow has been the focus, other test suites (`anon.e2e.spec.ts`, `free.e2e.spec.ts`, `basic.e2e.spec.ts`) have not been run against the new, stabilized environment. They will likely need similar updates and fixes.
+3.  **🔴 Incomplete E2E Test Coverage**: The E2E tests for the `pro` user flow are stable and cover critical features. However, the tests for other user flows have not been updated and are not passing.
+    *   **Suites to fix:** `anon.e2e.spec.ts`, `free.e2e.spec.ts`, `basic.e2e.spec.ts`.
 
-4.  **✅ Redundant Mocking Logic**: The Stripe mock has been refactored from a Vite alias into a global network intercept in the Playwright setup, improving test stability and maintainability.
+4.  **🟡 Improve Unit Test Discoverability**: The current testing strategy relies heavily on E2E and integration tests. While effective, the lack of easily discoverable, co-located unit tests for services like `AuthContext` and `TranscriptionService` makes the codebase harder to maintain. Unit tests for individual modes exist but should be better integrated.
 
-5.  **🟡 Tier Consolidation from 4 Tiers to 2**: The core application logic has been consolidated to two authenticated tiers (`Free`, `Pro`). Documentation and legacy artifacts are now being purged to match the implementation.
+5.  **✅ Resolved: Fragile E2E Environment**: The initial test environment was brittle. The new architecture documented in `ARCHITECTURE.md` has resolved this, providing a stable platform for E2E testing.
+
+6.  **✅ Resolved: Implicit Dependencies in Tests**: Components previously had unhandled dependencies on external scripts like Stripe.js. This has been resolved by implementing a global network intercept in the Playwright setup (`tests/e2e/test.setup.ts`) to mock these dependencies.

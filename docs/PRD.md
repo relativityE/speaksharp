@@ -5,7 +5,7 @@
 
 # SpeakSharp Product Requirements Document
 
-**Version 8.0** | **Last Updated: 2025-09-18**
+**Version 8.1** | **Last Updated: 2025-09-19**
 
 ## 1. Executive Summary
 
@@ -102,6 +102,7 @@ This section tracks high-level product risks and constraints. For a detailed tec
 *   **[RESOLVED] Intractable Vite Server Hang:** The Vite server was previously crashing on startup when running E2E tests. This was diagnosed and fixed by updating `src/index.css` to use the modern `@import "tailwindcss";` syntax.
 *   **[RESOLVED] E2E Test Environment Unstable:** The E2E test environment was suffering from configuration conflicts and missing dependencies, causing all tests to fail unpredictably. The environment has now been stabilized by isolating the Vitest and Playwright configurations and ensuring all dependencies are correctly loaded.
 *   **[RESOLVED] E2E Test Failure: "Start Session" Button Not Found:** The failing E2E test (`tests/e2e/pro.e2e.spec.ts`) was caused by a race condition where the test tried to interact with the "Start Session" button before it was fully rendered and enabled. This has been resolved by refactoring the tests to use the Page Object Model (POM) pattern and adding more robust waiting mechanisms in the test helpers. The E2E test suite is now more stable.
+*   **[ACTIVE] Incomplete E2E Test Coverage:** While the test environment is stable and the `pro` user flow is covered, the E2E tests for `anonymous`, `free`, and `basic` user flows are not currently passing. This poses a product risk as regressions in these user experiences may not be caught automatically. See [Roadmap](./ROADMAP.md) for the corresponding tech debt item.
 
 ---
 

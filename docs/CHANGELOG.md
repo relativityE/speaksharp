@@ -6,6 +6,15 @@ Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) style with sligh
 
 ---
 
+## [2025-09-19]
+### Changed
+- **Completed User Tier Consolidation:** Fully migrated the application from a four-tier (`Anonymous`, `Free`, `Pro`, `Premium`) to a two-tier (`Free`, `Pro`) model. This included updating the database schema, backend logic, frontend components, and all E2E tests. The legacy `Premium` tier has been retired.
+- **Advanced TypeScript Migration:** Migrated the core `TranscriptionService` and its various modes (`CloudAssemblyAI`, `LocalWhisper`, etc.) to TypeScript. The majority of the application's logic is now type-safe.
+- **Updated All Project Documentation:** Synchronized `ROADMAP.md`, `PRD.md`, and `ARCHITECTURE.md` to reflect the completion of the tier consolidation and to accurately represent the current state of technical debt and testing strategies.
+
+### Fixed
+- **Resolved Implicit Test Dependencies:** Fixed a critical testing issue where components had an implicit dependency on the Stripe.js script. This was resolved by implementing a global network intercept in the Playwright setup, making component tests more resilient.
+
 ## [2025-09-18]
 ### Fixed
 - **Stabilized TypeScript Build:** Resolved all critical `tsc` compilation errors across the entire codebase. The application is now fully type-safe and buildable. This involved fixing missing dependencies, correcting dozens of type mismatches in component props and state hooks, and updating type definitions to be consistent.
