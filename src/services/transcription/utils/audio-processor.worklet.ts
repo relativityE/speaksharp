@@ -1,12 +1,27 @@
 /* globals sampleRate */
 
+// Extend the global scope to include AudioWorkletGlobalScope properties
+declare const sampleRate: number;
+declare function registerProcessor(name: string, constructor: new (options: any) => AudioWorkletProcessor): void;
+
+interface PcmDownsamplerOptions {
+  processorOptions: {
+    targetSampleRate: number;
+  };
+}
+
 /**
  * An AudioWorkletProcessor for downsampling audio to a target sample rate.
  * This implementation uses a simple averaging algorithm to resample the audio,
  * which is a significant improvement over naive sample dropping.
  */
 class PcmDownsampler extends AudioWorkletProcessor {
-  constructor(options) {
+  private targetSampleRate: number;
+  private sourceSampleRate: number;
+  private resamplingRatio: number;
+  private unprocessedSamples: Float32Array;
+
+  constructor(options: PcmDownsamplerOptions) {
     super();
     this.targetSampleRate = options.processorOptions.targetSampleRate || 16000;
     this.sourceSampleRate = sampleRate; // `sampleRate` is a global in AudioWorkletGlobalScope
@@ -21,7 +36,7 @@ class PcmDownsampler extends AudioWorkletProcessor {
    * @param {Float32Array[][]} inputs - The input audio data.
    * @returns {boolean} - Must return true to keep the processor alive.
    */
-  process(inputs) {
+  process(inputs: Float32Array[][]): boolean {
     const inputChannel = inputs[0][0];
 
     // If there's no input, there's nothing to do.

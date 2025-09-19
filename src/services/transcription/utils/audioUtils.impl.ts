@@ -11,7 +11,7 @@ const getWorkletUrl = (audioContext: AudioContext): Promise<string | null> => {
   if (!workletUrlPromise) {
     // Check if we're in a browser environment with audio worklet support
     if (typeof window !== 'undefined' && audioContext && audioContext.audioWorklet) {
-      workletUrlPromise = import('./audio-processor.worklet.js?url')
+      workletUrlPromise = import('./audio-processor.worklet.ts?url')
         .then(module => module.default)
         .catch(error => {
           logger.error({ error }, 'Failed to load audio worklet:');
