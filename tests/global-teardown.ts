@@ -35,9 +35,11 @@ export default async function globalTeardown() {
       try {
         process.kill(-pid, 'SIGKILL');
         console.log('[global-teardown] Vite forcibly killed.');
-      } catch {}
-    } catch (err: any) {
-      if (err.code === 'ESRCH') {
+      } catch {
+        // Ignore errors if the process is already gone
+      }
+    } catch (err: unknown) {
+      if (err && typeof err === 'object' && 'code' in err && err.code === 'ESRCH') {
         console.log('[global-teardown] Process already stopped.');
       } else {
         console.error('[global-teardown] Error killing Vite:', err);

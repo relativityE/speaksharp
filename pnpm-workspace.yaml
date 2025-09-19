@@ -1,0 +1,6 @@
+supportedArchitectures:
+  os:
+    - linux
+    - current
+  cpu:
+    - x64
