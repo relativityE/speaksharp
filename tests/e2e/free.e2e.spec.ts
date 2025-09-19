@@ -1,10 +1,11 @@
 import { test, expect } from './helpers';
 import { loginUser } from './helpers';
 import { SessionPage } from './poms/sessionPage.pom';
+import { TEST_USER_FREE } from '../constants';
 
 test.describe('Free User Flow', () => {
   test('free user is on session page and sees upgrade prompt', async ({ page }) => {
-    await loginUser(page, 'free@example.com', 'password');
+    await loginUser(page, TEST_USER_FREE.email, TEST_USER_FREE.password);
     await page.goto('/session');
 
     const sessionPage = new SessionPage(page);

@@ -184,6 +184,14 @@ This document provides a snapshot of the current state of the test suite. It is 
 
 We can strengthen user confidence by adding a feature that compares accuracy across Native Browser, Cloud AI, and On-device modes. Instead of one-off tests, the system would track results from actual usage over time and compute a rolling accuracy percentage. This avoids storing large datasets while still giving users a clear view of performance differences.
 
+### Feature Proposal: Dynamic Software Quality Metrics Reporting
+
+**Goal:** To provide an accurate, at-a-glance overview of the project's health directly within the documentation.
+
+**Problem:** The current Software Quality Metrics section in this document is not updated automatically and relies on placeholder data.
+
+**Proposed Solution:** Implement a CI/CD script (`run-tests.sh`) that executes the entire test suite (linting, type-checking, unit tests, and E2E tests). This script will parse the output from the test runners and dynamically generate a metrics table with real-time data on test counts, pass/fail rates, and code coverage. This table will then be automatically injected into this PRD, ensuring it is always up-to-date. This work is currently tracked as a technical debt item in the [Roadmap](./ROADMAP.md).
+
 ---
 
 ## 8. Strategic Review & Analysis

@@ -123,3 +123,13 @@ The process of debugging the E2E suite revealed several areas of technical debt:
 4.  **✅ Redundant Mocking Logic**: The Stripe mock has been refactored from a Vite alias into a global network intercept in the Playwright setup, improving test stability and maintainability.
 
 5.  **🟡 Tier Consolidation from 4 Tiers to 2**: The core application logic has been consolidated to two authenticated tiers (`Free`, `Pro`). Documentation and legacy artifacts are now being purged to match the implementation.
+
+6.  **🔴 Automate Software Quality Metrics Generation**
+    **Problem:** The current process for generating software quality metrics is manual and uses placeholder data, which does not reflect the true state of the codebase.
+
+    **Proposed Solution:** The `./run-tests.sh` script should be enhanced to dynamically generate these metrics. This involves:
+    1.  Configuring the test runners (Vitest and Playwright) to output their results in a machine-readable JSON format.
+    2.  Using a tool like `jq` to parse these JSON reports and extract key metrics (test counts, pass/fail rates, code coverage).
+    3.  Automatically updating the "Software Quality Metrics" section in `docs/PRD.md` with this data.
+
+    **Next Steps:** A developer needs to pick up this task and implement the described changes in the `./run-tests.sh` script.
