@@ -1,10 +1,10 @@
 export const TEST_USER_PRO = {
-  email: 'pro@example.com',
-  password: 'password',
+  email: 'pro-user@test.com',
+  password: 'password123',
 };
 
 export const TEST_USER_FREE = {
-  email: 'free@example.com',
-  password: 'password',
+  email: 'free-user@test.com',
+  password: 'password123',
 };
 
