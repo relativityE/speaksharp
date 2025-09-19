@@ -18,7 +18,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - ✅ `[C-01]` Lack of Protected Routes: Implemented protected routes for all sensitive user pages.
   - ✅ `[C-02]` Flawed Auth Provider: Refactored `AuthContext.tsx` to remove anti-patterns and stabilize authentication logic.
   - ✅ `[C-03]` Anonymous User Flow is Broken: Fixed the session persistence logic for anonymous users.
-  - ✅ `[C-04]` Premium Users Do Not Receive Paid Features: Corrected the monetization logic in `TranscriptionService.js`.
+  - ✅ `[C-04]` Pro Users Do Not Receive Paid Features: Corrected the monetization logic in `TranscriptionService.js`.
 - ✅ **Technical Debt: Remediate and Stabilize the Test Suite Environment**
   - **Resolution:** The E2E test environment has been completely stabilized. All configuration conflicts, dependency issues, and environment variable loading problems have been resolved. The test suite is now fully runnable. The remaining E2E test failures are due to specific, identifiable bugs in the application's UI code, which can now be addressed.
 - ✅ **Implement "Free User Quota" E2E test:** An E2E test for the 'Free' user role has been added.
@@ -122,4 +122,4 @@ The process of debugging the E2E suite revealed several areas of technical debt:
 
 4.  **✅ Redundant Mocking Logic**: The Stripe mock has been refactored from a Vite alias into a global network intercept in the Playwright setup, improving test stability and maintainability.
 
-5.  **✅ Tier Consolidation from 4 Tiers to 2**: The user tiers have been consolidated to two (`Free`, `Pro`). All application code, database seeds, and tests have been updated to reflect this change.
+5.  **🟡 Tier Consolidation from 4 Tiers to 2**: The core application logic has been consolidated to two authenticated tiers (`Free`, `Pro`). Documentation and legacy artifacts are now being purged to match the implementation.

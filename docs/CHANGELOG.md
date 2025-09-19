@@ -11,7 +11,7 @@ Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) style with sligh
 - **Stabilized TypeScript Build:** Resolved all critical `tsc` compilation errors across the entire codebase. The application is now fully type-safe and buildable. This involved fixing missing dependencies, correcting dozens of type mismatches in component props and state hooks, and updating type definitions to be consistent.
 
 ### Changed
-- **Completed User Tier Consolidation:** Finished the consolidation of user tiers from four to two ('Free' and 'Pro'). All application code, database seeds, and test files have been updated to remove the legacy 'premium' tier.
+- **Aligned User Tier Model:** The core application logic has been consolidated to a two-tier model for authenticated users ('Free' and 'Pro'). Documentation is being updated to reflect this.
 - **Refactored E2E Test Mocks:** The Stripe mock for E2E tests was refactored from a Vite build-time alias to a more robust network-level intercept in the Playwright global setup.
 
 ## [2025-09-17]
@@ -61,9 +61,9 @@ Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) style with sligh
 - **Automated Code Quality Checks:** Implemented `lint-staged` and a `husky` pre-commit hook to automatically run `eslint` and `tsc` on staged files. This improves code quality and prevents errors from being committed.
 - **New Testing Architecture:** Implemented a new testing architecture based on Mock Service Worker (MSW) to provide a stable and reliable testing environment. This includes a new `vitest.config.mjs` file, a new test setup file (`src/test-setup.js`), and a set of mock API handlers.
 - **Developer Workflow Automation:** Implemented a secure database seeding strategy (`pnpm db:seed`) and a script to automate ML model management (`pnpm model:update`).
-- **Local Premium Feature Testing:** Added a `VITE_DEV_PREMIUM_ACCESS` environment variable to allow for easy local testing of premium features without a real subscription.
-- **On-Device Transcription for Premium Users:** Implemented a new privacy-first transcription mode using a local Whisper model via `@xenova/transformers`.
-- **E2E Tests for All User Roles:** Added new E2E tests for the 'Free' and 'Premium' user flows, ensuring coverage for all user roles.
+- **Local Pro Feature Testing:** Added a `VITE_DEV_PRO_ACCESS` environment variable to allow for easy local testing of pro features without a real subscription.
+- **On-Device Transcription for Pro Users:** Implemented a new privacy-first transcription mode using a local Whisper model via `@xenova/transformers`.
+- **E2E Tests for All User Roles:** Added new E2E tests for the 'Free' and 'Pro' user flows, ensuring coverage for all user roles.
 
 ### Fixed
 - **Refactored Build System and Dependencies:** Addressed critical build issues by installing numerous missing npm dependencies and migrating the toolchain to use the recommended `@tailwindcss/vite` plugin. This work has stabilized the development server but has not yet resolved all E2E test failures.
