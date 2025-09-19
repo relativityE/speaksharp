@@ -124,6 +124,14 @@ A recent code audit identified the following areas of technical debt:
 
 4.  **🟡 Improve Unit Test Discoverability**: The current testing strategy relies heavily on E2E and integration tests. While effective, the lack of easily discoverable, co-located unit tests for services like `AuthContext` and `TranscriptionService` makes the codebase harder to maintain. Unit tests for individual modes exist but should be better integrated.
 
-5.  **✅ Resolved: Fragile E2E Environment**: The initial test environment was brittle. The new architecture documented in `ARCHITECTURE.md` has resolved this, providing a stable platform for E2E testing.
+5.  **🟡 Tier Consolidation from 4 Tiers to 2**: The core application logic has been consolidated to two authenticated tiers (`Free`, `Pro`). Documentation and legacy artifacts are now being purged to match the implementation.
 
-6.  **✅ Resolved: Implicit Dependencies in Tests**: Components previously had unhandled dependencies on external scripts like Stripe.js. This has been resolved by implementing a global network intercept in the Playwright setup (`tests/e2e/test.setup.ts`) to mock these dependencies.
+6.  **🔴 Automate Software Quality Metrics Generation**
+    **Problem:** The current process for generating software quality metrics is manual and uses placeholder data, which does not reflect the true state of the codebase.
+
+    **Proposed Solution:** The `./run-tests.sh` script should be enhanced to dynamically generate these metrics. This involves:
+    1.  Configuring the test runners (Vitest and Playwright) to output their results in a machine-readable JSON format.
+    2.  Using a tool like `jq` to parse these JSON reports and extract key metrics (test counts, pass/fail rates, code coverage).
+    3.  Automatically updating the "Software Quality Metrics" section in `docs/PRD.md` with this data.
+
+    **Next Steps:** A developer needs to pick up this task and implement the described changes in the `./run-tests.sh` script.
