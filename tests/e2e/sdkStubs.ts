@@ -6,7 +6,6 @@ import { randomUUID } from 'crypto';
 const BLOCKED_DOMAINS = [
   'sentry.io',
   'posthog.com',
-  // 'stripe.com', // Stripe is required for the Upgrade button to render
   'google.com',
   'googleapis.com',
   'gstatic.com',
@@ -177,13 +176,22 @@ export async function stubThirdParties(page: Page, options: { usageExceeded?: bo
         return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: `Not Found in Mock: ${url.href}` }) });
       }
 
-      // 2️⃣ Block unwanted external domains
+      // 2️⃣ Mock Stripe
+      if (hostname.endsWith('stripe.com')) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/javascript',
+          body: '/* Mock Stripe.js */',
+        });
+      }
+
+      // 3️⃣ Block unwanted external domains
       if (BLOCKED_DOMAINS.some(d => hostname.endsWith(d))) {
         console.log(`[BLOCKED] ${hostname}`);
         return route.abort('connectionrefused');
       }
 
-      // 3️⃣ Allow everything else
+      // 4️⃣ Allow everything else
       return route.continue();
     } catch (err) {
       console.error('Error in route handler:', err);
