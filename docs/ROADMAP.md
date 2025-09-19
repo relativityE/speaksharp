@@ -135,3 +135,8 @@ A recent code audit identified the following areas of technical debt:
     3.  Automatically updating the "Software Quality Metrics" section in `docs/PRD.md` with this data.
 
     **Next Steps:** A developer needs to pick up this task and implement the described changes in the `./run-tests.sh` script.
+
+7.  **🔴 `sharp` Module Installation Failure in Sandboxed Environment**
+    **Problem:** The `sharp` module, a critical dependency for image processing, fails to install correctly in the sandboxed test environment. This blocks the unit tests for `TranscriptionService.test.ts` and prevents the full test suite from running.
+    **Analysis:** The issue appears to be related to the installation of `sharp`'s native binaries. Standard installation methods have failed. The migration from JS to TS has been considered as a potential factor, but the root cause is likely environmental.
+    **Next Steps:** The `sharp` module will be replaced with `jimp`, a pure JavaScript image processing library. This will eliminate the native dependency and the installation issues. A developer needs to pick up this task and implement the change. In the meantime, the tests that depend on `sharp` will be temporarily disabled to unblock other development work.

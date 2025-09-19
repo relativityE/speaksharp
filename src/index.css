@@ -4,6 +4,39 @@
 
 @layer base {
   :root {
-    --border: 240 5% 84%; /* light gray — pick any color you want */
+    --background: 210 20% 98%;
+    --foreground: 215 39% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 215 39% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 39% 11%;
+
+    --primary: 224 82% 57%;
+    --primary-foreground: 0 0% 100%;
+    --primary-hover: 224 76% 48%;
+
+    --secondary: 274 82% 56%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 220 16% 96%;
+    --muted-foreground: 215 14% 47%;
+
+    --accent: 220 13% 95%;
+    --accent-foreground: 215 39% 11%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 210 14% 83%;
+    --input: 210 14% 83%;
+    --ring: 224 82% 57%;
+
+    --radius: 0.25rem;
+  }
+
+  .dark {
+    /* TODO: Add dark mode colors */
   }
 }

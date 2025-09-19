@@ -10,7 +10,11 @@ export default defineConfig({
   expect: { timeout: 10000 },
   fullyParallel: true,
   retries: 1,
-  reporter: [['list'], ['html', { outputFolder: 'playwright-report' }]],
+  reporter: [
+    ['list'],
+    ['html', { outputFolder: 'playwright-report' }],
+    ['json', { outputFile: 'test-results/e2e-results/results.json' }]
+  ],
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:5173',
     headless: true,
