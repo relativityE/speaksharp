@@ -21,66 +21,84 @@ The system is built for speed, both in user experience and development velocity.
 This section contains ASCII art diagrams illustrating the journey for each user role.
 
 ```ascii
-                               +---------------------+
-                               |   Landing Page      |
-                               +---------------------+
-                                         |
-                                         |
-                       +-----------------v-----------------+
-                       |        [Anonymous User]           |
-                       | - Practice session (2 min limit)  |
-                       | - View single session analytics   |
-                       | - Prompted to Sign Up to continue |
-                       +-----------------v-----------------+
-                                         |
-                               +-------------------+
-                               | Sign Up / Login   |
-                               +-------------------+
-                                         |
-                       +-----------------v-----------------+
-                       |      [Authentication Gate]        |
-                       +-----------------v-----------------+
-                                         |
-                          +-----------------------------+
-                          | [Free User]                 |
-                          | - View Session History      |
-                          | - Capped practice time/month|
-                          | - 20 min session duration   |
-                          | - Native Browser (Cloud)    |
-                          +-----------------------------+
-                                         |
-                                         v
-                          +-----------------------------+
-                          | Usage Limit Reached?        |
-                          +-----------------------------+
-                                |          |
-                              [No]       [Yes]
-                                |          |
-                                v          v
-                      (Practice)    +---------------------+
-                                    | UpgradePromptDialog |
-                                    +---------------------+
-                                              |
-                                              v
-                                    +---------------------+
-                                    |    Pricing Page     |
-                                    +---------------------+
-                                              |
-                                    +---------------------+
-                                    | [Pro User]          |
-                                    | (Via Stripe)        |
-                                    | - Unlimited Time    |
-                                    | - Cloud AI          |
-                                    | - On-device STT     |
-                                    +---------------------+
++-----------------------------------------------------------------+
+|                         [New User]                                |
+|                  Arrives at Landing Page                          |
++-----------------------------------------------------------------+
+                           |
+                           v
++-----------------------------------------------------------------+
+|                  Prompted to Sign Up / Login                      |
+|              (No anonymous practice sessions)                     |
++-----------------------------------------------------------------+
+                           |
+                           v
++-----------------------------------------------------------------+
+|                  [Authenticated User]                             |
++-----------------------------------------------------------------+
+                           |
+  +------------------------+------------------------+
+  |                                                 |
+  v                                                 v
++--------------------------+                      +--------------------------+
+| [Free User]              |                      | [Pro User]               |
+| - Capped time/month      |                      | - Unlimited Time         |
+| - 20 min session duration|                      | - Cloud AI (AssemblyAI)  |
+| - Native Browser STT     |                      | - On-device STT (Local)  |
+| - View Session History   |                      |                          |
++--------------------------+                      +--------------------------+
+           |
+           v
++--------------------------+
+| Usage Limit Reached?     |
++--------------------------+
+     |           |
+   [No]        [Yes]
+     |           |
+     v           v
+(Practice)  +----------------------+
+            | UpgradePromptDialog  |
+            +----------------------+
+                     |
+                     v
+            +----------------------+
+            |    Go to Pro Plan    |
+            +----------------------+
 ```
 
-### Feature Set (MoSCoW)
-(See [ROADMAP.md](./ROADMAP.md) for current status)
-*   **Must-Have:** Real-time transcription, filler word detection, session history.
-*   **Should-Have:** On-device transcription mode, advanced analytics.
-*   **Could-Have:** Team features, custom vocabulary.
-*   **Won't-Have (at this time):** Mobile application.
+### Canonical Feature List & Unit Test Status
+
+This section provides a granular breakdown of user-facing features, grouped by priority, and tracks their unit test coverage status per the new engineering mandate.
+
+#### 🎯 Must-Have
+
+| Feature | Description | Status | Unit Test |
+| :--- | :--- | :--- | :--- |
+| **Transcription** | The core service that converts speech to text. | ✅ Implemented | 🟡 Partial |
+| **Cloud Server STT** | High-accuracy transcription via AssemblyAI. (Pro) | ✅ Implemented | 🔴 No |
+| **On-Device STT** | Privacy-first transcription using a local Whisper model. (Pro) | ✅ Implemented | 🔴 No |
+| **Fallback STT** | Standard transcription using the native browser API. (Free) | ✅ Implemented | 🔴 No |
+| **Session History** | Users can view and analyze their past practice sessions. | ✅ Implemented | 🔴 No |
+| **Filler Word Detection** | Detects and counts common filler words (um, uh, like, etc.). | ✅ Implemented | ✅ Yes |
+| **Speaking Pace (WPM)** | Provides real-time words-per-minute analysis. | 🔴 Not Started | 🔴 No |
+| **Custom Vocabulary** | Allows users to add custom words to improve accuracy. | 🔴 Not Started | 🔴 No |
+| **Speaker Identification**| Distinguishes between multiple speakers in a transcript. | 🔴 Not Started | 🔴 No |
+
+#### 🚧 Should-Have
+
+| Feature | Description | Status | Unit Test |
+| :--- | :--- | :--- | :--- |
+| **AI Suggestions** | Provides AI-driven feedback on transcripts. | ✅ Implemented | ✅ Yes |
+| **Filler Word Trend** | Analyzes the trend of filler word usage across sessions. | ✅ Implemented | 🔴 No |
+| **Session Comparison** | Compares stats from the 4 most recent sessions. | ✅ Implemented | 🔴 No |
+| **PDF Export** | Allows users to download a PDF report of their session. | ✅ Implemented | 🔴 No |
+| **STT Accuracy Comparison** | Rolling average comparison of STT engine accuracy. | 🔴 Not Started | 🔴 No |
+
+#### 🌱 Could-Have
+
+| Feature | Description | Status | Unit Test |
+| :--- | :--- | :--- | :--- |
+| **Vocal Variety / Pause Detection** | Analyzes vocal pitch, tone, and pause duration. | 🔴 Not Started | 🔴 No |
 
 ### Differentiation
 *   **vs. Otter.ai:** Privacy-first (on-device option is a key roadmap item), focused on improvement, not just transcription.
@@ -99,6 +117,7 @@ This section contains ASCII art diagrams illustrating the journey for each user 
 
 This section tracks high-level product risks and constraints. For a detailed technical debt and task breakdown, see the [Roadmap](./ROADMAP.md).
 
+*   **[ACTIVE] Blocking Type Error with `jimp` Library:** The project's type-checking step (`pnpm type-check`) is currently failing due to a persistent TypeScript error with the `jimp` image processing library. The error (TS2353) relates to incorrect method signatures for the installed version (`1.6.0`). This is a **blocking issue** that prevents the full test suite from running and affects any image processing functionality. The root cause appears to be a mismatch between the library's ESM module structure and the project's TypeScript configuration. This issue is actively being debugged.
 *   **[RESOLVED] Intractable Vite Server Hang:** The Vite server was previously crashing on startup when running E2E tests. This was diagnosed and fixed by updating `src/index.css` to use the modern `@import "tailwindcss";` syntax.
 *   **[RESOLVED] E2E Test Environment Unstable:** The E2E test environment was suffering from configuration conflicts and missing dependencies, causing all tests to fail unpredictably. The environment has now been stabilized by isolating the Vitest and Playwright configurations and ensuring all dependencies are correctly loaded.
 *   **[RESOLVED] E2E Test Failure: "Start Session" Button Not Found:** The failing E2E test (`tests/e2e/pro.e2e.spec.ts`) was caused by a race condition where the test tried to interact with the "Start Session" button before it was fully rendered and enabled. This has been resolved by refactoring the tests to use the Page Object Model (POM) pattern and adding more robust waiting mechanisms in the test helpers. The E2E test suite is now more stable.
