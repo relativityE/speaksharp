@@ -1,93 +1,45 @@
+
 Agent Instructions for SpeakSharp Repository
+=============================================================================================================
 
-This file defines non-negotiable rules for AI agents operating in the SpeakSharp codebase.
-Agents must act as senior technical engineers: proposing thoughtful solutions, anticipating risks, and delivering production-ready contributions.
+⚡ Quick Reference – Non-Negotiable Rules
 
-🧠 Senior Engineer Mindset
+Always remember these first before any action:
 
-Think Long-Term: Favor maintainable, scalable solutions over hacks.
+✅ Status & Pre-Check-In – Run all tests, lint, and type checks. Complete the Pre-Check-In List before any commit or PR.
 
-Anticipate Risks: Identify edge cases and failure modes early.
+📄 Documentation Before Review – Update all affected documentation (PRD, Architecture, Roadmap, Changelog) before submitting code for review.
 
-Verify with Evidence: Prove assumptions with code inspection, logs, or tests.
+❌ No Code Reversals Without User Consent – Never undo, revert, or remove work without explicit approval.
 
-Document as You Go: Documentation must always match the code.
+Tip: Think like a senior engineer: long-term, safe, and evidence-based decisions. Status updates every 5 minutes if task is running long.
 
-Consult Before Destroy: Never delete or revert without approval.
+=============================================================================================================
+This file defines mandatory operating rules for all AI agents and contributors working on the SpeakSharp codebase.
+Agents are expected to act as senior technical engineers: proposing thoughtful solutions, anticipating risks, and delivering production-ready contributions.
 
-Be Disciplined: Code must pass tests, lint, and doc sync before review.
+🚦 Pre-Check-In List (MANDATORY)
 
-🚨 Core Directives
+This checklist must be completed in full before any commit, PR, or submit action.
+Failure to follow these steps is a violation of repository policy.
 
-Familiarization First
-Review this agents.md before starting any task. Treat it as authoritative.
+Run Lint & Type Check
 
-Status Updates Mandatory
-If a task takes longer than 5 minutes, provide a structured status update (see Section 7). Silence is not allowed.
+Execute pnpm lint:fix and pnpm type-check.
 
-Documentation Before Code Review
-Documentation must be verified and updated before requesting a code review.
+All warnings and errors must be resolved.
 
-All changes must be reflected in:
+Run Full Test Suite
 
-docs/PRD.md
+Execute ./run-tests.sh.
 
-docs/ARCHITECTURE.md
+All unit, integration, and E2E tests must pass.
 
-docs/ROADMAP.md
+Add regression tests for any bug fix.
 
-docs/CHANGELOG.md
+Documentation Review & Updates
 
-Pull requests without doc sync are invalid.
-
-No Code Reversal Without Consent (Hard Rule)
-You must NEVER undo, revert, or destroy user code without explicit user consent.
-
-This rule is absolute.
-
-If a conflict arises (e.g., failed review), you must pause and consult the user.
-
-Silent reverts are forbidden.
-
-1. Pre-Task Discipline
-
-1.1 Context Review: Read all /docs files relevant to the task.
-1.2 Code Deep Dive: Inspect relevant code sections (via grep, read_file, etc.).
-1.3 Pause & Report: Present findings, root cause (if bug), solution options, and risks before making changes.
-
-2. Architecture & Engineering Principles
-
-Secrets: Always use environment variables; never hardcode.
-
-Backend Enforcement: Security-critical logic must live server-side.
-
-Scalability: Favor future-proof designs.
-
-Efficiency: Optimize for memory and performance.
-
-Design Patterns: Apply SOLID/KISS/DRY principles and justify major patterns in docs/ARCHITECTURE.md.
-
-Dependencies: No additions/removals without user approval. Run pnpm audit after changes.
-
-3. Testing & Quality
-
-Unit Tests: For logic and utilities.
-
-Integration Tests: For service boundaries.
-
-E2E Tests: For user-facing flows (Playwright).
-
-Regression Tests: For every bug fix.
-
-Profiling: For performance-critical features.
-
-Lint & Hygiene: Run pnpm run lint and fix all issues before proceeding.
-
-4. Documentation Enforcement (Mandatory)
-
-4.1 Single Source of Truth (SSOT): Only /docs files are canonical. No new Markdown files may be created.
-
-4.2 Mandatory Review Files:
+Update the following files if code changes affect them:
 
 README.md
 
@@ -99,70 +51,115 @@ docs/ARCHITECTURE.md
 
 docs/ROADMAP.md
 
-docs/CHANGELOG.md
+docs/CHANGELOG.md (required for every user-facing or architectural change)
 
-4.3 Change Log Discipline: Completed tasks must be moved to docs/CHANGELOG.md with date + description.
+Ensure documentation matches the Single Source of Truth (SSOT) rules.
 
-4.4 Traceability: Every change must link to a PRD requirement, architectural design, or roadmap milestone.
+Traceability
 
-5. CI/CD Rules
+Every change must map to PRD, Architecture, or Roadmap.
 
-CI must pass before submission.
+PRs must reference the requirement or milestone.
 
-Config must support staging and production.
+Security & Dependency Review
 
-Test artifacts must be cleaned.
+No secrets in code.
 
-6. Pre-Submission Hard Gate ✅
+Audit (pnpm audit) after dependency changes.
 
-Before submit, the agent must:
+Document dependency decisions in ARCHITECTURE.md.
 
-6.1 Run Tests & Metrics: Ask user approval, then run ./run-tests.sh. Must pass.
-6.2 Security Review: Check for vulnerabilities or critical bugs.
-6.3 Doc Sync Verification: Explicitly confirm all docs in Section 4 are aligned.
-6.4 Artifact Cleanup: Remove temp/test files.
-6.5 Branch & Commit Hygiene: Branches must follow naming conventions; commits must describe actual work.
+Branch & Commit Hygiene
 
-7. Status Update Protocol
+Branch names follow feature/..., fix/..., chore/....
 
-If a task exceeds 5 minutes:
+Commit messages summarize actual changes (not just issue numbers).
 
-Status Update
-Task: [short description]
-Status: [on track | investigating | blocked]
-Percent Complete: [XX%]
-ETA: [time or “next update in 5 min”]
-Next Steps: <1>, <2>
+Final User Confirmation
 
-8. Blockers & Escalation
+Ask explicitly:
+
+All changes are complete. May I run the final validation script (./run-tests.sh) to generate the Software Quality Metrics report?
+
+
+Proceed only after approval.
+
+🚨 Non-Negotiable Rules (Absolute)
+
+These rules CANNOT be broken under any circumstances:
+
+❌ No Code Reversals Without Consent
+
+You may NEVER undo, revert, or destroy user work without explicit approval.
+
+📄 Documentation Before Review
+
+Documentation must be updated and verified before any code is submitted for review.
+
+⏱️ Status Updates Required
+
+If a task runs longer than 5 minutes, you must provide a structured status update (current time, task, percent complete, ETA, next steps).
+
+🔐 Security First
+
+Never weaken authentication, authorization, or data protection.
+
+Always validate for leaks, dangling tokens, or unsafe client logic.
+
+🧩 No Unapproved Dependencies
+
+Adding/removing dependencies requires explicit justification and user approval.
+
+💰 No Cost-Incurring Integrations
+
+Do not add cloud APIs, billing hooks, or SaaS services without user confirmation.
+
+🧠 Senior Engineer Mindset
+
+Think Long-Term: Prioritize maintainability over shortcuts.
+
+Anticipate Risks: Identify edge cases and failure modes early.
+
+Verify with Evidence: Support all claims with code references or tests.
+
+Be Disciplined: Keep tests, lint, and docs clean before submission.
+
+Consult Before Impact: Discuss major design or dependency changes first.
+
+🔍 Task Workflow
+
+Contextual Review: Read relevant docs (/docs) before acting.
+
+Codebase Deep Dive: Inspect actual code (not just assumptions).
+
+Strategic Consultation: Present root cause, solutions, risks, and ask for approval if high-impact.
+
+Implementation: Follow architectural principles and coding standards.
+
+Validation: Complete the Pre-Check-In List.
+
+Submission: Request user approval before running final validation script.
+
+📢 Escalation Protocol
 
 If blocked:
 
-Provide problem summary
+Summarize the problem.
 
-Show debugging steps
+List what you tried.
 
-List hypotheses
+Provide hypotheses.
 
-Propose options with pros/cons
+Offer 2–3 solution paths with pros/cons.
 
-Pause and escalate to user
+Pause and wait for user guidance.
 
-9. Governance & Safety
+✅ This version is hardened:
 
-No Silent Reverts (Hard Rule): Never undo user work without explicit approval.
+Pre-Check-In List is now at the top and explicit.
 
-No Dependency Drift: Only change dependencies with justification + user approval.
+Non-Negotiables are absolute — agent “MUST NEVER” violate them.
 
-No Hidden Costs: Warn user before enabling features that may incur costs.
+Language uses MUST / NEVER instead of “should.”
 
-Security First: Validate all auth/data flows for leaks, dangling tokens, unsafe logic.
-
-✅ Summary:
-The agent must never proceed to code review without:
-
-Providing status updates.
-
-Verifying documentation.
-
-Getting user consent before destructive changes.
+Easier for both human and AI agents to follow without ambiguity.
