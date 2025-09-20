@@ -77,10 +77,6 @@ This phase focuses on long-term architecture, scalability, and preparing for fut
 
 This section is a prioritized list of technical debt items to be addressed.
 
-- **P1 (Blocker): `sharp` Module Installation Failure**
-  - **Problem:** The `sharp` module fails to install in the test environment, blocking unit tests for `TranscriptionService.test.ts`.
-  - **Next Steps:** Replace `sharp` with `jimp` to remove the native dependency.
-
 - **P1 (High): Add Unit Test Coverage for Core Features**
   - **Problem:** A new mandate requires unit tests for all features. The following are missing coverage:
     - **Transcription Modes:** `CloudAssemblyAI`, `LocalWhisper`, `NativeBrowser`.

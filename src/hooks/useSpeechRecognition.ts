@@ -11,7 +11,6 @@ import {
     calculateTranscriptStats,
     limitArray
 } from '../utils/fillerWordUtils';
-import type { PracticeSession } from '../types/session';
 import type { UserProfile } from '../types/user';
 import type { FillerCounts } from '../utils/fillerWordUtils';
 import type { Session as SupabaseSession } from '@supabase/supabase-js';
@@ -43,9 +42,9 @@ interface TranscriptStats {
 }
 
 interface ITranscriptionService {
-  init: () => Promise<any>;
+  init: () => Promise<{ success: boolean }>;
   startTranscription: () => Promise<void>;
-  stopTranscription: () => Promise<any>;
+  stopTranscription: () => Promise<string>;
   destroy: () => Promise<void>;
   getMode: () => 'native' | 'cloud' | 'on-device' | null;
 }
@@ -72,7 +71,7 @@ export const useSpeechRecognition = ({
     const [error, setError] = useState<Error | null>(null);
     const [isSupported, setIsSupported] = useState<boolean>(true);
     const [currentMode, setCurrentMode] = useState<string | null>(null);
-    const [modelLoadingProgress, setModelLoadingProgress] = useState<any | null>(null);
+    const [modelLoadingProgress, setModelLoadingProgress] = useState<number | null>(null);
 
     const transcriptionServiceRef = useRef<ITranscriptionService | null>(null);
     const isMountedRef = useRef<boolean>(true);
@@ -87,8 +86,8 @@ export const useSpeechRecognition = ({
 
     useEffect(() => {
         isMountedRef.current = true;
-        if (typeof window !== 'undefined' && (window as any).__E2E_MODE__) {
-            (window as any).transcriptionServiceRef = transcriptionServiceRef;
+        if (typeof window !== 'undefined' && window.__E2E_MODE__) {
+            window.transcriptionServiceRef = transcriptionServiceRef;
         }
         return () => {
             isMountedRef.current = false;
@@ -112,13 +111,13 @@ export const useSpeechRecognition = ({
         };
     }, [finalChunks, wordConfidences, interimTranscript, finalFillerData]);
 
-    const onModelLoadProgress = useCallback((progress: any) => {
+    const onModelLoadProgress = useCallback((progress: number) => {
         if (isMountedRef.current) setModelLoadingProgress(progress);
     }, []);
 
     const handleReady = useCallback(() => {
-        if (typeof window !== 'undefined' && (window as any).__E2E_MODE__) {
-            (window as any).__TRANSCRIPTION_READY__ = true;
+        if (typeof window !== 'undefined' && window.__E2E_MODE__) {
+            window.__TRANSCRIPTION_READY__ = true;
         }
         if (isMountedRef.current) setIsReady(true);
     }, []);
@@ -173,9 +172,10 @@ export const useSpeechRecognition = ({
             if (error) throw new Error(`Failed to invoke token function: ${error.message}`);
             if (!data || !data.token) throw new Error("No valid AssemblyAI token returned.");
             return data.token;
-        } catch (err: any) {
+        } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : String(err);
             logger.error({ err }, "Error getting AssemblyAI token");
-            if (isMountedRef.current) toast.error("Unable to start transcription: " + err.message);
+            if (isMountedRef.current) toast.error("Unable to start transcription: " + errorMessage);
             return null;
         }
     }, [authSession]);
@@ -210,11 +210,12 @@ export const useSpeechRecognition = ({
 
             await service.startTranscription();
             if (isMountedRef.current) setCurrentMode(service.getMode());
-        } catch (err: any) {
+        } catch (err) {
             if (isMountedRef.current) {
-                setError(err);
+                const error = err instanceof Error ? err : new Error(String(err));
+                setError(error);
                 setIsListening(false);
-                if (err.message.toLowerCase().includes('permission denied')) {
+                if (error.message.toLowerCase().includes('permission denied')) {
                     setIsSupported(false);
                 }
             }
@@ -242,8 +243,11 @@ export const useSpeechRecognition = ({
                 const stats = calculateTranscriptStats(finalChunks, wordConfidences, interimTranscript);
                 return { ...stats, filler_words: finalFillerData };
             }
-        } catch (err: any) {
-            if (isMountedRef.current) setError(err);
+        } catch (err) {
+            if (isMountedRef.current) {
+                const error = err instanceof Error ? err : new Error(String(err));
+                setError(error);
+            }
         }
         return null;
     }, [isListening]);

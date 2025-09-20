@@ -29,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refined developer-only controls on the `SessionSidebar` to be more specific and only appear for designated dev users.
 
 ### Fixed
+- **Build & CI/CD:**
+  - Resolved a blocking `jimp` type error by upgrading the dependency and refactoring its usage. This unblocks the `pnpm type-check` quality gate.
 - **Critical Application Bugs:**
   - Implemented protected routes to secure sensitive user pages.
   - Refactored `AuthContext.tsx` to stabilize authentication logic.

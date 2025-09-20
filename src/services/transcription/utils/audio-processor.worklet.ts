@@ -1,5 +1,3 @@
-/* globals sampleRate */
-
 // Extend the global scope to include AudioWorkletGlobalScope properties
 declare const sampleRate: number;
 declare function registerProcessor(name: string, constructor: new (options: any) => AudioWorkletProcessor): void;

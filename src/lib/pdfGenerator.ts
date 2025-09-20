@@ -38,7 +38,6 @@ export const generateSessionPdf = async (session: Session) => {
   }
 
   // --- Transcript ---
-  const finalY = (doc as any).lastAutoTable.finalY || 100;
   doc.addPage();
   doc.setFontSize(16);
   doc.text('Transcript', 14, 22);
@@ -49,9 +48,9 @@ export const generateSessionPdf = async (session: Session) => {
   // --- Image Example ---
   try {
     const imageBuffer = Buffer.from('...'); // Replace with actual image buffer
-    const processedImage = await processImage(imageBuffer, 200, 200);
+    await processImage(imageBuffer, 200, 200);
 
-    const base64Image = `data:image/png;base64,${processedImage.toString('base64')}`;
+    // const base64Image = `data:image/png;base64,${processedImage.toString('base64')}`;
     // doc.addImage(base64Image, 'PNG', 15, 40, 50, 50);
   } catch (error) {
     console.error('Error processing image:', error);
