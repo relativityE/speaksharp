@@ -75,15 +75,32 @@ This section contains ASCII art diagrams illustrating the journey for each user 
                                     +---------------------+
 ```
 
-### Feature Set (MoSCoW)
-(See [ROADMAP.md](./ROADMAP.md) for current status)
-*   **Must-Have:** Real-time transcription, filler word detection, session history.
-*   **Should-Have:** On-device transcription mode, advanced analytics.
-*   **Could-Have:** Team features, custom vocabulary.
-*   **Won't-Have (at this time):** Mobile application.
+### Canonical Feature List
+
+This section defines the official, user-facing features of SpeakSharp. It is the single source of truth for feature definition and is used to track development and testing priorities.
+
+*(A new mandate requires that every feature MUST have a unit test. See the status table below and the [Roadmap](./ROADMAP.md) for the plan to address any gaps.)*
+
+| Feature | Description | Status | Unit Test |
+| :--- | :--- | :--- | :--- |
+| **Transcription** | The core service that converts speech to text. | ✅ Implemented | 🟡 Partial |
+| **Cloud Server STT** | High-accuracy transcription via AssemblyAI. (Pro) | ✅ Implemented | 🔴 No |
+| **On-Device STT** | Privacy-first transcription using a local Whisper model. (Pro) | ✅ Implemented | 🔴 No |
+| **Fallback STT** | Standard transcription using the native browser API. (Free) | ✅ Implemented | 🔴 No |
+| **Session History** | Users can view and analyze their past practice sessions. | ✅ Implemented | 🔴 No |
+| **Filler Word Detection** | Detects and counts common filler words (um, uh, like, etc.). | ✅ Implemented | ✅ Yes |
+| **AI Suggestions** | Provides AI-driven feedback on transcripts. | ✅ Implemented | ✅ Yes |
+| **Filler Word Trend** | Analyzes the trend of filler word usage across sessions. | ✅ Implemented | 🔴 No |
+| **Session Comparison** | Compares stats from the 4 most recent sessions. | ✅ Implemented | 🔴 No |
+| **Speaking Pace (WPM)** | Provides real-time words-per-minute analysis. | 🔴 Not Started | 🔴 No |
+| **Speaker Identification**| Distinguishes between multiple speakers in a transcript. | 🔴 Not Started | 🔴 No |
+| **Vocal Variety / Pause Detection** | Analyzes vocal pitch, tone, and pause duration. | 🔴 Not Started | 🔴 No |
+| **Custom Vocabulary** | Allows users to add custom words to improve accuracy. | 🔴 Not Started | 🔴 No |
+| **STT Accuracy Comparison** | Rolling average comparison of STT engine accuracy. | 🔴 Not Started | 🔴 No |
+
 
 ### Differentiation
-*   **vs. Otter.ai:** Privacy-first (on-device option is a key roadmap item), focused on improvement, not just transcription.
+*   **vs. Otter.ai:** Privacy-first (on-device option), focused on *improvement*, not just transcription.
 *   **vs. Poised:** More affordable, simpler to use, no installation required.
 
 ### Go-to-Market & Financials
