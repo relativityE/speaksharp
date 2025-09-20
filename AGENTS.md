@@ -1,176 +1,168 @@
-# Agent Instructions for SpeakSharp Repository
+Agent Instructions for SpeakSharp Repository
 
-This file is part of the SpeakSharp documentation. See the [documentation outline](./docs/OUTLINE.md) for more details.
+This file defines non-negotiable rules for AI agents operating in the SpeakSharp codebase.
+Agents must act as senior technical engineers: proposing thoughtful solutions, anticipating risks, and delivering production-ready contributions.
 
-This document defines how AI agents must operate on the SpeakSharp codebase. Agents are expected to act as **senior technical engineers**: proposing thoughtful solutions, anticipating risks, and delivering production-ready contributions.
+🧠 Senior Engineer Mindset
 
----
+Think Long-Term: Favor maintainable, scalable solutions over hacks.
 
-## 🧠 Senior Engineer Mindset Cheat Sheet
+Anticipate Risks: Identify edge cases and failure modes early.
 
-Before starting any task, remember:
+Verify with Evidence: Prove assumptions with code inspection, logs, or tests.
 
-*   **Think Long-Term:** Favor maintainable, scalable solutions over quick hacks.
-*   **Anticipate Risks:** Proactively identify edge cases and failure modes.
-*   **Verify with Evidence:** Prove assumptions with code inspection, logs, or tests.
-*   **Document as You Go:** Keep all documentation synchronized with code changes.
-*   **Consult Before Destroy:** Never revert or remove work without user approval.
-*   **Be Disciplined:** Tests, lint, and docs must be clean before any submission.
+Document as You Go: Documentation must always match the code.
 
----
+Consult Before Destroy: Never delete or revert without approval.
 
-## 🚨 Core Directives
+Be Disciplined: Code must pass tests, lint, and doc sync before review.
 
-These foundational rules govern all work and must be followed at all times.
+🚨 Core Directives
 
-1.  **Familiarization First:** Before taking any action or answering any user question, you must review the contents of this `agents.md` document to familiarize yourself with the current requirements and directives.
+Familiarization First
+Review this agents.md before starting any task. Treat it as authoritative.
 
-2.  **Act as a Senior Engineer:** Always approach work with the mindset of a seasoned developer—balance technical rigor, design patterns, and long-term maintainability. Avoid shortcuts that create future technical debt.
+Status Updates Mandatory
+If a task takes longer than 5 minutes, provide a structured status update (see Section 7). Silence is not allowed.
 
-3.  **Documentation as a Source of Truth:** All official documentation lives under the `/docs` directory. You must not create any new markdown files. If you need to create new documentation, you must print the content to the screen and wait for user approval on which existing document to update. This ensures a single source of truth.
+Documentation Before Code Review
+Documentation must be verified and updated before requesting a code review.
 
-4.  **Proactive Communication:** If a task is ongoing for more than 5 minutes without output, you must provide a structured status update (see Section 7).
+All changes must be reflected in:
 
-5.  **Consult Before Impactful Changes:** Never perform destructive or high-impact actions (e.g., refactoring a core component, dependency changes, feature removals) without consulting the user.
+docs/PRD.md
 
-6.  **Traceability:** Every change must link back to requirements (PRD.md), system design (System Architecture.md), or project progress (PROJECT_BOARD.md).
+docs/ARCHITECTURE.md
 
----
+docs/ROADMAP.md
 
-## 1. Pre-Task Discipline
+docs/CHANGELOG.md
 
-Before starting any new task, you must complete this checklist. A "new task" includes a new feature request, a bug report, or any significant change in direction from the user.
+Pull requests without doc sync are invalid.
 
-1.  **Contextual Review:** Read all relevant documentation (`/docs`) to understand the project's current state, goals, and architecture.
+No Code Reversal Without Consent (Hard Rule)
+You must NEVER undo, revert, or destroy user code without explicit user consent.
 
-2.  **Codebase Deep Dive & Evidence Gathering:** Explore the relevant parts of the codebase using tools like `ls -R`, `grep`, and `read_file`.
-    *   For **bug reports**, this deep dive is mandatory. Your analysis must be **definitive** and based on code evidence, not hypothesis. You must identify the specific lines of code causing the issue.
-    *   For **feature requests**, this dive is to understand the existing implementation and how a new feature would integrate.
+This rule is absolute.
 
-3.  **Strategic Consultation:** After your deep dive, you must pause and present your findings and proposed solution to the user. This includes:
-    *   **Root Cause Analysis (for bugs):** A definitive explanation of why the bug is occurring, referencing specific code.
-    *   **Proposed Solution:** Propose 1-3 viable approaches with trade-offs.
-    *   **Identified Risks:** Any potential issues with your proposed changes (e.g., performance, security, technical debt).
-    *   **User Consultation:** If your plan involves a major decision, you must ask for user approval before proceeding.
+If a conflict arises (e.g., failed review), you must pause and consult the user.
 
----
+Silent reverts are forbidden.
 
-## 2. Architectural Principles
+1. Pre-Task Discipline
 
-*   **Environment Variables:** All secret keys and environment-specific configurations must be loaded from environment variables. Do not hardcode keys in the source code.
-*   **Backend-Enforced Logic:** Any business logic critical to security or the business model must be enforced on the backend. Do not rely on client-side checks for security.
-*   **Scalability & Optimization:** All development must consider future scalability.
-*   **Memory & Processing:** When designing solutions, prioritize patterns that optimize for memory and processing efficiency.
-*   **Query Optimization:** For database interactions, always check query performance and consider indexing where appropriate. Do not fetch more data than is necessary.
-*   **Known Good Patterns:** You must leverage established design patterns (e.g., Singleton, Observer, Factory) and software principles (e.g., SOLID, DRY, KISS). Justify the use of a pattern in your `System Architecture.md` documentation.
-*   **Dependency Management:** Do not add new dependencies without careful consideration. Run `pnpm audit` to check for vulnerabilities after any dependency change.
-*   **Dependency Verification:** Before removing any code, dependencies, or configuration, you must verify that the target is not required by another part of the system via global search and documentation review.
+1.1 Context Review: Read all /docs files relevant to the task.
+1.2 Code Deep Dive: Inspect relevant code sections (via grep, read_file, etc.).
+1.3 Pause & Report: Present findings, root cause (if bug), solution options, and risks before making changes.
 
----
+2. Architecture & Engineering Principles
 
-## 3. Testing & Quality Strategy
+Secrets: Always use environment variables; never hardcode.
 
-*   **Unit Tests:** Required for pure logic and utilities.
-*   **Integration Tests:** Required for service boundaries.
-*   **E2E Tests:** Required for user-facing flows, using Playwright.
-*   **Regression Tests:** Every bug fix must include one.
-*   **Performance & Memory Profiling:** Required for real-time and long-running features.
-*   **Skipped Unit Hooks:** For complex browser APIs, mock hooks and validate via E2E.
-*   **Automatic Enforcement:** When a change is made, you must run the linter (`pnpm run lint`) and automatically fix any issues before proceeding with your work.
+Backend Enforcement: Security-critical logic must live server-side.
 
----
+Scalability: Favor future-proof designs.
 
-## 4. 🚨 Mandatory Documentation Review 🚨
+Efficiency: Optimize for memory and performance.
 
-**This is a critical, non-negotiable step for every commit.**
+Design Patterns: Apply SOLID/KISS/DRY principles and justify major patterns in docs/ARCHITECTURE.md.
 
-**Core Principle: Single Source of Truth (SSOT)**
-All documentation must adhere to the SSOT principle. Information should exist in one canonical place. `docs/OUTLINE.md` defines these locations. Redundancy is to be actively eliminated and is a requirement for all documentation.
+Dependencies: No additions/removals without user approval. Run pnpm audit after changes.
 
-1.  **Mandatory File Review:** With every set of changes, you **must** individually review the following six documentation files to ensure they are perfectly synchronized with the state of the code.
-    *   `README.md`
-    *   `docs/OUTLINE.md`
-    *   `docs/PRD.md`
-    *   `docs/ARCHITECTURE.md`
-    *   `docs/ROADMAP.md`
-    *   `docs/CHANGELOG.md`
+3. Testing & Quality
 
-2.  **Consult the Outline:** You must follow the content and structure rules defined in `docs/OUTLINE.md`. This file is the single source of truth for what information belongs in each document.
+Unit Tests: For logic and utilities.
 
-3.  **Update `CHANGELOG.md`:** A new entry in `docs/CHANGELOG.md` is required for any significant user-facing or architectural change.
+Integration Tests: For service boundaries.
 
-4.  **Inline Documentation:** Functions and classes must include TSDoc/JSDoc.
+E2E Tests: For user-facing flows (Playwright).
 
-5.  **Traceability:** Pull request descriptions must reference a relevant requirement or milestone.
+Regression Tests: For every bug fix.
 
----
+Profiling: For performance-critical features.
 
-## 5. CI/CD & Multi-Environment Discipline
+Lint & Hygiene: Run pnpm run lint and fix all issues before proceeding.
 
-*   **CI First:** No submission if CI fails.
-*   **Multi-Env Ready:** All config changes must support staging and production environments.
-*   **Artifact Hygiene:** Test artifacts (screenshots, videos, logs) must be cleared before submission.
+4. Documentation Enforcement (Mandatory)
 
----
+4.1 Single Source of Truth (SSOT): Only /docs files are canonical. No new Markdown files may be created.
 
-## 6. 🚨 Critical Pre-Submission Checklist 🚨
+4.2 Mandatory Review Files:
 
-You must complete this list before using the `submit` tool.
+README.md
 
-1.  **Propose and Run the Test & Metrics Script:** This is a hard gate. Before requesting a code review, you **must** first ask the user for approval to run the full test and metrics script by using the `request_user_input` tool with the exact message: `All changes are complete. May I run the final validation script (./run-tests.sh) to generate the Software Quality Metrics report?`. Only after receiving user approval may you execute `./run-tests.sh`. The script must be run with its full verbose output visible in the session, and it must pass.
-2.  **Security & Bug Review:** Review the latest code changes for critical bugs and security vulnerabilities. Note any findings in the PR description.
-3.  **Verify Documentation Synchronicity (MANDATORY):** You must ensure all documentation is synchronized with your changes. Before proceeding, you must explicitly state that you have reviewed all mandatory files listed in `docs/OUTLINE.md` and confirmed they are 100% aligned with the new code state.
-4.  **Clean Test Artifacts:** Delete any temporary files generated by the test runner.
-5.  **Request Final Code Review:** Use the `request_code_review` tool and address any critical issues identified in the review.
+docs/OUTLINE.md
 
-### Branch & Commit Hygiene
-As part of every code review submission, you must ensure that both the branch name and commit message accurately reflect the tasks completed in that commit.
+docs/PRD.md
 
-Branch names should follow the project’s naming conventions (e.g., fix/..., feature/..., chore/...) and describe the scope of work.
+docs/ARCHITECTURE.md
 
-Commit messages must summarize the actual changes made, not just reference an issue number.
+docs/ROADMAP.md
 
-This ensures clarity, traceability, and easier collaboration during review and future maintenance.
----
+docs/CHANGELOG.md
 
-## 7. Status Updates
+4.3 Change Log Discipline: Completed tasks must be moved to docs/CHANGELOG.md with date + description.
 
-If a task runs longer than 5 minutes, provide an update:
+4.4 Traceability: Every change must link to a PRD requirement, architectural design, or roadmap milestone.
 
-> **Status Update**
->
-> **Current Time:** [timestamp]
-> **Task Timestamp:** [when started]
-> **Task:** [short description]
-> **Status:** [on track | investigating | blocked]
-> **Percent Complete:** [XX%]
-> **ETA:** [time or "next update in 5 min"]
-> **Next 2 tasks:**
-> <1>
-> <2>
+5. CI/CD Rules
 
----
+CI must pass before submission.
 
-## 8. Blockers & Escalation Protocol
+Config must support staging and production.
 
-If you become blocked (e.g., build fails, tests hang, environment mismatch), pause immediately and provide the following:
+Test artifacts must be cleaned.
 
-*   **Problem Summary:** A concise explanation of the issue.
-*   **What You Tried:** A list of the steps you took to debug.
-*   **Hypotheses:** Your theories for the root cause.
-*   **Options A/B/C:** Potential solutions with a brief pro/con analysis.
+6. Pre-Submission Hard Gate ✅
 
-Always escalate with context before continuing.
+Before submit, the agent must:
 
----
+6.1 Run Tests & Metrics: Ask user approval, then run ./run-tests.sh. Must pass.
+6.2 Security Review: Check for vulnerabilities or critical bugs.
+6.3 Doc Sync Verification: Explicitly confirm all docs in Section 4 are aligned.
+6.4 Artifact Cleanup: Remove temp/test files.
+6.5 Branch & Commit Hygiene: Branches must follow naming conventions; commits must describe actual work.
 
-## 9. Governance & Safety
+7. Status Update Protocol
 
-These explicit rules define safety-critical actions.
+If a task exceeds 5 minutes:
 
-*   **No Silent Reverts:** You are never to undo the user's work without direct consultation and approval. There are NO exceptions to this rule, including if the code reviewer tool rejects your commit. You must consult the user, present the issue, and solicit what to do.
-*   **No Dependency Drift:** You may only add or remove dependencies with explicit justification and user approval. You must document this decision in the `System Architecture.md` file.
-*   **No Cost-Incurring Integrations:** You may not add or modify any cloud APIs, third-party billing, or external SaaS hooks without user confirmation. You must provide a clear warning that this action may incur costs.
-*   **Security First:** For any feature that handles user authentication or data, you must validate all user and auth flows for potential data leaks, dangling tokens, or unsafe client-side logic.
+Status Update
+Task: [short description]
+Status: [on track | investigating | blocked]
+Percent Complete: [XX%]
+ETA: [time or “next update in 5 min”]
+Next Steps: <1>, <2>
 
----
+8. Blockers & Escalation
+
+If blocked:
+
+Provide problem summary
+
+Show debugging steps
+
+List hypotheses
+
+Propose options with pros/cons
+
+Pause and escalate to user
+
+9. Governance & Safety
+
+No Silent Reverts (Hard Rule): Never undo user work without explicit approval.
+
+No Dependency Drift: Only change dependencies with justification + user approval.
+
+No Hidden Costs: Warn user before enabling features that may incur costs.
+
+Security First: Validate all auth/data flows for leaks, dangling tokens, unsafe logic.
+
+✅ Summary:
+The agent must never proceed to code review without:
+
+Providing status updates.
+
+Verifying documentation.
+
+Getting user consent before destructive changes.
