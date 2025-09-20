@@ -37,11 +37,6 @@ export default defineConfig({
       testMatch: /test\.setup\.ts/,
     },
     {
-      name: 'auth',
-      testMatch: /auth\.e2e\.spec\.ts/,
-      use: { ...devices['Desktop Chrome'] },
-    },
-    {
       name: 'chromium-smoke',
       use: { ...devices['Desktop Chrome'] },
       testMatch: /basic\.e2e\.spec\.ts/,

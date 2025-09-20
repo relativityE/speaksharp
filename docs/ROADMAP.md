@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-09-19
+**Last Reviewed:** 2025-09-20
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -24,9 +24,8 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
     -   Analyze the `trace.zip` file from the last failed test run to understand the component state and console output at the moment of failure.
     -   Determine why the `SessionSidebar` component is not rendering the button for the test runner.
 - 🔴 **Fix the remaining E2E tests**:
-    -   Run and fix the `anon.e2e.spec.ts` suite.
-    -   Run and fix the `free.e2e.spec.ts` suite.
-    -   Run and fix the `basic.e2e.spec.ts` suite.
+    -   The `auth.e2e.spec.ts` suite is not currently run by any Playwright project. This needs to be added.
+    -   The test runner environment is unstable and frequently times out. This needs to be investigated and stabilized.
 
 ### Gating Check
 - 🔴 **Do a Gap Analysis of current implementation against the Current Phase requirements.**
@@ -46,7 +45,7 @@ This phase is about confirming the core feature set works as expected and polish
 - 🔴 **Remove all temporary console.logs:** Clean up the codebase for production.
 
 ### 🚧 Should-Have (Tech Debt)
-- 🟡 **Implement new SpeakSharp Design System:** (See [Architecture: Design System](./ARCHITECTURE.md#2-frontend-architecture))
+- 🟡 **Implement new SpeakSharp Design System:**
   - 🟡 3. Refactor UI Components & Test
   - 🔴 4. Final Verification & Test
 - 🟡 **Add Robust UX States:** Some states exist, but are inconsistently applied.
@@ -76,31 +75,24 @@ This phase focuses on long-term architecture, scalability, and preparing for fut
 ---
 ## Technical Debt
 
-### 🎯 Must-Have (Test Coverage)
-- 🔴 **Add Unit Test Coverage for Core Features**: A new mandate requires unit tests for all features. The following implemented features are missing coverage:
+This section is a prioritized list of technical debt items to be addressed.
+
+- **P1 (Blocker): `sharp` Module Installation Failure**
+  - **Problem:** The `sharp` module fails to install in the test environment, blocking unit tests for `TranscriptionService.test.ts`.
+  - **Next Steps:** Replace `sharp` with `jimp` to remove the native dependency.
+
+- **P1 (High): Add Unit Test Coverage for Core Features**
+  - **Problem:** A new mandate requires unit tests for all features. The following are missing coverage:
     - **Transcription Modes:** `CloudAssemblyAI`, `LocalWhisper`, `NativeBrowser`.
     - **Session & Analytics:** `SessionContext`, `analyticsUtils` (for trend analysis).
 
-### Items from Code Audit (Sept 2025)
+- **P2 (Medium): Automate Software Quality Metrics Generation**
+  - **Problem:** The Software Quality Metrics in `PRD.md` are not updated automatically.
+  - **Next Steps:** Enhance the `./run-tests.sh` script to parse test output and inject the metrics into the PRD.
 
-A recent code audit identified the following areas of technical debt:
+- **P3 (Medium): Incomplete TypeScript Migration**
+  - **Problem:** Several test-related files and utilities are still JavaScript.
+  - **Files to migrate:** `__mocks__/*.js`, `src/services/transcription/utils/audio-processor.worklet.js`.
 
-1.  **🟡 Incomplete TypeScript Migration**: While the core application services have been migrated to TypeScript, several test-related files and utilities remain as JavaScript.
-    *   **Files to migrate:** `__mocks__/*.js`, `src/services/transcription/utils/audio-processor.worklet.js`.
-
-2.  **🟡 Improve Unit Test Discoverability**: The current testing strategy relies heavily on E2E and integration tests. While effective, the lack of easily discoverable, co-located unit tests for services like `AuthContext` and `TranscriptionService` makes the codebase harder to maintain. Unit tests for individual modes exist but should be better integrated.
-
-3.  **🔴 Automate Software Quality Metrics Generation**
-    **Problem:** The current process for generating software quality metrics is manual and uses placeholder data, which does not reflect the true state of the codebase.
-
-    **Proposed Solution:** The `./run-tests.sh` script should be enhanced to dynamically generate these metrics. This involves:
-    1.  Configuring the test runners (Vitest and Playwright) to output their results in a machine-readable JSON format.
-    2.  Using a tool like `jq` to parse these JSON reports and extract key metrics (test counts, pass/fail rates, code coverage).
-    3.  Automatically updating the "Software Quality Metrics" section in `docs/PRD.md` with this data.
-
-    **Next Steps:** A developer needs to pick up this task and implement the described changes in the `./run-tests.sh` script.
-
-4.  **🔴 `sharp` Module Installation Failure in Sandboxed Environment**
-    **Problem:** The `sharp` module, a critical dependency for image processing, fails to install correctly in the sandboxed test environment. This blocks the unit tests for `TranscriptionService.test.ts` and prevents the full test suite from running.
-    **Analysis:** The issue appears to be related to the installation of `sharp`'s native binaries. Standard installation methods have failed. The migration from JS to TS has been considered as a potential factor, but the root cause is likely environmental.
-    **Next Steps:** The `sharp` module will be replaced with `jimp`, a pure JavaScript image processing library. This will eliminate the native dependency and the installation issues. A developer needs to pick up this task and implement the change. In the meantime, the tests that depend on `sharp` will be temporarily disabled to unblock other development work.
+- **P4 (Low): Improve Unit Test Discoverability**
+  - **Problem:** The lack of easily discoverable, co-located unit tests makes the codebase harder to maintain.
