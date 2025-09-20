@@ -1,17 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import { Session, User, AuthChangeEvent, AuthError } from '@supabase/supabase-js';
+import { Session, User, AuthError } from '@supabase/supabase-js';
+import { UserProfile } from '../types/user';
 import { Skeleton } from '@/components/ui/skeleton';
-
-// --- Types ---
-
-export type SubscriptionStatus = 'free' | 'pro';
-
-export interface UserProfile {
-  id: string;
-  subscription_status: SubscriptionStatus;
-  preferred_mode?: 'on-device' | 'cloud';
-}
 
 export interface AuthContextType {
   session: Session | null;
@@ -41,7 +32,7 @@ const getProfileFromDb = async (userId: string): Promise<UserProfile | null> => 
     const { data, error } = await supabase.from('user_profiles').select('*').eq('id', userId).single();
     if (error) return null;
     return data;
-  } catch (_err) {
+  } catch {
     return null;
   }
 };
@@ -71,10 +62,10 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
         }
         setProfile(userProfile);
         if (import.meta.env.VITE_TEST_MODE) {
-          (window as any).__USER__ = userProfile;
+          window.__USER__ = userProfile;
         }
         setSession(session);
-      } catch (_e) {
+      } catch {
         // Handle error if needed
       } finally {
         setLoading(false);
@@ -91,7 +82,7 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
         }
         setProfile(userProfile);
         if (import.meta.env.VITE_TEST_MODE) {
-          (window as any).__USER__ = userProfile;
+          window.__USER__ = userProfile;
         }
         setSession(newSession);
       }

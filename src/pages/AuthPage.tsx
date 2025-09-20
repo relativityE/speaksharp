@@ -1,4 +1,4 @@
-import React, { useState, useEffect, FormEvent, ChangeEvent } from 'react';
+import React, { useState, FormEvent, ChangeEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -26,7 +26,6 @@ const mapError = (message: string): string => {
 
 export default function AuthPage() {
   const { session, loading } = useAuth();
-  const location = useLocation();
   const [view, setView] = useState('sign_in'); // 'sign_in', 'sign_up', or 'forgot_password'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

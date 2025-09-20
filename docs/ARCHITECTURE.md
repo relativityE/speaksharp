@@ -123,6 +123,15 @@ The test configuration creates a controlled environment with the following flow:
 *   **Reliable Cleanup:** The teardown process ensures no zombie Vite processes are left running, even if tests crash or time out.
 *   **CI-Friendly:** The architecture works identically on CI and locally, and it surfaces logs for easy debugging of failures.
 
+### Environment Recovery
+
+In the event of test environment instability (e.g., hanging processes, incorrect tool execution), agents should run the `vm-recovery.sh` script located in the root directory. This script is designed to reset and stabilize the development environment.
+
+**Usage:**
+```bash
+./vm-recovery.sh
+```
+
 ## 3. Frontend Architecture
 
 The frontend is a single-page application (SPA) built with React and Vite.
