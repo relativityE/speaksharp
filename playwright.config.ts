@@ -1,8 +1,14 @@
 import { defineConfig, devices } from '@playwright/test';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-// Load environment variables for tests
-dotenv.config({ path: '.env.test' });
+// Define __dirname for ES module scope
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Load environment variables from .env.test
+dotenv.config({ path: path.resolve(__dirname, '.env.test') });
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -36,7 +42,7 @@ export default defineConfig({
       testMatch: /basic\.e2e\.spec\.ts/,
     },
     {
-      name: 'chromium-pro',
+      name: 'user-pro',
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
@@ -45,7 +51,7 @@ export default defineConfig({
       testMatch: /pro\.e2e\.spec\.ts/,
     },
     {
-      name: 'chromium-free',
+      name: 'user-free',
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],

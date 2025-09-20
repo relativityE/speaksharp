@@ -1,62 +1,67 @@
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
-import type { PracticeSession } from '../types/session';
+import { Session } from '../../types/session';
+import { format, parseISO } from 'date-fns';
+import { processImage } from './processImage';
 
-// Extend the jsPDF interface to include the autoTable plugin's property
+// Extend jsPDF with autoTable
 interface jsPDFWithAutoTable extends jsPDF {
-  lastAutoTable: {
-    finalY: number;
-  };
   autoTable: (options: any) => jsPDF;
 }
 
-export const generateSessionPdf = (session: PracticeSession) => {
-    const doc = new jsPDF() as jsPDFWithAutoTable;
+export const generatePdf = async (session: Session) => {
+  const doc = new jsPDF() as jsPDFWithAutoTable;
 
-    // 1. Add Header
-    doc.setFontSize(20);
-    doc.text(session.title || 'Practice Session Report', 14, 22);
-    doc.setFontSize(12);
-    doc.text(`Date: ${new Date(session.created_at).toLocaleString()}`, 14, 30);
+  // --- Header ---
+  doc.setFontSize(20);
+  doc.text('SpeakSharp Session Report', 14, 22);
 
-    // 2. Add Summary Stats in a Table
-    const summaryData = [
-        ['Duration', `${(session.duration / 60).toFixed(1)} minutes`],
-        ['Total Words', session.total_words || 'N/A'],
-    ];
-    doc.autoTable({
-        startY: 40,
-        head: [['Metric', 'Value']],
-        body: summaryData,
-        theme: 'striped',
-        headStyles: { fillColor: [41, 128, 185] },
-    });
+  // --- Session Metadata ---
+  doc.setFontSize(12);
+  const sessionDate = format(parseISO(session.created_at), 'MMMM do, yyyy');
+  doc.text(`Date: ${sessionDate}`, 14, 32);
+  doc.text(`Duration: ${Math.round(session.duration_seconds / 60)} minutes`, 14, 42);
 
-    // 3. Add Filler Word Details Table
-    const fillerWordData = Object.entries(session.filler_words || {}).map(([word, data]) => [
-        word,
-        data.count,
-    ]);
+  // --- Analytics ---
+  doc.setFontSize(16);
+  doc.text('Analytics', 14, 60);
 
-    if (fillerWordData.length > 0) {
-        doc.autoTable({
-            startY: doc.lastAutoTable.finalY + 10,
-            head: [['Filler Word', 'Count']],
-            body: fillerWordData,
-            theme: 'grid',
-        });
-    }
+  const tableData = Object.entries(session.analytics.filler_words).map(([word, count]) => [word, count]);
+  doc.autoTable({
+    startY: 70,
+    head: [['Filler Word', 'Count']],
+    body: tableData,
+    theme: 'striped',
+    headStyles: { fillColor: [22, 160, 133] },
+  });
 
-    // 4. Add Full Transcript
-    doc.setFontSize(14);
-    doc.text('Full Transcript', 14, doc.lastAutoTable.finalY + 20);
+  // --- Transcript ---
+  const finalY = (doc as any).lastAutoTable.finalY || 100;
+  doc.addPage();
+  doc.setFontSize(16);
+  doc.text('Transcript', 14, 22);
+  doc.setFontSize(10);
+  const transcriptLines = doc.splitTextToSize(session.transcript, 180);
+  doc.text(transcriptLines, 14, 32);
+
+  // --- Image Example ---
+  try {
+    const imageBuffer = Buffer.from('...'); // Replace with actual image buffer
+    const processedImage = await processImage(imageBuffer, 200, 200);
+
+    const base64Image = `data:image/png;base64,${processedImage.toString('base64')}`;
+    // doc.addImage(base64Image, 'PNG', 15, 40, 50, 50);
+  } catch (error) {
+    console.error('Error processing image:', error);
+  }
+
+  // --- Footer ---
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
     doc.setFontSize(10);
+    doc.text(`Page ${i} of ${pageCount}`, 14, doc.internal.pageSize.height - 10);
+  }
 
-    // Use splitTextToSize to handle long text and wrapping
-    const transcriptLines = doc.splitTextToSize(session.transcript || 'No transcript available.', 180);
-    doc.text(transcriptLines, 14, doc.lastAutoTable.finalY + 30);
-
-
-    // 5. Save the PDF
-    doc.save(`SpeakSharp_Session_${session.id}.pdf`);
+  doc.save(`SpeakSharp-Session-${session.id}.pdf`);
 };

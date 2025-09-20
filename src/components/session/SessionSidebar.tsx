@@ -215,13 +215,9 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                         </Button>
                     </div>
 
-                    {import.meta.env.DEV && (
+                    {isDevUser && (
                         <div className="mt-auto pt-4 border-t space-y-2">
                             <div className="text-xs text-muted-foreground font-semibold">Dev Controls</div>
-                            <Label htmlFor="force-cloud" className="flex items-center gap-2 text-xs text-muted-foreground" onClick={() => { if (isListening) toast.info("Cannot be changed during an active session."); }}>
-                                <Checkbox id="force-cloud" checked={forceCloud} onCheckedChange={(checked) => { handleCheckboxChange(setForceCloud, checked); if (checked) { setForceOnDevice(false); setForceNative(false); } }} disabled={isListening}/>
-                                Force Cloud (Disable Fallback)
-                            </Label>
                             <Label htmlFor="force-on-device" className="flex items-center gap-2 text-xs text-muted-foreground" onClick={() => { if (isListening) toast.info("Cannot be changed during an active session."); }}>
                                 <Checkbox id="force-on-device" checked={forceOnDevice} onCheckedChange={(checked) => { handleCheckboxChange(setForceOnDevice, checked); if (checked) { setForceCloud(false); setForceNative(false); } }} disabled={isListening}/>
                                 Force On-device (WIP)
@@ -230,7 +226,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                                 <Checkbox id="force-native" checked={forceNative} onCheckedChange={(checked) => { handleCheckboxChange(setForceNative, checked); if (checked) { setForceCloud(false); setForceOnDevice(false); } }} disabled={isListening}/>
                                 Force Native Browser
                             </Label>
-                            <div className="text-xs text-muted-foreground pt-2">Current User Role: <span className="font-bold text-foreground">{profile?.subscription_status || (user ? 'free' : 'anonymous')}{isDevUser && ' (dev)'}</span></div>
+                            <div className="text-xs text-muted-foreground pt-2">User: <span className="font-bold text-foreground">{profile?.subscription_status || (user ? 'free' : 'anonymous')}</span></div>
                         </div>
                     )}
                     {!isPro && (
@@ -239,7 +235,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                             <p className="text-xs text-muted-foreground mb-2">
                                 Get unlimited practice, advanced analytics, and priority support.
                             </p>
-                            <Button size="sm" className="w-full font-bold group" variant="outline" disabled={true} data-testid="session-sidebar-upgrade-button">
+                            <Button size="sm" className="w-full font-bold group" variant="outline" data-testid="session-sidebar-upgrade-button">
                                 Upgrade
                             </Button>
                         </div>

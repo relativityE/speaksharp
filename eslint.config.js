@@ -6,7 +6,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 
 export default tseslint.config(
-  { ignores: ['dist', 'node_modules'] },
+  { ignores: ['dist', 'node_modules', 'playwright-report/', 'test-results/'] },
 
   // Base configs
   js.configs.recommended,
@@ -70,6 +70,7 @@ export default tseslint.config(
     },
     rules: {
       ...vitest.configs.recommended.rules,
+      'vitest/no-commented-out-tests': 'warn',
     },
     languageOptions: {
       globals: {
