@@ -36,12 +36,18 @@ This section contains a high-level block diagram of the SpeakSharp full-stack ar
 |    | - `src/hooks` (Logic)           |                   v                                       |              |
 |    |   - `useSessionManager`         |       +---------------------------------+       +-----------------------+  |
 |    |   - `useSpeechRecognition`      |       |    Supabase DB (Postgres)       |       |        Stripe         |  |
-|    +---------------------------------+       |---------------------------------|       |       (Payments)      |  |
-|              |                                | - `users`, `sessions`           |<----->| (via webhooks)        |  |
-|              v                                | - `transcripts`, `usage`        |       +-----------------------+  |
-|    +---------------------------------+       +---------------------------------+                 ^              |
-|    | TranscriptionService            |                   ^                                       |              |
-|    |---------------------------------|                   |                                       |              |
+|    | - `src/lib` (Utils)             |       |---------------------------------|       |       (Payments)      |  |
+|    |   - `pdfGenerator`              |<----->| - `users`, `sessions`           |<----->| (via webhooks)        |  |
+|    +---------------------------------+       | - `transcripts`, `usage`        |       +-----------------------+  |
+|              |         |                      +---------------------------------+                 ^              |
+|              |         |                                  ^                                       |              |
+|              |         |                      +---------------------------------+                 |              |
+|              |         +--------------------->|     PDF & Image Libs          |                 |              |
+|              |                                |---------------------------------|                 |              |
+|              v                                | - jspdf, jspdf-autotable        |                 |              |
+|    +---------------------------------+       | - jimp (replaces sharp)         |                 |              |
+|    | TranscriptionService            |       +---------------------------------+                 |              |
+|    |---------------------------------|                   ^                                       |              |
 |    | - `CloudAssemblyAI / LocalWhisper` (Pro)       |-------------------+                                       |
 |    | - `NativeBrowser` (Free/Fallback) |                 |                                       |              |
 |    +---------------------------------+       +---------------------------------+                 |              |
@@ -129,6 +135,10 @@ The frontend is a single-page application (SPA) built with React and Vite.
     *   **`useSessionManager`:** A custom hook that encapsulates the logic for saving, deleting, and exporting sessions. The anonymous user flow is now stable.
 *   **Routing:** Client-side routing is handled by `react-router-dom`, with protected routes implemented to secure sensitive user pages.
 *   **Logging:** The application uses `pino` for structured logging.
+*   **PDF Generation:** Session reports can be exported as PDF documents using the `jspdf` and `jspdf-autotable` libraries. The `pdfGenerator.ts` utility encapsulates the logic for creating these reports.
+*   **Analytics Components:** The frontend includes several components for displaying analytics, such as `FillerWordTable`, `FillerWordTrend`, and `SessionComparison`.
+*   **AI-Powered Suggestions:** The `AISuggestions` component provides users with feedback on their speech.
+*   **Image Processing:** The application uses `Jimp` for image processing tasks, such as resizing user-uploaded images. The `processImage.ts` utility provides a convenient wrapper for this functionality.
 
 ### Homepage Routing Logic
 The application's homepage (`/`) has special routing logic to handle different user states. This logic is located directly within the `HomePage.tsx` component.
@@ -153,8 +163,7 @@ The backend is built entirely on the Supabase platform, leveraging its integrate
 
 The application's user tiers have been consolidated into the following structure:
 
-*   **Anonymous User:** A user who has not signed in.
-*   **Free User (Authenticated):** A user who has created an account but does not have an active Pro subscription.
+*   **Free User (Authenticated):** A user who has created an account but does not have an active Pro subscription. This is the entry-level tier for all users.
 *   **Pro User (Authenticated):** A user with an active, paid subscription via Stripe. This tier includes all features, such as unlimited practice time, cloud-based AI transcription, and privacy-preserving on-device transcription.
 
 ## 6. Transcription Service (`src/services/transcription`)

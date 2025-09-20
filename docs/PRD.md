@@ -21,66 +21,84 @@ The system is built for speed, both in user experience and development velocity.
 This section contains ASCII art diagrams illustrating the journey for each user role.
 
 ```ascii
-                               +---------------------+
-                               |   Landing Page      |
-                               +---------------------+
-                                         |
-                                         |
-                       +-----------------v-----------------+
-                       |        [Anonymous User]           |
-                       | - Practice session (2 min limit)  |
-                       | - View single session analytics   |
-                       | - Prompted to Sign Up to continue |
-                       +-----------------v-----------------+
-                                         |
-                               +-------------------+
-                               | Sign Up / Login   |
-                               +-------------------+
-                                         |
-                       +-----------------v-----------------+
-                       |      [Authentication Gate]        |
-                       +-----------------v-----------------+
-                                         |
-                          +-----------------------------+
-                          | [Free User]                 |
-                          | - View Session History      |
-                          | - Capped practice time/month|
-                          | - 20 min session duration   |
-                          | - Native Browser (Cloud)    |
-                          +-----------------------------+
-                                         |
-                                         v
-                          +-----------------------------+
-                          | Usage Limit Reached?        |
-                          +-----------------------------+
-                                |          |
-                              [No]       [Yes]
-                                |          |
-                                v          v
-                      (Practice)    +---------------------+
-                                    | UpgradePromptDialog |
-                                    +---------------------+
-                                              |
-                                              v
-                                    +---------------------+
-                                    |    Pricing Page     |
-                                    +---------------------+
-                                              |
-                                    +---------------------+
-                                    | [Pro User]          |
-                                    | (Via Stripe)        |
-                                    | - Unlimited Time    |
-                                    | - Cloud AI          |
-                                    | - On-device STT     |
-                                    +---------------------+
++-----------------------------------------------------------------+
+|                         [New User]                                |
+|                  Arrives at Landing Page                          |
++-----------------------------------------------------------------+
+                           |
+                           v
++-----------------------------------------------------------------+
+|                  Prompted to Sign Up / Login                      |
+|              (No anonymous practice sessions)                     |
++-----------------------------------------------------------------+
+                           |
+                           v
++-----------------------------------------------------------------+
+|                  [Authenticated User]                             |
++-----------------------------------------------------------------+
+                           |
+  +------------------------+------------------------+
+  |                                                 |
+  v                                                 v
++--------------------------+                      +--------------------------+
+| [Free User]              |                      | [Pro User]               |
+| - Capped time/month      |                      | - Unlimited Time         |
+| - 20 min session duration|                      | - Cloud AI (AssemblyAI)  |
+| - Native Browser STT     |                      | - On-device STT (Local)  |
+| - View Session History   |                      |                          |
++--------------------------+                      +--------------------------+
+           |
+           v
++--------------------------+
+| Usage Limit Reached?     |
++--------------------------+
+     |           |
+   [No]        [Yes]
+     |           |
+     v           v
+(Practice)  +----------------------+
+            | UpgradePromptDialog  |
+            +----------------------+
+                     |
+                     v
+            +----------------------+
+            |    Go to Pro Plan    |
+            +----------------------+
 ```
 
-### Feature Set (MoSCoW)
-(See [ROADMAP.md](./ROADMAP.md) for current status)
-*   **Must-Have:** Real-time transcription, filler word detection, session history.
-*   **Should-Have:** On-device transcription mode, advanced analytics.
-*   **Could-Have:** Team features, custom vocabulary.
-*   **Won't-Have (at this time):** Mobile application.
+### Canonical Feature List & Unit Test Status
+
+This section provides a granular breakdown of user-facing features, grouped by priority, and tracks their unit test coverage status per the new engineering mandate.
+
+#### 🎯 Must-Have
+
+| Feature | Description | Status | Unit Test |
+| :--- | :--- | :--- | :--- |
+| **Transcription** | The core service that converts speech to text. | ✅ Implemented | 🟡 Partial |
+| **Cloud Server STT** | High-accuracy transcription via AssemblyAI. (Pro) | ✅ Implemented | 🔴 No |
+| **On-Device STT** | Privacy-first transcription using a local Whisper model. (Pro) | ✅ Implemented | 🔴 No |
+| **Fallback STT** | Standard transcription using the native browser API. (Free) | ✅ Implemented | 🔴 No |
+| **Session History** | Users can view and analyze their past practice sessions. | ✅ Implemented | 🔴 No |
+| **Filler Word Detection** | Detects and counts common filler words (um, uh, like, etc.). | ✅ Implemented | ✅ Yes |
+| **Speaking Pace (WPM)** | Provides real-time words-per-minute analysis. | 🔴 Not Started | 🔴 No |
+| **Custom Vocabulary** | Allows users to add custom words to improve accuracy. | 🔴 Not Started | 🔴 No |
+| **Speaker Identification**| Distinguishes between multiple speakers in a transcript. | 🔴 Not Started | 🔴 No |
+
+#### 🚧 Should-Have
+
+| Feature | Description | Status | Unit Test |
+| :--- | :--- | :--- | :--- |
+| **AI Suggestions** | Provides AI-driven feedback on transcripts. | ✅ Implemented | ✅ Yes |
+| **Filler Word Trend** | Analyzes the trend of filler word usage across sessions. | ✅ Implemented | 🔴 No |
+| **Session Comparison** | Compares stats from the 4 most recent sessions. | ✅ Implemented | 🔴 No |
+| **PDF Export** | Allows users to download a PDF report of their session. | ✅ Implemented | 🔴 No |
+| **STT Accuracy Comparison** | Rolling average comparison of STT engine accuracy. | 🔴 Not Started | 🔴 No |
+
+#### 🌱 Could-Have
+
+| Feature | Description | Status | Unit Test |
+| :--- | :--- | :--- | :--- |
+| **Vocal Variety / Pause Detection** | Analyzes vocal pitch, tone, and pause duration. | 🔴 Not Started | 🔴 No |
 
 ### Differentiation
 *   **vs. Otter.ai:** Privacy-first (on-device option is a key roadmap item), focused on improvement, not just transcription.

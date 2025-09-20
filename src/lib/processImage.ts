@@ -1,4 +1,5 @@
-import Jimp from 'jimp';
+// Patched by Jules to fix type error
+import { Jimp } from 'jimp';
 
 /**
  * Resizes an image buffer and returns a PNG buffer.
@@ -10,6 +11,6 @@ export async function processImage(
   height: number
 ): Promise<Buffer> {
   const image = await Jimp.read(imageBuffer);
-  const resized = await image.resize(width, height).getBufferAsync(Jimp.MIME_PNG);
+  const resized = await image.resize({ w: width, h: height }).getBuffer(Jimp.MIME_PNG);
   return resized;
 }

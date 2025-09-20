@@ -12,7 +12,7 @@ interface AudioWorkletProcessor {
   ): boolean;
 }
 
-declare var AudioWorkletProcessor: {
+declare const AudioWorkletProcessor: {
   prototype: AudioWorkletProcessor;
   new (options?: AudioWorkletNodeOptions): AudioWorkletProcessor;
 };

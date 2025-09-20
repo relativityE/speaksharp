@@ -1,6 +1,6 @@
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
-import { Session } from '../../types/session';
+import { PracticeSession as Session } from '../types/session';
 import { format, parseISO } from 'date-fns';
 import { processImage } from './processImage';
 
@@ -9,7 +9,7 @@ interface jsPDFWithAutoTable extends jsPDF {
   autoTable: (options: any) => jsPDF;
 }
 
-export const generatePdf = async (session: Session) => {
+export const generateSessionPdf = async (session: Session) => {
   const doc = new jsPDF() as jsPDFWithAutoTable;
 
   // --- Header ---
@@ -20,20 +20,22 @@ export const generatePdf = async (session: Session) => {
   doc.setFontSize(12);
   const sessionDate = format(parseISO(session.created_at), 'MMMM do, yyyy');
   doc.text(`Date: ${sessionDate}`, 14, 32);
-  doc.text(`Duration: ${Math.round(session.duration_seconds / 60)} minutes`, 14, 42);
+  doc.text(`Duration: ${Math.round(session.duration / 60)} minutes`, 14, 42);
 
   // --- Analytics ---
   doc.setFontSize(16);
   doc.text('Analytics', 14, 60);
 
-  const tableData = Object.entries(session.analytics.filler_words).map(([word, count]) => [word, count]);
-  doc.autoTable({
-    startY: 70,
-    head: [['Filler Word', 'Count']],
-    body: tableData,
-    theme: 'striped',
-    headStyles: { fillColor: [22, 160, 133] },
-  });
+  if (session.filler_words) {
+    const tableData = Object.entries(session.filler_words).map(([word, count]) => [word, count]);
+    doc.autoTable({
+      startY: 70,
+      head: [['Filler Word', 'Count']],
+      body: tableData,
+      theme: 'striped',
+      headStyles: { fillColor: [22, 160, 133] },
+    });
+  }
 
   // --- Transcript ---
   const finalY = (doc as any).lastAutoTable.finalY || 100;
@@ -41,7 +43,7 @@ export const generatePdf = async (session: Session) => {
   doc.setFontSize(16);
   doc.text('Transcript', 14, 22);
   doc.setFontSize(10);
-  const transcriptLines = doc.splitTextToSize(session.transcript, 180);
+  const transcriptLines = doc.splitTextToSize(session.transcript || 'No transcript available.', 180);
   doc.text(transcriptLines, 14, 32);
 
   // --- Image Example ---
@@ -56,7 +58,7 @@ export const generatePdf = async (session: Session) => {
   }
 
   // --- Footer ---
-  const pageCount = doc.internal.getNumberOfPages();
+  const pageCount = (doc.internal as any).getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
     doc.setFontSize(10);
