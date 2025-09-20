@@ -5,7 +5,7 @@ import fetch from 'node-fetch';
 
 const PID_FILE = path.join(process.cwd(), '.vite.pid');
 const VITE_LOG = path.join(process.cwd(), 'vite.log');
-const MAX_WAIT = 30; // seconds
+const MAX_WAIT = 120; // seconds
 const POLL_INTERVAL = 1000; // ms
 
 let vitePort = 5173; // default fallback

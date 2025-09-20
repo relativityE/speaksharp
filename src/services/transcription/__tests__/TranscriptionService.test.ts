@@ -5,6 +5,8 @@ import LocalWhisper from '../modes/LocalWhisper';
 import { UserProfile } from '../../../types/user';
 import { vi } from 'vitest';
 
+vi.mock('sharp');
+
 // Mock the transcription modes
 vi.mock('../modes/NativeBrowser');
 vi.mock('../modes/CloudAssemblyAI');
