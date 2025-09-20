@@ -277,7 +277,7 @@ update_documentation() {
 | Metric | Value |
 |--------|-------|
 | Unit Tests | $unit_tests_passed/$unit_tests_total passed |
-| E2E Tests | $e2e_tests_passed/$e2e_tests_total passed |
+| E2E Tests | $e2e_tests_passed/$e2e_total passed |
 | Code Coverage | ${line_coverage}% |
 | Bundle Size | $bundle_size |
 
@@ -325,6 +325,20 @@ main() {
     local exit_code=0
 
     log "Starting comprehensive test execution..."
+
+    log "Running linter..."
+    if ! pnpm lint:fix; then
+        error "Linting failed"
+        exit 1
+    fi
+    success "Linting complete"
+
+    log "Running type check..."
+    if ! pnpm type-check; then
+        error "Type check failed"
+        exit 1
+    fi
+    success "Type check complete"
 
     # Run unit tests
     if ! run_unit_tests; then

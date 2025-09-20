@@ -27,7 +27,8 @@ export const HomePage: React.FC = () => {
     );
   }
 
-  if (user) {
+
+  if (user && !import.meta.env.DEV) {
     return <SessionPage />;
   }
 
