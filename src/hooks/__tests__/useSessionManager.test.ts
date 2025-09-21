@@ -219,10 +219,9 @@ describe('useSessionManager', () => {
         const createElementSpy = vi.spyOn(document, 'createElement').mockReturnValue(link as any);
         const appendChildSpy = vi.spyOn(document.body, 'appendChild').mockImplementation((node: Node) => node);
         const removeChildSpy = vi.spyOn(document.body, 'removeChild').mockImplementation((node: Node) => node);
-
         const exportData = { sessions: [{ id: 's1', user_id: 'user-123', created_at: 'now', duration: 60 }], transcripts: [] };
         mockStorage.exportData.mockResolvedValue(exportData);
-        const { result } = renderHook(() => useSessionManager());
+        const { result } u= renderHook(() => useSessionManager());
 
         await act(async () => {
             await result.current.exportSessions();
