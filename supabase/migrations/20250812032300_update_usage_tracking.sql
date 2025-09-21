@@ -12,7 +12,7 @@ declare
   current_usage int;
   last_reset timestamptz;
   user_status text;
-  free_tier_limit_seconds int := 600; -- 10 minutes
+  free_tier_limit_seconds int := 1800; -- 30 minutes
 begin
   -- Get current usage, reset date, and subscription status for the user
   select

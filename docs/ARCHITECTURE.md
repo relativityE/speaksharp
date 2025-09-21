@@ -116,6 +116,19 @@ The test configuration creates a controlled environment with the following flow:
 | `.vite.pid` | Stores the Process ID of the running Vite server for teardown. |
 | `tests/e2e/basic.e2e.spec.ts` | A baseline smoke test that validates the environment's stability. |
 
+### Mocking Native Dependencies
+
+Some features, like the on-device transcription powered by `LocalWhisper`, rely on libraries with native dependencies (e.g., `sharp` for image processing). These native dependencies can be difficult to install and build in certain environments, especially in CI/CD pipelines or sandboxed test runners.
+
+To solve this, we use a mocking strategy for the test environment:
+
+1.  **Optional Dependency:** The native dependency (`sharp`) is listed as an `optionalDependency` in `package.json`. This prevents the package manager from failing the installation if the native build step fails.
+2.  **Vitest Alias:** In `vitest.config.mjs`, we create an alias that redirects all imports of `sharp` to a mock file.
+3.  **Jimp-based Mock:** The mock file (`src/test/mocks/sharp.ts`) uses the `jimp` library, a pure JavaScript image processing tool, to provide a functional equivalent of the `sharp` API for our tests.
+4.  **Dependency Inlining:** Because the `sharp` import happens within a dependency (`@xenova/transformers`), we must configure Vitest to process this dependency by adding it to `test.deps.inline`. This ensures the alias is applied correctly.
+
+This approach allows us to use the high-performance native library in production while maintaining a stable and easy-to-manage test environment.
+
 ### Key Advantages of This Architecture
 
 *   **Isolation:** The test server is isolated from any local development server.

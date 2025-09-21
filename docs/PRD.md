@@ -42,7 +42,7 @@ This section contains ASCII art diagrams illustrating the journey for each user 
   v                                                 v
 +--------------------------+                      +--------------------------+
 | [Free User]              |                      | [Pro User]               |
-| - Capped time/month      |                      | - Unlimited Time         |
+| - 30 min/month           |                      | - Unlimited Time         |
 | - 20 min session duration|                      | - Cloud AI (AssemblyAI)  |
 | - Native Browser STT     |                      | - On-device STT (Local)  |
 | - View Session History   |                      |                          |
@@ -263,6 +263,6 @@ This section provides high-level insights into the SpeakSharp project from multi
 *   **Anonymous User:**
     *   **Recommendation:** Ensure the 2-minute anonymous session provides a truly compelling "aha!" moment. Focus on highlighting the immediate value of real-time feedback and the pain point it solves. The CTA to sign up should be prominent and frictionless.
 *   **Free User (Authenticated):**
-    *   **Recommendation:** The 10 minutes/month and 20-minute session limits are good for encouraging upgrades. Ensure the UpgradePromptDialog is well-designed, clearly communicates the benefits of upgrading, and appears at the moment of highest user engagement.
+    *   **Recommendation:** The 30 minutes/month and 20-minute session limits are good for encouraging upgrades. Ensure the UpgradePromptDialog is well-designed, clearly communicates the benefits of upgrading, and appears at the moment of highest user engagement.
 *   **Pro User (Authenticated):**
     *   **Recommendation:** This remains the core paid offering. The value proposition should be clear: "unlimited practice," "Cloud AI transcription," and the key differentiator of "on-device transcription" for enhanced privacy. The fallback to Native Browser is a good technical resilience feature.
