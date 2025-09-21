@@ -19,7 +19,7 @@ export default defineConfig({
     hookTimeout: 10000,
     teardownTimeout: 5000,
     reporters: ['verbose'],  // Simplified - remove json reporter for now
-    threads: true,
+    threads: false,
     maxThreads: 4,
     minThreads: 1,
     watch: false,
@@ -35,6 +35,7 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
       "sharp": path.resolve(__dirname, "./src/test/mocks/sharp.ts"),
+      '@xenova/transformers': path.resolve(__dirname, './__mocks__/transformers.ts'),
     },
   },
   define: {

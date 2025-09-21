@@ -8,3 +8,5 @@ export const TEST_USER_FREE = {
   password: 'password123',
 };
 
+export const TEST_USER_EMAIL = 'test-user@example.com';
+export const TEST_USER_PASSWORD = 'password123';

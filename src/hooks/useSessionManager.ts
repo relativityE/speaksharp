@@ -1,4 +1,4 @@
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 import logger from '../lib/logger';
 import { saveSession as saveSessionToDb, deleteSession as deleteSessionFromDb, exportData } from '../lib/storage';
 import type { PracticeSession } from '../types/session';
@@ -42,7 +42,7 @@ export const useSessionManager = (): UseSessionManager => {
         return { session: newSession, usageExceeded: usageExceeded || false };
       }
       return { session: null, usageExceeded: usageExceeded || false };
-    } catch (err: any) {
+    } catch (err: unknown) {
       logger.error({ err }, "Error in useSessionManager -> saveSession:");
       return { session: null, usageExceeded: false };
     }
@@ -56,7 +56,7 @@ export const useSessionManager = (): UseSessionManager => {
     }
     try {
       return await deleteSessionFromDb(sessionId);
-    } catch (err: any) {
+    } catch (err: unknown) {
       logger.error({ err }, "Error in useSessionManager -> deleteSession:");
       return false;
     }
@@ -85,7 +85,7 @@ export const useSessionManager = (): UseSessionManager => {
       document.body.removeChild(link);
 
       URL.revokeObjectURL(url);
-    } catch (err: any) {
+    } catch (err: unknown) {
       logger.error({ err }, "Error exporting sessions:");
     }
   };

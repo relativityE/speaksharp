@@ -5,8 +5,8 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { supabase } from '@/lib/supabaseClient';
 import { AuthError } from '@supabase/supabase-js';
-import { useAuth } from '@/contexts/AuthContext';
-import { Navigate, useLocation } from 'react-router-dom';
+import { useAuth } from '@/contexts/useAuth';
+import { Navigate } from 'react-router-dom';
 
 // --- Types and Constants ---
 
@@ -53,8 +53,12 @@ export default function AuthPage() {
         if (!authResult.error) setMessage('If an account with this email exists, a password reset link has been sent.');
       }
       if (authResult.error) throw authResult.error;
-    } catch (err: any) {
-      setError(mapError(err.message));
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(mapError(err.message));
+      } else {
+        setError(mapError('An unknown error occurred.'));
+      }
     } finally {
       setIsSubmitting(false);
     }

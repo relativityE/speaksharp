@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { NavLink, useNavigate, useParams, useLocation } from 'react-router-dom';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
-import { useSession } from '../contexts/SessionContext';
-import { useAuth } from '../contexts/AuthContext';
+import { useSession } from '../contexts/useSession';
+import { useAuth } from '../contexts/useAuth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Zap, Sparkles, BarChart, Home } from 'lucide-react';

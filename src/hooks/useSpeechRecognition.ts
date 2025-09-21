@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 import { supabase } from '@/lib/supabaseClient';
 import TranscriptionService, { TranscriptionServiceOptions } from '../services/transcription/TranscriptionService';
 import logger from '../lib/logger';

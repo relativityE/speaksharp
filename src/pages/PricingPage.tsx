@@ -47,7 +47,7 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
       });
       if (error) throw error;
       if (data.checkoutUrl) window.location.href = data.checkoutUrl;
-    } catch (err: any) {
+    } catch (err: unknown) {
       logger.error({ err, tier: tier.name }, 'Error creating Stripe checkout session:');
     }
   };

@@ -139,7 +139,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ sessionH
             const { data, error } = await supabase.functions.invoke('stripe-checkout');
             if (error) throw error;
             if (data.checkoutUrl) window.location.href = data.checkoutUrl;
-        } catch (err: any) {
+        } catch (err: unknown) {
             logger.error({ err }, 'Error creating Stripe checkout session:');
         }
     };

@@ -5,12 +5,16 @@ export class AuthPage {
   readonly emailInput: Locator;
   readonly passwordInput: Locator;
   readonly signInButton: Locator;
+  readonly signUpButton: Locator;
+  readonly modeToggleButton: Locator;
 
   constructor(page: Page) {
     this.page = page;
     this.emailInput = page.getByTestId('email-input');
     this.passwordInput = page.getByTestId('password-input');
     this.signInButton = page.getByTestId('sign-in-submit');
+    this.signUpButton = page.getByTestId('sign-up-submit');
+    this.modeToggleButton = page.getByTestId('mode-toggle');
   }
 
   async goto() {
