@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Automated SQM Reporting:** Implemented a feature in the `./run-tests.sh` script to automatically generate a Software Quality Metrics table and inject it into `docs/PRD.md`.
 - **On-Device Transcription:** Implemented a fully on-device, privacy-first transcription mode for Pro users using `@xenova/transformers`.
 - **E2E Tests:** Added comprehensive end-to-end tests for all user flows (anonymous, free, pro).
 - **Universal Navigation:** Implemented a persistent sidebar for navigation across all pages.

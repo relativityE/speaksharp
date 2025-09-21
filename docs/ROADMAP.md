@@ -82,10 +82,6 @@ This section is a prioritized list of technical debt items to be addressed.
     - **Transcription Modes:** `CloudAssemblyAI`, `LocalWhisper`, `NativeBrowser`.
     - **Session & Analytics:** `SessionContext`, `analyticsUtils` (for trend analysis).
 
-- **P2 (Medium): Automate Software Quality Metrics Generation**
-  - **Problem:** The Software Quality Metrics in `PRD.md` are not updated automatically.
-  - **Next Steps:** Enhance the `./run-tests.sh` script to parse test output and inject the metrics into the PRD.
-
 - **P3 (Medium): Incomplete TypeScript Migration**
   - **Problem:** Several test-related files and utilities are still JavaScript.
   - **Files to migrate:** `__mocks__/*.js`, `src/services/transcription/utils/audio-processor.worklet.js`.
