@@ -26,11 +26,15 @@ export default defineConfig({
     env: {
       VITE_TEST_MODE: 'true',
       NODE_ENV: 'test'
+    },
+    deps: {
+      inline: ["@xenova/transformers"],
     }
   },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      "sharp": path.resolve(__dirname, "./src/test/mocks/sharp.ts"),
     },
   },
   define: {
