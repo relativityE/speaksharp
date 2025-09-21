@@ -23,6 +23,7 @@ log() {
 
 error() {
     echo -e "${RED}[ERROR]${NC} $1" | tee -a "$LOG_FILE"
+    echo -e "${YELLOW}Hint: If this error seems environment-related, try running ./vm-recovery.sh to reset the environment.${NC}" | tee -a "$LOG_FILE"
 }
 
 success() {
@@ -157,6 +158,15 @@ run_e2e_tests() {
         extract_e2e_metrics "$duration"
     else
         error "E2E tests failed"
+        local results_file="$TEST_RESULTS_DIR/e2e-results/results.json"
+        if [ -f "$results_file" ]; then
+            if jq -e '.errors | length > 0' "$results_file" > /dev/null; then
+                error "Fatal errors found in Playwright report:"
+                jq -r '.errors[].message' "$results_file" | while IFS= read -r line; do
+                    error "  - $line"
+                done
+            fi
+        fi
         e2e_result=1
     fi
 

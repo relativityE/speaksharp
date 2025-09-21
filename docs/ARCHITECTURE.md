@@ -136,6 +136,18 @@ This approach allows us to use the high-performance native library in production
 *   **Reliable Cleanup:** The teardown process ensures no zombie Vite processes are left running, even if tests crash or time out.
 *   **CI-Friendly:** The architecture works identically on CI and locally, and it surfaces logs for easy debugging of failures.
 
+### Lessons Learned: Debugging E2E Test Timeouts
+
+During the development of the automated SQM reporting, we encountered a critical issue where the `./run-tests.sh` script would time out after ~7 minutes. This was a "silent failure" as the console output was lost, making it difficult to diagnose.
+
+**Root Causes:**
+1.  **Missing Browser Binaries:** The primary cause was that the Playwright browser binaries were not being installed automatically in the CI environment. The test runner was failing instantly with an `Executable doesn't exist` error, but this was hidden by the test runner's retry logic and the overall script timeout.
+2.  **Error Surfacing:** The `run-tests.sh` script did not explicitly surface fatal errors from the Playwright JSON report, contributing to the "silent" nature of the failure.
+
+**Solutions Implemented:**
+1.  **Automated Browser Installation:** The `pnpm exec playwright install --with-deps` command was added to the `postinstall` script in `package.json`. This ensures that the necessary browsers are always installed after a `pnpm install`.
+2.  **Enhanced Error Reporting:** The `run_e2e_tests` function in `run-tests.sh` was enhanced to parse the Playwright JSON report on failure and print any fatal errors to the console, making diagnosis of such issues immediate.
+
 ### Environment Recovery
 
 In the event of test environment instability (e.g., hanging processes, incorrect tool execution), agents should run the `vm-recovery.sh` script located in the root directory. This script is designed to reset and stabilize the development environment.
