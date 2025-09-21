@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixed broken session persistence for anonymous users.
   - Corrected monetization logic to ensure Pro users receive paid features.
 - **Test Environment Stability:**
+  - Resolved a critical issue where the `sharp` native dependency would fail to install in the test environment, blocking unit tests. The library is now correctly mocked using `jimp`.
   - Resolved all major E2E test environment configuration conflicts and dependency issues.
   - Installed all necessary system-level libraries for Playwright to run reliably.
 - **E2E Test Robustness:** Enhanced all E2E test suites for better stability, maintainability, and error reporting.
