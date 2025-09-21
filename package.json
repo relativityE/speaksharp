@@ -19,7 +19,7 @@
     "type-check": "tsc --noEmit",
     "validate": "pnpm lint && pnpm type-check && pnpm test:unit",
     "prepare": "husky install",
-    "postinstall": "msw init public/ --no-save"
+    "postinstall": "msw init public/ --no-save && pnpm exec playwright install --with-deps"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.15",

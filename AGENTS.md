@@ -2,6 +2,12 @@
 Agent Instructions for SpeakSharp Repository
 =============================================================================================================
 
+🚨 Troubleshooting Environment Issues
+If you encounter persistent timeouts, file system errors, or other strange behavior, your first step should be to run the recovery script:
+`./vm-recovery.sh`
+
+---
+
 ⚡ Quick Reference – Non-Negotiable Rules
 
 Always remember these first before any action:
