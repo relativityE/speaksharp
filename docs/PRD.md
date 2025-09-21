@@ -105,11 +105,12 @@ This section provides a granular breakdown of user-facing features, grouped by p
 *   **vs. Poised:** More affordable, simpler to use, no installation required.
 
 ### Go-to-Market & Financials
-*   **GTM:** Adopt a phased GTM approach.
-    *   **Phase 1 (Validation):** Start with organic channels (Reddit, SEO content, public speaking forums) and community engagement (Toastmasters partnerships) to validate product-market fit and gather testimonials. Create a "How it Works" video demo for the landing page to increase conversion.
-    *   **Phase 2 (Growth):** Gradually increase paid advertising spend on proven metrics from Phase 1.
-    *   A real-time revenue tracking dashboard (e.g., PostHog, ChartMogul) will be implemented to monitor KPIs.
-*   **Financials:** Freemium model with a Pro tier subscription. Financial models will account for multiple conversion rate scenarios (2%, 3.5%, and 5%) to ensure sufficient runway. See internal documents for detailed projections.
+*   **GTM Strategy:** Execute a phased GTM strategy. Start with organic channels to validate product-market fit before scaling up paid advertising.
+    *   **Phase 1 (Validation):** Focus on organic channels like SEO, content marketing, and public speaking forums. Engage with communities like Toastmasters to gather feedback and testimonials. A "How it Works" video will be created for the landing page to improve conversion.
+    *   **Phase 2 (Growth):** Based on the data and validated product-market fit from Phase 1, gradually scale paid advertising campaigns.
+*   **Community Engagement:** Actively participate in relevant online communities (like Reddit) to build a following and attract early adopters. This helps in building a brand and getting early feedback.
+*   **KPIs and Tracking:** Implement real-time tracking of key metrics (conversion rate, CAC, LTV) to make data-driven decisions. A dashboard (e.g., PostHog, ChartMogul) will be used for this.
+*   **Financials:** The business model is Freemium with a Pro tier subscription. Financial models will be based on a conservative conversion rate of 2% to ensure sufficient runway. Detailed projections are in internal documents.
 
 ---
 
@@ -219,31 +220,91 @@ We can strengthen user confidence by adding a feature that compares accuracy acr
 
 This section provides high-level insights into the SpeakSharp project from multiple senior perspectives.
 
-### 💰 CFO Perspective (Financials & GTM)
+### 💰 CFO Perspective (Financials & Business Model)
 
-**Doing Well:**
+**Pricing:**
+*   The Pro tier is priced at **$7.99/month**. This price point is set to be competitive and justifiable with the current feature set. More advanced analytics features could justify a higher price in the future.
 
-*   [PRD.md](./PRD.md) captures LTV, CAC, and conversion assumptions.
-*   Aggressive GTM strategy (SEO, Product Hunt, Ads).
+**Conversion Rate:**
+*   The previous 5% conversion assumption was optimistic. Financial models will now use a specific conversion rate of **2%**.
+*   To improve conversion, the product strategy will focus on:
+    *   **Optimizing the "Aha!" Moment:** The Free tier must quickly demonstrate the product's value.
+    *   **Creating a Compelling Upgrade Path:** The Pro tier must offer a significant upgrade.
+    *   **Effective Upgrade Prompts:** The `UpgradePromptDialog` should be triggered at moments of high user engagement.
 
-**Risks:**
+**Operating Costs:**
+*   The serverless architecture (Supabase, Deno Edge Functions) is expected to keep monthly operating costs low.
+*   The primary variable cost is the AssemblyAI API usage for Pro users. The SLO of `<$0.05/min STT cost at MVP scale` is a key target to monitor.
 
-*   Free → Paid conversion assumption of 5% is optimistic (industry avg. 2–3%).
-*   Current MVP still has technical debt (see [ROADMAP.md](./ROADMAP.md)), delaying monetization readiness.
+**Estimated Monthly Operating Costs:**
+*   This section outlines the estimated monthly costs for running SpeakSharp, based on the current tech stack. These costs are broken down into fixed and variable components.
 
-**Recommendations:**
+*   **Fixed Costs:**
+    *   **Supabase Pro Plan:** **$25/month**. This provides the core backend infrastructure, including the database, authentication, and serverless functions.
 
-*   Extend Phase 1 until Stripe & QA are 100% hardened.
-*   Model financial scenarios at 2%, 3.5%, and 5% conversion.
-*   Set up **real-time financial tracking** (PostHog + ChartMogul or similar).
-*   Adopt a **phased GTM approach**: organic channels first, then scale paid ads.
+*   **Variable Costs (per Pro user per month):**
+    *   **Stripe:** **~ (2.9% + $0.30) + 0.7% per transaction**. For a $7.99/month subscription, this is approximately **$0.59 per user**. This covers payment processing and subscription management.
+    *   **AssemblyAI:** **$0.15/hour** of streaming speech-to-text. This cost is directly tied to the usage of the Pro features.
 
-### 🚀 CEO Perspective (Product & Market)
+**Financial Projections:**
+*   Breakeven and profitability projections will be modeled using a 2% conversion rate. This provides a realistic view for making decisions on spending and investment.
+*   An advertising budget will be determined based on these projections and the results of organic marketing. It is crucial to establish a clear Customer Acquisition Cost (CAC) before scaling paid ads.
 
-**Doing Well:**
+**Key Financial Metrics (CAC & LTV):**
+*   **Customer Acquisition Cost (CAC):** This will be closely monitored once paid advertising begins. The goal is to keep CAC significantly lower than LTV.
+*   **Lifetime Value (LTV):**
+    *   **Assumption:** The LTV calculation is based on an assumed average user retention of **6 months**.
+    *   **Estimated LTV:** Based on the Pro price of $7.99/month and Stripe fees, the estimated LTV is approximately **$44**. (`(7.99 - 0.59) * 6`). This is a simplified calculation and will be refined as more data becomes available.
 
-*   Clear niche: *privacy-first, real-time speech analysis* (filler words, speaking pace).
-*   Strong freemium model with clear upgrade path.
+**Breakeven Analysis & Profitability Timeline:**
+*   This analysis is based on the following conservative assumptions:
+    *   **User Acquisition:** 10 new Pro users per month.
+    *   **AssemblyAI Usage:** 2 hours per Pro user per month.
+
+*   **Breakeven Calculation:**
+    *   **Revenue per Pro user:** $7.99/month.
+    *   **Variable Costs per Pro user:**
+        *   Stripe: ~$0.59/month
+        *   AssemblyAI: 2 hours * $0.15/hour = $0.30/month
+        *   **Total Variable Cost:** $0.89/month
+    *   **Net Revenue per Pro user:** $7.99 - $0.89 = $7.10/month.
+    *   **Fixed Costs:** $25/month (Supabase).
+    *   **Breakeven Point:** $25 / $7.10 = **~4 Pro users**.
+
+*   **Profitability Timeline:**
+    *   With an acquisition rate of 10 new Pro users per month, the company is projected to be profitable in the **first month**.
+    *   **Month 1:** (10 users * $7.10) - $25 = **$46.00 profit**.
+    *   **Month 2:** (20 users * $7.10) - $25 = **$117.00 profit**.
+    *   **Month 3:** (30 users * $7.10) - $25 = **$188.00 profit**.
+    *   *Note: This timeline assumes no user churn for the initial months, which aligns with the 6-month LTV assumption.*
+
+### 🚀 CEO Perspective (Marketing & User Acquisition)
+
+**Marketing Approach:**
+*   The phased GTM strategy (organic first, then paid) is a sound approach for a startup with a limited budget, allowing for validation before scaling.
+
+**Advertising Strategy:**
+*   The advertising strategy will follow the phased GTM approach.
+*   **Phase 1 (Organic):** Focus on organic channels as described below.
+*   **Phase 2 (Paid):** Once a stable conversion rate of at least 2% is achieved, a limited and targeted paid advertising campaign will be launched.
+    *   **Initial Platform:** Reddit ads, targeting the subreddits listed below.
+    *   **Expansion Platforms:** Based on the success of the Reddit ads, expansion to Facebook or Google Ads will be considered. The focus will remain on targeted and limited campaigns to control CAC.
+
+**User Acquisition Channels:**
+*   **Reddit:** This is a key channel for reaching niche communities.
+    *   **Target Subreddits:** `r/publicspeaking`, `r/toastmasters`, `r/communication`, `r/presentations`, `r/entrepreneur`, `r/startups`.
+    *   **Approach:**
+        1.  **Be a Community Member:** Participate genuinely before promoting.
+        2.  **Seek Feedback:** Frame posts as seeking feedback on a new tool.
+        3.  **Offer Value:** Provide free Pro access to early adopters for feedback.
+        4.  **Share the Journey:** Document and share the building process.
+*   **Other Channels:**
+    *   **Toastmasters:** Partner with local clubs and offer discounts.
+    *   **Public Speaking Forums:** A great source for early adopters.
+    *   **Content Marketing:** Create blog posts and videos to drive organic traffic.
+    *   **Product Hunt:** Launch on Product Hunt to generate initial buzz.
+
+**Product Strategy & Roadmap:**
 
 **Gaps / Market Risks:**
 
@@ -253,7 +314,6 @@ This section provides high-level insights into the SpeakSharp project from multi
 **Recommendations:**
 
 *   Prioritize “speaking pace” analysis in Phase 2 ([ROADMAP.md](./ROADMAP.md#phase-2-user-validation--polish)).
-*   Add at least one more Pro-only feature for stronger differentiation (e.g., vocal variety, pause detection).
 *   Build trust: beta testimonials, Toastmasters/speech coach partnerships.
 *   Produce a “How it Works” demo video for the landing page.
 *   Actively engage with online communities (Reddit, forums) to build brand awareness.
@@ -265,4 +325,5 @@ This section provides high-level insights into the SpeakSharp project from multi
 *   **Free User (Authenticated):**
     *   **Recommendation:** The 30 minutes/month and 20-minute session limits are good for encouraging upgrades. Ensure the UpgradePromptDialog is well-designed, clearly communicates the benefits of upgrading, and appears at the moment of highest user engagement.
 *   **Pro User (Authenticated):**
+    *   **Price: $7.99/month.**
     *   **Recommendation:** This remains the core paid offering. The value proposition should be clear: "unlimited practice," "Cloud AI transcription," and the key differentiator of "on-device transcription" for enhanced privacy. The fallback to Native Browser is a good technical resilience feature.
