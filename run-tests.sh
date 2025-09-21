@@ -23,7 +23,7 @@ log() {
 
 error() {
     echo -e "${RED}[ERROR]${NC} $1" | tee -a "$LOG_FILE"
-    echo -e "${YELLOW}Hint: If this error seems environment-related, try running ./vm-recovery.sh to reset the environment.${NC}" | tee -a "$LOG_FILE"
+    echo -e "${YELLOW}Hint: If you suspect this is an environment instability issue, consider running ./vm-recovery.sh to reset the environment.${NC}" | tee -a "$LOG_FILE"
 }
 
 success() {

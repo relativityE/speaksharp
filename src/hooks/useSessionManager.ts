@@ -41,7 +41,7 @@ export const useSessionManager = (): UseSessionManager => {
       if (newSession) {
         return { session: newSession, usageExceeded: usageExceeded || false };
       }
-      return { session: null, usageExceeded: false };
+      return { session: null, usageExceeded: usageExceeded || false };
     } catch (err: any) {
       logger.error({ err }, "Error in useSessionManager -> saveSession:");
       return { session: null, usageExceeded: false };
