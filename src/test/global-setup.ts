@@ -1,5 +1,4 @@
-
-const dotenv = require('dotenv');
+import dotenv from 'dotenv';
 import path from 'path';
 
 export async function setup(): Promise<void> {

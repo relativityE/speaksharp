@@ -13,8 +13,8 @@ import { SlidersHorizontal, AlertTriangle, Loader } from 'lucide-react';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { UpgradePromptDialog } from '@/components/UpgradePromptDialog';
-import { useAuth } from '../contexts/AuthContext';
-import { useSession } from '../contexts/SessionContext';
+import { useAuth } from '../contexts/useAuth';
+import { useSession } from '../contexts/useSession';
 import logger from '@/lib/logger';
 import type { PracticeSession } from '@/types/session';
 

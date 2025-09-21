@@ -25,6 +25,10 @@ const getWorkletUrl = (audioContext: AudioContext): Promise<string | null> => {
   return workletUrlPromise;
 };
 
+interface WindowWithwebkitAudioContext extends Window {
+    webkitAudioContext: typeof AudioContext;
+}
+
 export async function createMicStreamImpl(
   { sampleRate = 16000, frameSize = 1024 }: MicStreamOptions = {}
 ): Promise<MicStream> {
@@ -33,7 +37,7 @@ export async function createMicStreamImpl(
     throw new Error('Media devices not available in this environment');
   }
 
-  const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 48000 });
+  const audioCtx = new (window.AudioContext || (window as WindowWithwebkitAudioContext).webkitAudioContext)({ sampleRate: 48000 });
   const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
   // Load worklet URL dynamically, passing the audio context instance for the check.

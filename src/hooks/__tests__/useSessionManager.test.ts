@@ -1,15 +1,16 @@
 import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useSessionManager } from '../useSessionManager';
-import * as AuthContext from '../../contexts/AuthContext';
+import * as useAuth from '../../contexts/useAuth';
 import * as storage from '../../lib/storage';
 import logger from '../../lib/logger';
-import type { User, Session, AuthError } from '@supabase/supabase-js';
+import type { User, Session } from '@supabase/supabase-js';
 import type { UserProfile } from '../../types/user';
 import type { PracticeSession } from '../../types/session';
+import { AuthContextType } from '../../contexts/AuthContext';
 
 // Mock dependencies
-vi.mock('../../contexts/AuthContext');
+vi.mock('../../contexts/useAuth');
 vi.mock('../../lib/storage');
 vi.mock('../../lib/logger', () => ({
   default: {
@@ -19,7 +20,7 @@ vi.mock('../../lib/logger', () => ({
   }
 }));
 
-const mockUseAuth = vi.mocked(AuthContext.useAuth);
+const mockUseAuth = vi.mocked(useAuth.useAuth);
 const mockStorage = vi.mocked(storage);
 const mockLogger = vi.mocked(logger);
 
@@ -57,7 +58,7 @@ const mockProfile: UserProfile = {
     subscription_status: 'free',
 };
 
-const mockAuthContextValue: AuthContext.AuthContextType = {
+const mockAuthContextValue: AuthContextType = {
     user: mockUser,
     profile: mockProfile,
     session: {} as Session,
@@ -81,9 +82,13 @@ describe('useSessionManager', () => {
       const { result } = renderHook(() => useSessionManager());
       const sessionData = { duration: 60 };
 
-      let savedSession: SavedSessionReturn | null = null;
       await act(async () => {
-        savedSession = await result.current.saveSession(sessionData);
+        const savedSession = await result.current.saveSession(sessionData);
+        expect(savedSession).not.toBeNull();
+        if (savedSession) {
+          expect(savedSession.session?.id).toContain('anonymous-session');
+          expect(savedSession.usageExceeded).toBe(false);
+        }
       });
 
       expect(mockStorage.saveSession).not.toHaveBeenCalled();
@@ -91,12 +96,6 @@ describe('useSessionManager', () => {
         'anonymous-session',
         expect.stringContaining('"duration":60')
       );
-
-      expect(savedSession).not.toBeNull();
-      if (savedSession) {
-        expect(savedSession.session?.id).toContain('anonymous-session');
-        expect(savedSession.usageExceeded).toBe(false);
-      }
     });
 
     it('should call saveSessionToDb for authenticated users', async () => {
@@ -105,55 +104,51 @@ describe('useSessionManager', () => {
       const { result } = renderHook(() => useSessionManager());
       const sessionData = { duration: 120 };
 
-      let savedSession: SavedSessionReturn | null = null;
       await act(async () => {
-        savedSession = await result.current.saveSession(sessionData);
+        const savedSession = await result.current.saveSession(sessionData);
+        expect(savedSession).not.toBeNull();
+        if (savedSession) {
+          expect(savedSession.session).toEqual(newDbSession);
+          expect(savedSession.usageExceeded).toBe(false);
+        }
       });
 
       expect(mockStorage.saveSession).toHaveBeenCalledWith(
         { ...sessionData, user_id: mockUser.id },
         mockProfile
       );
-      expect(savedSession).not.toBeNull();
-      if (savedSession) {
-        expect(savedSession.session).toEqual(newDbSession);
-        expect(savedSession.usageExceeded).toBe(false);
-      }
     });
 
     it('should return usageExceeded from saveSessionToDb', async () => {
         mockStorage.saveSession.mockResolvedValue({ session: null, usageExceeded: true });
         const { result } = renderHook(() => useSessionManager());
 
-        let savedSession: SavedSessionReturn | null = null;
         await act(async () => {
-            savedSession = await result.current.saveSession({ duration: 100 });
+            const savedSession = await result.current.saveSession({ duration: 100 });
+            expect(savedSession).not.toBeNull();
+            if (savedSession) {
+                expect(savedSession.session).toBeNull();
+                expect(savedSession.usageExceeded).toBe(true);
+            }
         });
-
-        expect(savedSession).not.toBeNull();
-        if (savedSession) {
-            expect(savedSession.session).toBeNull();
-            expect(savedSession.usageExceeded).toBe(true);
-        }
     });
 
     it('should log an error if user is authenticated but profile is missing', async () => {
       mockUseAuth.mockReturnValue({ ...mockAuthContextValue, profile: null });
       const { result } = renderHook(() => useSessionManager());
 
-      let savedSession: SavedSessionReturn | null = null;
-       await act(async () => {
-        savedSession = await result.current.saveSession({ duration: 100 });
+      await act(async () => {
+        const savedSession = await result.current.saveSession({ duration: 100 });
+        expect(savedSession).not.toBeNull();
+        if (savedSession) {
+          expect(savedSession.session).toBeNull();
+        }
       });
 
       expect(mockLogger.error).toHaveBeenCalledWith(
         expect.objectContaining({ err: new Error("Cannot save session: user profile not available.") }),
         "Error in useSessionManager -> saveSession:"
       );
-      expect(savedSession).not.toBeNull();
-      if (savedSession) {
-        expect(savedSession.session).toBeNull();
-      }
     });
   });
 
@@ -216,12 +211,12 @@ describe('useSessionManager', () => {
         const link = { click: vi.fn(), download: '', href: '' };
         const createObjectURLSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:url');
         const revokeObjectURLSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
-        const createElementSpy = vi.spyOn(document, 'createElement').mockReturnValue(link as any);
+        vi.spyOn(document, 'createElement').mockReturnValue(link as unknown as HTMLAnchorElement);
         const appendChildSpy = vi.spyOn(document.body, 'appendChild').mockImplementation((node: Node) => node);
         const removeChildSpy = vi.spyOn(document.body, 'removeChild').mockImplementation((node: Node) => node);
         const exportData = { sessions: [{ id: 's1', user_id: 'user-123', created_at: 'now', duration: 60 }], transcripts: [] };
         mockStorage.exportData.mockResolvedValue(exportData);
-        const { result } u= renderHook(() => useSessionManager());
+        const { result } = renderHook(() => useSessionManager());
 
         await act(async () => {
             await result.current.exportSessions();

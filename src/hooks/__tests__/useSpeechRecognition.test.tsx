@@ -1,27 +1,23 @@
 import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useSpeechRecognition } from '../useSpeechRecognition';
-import * as AuthContext from '../../contexts/AuthContext';
-import { supabase } from '../../lib/supabaseClient';
-import { toast } from 'sonner';
-import TranscriptionService from '../../services/transcription/TranscriptionService';
+import { useAuth } from '../../contexts/useAuth';
+import TranscriptionService, { TranscriptionServiceOptions, TranscriptUpdate } from '../../services/transcription/TranscriptionService';
 import { MemoryRouter } from 'react-router-dom';
 import React from 'react';
+import { User } from '@supabase/supabase-js';
+import { UserProfile } from '../../types/user';
+import { AuthContextType } from '../../contexts/AuthContext';
 
 // Mock dependencies
-vi.mock('../../contexts/AuthContext');
-vi.mock('../../lib/supabaseClient');
-vi.mock('sonner');
+vi.mock('../../contexts/useAuth');
 vi.mock('../../services/transcription/TranscriptionService');
 
-const mockUseAuth = vi.mocked(AuthContext.useAuth);
-const mockSupabase = vi.mocked(supabase);
-const mockToast = vi.mocked(toast);
+const mockUseAuth = vi.mocked(useAuth);
 const MockTranscriptionService = vi.mocked(TranscriptionService);
 
 // Wrapper component to provide Router context
 const wrapper = ({ children }: { children: React.ReactNode }) => <MemoryRouter>{children}</MemoryRouter>;
-
 
 // Mock implementation for TranscriptionService
 let mockServiceInstance: {
@@ -30,7 +26,7 @@ let mockServiceInstance: {
   stopTranscription: ReturnType<typeof vi.fn>,
   destroy: ReturnType<typeof vi.fn>,
   getMode: ReturnType<typeof vi.fn>,
-  options: any,
+  options: TranscriptionServiceOptions,
 };
 
 beforeEach(() => {
@@ -40,18 +36,18 @@ beforeEach(() => {
     stopTranscription: vi.fn().mockResolvedValue('final transcript'),
     destroy: vi.fn().mockResolvedValue(undefined),
     getMode: vi.fn().mockReturnValue('native'),
-    options: {},
+    options: {} as TranscriptionServiceOptions,
   };
 
   MockTranscriptionService.mockImplementation((options) => {
     mockServiceInstance.options = options;
-    return mockServiceInstance as any;
+    return mockServiceInstance as unknown as TranscriptionService;
   });
 
   mockUseAuth.mockReturnValue({
-    user: { id: 'test-user' } as any,
-    profile: { subscription_status: 'free' } as any,
-  } as any);
+    user: { id: 'test-user' } as User,
+    profile: { subscription_status: 'free' } as UserProfile,
+  } as AuthContextType);
 
   vi.useFakeTimers();
 });

@@ -9,8 +9,16 @@ import { NavigateFunction } from 'react-router-dom';
 import { ITranscriptionMode, TranscriptionModeOptions } from './modes/types';
 import { MicStream } from './utils/types';
 
+export interface TranscriptUpdate {
+  transcript: {
+    partial?: string;
+    final?: string;
+  };
+  chunks?: { timestamp: [number, number]; text: string }[];
+}
+
 export interface TranscriptionServiceOptions {
-  onTranscriptUpdate: (update: any) => void;
+  onTranscriptUpdate: (update: TranscriptUpdate) => void;
   onModelLoadProgress: (progress: number) => void;
   onReady: () => void;
   profile: UserProfile | null;
@@ -24,7 +32,7 @@ export interface TranscriptionServiceOptions {
 
 export default class TranscriptionService {
   private mode: 'native' | 'cloud' | 'on-device' | null = null;
-  private onTranscriptUpdate: (update: any) => void;
+  private onTranscriptUpdate: (update: TranscriptUpdate) => void;
   private onModelLoadProgress: (progress: number) => void;
   private onReady: () => void;
   private profile: UserProfile | null;

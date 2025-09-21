@@ -17,12 +17,27 @@ interface SpeechRecognitionErrorEvent extends Event {
   error: string;
 }
 
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+// Define a type for the SpeechRecognition API to avoid using 'any'
+interface SpeechRecognition {
+  interimResults: boolean;
+  continuous: boolean;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+}
+
+interface SpeechRecognitionStatic {
+    new(): SpeechRecognition;
+}
+
+const SpeechRecognition = (window.SpeechRecognition || window.webkitSpeechRecognition) as SpeechRecognitionStatic;
 
 export default class NativeBrowser implements ITranscriptionMode {
   private onTranscriptUpdate: (update: { transcript: Transcript }) => void;
   private onReady: () => void;
-  private recognition: any; // The SpeechRecognition API is non-standard and complex to type fully
+  private recognition: SpeechRecognition | null;
   private isSupported: boolean;
   private transcript: string;
   private isListening: boolean;
@@ -40,6 +55,8 @@ export default class NativeBrowser implements ITranscriptionMode {
     if (window.__E2E_MODE__) {
       logger.info('[E2E STUB] Bypassing NativeBrowser init for E2E test.');
       this.recognition = {
+        interimResults: false,
+        continuous: false,
         start: () => {},
         stop: () => {},
         onresult: null,
@@ -93,7 +110,7 @@ export default class NativeBrowser implements ITranscriptionMode {
 
     this.recognition.onend = () => {
       try {
-        if (this.isListening) {
+        if (this.isListening && this.recognition) {
           this.recognition.start();
         }
       } catch (error) {

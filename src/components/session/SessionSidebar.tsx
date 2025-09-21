@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../contexts/useAuth';
 import logger from '../../lib/logger';
 import { Mic, Square, Loader2, Zap, Cloud, Computer } from 'lucide-react';
 import { toast } from 'sonner';
@@ -39,7 +39,7 @@ interface SessionSidebarProps {
     isReady: boolean;
     error: Error | null;
     startListening: (options: { forceCloud?: boolean; forceOnDevice?: boolean; forceNative?: boolean }) => Promise<void>;
-    stopListening: () => Promise<any | null>;
+    stopListening: () => Promise<Partial<PracticeSession> | null>;
     reset: () => void;
     actualMode: string | null;
     saveSession: (session: Partial<PracticeSession>) => Promise<{ session: PracticeSession | null; usageExceeded: boolean }>;
@@ -127,8 +127,12 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
             };
             setCompletedSessions(prev => [...prev, sessionWithMetadata]);
             setShowEndSessionDialog(true);
-        } catch (e: any) {
-            logger.error({ error: e }, "Error ending session:");
+        } catch (e: unknown) {
+            if (e instanceof Error) {
+                logger.error({ error: e.message }, "Error ending session:");
+            } else {
+                logger.error({ error: String(e) }, "Error ending session:");
+            }
             toast.error("An unexpected error occurred while ending the session.");
         } finally {
             setIsEndingSession(false);

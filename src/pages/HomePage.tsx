@@ -1,5 +1,5 @@
 import React from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 import { MainPage } from './MainPage';
 import { SessionPage } from './SessionPage';
 import { LandingHeader } from '@/components/landing/LandingHeader';

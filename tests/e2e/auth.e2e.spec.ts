@@ -1,28 +1,29 @@
-import { test, expect, loginUser } from './helpers';
+import { test, expect } from './helpers';
+import { AuthPage } from './poms/authPage.pom';
+import { SessionPage } from './poms/sessionPage.pom';
+import { stubThirdParties } from './sdkStubs';
+import { TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../constants';
 
-test.describe('Authentication Flows', () => {
-  test.beforeEach(async () => {
-    test.setTimeout(15000);
-  });
+test.describe('Authentication', () => {
+  test('should allow a user to sign up and land on the session page', async ({ page }) => {
+    await stubThirdParties(page);
+    const authPage = new AuthPage(page);
+    const sessionPage = new SessionPage(page);
 
-  test('sign in and reach main page', async ({ page }) => {
-    test.setTimeout(60000);
-    await loginUser(page, 'pro@example.com', 'password');
+    await authPage.goto();
 
-    await expect(page.getByText('pro@example.com')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Sign Out' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Sign In' })).not.toBeVisible();
-  });
+    // Switch to sign up view
+    await authPage.modeToggleButton.click();
 
-  test('redirect logged-in user from auth to root', async ({ page }) => {
-    test.setTimeout(60000);
-    await loginUser(page, 'free@example.com', 'password');
+    // Fill in sign up form
+    await authPage.emailInput.fill(TEST_USER_EMAIL);
+    await authPage.passwordInput.fill(TEST_USER_PASSWORD);
+    await authPage.signUpButton.click();
 
-    await page.goto('/auth', { timeout: 10000 });
-    await page.waitForURL('/', { timeout: 15000 });
+    // After signing up, the user should be on the session page
+    await sessionPage.verifyOnPage();
 
-    await expect(page.getByText('free@example.com')).toBeVisible();
+    // The URL should be /session
+    await expect(page).toHaveURL('/session');
   });
 });
-
-test.describe.configure({ timeout: 60000, retries: 1 });

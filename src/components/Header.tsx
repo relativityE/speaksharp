@@ -1,7 +1,7 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
-import { useSession } from '../contexts/SessionContext';
+import { useAuth } from '../contexts/useAuth';
+import { useSession } from '../contexts/useSession';
 import { Button } from './ui/button';
 import { SideNav } from './SideNav';
 import { Home } from 'lucide-react';

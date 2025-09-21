@@ -2,20 +2,20 @@ import logger from '../../../lib/logger';
 import { pipeline, AutomaticSpeechRecognitionPipeline } from '@xenova/transformers';
 import { ITranscriptionMode, TranscriptionModeOptions } from './types';
 import { MicStream } from '../utils/types';
+import { TranscriptUpdate } from '../TranscriptionService';
 
 const HUB_MODEL = 'Xenova/whisper-tiny.en';
 const LOCAL_MODEL_PATH = '/models/whisper-tiny.en/';
 
 type Status = 'idle' | 'loading' | 'transcribing' | 'stopped' | 'error';
 
-// A simplified type for the transcription result chunks from the pipeline
 interface TranscriptionChunk {
   timestamp: [number, number];
   text: string;
 }
 
 export default class LocalWhisper implements ITranscriptionMode {
-  private onTranscriptUpdate: (transcript: string, isFinal: boolean, chunks: TranscriptionChunk[]) => void;
+  private onTranscriptUpdate: (update: TranscriptUpdate) => void;
   private onModelLoadProgress?: (progress: number) => void;
   private status: Status;
   private transcript: string;
@@ -26,7 +26,7 @@ export default class LocalWhisper implements ITranscriptionMode {
     if (!onTranscriptUpdate) {
       throw new Error("onTranscriptUpdate callback is required for LocalWhisper.");
     }
-    this.onTranscriptUpdate = onTranscriptUpdate as any; // Cast to avoid complexity with the words array in other modes
+    this.onTranscriptUpdate = onTranscriptUpdate;
     this.onModelLoadProgress = onModelLoadProgress;
     this.status = 'idle';
     this.transcript = '';
@@ -45,8 +45,9 @@ export default class LocalWhisper implements ITranscriptionMode {
       });
       this.status = 'idle';
       logger.info(`[LocalWhisper] Model loaded successfully from Hub: ${HUB_MODEL}.`);
-    } catch (hubError: any) {
-      logger.warn(`[LocalWhisper] Failed to load model from Hub. Falling back to local model. Error: ${hubError.message}`);
+    } catch (hubError: unknown) {
+      const errorMessage = hubError instanceof Error ? hubError.message : String(hubError);
+      logger.warn(`[LocalWhisper] Failed to load model from Hub. Falling back to local model. Error: ${errorMessage}`);
       try {
         logger.info(`[LocalWhisper] Attempting to load model from local path: ${LOCAL_MODEL_PATH}`);
         this.pipe = await pipeline('automatic-speech-recognition', LOCAL_MODEL_PATH, {
@@ -55,7 +56,7 @@ export default class LocalWhisper implements ITranscriptionMode {
         this.status = 'idle';
         logger.info(`[LocalWhisper] Model loaded successfully from local path: ${LOCAL_MODEL_PATH}.`);
       } catch (localError) {
-        logger.error('[LocalWhisper] CRITICAL: Failed to load model from both Hub and local path.', localError as any);
+        logger.error({ err: localError }, '[LocalWhisper] CRITICAL: Failed to load model from both Hub and local path.');
         this.status = 'error';
         throw localError;
       }
@@ -78,7 +79,7 @@ export default class LocalWhisper implements ITranscriptionMode {
     }) as { text: string; chunks: TranscriptionChunk[] };
 
     this.transcript = result.text;
-    this.onTranscriptUpdate(this.transcript, true, result.chunks || []);
+    this.onTranscriptUpdate({ transcript: { final: this.transcript }, chunks: result.chunks || [] });
     this.status = 'stopped';
   }
 

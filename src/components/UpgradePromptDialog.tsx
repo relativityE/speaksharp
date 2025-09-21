@@ -27,7 +27,7 @@ export const UpgradePromptDialog: React.FC<UpgradePromptDialogProps> = ({ open, 
         if (data.checkoutUrl) {
             window.location.href = data.checkoutUrl;
         }
-    } catch (err: any) {
+    } catch (err: unknown) {
         logger.error({err}, 'Error creating Stripe checkout session:');
         // You might want to show an error message to the user here
     }

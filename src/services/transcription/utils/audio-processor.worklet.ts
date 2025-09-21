@@ -1,6 +1,9 @@
 // Extend the global scope to include AudioWorkletGlobalScope properties
 declare const sampleRate: number;
-declare function registerProcessor(name: string, constructor: new (options: any) => AudioWorkletProcessor): void;
+declare function registerProcessor(
+    name: string,
+    constructor: new (options: PcmDownsamplerOptions) => AudioWorkletProcessor
+): void;
 
 interface PcmDownsamplerOptions {
   processorOptions: {
