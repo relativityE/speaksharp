@@ -82,29 +82,27 @@ The application will be available at `http://localhost:5173`.
 
 ## ✅ Testing
 
-This project uses [Vitest](https://vitest.dev/) for unit and integration tests and [Playwright](https://playwright.dev/) for end-to-end tests.
+This project uses a suite of scripts to ensure code quality, run tests, and generate software quality metrics. The entire pipeline has been orchestrated into a single, robust command.
 
-*   **Run all tests:**
-    ```bash
-    pnpm test
-    ```
+### Running the Full CI Pipeline
 
-*   **Run tests with UI:**
-    ```bash
-    pnpm test:ui
-    ```
+To run the entire suite of checks (linting, type-checking, unit tests, E2E tests, build, etc.) exactly as it runs in the CI environment, use the main orchestrator script:
 
-*   **Run E2E tests:**
-    ```bash
-    pnpm test:e2e
-    ```
+```bash
+./ci-run-all.sh
+```
 
-*   **E2E Test Setup (First-Time or New Environment):**
-    The E2E tests require Playwright's browser binaries to be installed. If you are running in a new environment or encounter errors about missing executables, you may need to install them manually:
-    ```bash
-    pnpm exec playwright install --with-deps
-    ```
-    This command only needs to be run once.
+This script executes all the necessary steps in the correct order, leveraging caching to run efficiently. It is the single source of truth for validating the application.
+
+### Forcing a Full Environment Recovery
+
+If the test environment becomes unstable, you can force a full cleanup before running the pipeline by setting the `FORCE_VM_RECOVERY` environment variable:
+
+```bash
+FORCE_VM_RECOVERY=1 ./ci-run-all.sh
+```
+
+This will delete all build artifacts and `node_modules` before reinstalling and running the tests.
 
 ## Linting
 
