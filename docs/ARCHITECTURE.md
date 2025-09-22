@@ -166,72 +166,77 @@ Another key lesson was the importance of ensuring all necessary binaries are pre
 
 ### CI/CD Test Execution Workflow
 
-To combat CI environment timeouts (~7 minutes), the test execution process has been deconstructed into a granular, multi-script workflow managed by a central orchestrator, `ci-run-all.sh`. This ensures no single command exceeds the time limit.
+To combat CI environment timeouts (~7 minutes) and brittle git hook states, the test execution process is managed by a robust, fail-fast orchestrator: `ci-run-all.sh` (v3.3). This script ensures that the pipeline is resilient, provides clear diagnostics, and cannot get stuck.
 
-The following diagram illustrates the orchestrated workflow:
+#### Key Enhancements in v3.3
 
-```ascii
-+-----------------------------+
-|      CI/CD Environment      |
-+-----------------------------+
-               |
-               v
-+-----------------------------+
-|      ./ci-run-all.sh        |
-|      (Orchestrator)         |
-+-----------------------------+
-               |
-               v
-+-----------------------------+
-|      ./vm-recovery.sh       |
-|  (Conditional: if needed)   |
-+-----------------------------+
-               |
-               v
-+-----------------------------+
-|       ./preinstall.sh       |
-|    (Install Node Modules)   |
-+-----------------------------+
-               |
-               v
-+-----------------------------+
-| pnpm run install:browsers   |
-|   (Install Playwright)      |
-+-----------------------------+
-               |
-               v
-+-----------------------------+
-|  ./run-lint.sh, ./run-type-check.sh, ... |
-|  (Individual Test Scripts)  |
-+-----------------------------+
-               |
-               v
-+-----------------------------+
-|      ./run-metrics.sh       |
-|   (Aggregate & Summarize)   |
-+-----------------------------+
-               |
-               v
-+-----------------------------+
-|    ./update-sqm-doc.sh      |
-|      (Update PRD.md)        |
-+-----------------------------+
+1.  **Step-Level Timeouts**: All long-running steps (dependencies, browsers, tests) are wrapped with an explicit `timeout`. Logs are saved to `logs/*.log` to isolate output for troubleshooting.
+2.  **Fail-Fast**: The script uses `set -euo pipefail` and exits immediately (`exit 1`) if any critical step fails or times out.
+3.  **Hook Safety**: Git hooks are proactively disabled at the start of the script. An `emergency_recovery` function ensures CI can run even with a completely broken Git state. Hooks are only temporarily restored for specific, trusted operations.
+4.  **Isolated Logging**: Each major step logs to its own file, avoiding flooded console output and simplifying debugging.
+
+The following diagram illustrates the orchestrated, cradle-to-grave pipeline:
+
+```
+                     ┌───────────────────────┐
+                     │  ci-run-all.sh v3.3   │
+                     │  (Orchestrator / Fail-Fast) │
+                     └─────────┬─────────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │ Disable Git Hooks   │
+                    │ (HUSKY=0, core.hooksPath, etc) │
+                    └─────────┬───────────┘
+                              │
+                    ┌─────────▼───────────┐
+                    │ Optional VM Recovery │
+                    │  (vm-recovery.sh)   │
+                    └─────────┬───────────┘
+                              │
+                    ┌─────────▼───────────┐
+                    │ Install Dependencies │
+                    │   preinstall.sh      │
+                    └─────────┬───────────┘
+                              │
+                    ┌─────────▼───────────┐
+                    │ Install Playwright  │
+                    │   Browsers           │
+                    └─────────┬───────────┘
+                              │
+                    ┌─────────▼───────────┐
+                    │ Run Test Scripts     │
+                    │ - lint, type check, │
+                    │   unit, build, e2e  │
+                    │ (individual, timed) │
+                    └─────────┬───────────┘
+                              │
+                    ┌─────────▼───────────┐
+                    │ Metrics & Documentation │
+                    │ - run-metrics.sh       │
+                    │ - update-sqm-doc.sh    │
+                    │   (hooks temporarily restored) │
+                    └─────────┬───────────┘
+                              │
+                    ┌─────────▼───────────┐
+                    │ Restore Git Hooks    │
+                    │ (clean exit / trap) │
+                    └─────────┬───────────┘
+                              │
+                              ▼
+                    ┌─────────────────────┐
+                    │ CI Pipeline Complete │
+                    │  Success / Fail-Fast │
+                    └─────────────────────┘
 ```
 
-This separation ensures that long-running processes like dependency installation and the E2E test suite are isolated, making the pipeline more robust and resilient to timeouts. The `ci-run-all.sh` script serves as the single entry point and calls each of the smaller, single-purpose scripts in the correct order.
+#### Highlights of the New Workflow:
 
-### Environment Recovery
-
-In the event of test environment instability, the `vm-recovery.sh` script can be triggered by setting the `FORCE_VM_RECOVERY=1` environment variable before running the main `ci-run-all.sh` orchestrator. This provides a mechanism for forcing a deep clean of the environment when necessary.
-
-**Usage:**
-```bash
-# For a standard run:
-./ci-run-all.sh
-
-# To force a full recovery before the run:
-FORCE_VM_RECOVERY=1 ./ci-run-all.sh
-```
+*   **Fail-Fast:** Each major step exits immediately on error, preventing wasted CI time.
+*   **Hook Safety:** Hooks are disabled early and restored only when explicitly needed for a trusted task.
+*   **Timeout Isolation:** Dependencies, browser installation, and individual test suites are all independently timed.
+*   **Granularity:** Each test script runs individually with dedicated logs, making it easy to pinpoint the source of a failure.
+*   **Optional VM Recovery:** Deep environment cleaning is available via `FORCE_VM_RECOVERY=1` but is not run by default.
 
 ## 3. Frontend Architecture
 
