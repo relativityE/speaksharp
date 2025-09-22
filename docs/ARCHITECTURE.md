@@ -138,22 +138,34 @@ This approach allows us to use the high-performance native library in production
 
 ### Lessons Learned: Debugging E2E Test Timeouts
 
-During the development of the automated SQM reporting, we encountered a critical issue where the `./run-tests.sh` script would time out after ~7 minutes. This was a "silent failure" as the console output was lost, making it difficult to diagnose.
+During the development of the automated SQM reporting, we encountered a critical issue where the `./run-tests.sh` script would time out after ~7 minutes. This was a "silent failure" as the console output was lost, making it difficult to diagnose. The root cause was determined to be the CI environment's hard timeout limit, which was shorter than the time required for a full dependency install and test run.
 
-**Root Causes:**
-1.  **Missing Browser Binaries:** The primary cause was that the Playwright browser binaries were not being installed automatically in the CI environment. The test runner was failing instantly with an `Executable doesn't exist` error, but this was hidden by the test runner's retry logic and the overall script timeout.
-2.  **Error Surfacing:** The `run-tests.sh` script did not explicitly surface fatal errors from the Playwright JSON report, contributing to the "silent" nature of the failure.
+Another key lesson was the importance of ensuring all necessary binaries are present. Early failures were caused by missing Playwright browser binaries, which was solved by adding an explicit installation step.
 
 **Solutions Implemented:**
-1.  **Automated Browser Installation:** The `pnpm exec playwright install --with-deps` command was added to the `postinstall` script in `package.json`. This ensures that the necessary browsers are always installed after a `pnpm install`.
-2.  **Enhanced Error Reporting:** The `run_e2e_tests` function in `run-tests.sh` was enhanced to parse the Playwright JSON report on failure and print any fatal errors to the console, making diagnosis of such issues immediate.
+- **Automated Browser Installation:** The `pnpm exec playwright install --with-deps` command was added to the `postinstall` script in `package.json`. This ensures that the necessary browsers are always installed after a `pnpm install`.
+- **Architectural Refactoring:** To address the timeout, the testing process was re-architected into a multi-script workflow to ensure each step could complete within the timeout window.
+
+### CI/CD Test Execution Workflow
+
+To ensure stability and deterministic results within a CI/CD environment that imposes a hard execution timeout (~7 minutes), the testing process has been broken down into three distinct, coordinated scripts:
+
+1.  **`preinstall.sh`**: This script's sole responsibility is to handle the slow and network-intensive dependency installation process. It regenerates the `pnpm-lock.yaml` if it's missing and ensures the `node_modules` directory is fully populated. This script should be run once at the beginning of a CI workflow.
+2.  **`vm-recovery.sh`**: This script performs a quick and lightweight cleanup of the environment. It kills any lingering processes, frees up network ports, and handles git state issues like a detached HEAD. It does *not* install dependencies, assuming `preinstall.sh` has already run.
+3.  **`run-tests.sh`**: This is the main test runner. It assumes all dependencies and a clean environment are already in place. It executes the full unit and E2E test suites and is designed to fail loudly, dumping JSON reports for any test failures.
+
+This separation ensures that the main test execution is not burdened by slow setup tasks, maximizing the chances that the tests can complete within the environment's timeout window.
 
 ### Environment Recovery
 
-In the event of test environment instability (e.g., hanging processes, incorrect tool execution), agents should run the `vm-recovery.sh` script located in the root directory. This script is designed to reset and stabilize the development environment.
+In the event of test environment instability (e.g., hanging processes, incorrect tool execution), agents or CI jobs should first run `preinstall.sh` to ensure dependencies are sound, followed by `vm-recovery.sh` to clean the runtime state. This two-step process provides a robust way to reset the environment.
 
 **Usage:**
 ```bash
+# First, ensure dependencies are installed
+./preinstall.sh
+
+# Then, clean the runtime environment
 ./vm-recovery.sh
 ```
 
