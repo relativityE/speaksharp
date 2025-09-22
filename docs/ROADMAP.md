@@ -20,9 +20,6 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - 🔴 1. Shorten OTP expiry to less than one hour.
   - 🔴 2. Enable leaked password protection.
   - 🔴 3. Upgrade the Postgres version.
-- 🔴 **Diagnose the final "Start Session" button issue**:
-    -   Analyze the `trace.zip` file from the last failed test run to understand the component state and console output at the moment of failure.
-    -   Determine why the `SessionSidebar` component is not rendering the button for the test runner.
 - 🟡 **Stabilize and Optimize CI E2E Tests**:
     -   **Status:** The test scripting environment has been completely refactored and stabilized with a new granular, orchestrated pipeline (`ci-run-all.sh`).
     -   **Next Action:** The full E2E suite still exceeds the CI environment's timeout. Individual tests must be timed to identify a fast, reliable smoke test to include in the pipeline.
@@ -81,6 +78,11 @@ This section is a prioritized list of technical debt items to be addressed.
   - **Problem:** A new mandate requires unit tests for all features. The following are missing coverage:
     - **Transcription Modes:** `CloudAssemblyAI`, `LocalWhisper`, `NativeBrowser`.
     - **Session & Analytics:** `SessionContext`, `analyticsUtils` (for trend analysis).
+
+- **P2 (Medium): Investigate ESLint `caughtErrorsIgnorePattern` Anomaly**
+  - **Problem:** The ESLint configuration (`eslint.config.js`) has been updated to ignore unused variables prefixed with an underscore (`_`). While this works for standard variables and function arguments, it is not being respected for `catch` block errors (`caughtErrorsIgnorePattern`).
+  - **Current Workaround:** The affected `catch` blocks in `tests/global-setup.ts` and `tests/global-teardown.ts` have been temporarily disabled with `// eslint-disable-next-line` comments to unblock the CI pipeline.
+  - **Required Action:** A deeper investigation is needed to understand why the configuration is not being applied correctly for caught errors. This might involve upgrading ESLint plugins or further debugging the configuration interaction.
 
 - **P3 (Medium): Incomplete TypeScript Migration**
   - **Problem:** Several test-related files and utilities are still JavaScript.
