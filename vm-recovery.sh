@@ -1,17 +1,10 @@
 #!/bin/bash
-# vm-recovery.sh - Clean environment before tests
+set -euo pipefail
 
-set -euxo pipefail
+# Cleanup temporary files and stale state
+echo "[vm-recovery] Cleaning environment..."
+rm -rf node_modules test-results coverage dist
+git reset --hard HEAD >/dev/null 2>&1
+git clean -fdx >/dev/null 2>&1
 
-log() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"; }
-
-log "Resetting git state..."
-git reset --hard HEAD
-git clean -fdx
-git checkout main || git checkout master
-
-log "Removing node_modules and caches..."
-rm -rf node_modules
-pnpm store prune
-
-log "VM recovery complete"
+echo "[vm-recovery] Environment reset complete."

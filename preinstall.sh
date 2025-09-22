@@ -1,11 +1,13 @@
 #!/bin/bash
-# preinstall.sh - Restore lockfile and install dependencies
+set -euo pipefail
 
-set -euxo pipefail
+# CI-safe: prevent husky hooks during install
+export HUSKY=0
 
-log() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"; }
-
-log "Restoring lockfile..."
-pnpm install  # Not frozen to ensure node_modules is populated
-
-log "Dependencies installed"
+# Install dependencies if node_modules missing
+if [ ! -d "node_modules" ]; then
+  echo "[preinstall] Installing dependencies..."
+  pnpm install
+else
+  echo "[preinstall] node_modules already exists, skipping install."
+fi

@@ -1,10 +1,10 @@
 #!/bin/sh
 . "$(dirname "$0")/_/husky.sh"
 
-# Only run during actual git commit
-if [ "$HUSKY" != "1" ]; then
-  echo "[husky] Skipping pre-commit (not a real commit)"
-  exit 0
+# Only run lint-staged if there are staged files
+if [ -n "$(git diff --cached --name-only)" ]; then
+  echo "[husky] Running lint-staged on staged files..."
+  npx lint-staged
+else
+  echo "[husky] No staged files, skipping lint-staged"
 fi
-
-npx lint-staged

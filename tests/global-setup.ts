@@ -5,66 +5,81 @@ import fetch from 'node-fetch';
 
 const PID_FILE = path.join(process.cwd(), '.vite.pid');
 const VITE_LOG = path.join(process.cwd(), 'vite.log');
-const MAX_WAIT = 120; // seconds
-const POLL_INTERVAL = 1000; // ms
-
-let vitePort = 5173; // default fallback
+const MAX_WAIT_SECONDS = 120;
+const POLL_INTERVAL_MS = 1000;
 
 /**
- * Wait until Vite server responds with HTTP 200
+ * Waits for the Vite server to be ready and listening on a specific port.
  */
-async function waitForVite(url: string) {
-  for (let i = 0; i < MAX_WAIT; i++) {
+async function waitForVite(url: string): Promise<void> {
+  for (let i = 0; i < MAX_WAIT_SECONDS; i++) {
     try {
-      const res = await fetch(url);
-      if (res.ok) {
+      const response = await fetch(url);
+      if (response.ok) {
         console.log(`[global-setup] Vite responded with 200 OK at ${url}`);
         return;
       }
-    } catch {
-      // ignore errors while server is starting
+    } catch (e) {
+      // Ignore fetch errors while the server is starting.
     }
-    console.log(`[global-setup] Waiting for Vite at ${url}... (${i + 1}/${MAX_WAIT})`);
-    await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+    console.log(`[global-setup] Waiting for Vite at ${url}... (${i + 1}/${MAX_WAIT_SECONDS})`);
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }
-  throw new Error(`Vite did not become ready at ${url} in time.`);
+  throw new Error(`Vite server did not become ready at ${url} within ${MAX_WAIT_SECONDS} seconds.`);
 }
 
 /**
- * Parse Vite stdout for actual port
+ * Starts the Vite server and waits until it is responsive.
+ * Detects the port from stdout and only writes the PID file after the server is healthy.
  */
-function detectPortFromStdout(line: string) {
-  const match = line.match(/Local:\s+http:\/\/localhost:(\d+)/);
-  if (match) {
-    vitePort = parseInt(match[1], 10);
-    console.log(`[global-setup] Vite URL detected: http://localhost:${vitePort}/`);
-  }
-}
-
-export default async function globalSetup() {
+export default async function globalSetup(): Promise<void> {
   console.log('[global-setup] Starting Vite server...');
 
-  // Spawn Vite in detached mode
-  const vite: ChildProcessWithoutNullStreams = spawn(
+  // Clear previous log file
+  if (fs.existsSync(VITE_LOG)) {
+    fs.unlinkSync(VITE_LOG);
+  }
+
+  const logStream = fs.createWriteStream(VITE_LOG, { flags: 'a' });
+  const viteProcess: ChildProcessWithoutNullStreams = spawn(
     'pnpm',
-    ['vite', '--mode', 'test', '--host', '--port', '5173'],
-    { shell: true, detached: true }
+    ['vite', '--mode', 'test', '--host', '--clearScreen', 'false'],
+    { detached: true, shell: true }
   );
 
-  if (!vite.pid) throw new Error('Failed to start Vite server.');
-  fs.writeFileSync(PID_FILE, String(vite.pid));
-  console.log(`[global-setup] Vite PID: ${vite.pid}, logs at ${VITE_LOG}`);
+  viteProcess.stdout.pipe(logStream);
+  viteProcess.stderr.pipe(logStream);
 
-  // Pipe stdout/stderr to vite.log and detect actual port
-  const logStream = fs.createWriteStream(VITE_LOG, { flags: 'a' });
-  vite.stdout.pipe(logStream);
-  vite.stderr.pipe(logStream);
+  const port = await new Promise<number>((resolve, reject) => {
+    viteProcess.stdout.on('data', (data: Buffer) => {
+      const line = data.toString();
+      const match = line.match(/Local:\s+http:\/\/localhost:(\d+)/);
+      if (match) {
+        const detectedPort = parseInt(match[1], 10);
+        console.log(`[global-setup] Vite server started on port: ${detectedPort}`);
+        resolve(detectedPort);
+      }
+    });
 
-  vite.stdout.on('data', (chunk) => detectPortFromStdout(chunk.toString()));
+    viteProcess.on('error', (err) => {
+      reject(new Error(`Failed to start Vite server: ${err.message}`));
+    });
 
-  // Wait until Vite responds on the detected port
-  const viteUrl = `http://localhost:${vitePort}/`;
+    viteProcess.on('exit', (code) => {
+      if (code !== 0) {
+        reject(new Error(`Vite server exited with code ${code}. Check vite.log for details.`));
+      }
+    });
+  });
+
+  const viteUrl = `http://localhost:${port}/`;
   await waitForVite(viteUrl);
 
-  console.log('[global-setup] Vite server ready. Playwright can now run tests.');
+  // Only write the PID file *after* the server is confirmed to be ready.
+  // This makes the teardown process much safer.
+  if (!viteProcess.pid) {
+    throw new Error('Vite server process has no PID.');
+  }
+  fs.writeFileSync(PID_FILE, String(viteProcess.pid));
+  console.log(`[global-setup] Vite server ready. PID ${viteProcess.pid} written to ${PID_FILE}`);
 }
