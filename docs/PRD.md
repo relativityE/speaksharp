@@ -116,15 +116,13 @@ This section provides a granular breakdown of user-facing features, grouped by p
 
 ## 3. Known Issues & Risks
 
-This section tracks high-level product risks and constraints. For a detailed technical debt and task breakdown, see the [Roadmap](./ROADMAP.md).
+This section tracks high-level product risks and constraints. For a detailed history of resolved issues, see the [Changelog](./CHANGELOG.md). For a detailed technical debt and task breakdown, see the [Roadmap](./ROADMAP.md).
 
-*   **[RESOLVED] Blocking Type Error with `jimp` Library:** The project's type-checking step (`pnpm type-check`) was failing due to a type error with an older version of the `jimp` library. This has been resolved by updating `jimp` to a modern version (`^0.22.10`) and refactoring the `processImage.ts` utility to use the new API. The build is no longer blocked by this issue.
-*   **[RESOLVED] Intractable Vite Server Hang:** The Vite server was previously crashing on startup when running E2E tests. This was diagnosed and fixed by updating `src/index.css` to use the modern `@import "tailwindcss";` syntax.
-*   **[RESOLVED] E2E Test Environment Unstable:** The E2E test environment was suffering from configuration conflicts and missing dependencies, causing all tests to fail unpredictably. The environment has now been stabilized by isolating the Vitest and Playwright configurations and ensuring all dependencies are correctly loaded.
-*   **[RESOLVED] E2E Test Failure: "Start Session" Button Not Found:** The failing E2E test (`tests/e2e/pro.e2e.spec.ts`) was caused by a race condition where the test tried to interact with the "Start Session" button before it was fully rendered and enabled. This has been resolved by refactoring the tests to use the Page Object Model (POM) pattern and adding more robust waiting mechanisms in the test helpers. The E2E test suite is now more stable.
-*   **[RESOLVED] Incomplete E2E Test Coverage:** The test environment has been stabilized and all E2E tests (`pro`, `free`, `anonymous`, `basic`) are now passing, providing full coverage for all user flows.
-*   **[RESOLVED] Sandboxed Environment Instability:** The test environment instability, which caused command timeouts and package installation failures, has been resolved by performing a clean dependency installation, resetting the local database with the latest migrations, and correcting test configurations. The test suite is now stable and runnable.
-*   **[ACTIVE] E2E Test Suite Timeout:** The full E2E test suite takes longer to run than the CI environment's ~7-minute timeout. This is a resource limitation of the sandbox, not a flaw in the tests. The CI pipeline has been refactored to run a subset of E2E tests as a smoke test. See `ARCHITECTURE.md` for details.
+*   **[ACTIVE] CI Environment Fragility:** The CI/CD environment, particularly when operated by an AI agent, is fragile and susceptible to deadlocks. The root cause is a combination of platform constraints and repository configuration. For a full breakdown, see the "Agent Execution Environment" section in the [Architecture documentation](./ARCHITECTURE.md). Key risks include:
+    *   **Git Hook Failures:** The agent's atomic, commit-based tool calls can trigger broken `pre-commit` hooks, causing all subsequent operations to fail. The `ci-run-all.sh` script contains mitigation for this, but the underlying risk remains.
+    *   **Strict Timeouts:** The environment imposes a hard 7-minute execution limit, which can cause long-running, monolithic scripts to fail. The CI pipeline has been refactored into smaller scripts to mitigate this, but it requires careful management of any new, long-running tasks.
+
+*   **[ACTIVE] E2E Test Suite Timeout:** The full E2E test suite takes longer to run than the CI environment's ~7-minute timeout. This is a resource limitation of the sandbox, not a flaw in the tests themselves. The CI pipeline has been refactored to run a smaller "smoke test" suite to provide some E2E coverage without exceeding the timeout.
 
 ---
 

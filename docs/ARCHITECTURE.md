@@ -238,6 +238,25 @@ The following diagram illustrates the orchestrated, cradle-to-grave pipeline:
 *   **Granularity:** Each test script runs individually with dedicated logs, making it easy to pinpoint the source of a failure.
 *   **Optional VM Recovery:** Deep environment cleaning is available via `FORCE_VM_RECOVERY=1` but is not run by default.
 
+### Agent Execution Environment
+
+A significant portion of this project's CI/CD pipeline and initial development is managed by an AI software engineering agent. Understanding the agent's execution environment is critical for interpreting its actions and debugging issues related to its operation.
+
+The environment has the following key characteristics:
+
+*   **7-Minute Execution Limit:** Every task or command initiated by the agent is subject to a hard 7-minute execution timeout. This is a platform-level constraint that cannot be configured. Long-running processes, such as full dependency installations or comprehensive test suites, are likely to fail if they are not broken down into smaller, granular steps. This was the root cause of the initial CI instability.
+
+*   **Tool-Triggered Git Commits:** Every action the agent takes using one of its tools (e.g., `read_file`, `run_in_bash_session`, `replace_with_git_merge_diff`) is automatically wrapped in a `git commit`. This has a significant side effect: it triggers `pre-commit` hooks. If the git hooks are broken or misconfigured (e.g., pointing to a non-existent `node_modules` directory), *every single tool call will fail*. This can create a deadlock where the agent cannot run `pnpm install` to fix the hooks because the command to do so fails. The `ci-run-all.sh` script was specifically designed with hook-disabling mechanisms to overcome this challenge.
+
+*   **Available Tools:** The agent operates with a limited set of tools, including but not limited to:
+    *   `ls`: List files.
+    *   `read_file`: Read file content.
+    *   `run_in_bash_session`: Execute shell commands.
+    *   `create_file_with_block`, `overwrite_file_with_block`, `replace_with_git_merge_diff`: File manipulation tools.
+    *   `set_plan`, `plan_step_complete`: Plan management.
+    *   `message_user`, `request_user_input`: User interaction.
+    *   `request_code_review`, `submit`: Code submission.
+
 ## 3. Frontend Architecture
 
 The frontend is a single-page application (SPA) built with React and Vite.
