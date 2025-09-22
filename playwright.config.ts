@@ -39,7 +39,7 @@ export default defineConfig({
     {
       name: 'chromium-smoke',
       use: { ...devices['Desktop Chrome'] },
-      testMatch: /basic\.e2e\.spec\.ts/,
+      testMatch: /(basic|auth)\.e2e\.spec\.ts/,
     },
     {
       name: 'user-pro',
