@@ -19,6 +19,7 @@ Here are the direct links to the core documents:
 *   [Node.js](https://nodejs.org/) (v18 or higher)
 *   [pnpm](https://pnpm.io/)
 *   [Supabase CLI](https://supabase.com/docs/guides/cli)
+*   [Docker](https://www.docker.com/) (must be running for local Supabase services)
 
 ### Installation and Setup
 
@@ -33,35 +34,35 @@ Here are the direct links to the core documents:
     pnpm install
     ```
 
-3.  **Set up environment variables:**
-    Create a `.env` file in the root of the project by copying the example file:
-    ```bash
-    cp .env.example .env
-    ```
-    Populate the `.env` file with your Supabase project URL and anon key, as well as any other required service keys.
+3.  **Environment Variables:**
+    This project uses Vite, which automatically loads environment variables based on the mode. For local development and testing, the file `.env.test` is already included in the repository root and is used by default. **No action is required** unless you need to add or modify API keys for your own cloud services.
 
-4.  **Set up the local database:**
-    To reset your local Supabase database and populate it with required test users (e.g., free, pro), run the following command:
+4.  **Local Database Setup:**
+    To run the application locally, you need to start the Supabase services. Make sure the Docker daemon is running first.
     ```bash
-    pnpm db:seed
+    supabase start
     ```
-    This command completely resets the database, runs all migrations, and then executes the seed script.
+    To reset your local Supabase database to a clean state, which runs all migrations and populates the database with the seed data from `supabase/seed.sql`, use the following command:
+    ```bash
+    supabase db reset
+    ```
+    This command is useful for starting fresh or if you encounter data-related issues during development.
 
 ### Development Workflow
 
 Our goal is to make local development as smooth as possible. Here are some key scripts and variables to help you.
 
 *   **Testing Pro Features Locally:**
-    To test Pro features without a real Stripe subscription, you can grant any user 'pro' status on the client-side. Add the following line to your `.env` file:
+    To test Pro features without a real Stripe subscription, you can grant any user 'pro' status on the client-side. Add the following line to your `.env.test` file:
     ```
     VITE_DEV_PRO_ACCESS=true
     ```
     When this variable is set, any user you are logged in as will have their subscription status overridden to `pro` in the app.
 
 *   **Managing On-Device ML Models:**
-    The on-device transcription feature requires ML model files to be hosted locally in the `/public/models` directory. To download or update a model from Hugging Face, use the `model:update` script:
+    The on-device transcription feature requires ML model files to be hosted locally in the `/public/models` directory. To download or update a model from Hugging Face, use the `update-model.sh` script:
     ```bash
-    pnpm model:update Xenova/whisper-tiny.en
+    bash scripts/update-model.sh Xenova/whisper-tiny.en
     ```
     Replace `Xenova/whisper-tiny.en` with the desired model name.
 
@@ -77,7 +78,7 @@ The application will be available at `http://localhost:5173`.
 
 ### Troubleshooting
 *   **`rounded-pill` error on startup:** This is often a caching issue with Vite. Try deleting the `node_modules/.vite` directory and restarting the dev server.
-*   **API Key errors (401 Unauthorized):** Ensure your `.env` file is correctly populated with the `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, and any other required keys. Refer to `.env.example` for the full list.
+*   **API Key errors (401 Unauthorized):** Ensure your `.env.test` file is correctly populated with the `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` if you are using your own Supabase project.
 *   **`toast` notifications not appearing:** This is a known issue in local development. Please see the full list of [Known Issues in the PRD](./PRD.md#3-known-issues) for status.
 
 ## ✅ Testing
