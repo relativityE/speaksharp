@@ -23,9 +23,9 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 - 🔴 **Diagnose the final "Start Session" button issue**:
     -   Analyze the `trace.zip` file from the last failed test run to understand the component state and console output at the moment of failure.
     -   Determine why the `SessionSidebar` component is not rendering the button for the test runner.
-- 🔴 **Fix the remaining E2E tests**:
-    -   The `auth.e2e.spec.ts` suite is not currently run by any Playwright project. This needs to be added.
-    -   The test runner environment is unstable and frequently times out. This needs to be investigated and stabilized.
+- 🟡 **Stabilize and Optimize CI E2E Tests**:
+    -   **Status:** The test scripting environment has been completely refactored and stabilized with a new granular, orchestrated pipeline (`ci-run-all.sh`).
+    -   **Next Action:** The full E2E suite still exceeds the CI environment's timeout. Individual tests must be timed to identify a fast, reliable smoke test to include in the pipeline.
 
 ### Gating Check
 - 🔴 **Do a Gap Analysis of current implementation against the Current Phase requirements.**
