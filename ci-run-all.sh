@@ -98,11 +98,6 @@ main() {
         run_with_timeout $TIMEOUT_DEPENDENCIES "logs/pnpm-install.log" HUSKY=0 pnpm install --frozen-lockfile
     fi
 
-    # Step 2: Install Playwright browsers
-    echo "🌐 Installing Playwright browsers..."
-    run_with_timeout $TIMEOUT_BROWSERS "logs/playwright.log" pnpm run install:browsers || \
-        run_with_timeout $TIMEOUT_BROWSERS "logs/playwright-fallback.log" pnpm exec playwright install --with-deps
-
     # Step 3: Run test scripts individually
     echo "🧪 Running test suites..."
     test_scripts=(

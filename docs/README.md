@@ -14,39 +14,21 @@ Here are the direct links to the core documents:
 
 ## 🚀 Getting Started
 
-### Prerequisites
+To start the development server, simply run:
 
-*   [Node.js](https://nodejs.org/) (v18 or higher)
-*   [pnpm](https://pnpm.io/)
-*   [Supabase CLI](https://supabase.com/docs/guides/cli)
-*   [Docker](https://www.docker.com/) (must be running for local Supabase services)
+```bash
+pnpm dev
+```
 
-### Installation and Setup
+This single command will automatically:
+1.  Install all dependencies if they are missing.
+2.  Create a `.env` file from the template if it doesn't exist.
+3.  Start the local Supabase services (requires Docker).
+4.  Start the Vite development server.
 
-1.  **Clone the repository:**
-    ```bash
-    git clone <repository-url>
-    cd speaksharp
-    ```
+This is the recommended "golden path" for starting the application.
 
-2.  **Install dependencies:**
-    ```bash
-    pnpm install
-    ```
-
-3.  **Environment Variables:**
-    This project uses Vite, which automatically loads environment variables based on the mode. For local development and testing, the file `.env.test` is already included in the repository root and is used by default. **No action is required** unless you need to add or modify API keys for your own cloud services.
-
-4.  **Local Database Setup:**
-    To run the application locally, you need to start the Supabase services. Make sure the Docker daemon is running first.
-    ```bash
-    supabase start
-    ```
-    To reset your local Supabase database to a clean state, which runs all migrations and populates the database with the seed data from `supabase/seed.sql`, use the following command:
-    ```bash
-    supabase db reset
-    ```
-    This command is useful for starting fresh or if you encounter data-related issues during development.
+For advanced development tasks, such as resetting the database or managing on-device ML models, please refer to the detailed sections below.
 
 ### Development Workflow
 

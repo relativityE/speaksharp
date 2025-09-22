@@ -27,8 +27,10 @@ export default defineConfig({
       VITE_TEST_MODE: 'true',
       NODE_ENV: 'test'
     },
-    deps: {
-      inline: ["@xenova/transformers"],
+    server: {
+      deps: {
+        inline: ["@xenova/transformers"],
+      }
     }
   },
   resolve: {

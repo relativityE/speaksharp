@@ -29,7 +29,14 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      '@typescript-eslint/no-unused-vars': 'warn', // TODO: Re-enable this rule
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
       'no-unused-vars': 'off', // Disable base rule to prefer TS version
       '@typescript-eslint/no-explicit-any': 'warn', // TODO: Remove this warning and fix all 'any' types
       '@typescript-eslint/no-empty-object-type': 'warn', // TODO: Re-enable this rule

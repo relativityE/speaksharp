@@ -2,7 +2,7 @@ import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useSpeechRecognition } from '../useSpeechRecognition';
 import { useAuth } from '../../contexts/useAuth';
-import TranscriptionService, { TranscriptionServiceOptions, TranscriptUpdate } from '../../services/transcription/TranscriptionService';
+import TranscriptionService, { TranscriptionServiceOptions, _TranscriptUpdate } from '../../services/transcription/TranscriptionService';
 import { MemoryRouter } from 'react-router-dom';
 import React from 'react';
 import { User } from '@supabase/supabase-js';
@@ -29,37 +29,38 @@ let mockServiceInstance: {
   options: TranscriptionServiceOptions,
 };
 
-beforeEach(() => {
-  mockServiceInstance = {
-    init: vi.fn().mockResolvedValue({ success: true }),
-    startTranscription: vi.fn().mockResolvedValue(undefined),
-    stopTranscription: vi.fn().mockResolvedValue('final transcript'),
-    destroy: vi.fn().mockResolvedValue(undefined),
-    getMode: vi.fn().mockReturnValue('native'),
-    options: {} as TranscriptionServiceOptions,
-  };
+describe('useSpeechRecognition', () => {
+  beforeEach(() => {
+    // Create fresh mock instance for each test
+    mockServiceInstance = {
+      init: vi.fn().mockResolvedValue({ success: true }),
+      startTranscription: vi.fn().mockResolvedValue(undefined),
+      stopTranscription: vi.fn().mockResolvedValue('final transcript'),
+      destroy: vi.fn().mockResolvedValue(undefined),
+      getMode: vi.fn().mockReturnValue('native'),
+      options: {} as TranscriptionServiceOptions,
+    };
 
-  MockTranscriptionService.mockImplementation((options) => {
-    mockServiceInstance.options = options;
-    return mockServiceInstance as unknown as TranscriptionService;
+    MockTranscriptionService.mockImplementation((options) => {
+      mockServiceInstance.options = options;
+      return mockServiceInstance as unknown as TranscriptionService;
+    });
+
+    mockUseAuth.mockReturnValue({
+      user: { id: 'test-user' } as User,
+      profile: { subscription_status: 'free' } as UserProfile,
+    } as AuthContextType);
   });
 
-  mockUseAuth.mockReturnValue({
-    user: { id: 'test-user' } as User,
-    profile: { subscription_status: 'free' } as UserProfile,
-  } as AuthContextType);
+  afterEach(() => {
+    vi.clearAllMocks();
+    vi.clearAllTimers();
+    // Ensure all timers are cleared
+    vi.runOnlyPendingTimers();
+  });
 
-  vi.useFakeTimers();
-});
-
-afterEach(() => {
-  vi.useRealTimers();
-  vi.clearAllMocks();
-});
-
-describe('useSpeechRecognition', () => {
   it('should initialize correctly and set isReady to true', async () => {
-    const { result } = renderHook(() => useSpeechRecognition(), { wrapper });
+    const { result, unmount } = renderHook(() => useSpeechRecognition(), { wrapper });
 
     await act(async () => {
       await result.current.startListening();
@@ -71,10 +72,13 @@ describe('useSpeechRecognition', () => {
 
     expect(result.current.isReady).toBe(true);
     expect(result.current.isListening).toBe(true);
+
+    // Clean up
+    unmount();
   });
 
   it('should call startTranscription and update mode', async () => {
-    const { result } = renderHook(() => useSpeechRecognition(), { wrapper });
+    const { result, unmount } = renderHook(() => useSpeechRecognition(), { wrapper });
 
     await act(async () => {
       await result.current.startListening();
@@ -82,33 +86,49 @@ describe('useSpeechRecognition', () => {
 
     expect(mockServiceInstance.startTranscription).toHaveBeenCalled();
     expect(result.current.mode).toBe('native');
+
+    // Clean up
+    unmount();
   });
 
   it('should handle transcript updates from the service', async () => {
-    const { result } = renderHook(() => useSpeechRecognition(), { wrapper });
+    // Use real timers for this test to avoid timer-related issues
+    vi.useRealTimers();
+
+    const { result, unmount } = renderHook(() => useSpeechRecognition(), { wrapper });
 
     await act(async () => {
       await result.current.startListening();
     });
 
-    act(() => {
-      mockServiceInstance.options.onTranscriptUpdate({ transcript: { partial: 'hello' } });
+    await act(async () => {
+      if (mockServiceInstance.options.onTranscriptUpdate) {
+        mockServiceInstance.options.onTranscriptUpdate({ transcript: { partial: 'hello' } });
+      }
     });
     expect(result.current.interimTranscript).toBe('hello');
 
-    act(() => {
-      mockServiceInstance.options.onTranscriptUpdate({ transcript: { final: 'world' } });
+    await act(async () => {
+      if (mockServiceInstance.options.onTranscriptUpdate) {
+        mockServiceInstance.options.onTranscriptUpdate({ transcript: { final: 'world' } });
+      }
     });
     expect(result.current.interimTranscript).toBe('');
     expect(result.current.chunks).toEqual([{ text: 'world', id: expect.any(Number) }]);
 
-    // Fast-forward timers to let debounced filler word counting run
-    vi.runAllTimers();
+    // Wait for debounced operations to complete
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    });
+
     expect(result.current.transcript).toBe('world');
+
+    // Clean up
+    unmount();
   });
 
   it('should call stopTranscription and return stats', async () => {
-    const { result } = renderHook(() => useSpeechRecognition(), { wrapper });
+    const { result, unmount } = renderHook(() => useSpeechRecognition(), { wrapper });
 
     await act(async () => {
       await result.current.startListening();
@@ -125,12 +145,15 @@ describe('useSpeechRecognition', () => {
       transcript: '',
       total_words: 0,
     }));
+
+    // Clean up
+    unmount();
   });
 
   it('should handle errors during startListening', async () => {
     const error = new Error('Permission denied');
     mockServiceInstance.init.mockRejectedValue(error);
-    const { result } = renderHook(() => useSpeechRecognition(), { wrapper });
+    const { result, unmount } = renderHook(() => useSpeechRecognition(), { wrapper });
 
     await act(async () => {
       await result.current.startListening();
@@ -139,10 +162,19 @@ describe('useSpeechRecognition', () => {
     expect(result.current.error).toEqual(error);
     expect(result.current.isListening).toBe(false);
     expect(result.current.isSupported).toBe(false);
+
+    // Clean up
+    unmount();
   });
 
   it('should call destroy on unmount', async () => {
     const { unmount } = renderHook(() => useSpeechRecognition(), { wrapper });
+
+    // Wait a tick to ensure hook is fully initialized
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
     unmount();
     expect(mockServiceInstance.destroy).toHaveBeenCalled();
   });
