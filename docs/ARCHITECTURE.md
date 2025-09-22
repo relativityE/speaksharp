@@ -140,8 +140,11 @@ This approach allows us to use the high-performance native library in production
 
 During the development of the automated SQM reporting, we encountered a critical issue where the `./run-tests.sh` script would time out after ~7 minutes. This was a "silent failure" as the console output was lost, making it difficult to diagnose. The root cause was determined to be the CI environment's hard timeout limit, which was shorter than the time required for a full dependency install and test run.
 
+Another key lesson was the importance of ensuring all necessary binaries are present. Early failures were caused by missing Playwright browser binaries, which was solved by adding an explicit installation step.
+
 **Solutions Implemented:**
-To address this, the testing process was re-architected into a multi-script workflow to ensure each step could complete within the timeout window.
+- **Automated Browser Installation:** The `pnpm exec playwright install --with-deps` command was added to the `postinstall` script in `package.json`. This ensures that the necessary browsers are always installed after a `pnpm install`.
+- **Architectural Refactoring:** To address the timeout, the testing process was re-architected into a multi-script workflow to ensure each step could complete within the timeout window.
 
 ### CI/CD Test Execution Workflow
 

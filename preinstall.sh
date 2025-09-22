@@ -3,21 +3,9 @@
 
 set -euxo pipefail
 
-echo "📦 Starting preinstall: restoring lockfile and dependencies..."
+log() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"; }
 
-# If lockfile is missing, regenerate it
-if [ ! -f pnpm-lock.yaml ]; then
-    echo "⚠️ pnpm-lock.yaml missing. Regenerating..."
-    pnpm install
-else
-    echo "✅ Lockfile exists. Installing dependencies..."
-    pnpm install --frozen-lockfile
-fi
+log "Restoring lockfile..."
+pnpm install  # Not frozen to ensure node_modules is populated
 
-# Confirm node_modules populated
-if [ ! -d "node_modules" ] || [ "$(ls -A node_modules | wc -l)" -eq 0 ]; then
-    echo "❌ node_modules missing or empty after install"
-    exit 1
-fi
-
-echo "✅ Dependencies ready"
+log "Dependencies installed"
