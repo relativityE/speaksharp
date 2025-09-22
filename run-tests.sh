@@ -3,11 +3,7 @@
 
 set -euxo pipefail
 
-# Configuration
 TEST_RESULTS_DIR="test-results"
-METRICS_FILE="$TEST_RESULTS_DIR/metrics.json"
-COVERAGE_DIR="coverage"
-LOG_FILE="$TEST_RESULTS_DIR/test-execution.log"
 
 # Colors
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
