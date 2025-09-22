@@ -19,7 +19,7 @@ async function waitForVite(url: string): Promise<void> {
         console.log(`[global-setup] Vite responded with 200 OK at ${url}`);
         return;
       }
-    } catch (e) {
+    } catch {
       // Ignore fetch errors while the server is starting.
     }
     console.log(`[global-setup] Waiting for Vite at ${url}... (${i + 1}/${MAX_WAIT_SECONDS})`);

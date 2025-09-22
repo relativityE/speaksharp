@@ -22,7 +22,7 @@ function killProcessByPort(port: number) {
     } else {
       console.log(`[global-teardown] No process found on port ${port}.`);
     }
-  } catch (e) {
+  } catch {
     // lsof throws an error if no process is found, so we can ignore it.
     console.log(`[global-teardown] No process found on port ${port} or an error occurred. Continuing cleanup.`);
   }
