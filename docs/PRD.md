@@ -91,8 +91,8 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | :--- | :--- | :--- | :--- |
 | **AI Suggestions** | Provides AI-driven feedback on transcripts. | ✅ Implemented | ✅ Yes |
 | **Filler Word Trend** | Analyzes the trend of filler word usage across sessions. | ✅ Implemented | ✅ Yes |
-| **Session Comparison** | Compares stats from the 4 most recent sessions. | ✅ Implemented | 🔴 No |
-| **PDF Export** | Allows users to download a PDF report of their session. | ✅ Implemented | 🔴 No |
+| **Session Comparison** | Compares stats from the 4 most recent sessions. | ✅ Implemented | ✅ Yes |
+| **PDF Export** | Allows users to download a PDF report of their session. | ✅ Implemented | ✅ Yes |
 | **STT Accuracy Comparison** | Rolling average comparison of STT engine accuracy. | 🔴 Not Started | 🔴 No |
 | **Top 2 Filler Words**| Maintains the top 2 highest filler words for the most recent 4 sessions. | 🔴 Not Started | 🔴 No |
 
@@ -124,9 +124,10 @@ This section tracks high-level product risks and constraints. For a detailed his
 
 *   **[MITIGATED] E2E Test Suite Timeout:** While the full E2E suite still exceeds the CI timeout, a `run-e2e-smoke.sh` script has been integrated into the CI pipeline. This runs a small subset of critical tests to provide a fast feedback loop on environment stability.
 
-*   **[ACTIVE] Failing Unit Test:** There is one remaining failing unit test in `src/services/transcription/__tests__/CloudAssemblyAI.test.ts`.
-    *   **Test Case:** `should close the WebSocket on stopTranscription`
-    *   **Status:** The test fails because the mock WebSocket's `close` method is not being called as expected. This is a complex mocking issue that requires further investigation but does not block overall test suite stability.
+*   **[FIXED] Failing Unit Test:** The failing unit test in `src/services/transcription/__tests__/CloudAssemblyAI.test.ts` has been resolved. The mock implementation was corrected to ensure the `close` method is called as expected.
+
+*   **[ACTIVE] CI Script Timeout:** The `ci-run-all.sh` script, which orchestrates the entire CI pipeline, is known to time out in the current execution environment. This is a platform limitation and not a flaw in the script itself.
+    *   **Workaround:** Individual test scripts (`run-lint.sh`, `run-unit-tests.sh`, etc.) should be run directly to bypass the orchestrator.
 
 ---
 

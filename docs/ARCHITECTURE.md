@@ -66,7 +66,7 @@ This section contains a high-level block diagram of the SpeakSharp full-stack ar
 SpeakSharp is built on a modern, serverless technology stack designed for real-time applications.
 
 *   **Frontend:**
-    *   **Framework:** React (v18) with Vite
+    *   **Framework:** React (v18) with Vite (`^7.1.7`)
     *   **Language:** TypeScript (TSX)
     *   **Styling:** Tailwind CSS with a CVA-based design system
     *   **State Management:** React Context and custom hooks
@@ -81,7 +81,8 @@ SpeakSharp is built on a modern, serverless technology stack designed for real-t
     *   **Error Reporting:** Sentry
     *   **Product Analytics:** PostHog
 *   **Testing:**
-    *   **Unit/Integration:** Vitest
+    *   **Unit/Integration:** Vitest (`^2.1.9`)
+    *   **DOM Environment:** happy-dom (`^18.0.1`)
     *   **E2E:** Playwright
 
 ## Testing Strategy

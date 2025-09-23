@@ -55,10 +55,8 @@ describe('CloudAssemblyAI Transcription Mode', () => {
   let cloudAI: CloudAssemblyAI;
   let mockMicStream: any;
   const onReady = vi.fn();
-  let mockClose: vi.SpyInstance;
 
   beforeEach(() => {
-    mockClose = vi.spyOn(MockWebSocket.prototype, 'close');
     vi.clearAllMocks();
     MockWebSocket.instances = [];
     mockSocketInstance = null;

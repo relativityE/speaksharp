@@ -36,7 +36,7 @@ This phase is about confirming the core feature set works as expected and polish
 - 🔴 **Implement Custom Vocabulary:** Allow Pro users to add custom words (jargon, names) to improve transcription accuracy.
 - 🔴 **Implement Speaker Identification:** Add the ability to distinguish between different speakers in the transcript.
 - 🔴 **Implement Vocal Variety / Pause Detection:** Add a new Pro-tier feature to analyze vocal variety or pause duration.
-- 🔴 **User-Friendly Error Handling:** Implement specific, user-facing error messages for common issues.
+- 🟡 **User-Friendly Error Handling:** Implement specific, user-facing error messages for common issues.
 - 🔴 **Deploy & confirm live transcript UI works:** Ensure text appears within 2 seconds of speech in a live environment.
 - 🔴 **Remove all temporary console.logs:** Clean up the codebase for production.
 
@@ -81,8 +81,8 @@ This section is a prioritized list of technical debt items to be addressed.
 
 - **P1 (High): Add Unit Test Coverage for Core Features**
   - **Problem:** A new mandate requires unit tests for all features. The following are missing coverage:
-    - **Transcription Modes:** `CloudAssemblyAI`, `LocalWhisper`, `NativeBrowser`.
-    - **Session & Analytics:** `SessionContext`, `analyticsUtils` (for trend analysis).
+    - **Transcription Modes:** `LocalWhisper`, `NativeBrowser`.
+    - **Session & Analytics:** `SessionContext`.
 
 - **P2 (Medium): Investigate ESLint `caughtErrorsIgnorePattern` Anomaly**
   - **Problem:** The ESLint configuration (`eslint.config.js`) has been updated to ignore unused variables prefixed with an underscore (`_`). While this works for standard variables and function arguments, it is not being respected for `catch` block errors (`caughtErrorsIgnorePattern`).

@@ -14,7 +14,8 @@ const getProfileFromDb = async (userId: string): Promise<UserProfile | null> => 
     const { data, error } = await supabase.from('user_profiles').select('*').eq('id', userId).single();
     if (error) return null;
     return data;
-  } catch {
+  } catch (e) {
+    console.error('Error fetching profile:', e);
     return null;
   }
 };
@@ -45,8 +46,8 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
           (window as WindowWithUser).__USER__ = userProfile;
         }
         setSession(session);
-      } catch {
-        // Handle error if needed
+      } catch (e) {
+        console.error('Error fetching session and profile:', e);
       } finally {
         setLoading(false);
       }
