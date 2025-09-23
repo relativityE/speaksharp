@@ -133,9 +133,9 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 ## 5. Software Quality Metrics
 
-This document provides a snapshot of the current state of the test suite. It is automatically updated by the CI/CD pipeline.
-
 **Last Updated:** `(not yet run)`
+
+**Note:** This section is intended to be updated automatically by the CI pipeline. However, due to environmental constraints preventing the full test and metrics suite from running, the data below is not available. This is a known issue tracked in the project [Roadmap](./ROADMAP.md).
 
 ---
 
