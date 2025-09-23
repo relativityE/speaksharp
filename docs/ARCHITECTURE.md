@@ -210,7 +210,8 @@ The following diagram illustrates the orchestrated, cradle-to-grave pipeline:
                     ┌─────────▼───────────┐
                     │ Run Test Scripts     │
                     │ - lint, type check, │
-                    │   unit, build, e2e  │
+                    │   unit, build,      │
+                    │   e2e-smoke         │
                     │ (individual, timed) │
                     └─────────┬───────────┘
                               │
@@ -239,6 +240,7 @@ The following diagram illustrates the orchestrated, cradle-to-grave pipeline:
 *   **Hook Safety:** Hooks are disabled early and restored only when explicitly needed for a trusted task.
 *   **Timeout Isolation:** Dependencies, browser installation, and individual test suites are all independently timed.
 *   **Granularity:** Each test script runs individually with dedicated logs, making it easy to pinpoint the source of a failure.
+*   **E2E Smoke Test:** The `run-e2e-smoke.sh` script runs a small subset of E2E tests (`basic.e2e.spec.ts`) to provide a fast signal on the stability of the environment without running the full, time-consuming E2E suite.
 *   **Optional VM Recovery:** Deep environment cleaning is available via `FORCE_VM_RECOVERY=1` but is not run by default.
 
 ### Agent Execution Environment
