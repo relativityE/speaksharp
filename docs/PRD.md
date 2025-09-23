@@ -94,6 +94,7 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Session Comparison** | Compares stats from the 4 most recent sessions. | ✅ Implemented | 🔴 No |
 | **PDF Export** | Allows users to download a PDF report of their session. | ✅ Implemented | 🔴 No |
 | **STT Accuracy Comparison** | Rolling average comparison of STT engine accuracy. | 🔴 Not Started | 🔴 No |
+| **Top 2 Filler Words**| Maintains the top 2 highest filler words for the most recent 4 sessions. | 🔴 Not Started | 🔴 No |
 
 #### 🌱 Could-Have
 

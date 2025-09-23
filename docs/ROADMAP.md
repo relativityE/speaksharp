@@ -14,9 +14,6 @@ Status Key: 🟡 In Progress | 🔴 Not Started
 This phase focuses on fixing critical bugs, addressing code health, and ensuring the existing features are reliable and robust.
 
 ### 🚧 Should-Have (Tech Debt)
-- 🔴 **Add Unit Tests for Complex Analytics:**
-    - **Problem:** The `analyticsUtils.ts` file has complex logic for trend analysis that is not fully covered by unit tests.
-    - **Task:** Write comprehensive unit tests for `calculateFillerWordTrends` and `calculateOverallStats`, including edge cases and complex scenarios.
 - 🔴 **Refactor Integration Tests:** Slim down component tests (`SessionSidebar`, `AnalyticsPage`, etc.) to remove redundant coverage now handled by E2E tests.
 - 🔴 **Create Troubleshooting Guide:** Add error recovery steps to the documentation.
 - 🔴 **Harden Supabase Security:** Address security advisor warnings.
@@ -26,6 +23,9 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 - 🟡 **Stabilize and Optimize CI E2E Tests**:
     -   **Status:** The test scripting environment has been completely refactored and stabilized with a new granular, orchestrated pipeline (`ci-run-all.sh`).
     -   **Next Action:** The full E2E suite still exceeds the CI environment's timeout. Individual tests must be timed to identify a fast, reliable smoke test to include in the pipeline.
+- 🔴 **Add Unit Tests for Complex Analytics:**
+    - **Problem:** The `analyticsUtils.ts` file has complex logic for trend analysis that is not fully covered by unit tests.
+    - **Task:** Write comprehensive unit tests for `calculateFillerWordTrends` and `calculateOverallStats`, including edge cases and complex scenarios.
 
 ### Gating Check
 - 🔴 **Do a Gap Analysis of current implementation against the Current Phase requirements.**
@@ -44,6 +44,12 @@ This phase is about confirming the core feature set works as expected and polish
 - 🔴 **Remove all temporary console.logs:** Clean up the codebase for production.
 
 ### 🚧 Should-Have (Tech Debt)
+- 🔴 **Implement STT Accuracy Comparison:**
+    - **Problem:** The application does not provide a way for users to compare the accuracy of the different transcription engines.
+    - **Task:** Implement a feature to track and display a rolling average of STT accuracy for each mode.
+- 🔴 **Implement Top 2 Filler Words Analysis:**
+    - **Problem:** The analytics dashboard does not highlight the most frequently used filler words.
+    - **Task:** Implement a feature to identify and display the top 2 filler words for the most recent 4 sessions.
 - 🟡 **Implement new SpeakSharp Design System:**
   - 🟡 3. Refactor UI Components & Test
   - 🔴 4. Final Verification & Test
