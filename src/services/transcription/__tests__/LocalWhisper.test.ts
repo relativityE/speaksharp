@@ -16,8 +16,8 @@ describe('LocalWhisper Transcription Mode', () => {
   const onModelLoadProgress = vi.fn();
 
   beforeEach(() => {
+    vi.useFakeTimers();
     vi.clearAllMocks();
-    vi.clearAllTimers();
 
     localWhisper = new LocalWhisper({
       onTranscriptUpdate,
@@ -30,10 +30,7 @@ describe('LocalWhisper Transcription Mode', () => {
   });
 
   afterEach(async () => {
-    // Critical cleanup to prevent memory leaks
-    vi.clearAllTimers();
-    vi.runOnlyPendingTimers();
-
+    vi.useRealTimers();
     // Ensure LocalWhisper is properly cleaned up
     if (localWhisper) {
       try {
@@ -80,20 +77,12 @@ describe('LocalWhisper Transcription Mode', () => {
   });
 
   it('should call the pipeline with audio data on startTranscription', async () => {
-    // Use fake timers to control the timeout in getAudioData
-    vi.useFakeTimers();
-
     const mockPipelineInstance = vi.fn().mockResolvedValue({
       text: 'transcript',
-      chunks: []
+      chunks: [],
     }) as any;
     mockPipeline.mockResolvedValue(mockPipelineInstance);
 
-    const mockPipelineInstance = vi.fn().mockResolvedValue({
-      text: 'transcript',
-      chunks: []
-    }) as any;
-    mockPipeline.mockResolvedValue(mockPipelineInstance);
     await localWhisper.init();
     let frameHandlerCalled = false;
     const mockMicStream = {
@@ -123,7 +112,5 @@ describe('LocalWhisper Transcription Mode', () => {
       transcript: { final: 'transcript' },
       chunks: [],
     });
-    // Restore real timers
-    vi.useRealTimers();
   });
 });

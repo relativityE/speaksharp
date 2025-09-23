@@ -33,7 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated homepage routing logic to be conditional for development vs. production, allowing easier debugging of landing page components.
 - Refined developer-only controls on the `SessionSidebar` to be more specific and only appear for designated dev users.
 
+### Known Issues
+- **CI Pipeline Instability:** The main CI script (`./ci-run-all.sh`) is currently unstable and consistently fails due to a 7-minute timeout in the execution environment. This affects long-running steps like linting and type-checking, preventing the full test suite from completing automatically. This is a pre-existing environment issue that needs to be addressed separately.
+
 ### Fixed
+- **Performance:** Fixed a major performance issue on the session page where the entire page would re-render every second during an active session. Refactored the timer logic to isolate updates and prevent unnecessary renders.
 - **Test Environment Architecture:** Resolved critical architectural flaws that caused the entire test suite to be unstable. This included:
   - **Conflicting Setups:** Consolidated multiple, conflicting `global-setup.ts` files into a clear, purpose-driven structure (`unit-global-setup.ts`, `e2e-global-setup.ts`).
   - **Memory Leaks:** Fixed severe "heap out of memory" crashes in the unit test suite by reconfiguring Vitest to use isolated forked processes and by fixing memory leaks in `LocalWhisper.test.ts` and `SessionSidebar.test.tsx` with proper async/component cleanup.

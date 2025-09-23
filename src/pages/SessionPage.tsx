@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { useSessionManager } from '../hooks/useSessionManager';
 import posthog from 'posthog-js';
@@ -95,7 +95,8 @@ export const SessionPage: React.FC = () => {
     const [customWords, setCustomWords] = useState<string[]>([]);
     const [usageLimitExceeded, setUsageLimitExceeded] = useState(false);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-    const [elapsedTime, setElapsedTime] = useState(0);
+    const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+    const startTimeRef = useRef<number | null>(null);
 
     const speechRecognition = useSpeechRecognition({ customWords, session, profile });
     const { isListening, modelLoadingProgress } = speechRecognition;
@@ -107,17 +108,9 @@ export const SessionPage: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        let interval: NodeJS.Timeout | null = null;
         if (isListening) {
-            interval = setInterval(() => {
-                setElapsedTime(prevTime => prevTime + 1);
-            }, 1000);
-        } else {
-            setElapsedTime(0);
+            startTimeRef.current = Date.now();
         }
-        return () => {
-            if (interval) clearInterval(interval);
-        };
     }, [isListening]);
 
     useEffect(() => {
@@ -129,11 +122,18 @@ export const SessionPage: React.FC = () => {
                 ? 1800
                 : null;
 
-        if (sessionLimit && elapsedTime >= sessionLimit) {
-            speechRecognition.stopListening();
-            setUsageLimitExceeded(true);
+        if (sessionLimit && startTimeRef.current) {
+            const checkUsage = () => {
+                const elapsed = (Date.now() - (startTimeRef.current ?? 0)) / 1000;
+                if (elapsed >= sessionLimit) {
+                    speechRecognition.stopListening();
+                    setUsageLimitExceeded(true);
+                }
+            };
+            const interval = setInterval(checkUsage, 1000);
+            return () => clearInterval(interval);
         }
-    }, [elapsedTime, isListening, user, profile, speechRecognition]);
+    }, [isListening, user, profile, speechRecognition]);
 
     if (loading) {
         return (
@@ -172,7 +172,7 @@ export const SessionPage: React.FC = () => {
                 </div>
 
                 <div className="hidden lg:block lg:w-1/3">
-                    <SessionSidebar {...speechRecognition} saveSession={saveAndBroadcastSession} actualMode={speechRecognition.mode} elapsedTime={elapsedTime} modelLoadingProgress={modelLoadingProgress as ModelLoadProgress | null} />
+                    <SessionSidebar {...speechRecognition} saveSession={saveAndBroadcastSession} actualMode={speechRecognition.mode} startTime={isListening ? startTimeRef.current : null} modelLoadingProgress={modelLoadingProgress as ModelLoadProgress | null} />
                 </div>
 
                 <div className="block lg:hidden">
@@ -185,7 +185,7 @@ export const SessionPage: React.FC = () => {
                         </DrawerTrigger>
                         <DrawerContent>
                             <div className="p-4 overflow-y-auto h-[80vh]">
-                                <SessionSidebar {...speechRecognition} saveSession={saveAndBroadcastSession} actualMode={speechRecognition.mode} elapsedTime={elapsedTime} modelLoadingProgress={modelLoadingProgress as ModelLoadProgress | null} />
+                                <SessionSidebar {...speechRecognition} saveSession={saveAndBroadcastSession} actualMode={speechRecognition.mode} startTime={isListening ? startTimeRef.current : null} modelLoadingProgress={modelLoadingProgress as ModelLoadProgress | null} />
                             </div>
                         </DrawerContent>
                     </Drawer>
