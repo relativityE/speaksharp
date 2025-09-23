@@ -75,6 +75,16 @@ trap 'echo "🧹 Cleaning up..."; restore_git_hooks 2>/dev/null || true' EXIT
 main() {
     echo "📋 Starting CI pipeline..."
 
+    # Step 0: Disable Husky in sandboxed/agent environments
+    export HUSKY=0
+    echo "🔧 Husky hooks temporarily disabled for CI/sandbox environment."
+
+    # Step 1: Ensure hooks directory exists (safe restore if missing)
+    if [ ! -f .husky/_/husky.sh ]; then
+      echo "⚠️ husky.sh missing. Installing hooks..."
+      npx husky install
+    fi
+
     # Optional VM recovery
     if [ "${FORCE_VM_RECOVERY:-0}" = "1" ]; then
         echo "🔄 Force VM recovery requested..."

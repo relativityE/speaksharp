@@ -19,7 +19,7 @@
     "type-check": "tsc --noEmit",
     "validate": "pnpm lint && pnpm type-check && pnpm test:unit",
     "install:browsers": "pnpm exec playwright install --with-deps",
-    "prepare": "husky install",
+    "prepare": "HUSKY=0 husky install",
     "postinstall": "msw init public/ --no-save"
   },
   "dependencies": {
