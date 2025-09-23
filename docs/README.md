@@ -33,6 +33,7 @@ Here are the direct links to the core documents:
     ```bash
     pnpm install
     ```
+    This will also trigger the `postinstall` script, which initializes Mock Service Worker (`msw`) for API mocking in the test environment.
 
 3.  **Environment Variables:**
     This project uses Vite, which automatically loads environment variables based on the mode. For local development and testing, the file `.env.test` is already included in the repository root and is used by default. **No action is required** unless you need to add or modify API keys for your own cloud services.

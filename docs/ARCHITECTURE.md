@@ -14,51 +14,51 @@ This document provides an overview of the technical architecture of the SpeakSha
 This section contains a high-level block diagram of the SpeakSharp full-stack architecture.
 
 ```ascii
-+------------------------------------------------------------------------------------------------------------------+
-|                                        SpeakSharp System Architecture                                            |
-+------------------------------------------------------------------------------------------------------------------+
-|                                                                                                                  |
-|    +---------------------------------+       +---------------------------------+       +-----------------------+  |
-|    |      Frontend (Browser)         |       |      Backend (Supabase)         |       |   3rd Party Services  |  |
-|    |      (React SPA / Vite)         |       +---------------------------------+       +-----------------------+  |
-|    +---------------------------------+                   ^                                     ^         ^        |
-|              |      ^                                    |                                     |         |        |
-|              |      | HTTPS/WSS                          | Postgres/RPC                        |         |        |
-|              v      |                                    v                                     |         |        |
-|    +---------------------------------+       +---------------------------------+       +-----------------------+  |
-|    |    User Interface (React)       |       |      Supabase Auth              |       |      AssemblyAI       |  |
-|    |---------------------------------|       |---------------------------------|       | (Streaming STT API)   |  |
-|    | - `src/pages` (Routing)         |<----->| - User/Session Management       |<----->| (via WebSockets)      |  |
-|    | - `src/components` (UI)         |       | - RLS for Data Security         |       +-----------------------+  |
-|    | - `src/contexts` (State Mgmt)   |       +---------------------------------+                 ^              |
-|    |   - `AuthContext`               |                   ^                                       |              |
-|    |   - `SessionContext`            |                   |                                       |              |
-|    | - `src/hooks` (Logic)           |                   v                                       |              |
-|    |   - `useSessionManager`         |       +---------------------------------+       +-----------------------+  |
-|    |   - `useSpeechRecognition`      |       |    Supabase DB (Postgres)       |       |        Stripe         |  |
-|    | - `src/lib` (Utils)             |       |---------------------------------|       |       (Payments)      |  |
-|    |   - `pdfGenerator`              |<----->| - `users`, `sessions`           |<----->| (via webhooks)        |  |
-|    +---------------------------------+       | - `transcripts`, `usage`        |       +-----------------------+  |
-|              |         |                      +---------------------------------+                 ^              |
-|              |         |                                  ^                                       |              |
-|              |         |                      +---------------------------------+                 |              |
-|              |         +--------------------->|     PDF & Image Libs          |                 |              |
-|              |                                |---------------------------------|                 |              |
-|              v                                | - jspdf, jspdf-autotable        |                 |              |
-|    +---------------------------------+       | - jimp (replaces sharp)         |                 |              |
-|    | TranscriptionService            |       +---------------------------------+                 |              |
-|    |---------------------------------|                   ^                                       |              |
++----------------------------------------------------------------------------------------------------------------------+
+|                                          SpeakSharp System Architecture                                              |
++----------------------------------------------------------------------------------------------------------------------+
+|                                                                                                                    |
+|    +---------------------------------+       +---------------------------------+       +-------------------------+  |
+|    |      Frontend (Browser)         |       |      Backend (Supabase)         |       |   3rd Party Services    |  |
+|    |      (React SPA / Vite)         |       +---------------------------------+       +-------------------------+  |
+|    +---------------------------------+                   ^                                     ^         ^          |
+|              |      ^                                    |                                     |         |          |
+|              |      | HTTPS/WSS                          | Postgres/RPC                        |         |          |
+|              v      |                                    v                                     |         |          |
+|    +---------------------------------+       +---------------------------------+       +-------------------------+  |
+|    |    User Interface (React)       |       |      Supabase Auth              |       |      AssemblyAI         |  |
+|    |---------------------------------|       |---------------------------------|       | (Streaming STT API)     |  |
+|    | - `src/pages` (Routing)         |<----->| - User/Session Management       |<----->| (via WebSockets)        |  |
+|    | - `src/components` (UI)         |       | - RLS for Data Security         |       +-------------------------+  |
+|    | - `src/contexts` (State Mgmt)   |       +---------------------------------+                 ^                |
+|    |   - `AuthContext`               |                   ^                                       |                |
+|    |   - `SessionContext`            |                   |                                       |                |
+|    | - `src/hooks` (Logic)           |                   v                                       |                |
+|    |   - `useSessionManager`         |       +---------------------------------+       +-------------------------+  |
+|    |   - `useSpeechRecognition`      |       |    Supabase DB (Postgres)       |       |        Stripe           |  |
+|    | - `src/lib` (Utils)             |       |---------------------------------|       |       (Payments)        |  |
+|    |   - `pdfGenerator`              |<----->| - `users`, `sessions`           |<----->| (via webhooks)          |  |
+|    +---------------------------------+       | - `transcripts`, `usage`        |       +-------------------------+  |
+|              |         |                      +---------------------------------+                 ^                |
+|              |         |                                  ^                                       |                |
+|              |         |                      +---------------------------------+       +-------------------------+  |
+|              |         +--------------------->|     PDF & Image Libs          |       | Sentry (Errors)         |  |
+|              |                                |---------------------------------|       | PostHog (Analytics)     |  |
+|              v                                | - jspdf, jspdf-autotable        |       +-------------------------+  |
+|    +---------------------------------+       | - jimp (replaces sharp)         |                 ^                |
+|    | TranscriptionService            |       +---------------------------------+                 |                |
+|    |---------------------------------|                   ^                                       |                |
 |    | - `CloudAssemblyAI / LocalWhisper` (Pro)       |-------------------+                                       |
-|    | - `NativeBrowser` (Free/Fallback) |                 |                                       |              |
-|    +---------------------------------+       +---------------------------------+                 |              |
-|              |                                | Deno Edge Functions             |-----------------+              |
+|    | - `NativeBrowser` (Free/Fallback) |                 |                                       |                |
+|    +---------------------------------+       +---------------------------------+                 |                |
+|              |                                | Deno Edge Functions             |-----------------+                |
 |              v                                |---------------------------------|                                |
 |    +---------------------------------+       | - `assemblyai-token` (secure)   |                                |
 |    |      Microphone (Audio Input)   |       | - `stripe-checkout`             |                                |
 |    +---------------------------------+       | - `stripe-webhook`              |                                |
 |                                                +---------------------------------+                                |
-|                                                                                                                  |
-+------------------------------------------------------------------------------------------------------------------+
+|                                                                                                                    |
++----------------------------------------------------------------------------------------------------------------------+
 ```
 
 ## 2. Technology Stack
@@ -78,6 +78,8 @@ SpeakSharp is built on a modern, serverless technology stack designed for real-t
 *   **Third-Party Services:**
     *   **Cloud Transcription:** AssemblyAI (v3 Streaming API)
     *   **Payments:** Stripe
+    *   **Error Reporting:** Sentry
+    *   **Product Analytics:** PostHog
 *   **Testing:**
     *   **Unit/Integration:** Vitest
     *   **E2E:** Playwright
@@ -98,9 +100,9 @@ A multi-layered logging strategy is in place to capture artifacts from every sta
 
 | Log/Artifact | Location | Purpose |
 |---|---|---|
-| **Master Log** | `test-results/test-execution.log` | A complete, time-stamped log of all steps, warnings, and errors from the `run-tests.sh` script. The first place to look for an overview of a test run. |
+| **Master Log** | `logs/ci-run-all.log` | A complete, time-stamped log of all steps, warnings, and errors from the `ci-run-all.sh` orchestrator script. The first place to look for an overview of a test run. |
 | **JSON Metrics** | `test-results/metrics.json` | The final, aggregated JSON file containing detailed pass/fail counts, duration, and coverage data. This file is the source of truth for the SQM section in `PRD.md`. |
-| **Build Log** | `test-results/build.log` | Captures the full output of the `pnpm build` command, used for debugging bundling or minification errors. |
+| **Build Log** | `logs/run-build.log` | Captures the full output of the `pnpm build` command, used for debugging bundling or minification errors. |
 | **Playwright Report** | `playwright-report/` | An interactive HTML report generated by Playwright, containing detailed E2E test results, screenshots of failures, and execution traces. |
 | **Vite Server Log** | `vite.log` | Captures the `stdout` and `stderr` from the Vite dev server during the E2E test run. Essential for debugging application-level errors that occur during tests. |
 
@@ -125,7 +127,8 @@ The test configuration creates a controlled environment with the following flow:
 
 | File | Purpose |
 |---|---|
-| `vite.config.mjs` | Vite dev server configuration, including test-specific aliases. |
+| `vite.config.mjs` | Main Vite dev server and build configuration. |
+| `vitest.config.mjs` | Vitest configuration, including test-specific aliases for mocking. |
 | `.env.test` | Environment variables for the test environment. |
 | `tests/global-setup.ts` | Starts the Vite server and waits for it to be fully ready. |
 | `tests/global-teardown.ts` | Safely stops the Vite server and provides diagnostic logs. |
@@ -136,14 +139,14 @@ The test configuration creates a controlled environment with the following flow:
 
 ### Mocking Native Dependencies
 
-Some features, like the on-device transcription powered by `LocalWhisper`, rely on libraries with native dependencies (e.g., `sharp` for image processing). These native dependencies can be difficult to install and build in certain environments, especially in CI/CD pipelines or sandboxed test runners.
+Some features, like the on-device transcription powered by `LocalWhisper`, rely on libraries with native dependencies (e.g., `sharp` for image processing, `@xenova/transformers` for ML models). These native dependencies can be difficult to install and build in certain environments, especially in CI/CD pipelines or sandboxed test runners.
 
 To solve this, we use a mocking strategy for the test environment:
 
 1.  **Optional Dependency:** The native dependency (`sharp`) is listed as an `optionalDependency` in `package.json`. This prevents the package manager from failing the installation if the native build step fails.
-2.  **Vitest Alias:** In `vitest.config.mjs`, we create an alias that redirects all imports of `sharp` to a mock file.
-3.  **Jimp-based Mock:** The mock file (`src/test/mocks/sharp.ts`) uses the `jimp` library, a pure JavaScript image processing tool, to provide a functional equivalent of the `sharp` API for our tests.
-4.  **Dependency Inlining:** Because the `sharp` import happens within a dependency (`@xenova/transformers`), we must configure Vitest to process this dependency by adding it to `test.deps.inline`. This ensures the alias is applied correctly.
+2.  **Vitest Alias:** In `vitest.config.mjs`, we create aliases that redirect imports of `sharp` and `@xenova/transformers` to mock files.
+3.  **Jimp-based Mock:** The mock for `sharp` (`src/test/mocks/sharp.ts`) uses the `jimp` library, a pure JavaScript image processing tool, to provide a functional equivalent of the `sharp` API for our tests. The mock for `@xenova/transformers` provides a simplified, lightweight implementation for unit tests.
+4.  **Dependency Inlining:** Because the `@xenova/transformers` import happens within a dependency, we must configure Vitest to process this dependency by adding it to `test.deps.inline`. This ensures the alias is applied correctly.
 
 This approach allows us to use the high-performance native library in production while maintaining a stable and easy-to-manage test environment.
 
@@ -156,13 +159,13 @@ This approach allows us to use the high-performance native library in production
 
 ### Lessons Learned: Debugging E2E Test Timeouts
 
-During the development of the automated SQM reporting, we encountered a critical issue where the `./run-tests.sh` script would time out after ~7 minutes. This was a "silent failure" as the console output was lost, making it difficult to diagnose. The root cause was determined to be the CI environment's hard timeout limit, which was shorter than the time required for a full dependency install and test run.
+During the development of the automated SQM reporting, we encountered a critical issue where the original monolithic test script would time out after ~7 minutes. This was a "silent failure" as the console output was lost, making it difficult to diagnose. The root cause was determined to be the CI environment's hard timeout limit, which was shorter than the time required for a full dependency install and test run.
 
-Another key lesson was the importance of ensuring all necessary binaries are present. Early failures were caused by missing Playwright browser binaries, which was solved by adding an explicit installation step.
+Another key lesson was the importance of ensuring all necessary binaries are present. Early failures were caused by missing Playwright browser binaries.
 
 **Solutions Implemented:**
-- **Automated Browser Installation:** The `pnpm exec playwright install --with-deps` command was added to the `postinstall` script in `package.json`. This ensures that the necessary browsers are always installed after a `pnpm install`.
-- **Architectural Refactoring:** To address the timeout, the testing process was re-architected into a multi-script workflow to ensure each step could complete within the timeout window.
+- **Automated Browser Installation:** The `pnpm exec playwright install --with-deps` command is run as a dedicated step in `ci-run-all.sh` to ensure browsers are always installed. The `postinstall` script in `package.json` is used to initialize Mock Service Worker (`msw`), which is required for tests.
+- **Architectural Refactoring:** To address the timeout, the testing process was re-architected into a multi-script workflow orchestrated by `ci-run-all.sh`, ensuring each step could complete within the timeout window.
 
 ### CI/CD Test Execution Workflow
 
@@ -207,7 +210,8 @@ The following diagram illustrates the orchestrated, cradle-to-grave pipeline:
                     ┌─────────▼───────────┐
                     │ Run Test Scripts     │
                     │ - lint, type check, │
-                    │   unit, build, e2e  │
+                    │   unit, build,      │
+                    │   e2e-smoke         │
                     │ (individual, timed) │
                     └─────────┬───────────┘
                               │
@@ -236,45 +240,8 @@ The following diagram illustrates the orchestrated, cradle-to-grave pipeline:
 *   **Hook Safety:** Hooks are disabled early and restored only when explicitly needed for a trusted task.
 *   **Timeout Isolation:** Dependencies, browser installation, and individual test suites are all independently timed.
 *   **Granularity:** Each test script runs individually with dedicated logs, making it easy to pinpoint the source of a failure.
+*   **E2E Smoke Test:** The `run-e2e-smoke.sh` script runs a small subset of E2E tests (`basic.e2e.spec.ts`) to provide a fast signal on the stability of the environment without running the full, time-consuming E2E suite.
 *   **Optional VM Recovery:** Deep environment cleaning is available via `FORCE_VM_RECOVERY=1` but is not run by default.
-
-### Agent Execution Environment
-
-A significant portion of this project's CI/CD pipeline and initial development is managed by an AI software engineering agent. Understanding the agent's execution environment is critical for interpreting its actions and debugging issues related to its operation.
-
-The environment has the following key characteristics:
-
-*   **7-Minute Execution Limit:** Every task or command initiated by the agent is subject to a hard 7-minute execution timeout. This is a platform-level constraint that cannot be configured. Long-running processes, such as full dependency installations or comprehensive test suites, are likely to fail if they are not broken down into smaller, granular steps. This was the root cause of the initial CI instability.
-
-*   **Tool-Triggered Git Commits:** Every action the agent takes using one of its tools (e.g., `read_file`, `run_in_bash_session`, `replace_with_git_merge_diff`) is automatically wrapped in a `git commit`. This has a significant side effect: it triggers `pre-commit` hooks. If the git hooks are broken or misconfigured (e.g., pointing to a non-existent `node_modules` directory), *every single tool call will fail*. This can create a deadlock where the agent cannot run `pnpm install` to fix the hooks because the command to do so fails. The `ci-run-all.sh` script was specifically designed with hook-disabling mechanisms to overcome this challenge.
-
-*   **Available Tools:** The agent operates with a limited set of tools, including but not limited to:
-    *   `ls`: List files.
-    *   `read_file`: Read file content.
-    *   `run_in_bash_session`: Execute shell commands.
-    *   `create_file_with_block`, `overwrite_file_with_block`, `replace_with_git_merge_diff`: File manipulation tools.
-    *   `set_plan`, `plan_step_complete`: Plan management.
-    *   `message_user`, `request_user_input`: User interaction.
-    *   `request_code_review`, `submit`: Code submission.
-
-### Agent Execution Environment
-
-A significant portion of this project's CI/CD pipeline and initial development is managed by an AI software engineering agent. Understanding the agent's execution environment is critical for interpreting its actions and debugging issues related to its operation.
-
-The environment has the following key characteristics:
-
-*   **7-Minute Execution Limit:** Every task or command initiated by the agent is subject to a hard 7-minute execution timeout. This is a platform-level constraint that cannot be configured. Long-running processes, such as full dependency installations or comprehensive test suites, are likely to fail if they are not broken down into smaller, granular steps. This was the root cause of the initial CI instability.
-
-*   **Tool-Triggered Git Commits:** Every action the agent takes using one of its tools (e.g., `read_file`, `run_in_bash_session`, `replace_with_git_merge_diff`) is automatically wrapped in a `git commit`. This has a significant side effect: it triggers `pre-commit` hooks. If the git hooks are broken or misconfigured (e.g., pointing to a non-existent `node_modules` directory), *every single tool call will fail*. This can create a deadlock where the agent cannot run `pnpm install` to fix the hooks because the command to do so fails. The `ci-run-all.sh` script was specifically designed with hook-disabling mechanisms to overcome this challenge.
-
-*   **Available Tools:** The agent operates with a limited set of tools, including but not limited to:
-    *   `ls`: List files.
-    *   `read_file`: Read file content.
-    *   `run_in_bash_session`: Execute shell commands.
-    *   `create_file_with_block`, `overwrite_file_with_block`, `replace_with_git_merge_diff`: File manipulation tools.
-    *   `set_plan`, `plan_step_complete`: Plan management.
-    *   `message_user`, `request_user_input`: User interaction.
-    *   `request_code_review`, `submit`: Code submission.
 
 ### Agent Execution Environment
 

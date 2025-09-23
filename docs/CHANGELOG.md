@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic session recording functionality.
 
 ### Changed
+- **Documentation:** Performed a comprehensive audit of all mandated documentation (`ARCHITECTURE.md`, `PRD.md`, `ROADMAP.md`, etc.) to ensure it is accurate and consistent with the current state of the codebase, based on manual code review.
 - **CI/CD Pipeline:** Refactored the entire test and documentation pipeline for robustness and timeout resilience. Replaced the monolithic `run-tests.sh` with a granular, orchestrated suite of scripts managed by `ci-run-all.sh`. This resolves critical timeout and stability issues in the test environment.
 - **Tier Consolidation:** Consolidated user tiers from four to two (Free, Pro), simplifying the business logic and database schema.
 - **TypeScript Migration:** Migrated several legacy JavaScript files to TypeScript (`fillerWordUtils`, `dateUtils`, `analyticsUtils`, etc.).

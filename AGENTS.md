@@ -37,7 +37,7 @@ All warnings and errors must be resolved.
 
 Run Full Test Suite
 
-Execute ./run-tests.sh.
+Execute ./ci-run-all.sh.
 
 All unit, integration, and E2E tests must pass.
 
@@ -85,7 +85,7 @@ Final User Confirmation
 
 Ask explicitly:
 
-All changes are complete. May I run the final validation script (./run-tests.sh) to generate the Software Quality Metrics report?
+All changes are complete. May I run the final validation script (./ci-run-all.sh) to generate the Software Quality Metrics report?
 
 
 Proceed only after approval.
