@@ -9,8 +9,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test:ui": "vitest --ui",
-    "test:unit": "vitest run --coverage --pool=threads --poolOptions.threads=4",
-    "test:unit:watch": "vitest --coverage --pool=threads --poolOptions.threads=4",
+    "test:unit": "vitest run --pool=threads --poolOptions.threads=4",
+    "test:unit:watch": "vitest --pool=threads --poolOptions.threads=4",
     "test:e2e": "playwright test",
     "test:audit": "playwright test",
     "test:audit:ci": "CI=true ./run-tests.sh",
@@ -76,7 +76,7 @@
     "eslint-plugin-react": "^7.33.2",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.5",
-    "happy-dom": "^12.10.3",
+    "happy-dom": "^18.0.1",
     "husky": "^8.0.3",
     "lint-staged": "^15.2.7",
     "lucide-react": "^0.543.0",
@@ -91,7 +91,7 @@
     "tsx": "^4.20.5",
     "typescript": "^5.2.2",
     "typescript-eslint": "^8.44.0",
-    "vite": "^5.4.20",
+    "vite": "^7.1.7",
     "vitest": "^2.1.9"
   },
   "msw": {
