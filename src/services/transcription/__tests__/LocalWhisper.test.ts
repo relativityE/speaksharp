@@ -75,7 +75,6 @@ describe('LocalWhisper Transcription Mode', () => {
 
   it('should throw an error if both hub and local models fail to load', async () => {
     mockPipeline.mockRejectedValue(new Error('Failed to load'));
-
     await expect(localWhisper.init()).rejects.toThrow('Failed to load');
   });
 
@@ -88,9 +87,7 @@ describe('LocalWhisper Transcription Mode', () => {
       chunks: []
     }) as any;
     mockPipeline.mockResolvedValue(mockPipelineInstance);
-
     await localWhisper.init();
-
     let frameHandlerCalled = false;
     const mockMicStream = {
       onFrame: vi.fn((handler) => {
@@ -119,7 +116,6 @@ describe('LocalWhisper Transcription Mode', () => {
       transcript: { final: 'transcript' },
       chunks: [],
     });
-
     // Restore real timers
     vi.useRealTimers();
   });

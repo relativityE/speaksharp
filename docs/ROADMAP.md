@@ -41,6 +41,12 @@ This phase is about confirming the core feature set works as expected and polish
 - 🔴 **Remove all temporary console.logs:** Clean up the codebase for production.
 
 ### 🚧 Should-Have (Tech Debt)
+- 🔴 **Implement STT Accuracy Comparison:**
+    - **Problem:** The application does not provide a way for users to compare the accuracy of the different transcription engines.
+    - **Task:** Implement a feature to track and display a rolling average of STT accuracy for each mode.
+- 🔴 **Implement Top 2 Filler Words Analysis:**
+    - **Problem:** The analytics dashboard does not highlight the most frequently used filler words.
+    - **Task:** Implement a feature to identify and display the top 2 filler words for the most recent 4 sessions.
 - 🟡 **Implement new SpeakSharp Design System:**
   - 🟡 3. Refactor UI Components & Test
   - 🔴 4. Final Verification & Test
