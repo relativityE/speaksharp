@@ -15,6 +15,7 @@ export default defineConfig({
     include: ['src/**/*.test.{js,jsx,ts,tsx}'],
     exclude: ['node_modules/', 'dist/', 'build/', 'tests/'],
     setupFiles: 'tests/unit/setup.ts',
+    globalSetup: './src/test/unit-global-setup.ts',
     testTimeout: 10000,
     hookTimeout: 10000,
     teardownTimeout: 5000,
