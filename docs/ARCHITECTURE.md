@@ -279,6 +279,15 @@ The frontend is a single-page application (SPA) built with React and Vite.
 *   **AI-Powered Suggestions:** The `AISuggestions` component provides users with feedback on their speech.
 *   **Image Processing:** The application uses `Jimp` for image processing tasks, such as resizing user-uploaded images. The `processImage.ts` utility provides a convenient wrapper for this functionality.
 
+### 3.1. Key Components
+
+- **`SessionSidebar.tsx`**: This component serves as the main control panel for a user's practice session. It contains the start/stop controls, a digital timer, and the transcription mode selector.
+  - **Mode Selector**: A segmented button group allows users to choose their desired transcription mode before starting a session. The options are:
+    - **Cloud AI**: Utilizes the high-accuracy AssemblyAI cloud service.
+    - **On-Device**: Uses a local Whisper model for privacy-focused transcription.
+    - **Native**: Falls back to the browser's built-in speech recognition engine.
+  - **Access Control**: Access to the "Cloud AI" and "On-Device" modes is restricted. These modes are enabled for users with a "pro" subscription status or for developers when the `VITE_DEV_USER` environment variable is set to `true`. Free users are restricted to the "Native" mode.
+
 ### Homepage Routing Logic
 The application's homepage (`/`) has special routing logic to handle different user states. This logic is located directly within the `HomePage.tsx` component.
 - **Production (`import.meta.env.DEV` is false):** Authenticated users who navigate to the homepage are automatically redirected to the main application interface (`/session`). This ensures they land on a functional page after logging in.
