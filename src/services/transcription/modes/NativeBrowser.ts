@@ -32,8 +32,6 @@ interface SpeechRecognitionStatic {
     new(): SpeechRecognition;
 }
 
-const SpeechRecognition = (window.SpeechRecognition || window.webkitSpeechRecognition) as SpeechRecognitionStatic;
-
 export default class NativeBrowser implements ITranscriptionMode {
   private onTranscriptUpdate: (update: { transcript: Transcript }) => void;
   private onReady: () => void;
@@ -46,12 +44,15 @@ export default class NativeBrowser implements ITranscriptionMode {
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onReady = onReady;
     this.recognition = null;
-    this.isSupported = !!SpeechRecognition;
+    this.isSupported = true; // Assume supported, check in init
     this.transcript = '';
     this.isListening = false;
   }
 
   public async init(): Promise<void> {
+    const SpeechRecognition = (window.SpeechRecognition || window.webkitSpeechRecognition) as SpeechRecognitionStatic;
+    this.isSupported = !!SpeechRecognition;
+
     if (window.__E2E_MODE__) {
       logger.info('[E2E STUB] Bypassing NativeBrowser init for E2E test.');
       this.recognition = {

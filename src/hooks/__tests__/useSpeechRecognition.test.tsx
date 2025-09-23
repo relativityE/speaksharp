@@ -2,7 +2,7 @@ import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useSpeechRecognition } from '../useSpeechRecognition';
 import { useAuth } from '../../contexts/useAuth';
-import TranscriptionService, { TranscriptionServiceOptions, TranscriptUpdate } from '../../services/transcription/TranscriptionService';
+import TranscriptionService, { TranscriptionServiceOptions } from '../../services/transcription/TranscriptionService';
 import { MemoryRouter } from 'react-router-dom';
 import React from 'react';
 import { User } from '@supabase/supabase-js';
