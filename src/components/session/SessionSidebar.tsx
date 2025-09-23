@@ -18,12 +18,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Checkbox } from '@/components/ui/checkbox';
-import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { ErrorDisplay } from '../ErrorDisplay';
 import type { PracticeSession } from '@/types/session';
-import type { CheckedState } from '@radix-ui/react-checkbox';
+import { Label } from '@/components/ui/label';
 
 // --- Prop and State Interfaces ---
 
@@ -97,15 +95,15 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
     const [isEndingSession, setIsEndingSession] = useState(false);
 
     const isDevUser = import.meta.env.VITE_DEV_USER === 'true';
+    const isPro = profile?.subscription_status === 'pro';
+    const canAccessAdvancedModes = isPro || isDevUser;
 
-    const [forceCloud, setForceCloud] = useState(false);
-    const [forceOnDevice, setForceOnDevice] = useState(false);
-    const [forceNative, setForceNative] = useState(false);
+    type Mode = 'cloud' | 'on-device' | 'native';
+    const [selectedMode, setSelectedMode] = useState<Mode>(canAccessAdvancedModes ? 'cloud' : 'native');
 
     const [showEndSessionDialog, setShowEndSessionDialog] = useState(false);
     const [completedSessions, setCompletedSessions] = useState<PracticeSession[]>([]);
 
-    const isPro = profile?.subscription_status === 'pro';
     const isModelLoading = modelLoadingProgress && modelLoadingProgress.status !== 'ready' && modelLoadingProgress.status !== 'error';
     const isConnecting = isListening && !isReady;
 
@@ -142,7 +140,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
     const handleNavigateToAnalytics = async () => {
         if (completedSessions.length === 0) return;
 
-        if (user && !isDevUser) {
+        if (user) {
             for (const session of completedSessions) {
                 await saveSession(session);
             }
@@ -159,7 +157,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
     const handleStayOnPage = async () => {
         if (completedSessions.length === 0) return;
 
-        if (user && !isDevUser) {
+        if (user) {
             for (const session of completedSessions) {
                 await saveSession(session);
             }
@@ -175,13 +173,13 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
             await endSessionAndSave();
         } else {
             reset();
-            await startListening({ forceCloud, forceOnDevice, forceNative });
-        }
-    };
-
-    const handleCheckboxChange = (setter: React.Dispatch<React.SetStateAction<boolean>>, value: CheckedState) => {
-        if (typeof value === 'boolean') {
-            setter(value);
+            // Defensively ensure free users can only use native mode
+            const finalMode = canAccessAdvancedModes ? selectedMode : 'native';
+            await startListening({
+                forceCloud: finalMode === 'cloud',
+                forceOnDevice: finalMode === 'on-device',
+                forceNative: finalMode === 'native',
+            });
         }
     };
 
@@ -202,13 +200,44 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
             <Card className="w-full flex flex-col flex-grow" data-testid="session-sidebar-card">
                 <CardHeader>
                      <div className="flex justify-between items-center">
-                        <CardTitle className="text-base">Session Mode</CardTitle>
+                        <CardTitle className="text-base">Session Controls</CardTitle>
                         <ModeIndicator />
                     </div>
                 </CardHeader>
                 <CardContent className="space-y-4 flex-grow flex flex-col">
                     <ModelLoadingIndicator progress={modelLoadingProgress} />
                     <ErrorDisplay error={error} />
+
+                    <div className="space-y-2 border-b pb-4">
+                        <Label className="text-sm font-medium">Transcription Mode</Label>
+                        <div className="flex w-full" role="group">
+                          <Button
+                            onClick={() => setSelectedMode('cloud')}
+                            variant={selectedMode === 'cloud' ? 'secondary' : 'outline'}
+                            className="flex-1 rounded-r-none"
+                            disabled={isListening || isModelLoading || isConnecting || !canAccessAdvancedModes}
+                          >
+                            Cloud AI
+                          </Button>
+                          <Button
+                            onClick={() => setSelectedMode('on-device')}
+                            variant={selectedMode === 'on-device' ? 'secondary' : 'outline'}
+                            className="flex-1 rounded-none border-x-0"
+                            disabled={isListening || isModelLoading || isConnecting || !canAccessAdvancedModes}
+                          >
+                            On-Device
+                          </Button>
+                          <Button
+                            onClick={() => setSelectedMode('native')}
+                            variant={selectedMode === 'native' ? 'secondary' : 'outline'}
+                            className="flex-1 rounded-l-none"
+                            disabled={isListening || isModelLoading || isConnecting}
+                          >
+                            Native
+                          </Button>
+                        </div>
+                    </div>
+
                     <div className="flex flex-col items-center justify-center gap-6 py-2 flex-grow">
                         <DigitalTimer elapsedTime={elapsedTime} />
                         <div className={`text-xl font-semibold ${isListening && isReady ? 'text-green-500' : 'text-muted-foreground'}`}>
@@ -219,20 +248,6 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                         </Button>
                     </div>
 
-                    {isDevUser && (
-                        <div className="mt-auto pt-4 border-t space-y-2">
-                            <div className="text-xs text-muted-foreground font-semibold">Dev Controls</div>
-                            <Label htmlFor="force-on-device" className="flex items-center gap-2 text-xs text-muted-foreground" onClick={() => { if (isListening) toast.info("Cannot be changed during an active session."); }}>
-                                <Checkbox id="force-on-device" checked={forceOnDevice} onCheckedChange={(checked) => { handleCheckboxChange(setForceOnDevice, checked); if (checked) { setForceCloud(false); setForceNative(false); } }} disabled={isListening}/>
-                                Force On-device (WIP)
-                            </Label>
-                            <Label htmlFor="force-native" className="flex items-center gap-2 text-xs text-muted-foreground" onClick={() => { if (isListening) toast.info("Cannot be changed during an active session."); }}>
-                                <Checkbox id="force-native" checked={forceNative} onCheckedChange={(checked) => { handleCheckboxChange(setForceNative, checked); if (checked) { setForceCloud(false); setForceOnDevice(false); } }} disabled={isListening}/>
-                                Force Native Browser
-                            </Label>
-                            <div className="text-xs text-muted-foreground pt-2">User: <span className="font-bold text-foreground">{profile?.subscription_status || (user ? 'free' : 'anonymous')}</span></div>
-                        </div>
-                    )}
                     {!isPro && (
                         <div className="mt-auto pt-4 border-t">
                             <div className="flex items-center gap-2 text-primary mb-2"><Zap className="w-4 h-4" /><h4 className="font-semibold text-sm">Upgrade to Pro</h4></div>
