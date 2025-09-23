@@ -49,7 +49,6 @@ interface ITranscriptionService {
   getMode: () => 'native' | 'cloud' | 'on-device' | null;
 }
 
-
 export const useSpeechRecognition = ({
     customWords = [],
     session,
@@ -137,27 +136,31 @@ export const useSpeechRecognition = ({
         }
     }, []);
 
-    const debouncedCountFillerWords = useCallback((text: string, callback: (result: FillerCounts) => void) => {
+    // FIXED: Remove customWords from dependencies to prevent infinite loop
+    const debouncedCountFillerWords = useCallback((text: string, customWordsArray: string[], callback: (result: FillerCounts) => void) => {
         if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
         debounceTimerRef.current = setTimeout(() => {
             if (isMountedRef.current) {
                 try {
-                    const result = countFillerWords(text, customWords);
+                    const result = countFillerWords(text, customWordsArray);
                     callback(result);
                 } catch (err) {
                     logger.error({ err }, 'Error counting filler words');
                 }
             }
         }, 50);
-    }, [customWords]);
+    }, []); // No dependencies - this prevents infinite loop
 
+    // FIXED: Remove debouncedCountFillerWords from dependencies to prevent infinite loop
     useEffect(() => {
         const fullTranscript = finalChunks.map(c => c.text).join(' ') + ' ' + interimTranscript;
         const finalTranscriptOnly = finalChunks.map(c => c.text).join(' ');
-        debouncedCountFillerWords(fullTranscript, setFillerData);
+        
+        // Pass customWords as parameter instead of relying on closure
+        debouncedCountFillerWords(fullTranscript, customWords, setFillerData);
         setFinalFillerData(countFillerWords(finalTranscriptOnly, customWords));
         setTranscript(finalTranscriptOnly);
-    }, [finalChunks, interimTranscript, debouncedCountFillerWords, customWords]);
+    }, [finalChunks, interimTranscript, customWords]); // Removed debouncedCountFillerWords
 
     const getAssemblyAIToken = useCallback(async (): Promise<string | null> => {
         try {
