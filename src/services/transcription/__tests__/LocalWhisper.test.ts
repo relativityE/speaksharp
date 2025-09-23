@@ -89,8 +89,12 @@ describe('LocalWhisper Transcription Mode', () => {
     }) as any;
     mockPipeline.mockResolvedValue(mockPipelineInstance);
 
+    const mockPipelineInstance = vi.fn().mockResolvedValue({
+      text: 'transcript',
+      chunks: []
+    }) as any;
+    mockPipeline.mockResolvedValue(mockPipelineInstance);
     await localWhisper.init();
-
     let frameHandlerCalled = false;
     const mockMicStream = {
       onFrame: vi.fn((handler) => {
@@ -119,7 +123,6 @@ describe('LocalWhisper Transcription Mode', () => {
       transcript: { final: 'transcript' },
       chunks: [],
     });
-
     // Restore real timers
     vi.useRealTimers();
   });

@@ -18,7 +18,7 @@ class MockWebSocket {
   onmessage: ((event: MessageEvent) => void) | null = null;
   onerror: ((event: Event) => void) | null = null;
   onclose: ((event: CloseEvent) => void) | null = null;
-
+  
   // Each instance gets its own spy
   send = vi.fn();
   close = vi.fn();
@@ -55,12 +55,13 @@ describe('CloudAssemblyAI Transcription Mode', () => {
   let cloudAI: CloudAssemblyAI;
   let mockMicStream: any;
   const onReady = vi.fn();
+  let mockClose: vi.SpyInstance;
 
   beforeEach(() => {
+    mockClose = vi.spyOn(MockWebSocket.prototype, 'close');
     vi.clearAllMocks();
     MockWebSocket.instances = [];
     mockSocketInstance = null;
-
     mockGetAssemblyAIToken.mockResolvedValue('fake-token');
 
     mockMicStream = {
@@ -102,14 +103,12 @@ describe('CloudAssemblyAI Transcription Mode', () => {
 
     // Manually trigger the open event
     mockSocketInstance?._open();
-
     expect(onReady).toHaveBeenCalled();
     expect(mockMicStream.onFrame).toHaveBeenCalled();
   });
 
   it('should close the WebSocket on stopTranscription', async () => {
     await cloudAI.startTranscription(mockMicStream);
-
     expect(mockSocketInstance).not.toBeNull();
 
     // Ensure the socket is open before trying to close it
