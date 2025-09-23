@@ -75,12 +75,19 @@ describe('LocalWhisper Transcription Mode', () => {
 
   it('should throw an error if both hub and local models fail to load', async () => {
     mockPipeline.mockRejectedValue(new Error('Failed to load'));
+
     await expect(localWhisper.init()).rejects.toThrow('Failed to load');
   });
 
   it('should call the pipeline with audio data on startTranscription', async () => {
     // Use fake timers to control the timeout in getAudioData
     vi.useFakeTimers();
+
+    const mockPipelineInstance = vi.fn().mockResolvedValue({
+      text: 'transcript',
+      chunks: []
+    }) as any;
+    mockPipeline.mockResolvedValue(mockPipelineInstance);
 
     const mockPipelineInstance = vi.fn().mockResolvedValue({
       text: 'transcript',

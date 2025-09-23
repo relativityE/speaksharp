@@ -18,7 +18,7 @@ export default defineConfig({
     testTimeout: 30000, // Increased for cleanup
     hookTimeout: 10000,
     teardownTimeout: 10000, // Increased for cleanup
-    reporters: ['verbose'],
+    reporters: ['verbose', 'json', 'html'],
 
     // CRITICAL: Force sequential execution to prevent memory accumulation
     pool: 'forks',
