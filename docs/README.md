@@ -2,6 +2,14 @@
 
 SpeakSharp is a privacy-first, real-time speech analysis tool designed to help users improve their public speaking skills. It provides instant, on-device feedback and is built as a modern, serverless SaaS web application using React (Vite) and Supabase.
 
+## ✨ Key Features
+
+*   **Real-time Speech Analysis:** Get instant feedback on your speech patterns.
+*   **Multiple Transcription Modes:** Choose between the high-accuracy cloud-based engine, a privacy-preserving on-device mode (Pro users), or the standard native browser engine (available to all users).
+*   **Filler Word Detection:** Identify and track common filler words like "um", "like", and "so".
+*   **Session Analytics:** Review your performance over time with detailed analytics and reports.
+*   **PDF Export:** Export your session results to a PDF for offline review and sharing.
+
 ## 📚 Documentation
 
 All project documentation is located in the `/docs` directory. For a complete overview and map of the documentation, please see **[./OUTLINE.md](./OUTLINE.md)**.
@@ -33,6 +41,7 @@ Here are the direct links to the core documents:
     ```bash
     pnpm install
     ```
+    This will also trigger the `postinstall` script, which initializes Mock Service Worker (`msw`) for API mocking in the test environment.
 
 3.  **Environment Variables:**
     This project uses Vite, which automatically loads environment variables based on the mode. For local development and testing, the file `.env.test` is already included in the repository root and is used by default. **No action is required** unless you need to add or modify API keys for your own cloud services.
