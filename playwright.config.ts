@@ -29,7 +29,7 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure'
   },
-  globalSetup: './tests/global-setup.ts',
+  globalSetup: './tests/e2e-global-setup.ts',
   globalTeardown: './tests/global-teardown.ts',
   projects: [
     {

@@ -1,33 +1,41 @@
 import CloudAssemblyAI from '../modes/CloudAssemblyAI';
-import { vi } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 
-// Create spies outside the class to ensure they are stable references
-const mockSend = vi.fn();
-const mockClose = vi.fn();
-let onOpenCallback: () => void;
+// Hold a reference to the latest mock instance
+let mockSocketInstance: MockWebSocket | null = null;
 
-// A more robust mock for WebSocket
 class MockWebSocket {
-  public send = mockSend;
-  public close = mockClose;
-  public onopen: (() => void) | null = null;
-  public onmessage: ((event: MessageEvent) => void) | null = null;
-  public onerror: ((event: Event) => void) | null = null;
-  public onclose: ((event: CloseEvent) => void) | null = null;
-  public readyState: number = 0; // CONNECTING
+  static instances: MockWebSocket[] = [];
 
-  constructor(public url: string) {
-    // Assign the onopen handler so we can call it from the test
-    onOpenCallback = () => {
-      this.readyState = 1; // OPEN
-      if (this.onopen) {
-        this.onopen();
-      }
-    };
+  url: string;
+  readyState: number = 0; // CONNECTING
+  onopen: (() => void) | null = null;
+  onmessage: ((event: MessageEvent) => void) | null = null;
+  onerror: ((event: Event) => void) | null = null;
+  onclose: ((event: CloseEvent) => void) | null = null;
+
+  // Spies for methods
+  send = vi.fn();
+  // The close method will be spied on via the prototype
+  close() {}
+
+  constructor(url: string) {
+    this.url = url;
+    mockSocketInstance = this;
+    MockWebSocket.instances.push(this);
+  }
+
+  // Helper to simulate server opening the connection
+  _open() {
+    this.readyState = 1; // OPEN
+    if (this.onopen) {
+      this.onopen();
+    }
   }
 }
 
-vi.stubGlobal('WebSocket', vi.fn((url) => new MockWebSocket(url)));
+// Mock the global WebSocket
+vi.stubGlobal('WebSocket', MockWebSocket);
 
 const mockGetAssemblyAIToken = vi.fn();
 
@@ -35,10 +43,15 @@ describe('CloudAssemblyAI Transcription Mode', () => {
   let cloudAI: CloudAssemblyAI;
   let mockMicStream: any;
   const onReady = vi.fn();
+  let mockClose: vi.SpyInstance;
 
   beforeEach(() => {
+    mockClose = vi.spyOn(MockWebSocket.prototype, 'close');
     vi.clearAllMocks();
+    MockWebSocket.instances = [];
+    mockSocketInstance = null;
     mockGetAssemblyAIToken.mockResolvedValue('fake-token');
+
     mockMicStream = {
       onFrame: vi.fn(),
       offFrame: vi.fn(),
@@ -55,11 +68,15 @@ describe('CloudAssemblyAI Transcription Mode', () => {
     });
   });
 
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('should create a WebSocket and fetch a token on startTranscription', async () => {
     await cloudAI.startTranscription(mockMicStream);
     expect(mockGetAssemblyAIToken).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(WebSocket).mock.instances.length).toBe(1);
-    expect(vi.mocked(WebSocket).mock.instances[0].url).toContain('wss://streaming.assemblyai.com');
+    expect(MockWebSocket.instances.length).toBe(1);
+    expect(mockSocketInstance?.url).toContain('wss://streaming.assemblyai.com');
   });
 
   it('should throw an error if token fetch fails', async () => {
@@ -69,16 +86,27 @@ describe('CloudAssemblyAI Transcription Mode', () => {
 
   it('should call onReady and attach frame handler when WebSocket opens', async () => {
     await cloudAI.startTranscription(mockMicStream);
-    // Manually trigger the onopen callback
-    onOpenCallback();
+    mockSocketInstance?._open(); // Manually trigger the open event
     expect(onReady).toHaveBeenCalled();
     expect(mockMicStream.onFrame).toHaveBeenCalled();
   });
 
   it('should close the WebSocket on stopTranscription', async () => {
     await cloudAI.startTranscription(mockMicStream);
-    onOpenCallback(); // Make sure the socket is considered open
+    expect(mockSocketInstance).not.toBeNull();
+
+    // Ensure the socket is open before trying to close it
+    mockSocketInstance?._open();
+
+    // Log the state right before the call
+    console.log('Socket state before stop:', {
+      readyState: mockSocketInstance?.readyState,
+      instance: mockSocketInstance ? 'exists' : 'null'
+    });
+
     await cloudAI.stopTranscription();
+
+    // Check that the close method on our specific instance was called
     expect(mockClose).toHaveBeenCalledWith(1000);
   });
 });

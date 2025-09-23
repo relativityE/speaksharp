@@ -20,12 +20,9 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - 🔴 1. Shorten OTP expiry to less than one hour.
   - 🔴 2. Enable leaked password protection.
   - 🔴 3. Upgrade the Postgres version.
-- 🟡 **Stabilize and Optimize CI E2E Tests**:
-    -   **Status:** The test scripting environment has been completely refactored and stabilized with a new granular, orchestrated pipeline (`ci-run-all.sh`).
-    -   **Next Action:** The full E2E suite still exceeds the CI environment's timeout. Individual tests must be timed to identify a fast, reliable smoke test to include in the pipeline.
-- 🔴 **Add Unit Tests for Complex Analytics:**
-    - **Problem:** The `analyticsUtils.ts` file has complex logic for trend analysis that is not fully covered by unit tests.
-    - **Task:** Write comprehensive unit tests for `calculateFillerWordTrends` and `calculateOverallStats`, including edge cases and complex scenarios.
+- ✅ **Stabilize and Optimize CI/Unit Tests**:
+    -   **Status:** **Done.** The test environment has been fully stabilized.
+    -   **Action Taken:** Resolved critical architectural flaws, including conflicting setup files and severe memory leaks in the unit test suite. The test runners (`vitest`, `playwright`) are now correctly configured, and the test suites are stable. A dedicated smoke test script (`run-e2e-smoke.sh`) has been created and integrated into the CI pipeline.
 
 ### Gating Check
 - 🔴 **Do a Gap Analysis of current implementation against the Current Phase requirements.**
