@@ -18,6 +18,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuRadioGroup,
+    DropdownMenuRadioItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Progress } from '@/components/ui/progress';
 import { ErrorDisplay } from '../ErrorDisplay';
 import type { PracticeSession } from '@/types/session';
@@ -32,7 +39,7 @@ interface ModelLoadProgress {
     total?: number;
 }
 
-interface SessionSidebarProps {
+export interface SessionSidebarProps {
     isListening: boolean;
     isReady: boolean;
     error: Error | null;
@@ -126,12 +133,11 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
             setCompletedSessions(prev => [...prev, sessionWithMetadata]);
             setShowEndSessionDialog(true);
         } catch (e: unknown) {
-            if (e instanceof Error) {
-                logger.error({ error: e.message }, "Error ending session:");
-            } else {
-                logger.error({ error: String(e) }, "Error ending session:");
-            }
-            toast.error("An unexpected error occurred while ending the session.");
+            const error = e instanceof Error ? e : new Error(String(e));
+            logger.error({ error: error.message }, "Error ending session:");
+            toast.error("Could not stop the session.", {
+                description: "An error occurred while trying to finalize your session. Please try again.",
+            });
         } finally {
             setIsEndingSession(false);
         }
@@ -210,32 +216,20 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
 
                     <div className="space-y-2 border-b pb-4">
                         <Label className="text-sm font-medium">Transcription Mode</Label>
-                        <div className="flex w-full" role="group">
-                          <Button
-                            onClick={() => setSelectedMode('cloud')}
-                            variant={selectedMode === 'cloud' ? 'secondary' : 'outline'}
-                            className="flex-1 rounded-r-none"
-                            disabled={isListening || isModelLoading || isConnecting || !canAccessAdvancedModes}
-                          >
-                            Cloud AI
-                          </Button>
-                          <Button
-                            onClick={() => setSelectedMode('on-device')}
-                            variant={selectedMode === 'on-device' ? 'secondary' : 'outline'}
-                            className="flex-1 rounded-none border-x-0"
-                            disabled={isListening || isModelLoading || isConnecting || !canAccessAdvancedModes}
-                          >
-                            On-Device
-                          </Button>
-                          <Button
-                            onClick={() => setSelectedMode('native')}
-                            variant={selectedMode === 'native' ? 'secondary' : 'outline'}
-                            className="flex-1 rounded-l-none"
-                            disabled={isListening || isModelLoading || isConnecting}
-                          >
-                            Native
-                          </Button>
-                        </div>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="outline" className="w-full" disabled={isListening || isModelLoading || isConnecting}>
+                                    {selectedMode === 'cloud' ? 'Cloud AI' : selectedMode === 'on-device' ? 'On-Device' : 'Native'}
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent className="w-56">
+                                <DropdownMenuRadioGroup value={selectedMode} onValueChange={(value) => setSelectedMode(value as Mode)}>
+                                    <DropdownMenuRadioItem value="cloud" disabled={!canAccessAdvancedModes}>Cloud AI</DropdownMenuRadioItem>
+                                    <DropdownMenuRadioItem value="on-device" disabled={!canAccessAdvancedModes}>On-Device</DropdownMenuRadioItem>
+                                    <DropdownMenuRadioItem value="native">Native</DropdownMenuRadioItem>
+                                </DropdownMenuRadioGroup>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
                     </div>
 
                     <div className="flex flex-col items-center justify-center gap-6 py-2 flex-grow">

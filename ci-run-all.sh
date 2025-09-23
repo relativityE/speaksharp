@@ -17,6 +17,14 @@ TIMEOUT_E2E=420               # 7 min for limited E2E
 
 # --- Functions ---
 
+ensure_husky_installed() {
+    if [ ! -f ".husky/husky.sh" ]; then
+        echo "Husky hooks not found, installing..."
+        npx husky install
+        echo "Husky hooks installed."
+    fi
+}
+
 disable_git_hooks() {
     echo "🔧 Disabling Git hooks..."
     export HUSKY=0
@@ -73,6 +81,9 @@ run_with_timeout() {
 trap 'echo "🧹 Cleaning up..."; restore_git_hooks 2>/dev/null || true' EXIT
 
 main() {
+    export HUSKY=0
+    ensure_husky_installed
+
     echo "📋 Starting CI pipeline..."
 
     # Optional VM recovery

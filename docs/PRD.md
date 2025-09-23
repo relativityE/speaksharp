@@ -74,14 +74,14 @@ This section provides a granular breakdown of user-facing features, grouped by p
 
 | Feature | Description | Status | Unit Test |
 | :--- | :--- | :--- | :--- |
-| **Transcription** | The core service that converts speech to text. | ✅ Implemented | 🟡 Partial |
-| **Cloud Server STT** | High-accuracy transcription via AssemblyAI. (Pro) | ✅ Implemented | 🔴 No |
-| **On-Device STT** | Privacy-first transcription using a local Whisper model. (Pro) | ✅ Implemented | 🔴 No |
-| **Fallback STT** | Standard transcription using the native browser API. (Free) | ✅ Implemented | 🔴 No |
+| **Transcription** | The core service that converts speech to text. | ✅ Implemented | ✅ Yes |
+| **Cloud Server STT** | High-accuracy transcription via AssemblyAI. (Pro) | ✅ Implemented | ✅ Yes |
+| **On-Device STT** | Privacy-first transcription using a local Whisper model. (Pro) | ✅ Implemented | ✅ Yes |
+| **Fallback STT** | Standard transcription using the native browser API. (Free) | ✅ Implemented | ✅ Yes |
 | **UI Mode Selector** | Allows users to select their preferred transcription engine. | ✅ Implemented | ✅ Yes |
-| **Session History** | Users can view and analyze their past practice sessions. | ✅ Implemented | 🔴 No |
+| **Session History** | Users can view and analyze their past practice sessions. | ✅ Implemented | ✅ Yes |
 | **Filler Word Detection** | Detects and counts common filler words (um, uh, like, etc.). | ✅ Implemented | ✅ Yes |
-| **Speaking Pace (WPM)** | Provides real-time words-per-minute analysis. | 🔴 Not Started | 🔴 No |
+| **Speaking Pace (WPM)** | Provides real-time words-per-minute analysis. | ✅ Implemented | ✅ Yes |
 | **Custom Vocabulary** | Allows users to add custom words to improve accuracy. | 🔴 Not Started | 🔴 No |
 | **Speaker Identification**| Distinguishes between multiple speakers in a transcript. | 🔴 Not Started | 🔴 No |
 
@@ -90,7 +90,7 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | Feature | Description | Status | Unit Test |
 | :--- | :--- | :--- | :--- |
 | **AI Suggestions** | Provides AI-driven feedback on transcripts. | ✅ Implemented | ✅ Yes |
-| **Filler Word Trend** | Analyzes the trend of filler word usage across sessions. | ✅ Implemented | 🔴 No |
+| **Filler Word Trend** | Analyzes the trend of filler word usage across sessions. | ✅ Implemented | ✅ Yes |
 | **Session Comparison** | Compares stats from the 4 most recent sessions. | ✅ Implemented | 🔴 No |
 | **PDF Export** | Allows users to download a PDF report of their session. | ✅ Implemented | 🔴 No |
 | **STT Accuracy Comparison** | Rolling average comparison of STT engine accuracy. | 🔴 Not Started | 🔴 No |

@@ -67,8 +67,6 @@ const mockAuthContextValue: AuthContextType = {
     signOut: vi.fn(() => Promise.resolve({ error: null }))
 };
 
-type SavedSessionReturn = { session: PracticeSession | null; usageExceeded: boolean };
-
 describe('useSessionManager', () => {
   beforeEach(() => {
     // Reset mocks before each test

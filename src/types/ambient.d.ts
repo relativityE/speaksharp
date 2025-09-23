@@ -19,5 +19,11 @@ declare global {
     } | null>;
     __TRANSCRIPTION_READY__?: boolean;
     __USER__?: UserProfile | null;
+    SpeechRecognition: {
+      new (): SpeechRecognition;
+    };
+    webkitSpeechRecognition: {
+      new (): SpeechRecognition;
+    };
   }
 }

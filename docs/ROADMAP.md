@@ -14,6 +14,9 @@ Status Key: 🟡 In Progress | 🔴 Not Started
 This phase focuses on fixing critical bugs, addressing code health, and ensuring the existing features are reliable and robust.
 
 ### 🚧 Should-Have (Tech Debt)
+- 🔴 **Add Unit Tests for Complex Analytics:**
+    - **Problem:** The `analyticsUtils.ts` file has complex logic for trend analysis that is not fully covered by unit tests.
+    - **Task:** Write comprehensive unit tests for `calculateFillerWordTrends` and `calculateOverallStats`, including edge cases and complex scenarios.
 - 🔴 **Refactor Integration Tests:** Slim down component tests (`SessionSidebar`, `AnalyticsPage`, etc.) to remove redundant coverage now handled by E2E tests.
 - 🔴 **Create Troubleshooting Guide:** Add error recovery steps to the documentation.
 - 🔴 **Harden Supabase Security:** Address security advisor warnings.
