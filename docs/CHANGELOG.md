@@ -34,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refined developer-only controls on the `SessionSidebar` to be more specific and only appear for designated dev users.
 
 ### Fixed
+- **Test Environment Architecture:** Resolved critical architectural flaws that caused the entire test suite to be unstable. This included:
+  - **Conflicting Setups:** Consolidated multiple, conflicting `global-setup.ts` files into a clear, purpose-driven structure (`unit-global-setup.ts`, `e2e-global-setup.ts`).
+  - **Memory Leaks:** Fixed severe "heap out of memory" crashes in the unit test suite by reconfiguring Vitest to use isolated forked processes and by fixing memory leaks in `LocalWhisper.test.ts` and `SessionSidebar.test.tsx` with proper async/component cleanup.
 - **Build & CI/CD:**
   - Resolved a blocking `jimp` type error by upgrading the dependency and refactoring its usage. This unblocks the `pnpm type-check` quality gate.
 - **Critical Application Bugs:**
