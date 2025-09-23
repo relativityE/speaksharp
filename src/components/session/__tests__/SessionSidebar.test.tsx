@@ -1,17 +1,35 @@
+//Fixed  SessionSidebar.test.tsx with memory cleanup v2
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SessionSidebar } from '../SessionSidebar';
 import type { SessionSidebarProps } from '../SessionSidebar';
+
+// Mock AuthContext instead of just the hook
+const mockAuthContextValue = {
+  user: null,
+  profile: null,
+  signIn: vi.fn(),
+  signOut: vi.fn(),
+  loading: false,
+};
+
+// Create a mock AuthProvider
+const MockAuthProvider: React.FC<{ children: React.ReactNode; value?: any }> = ({
+  children,
+  value = mockAuthContextValue
+}) => {
+  // Mock the AuthContext.Provider
+  return React.createElement('div', { 'data-testid': 'mock-auth-provider' }, children);
+};
 
 // Mock dependencies
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
 }));
 
-const useAuthMock = vi.hoisted(() => vi.fn());
 vi.mock('../../contexts/useAuth', () => ({
-  useAuth: useAuthMock,
+  useAuth: () => mockAuthContextValue,
 }));
 
 vi.mock('../../lib/logger', () => ({
@@ -50,29 +68,46 @@ describe('SessionSidebar', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
+    // Reset the mock auth context to default values
+    mockAuthContextValue.user = null;
+    mockAuthContextValue.profile = null;
   });
 
   afterEach(() => {
+    cleanup();
     vi.unstubAllEnvs();
+
+    // Force garbage collection if available
+    if (global.gc) {
+      global.gc();
+    }
   });
 
   describe('for a Free user', () => {
     beforeEach(() => {
-      useAuthMock.mockReturnValue({
-        user: { id: 'free-user' },
-        profile: { subscription_status: 'free' },
-      });
+      mockAuthContextValue.user = { id: 'free-user' };
+      mockAuthContextValue.profile = { subscription_status: 'free' };
     });
 
     it('renders with "Native" as the default mode and disables advanced modes', () => {
-      render(<SessionSidebar {...defaultProps} />);
+      render(
+        <MockAuthProvider>
+          <SessionSidebar {...defaultProps} />
+        </MockAuthProvider>
+      );
+
       expect(screen.getByRole('button', { name: 'Cloud AI' })).toBeDisabled();
       expect(screen.getByRole('button', { name: 'On-Device' })).toBeDisabled();
       expect(screen.getByRole('button', { name: 'Native' })).toBeEnabled();
     });
 
     it('calls startListening with native mode', () => {
-      render(<SessionSidebar {...defaultProps} />);
+      render(
+        <MockAuthProvider>
+          <SessionSidebar {...defaultProps} />
+        </MockAuthProvider>
+      );
+
       fireEvent.click(screen.getByText('Start Session'));
       expect(mockStartListening).toHaveBeenCalledWith({
         forceCloud: false,
@@ -84,73 +119,106 @@ describe('SessionSidebar', () => {
 
   describe('for a Pro user', () => {
     beforeEach(() => {
-      useAuthMock.mockReturnValue({
-        user: { id: 'pro-user' },
-        profile: { subscription_status: 'pro' },
-      });
+      mockAuthContextValue.user = { id: 'pro-user' };
+      mockAuthContextValue.profile = { subscription_status: 'pro' };
     });
 
     it('renders with all modes enabled and "Cloud AI" as default', () => {
-      render(<SessionSidebar {...defaultProps} />);
+      render(
+        <MockAuthProvider>
+          <SessionSidebar {...defaultProps} />
+        </MockAuthProvider>
+      );
+
       expect(screen.getByRole('button', { name: 'Cloud AI' })).toBeEnabled();
       expect(screen.getByRole('button', { name: 'On-Device' })).toBeEnabled();
       expect(screen.getByRole('button', { name: 'Native' })).toBeEnabled();
     });
 
     it('calls startListening with cloud mode by default', () => {
-        render(<SessionSidebar {...defaultProps} />);
-        fireEvent.click(screen.getByText('Start Session'));
-        expect(mockStartListening).toHaveBeenCalledWith({
-          forceCloud: true,
-          forceOnDevice: false,
-          forceNative: false,
-        });
+      render(
+        <MockAuthProvider>
+          <SessionSidebar {...defaultProps} />
+        </MockAuthProvider>
+      );
+
+      fireEvent.click(screen.getByText('Start Session'));
+      expect(mockStartListening).toHaveBeenCalledWith({
+        forceCloud: true,
+        forceOnDevice: false,
+        forceNative: false,
+      });
     });
 
     it('can switch to and start in on-device mode', () => {
-        render(<SessionSidebar {...defaultProps} />);
-        fireEvent.click(screen.getByRole('button', { name: 'On-Device' }));
-        fireEvent.click(screen.getByText('Start Session'));
-        expect(mockStartListening).toHaveBeenCalledWith({
-          forceCloud: false,
-          forceOnDevice: true,
-          forceNative: false,
-        });
+      render(
+        <MockAuthProvider>
+          <SessionSidebar {...defaultProps} />
+        </MockAuthProvider>
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'On-Device' }));
+      fireEvent.click(screen.getByText('Start Session'));
+      expect(mockStartListening).toHaveBeenCalledWith({
+        forceCloud: false,
+        forceOnDevice: true,
+        forceNative: false,
+      });
     });
   });
 
   describe('for a Dev user', () => {
     beforeEach(() => {
       // Dev user might be on a free tier, but the env var should override
-      useAuthMock.mockReturnValue({
-        user: { id: 'dev-user' },
-        profile: { subscription_status: 'free' },
-      });
+      mockAuthContextValue.user = { id: 'dev-user' };
+      mockAuthContextValue.profile = { subscription_status: 'free' };
       vi.stubEnv('VITE_DEV_USER', 'true');
     });
 
     it('renders with all modes enabled, even on a free subscription', () => {
-      render(<SessionSidebar {...defaultProps} />);
+      render(
+        <MockAuthProvider>
+          <SessionSidebar {...defaultProps} />
+        </MockAuthProvider>
+      );
+
       expect(screen.getByRole('button', { name: 'Cloud AI' })).toBeEnabled();
       expect(screen.getByRole('button', { name: 'On-Device' })).toBeEnabled();
       expect(screen.getByRole('button', { name: 'Native' })).toBeEnabled();
     });
 
     it('can switch to and start in any mode', () => {
-        render(<SessionSidebar {...defaultProps} />);
-        // Starts in cloud by default
-        fireEvent.click(screen.getByText('Start Session'));
-        expect(mockStartListening).toHaveBeenLastCalledWith({ forceCloud: true, forceOnDevice: false, forceNative: false });
+      render(
+        <MockAuthProvider>
+          <SessionSidebar {...defaultProps} />
+        </MockAuthProvider>
+      );
 
-        // Switch to on-device
-        fireEvent.click(screen.getByRole('button', { name: 'On-Device' }));
-        fireEvent.click(screen.getByText('Start Session'));
-        expect(mockStartListening).toHaveBeenLastCalledWith({ forceCloud: false, forceOnDevice: true, forceNative: false });
+      // Starts in cloud by default
+      fireEvent.click(screen.getByText('Start Session'));
+      expect(mockStartListening).toHaveBeenLastCalledWith({
+        forceCloud: true,
+        forceOnDevice: false,
+        forceNative: false
+      });
 
-        // Switch to native
-        fireEvent.click(screen.getByRole('button', { name: 'Native' }));
-        fireEvent.click(screen.getByText('Start Session'));
-        expect(mockStartListening).toHaveBeenLastCalledWith({ forceCloud: false, forceOnDevice: false, forceNative: true });
+      // Switch to on-device
+      fireEvent.click(screen.getByRole('button', { name: 'On-Device' }));
+      fireEvent.click(screen.getByText('Start Session'));
+      expect(mockStartListening).toHaveBeenLastCalledWith({
+        forceCloud: false,
+        forceOnDevice: true,
+        forceNative: false
+      });
+
+      // Switch to native
+      fireEvent.click(screen.getByRole('button', { name: 'Native' }));
+      fireEvent.click(screen.getByText('Start Session'));
+      expect(mockStartListening).toHaveBeenLastCalledWith({
+        forceCloud: false,
+        forceOnDevice: false,
+        forceNative: true
+      });
     });
   });
 });

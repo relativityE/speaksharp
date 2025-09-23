@@ -15,17 +15,30 @@ export default defineConfig({
     include: ['src/**/*.test.{js,jsx,ts,tsx}'],
     exclude: ['node_modules/', 'dist/', 'build/', 'tests/'],
     setupFiles: 'tests/unit/setup.ts',
-    testTimeout: 10000,
+    testTimeout: 30000, // Increased for cleanup
     hookTimeout: 10000,
-    teardownTimeout: 5000,
-    reporters: ['verbose'],  // Simplified - remove json reporter for now
-    threads: false,
-    maxThreads: 4,
-    minThreads: 1,
+    teardownTimeout: 10000, // Increased for cleanup
+    reporters: ['verbose', 'json', 'html'],
+
+    // CRITICAL: Force sequential execution to prevent memory accumulation
+    pool: 'forks',
+    poolOptions: {
+      forks: {
+        singleFork: true, // All tests in one fork
+        isolate: false,   // Don't isolate tests
+      }
+    },
+
+    // Memory management
+    maxConcurrency: 1,
+    fileParallelism: false,
+
     watch: false,
     env: {
       VITE_TEST_MODE: 'true',
-      NODE_ENV: 'test'
+      NODE_ENV: 'test',
+      // Force garbage collection
+      NODE_OPTIONS: '--max-old-space-size=2048 --expose-gc'
     },
     deps: {
       inline: ["@xenova/transformers"],

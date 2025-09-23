@@ -1,8 +1,9 @@
+//Fixed LocalWhisper.test.ts with memory management v2
 import LocalWhisper from '../modes/LocalWhisper';
-import { vi } from 'vitest';
+import { vi, beforeEach, afterEach } from 'vitest';
 import { pipeline } from '@xenova/transformers';
 
-// Mock the transformers pipeline
+// Mock the transformers pipeline - prevent any real model loading
 vi.mock('@xenova/transformers', () => ({
   pipeline: vi.fn(),
 }));
@@ -16,6 +17,8 @@ describe('LocalWhisper Transcription Mode', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.clearAllTimers();
+
     localWhisper = new LocalWhisper({
       onTranscriptUpdate,
       onModelLoadProgress,
@@ -24,6 +27,26 @@ describe('LocalWhisper Transcription Mode', () => {
       navigate: vi.fn(),
       getAssemblyAIToken: vi.fn(),
     });
+  });
+
+  afterEach(async () => {
+    // Critical cleanup to prevent memory leaks
+    vi.clearAllTimers();
+    vi.runOnlyPendingTimers();
+
+    // Ensure LocalWhisper is properly cleaned up
+    if (localWhisper) {
+      try {
+        await localWhisper.stopTranscription();
+      } catch (e) {
+        // Ignore cleanup errors
+      }
+    }
+
+    // Force garbage collection if available
+    if (global.gc) {
+      global.gc();
+    }
   });
 
   it('should initialize and load the model from the hub', async () => {
@@ -52,32 +75,52 @@ describe('LocalWhisper Transcription Mode', () => {
 
   it('should throw an error if both hub and local models fail to load', async () => {
     mockPipeline.mockRejectedValue(new Error('Failed to load'));
+
     await expect(localWhisper.init()).rejects.toThrow('Failed to load');
   });
 
   it('should call the pipeline with audio data on startTranscription', async () => {
-    const mockPipelineInstance = vi.fn().mockResolvedValue({ text: 'transcript', chunks: [] }) as any;
+    // Use fake timers to control the timeout in getAudioData
+    vi.useFakeTimers();
+
+    const mockPipelineInstance = vi.fn().mockResolvedValue({
+      text: 'transcript',
+      chunks: []
+    }) as any;
     mockPipeline.mockResolvedValue(mockPipelineInstance);
 
     await localWhisper.init();
 
+    let frameHandlerCalled = false;
     const mockMicStream = {
       onFrame: vi.fn((handler) => {
-        // Simulate a few frames of audio data
-        setTimeout(() => handler(new Float32Array(1024)), 10);
-        setTimeout(() => handler(new Float32Array(1024)), 20);
+        frameHandlerCalled = true;
+        // Immediately call handler with minimal data to simulate audio
+        handler(new Float32Array(16)); // Very small buffer
       }),
       offFrame: vi.fn(),
       stop: vi.fn(),
     };
-    // @ts-expect-error - We are passing a mock mic stream
-    await localWhisper.startTranscription(mockMicStream);
 
-    // Check that the pipeline was called with some audio data
+    // Start transcription (this will start the getAudioData process)
+    const transcriptionPromise = localWhisper.startTranscription(mockMicStream as any);
+
+    // Fast-forward through the 5-second timeout in getAudioData
+    vi.advanceTimersByTime(5000);
+
+    // Wait for transcription to complete
+    await transcriptionPromise;
+
+    expect(frameHandlerCalled).toBe(true);
+    expect(mockMicStream.onFrame).toHaveBeenCalled();
+    expect(mockMicStream.offFrame).toHaveBeenCalled();
     expect(mockPipelineInstance).toHaveBeenCalledWith(expect.any(Float32Array), expect.any(Object));
     expect(onTranscriptUpdate).toHaveBeenCalledWith({
       transcript: { final: 'transcript' },
       chunks: [],
     });
+
+    // Restore real timers
+    vi.useRealTimers();
   });
 });
