@@ -48,12 +48,12 @@ export interface SessionSidebarProps {
     reset: () => void;
     actualMode: string | null;
     saveSession: (session: Partial<PracticeSession>) => Promise<{ session: PracticeSession | null; usageExceeded: boolean }>;
-    elapsedTime: number;
+    startTime: number | null;
     modelLoadingProgress: ModelLoadProgress | null;
 }
 
 interface DigitalTimerProps {
-    elapsedTime: number;
+    startTime: number | null;
 }
 
 interface ModelLoadingIndicatorProps {
@@ -62,7 +62,24 @@ interface ModelLoadingIndicatorProps {
 
 // --- Sub-components ---
 
-const DigitalTimer: React.FC<DigitalTimerProps> = ({ elapsedTime }) => {
+const DigitalTimer: React.FC<DigitalTimerProps> = React.memo(({ startTime }) => {
+    const [elapsedTime, setElapsedTime] = useState(0);
+
+    useEffect(() => {
+        if (startTime === null) {
+            setElapsedTime(0);
+            return;
+        }
+
+        const interval = setInterval(() => {
+            const now = Date.now();
+            const elapsed = Math.floor((now - startTime) / 1000);
+            setElapsedTime(elapsed);
+        }, 1000);
+
+        return () => clearInterval(interval);
+    }, [startTime]);
+
     const minutes = Math.floor(elapsedTime / 60);
     const seconds = elapsedTime % 60;
     const formattedTime = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
@@ -96,7 +113,7 @@ const ModelLoadingIndicator: React.FC<ModelLoadingIndicatorProps> = ({ progress 
 
 // --- Main Component ---
 
-export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isReady, error, startListening, stopListening, reset, actualMode, saveSession, elapsedTime, modelLoadingProgress }) => {
+export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isReady, error, startListening, stopListening, reset, actualMode, saveSession, startTime, modelLoadingProgress }) => {
     const navigate = useNavigate();
     const { user, profile } = useAuth();
     const [isEndingSession, setIsEndingSession] = useState(false);
@@ -122,11 +139,12 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                 toast.error("No speech was detected. Session not saved.");
                 return;
             }
+            const finalDuration = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
             const sessionWithMetadata: PracticeSession = {
                 ...sessionData,
                 id: `session_${Date.now()}`,
                 user_id: user?.id || 'anonymous',
-                duration: elapsedTime,
+                duration: finalDuration,
                 created_at: new Date().toISOString(),
                 title: `Session from ${formatDateTime(new Date())}`,
             };
@@ -233,7 +251,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                     </div>
 
                     <div className="flex flex-col items-center justify-center gap-6 py-2 flex-grow">
-                        <DigitalTimer elapsedTime={elapsedTime} />
+                        <DigitalTimer startTime={startTime} />
                         <div className={`text-xl font-semibold ${isListening && isReady ? 'text-green-500' : 'text-muted-foreground'}`}>
                             {isConnecting ? 'Connecting...' : (isListening ? 'Session Active' : (isModelLoading ? 'Initializing...' : 'Ready'))}
                         </div>
