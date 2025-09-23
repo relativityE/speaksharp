@@ -119,11 +119,13 @@ This section provides a granular breakdown of user-facing features, grouped by p
 
 This section tracks high-level product risks and constraints. For a detailed history of resolved issues, see the [Changelog](./CHANGELOG.md). For a detailed technical debt and task breakdown, see the [Roadmap](./ROADMAP.md).
 
-*   **[ACTIVE] CI Environment Fragility:** The CI/CD environment, particularly when operated by an AI agent, is fragile and susceptible to deadlocks. The root cause is a combination of platform constraints and repository configuration. For a full breakdown, see the "Agent Execution Environment" section in the [Architecture documentation](./ARCHITECTURE.md). Key risks include:
-    *   **Git Hook Failures:** The agent's atomic, commit-based tool calls can trigger broken `pre-commit` hooks, causing all subsequent operations to fail. The `ci-run-all.sh` script contains mitigation for this, but the underlying risk remains.
-    *   **Strict Timeouts:** The environment imposes a hard 7-minute execution limit, which can cause long-running, monolithic scripts to fail. The CI pipeline has been refactored into smaller scripts to mitigate this, but it requires careful management of any new, long-running tasks.
+*   **[MITIGATED] CI Environment Instability:** The stability of the test environment has been significantly improved by fixing architectural flaws and memory leaks. The CI pipeline is now more resilient, but the underlying platform constraints (e.g., 7-minute timeouts) still require careful management of long-running tasks.
 
-*   **[ACTIVE] E2E Test Suite Timeout:** The full E2E test suite takes longer to run than the CI environment's ~7-minute timeout. This is a resource limitation of the sandbox, not a flaw in the tests themselves. The CI pipeline has been refactored to run a smaller "smoke test" suite to provide some E2E coverage without exceeding the timeout.
+*   **[MITIGATED] E2E Test Suite Timeout:** While the full E2E suite still exceeds the CI timeout, a `run-e2e-smoke.sh` script has been integrated into the CI pipeline. This runs a small subset of critical tests to provide a fast feedback loop on environment stability.
+
+*   **[ACTIVE] Failing Unit Test:** There is one remaining failing unit test in `src/services/transcription/__tests__/CloudAssemblyAI.test.ts`.
+    *   **Test Case:** `should close the WebSocket on stopTranscription`
+    *   **Status:** The test fails because the mock WebSocket's `close` method is not being called as expected. This is a complex mocking issue that requires further investigation but does not block overall test suite stability.
 
 ---
 
