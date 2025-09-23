@@ -36,7 +36,6 @@ This phase is about confirming the core feature set works as expected and polish
 - 🔴 **Implement Custom Vocabulary:** Allow Pro users to add custom words (jargon, names) to improve transcription accuracy.
 - 🔴 **Implement Speaker Identification:** Add the ability to distinguish between different speakers in the transcript.
 - 🔴 **Implement Vocal Variety / Pause Detection:** Add a new Pro-tier feature to analyze vocal variety or pause duration.
-- 🔴 **Add UI Selector for On-Device Mode:** Add a UI element to allow Pro users to select their preferred transcription mode.
 - 🔴 **User-Friendly Error Handling:** Implement specific, user-facing error messages for common issues.
 - 🔴 **Deploy & confirm live transcript UI works:** Ensure text appears within 2 seconds of speech in a live environment.
 - 🔴 **Remove all temporary console.logs:** Clean up the codebase for production.

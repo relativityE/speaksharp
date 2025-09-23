@@ -78,6 +78,7 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Cloud Server STT** | High-accuracy transcription via AssemblyAI. (Pro) | ✅ Implemented | 🔴 No |
 | **On-Device STT** | Privacy-first transcription using a local Whisper model. (Pro) | ✅ Implemented | 🔴 No |
 | **Fallback STT** | Standard transcription using the native browser API. (Free) | ✅ Implemented | 🔴 No |
+| **UI Mode Selector** | Allows users to select their preferred transcription engine. | ✅ Implemented | ✅ Yes |
 | **Session History** | Users can view and analyze their past practice sessions. | ✅ Implemented | 🔴 No |
 | **Filler Word Detection** | Detects and counts common filler words (um, uh, like, etc.). | ✅ Implemented | ✅ Yes |
 | **Speaking Pace (WPM)** | Provides real-time words-per-minute analysis. | 🔴 Not Started | 🔴 No |
@@ -133,9 +134,9 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 ## 5. Software Quality Metrics
 
-This document provides a snapshot of the current state of the test suite. It is automatically updated by the CI/CD pipeline.
-
 **Last Updated:** `(not yet run)`
+
+**Note:** This section is intended to be updated automatically by the CI pipeline. However, due to environmental constraints preventing the full test and metrics suite from running, the data below is not available. This is a known issue tracked in the project [Roadmap](./ROADMAP.md).
 
 ---
 
