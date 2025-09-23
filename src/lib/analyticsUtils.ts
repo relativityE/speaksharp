@@ -8,6 +8,7 @@ interface OverallStats {
   totalSessions: number;
   totalPracticeTime: string;
   avgAccuracy: string;
+  avgWpm: string;
   chartData: {
     date: string;
     'FW/min': string;
@@ -30,6 +31,7 @@ export const calculateOverallStats = (history: PracticeSession[]): OverallStats 
             totalSessions: 0,
             totalPracticeTime: "0.0",
             avgAccuracy: "0.0",
+            avgWpm: "0",
             chartData: [],
             topFillerWords: []
         };
@@ -41,22 +43,24 @@ export const calculateOverallStats = (history: PracticeSession[]): OverallStats 
         return Object.values(fillerData).reduce((sum, data) => sum + (data.count || 0), 0);
     };
 
-    const { totalDuration, totalFillerWords, totalAccuracy, sessionCountWithAccuracy } = history.reduce((acc, session) => {
+    const { totalDuration, totalFillerWords, totalAccuracy, sessionCountWithAccuracy, totalWords } = history.reduce((acc, session) => {
         const duration = Number(session.duration);
         if (!isNaN(duration) && duration > 0) {
             acc.totalDuration += duration;
             acc.totalFillerWords += getFillersCount(session);
+            acc.totalWords += session.total_words || 0;
             if (session.accuracy) {
                 acc.totalAccuracy += session.accuracy;
                 acc.sessionCountWithAccuracy++;
             }
         }
         return acc;
-    }, { totalDuration: 0, totalFillerWords: 0, totalAccuracy: 0, sessionCountWithAccuracy: 0 });
+    }, { totalDuration: 0, totalFillerWords: 0, totalAccuracy: 0, sessionCountWithAccuracy: 0, totalWords: 0 });
 
     const totalDurationMinutes = totalDuration / 60;
     const avgFillerWordsPerMin = totalDurationMinutes >= 0.5 ? (totalFillerWords / totalDurationMinutes) : 0;
     const avgAccuracy = sessionCountWithAccuracy > 0 ? (totalAccuracy / sessionCountWithAccuracy) * 100 : 0;
+    const avgWpm = totalDurationMinutes > 0 ? (totalWords / totalDurationMinutes) : 0;
 
     const chartData = history.map(s => {
         const duration = Number(s.duration);
@@ -86,6 +90,7 @@ export const calculateOverallStats = (history: PracticeSession[]): OverallStats 
         totalSessions,
         totalPracticeTime: totalDurationMinutes.toFixed(1),
         avgAccuracy: avgAccuracy.toFixed(1),
+        avgWpm: avgWpm.toFixed(0),
         chartData,
         topFillerWords
     };

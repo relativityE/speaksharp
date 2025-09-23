@@ -24,6 +24,7 @@ const mockSessions: PracticeSession[] = [
     created_at: '2023-10-04T10:00:00Z',
     duration: 300, // 5 minutes
     transcript: 'This is a test transcript okay so like yeah',
+    total_words: 100,
     filler_words: {
       'so': { count: 1 },
       'like': { count: 1 },
@@ -37,6 +38,7 @@ const mockSessions: PracticeSession[] = [
     created_at: '2023-10-03T10:00:00Z',
     duration: 120, // 2 minutes
     transcript: 'This is another test you know',
+    total_words: 50,
     filler_words: {
       'you know': { count: 5 },
       'so': { count: 3 },
@@ -50,6 +52,7 @@ const mockSessions: PracticeSession[] = [
     created_at: '2023-10-02T10:00:00Z',
     duration: 60, // 1 minute
     transcript: 'A short one um',
+    total_words: 30,
     filler_words: {
       'um': { count: 8 },
       'so': { count: 0 },
@@ -62,6 +65,7 @@ const mockSessions: PracticeSession[] = [
     created_at: '2023-10-01T10:00:00Z',
     duration: 20, // < 30 seconds, should not contribute to per-minute calculation if logic is strict
     transcript: 'Basically a very short one',
+    total_words: 10,
     filler_words: {
       'basically': { count: 1 },
     },
@@ -78,6 +82,7 @@ describe('analyticsUtils', () => {
       expect(stats.totalPracticeTime).toBe("0.0");
       expect(stats.avgFillerWordsPerMin).toBe("0.0");
       expect(stats.avgAccuracy).toBe("0.0");
+      expect(stats.avgWpm).toBe("0");
       expect(stats.chartData).toEqual([]);
       expect(stats.topFillerWords).toEqual([]);
     });
@@ -95,6 +100,7 @@ describe('analyticsUtils', () => {
       const totalDurationMinutes = totalDurationSeconds / 60; // 8.333...
 
       const totalFillerWords = 1 + 1 + 5 + 3 + 8 + 1; // 19
+      const totalWords = (mockSessions[0].total_words || 0) + (mockSessions[1].total_words || 0) + (mockSessions[2].total_words || 0) + (mockSessions[3].total_words || 0);
 
       // Avg Filler Words Per Min = 19 / 8.333... = 2.28
       const expectedFwPerMin = (totalFillerWords / totalDurationMinutes).toFixed(1);
@@ -102,10 +108,13 @@ describe('analyticsUtils', () => {
       // Avg Accuracy = (0.95 + 0.90 + 0.88) / 3 = 0.91 * 100 = 91.0
       const expectedAvgAccuracy = (((0.95 + 0.90 + 0.88) / 3) * 100).toFixed(1);
 
+      const expectedAvgWpm = (totalWords / totalDurationMinutes).toFixed(0);
+
       expect(stats.totalSessions).toBe(4);
       expect(stats.totalPracticeTime).toBe(totalDurationMinutes.toFixed(1)); // "8.3"
       expect(stats.avgFillerWordsPerMin).toBe(expectedFwPerMin); // "2.3"
       expect(stats.avgAccuracy).toBe(expectedAvgAccuracy); // "91.0"
+      expect(stats.avgWpm).toBe(expectedAvgWpm);
     });
 
     it('should generate correct chart data (reversed chronological)', () => {

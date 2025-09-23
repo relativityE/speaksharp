@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { TrendingUp, Clock, Layers, Sparkles, Download, Target } from 'lucide-react';
+import { TrendingUp, Clock, Layers, Sparkles, Download, Target, Gauge } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -74,6 +74,7 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, className
 const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro }) => {
     const totalFillers = Object.values(session.filler_words || {}).reduce((sum, data) => sum + (data.count || 0), 0);
     const durationMins = (session.duration / 60).toFixed(1);
+    const wpm = session.duration > 0 && session.total_words ? ((session.total_words / session.duration) * 60).toFixed(0) : 'N/A';
 
     return (
         <Card className="p-4 transition-all duration-200 hover:bg-secondary/50" data-testid="session-history-item">
@@ -86,11 +87,15 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro 
                 </div>
                 <div className="flex items-center gap-6 text-right">
                     <div>
+                        <p className="text-xs text-muted-foreground">Pace</p>
+                        <p className="font-bold text-base text-foreground">{wpm} WPM</p>
+                    </div>
+                    <div>
                         <p className="text-xs text-muted-foreground">Accuracy</p>
                         <p className="font-bold text-base text-foreground">{session.accuracy ? `${(session.accuracy * 100).toFixed(1)}%` : 'N/A'}</p>
                     </div>
                     <div>
-                        <p className="text-xs text-muted-foreground">Filler Words</p>
+                        <p className="text-xs text-muted-foreground">Fillers</p>
                         <p className="font-bold text-base text-foreground">{totalFillers}</p>
                     </div>
                     <div>
@@ -154,6 +159,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ sessionH
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 <StatCard icon={<Layers size={24} className="text-muted-foreground" />} label="Total Sessions" value={overallStats.totalSessions} />
+                <StatCard icon={<Gauge size={24} className="text-muted-foreground" />} label="Speaking Pace" value={overallStats.avgWpm} unit="WPM" testId="speaking-pace" />
                 <StatCard icon={<TrendingUp size={24} className="text-muted-foreground" />} label="Avg. Filler Words / Min" value={overallStats.avgFillerWordsPerMin} testId="avg-filler-words-min" />
                 <StatCard icon={<Clock size={24} className="text-muted-foreground" />} label="Total Practice Time" value={overallStats.totalPracticeTime} unit="mins" testId="total-practice-time" />
                 <StatCard icon={<Target size={24} className="text-muted-foreground" />} label="Avg. Accuracy" value={overallStats.avgAccuracy} unit="%" testId="avg-accuracy" />
