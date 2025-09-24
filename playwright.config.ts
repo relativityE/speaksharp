@@ -30,11 +30,11 @@ export default defineConfig({
   globalSetup: './tests/e2e-global-setup.ts',
   globalTeardown: './tests/global-teardown.ts',
   webServer: {
-    command: `pnpm dev:test --port ${PORT}`,
+    command: 'node scripts/start-server.js',
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,
-    timeout: 120 * 1000, // wait up to 2 minutes for server
-    stdout: 'pipe',      // capture server logs
+    timeout: 120 * 1000,
+    stdout: 'pipe',
     stderr: 'pipe',
   },
   projects: [
