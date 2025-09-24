@@ -111,7 +111,7 @@ describe('useSpeechRecognition', () => {
       if (mockServiceInstance.options.onTranscriptUpdate) {
         mockServiceInstance.options.onTranscriptUpdate({ 
           transcript: { final: 'world' } 
-        } as TranscriptUpdate);
+        });
       }
     });
     expect(result.current.interimTranscript).toBe('');
@@ -154,7 +154,7 @@ describe('useSpeechRecognition', () => {
   it('should handle errors during startListening', async () => {
     const error = new Error('Permission denied');
     mockServiceInstance.init.mockRejectedValue(error);
-    const { result, unmount } = renderHook(() => useSpeechRecognition(), { wrapper });
+    const { unmount, result } = renderHook(() => useSpeechRecognition(), { wrapper });
 
     await act(async () => {
       await result.current.startListening();
@@ -169,7 +169,7 @@ describe('useSpeechRecognition', () => {
   });
 
   it('should call destroy on unmount', async () => {
-    const { result, unmount } = renderHook(() => useSpeechRecognition(), { wrapper });
+    const { unmount } = renderHook(() => useSpeechRecognition(), { wrapper });
     
     // Wait a tick to ensure hook is fully initialized
     await act(async () => {

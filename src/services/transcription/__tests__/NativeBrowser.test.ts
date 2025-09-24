@@ -1,5 +1,6 @@
 import NativeBrowser from '../modes/NativeBrowser';
 import { vi } from 'vitest';
+import { MicStream } from '../utils/types';
 
 // Mock the SpeechRecognition API
 const mockRecognition = {
@@ -60,13 +61,13 @@ describe('NativeBrowser Transcription Mode', () => {
 
   it('should call start on the recognition object when startTranscription is called', async () => {
     await nativeBrowser.init();
-    await nativeBrowser.startTranscription({} as any);
+    await nativeBrowser.startTranscription();
     expect(mockRecognition.start).toHaveBeenCalledTimes(1);
   });
 
   it('should call stop on the recognition object when stopTranscription is called', async () => {
     await nativeBrowser.init();
-    await nativeBrowser.startTranscription({} as any);
+    await nativeBrowser.startTranscription();
     await nativeBrowser.stopTranscription();
     expect(mockRecognition.stop).toHaveBeenCalledTimes(1);
   });

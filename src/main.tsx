@@ -75,7 +75,22 @@ const renderApp = async () => {
         logger.warn({ error }, "Sentry failed to initialize:");
       }
 
-      const initialSession = window.__E2E_MOCK_SESSION__ || null;
+      const initialSession = window.__E2E_MOCK_SESSION__ ? {
+        access_token: 'mock-token',
+        token_type: 'bearer',
+        expires_in: 3600,
+        refresh_token: 'mock-refresh-token',
+        user: {
+          id: 'mock-user-id',
+          aud: 'authenticated',
+          role: 'authenticated',
+          email: 'test@example.com',
+          app_metadata: {},
+          user_metadata: {},
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }
+      } : null;
 
       root.render(
         <StrictMode>

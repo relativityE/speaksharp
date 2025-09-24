@@ -1,26 +1,32 @@
-//Fixed  SessionSidebar.test.tsx with memory cleanup v2
 import React from 'react';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SessionSidebar } from '../SessionSidebar';
 import type { SessionSidebarProps } from '../SessionSidebar';
+import { AuthContextType } from '../../../contexts/AuthContext';
+
+import { UserProfile } from '../../../types/user';
+import { User } from '@supabase/supabase-js';
 
 // Mock AuthContext instead of just the hook
-const mockAuthContextValue = {
+const mockAuthContextValue: AuthContextType = {
   user: null,
   profile: null,
-  signIn: vi.fn(),
   signOut: vi.fn(),
   loading: false,
+  session: null,
+  is_anonymous: false,
 };
 
+import { AuthContext } from '../../../contexts/AuthContext';
+
 // Create a mock AuthProvider
-const MockAuthProvider: React.FC<{ children: React.ReactNode; value?: any }> = ({
+const MockAuthProvider: React.FC<{ children: React.ReactNode; value: AuthContextType }> = ({
   children,
-  value = mockAuthContextValue
+  value,
 }) => {
-  // Mock the AuthContext.Provider
-  return React.createElement('div', { 'data-testid': 'mock-auth-provider' }, children);
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
 // Mock dependencies
@@ -60,7 +66,7 @@ const defaultProps: SessionSidebarProps = {
   reset: vi.fn(),
   actualMode: null,
   saveSession: vi.fn().mockResolvedValue({ session: {}, usageExceeded: false }),
-  elapsedTime: 0,
+  startTime: null,
   modelLoadingProgress: null,
 };
 
@@ -85,30 +91,33 @@ describe('SessionSidebar', () => {
 
   describe('for a Free user', () => {
     beforeEach(() => {
-      mockAuthContextValue.user = { id: 'free-user' };
-      mockAuthContextValue.profile = { subscription_status: 'free' };
+      mockAuthContextValue.user = { id: 'free-user', app_metadata: {}, user_metadata: {}, aud: '', created_at: '' };
+      mockAuthContextValue.profile = { id: 'free-user', subscription_status: 'free' };
     });
 
-    it('renders with "Native" as the default mode and disables advanced modes', () => {
+    it('renders with "Native" as the default mode and disables advanced modes', async () => {
+      const user = userEvent.setup();
       render(
-        <MockAuthProvider>
+        <MockAuthProvider value={mockAuthContextValue}>
           <SessionSidebar {...defaultProps} />
         </MockAuthProvider>
       );
 
-      expect(screen.getByRole('button', { name: 'Cloud AI' })).toBeDisabled();
-      expect(screen.getByRole('button', { name: 'On-Device' })).toBeDisabled();
-      expect(screen.getByRole('button', { name: 'Native' })).toBeEnabled();
+      await user.click(screen.getByRole('button', { name: 'Native' }));
+      expect(await screen.findByRole('menuitemradio', { name: 'Cloud AI' })).toHaveAttribute('aria-disabled', 'true');
+      expect(await screen.findByRole('menuitemradio', { name: 'On-Device' })).toHaveAttribute('aria-disabled', 'true');
+      expect(await screen.findByRole('menuitemradio', { name: 'Native' })).not.toHaveAttribute('aria-disabled', 'true');
     });
 
-    it('calls startListening with native mode', () => {
+    it('calls startListening with native mode', async () => {
+      const user = userEvent.setup();
       render(
-        <MockAuthProvider>
+        <MockAuthProvider value={mockAuthContextValue}>
           <SessionSidebar {...defaultProps} />
         </MockAuthProvider>
       );
 
-      fireEvent.click(screen.getByText('Start Session'));
+      await user.click(screen.getByText('Start Session'));
       expect(mockStartListening).toHaveBeenCalledWith({
         forceCloud: false,
         forceOnDevice: false,
@@ -119,30 +128,33 @@ describe('SessionSidebar', () => {
 
   describe('for a Pro user', () => {
     beforeEach(() => {
-      mockAuthContextValue.user = { id: 'pro-user' };
-      mockAuthContextValue.profile = { subscription_status: 'pro' };
+      mockAuthContextValue.user = { id: 'pro-user', app_metadata: {}, user_metadata: {}, aud: '', created_at: '' };
+      mockAuthContextValue.profile = { id: 'pro-user', subscription_status: 'pro' };
     });
 
-    it('renders with all modes enabled and "Cloud AI" as default', () => {
+    it('renders with all modes enabled and "Cloud AI" as default', async () => {
+      const user = userEvent.setup();
       render(
-        <MockAuthProvider>
+        <MockAuthProvider value={mockAuthContextValue}>
           <SessionSidebar {...defaultProps} />
         </MockAuthProvider>
       );
 
-      expect(screen.getByRole('button', { name: 'Cloud AI' })).toBeEnabled();
-      expect(screen.getByRole('button', { name: 'On-Device' })).toBeEnabled();
-      expect(screen.getByRole('button', { name: 'Native' })).toBeEnabled();
+      await user.click(screen.getByRole('button', { name: 'Cloud AI' }));
+      expect(await screen.findByRole('menuitemradio', { name: 'Cloud AI' })).toBeEnabled();
+      expect(await screen.findByRole('menuitemradio', { name: 'On-Device' })).toBeEnabled();
+      expect(await screen.findByRole('menuitemradio', { name: 'Native' })).toBeEnabled();
     });
 
-    it('calls startListening with cloud mode by default', () => {
+    it('calls startListening with cloud mode by default', async () => {
+      const user = userEvent.setup();
       render(
-        <MockAuthProvider>
+        <MockAuthProvider value={mockAuthContextValue}>
           <SessionSidebar {...defaultProps} />
         </MockAuthProvider>
       );
 
-      fireEvent.click(screen.getByText('Start Session'));
+      await user.click(screen.getByText('Start Session'));
       expect(mockStartListening).toHaveBeenCalledWith({
         forceCloud: true,
         forceOnDevice: false,
@@ -150,15 +162,17 @@ describe('SessionSidebar', () => {
       });
     });
 
-    it('can switch to and start in on-device mode', () => {
+    it('can switch to and start in on-device mode', async () => {
+      const user = userEvent.setup();
       render(
-        <MockAuthProvider>
+        <MockAuthProvider value={mockAuthContextValue}>
           <SessionSidebar {...defaultProps} />
         </MockAuthProvider>
       );
 
-      fireEvent.click(screen.getByRole('button', { name: 'On-Device' }));
-      fireEvent.click(screen.getByText('Start Session'));
+      await user.click(screen.getByRole('button', { name: 'Cloud AI' }));
+      await user.click(await screen.findByRole('menuitemradio', { name: 'On-Device' }));
+      await user.click(screen.getByText('Start Session'));
       expect(mockStartListening).toHaveBeenCalledWith({
         forceCloud: false,
         forceOnDevice: true,
@@ -170,32 +184,35 @@ describe('SessionSidebar', () => {
   describe('for a Dev user', () => {
     beforeEach(() => {
       // Dev user might be on a free tier, but the env var should override
-      mockAuthContextValue.user = { id: 'dev-user' };
-      mockAuthContextValue.profile = { subscription_status: 'free' };
+      mockAuthContextValue.user = { id: 'dev-user', app_metadata: {}, user_metadata: {}, aud: '', created_at: '' };
+      mockAuthContextValue.profile = { id: 'dev-user', subscription_status: 'free' };
       vi.stubEnv('VITE_DEV_USER', 'true');
     });
 
-    it('renders with all modes enabled, even on a free subscription', () => {
+    it('renders with all modes enabled, even on a free subscription', async () => {
+      const user = userEvent.setup();
       render(
-        <MockAuthProvider>
+        <MockAuthProvider value={mockAuthContextValue}>
           <SessionSidebar {...defaultProps} />
         </MockAuthProvider>
       );
 
-      expect(screen.getByRole('button', { name: 'Cloud AI' })).toBeEnabled();
-      expect(screen.getByRole('button', { name: 'On-Device' })).toBeEnabled();
-      expect(screen.getByRole('button', { name: 'Native' })).toBeEnabled();
+      await user.click(screen.getByRole('button', { name: 'Cloud AI' }));
+      expect(await screen.findByRole('menuitemradio', { name: 'Cloud AI' })).toBeEnabled();
+      expect(await screen.findByRole('menuitemradio', { name: 'On-Device' })).toBeEnabled();
+      expect(await screen.findByRole('menuitemradio', { name: 'Native' })).toBeEnabled();
     });
 
-    it('can switch to and start in any mode', () => {
+    it('can switch to and start in any mode', async () => {
+      const user = userEvent.setup();
       render(
-        <MockAuthProvider>
+        <MockAuthProvider value={mockAuthContextValue}>
           <SessionSidebar {...defaultProps} />
         </MockAuthProvider>
       );
 
       // Starts in cloud by default
-      fireEvent.click(screen.getByText('Start Session'));
+      await user.click(screen.getByText('Start Session'));
       expect(mockStartListening).toHaveBeenLastCalledWith({
         forceCloud: true,
         forceOnDevice: false,
@@ -203,8 +220,9 @@ describe('SessionSidebar', () => {
       });
 
       // Switch to on-device
-      fireEvent.click(screen.getByRole('button', { name: 'On-Device' }));
-      fireEvent.click(screen.getByText('Start Session'));
+      await user.click(screen.getByRole('button', { name: 'Cloud AI' }));
+      await user.click(await screen.findByRole('menuitemradio', { name: 'On-Device' }));
+      await user.click(screen.getByText('Start Session'));
       expect(mockStartListening).toHaveBeenLastCalledWith({
         forceCloud: false,
         forceOnDevice: true,
@@ -212,8 +230,9 @@ describe('SessionSidebar', () => {
       });
 
       // Switch to native
-      fireEvent.click(screen.getByRole('button', { name: 'Native' }));
-      fireEvent.click(screen.getByText('Start Session'));
+      await user.click(screen.getByRole('button', { name: 'On-Device' }));
+      await user.click(await screen.findByRole('menuitemradio', { name: 'Native' }));
+      await user.click(screen.getByText('Start Session'));
       expect(mockStartListening).toHaveBeenLastCalledWith({
         forceCloud: false,
         forceOnDevice: false,
