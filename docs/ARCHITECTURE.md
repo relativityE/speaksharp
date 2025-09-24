@@ -368,3 +368,23 @@ The project includes a basic CI/CD pipeline defined in `.github/workflows/deploy
 **E2E Test Suite Timeout:** The full E2E test suite (`pnpm playwright test`) takes longer to run than the maximum timeout (~7 minutes) allowed by the current CI sandbox environment. This is not a flaw in the tests themselves, but a limitation of the environment's resources.
 - **Current Workaround:** As part of the CI pipeline, we will identify one or two fast and reliable E2E tests to run as a "smoke test" to provide some level of E2E coverage without exceeding the timeout. The full suite should be run manually in a less constrained environment before major releases.
 - **Long-Term Solution:** Migrate to a CI provider or plan that allows for longer timeout configurations.
+
+### Hardened E2E Test Configuration
+
+To address persistent environment instability and non-deterministic test outcomes, the E2E testing configuration has been significantly hardened. The following principles and configurations are now in place to ensure a stable and debuggable testing process.
+
+**Core Problems Addressed:**
+1.  **Silent Server Failures:** The Vite test server would sometimes fail to start correctly (e.g., due to an unset `VITE_PORT` environment variable), but Playwright would still attempt to run tests, leading to long, uninformative timeouts as it waited for a server that would never become available.
+2.  **Lack of Diagnostics:** It was difficult to determine whether a test failure was caused by an issue in the test itself, a server-side error during the test run, or a problem with the Playwright test runner's connection to the server.
+
+**Solutions Implemented:**
+
+1.  **Robust `package.json` Scripts:**
+    *   The `dev:test` script has been updated to `vite --mode test --port ${VITE_PORT:-5173}`. The `${VITE_PORT:-5173}` syntax ensures that if the `VITE_PORT` environment variable is not set, it will default to `5173`, preventing the server from failing to start due to a missing port.
+    *   The `test:e2e` and `test:screenshots` scripts have been updated to include `DEBUG=pw:server` by default. This provides verbose logging from Playwright's server component, offering clear insight into the test lifecycle.
+
+2.  **Hardened `playwright.config.ts`:**
+    *   The `webServer` configuration now includes `stdout: 'pipe'` and `stderr: 'pipe'`. This captures all log output from the Vite server process and pipes it directly into the Playwright test runner's output. This makes it immediately obvious if the server encounters an error during startup or while tests are running.
+    *   The configuration explicitly loads environment variables from `.env.test` using `dotenv`, ensuring a consistent environment for both the test runner and the server process it spawns.
+
+These changes create a more resilient and transparent testing environment, making it easier to diagnose and resolve issues quickly.
