@@ -37,7 +37,7 @@ export async function createMicStreamImpl(
     throw new Error('Media devices not available in this environment');
   }
 
-  const audioCtx = new (window.AudioContext || (window as WindowWithwebkitAudioContext).webkitAudioContext)({ sampleRate: 48000 });
+  const audioCtx = new (window.AudioContext || (window as unknown as WindowWithwebkitAudioContext).webkitAudioContext)({ sampleRate: 48000 });
   const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
   // Load worklet URL dynamically, passing the audio context instance for the check.

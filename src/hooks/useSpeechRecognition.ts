@@ -160,7 +160,7 @@ export const useSpeechRecognition = ({
         debouncedCountFillerWords(fullTranscript, customWords, setFillerData);
         setFinalFillerData(countFillerWords(finalTranscriptOnly, customWords));
         setTranscript(finalTranscriptOnly);
-    }, [finalChunks, interimTranscript, customWords]); // Removed debouncedCountFillerWords
+    }, [finalChunks, interimTranscript, customWords, debouncedCountFillerWords]);
 
     const getAssemblyAIToken = useCallback(async (): Promise<string | null> => {
         try {

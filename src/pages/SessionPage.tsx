@@ -95,7 +95,6 @@ export const SessionPage: React.FC = () => {
     const [customWords, setCustomWords] = useState<string[]>([]);
     const [usageLimitExceeded, setUsageLimitExceeded] = useState(false);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-    const [isDrawerOpen, setIsDrawerOpen] = useState(false);
     const startTimeRef = useRef<number | null>(null);
 
     const speechRecognition = useSpeechRecognition({ customWords, session, profile });
