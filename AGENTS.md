@@ -1,171 +1,118 @@
-
-Agent Instructions for SpeakSharp Repository
-=============================================================================================================
-
-🚨 Troubleshooting Environment Issues
-If you encounter persistent timeouts, file system errors, or other strange behavior, your first step should be to run the recovery script:
-`./vm-recovery.sh`
+# Agent Instructions for SpeakSharp Repository
 
 ---
 
-⚡ Quick Reference – Non-Negotiable Rules
+## 🚨 Critical Environment Rules
 
-Always remember these first before any action:
+* ⏱️ **7-Minute Timeout Constraint**
+  Every script or command must complete within 7 minutes. If longer, split the work into multiple runs.
 
-✅ Status & Pre-Check-In – Run all tests, lint, and type checks. Complete the Pre-Check-In List before any commit or PR.
+* ❌ **Avoidance of CI Scripts**
+  You may see scripts like `./ci-run-all.sh`. These are **forbidden** in this environment due to timeout risk.
 
-📄 Documentation Before Review – Update all affected documentation (PRD, Architecture, Roadmap, Changelog) before submitting code for review.
+  * Instead, run targeted unit, integration, or E2E tests individually.
+  * Do not attempt to run the full CI pipeline locally.
 
-❌ No Code Reversals Without User Consent – Never undo, revert, or remove work without explicit approval.
+* ⚠️ **Recovery Script Warning**
+  `./vm-recovery.sh` may reset or alter the dev environment.
+  👉 **Always ask the user before running it.** Never execute without explicit approval.
 
-Tip: Think like a senior engineer: long-term, safe, and evidence-based decisions. Status updates every 5 minutes if task is running long.
+---
 
-=============================================================================================================
-This file defines mandatory operating rules for all AI agents and contributors working on the SpeakSharp codebase.
-Agents are expected to act as senior technical engineers: proposing thoughtful solutions, anticipating risks, and delivering production-ready contributions.
+## ⚡ Quick Reference – Non-Negotiable Rules
 
-🚦 Pre-Check-In List (MANDATORY)
+1. ✅ **Status & Pre-Check-In** – Run lint, type check, and unit/E2E tests before any commit or PR.
+2. 📄 **Documentation Before Review** – Update PRD, Architecture, Roadmap, and Changelog before review.
+3. ❌ **No Code Reversals Without Consent** – Never undo or revert user work without approval.
+4. ⏱️ **Status Updates** – Provide updates every 5 minutes if tasks run long.
 
-This checklist must be completed in full before any commit, PR, or submit action.
-Failure to follow these steps is a violation of repository policy.
+Think like a **senior engineer**: safe, evidence-based, and long-term decisions.
 
-Run Lint & Type Check
+---
 
-Execute pnpm lint:fix and pnpm type-check.
+## 🚦 Pre-Check-In List (MANDATORY)
 
-All warnings and errors must be resolved.
+You must complete all items **before any commit/PR**:
 
-Run Full Test Suite
+1. **Lint & Type Check**
 
-Execute ./ci-run-all.sh.
+   * Run `pnpm lint:fix` and `pnpm type-check`.
+   * All errors and warnings must be resolved.
 
-All unit, integration, and E2E tests must pass.
+2. **Run Tests**
 
-Add regression tests for any bug fix.
+   * Run `pnpm test:unit` and targeted E2E tests.
+   * Do **not** run `./ci-run-all.sh` in this environment.
 
-Documentation Review & Updates
+3. **Documentation**
 
-Update the following files if code changes affect them:
+   * Update: `README.md`, `docs/OUTLINE.md`, `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`.
+   * Ensure alignment with SSOT rules.
 
-README.md
+4. **Traceability**
 
-docs/OUTLINE.md
+   * Link every change to PRD/Architecture/Roadmap.
 
-docs/PRD.md
+5. **Security & Dependencies**
 
-docs/ARCHITECTURE.md
+   * Run `pnpm audit` after dependency changes.
+   * Document decisions in `ARCHITECTURE.md`.
 
-docs/ROADMAP.md
+6. **Branch & Commit Hygiene**
 
-docs/CHANGELOG.md (required for every user-facing or architectural change)
+   * Branch names: `feature/...`, `fix/...`, `chore/...`.
+   * Commit messages summarize actual changes.
 
-Ensure documentation matches the Single Source of Truth (SSOT) rules.
+7. **Final User Confirmation**
 
-Traceability
+   * Ask:
 
-Every change must map to PRD, Architecture, or Roadmap.
+     > "All checks complete. May I run the validation script (`./ci-run-all.sh`) or recovery script (`./vm-recovery.sh`)?"
+   * Proceed **only after explicit approval**.
 
-PRs must reference the requirement or milestone.
+---
 
-Security & Dependency Review
+## 🚨 Absolute Non-Negotiables
 
-No secrets in code.
+* ❌ **Never run `./ci-run-all.sh` or `./vm-recovery.sh` without asking first.**
+* ❌ **Never exceed the 7-minute runtime per command.**
+* ❌ **Never undo or destroy user work without consent.**
+* 📄 **Docs before code review — always.**
+* 🔐 **Security first — no leaks, no unsafe shortcuts.**
+* 🧩 **No unapproved dependencies.**
+* 💰 **No cost-incurring services without consent.**
+* 🧠 **Think like a senior engineer — long-term, safe, evidence-driven.**
 
-Audit (pnpm audit) after dependency changes.
+---
 
-Document dependency decisions in ARCHITECTURE.md.
+## 🔍 Task Workflow
 
-Branch & Commit Hygiene
+1. **Contextual Review** – Read docs in `/docs` before acting.
+2. **Codebase Deep Dive** – Inspect actual code, not assumptions.
+3. **Strategic Consultation** – Present root cause + 2–3 solution paths before major changes.
+4. **Implementation** – Follow coding standards + architecture principles.
+5. **Validation** – Complete Pre-Check-In List.
+6. **Submission** – Ask user before running any final validation or recovery scripts.
 
-Branch names follow feature/..., fix/..., chore/....
+---
 
-Commit messages summarize actual changes (not just issue numbers).
-
-Final User Confirmation
-
-Ask explicitly:
-
-All changes are complete. May I run the final validation script (./ci-run-all.sh) to generate the Software Quality Metrics report?
-
-
-Proceed only after approval.
-
-🚨 Non-Negotiable Rules (Absolute)
-
-These rules CANNOT be broken under any circumstances:
-
-❌ No Code Reversals Without Consent
-
-You may NEVER undo, revert, or destroy user work without explicit approval.
-
-📄 Documentation Before Review
-
-Documentation must be updated and verified before any code is submitted for review.
-
-⏱️ Status Updates Required
-
-If a task runs longer than 5 minutes, you must provide a structured status update (current time, task, percent complete, ETA, next steps).
-
-🔐 Security First
-
-Never weaken authentication, authorization, or data protection.
-
-Always validate for leaks, dangling tokens, or unsafe client logic.
-
-🧩 No Unapproved Dependencies
-
-Adding/removing dependencies requires explicit justification and user approval.
-
-💰 No Cost-Incurring Integrations
-
-Do not add cloud APIs, billing hooks, or SaaS services without user confirmation.
-
-🧠 Senior Engineer Mindset
-
-Think Long-Term: Prioritize maintainability over shortcuts.
-
-Anticipate Risks: Identify edge cases and failure modes early.
-
-Verify with Evidence: Support all claims with code references or tests.
-
-Be Disciplined: Keep tests, lint, and docs clean before submission.
-
-Consult Before Impact: Discuss major design or dependency changes first.
-
-🔍 Task Workflow
-
-Contextual Review: Read relevant docs (/docs) before acting.
-
-Codebase Deep Dive: Inspect actual code (not just assumptions).
-
-Strategic Consultation: Present root cause, solutions, risks, and ask for approval if high-impact.
-
-Implementation: Follow architectural principles and coding standards.
-
-Validation: Complete the Pre-Check-In List.
-
-Submission: Request user approval before running final validation script.
-
-📢 Escalation Protocol
+## 📢 Escalation Protocol
 
 If blocked:
 
-Summarize the problem.
+* Summarize the problem.
+* List what you tried.
+* Provide hypotheses.
+* Offer 2–3 solution paths with pros/cons.
+* **Pause and wait for user guidance.**
 
-List what you tried.
+---
 
-Provide hypotheses.
+✅ This version:
 
-Offer 2–3 solution paths with pros/cons.
+* Explicitly **forbids `ci-run-all.sh` in dev**.
+* Makes **user consent mandatory** before `./vm-recovery.sh`.
+* Embeds the **7-minute timeout constraint** into every step.
+* Reorganizes into a **tight checklist-style format** to minimize ambiguity.
 
-Pause and wait for user guidance.
-
-✅ This version is hardened:
-
-Pre-Check-In List is now at the top and explicit.
-
-Non-Negotiables are absolute — agent “MUST NEVER” violate them.
-
-Language uses MUST / NEVER instead of “should.”
-
-Easier for both human and AI agents to follow without ambiguity.
+---
