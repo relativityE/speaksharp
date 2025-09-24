@@ -3,28 +3,60 @@ import { test, expect } from '@playwright/test';
 import { loginUser } from './helpers';
 import { TEST_USER_FREE } from '../constants';
 
+// Helper for logging with a consistent prefix
+function logStep(step: string, message?: string) {
+  console.log(`[smoke][${step}] ${message || ''}`);
+}
+
 test.describe('Basic Environment Verification (fast-fail)', () => {
-  test('should load the homepage and have the correct title', async ({ page }) => {
-    console.log('[smoke] Starting test...');
+  test('should load homepage and verify environment', async ({ page, baseURL }) => {
+    logStep('start', `Base URL: ${baseURL}`);
 
     // --- Step 1: Login ---
-    console.time('[smoke] loginUser');
-    await loginUser(page, TEST_USER_FREE.email, TEST_USER_FREE.password);
-    console.timeEnd('[smoke] loginUser');
+    console.time('[smoke][loginUser]');
+    try {
+      await loginUser(page, TEST_USER_FREE.email, TEST_USER_FREE.password);
+    } catch (err) {
+      logStep('loginUser', `FAILED: ${err}`);
+      throw err; // fail-fast
+    }
+    console.timeEnd('[smoke][loginUser]');
+    logStep('loginUser', '✅ Success');
 
     // --- Step 2: Navigate ---
-    console.time('[smoke] page.goto');
-    await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 10_000 });
-    console.timeEnd('[smoke] page.goto');
+    console.time('[smoke][page.goto]');
+    try {
+      await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 10_000 });
+    } catch (err) {
+      logStep('page.goto', `FAILED to load page: ${err}`);
+      throw err;
+    }
+    console.timeEnd('[smoke][page.goto]');
+    logStep('page.goto', `Current URL: ${page.url()}`);
 
-    console.log('[smoke] Current URL after goto:', page.url());
+    // --- Step 3: Check Title ---
+    console.time('[smoke][toHaveTitle]');
+    try {
+      await expect(page).toHaveTitle(/SpeakSharp/, { timeout: 7_000 });
+    } catch (err) {
+      logStep('toHaveTitle', `FAILED title check: ${await page.title()}`);
+      throw err;
+    }
+    console.timeEnd('[smoke][toHaveTitle]');
+    logStep('toHaveTitle', `Page title verified: ${await page.title()}`);
 
-    // --- Step 3: Title Check ---
-    console.time('[smoke] toHaveTitle');
-    await expect(page).toHaveTitle(/SpeakSharp/, { timeout: 7_000 });
-    console.timeEnd('[smoke] toHaveTitle');
+    // --- Step 4: Optional Content Check ---
+    const headerLocator = page.locator('header#main-header'); // adjust selector as needed
+    console.time('[smoke][headerCheck]');
+    try {
+      await expect(headerLocator).toBeVisible({ timeout: 5_000 });
+    } catch (err) {
+      logStep('headerCheck', 'FAILED: Main header not visible');
+      throw err;
+    }
+    console.timeEnd('[smoke][headerCheck]');
+    logStep('headerCheck', '✅ Main header visible');
 
-    console.log('[smoke] Raw title:', await page.title());
-    console.log('[smoke] Finished smoke test.');
+    logStep('end', '✅ Smoke test completed successfully');
   });
 });
