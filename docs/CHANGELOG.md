@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic session recording functionality.
 
 ### Changed
+- **CI/CD:** Hardened the E2E test configuration to improve stability and diagnostics. Updated `package.json` scripts to default to verbose server logging and to use fallback values for environment variables. Updated `playwright.config.ts` to pipe server logs directly into the test output.
 - **Dependencies:** Updated `vite` and `happy-dom` to their latest versions to resolve security vulnerabilities.
 - **Test Scripts:** Removed the `--coverage` flag from the `test:unit` and `test:unit:watch` scripts in `package.json` to resolve a test runner hanging issue.
 - **Mode Selector:** Added access control logic to restrict transcription modes based on user tier (Free, Pro) and developer status.

@@ -1,63 +1,49 @@
 import { defineConfig, devices } from '@playwright/test';
-import dotenv from 'dotenv';
+import * as dotenv from 'dotenv';
 import path from 'path';
-import { fileURLToPath } from 'url';
-
-// Define __dirname for ES module scope
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // Load environment variables from .env.test
-dotenv.config({ path: path.resolve(__dirname, '.env.test') });
+dotenv.config({ path: path.resolve(process.cwd(), '.env.test') });
+
+const PORT = process.env.VITE_PORT || '5173';
+const BASE_URL = `http://localhost:${PORT}`;
 
 export default defineConfig({
   testDir: './tests/e2e',
-  timeout: 30000,
-  expect: { timeout: 10000 },
+  timeout: 30_000,
+  expect: { timeout: 10_000 },
   fullyParallel: true,
   retries: 1,
   reporter: [
     ['list'],
     ['html', { outputFolder: 'playwright-report' }],
-    ['json', { outputFile: 'test-results/e2e-results/results.json' }]
+    ['json', { outputFile: 'test-results/e2e-results/results.json' }],
   ],
   use: {
-    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:5173',
+    baseURL: BASE_URL,
     headless: true,
     viewport: { width: 1280, height: 720 },
     ignoreHTTPSErrors: true,
     screenshot: 'only-on-failure',
-    trace: 'retain-on-failure'
+    trace: 'retain-on-failure',
   },
   globalSetup: './tests/e2e-global-setup.ts',
   globalTeardown: './tests/global-teardown.ts',
+  webServer: {
+    command: `pnpm dev:test --port ${PORT}`,
+    url: BASE_URL,
+    reuseExistingServer: !process.env.CI,
+    timeout: 120 * 1000, // wait up to 2 minutes for server
+    stdout: 'pipe',      // capture server logs
+    stderr: 'pipe',
+  },
   projects: [
     {
-      name: 'setup',
-      testMatch: /test\.setup\.ts/,
-    },
-    {
-      name: 'chromium-smoke',
+      name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testMatch: /(basic|auth|navigation)\.e2e\.spec\.ts/,
     },
-    {
-      name: 'user-pro',
-      dependencies: ['setup'],
-      use: {
-        ...devices['Desktop Chrome'],
-        storageState: 'storage/pro.json',
-      },
-      testMatch: /pro\.e2e\.spec\.ts/,
-    },
-    {
-      name: 'user-free',
-      dependencies: ['setup'],
-      use: {
-        ...devices['Desktop Chrome'],
-        storageState: 'storage/free.json',
-      },
-      testMatch: /free\.e2e\.spec\.ts/,
-    },
+    // add more browsers if needed:
+    // { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
+    // { name: 'webkit', use: { ...devices['Desktop Safari'] } },
   ],
 });
