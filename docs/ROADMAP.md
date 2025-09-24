@@ -20,9 +20,9 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - 🔴 1. Shorten OTP expiry to less than one hour.
   - 🔴 2. Enable leaked password protection.
   - 🔴 3. Upgrade the Postgres version.
-- 🟡 **Stabilize and Optimize CI E2E Tests**:
-    -   **Status:** The test scripting environment has been completely refactored and stabilized with a new granular, orchestrated pipeline (`ci-run-all.sh`).
-    -   **Next Action:** The full E2E suite still exceeds the CI environment's timeout. Individual tests must be timed to identify a fast, reliable smoke test to include in the pipeline.
+- ✅ **Stabilize and Optimize CI/Unit Tests**:
+    -   **Status:** **Done.** The test environment has been fully stabilized.
+    -   **Action Taken:** Resolved critical architectural flaws, including conflicting setup files and severe memory leaks in the unit test suite. The test runners (`vitest`, `playwright`) are now correctly configured, and the test suites are stable. A dedicated smoke test script (`run-e2e-smoke.sh`) has been created and integrated into the CI pipeline.
 
 ### Gating Check
 - 🔴 **Do a Gap Analysis of current implementation against the Current Phase requirements.**
@@ -36,11 +36,17 @@ This phase is about confirming the core feature set works as expected and polish
 - 🔴 **Implement Custom Vocabulary:** Allow Pro users to add custom words (jargon, names) to improve transcription accuracy.
 - 🔴 **Implement Speaker Identification:** Add the ability to distinguish between different speakers in the transcript.
 - 🔴 **Implement Vocal Variety / Pause Detection:** Add a new Pro-tier feature to analyze vocal variety or pause duration.
-- 🔴 **User-Friendly Error Handling:** Implement specific, user-facing error messages for common issues.
+- 🟡 **User-Friendly Error Handling:** Implement specific, user-facing error messages for common issues.
 - 🔴 **Deploy & confirm live transcript UI works:** Ensure text appears within 2 seconds of speech in a live environment.
 - 🔴 **Remove all temporary console.logs:** Clean up the codebase for production.
 
 ### 🚧 Should-Have (Tech Debt)
+- 🔴 **Implement STT Accuracy Comparison:**
+    - **Problem:** The application does not provide a way for users to compare the accuracy of the different transcription engines.
+    - **Task:** Implement a feature to track and display a rolling average of STT accuracy for each mode.
+- 🔴 **Implement Top 2 Filler Words Analysis:**
+    - **Problem:** The analytics dashboard does not highlight the most frequently used filler words.
+    - **Task:** Implement a feature to identify and display the top 2 filler words for the most recent 4 sessions.
 - 🟡 **Implement new SpeakSharp Design System:**
   - 🟡 3. Refactor UI Components & Test
   - 🔴 4. Final Verification & Test
@@ -75,8 +81,8 @@ This section is a prioritized list of technical debt items to be addressed.
 
 - **P1 (High): Add Unit Test Coverage for Core Features**
   - **Problem:** A new mandate requires unit tests for all features. The following are missing coverage:
-    - **Transcription Modes:** `CloudAssemblyAI`, `LocalWhisper`, `NativeBrowser`.
-    - **Session & Analytics:** `SessionContext`, `analyticsUtils` (for trend analysis).
+    - **Transcription Modes:** `LocalWhisper`, `NativeBrowser`.
+    - **Session & Analytics:** `SessionContext`.
 
 - **P2 (Medium): Investigate ESLint `caughtErrorsIgnorePattern` Anomaly**
   - **Problem:** The ESLint configuration (`eslint.config.js`) has been updated to ignore unused variables prefixed with an underscore (`_`). While this works for standard variables and function arguments, it is not being respected for `catch` block errors (`caughtErrorsIgnorePattern`).

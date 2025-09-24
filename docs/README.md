@@ -124,7 +124,7 @@ pnpm run lint
 
 ## Code Quality
 
-This project uses a pre-commit hook to enforce code quality standards. The hook is managed by [Husky](https://typicode.github.io/husky/) and [lint-staged](https://github.com/okonet/lint-staged).
+This project uses a pre-commit hook to enforce code quality standards. The hook is managed by [Husky](https://typicode.github.io/husky/) and [lint-staged](https://github.com/okonet/lint-staged). The hooks are automatically installed when you run `pnpm install` thanks to the `prepare` script in `package.json`.
 
 Before each commit, the following checks are run on the staged files:
 - **ESLint:** Fixes formatting and style issues.

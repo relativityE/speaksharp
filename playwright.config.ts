@@ -29,7 +29,7 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure'
   },
-  globalSetup: './tests/global-setup.ts',
+  globalSetup: './tests/e2e-global-setup.ts',
   globalTeardown: './tests/global-teardown.ts',
   projects: [
     {
@@ -39,7 +39,7 @@ export default defineConfig({
     {
       name: 'chromium-smoke',
       use: { ...devices['Desktop Chrome'] },
-      testMatch: /(basic|auth)\.e2e\.spec\.ts/,
+      testMatch: /(basic|auth|navigation)\.e2e\.spec\.ts/,
     },
     {
       name: 'user-pro',

@@ -66,7 +66,7 @@ This section contains a high-level block diagram of the SpeakSharp full-stack ar
 SpeakSharp is built on a modern, serverless technology stack designed for real-time applications.
 
 *   **Frontend:**
-    *   **Framework:** React (v18) with Vite
+    *   **Framework:** React (v18) with Vite (`^7.1.7`)
     *   **Language:** TypeScript (TSX)
     *   **Styling:** Tailwind CSS with a CVA-based design system
     *   **State Management:** React Context and custom hooks
@@ -81,7 +81,8 @@ SpeakSharp is built on a modern, serverless technology stack designed for real-t
     *   **Error Reporting:** Sentry
     *   **Product Analytics:** PostHog
 *   **Testing:**
-    *   **Unit/Integration:** Vitest
+    *   **Unit/Integration:** Vitest (`^2.1.9`)
+    *   **DOM Environment:** happy-dom (`^18.0.1`)
     *   **E2E:** Playwright
 
 ## Testing Strategy
@@ -122,6 +123,20 @@ The test configuration creates a controlled environment with the following flow:
     *   It safely kills the entire Vite process group, first with a graceful `SIGTERM` and then with a `SIGKILL` if necessary, preventing zombie processes.
     *   It cleans up the `.vite.pid` file.
     *   For debugging purposes, it prints the last 20 lines of `vite.log` to the console.
+
+### Test Stability and Memory Management
+
+Recent investigations revealed significant stability issues with both the unit and E2E test suites. The following architectural changes have been implemented to resolve them:
+
+1.  **Consolidated Test Setup:**
+    *   **Problem:** The codebase contained multiple, conflicting `global-setup.ts` files for Vitest and Playwright, leading to incorrect test environments and initialization failures.
+    *   **Solution:** The setup files have been renamed for clarity (`unit-global-setup.ts`, `e2e-global-setup.ts`) and each test runner (`vitest.config.mjs`, `playwright.config.ts`) has been explicitly configured to use its own, correct setup file.
+
+2.  **Unit Test Memory Leak Mitigation:**
+    *   **Problem:** The Vitest suite suffered from a "JavaScript heap out of memory" error, caused by accumulating state and un-cleaned-up async operations in tests.
+    *   **Solution:**
+        *   The `vitest.config.mjs` has been configured to run tests in isolated forked processes (`pool: 'forks'`) and sequentially (`maxConcurrency: 1`) to prevent memory accumulation.
+        *   Problematic tests (`LocalWhisper.test.ts`, `SessionSidebar.test.tsx`) have been refactored to use `vi.useFakeTimers()` and proper `afterEach` cleanup hooks to manage timers and unmount components correctly.
 
 ### Core Artifacts
 

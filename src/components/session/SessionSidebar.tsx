@@ -18,6 +18,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuRadioGroup,
+    DropdownMenuRadioItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Progress } from '@/components/ui/progress';
 import { ErrorDisplay } from '../ErrorDisplay';
 import type { PracticeSession } from '@/types/session';
@@ -32,7 +39,7 @@ interface ModelLoadProgress {
     total?: number;
 }
 
-interface SessionSidebarProps {
+export interface SessionSidebarProps {
     isListening: boolean;
     isReady: boolean;
     error: Error | null;
@@ -41,12 +48,12 @@ interface SessionSidebarProps {
     reset: () => void;
     actualMode: string | null;
     saveSession: (session: Partial<PracticeSession>) => Promise<{ session: PracticeSession | null; usageExceeded: boolean }>;
-    elapsedTime: number;
+    startTime: number | null;
     modelLoadingProgress: ModelLoadProgress | null;
 }
 
 interface DigitalTimerProps {
-    elapsedTime: number;
+    startTime: number | null;
 }
 
 interface ModelLoadingIndicatorProps {
@@ -55,7 +62,24 @@ interface ModelLoadingIndicatorProps {
 
 // --- Sub-components ---
 
-const DigitalTimer: React.FC<DigitalTimerProps> = ({ elapsedTime }) => {
+const DigitalTimerComponent: React.FC<DigitalTimerProps> = ({ startTime }) => {
+    const [elapsedTime, setElapsedTime] = useState(0);
+
+    useEffect(() => {
+        if (startTime === null) {
+            setElapsedTime(0);
+            return;
+        }
+
+        const interval = setInterval(() => {
+            const now = Date.now();
+            const elapsed = Math.floor((now - startTime) / 1000);
+            setElapsedTime(elapsed);
+        }, 1000);
+
+        return () => clearInterval(interval);
+    }, [startTime]);
+
     const minutes = Math.floor(elapsedTime / 60);
     const seconds = elapsedTime % 60;
     const formattedTime = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
@@ -67,6 +91,7 @@ const DigitalTimer: React.FC<DigitalTimerProps> = ({ elapsedTime }) => {
         </div>
     );
 };
+const DigitalTimer = React.memo(DigitalTimerComponent);
 
 const ModelLoadingIndicator: React.FC<ModelLoadingIndicatorProps> = ({ progress }) => {
     if (!progress || progress.status === 'ready' || progress.status === 'error') {
@@ -89,7 +114,7 @@ const ModelLoadingIndicator: React.FC<ModelLoadingIndicatorProps> = ({ progress 
 
 // --- Main Component ---
 
-export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isReady, error, startListening, stopListening, reset, actualMode, saveSession, elapsedTime, modelLoadingProgress }) => {
+export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isReady, error, startListening, stopListening, reset, actualMode, saveSession, startTime, modelLoadingProgress }) => {
     const navigate = useNavigate();
     const { user, profile } = useAuth();
     const [isEndingSession, setIsEndingSession] = useState(false);
@@ -115,23 +140,23 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                 toast.error("No speech was detected. Session not saved.");
                 return;
             }
+            const finalDuration = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
             const sessionWithMetadata: PracticeSession = {
                 ...sessionData,
                 id: `session_${Date.now()}`,
                 user_id: user?.id || 'anonymous',
-                duration: elapsedTime,
+                duration: finalDuration,
                 created_at: new Date().toISOString(),
                 title: `Session from ${formatDateTime(new Date())}`,
             };
             setCompletedSessions(prev => [...prev, sessionWithMetadata]);
             setShowEndSessionDialog(true);
         } catch (e: unknown) {
-            if (e instanceof Error) {
-                logger.error({ error: e.message }, "Error ending session:");
-            } else {
-                logger.error({ error: String(e) }, "Error ending session:");
-            }
-            toast.error("An unexpected error occurred while ending the session.");
+            const error = e instanceof Error ? e : new Error(String(e));
+            logger.error({ error: error.message }, "Error ending session:");
+            toast.error("Could not stop the session.", {
+                description: "An error occurred while trying to finalize your session. Please try again.",
+            });
         } finally {
             setIsEndingSession(false);
         }
@@ -210,36 +235,24 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
 
                     <div className="space-y-2 border-b pb-4">
                         <Label className="text-sm font-medium">Transcription Mode</Label>
-                        <div className="flex w-full" role="group">
-                          <Button
-                            onClick={() => setSelectedMode('cloud')}
-                            variant={selectedMode === 'cloud' ? 'secondary' : 'outline'}
-                            className="flex-1 rounded-r-none"
-                            disabled={isListening || isModelLoading || isConnecting || !canAccessAdvancedModes}
-                          >
-                            Cloud AI
-                          </Button>
-                          <Button
-                            onClick={() => setSelectedMode('on-device')}
-                            variant={selectedMode === 'on-device' ? 'secondary' : 'outline'}
-                            className="flex-1 rounded-none border-x-0"
-                            disabled={isListening || isModelLoading || isConnecting || !canAccessAdvancedModes}
-                          >
-                            On-Device
-                          </Button>
-                          <Button
-                            onClick={() => setSelectedMode('native')}
-                            variant={selectedMode === 'native' ? 'secondary' : 'outline'}
-                            className="flex-1 rounded-l-none"
-                            disabled={isListening || isModelLoading || isConnecting}
-                          >
-                            Native
-                          </Button>
-                        </div>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="outline" className="w-full" disabled={isListening || isModelLoading || isConnecting}>
+                                    {selectedMode === 'cloud' ? 'Cloud AI' : selectedMode === 'on-device' ? 'On-Device' : 'Native'}
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent className="w-56">
+                                <DropdownMenuRadioGroup value={selectedMode} onValueChange={(value) => setSelectedMode(value as Mode)}>
+                                    <DropdownMenuRadioItem value="cloud" disabled={!canAccessAdvancedModes}>Cloud AI</DropdownMenuRadioItem>
+                                    <DropdownMenuRadioItem value="on-device" disabled={!canAccessAdvancedModes}>On-Device</DropdownMenuRadioItem>
+                                    <DropdownMenuRadioItem value="native">Native</DropdownMenuRadioItem>
+                                </DropdownMenuRadioGroup>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
                     </div>
 
                     <div className="flex flex-col items-center justify-center gap-6 py-2 flex-grow">
-                        <DigitalTimer elapsedTime={elapsedTime} />
+                        <DigitalTimer startTime={startTime} />
                         <div className={`text-xl font-semibold ${isListening && isReady ? 'text-green-500' : 'text-muted-foreground'}`}>
                             {isConnecting ? 'Connecting...' : (isListening ? 'Session Active' : (isModelLoading ? 'Initializing...' : 'Ready'))}
                         </div>

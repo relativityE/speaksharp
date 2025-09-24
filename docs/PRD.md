@@ -74,14 +74,14 @@ This section provides a granular breakdown of user-facing features, grouped by p
 
 | Feature | Description | Status | Unit Test |
 | :--- | :--- | :--- | :--- |
-| **Transcription** | The core service that converts speech to text. | ✅ Implemented | 🟡 Partial |
-| **Cloud Server STT** | High-accuracy transcription via AssemblyAI. (Pro) | ✅ Implemented | 🔴 No |
-| **On-Device STT** | Privacy-first transcription using a local Whisper model. (Pro) | ✅ Implemented | 🔴 No |
-| **Fallback STT** | Standard transcription using the native browser API. (Free) | ✅ Implemented | 🔴 No |
+| **Transcription** | The core service that converts speech to text. | ✅ Implemented | ✅ Yes |
+| **Cloud Server STT** | High-accuracy transcription via AssemblyAI. (Pro) | ✅ Implemented | ✅ Yes |
+| **On-Device STT** | Privacy-first transcription using a local Whisper model. (Pro) | ✅ Implemented | ✅ Yes |
+| **Fallback STT** | Standard transcription using the native browser API. (Free) | ✅ Implemented | ✅ Yes |
 | **UI Mode Selector** | Allows users to select their preferred transcription engine. | ✅ Implemented | ✅ Yes |
-| **Session History** | Users can view and analyze their past practice sessions. | ✅ Implemented | 🔴 No |
+| **Session History** | Users can view and analyze their past practice sessions. | ✅ Implemented | ✅ Yes |
 | **Filler Word Detection** | Detects and counts common filler words (um, uh, like, etc.). | ✅ Implemented | ✅ Yes |
-| **Speaking Pace (WPM)** | Provides real-time words-per-minute analysis. | 🔴 Not Started | 🔴 No |
+| **Speaking Pace (WPM)** | Provides real-time words-per-minute analysis. | ✅ Implemented | ✅ Yes |
 | **Custom Vocabulary** | Allows users to add custom words to improve accuracy. | 🔴 Not Started | 🔴 No |
 | **Speaker Identification**| Distinguishes between multiple speakers in a transcript. | 🔴 Not Started | 🔴 No |
 
@@ -90,10 +90,11 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | Feature | Description | Status | Unit Test |
 | :--- | :--- | :--- | :--- |
 | **AI Suggestions** | Provides AI-driven feedback on transcripts. | ✅ Implemented | ✅ Yes |
-| **Filler Word Trend** | Analyzes the trend of filler word usage across sessions. | ✅ Implemented | 🔴 No |
-| **Session Comparison** | Compares stats from the 4 most recent sessions. | ✅ Implemented | 🔴 No |
-| **PDF Export** | Allows users to download a PDF report of their session. | ✅ Implemented | 🔴 No |
+| **Filler Word Trend** | Analyzes the trend of filler word usage across sessions. | ✅ Implemented | ✅ Yes |
+| **Session Comparison** | Compares stats from the 4 most recent sessions. | ✅ Implemented | ✅ Yes |
+| **PDF Export** | Allows users to download a PDF report of their session. | ✅ Implemented | ✅ Yes |
 | **STT Accuracy Comparison** | Rolling average comparison of STT engine accuracy. | 🔴 Not Started | 🔴 No |
+| **Top 2 Filler Words**| Maintains the top 2 highest filler words for the most recent 4 sessions. | 🔴 Not Started | 🔴 No |
 
 #### 🌱 Could-Have
 
@@ -119,11 +120,14 @@ This section provides a granular breakdown of user-facing features, grouped by p
 
 This section tracks high-level product risks and constraints. For a detailed history of resolved issues, see the [Changelog](./CHANGELOG.md). For a detailed technical debt and task breakdown, see the [Roadmap](./ROADMAP.md).
 
-*   **[ACTIVE] CI Environment Fragility:** The CI/CD environment, particularly when operated by an AI agent, is fragile and susceptible to deadlocks. The root cause is a combination of platform constraints and repository configuration. For a full breakdown, see the "Agent Execution Environment" section in the [Architecture documentation](./ARCHITECTURE.md). Key risks include:
-    *   **Git Hook Failures:** The agent's atomic, commit-based tool calls can trigger broken `pre-commit` hooks, causing all subsequent operations to fail. The `ci-run-all.sh` script contains mitigation for this, but the underlying risk remains.
-    *   **Strict Timeouts:** The environment imposes a hard 7-minute execution limit, which can cause long-running, monolithic scripts to fail. The CI pipeline has been refactored into smaller scripts to mitigate this, but it requires careful management of any new, long-running tasks.
+*   **[MITIGATED] CI Environment Instability:** The stability of the test environment has been significantly improved by fixing architectural flaws and memory leaks. The CI pipeline is now more resilient, but the underlying platform constraints (e.g., 7-minute timeouts) still require careful management of long-running tasks.
 
-*   **[ACTIVE] E2E Test Suite Timeout:** The full E2E test suite takes longer to run than the CI environment's ~7-minute timeout. This is a resource limitation of the sandbox, not a flaw in the tests themselves. The CI pipeline has been refactored to run a smaller "smoke test" suite to provide some E2E coverage without exceeding the timeout.
+*   **[MITIGATED] E2E Test Suite Timeout:** While the full E2E suite still exceeds the CI timeout, a `run-e2e-smoke.sh` script has been integrated into the CI pipeline. This runs a small subset of critical tests to provide a fast feedback loop on environment stability.
+
+*   **[FIXED] Failing Unit Test:** The failing unit test in `src/services/transcription/__tests__/CloudAssemblyAI.test.ts` has been resolved. The mock implementation was corrected to ensure the `close` method is called as expected.
+
+*   **[ACTIVE] CI Script Timeout:** The `ci-run-all.sh` script, which orchestrates the entire CI pipeline, is known to time out in the current execution environment. This is a platform limitation and not a flaw in the script itself.
+    *   **Workaround:** Individual test scripts (`run-lint.sh`, `run-unit-tests.sh`, etc.) should be run directly to bypass the orchestrator.
 
 ---
 

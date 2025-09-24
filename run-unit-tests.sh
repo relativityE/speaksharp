@@ -14,7 +14,7 @@ jq -n '{"unit_tests": {"duration": 0, "total": 0, "passed": 0, "failed": 1, "ski
 
 start_time=$(date +%s)
 
-if pnpm vitest run --coverage --reporter=json --outputFile="$TEST_RESULTS_DIR/unit-results.json" --reporter=default; then
+if pnpm vitest run --reporter=json --outputFile="$TEST_RESULTS_DIR/unit-results.json" --reporter=default; then
     echo "Unit test command completed successfully."
 
     duration=$(( $(date +%s) - start_time ))
