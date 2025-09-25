@@ -90,8 +90,12 @@ describe('useSpeechRecognition', () => {
     expect(useFillerWords).toHaveBeenCalledWith([], '', ['like', 'um']);
     expect(useTranscriptionService).toHaveBeenCalledWith(
       expect.objectContaining({
-        profile: { subscription_status: 'pro' },
-        session: null
+        profile: { id: 'pro-user', subscription_status: 'pro' },
+        session: null,
+        onTranscriptUpdate: expect.any(Function),
+        onReady: expect.any(Function),
+        onModelLoadProgress: expect.any(Function),
+        navigate: expect.any(Function),
       })
     );
   });
@@ -104,7 +108,7 @@ describe('useSpeechRecognition', () => {
       expect(stats).toEqual(expect.objectContaining({
         transcript: 'test',
         total_words: 1,
-        filler_words: { total: 0 }
+        filler_words: { total: { count: 0, color: '' } }
       }));
     });
   });

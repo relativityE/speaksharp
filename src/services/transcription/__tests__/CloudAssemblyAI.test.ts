@@ -1,84 +1,152 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import CloudAssemblyAI from '../modes/CloudAssemblyAI';
 import { MicStream } from '../utils/types';
 
-const mockSocket = {
-    on: vi.fn(),
-    off: vi.fn(),
-    send: vi.fn(),
-    close: vi.fn(),
+// Hold onto the original WebSocket
+const RealWebSocket = global.WebSocket;
+
+// Create a mock WebSocket class instance that we can control in tests
+const mockSocketInstance = {
+  send: vi.fn(),
+  close: vi.fn(),
+  readyState: 0, // This will be updated in tests
+  onopen: () => {},
+  onmessage: () => {},
+  onerror: () => {},
+  onclose: () => {},
 };
 
-vi.mock('../utils/ManagedWebSocket', () => ({
-    ManagedWebSocket: vi.fn(() => mockSocket),
-}));
+// The mock WebSocket constructor returns our controllable instance
+const MockWebSocket = vi.fn(() => mockSocketInstance);
+
+// The code under test uses these static properties, so they must be on the mock
+MockWebSocket.CONNECTING = 0;
+MockWebSocket.OPEN = 1;
+MockWebSocket.CLOSING = 2;
+MockWebSocket.CLOSED = 3;
 
 describe('CloudAssemblyAI', () => {
-    let cloudAI: CloudAssemblyAI;
-    const onTranscriptUpdate = vi.fn();
-    const getAssemblyAIToken = vi.fn().mockResolvedValue('fake-token');
+  let cloudAI: CloudAssemblyAI;
+  const onTranscriptUpdate = vi.fn();
+  const getAssemblyAIToken = vi.fn();
+  const onReady = vi.fn();
 
-    beforeEach(() => {
-        vi.clearAllMocks();
-        cloudAI = new CloudAssemblyAI({
-            onTranscriptUpdate,
-            getAssemblyAIToken,
-            onReady: vi.fn(),
-            session: null,
-            navigate: vi.fn(),
-            onModelLoadProgress: vi.fn(),
-        });
+  beforeEach(() => {
+    vi.useFakeTimers();
+    global.WebSocket = MockWebSocket as any;
+
+    // Reset all mocks before each test
+    vi.clearAllMocks();
+    getAssemblyAIToken.mockResolvedValue('fake-token');
+
+    // Reset the mock socket instance state for a clean slate
+    Object.assign(mockSocketInstance, {
+      send: vi.fn(),
+      close: vi.fn(),
+      readyState: MockWebSocket.CONNECTING,
+      onopen: () => {},
+      onmessage: () => {},
+      onerror: () => {},
+      onclose: () => {},
     });
 
-    it('should initialize and get a token', async () => {
-        await cloudAI.init();
-        expect(getAssemblyAIToken).toHaveBeenCalled();
+    cloudAI = new CloudAssemblyAI({
+      onTranscriptUpdate,
+      onReady,
+      getAssemblyAIToken,
+      onModelLoadProgress: vi.fn(),
     });
+  });
 
-    it('should open a websocket connection on startTranscription', async () => {
-        await cloudAI.init();
-        await cloudAI.startTranscription({ sampleRate: 16000 } as MicStream);
-        expect(mockSocket.on).toHaveBeenCalledWith('open', expect.any(Function));
-        expect(mockSocket.on).toHaveBeenCalledWith('message', expect.any(Function));
-        expect(mockSocket.on).toHaveBeenCalledWith('close', expect.any(Function));
-        expect(mockSocket.on).toHaveBeenCalledWith('error', expect.any(Function));
+  afterEach(() => {
+    vi.useRealTimers();
+    global.WebSocket = RealWebSocket;
+  });
+
+  const createMockMicStream = (): MicStream => ({
+    sampleRate: 16000,
+    onFrame: vi.fn(),
+    offFrame: vi.fn(),
+    close: vi.fn(),
+  });
+
+  it('should get a token and open a websocket on startTranscription', async () => {
+    const micStream = createMockMicStream();
+    const startPromise = cloudAI.startTranscription(micStream);
+
+    await vi.advanceTimersByTimeAsync(0); // Allow promises like getAssemblyAIToken to resolve
+
+    expect(getAssemblyAIToken).toHaveBeenCalled();
+    expect(MockWebSocket).toHaveBeenCalledWith(expect.stringContaining('token=fake-token'));
+
+    // Simulate the connection opening
+    mockSocketInstance.readyState = MockWebSocket.OPEN;
+    mockSocketInstance.onopen({} as Event);
+
+    await startPromise; // The promise should now resolve
+
+    expect(onReady).toHaveBeenCalled();
+    expect(micStream.onFrame).toHaveBeenCalledWith(expect.any(Function));
+  });
+
+  it('should send audio data when the websocket is open', async () => {
+    const micStream = createMockMicStream();
+    cloudAI.startTranscription(micStream);
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Simulate socket opening to attach the frame handler
+    mockSocketInstance.readyState = MockWebSocket.OPEN;
+    mockSocketInstance.onopen({} as Event);
+
+    // The onFrame method on the mock should have been called with the handler
+    const frameHandler = (micStream.onFrame as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(frameHandler).toBeInstanceOf(Function);
+
+    // Call the handler to simulate receiving an audio frame
+    frameHandler(new Float32Array([0.1, 0.2, 0.3]));
+
+    expect(mockSocketInstance.send).toHaveBeenCalled();
+  });
+
+  it('should handle incoming partial transcript messages', async () => {
+    const micStream = createMockMicStream();
+    cloudAI.startTranscription(micStream);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const messageEvent = { data: JSON.stringify({ transcript: 'hello', turn_is_formatted: false }) };
+    mockSocketInstance.onmessage(messageEvent as MessageEvent);
+
+    expect(onTranscriptUpdate).toHaveBeenCalledWith({
+      transcript: { partial: 'hello' },
     });
+  });
 
-    it('should send audio data when the websocket is open', async () => {
-        await cloudAI.init();
-        await cloudAI.startTranscription({
-            sampleRate: 16000,
-            onFrame: (handler) => handler(new Float32Array([1, 2, 3])),
-        } as MicStream);
+  it('should handle incoming final transcript messages', async () => {
+    const micStream = createMockMicStream();
+    cloudAI.startTranscription(micStream);
+    await vi.advanceTimersByTimeAsync(0);
 
-        // Manually trigger the 'open' event
-        const openCallback = mockSocket.on.mock.calls.find(call => call[0] === 'open')?.[1];
-        if (openCallback) {
-            openCallback();
-        }
+    const messageEvent = { data: JSON.stringify({ transcript: 'hello world', turn_is_formatted: true, end_of_turn: true, words: [] }) };
+    mockSocketInstance.onmessage(messageEvent as MessageEvent);
 
-        expect(mockSocket.send).toHaveBeenCalledWith(JSON.stringify({ audio_data: 'AQI=' }));
+    expect(onTranscriptUpdate).toHaveBeenCalledWith({
+      transcript: { final: 'hello world' },
+      words: [],
     });
+  });
 
-    it('should handle incoming messages', async () => {
-        await cloudAI.init();
-        await cloudAI.startTranscription({ sampleRate: 16000 } as MicStream);
+  it('should close the websocket and unregister frame handler on stopTranscription', async () => {
+    const micStream = createMockMicStream();
+    cloudAI.startTranscription(micStream);
+    await vi.advanceTimersByTimeAsync(0);
 
-        // Manually trigger a 'message' event
-        const messageCallback = mockSocket.on.mock.calls.find(call => call[0] === 'message')?.[1];
-        if (messageCallback) {
-            messageCallback(JSON.stringify({ message_type: 'SessionBegins', 'session_id': '123' }));
-        }
+    // The socket must be OPEN for close to be called
+    mockSocketInstance.readyState = MockWebSocket.OPEN;
+    mockSocketInstance.onopen({} as Event);
 
-        expect(onTranscriptUpdate).toHaveBeenCalledWith({
-            transcript: { partial: 'Session started...' },
-        });
-    });
+    await cloudAI.stopTranscription();
 
-    it('should close the websocket on stopTranscription', async () => {
-        await cloudAI.init();
-        await cloudAI.startTranscription({ sampleRate: 16000 } as MicStream);
-        await cloudAI.stopTranscription();
-        expect(mockSocket.close).toHaveBeenCalled();
-    });
+    expect(micStream.offFrame).toHaveBeenCalled();
+    expect(mockSocketInstance.close).toHaveBeenCalledWith(1000);
+  });
 });
