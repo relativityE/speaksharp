@@ -33,7 +33,7 @@ describe('CloudAssemblyAI', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
-    global.WebSocket = MockWebSocket as any;
+    global.WebSocket = MockWebSocket as unknown as typeof WebSocket;
 
     // Reset all mocks before each test
     vi.clearAllMocks();
