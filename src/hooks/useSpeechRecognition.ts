@@ -57,6 +57,7 @@ export const useSpeechRecognition = ({
     const { session: authSession } = useAuth();
     const navigate = useNavigate();
 
+    // FIXED: Memoize initial filler data with proper dependencies
     const initialFillerData = useMemo(() => createInitialFillerData(customWords), [customWords]);
 
     const [isListening, setIsListening] = useState<boolean>(false);
@@ -82,6 +83,12 @@ export const useSpeechRecognition = ({
         isStarting: false,
         isDestroying: false,
     });
+
+    // FIXED: Reset filler data when customWords or initialFillerData changes
+    useEffect(() => {
+        setFillerData(initialFillerData);
+        setFinalFillerData(initialFillerData);
+    }, [initialFillerData]);
 
     useEffect(() => {
         isMountedRef.current = true;
@@ -136,7 +143,7 @@ export const useSpeechRecognition = ({
         }
     }, []);
 
-    // FIXED: Remove customWords from dependencies to prevent infinite loop
+    // FIXED: Stable debounced function that doesn't cause re-renders
     const debouncedCountFillerWords = useCallback((text: string, customWordsArray: string[], callback: (result: FillerCounts) => void) => {
         if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
         debounceTimerRef.current = setTimeout(() => {
@@ -149,17 +156,37 @@ export const useSpeechRecognition = ({
                 }
             }
         }, 50);
-    }, []); // No dependencies - this prevents infinite loop
+    }, []);
 
-    // FIXED: Remove debouncedCountFillerWords from dependencies to prevent infinite loop
+    // FIXED: Split into separate effects to prevent cascading re-renders
+
+    // Effect 1: Update transcript when finalChunks change
     useEffect(() => {
-        const fullTranscript = finalChunks.map(c => c.text).join(' ') + ' ' + interimTranscript;
         const finalTranscriptOnly = finalChunks.map(c => c.text).join(' ');
-        
-        // Pass customWords as parameter instead of relying on closure
-        debouncedCountFillerWords(fullTranscript, customWords, setFillerData);
-        setFinalFillerData(countFillerWords(finalTranscriptOnly, customWords));
         setTranscript(finalTranscriptOnly);
+    }, [finalChunks]);
+
+    // Effect 2: Update final filler data when finalChunks or customWords change
+    useEffect(() => {
+        const finalTranscriptOnly = finalChunks.map(c => c.text).join(' ');
+        try {
+            const finalFillerResult = countFillerWords(finalTranscriptOnly, customWords);
+            setFinalFillerData(finalFillerResult);
+        } catch (err) {
+            logger.error({ err }, 'Error counting final filler words');
+        }
+    }, [finalChunks, customWords]);
+
+    // Effect 3: Debounced filler word counting for live updates
+    useEffect(() => {
+        const fullTranscript = finalChunks.map(c => c.text).join(' ') + (interimTranscript ? ' ' + interimTranscript : '');
+        if (fullTranscript.trim()) {
+            debouncedCountFillerWords(fullTranscript, customWords, (result) => {
+                if (isMountedRef.current) {
+                    setFillerData(result);
+                }
+            });
+        }
     }, [finalChunks, interimTranscript, customWords, debouncedCountFillerWords]);
 
     const getAssemblyAIToken = useCallback(async (): Promise<string | null> => {

@@ -9,7 +9,7 @@
     "test:unit": "vitest run --pool=threads --poolOptions.threads=4",
     "test:unit:watch": "vitest --watch",
     "test:unit:debug": "vitest",
-    "dev:test": "vite --mode test --port $VITE_PORT",
+    "dev:test": "vite --mode test --port ${VITE_PORT:-5173}",
     "test:screenshots": "pnpm node scripts/run-screenshots.js",
     "build": "vite build",
     "preview": "vite preview",

@@ -20,12 +20,12 @@ export default defineConfig({
     teardownTimeout: 10000, // Increased for cleanup
     reporters: ['verbose', 'json', 'html'],
 
-    // CRITICAL: Force sequential execution to prevent memory accumulation
+    // CRITICAL: Run each test file in its own isolated process to prevent memory leaks.
     pool: 'forks',
     poolOptions: {
       forks: {
-        singleFork: true, // All tests in one fork
-        isolate: false,   // Don't isolate tests
+        isolate: true, // Ensure tests do not share state
+        singleFork: false // Use multiple forks (processes)
       }
     },
 

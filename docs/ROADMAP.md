@@ -95,3 +95,7 @@ This section is a prioritized list of technical debt items to be addressed.
 
 - **P4 (Low): Improve Unit Test Discoverability**
   - **Problem:** The lack of easily discoverable, co-located unit tests makes the codebase harder to maintain.
+
+- **P1 (High): Refactor `useSpeechRecognition` Hook**
+  - **Problem:** The `useSpeechRecognition` hook is overly complex, combining state management, business logic, and service initialization. This has led to severe memory leaks and makes the hook difficult to test and maintain.
+  - **Required Action:** Refactor the hook into smaller, more focused hooks (e.g., `useTranscriptionService`, `useFillerWordCounter`). Separate concerns to improve testability and reduce complexity.

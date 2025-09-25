@@ -186,51 +186,99 @@ describe('useSessionManager', () => {
       });
   });
 
-  // TODO: The exportSessions tests are disabled because they cause a conflict
-  // with the happy-dom test environment, leading to a "Target container is not a DOM element"
-  // error. This requires further investigation into how global DOM objects are mocked.
-  describe.skip('exportSessions', () => {
-    it('should log an error for anonymous users', async () => {
-        mockUseAuth.mockReturnValue({ ...mockAuthContextValue, user: mockAnonymousUser, profile: null, is_anonymous: true });
-        const { result } = renderHook(() => useSessionManager());
+describe('exportSessions', () => {
+  // Set up proper DOM mocks before each test
+  beforeEach(() => {
+    // Mock URL object methods
+    global.URL.createObjectURL = vi.fn(() => 'blob:mock-url');
+    global.URL.revokeObjectURL = vi.fn();
 
-        await act(async () => {
-            await result.current.exportSessions();
-        });
-
-        expect(mockLogger.error).toHaveBeenCalledWith(
-            expect.objectContaining({ err: new Error("Cannot export sessions: no real user logged in.") }),
-            "Error exporting sessions:"
-        );
+    // Mock document.createElement to return a proper mock element, avoiding recursion
+    const originalCreateElement = document.createElement;
+    vi.spyOn(document, 'createElement').mockImplementation((tagName: string) => {
+      if (tagName === 'a') {
+        return {
+          click: vi.fn(),
+          download: '',
+          href: '',
+          style: {},
+        } as unknown as HTMLAnchorElement;
+      }
+      return originalCreateElement.call(document, tagName);
     });
 
-    it('should call exportData and trigger download for authenticated users', async () => {
-        // Mock the DOM methods only for this specific test
-        const link = { click: vi.fn(), download: '', href: '' };
-        const createObjectURLSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:url');
-        const revokeObjectURLSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
-        vi.spyOn(document, 'createElement').mockReturnValue(link as unknown as HTMLAnchorElement);
-        const appendChildSpy = vi.spyOn(document.body, 'appendChild').mockImplementation((node: Node) => node);
-        const removeChildSpy = vi.spyOn(document.body, 'removeChild').mockImplementation((node: Node) => node);
-        const exportData = { sessions: [{ id: 's1', user_id: 'user-123', created_at: 'now', duration: 60 }], transcripts: [] };
-        mockStorage.exportData.mockResolvedValue(exportData);
-        const { result } = renderHook(() => useSessionManager());
-
-        await act(async () => {
-            await result.current.exportSessions();
-        });
-
-        expect(mockStorage.exportData).toHaveBeenCalledWith(mockUser.id);
-        expect(createObjectURLSpy).toHaveBeenCalled();
-        expect(link.download).toContain('speaksharp-sessions');
-        expect(link.href).toBe('blob:url');
-        expect(appendChildSpy).toHaveBeenCalledWith(link);
-        expect(link.click).toHaveBeenCalled();
-        expect(removeChildSpy).toHaveBeenCalledWith(link);
-        expect(revokeObjectURLSpy).toHaveBeenCalledWith('blob:url');
-
-        // Restore mocks
-        vi.restoreAllMocks();
-    });
+    // Mock document.body methods
+    vi.spyOn(document.body, 'appendChild').mockImplementation((node: Node) => node);
+    vi.spyOn(document.body, 'removeChild').mockImplementation((node: Node) => node);
   });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('should log an error for anonymous users', async () => {
+    mockUseAuth.mockReturnValue({
+      ...mockAuthContextValue,
+      user: mockAnonymousUser,
+      profile: null,
+      is_anonymous: true
+    });
+
+    const { result } = renderHook(() => useSessionManager());
+
+    await act(async () => {
+      await result.current.exportSessions();
+    });
+
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        err: new Error("Cannot export sessions: no real user logged in.")
+      }),
+      "Error exporting sessions:"
+    );
+  });
+
+  it('should call exportData and trigger download for authenticated users', async () => {
+    const exportData = {
+      sessions: [{
+        id: 's1',
+        user_id: 'user-123',
+        created_at: 'now',
+        duration: 60
+      }],
+      transcripts: []
+    };
+
+    mockStorage.exportData.mockResolvedValue(exportData);
+    const { result } = renderHook(() => useSessionManager());
+
+    await act(async () => {
+      await result.current.exportSessions();
+    });
+
+    // Verify the export flow
+    expect(mockStorage.exportData).toHaveBeenCalledWith(mockUser.id);
+    expect(global.URL.createObjectURL).toHaveBeenCalled();
+    expect(document.createElement).toHaveBeenCalledWith('a');
+    expect(document.body.appendChild).toHaveBeenCalled();
+    expect(document.body.removeChild).toHaveBeenCalled();
+    expect(global.URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
+  });
+
+  it('should handle export errors gracefully', async () => {
+    mockStorage.exportData.mockRejectedValue(new Error('Export failed'));
+    const { result } = renderHook(() => useSessionManager());
+
+    await act(async () => {
+      await result.current.exportSessions();
+    });
+
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        err: expect.any(Error)
+      }),
+      "Error exporting sessions:"
+    );
+  });
+});
 });

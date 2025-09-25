@@ -1,3 +1,4 @@
+// src/contexts/__tests__/AuthContext.test.tsx
 import { render, screen, waitFor } from '@testing-library/react';
 import { AuthProvider } from '../AuthProvider';
 import { useAuth } from '../useAuth';
@@ -14,11 +15,7 @@ vi.mock('../../lib/supabaseClient', () => ({
         data: { subscription: { unsubscribe: vi.fn() } },
       })),
     },
-    from: vi.fn().mockImplementation(() => ({
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: null, error: null }), // Default mock response
-    })),
+    from: vi.fn(),
   },
 }));
 
@@ -38,8 +35,8 @@ const TestConsumer = () => {
   if (loading) return <div>Loading...</div>;
   return (
     <div>
-      <div data-testid="session-email">{session?.user?.email}</div>
-      <div data-testid="profile-status">{profile?.subscription_status}</div>
+      <div data-testid="session-email">{session?.user?.email || ''}</div>
+      <div data-testid="profile-status">{profile?.subscription_status || ''}</div>
     </div>
   );
 };
@@ -49,13 +46,21 @@ describe('AuthContext', () => {
     vi.clearAllMocks();
   });
 
-  it.skip('should provide session and profile when user is authenticated', async () => {
+  it('should provide session and profile when user is authenticated', async () => {
     // Arrange
-    (supabase.auth.getSession as Mock).mockResolvedValue({ data: { session: mockSession } });
+    (supabase.auth.getSession as Mock).mockResolvedValue({
+      data: { session: mockSession }
+    });
+
+    // Create a proper mock chain for the database query
+    const mockSelect = vi.fn().mockReturnThis();
+    const mockEq = vi.fn().mockReturnThis();
+    const mockSingle = vi.fn().mockResolvedValue({ data: mockProfile, error: null });
+
     (supabase.from as Mock).mockReturnValue({
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: mockProfile, error: null }),
+      select: mockSelect,
+      eq: mockEq,
+      single: mockSingle,
     });
 
     // Act
@@ -66,10 +71,12 @@ describe('AuthContext', () => {
     );
 
     // Assert
-    expect(screen.getByText('Loading...')).toBeInTheDocument();
+    expect(screen.getByTestId('loading-skeleton')).toBeInTheDocument();
+
     await waitFor(() => {
-      expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('loading-skeleton')).not.toBeInTheDocument();
     });
+
     expect(screen.getByTestId('session-email')).toHaveTextContent('test@test.com');
     expect(screen.getByTestId('profile-status')).toHaveTextContent('pro');
   });
@@ -89,7 +96,8 @@ describe('AuthContext', () => {
     await waitFor(() => {
       expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
     });
-    expect(screen.getByTestId('session-email')).toBeEmptyDOMElement();
-    expect(screen.getByTestId('profile-status')).toBeEmptyDOMElement();
+
+    expect(screen.getByTestId('session-email')).toHaveTextContent('');
+    expect(screen.getByTestId('profile-status')).toHaveTextContent('');
   });
 });
