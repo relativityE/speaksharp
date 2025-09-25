@@ -187,79 +187,26 @@ Another key lesson was the importance of ensuring all necessary binaries are pre
 
 ### CI/CD Test Execution Workflow
 
-To combat CI environment timeouts (~7 minutes) and brittle git hook states, the test execution process is managed by a robust, fail-fast orchestrator: `ci-run-all.sh` (v3.3). This script ensures that the pipeline is resilient, provides clear diagnostics, and cannot get stuck.
+To combat the ~7-minute execution timeout in the CI environment, the testing process has been re-architected to run as a parallel, distributed pipeline. This approach, defined in `.github/workflows/ci.yml`, replaces the previous monolithic `ci-run-all.sh` script and ensures that the entire test suite can complete well within the time limit.
 
-#### Key Enhancements in v3.3
+The new CI pipeline consists of three main stages that run in parallel:
 
-1.  **Step-Level Timeouts**: All long-running steps (dependencies, browsers, tests) are wrapped with an explicit `timeout`. Logs are saved to `logs/*.log` to isolate output for troubleshooting.
-2.  **Fail-Fast**: The script uses `set -euo pipefail` and exits immediately (`exit 1`) if any critical step fails or times out.
-3.  **Hook Safety**: Git hooks are proactively disabled at the start of the script. An `emergency_recovery` function ensures CI can run even with a completely broken Git state. Hooks are only temporarily restored for specific, trusted operations.
-4.  **Isolated Logging**: Each major step logs to its own file, avoiding flooded console output and simplifying debugging.
+1.  **`fast-feedback`**: This job runs linting, type-checking, and a core set of unit tests (`test:unit:core`). These checks provide the quickest feedback on code quality and correctness and typically complete in under two minutes.
 
-The following diagram illustrates the orchestrated, cradle-to-grave pipeline:
+2.  **`parallel-e2e`**: This job runs after the `fast-feedback` job completes successfully. It is sharded across multiple runners (currently 2) to split the E2E test suite and run it in parallel. This allows the full E2E suite to be run without hitting the timeout.
 
-```
-                     ┌───────────────────────┐
-                     │  ci-run-all.sh v3.3   │
-                     │  (Orchestrator / Fail-Fast) │
-                     └─────────┬─────────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │ Disable Git Hooks   │
-                    │ (HUSKY=0, core.hooksPath, etc) │
-                    └─────────┬───────────┘
-                              │
-                    ┌─────────▼───────────┐
-                    │ Optional VM Recovery │
-                    │  (vm-recovery.sh)   │
-                    └─────────┬───────────┘
-                              │
-                    ┌─────────▼───────────┐
-                    │ Install Dependencies │
-                    │   preinstall.sh      │
-                    └─────────┬───────────┘
-                              │
-                    ┌─────────▼───────────┐
-                    │ Install Playwright  │
-                    │   Browsers           │
-                    └─────────┬───────────┘
-                              │
-                    ┌─────────▼───────────┐
-                    │ Run Test Scripts     │
-                    │ - lint, type check, │
-                    │   unit, build,      │
-                    │   e2e-smoke         │
-                    │ (individual, timed) │
-                    └─────────┬───────────┘
-                              │
-                    ┌─────────▼───────────┐
-                    │ Metrics & Documentation │
-                    │ - run-metrics.sh       │
-                    │ - update-sqm-doc.sh    │
-                    │   (hooks temporarily restored) │
-                    └─────────┬───────────┘
-                              │
-                    ┌─────────▼───────────┐
-                    │ Restore Git Hooks    │
-                    │ (clean exit / trap) │
-                    └─────────┬───────────┘
-                              │
-                              ▼
-                    ┌─────────────────────┐
-                    │ CI Pipeline Complete │
-                    │  Success / Fail-Fast │
-                    └─────────────────────┘
-```
+3.  **`visual-regression`**: This job also runs after `fast-feedback` and is responsible for running screenshot tests.
 
-#### Highlights of the New Workflow:
+This parallel architecture provides the following benefits:
+*   **Speed:** The total CI run time is now determined by the longest-running parallel job, not the sum of all jobs.
+*   **Fail-Fast:** Failures in the `fast-feedback` job are reported quickly, preventing the costly E2E suite from running unnecessarily.
+*   **Scalability:** The number of E2E shards can be easily increased as the test suite grows, ensuring the pipeline remains fast and efficient.
 
-*   **Fail-Fast:** Each major step exits immediately on error, preventing wasted CI time.
-*   **Hook Safety:** Hooks are disabled early and restored only when explicitly needed for a trusted task.
-*   **Timeout Isolation:** Dependencies, browser installation, and individual test suites are all independently timed.
-*   **Granularity:** Each test script runs individually with dedicated logs, making it easy to pinpoint the source of a failure.
-*   **E2E Smoke Test:** The `run-e2e-smoke.sh` script runs a small subset of E2E tests (`basic.e2e.spec.ts`) to provide a fast signal on the stability of the environment without running the full, time-consuming E2E suite.
-*   **Optional VM Recovery:** Deep environment cleaning is available via `FORCE_VM_RECOVERY=1` but is not run by default.
+For local development, the `./test-audit.sh` script provides a comprehensive, fail-fast testing sequence that mirrors the logic of the CI pipeline.
+
+**Known Limitation: Containerized Test Environment**
+
+The expert analysis proposed a containerized test environment using Docker. However, the CI environment does not have a running Docker daemon that is accessible to the user. Therefore, this part of the proposed architecture cannot be implemented at this time.
 
 ### Agent Execution Environment
 
