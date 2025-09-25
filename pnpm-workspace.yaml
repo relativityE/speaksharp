@@ -1,3 +1,5 @@
+packages:
+  - 'supabase/functions/*'
 supportedArchitectures:
   os:
     - linux

@@ -17,7 +17,8 @@ describe('AccuracyComparison', () => {
             topFillerWords: [],
         });
         render(<AccuracyComparison />);
-        expect(screen.getByText('STT Accuracy Comparison (vs. Ground Truth)')).toBeInTheDocument();
+        // In loading state, the title is simpler
+        expect(screen.getByRole('heading', { name: /STT Accuracy Comparison/i })).toBeInTheDocument();
     });
 
     it('should render error state', () => {
@@ -42,7 +43,8 @@ describe('AccuracyComparison', () => {
             topFillerWords: [],
         });
         render(<AccuracyComparison />);
-        expect(screen.getByText('STT Accuracy Comparison (vs. Ground Truth)')).toBeInTheDocument();
+        // When data is loaded, the full title is shown. Use a more robust query.
+        expect(screen.getByRole('heading', { name: 'STT Accuracy Comparison (vs. Ground Truth)' })).toBeInTheDocument();
     });
 
     it('should render empty state', () => {

@@ -76,13 +76,13 @@ export const useAnalytics = () => {
                     .slice(0, 2);
 
                 const accuracyData = (sessions as PracticeSession[])
-                    .filter(s => s.ground_truth && s.transcript)
+                    .filter(s => s.ground_truth && s.transcript && s.engine)
                     .map(s => {
                         const wer = calculateWER(s.ground_truth!, s.transcript!);
                         return {
                             date: new Date(s.created_at).toLocaleDateString(),
                             accuracy: (1 - wer) * 100,
-                            engine: s.engine,
+                            engine: s.engine!,
                         };
                     })
                     .reverse();
