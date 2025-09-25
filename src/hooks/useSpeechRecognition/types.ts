@@ -10,6 +10,7 @@ export interface Chunk {
 export interface WordConfidence {
   word: string;
   confidence: number;
+  speaker?: string;
 }
 
 export interface UseSpeechRecognitionProps {

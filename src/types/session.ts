@@ -12,4 +12,5 @@ export interface PracticeSession {
     };
   };
   accuracy?: number;
+  ground_truth?: string;
 }

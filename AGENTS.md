@@ -34,15 +34,11 @@ Think like a **senior engineer**: safe, evidence-based, and long-term decisions.
 
 You must complete all items **before any commit/PR**:
 
-1. **Lint & Type Check**
+1. **Run Local Audit Script**
 
-   * Run `pnpm lint:fix` and `pnpm type-check`.
-   * All errors and warnings must be resolved.
-
-2. **Run Tests**
-
-   * Run `pnpm test:unit` and targeted E2E tests.
-   * Do **not** run `./ci-run-all.sh` in this environment.
+   * Run `./test-audit.sh`.
+   * This script will run linting, type-checking, and core unit tests in a fail-fast sequence.
+   * All errors must be resolved.
 
 3. **Documentation**
 
