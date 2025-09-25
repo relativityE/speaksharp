@@ -14,18 +14,12 @@ export async function mockGetUserMedia(page: Page) {
     // A mock MediaStream to return.
     let mockStream: MediaStream | null = null;
 
-    // Define a type for the window object that includes the webkit-prefixed AudioContext.
-    type PatchedWindow = {
-      AudioContext: typeof AudioContext;
-      webkitAudioContext: typeof AudioContext;
-    };
-
     // A helper to create a silent, fake audio stream.
     const createFakeStream = (): MediaStream => {
       if (mockStream) {
         return mockStream;
       }
-      const AudioContext = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const AudioContext = window.AudioContext || (window as unknown as { webkitAudioContext: typeof window.AudioContext }).webkitAudioContext;
       const audioContext = new AudioContext();
       const oscillator = audioContext.createOscillator();
       const destination = audioContext.createMediaStreamDestination();

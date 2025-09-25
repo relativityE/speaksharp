@@ -33,4 +33,23 @@ if (import.meta.env.MODE === "test") {
       }
     }
   };
+
+  // Supabase stub
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (globalThis as any).supabase = {
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          single: () => Promise.resolve({ data: null, error: null }),
+        }),
+      }),
+    }),
+    auth: {
+      getSession: () => Promise.resolve({ data: { session: null } }),
+      onAuthStateChange: () => ({
+        data: { subscription: { unsubscribe: () => {} } },
+      }),
+      signOut: () => Promise.resolve({ error: null }),
+    },
+  };
 }

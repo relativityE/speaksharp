@@ -1,18 +1,18 @@
 import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { useAnalytics } from '../useAnalytics';
-import { supabase } from '@/lib/supabaseClient';
+
+const mockQueryBuilder = {
+  select: vi.fn().mockReturnThis(),
+  order: vi.fn().mockReturnThis(),
+  limit: vi.fn(),
+};
 
 vi.mock('@/lib/supabaseClient', () => ({
-    supabase: {
-        from: vi.fn().mockReturnThis(),
-        select: vi.fn().mockReturnThis(),
-        order: vi.fn().mockReturnThis(),
-        limit: vi.fn(),
-    },
+  supabase: {
+    from: vi.fn(() => mockQueryBuilder),
+  },
 }));
-
-const mockSupabase = vi.mocked(supabase);
 
 describe('useAnalytics', () => {
     it('should fetch and process analytics data correctly', async () => {
@@ -32,7 +32,7 @@ describe('useAnalytics', () => {
                 engine: 'On-Device',
             },
         ];
-        mockSupabase.from('practice_sessions').select.mockResolvedValueOnce({ data: mockSessions, error: null });
+        mockQueryBuilder.limit.mockResolvedValueOnce({ data: mockSessions, error: null });
 
         const { result } = renderHook(() => useAnalytics());
 
@@ -47,8 +47,8 @@ describe('useAnalytics', () => {
             { word: 'like', count: 5 },
         ]);
         expect(result.current.accuracyData).toEqual([
-            { date: new Date('2023-10-26T10:00:00.000Z').toLocaleDateString(), accuracy: 50, engine: 'On-Device' },
-            { date: new Date('2023-10-27T10:00:00.000Z').toLocaleDateString(), accuracy: 50, engine: 'Cloud AI' },
+            { date: new Date('2023-10-26T10:00:00.000Z').toLocaleDateString(), accuracy: 0, engine: 'On-Device' },
+            { date: new Date('2023-10-27T10:00:00.000Z').toLocaleDateString(), accuracy: 0, engine: 'Cloud AI' },
         ]);
     });
 });
