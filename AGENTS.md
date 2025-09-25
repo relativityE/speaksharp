@@ -8,9 +8,9 @@
   Every script or command must complete within 7 minutes. If longer, split the work into multiple runs.
 
 * ❌ **Avoidance of CI Scripts**
-  You may see scripts like `./ci-run-all.sh`. These are **forbidden** in this environment due to timeout risk.
+  The script `./ci-run-all.sh` is **forbidden** in this environment due to timeout risk.
 
-  * Instead, run targeted unit, integration, or E2E tests individually.
+  * Instead, use the new local audit script: `./test-audit.sh`. This script is designed to run quickly and provide fast feedback.
   * Do not attempt to run the full CI pipeline locally.
 
 * ⚠️ **Recovery Script Warning**

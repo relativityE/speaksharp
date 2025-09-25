@@ -15,8 +15,8 @@ export const useTranscriptState = () => {
     setTranscript(combineChunksToText(finalChunks));
   }, [finalChunks]);
 
-  const addChunk = useCallback((text: string) => {
-    const chunk = createChunk(text);
+  const addChunk = useCallback((text: string, speaker?: string) => {
+    const chunk = createChunk(text, speaker);
     setFinalChunks(prev => limitArray([...prev, chunk], MAX_CHUNKS));
   }, []);
 

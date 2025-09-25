@@ -1,13 +1,10 @@
 import React from 'react';
-import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+import { render, screen, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SessionSidebar } from '../SessionSidebar';
 import type { SessionSidebarProps } from '../SessionSidebar';
 import { AuthContextType } from '../../../contexts/AuthContext';
-
-import { UserProfile } from '../../../types/user';
-import { User } from '@supabase/supabase-js';
 
 // Mock AuthContext instead of just the hook
 const mockAuthContextValue: AuthContextType = {

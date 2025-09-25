@@ -5,7 +5,7 @@
 
 # SpeakSharp System Architecture
 
-**Version 3.1** | **Last Updated: 2025-09-19**
+**Version 3.2** | **Last Updated: 2025-09-25**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -39,7 +39,8 @@ This section contains a high-level block diagram of the SpeakSharp full-stack ar
 |    |     - `useTranscriptState`      |       |---------------------------------|       |       (Payments)        |  |
 |    |     - `useFillerWords`          |       | - `users`, `sessions`           |<----->| (via webhooks)          |  |
 |    |     - `useTranscriptionService` |       | - `transcripts`, `usage`        |       +-------------------------+  |
-|    | - `src/lib` (Utils)             |       +---------------------------------+                 ^                |
+|    |   - `useAnalytics`              |       | - `ground_truth` in sessions    |                 ^                |
+|    | - `src/lib` (Utils)             |       +---------------------------------+                 |                |
 |    |   - `pdfGenerator`              |<----->| - `users`, `sessions`           |<----->| (via webhooks)          |  |
 |    +---------------------------------+       | - `transcripts`, `usage`        |       +-------------------------+  |
 |              |         |                      +---------------------------------+                 ^                |
@@ -187,79 +188,40 @@ Another key lesson was the importance of ensuring all necessary binaries are pre
 
 ### CI/CD Test Execution Workflow
 
-To combat CI environment timeouts (~7 minutes) and brittle git hook states, the test execution process is managed by a robust, fail-fast orchestrator: `ci-run-all.sh` (v3.3). This script ensures that the pipeline is resilient, provides clear diagnostics, and cannot get stuck.
+The CI/CD pipeline has been re-architected to be a parallel, dependency-aware pipeline orchestrated by GitHub Actions. This new architecture replaces the previous monolithic script (`ci-run-all.sh`) and is defined in `.github/workflows/ci.yml`.
 
-#### Key Enhancements in v3.3
+The new pipeline consists of three jobs:
 
-1.  **Step-Level Timeouts**: All long-running steps (dependencies, browsers, tests) are wrapped with an explicit `timeout`. Logs are saved to `logs/*.log` to isolate output for troubleshooting.
-2.  **Fail-Fast**: The script uses `set -euo pipefail` and exits immediately (`exit 1`) if any critical step fails or times out.
-3.  **Hook Safety**: Git hooks are proactively disabled at the start of the script. An `emergency_recovery` function ensures CI can run even with a completely broken Git state. Hooks are only temporarily restored for specific, trusted operations.
-4.  **Isolated Logging**: Each major step logs to its own file, avoiding flooded console output and simplifying debugging.
+1.  `fast-feedback`: Runs linting, type-checking, and core unit tests. This job provides quick feedback to the developer.
+2.  `parallel-e2e`: Runs the E2E test suite, sharded across two runners. This job runs in parallel with the `visual-regression` job.
+3.  `visual-regression`: Runs screenshot tests. This job runs in parallel with the `parallel-e2e` job.
 
-The following diagram illustrates the orchestrated, cradle-to-grave pipeline:
+This new architecture significantly reduces the pipeline execution time and provides a more robust and scalable solution for CI/CD.
+
+### CI/CD Pipeline Diagram
 
 ```
-                     ┌───────────────────────┐
-                     │  ci-run-all.sh v3.3   │
-                     │  (Orchestrator / Fail-Fast) │
-                     └─────────┬─────────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │ Disable Git Hooks   │
-                    │ (HUSKY=0, core.hooksPath, etc) │
-                    └─────────┬───────────┘
-                              │
-                    ┌─────────▼───────────┐
-                    │ Optional VM Recovery │
-                    │  (vm-recovery.sh)   │
-                    └─────────┬───────────┘
-                              │
-                    ┌─────────▼───────────┐
-                    │ Install Dependencies │
-                    │   preinstall.sh      │
-                    └─────────┬───────────┘
-                              │
-                    ┌─────────▼───────────┐
-                    │ Install Playwright  │
-                    │   Browsers           │
-                    └─────────┬───────────┘
-                              │
-                    ┌─────────▼───────────┐
-                    │ Run Test Scripts     │
-                    │ - lint, type check, │
-                    │   unit, build,      │
-                    │   e2e-smoke         │
-                    │ (individual, timed) │
-                    └─────────┬───────────┘
-                              │
-                    ┌─────────▼───────────┐
-                    │ Metrics & Documentation │
-                    │ - run-metrics.sh       │
-                    │ - update-sqm-doc.sh    │
-                    │   (hooks temporarily restored) │
-                    └─────────┬───────────┘
-                              │
-                    ┌─────────▼───────────┐
-                    │ Restore Git Hooks    │
-                    │ (clean exit / trap) │
-                    └─────────┬───────────┘
-                              │
-                              ▼
-                    ┌─────────────────────┐
-                    │ CI Pipeline Complete │
-                    │  Success / Fail-Fast │
-                    └─────────────────────┘
++---------------------+
+|   Push to main      |
++---------------------+
+          |
+          v
++---------------------+
+|   fast-feedback     |
+| (Lint, Type-check,  |
+|  Core Unit Tests)   |
++---------------------+
+          |
+          v
++---------------------+      +---------------------+
+|   parallel-e2e      |----->|  visual-regression  |
+| (E2E Shards 1 & 2)  |      | (Screenshot Tests)  |
++---------------------+      +---------------------+
 ```
 
-#### Highlights of the New Workflow:
+### Containerized Test Environment
 
-*   **Fail-Fast:** Each major step exits immediately on error, preventing wasted CI time.
-*   **Hook Safety:** Hooks are disabled early and restored only when explicitly needed for a trusted task.
-*   **Timeout Isolation:** Dependencies, browser installation, and individual test suites are all independently timed.
-*   **Granularity:** Each test script runs individually with dedicated logs, making it easy to pinpoint the source of a failure.
-*   **E2E Smoke Test:** The `run-e2e-smoke.sh` script runs a small subset of E2E tests (`basic.e2e.spec.ts`) to provide a fast signal on the stability of the environment without running the full, time-consuming E2E suite.
-*   **Optional VM Recovery:** Deep environment cleaning is available via `FORCE_VM_RECOVERY=1` but is not run by default.
+The proposed containerized test environment is not currently viable due to a lack of Docker daemon access in the CI environment. This is a known limitation and will be addressed in a future iteration.
 
 ### Agent Execution Environment
 
@@ -290,10 +252,11 @@ The frontend is a single-page application (SPA) built with React and Vite.
     *   **`AuthContext`:** The primary source for authentication state. It provides the Supabase `session` object, the `user` object, and the user's `profile` data.
     *   **`SessionContext`:** Manages the collection of a user's practice sessions (`sessionHistory`).
     *   **`useSessionManager`:** A custom hook that encapsulates the logic for saving, deleting, and exporting sessions. The anonymous user flow is now stable.
+    *   **`useAnalytics`:** A custom hook that fetches and processes analytics data from the Supabase database.
 *   **Routing:** Client-side routing is handled by `react-router-dom`, with protected routes implemented to secure sensitive user pages.
 *   **Logging:** The application uses `pino` for structured logging.
 *   **PDF Generation:** Session reports can be exported as PDF documents using the `jspdf` and `jspdf-autotable` libraries. The `pdfGenerator.ts` utility encapsulates the logic for creating these reports.
-*   **Analytics Components:** The frontend includes several components for displaying analytics, such as `FillerWordTable`, `FillerWordTrend`, and `SessionComparison`.
+*   **Analytics Components:** The frontend includes several components for displaying analytics, such as `FillerWordTable`, `FillerWordTrend`, `SessionComparison`, `TopFillerWords`, and `AccuracyComparison`.
 *   **AI-Powered Suggestions:** The `AISuggestions` component provides users with feedback on their speech.
 *   **Image Processing:** The application uses `Jimp` for image processing tasks, such as resizing user-uploaded images. The `processImage.ts` utility provides a convenient wrapper for this functionality.
 
@@ -359,6 +322,14 @@ The `LocalWhisper` provider uses the [`@xenova/transformers.js`](https://github.
     *   **Performance:** On-device has a one-time initial download cost. After caching, it is very fast. Cloud AI has a constant network latency for streaming audio and receiving transcripts.
     *   **Cost:** On-device has no per-use cost. Cloud AI has a direct cost per minute of transcribed audio.
     *   **Availability:** On-device mode is highly available. It works offline after the initial model download (from either the Hub or the local fallback). A failure of the Hugging Face Hub will not prevent the feature from working, as the local fallback will be used.
+
+### Speaker Identification
+
+Speaker identification (or diarization) is handled by the AssemblyAI API. When the `speaker_labels` parameter is set to `true` in the transcription request, the API will return a `speaker` property for each utterance in the transcript. This allows the frontend to display who said what.
+
+### STT Accuracy Comparison
+
+The STT accuracy comparison feature calculates the Word Error Rate (WER) of each transcription engine against a "ground truth" transcript. The ground truth is a manually transcribed version of the audio that is stored in the `practice_sessions` table. The WER is then used to calculate an accuracy percentage, which is displayed in the analytics dashboard. This provides users with a clear understanding of how each STT engine performs.
 
 ## 7. CI/CD
 

@@ -13,8 +13,20 @@ describe('useFillerWords', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
-    vi.mocked(fillerWordUtils.createInitialFillerData).mockReturnValue({ total: 0, um: 0, uh: 0, like: 0 });
-    vi.mocked(fillerWordUtils.countFillerWords).mockReturnValue({ total: 2, um: 1, uh: 1, like: 0 });
+    const mockFillerData = {
+      total: { count: 0, color: '' },
+      um: { count: 0, color: '' },
+      uh: { count: 0, color: '' },
+      like: { count: 0, color: '' },
+    };
+    const mockCounts = {
+      total: { count: 2, color: '' },
+      um: { count: 1, color: '' },
+      uh: { count: 1, color: '' },
+      like: { count: 0, color: '' },
+    };
+    vi.mocked(fillerWordUtils.createInitialFillerData).mockReturnValue(mockFillerData);
+    vi.mocked(fillerWordUtils.countFillerWords).mockReturnValue(mockCounts);
   });
 
   afterEach(() => {

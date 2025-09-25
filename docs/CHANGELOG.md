@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Speaker Identification:** Re-implemented the speaker identification feature to correctly handle speaker labels from the AssemblyAI API.
+- **Top 2 Filler Words:** Re-implemented the "Top 2 Filler Words" analytics feature.
+- **STT Accuracy Comparison:** Re-implemented the "STT Accuracy Comparison" feature to compare against a ground truth.
 - **PDF Export Unit Tests:** Added comprehensive unit tests for the PDF export feature (`pdfGenerator.ts`).
 - **Transcription Mode Selector:** Implemented a new UI control on the session page that allows users to select one of three transcription modes: "Cloud AI", "On-Device", or "Native Browser".
 - **Automated SQM Reporting:** Implemented a feature in the `./run-tests.sh` script to automatically generate a Software Quality Metrics table and inject it into `docs/PRD.md`.

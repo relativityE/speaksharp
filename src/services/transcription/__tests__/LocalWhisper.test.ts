@@ -47,8 +47,8 @@ describe('LocalWhisper Transcription Mode', () => {
   });
 
   it('should initialize and load the model from the hub', async () => {
-    const mockPipelineInstance = vi.fn().mockResolvedValue({ text: 'test' }) as any;
-    mockPipeline.mockResolvedValue(mockPipelineInstance);
+    const mockPipelineInstance = vi.fn().mockResolvedValue({ text: 'test' });
+    mockPipeline.mockResolvedValue(mockPipelineInstance as unknown as ReturnType<typeof pipeline>);
 
     await localWhisper.init();
 
@@ -60,7 +60,7 @@ describe('LocalWhisper Transcription Mode', () => {
   it('should fall back to local model if hub fails', async () => {
     mockPipeline
       .mockRejectedValueOnce(new Error('Hub failed'))
-      .mockResolvedValue(vi.fn().mockResolvedValue({ text: 'test' }) as any);
+      .mockResolvedValue(vi.fn().mockResolvedValue({ text: 'test' }) as unknown as ReturnType<typeof pipeline>);
 
     await localWhisper.init();
 
@@ -80,8 +80,8 @@ describe('LocalWhisper Transcription Mode', () => {
     const mockPipelineInstance = vi.fn().mockResolvedValue({
       text: 'transcript',
       chunks: []
-    }) as any;
-    mockPipeline.mockResolvedValue(mockPipelineInstance);
+    });
+    mockPipeline.mockResolvedValue(mockPipelineInstance as unknown as ReturnType<typeof pipeline>);
 
     await localWhisper.init();
     let frameHandlerCalled = false;

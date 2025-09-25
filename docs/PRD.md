@@ -5,7 +5,7 @@
 
 # SpeakSharp Product Requirements Document
 
-**Version 8.1** | **Last Updated: 2025-09-19**
+**Version 8.1** | **Last Updated: 2025-09-25**
 
 ## 1. Executive Summary
 
@@ -83,7 +83,7 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Filler Word Detection** | Detects and counts common filler words (um, uh, like, etc.). | ✅ Implemented | ✅ Yes |
 | **Speaking Pace (WPM)** | Provides real-time words-per-minute analysis. | ✅ Implemented | ✅ Yes |
 | **Custom Vocabulary** | Allows users to add custom words to improve accuracy. | 🔴 Not Started | 🔴 No |
-| **Speaker Identification**| Distinguishes between multiple speakers in a transcript. | 🔴 Not Started | 🔴 No |
+| **Speaker Identification**| Distinguishes between multiple speakers in a transcript. | ✅ Implemented | ✅ Yes |
 
 #### 🚧 Should-Have
 
@@ -93,8 +93,8 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Filler Word Trend** | Analyzes the trend of filler word usage across sessions. | ✅ Implemented | ✅ Yes |
 | **Session Comparison** | Compares stats from the 4 most recent sessions. | ✅ Implemented | ✅ Yes |
 | **PDF Export** | Allows users to download a PDF report of their session. | ✅ Implemented | ✅ Yes |
-| **STT Accuracy Comparison** | Rolling average comparison of STT engine accuracy. | 🔴 Not Started | 🔴 No |
-| **Top 2 Filler Words**| Maintains the top 2 highest filler words for the most recent 4 sessions. | 🔴 Not Started | 🔴 No |
+| **STT Accuracy Comparison** | Rolling average comparison of STT engine accuracy against a ground truth. | ✅ Implemented | ✅ Yes |
+| **Top 2 Filler Words**| Maintains the top 2 highest filler words for the most recent 4 sessions. | ✅ Implemented | ✅ Yes |
 
 #### 🌱 Could-Have
 
@@ -291,7 +291,7 @@ This section provides high-level insights into the SpeakSharp project from multi
 *   The advertising strategy will follow the phased GTM approach.
 *   **Phase 1 (Organic):** Focus on organic channels as described below.
 *   **Phase 2 (Paid):** Once a stable conversion rate of at least 2% is achieved, a limited and targeted paid advertising campaign will be launched.
-    *   **Initial Platform:** Reddit ads, targeting the subreddits listed below.
+    *   **Initial Platform:** Reddit ads, targeting the subreddッツ listed below.
     *   **Expansion Platforms:** Based on the success of the Reddit ads, expansion to Facebook or Google Ads will be considered. The focus will remain on targeted and limited campaigns to control CAC.
 
 **User Acquisition Channels:**
@@ -327,7 +327,7 @@ This section provides high-level insights into the SpeakSharp project from multi
 *   **Anonymous User:**
     *   **Recommendation:** Ensure the 2-minute anonymous session provides a truly compelling "aha!" moment. Focus on highlighting the immediate value of real-time feedback and the pain point it solves. The CTA to sign up should be prominent and frictionless.
 *   **Free User (Authenticated):**
-    *   **Recommendation:** The 30 minutes/month and 20-minute session limits are good for encouraging upgrades. Ensure the UpgradePromptDialog is well-designed, clearly communicates the benefits of upgrading, and appears at the moment of highest user engagement.
+    *   **Recommendation:** The 30 minutes/month and 20-minute session limits are good for encouraging upgrades. Ensure the `UpgradePromptDialog` is well-designed, clearly communicates the benefits of upgrading, and appears at the moment of highest user engagement.
 *   **Pro User (Authenticated):**
     *   **Price: $7.99/month.**
     *   **Recommendation:** This remains the core paid offering. The value proposition should be clear: "unlimited practice," "Cloud AI transcription," and the key differentiator of "on-device transcription" for enhanced privacy. The fallback to Native Browser is a good technical resilience feature.

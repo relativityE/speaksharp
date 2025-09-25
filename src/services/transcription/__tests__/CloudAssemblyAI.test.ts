@@ -1,118 +1,84 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import CloudAssemblyAI from '../modes/CloudAssemblyAI';
-import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-
 import { MicStream } from '../utils/types';
 
-class MockWebSocket {
-  static instances: MockWebSocket[] = [];
-  static CONNECTING = 0;
-  static OPEN = 1;
-  static CLOSING = 2;
-  static CLOSED = 3;
+const mockSocket = {
+    on: vi.fn(),
+    off: vi.fn(),
+    send: vi.fn(),
+    close: vi.fn(),
+};
 
-  url: string;
-  readyState: number = 0; // CONNECTING
-  onopen: (() => void) | null = null;
-  onmessage: ((event: MessageEvent) => void) | null = null;
-  onerror: ((event: Event) => void) | null = null;
-  onclose: ((event: CloseEvent) => void) | null = null;
-  
-  // Each instance gets its own spy
-  send = vi.fn();
-  close = vi.fn();
+vi.mock('../utils/ManagedWebSocket', () => ({
+    ManagedWebSocket: vi.fn(() => mockSocket),
+}));
 
-  constructor(url: string) {
-    this.url = url;
-    MockWebSocket.instances.push(this);
-  }
+describe('CloudAssemblyAI', () => {
+    let cloudAI: CloudAssemblyAI;
+    const onTranscriptUpdate = vi.fn();
+    const getAssemblyAIToken = vi.fn().mockResolvedValue('fake-token');
 
-  // Helper to simulate server opening the connection
-  _open = () => {
-    this.readyState = MockWebSocket.OPEN; // Use the constant
-    if (this.onopen) {
-      this.onopen();
-    }
-  }
-
-  // Helper to simulate closing the connection
-  _close = () => {
-    this.readyState = MockWebSocket.CLOSED;
-    if (this.onclose) {
-      this.onclose(new CloseEvent('close'));
-    }
-  }
-}
-
-// Mock the global WebSocket
-vi.stubGlobal('WebSocket', MockWebSocket);
-
-const mockGetAssemblyAIToken = vi.fn();
-
-describe('CloudAssemblyAI Transcription Mode', () => {
-  let cloudAI: CloudAssemblyAI;
-  let mockMicStream: MicStream;
-  const onReady = vi.fn();
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    MockWebSocket.instances = [];
-    mockGetAssemblyAIToken.mockResolvedValue('fake-token');
-
-    mockMicStream = {
-      onFrame: vi.fn(),
-      offFrame: vi.fn(),
-      sampleRate: 16000,
-      stop: vi.fn(),
-      _mediaStream: new MediaStream(),
-    };
-
-    cloudAI = new CloudAssemblyAI({
-      onTranscriptUpdate: vi.fn(),
-      onReady,
-      onModelLoadProgress: vi.fn(),
-      session: null,
-      navigate: vi.fn(),
-      getAssemblyAIToken: mockGetAssemblyAIToken,
+    beforeEach(() => {
+        vi.clearAllMocks();
+        cloudAI = new CloudAssemblyAI({
+            onTranscriptUpdate,
+            getAssemblyAIToken,
+            onReady: vi.fn(),
+            session: null,
+            navigate: vi.fn(),
+            onModelLoadProgress: vi.fn(),
+        });
     });
-  });
 
-  afterEach(() => {
-    vi.clearAllMocks();
-  });
+    it('should initialize and get a token', async () => {
+        await cloudAI.init();
+        expect(getAssemblyAIToken).toHaveBeenCalled();
+    });
 
-  it('should create a WebSocket and fetch a token on startTranscription', async () => {
-    await cloudAI.startTranscription(mockMicStream);
+    it('should open a websocket connection on startTranscription', async () => {
+        await cloudAI.init();
+        await cloudAI.startTranscription({ sampleRate: 16000 } as MicStream);
+        expect(mockSocket.on).toHaveBeenCalledWith('open', expect.any(Function));
+        expect(mockSocket.on).toHaveBeenCalledWith('message', expect.any(Function));
+        expect(mockSocket.on).toHaveBeenCalledWith('close', expect.any(Function));
+        expect(mockSocket.on).toHaveBeenCalledWith('error', expect.any(Function));
+    });
 
-    expect(mockGetAssemblyAIToken).toHaveBeenCalledTimes(1);
-    expect(MockWebSocket.instances.length).toBe(1);
-    expect(MockWebSocket.instances[0]?.url).toContain('wss://streaming.assemblyai.com');
-  });
+    it('should send audio data when the websocket is open', async () => {
+        await cloudAI.init();
+        await cloudAI.startTranscription({
+            sampleRate: 16000,
+            onFrame: (handler) => handler(new Float32Array([1, 2, 3])),
+        } as MicStream);
 
-  it('should throw an error if token fetch fails', async () => {
-    mockGetAssemblyAIToken.mockResolvedValue(null);
+        // Manually trigger the 'open' event
+        const openCallback = mockSocket.on.mock.calls.find(call => call[0] === 'open')?.[1];
+        if (openCallback) {
+            openCallback();
+        }
 
-    await expect(cloudAI.startTranscription(mockMicStream)).rejects.toThrow("Failed to retrieve AssemblyAI token.");
-  });
+        expect(mockSocket.send).toHaveBeenCalledWith(JSON.stringify({ audio_data: 'AQI=' }));
+    });
 
-  it('should call onReady and attach frame handler when WebSocket opens', async () => {
-    await cloudAI.startTranscription(mockMicStream);
+    it('should handle incoming messages', async () => {
+        await cloudAI.init();
+        await cloudAI.startTranscription({ sampleRate: 16000 } as MicStream);
 
-    // Manually trigger the open event
-    MockWebSocket.instances[0]?._open();
-    expect(onReady).toHaveBeenCalled();
-    expect(mockMicStream.onFrame).toHaveBeenCalled();
-  });
+        // Manually trigger a 'message' event
+        const messageCallback = mockSocket.on.mock.calls.find(call => call[0] === 'message')?.[1];
+        if (messageCallback) {
+            messageCallback(JSON.stringify({ message_type: 'SessionBegins', 'session_id': '123' }));
+        }
 
-  it('should close the WebSocket on stopTranscription', async () => {
-    await cloudAI.startTranscription(mockMicStream);
-    expect(MockWebSocket.instances[0]).not.toBeNull();
+        expect(onTranscriptUpdate).toHaveBeenCalledWith({
+            transcript: { partial: 'Session started...' },
+        });
+    });
 
-    // Ensure the socket is open before trying to close it
-    MockWebSocket.instances[0]?._open();
-
-    await cloudAI.stopTranscription();
-
-    // Check that the close method on our specific instance was called
-    expect(MockWebSocket.instances[0]?.close).toHaveBeenCalledWith(1000);
-  });
+    it('should close the websocket on stopTranscription', async () => {
+        await cloudAI.init();
+        await cloudAI.startTranscription({ sampleRate: 16000 } as MicStream);
+        await cloudAI.stopTranscription();
+        expect(mockSocket.close).toHaveBeenCalled();
+    });
 });

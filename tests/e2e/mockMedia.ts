@@ -19,7 +19,7 @@ export async function mockGetUserMedia(page: Page) {
       if (mockStream) {
         return mockStream;
       }
-      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      const AudioContext = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       const audioContext = new AudioContext();
       const oscillator = audioContext.createOscillator();
       const destination = audioContext.createMediaStreamDestination();

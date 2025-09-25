@@ -1,6 +1,5 @@
 import NativeBrowser from '../modes/NativeBrowser';
-import { vi } from 'vitest';
-import { MicStream } from '../utils/types';
+import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 // Mock the SpeechRecognition API
 const mockRecognition = {

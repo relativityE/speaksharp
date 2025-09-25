@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import { useTranscriptState } from './useTranscriptState';
 import { useFillerWords } from './useFillerWords';
 import { useTranscriptionService } from './useTranscriptionService';
-import type { UseSpeechRecognitionProps, TranscriptStats, WordConfidence } from './types';
+import type { UseSpeechRecognitionProps, TranscriptStats } from './types';
 import type { FillerCounts } from '../../utils/fillerWordUtils';
 
 export const useSpeechRecognition = (props: UseSpeechRecognitionProps = {}) => {
@@ -45,21 +45,17 @@ export const useSpeechRecognition = (props: UseSpeechRecognitionProps = {}) => {
 
   // Service options with stable callbacks
   const serviceOptions = useMemo(() => ({
-    onTranscriptUpdate: (data: any) => {
+    onTranscriptUpdate: (data: { transcript: { partial?: string; final?: string }; speaker?: string }) => {
       if (data.transcript?.partial && !data.transcript.partial.startsWith('Downloading model')) {
         transcript.setInterimTranscript(data.transcript.partial);
       }
       if (data.transcript?.final) {
-        transcript.addChunk(data.transcript.final);
+        transcript.addChunk(data.transcript.final, data.speaker);
         transcript.setInterimTranscript('');
       }
-      // Handle word confidences if needed
-      if (data.words) {
-        // Add word confidence handling if required
-      }
     },
-    onReady: () => service.setIsReady(true),
-    onModelLoadProgress: (progress: number) => {
+    onReady: () => {},
+    onModelLoadProgress: () => {
       // Add model loading progress handling if needed
     },
     profile: profile ?? null,

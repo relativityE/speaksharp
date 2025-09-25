@@ -39,8 +39,8 @@ describe('useSpeechRecognition', () => {
   };
 
   const mockUseFillerWords = {
-    fillerData: { total: 0 },
-    finalFillerData: { total: 0 },
+    fillerData: { total: { count: 0, color: '' } },
+    finalFillerData: { total: { count: 0, color: '' } },
     reset: vi.fn()
   };
 
@@ -82,7 +82,7 @@ describe('useSpeechRecognition', () => {
   it('should call sub-hooks with correct parameters', () => {
     renderHook(() => useSpeechRecognition({
       customWords: ['like', 'um'],
-      profile: { subscription_status: 'pro' } as any,
+            profile: { id: 'pro-user', subscription_status: 'pro' },
       session: null
     }), { wrapper });
 
