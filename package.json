@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --mode test",
     "setup:dev": "pnpm install && pnpm exec playwright install --with-deps",
     "build": "vite build",
     "preview": "vite preview",

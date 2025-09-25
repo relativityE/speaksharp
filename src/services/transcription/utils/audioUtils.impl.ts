@@ -63,15 +63,21 @@ export async function createMicStreamImpl(
   gainNode.gain.value = 0; // Mute the output to prevent feedback
   source.connect(node).connect(gainNode).connect(audioCtx.destination); // destination keeps graph alive
 
+  const stopAndClose = () => {
+    try {
+      source.disconnect();
+      node.disconnect();
+    } catch { /* best effort */ }
+    audioCtx.close().catch(() => { /* best effort */ });
+    mediaStream.getTracks().forEach(t => t.stop());
+  };
+
   return {
     sampleRate,
     onFrame: (cb) => listeners.add(cb),
     offFrame: (cb) => listeners.delete(cb),
-    stop: () => {
-      try { source.disconnect(); node.disconnect(); } catch { /* best effort */ }
-      audioCtx.close().catch(() => { /* best effort */ });
-      mediaStream.getTracks().forEach(t => t.stop());
-    },
+    stop: stopAndClose,
+    close: stopAndClose,
     _mediaStream: mediaStream,
   };
 }
