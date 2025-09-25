@@ -38,7 +38,7 @@ export default defineConfig({
       VITE_TEST_MODE: 'true',
       NODE_ENV: 'test',
       // Force garbage collection
-      NODE_OPTIONS: '--max-old-space-size=2048 --expose-gc'
+      NODE_OPTIONS: '--max-old-space-size=2048'
     },
     deps: {
       inline: ["@xenova/transformers"],
