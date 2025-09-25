@@ -50,7 +50,8 @@ export const useSpeechRecognition = (props: UseSpeechRecognitionProps = {}) => {
         transcript.setInterimTranscript(data.transcript.partial);
       }
       if (data.transcript?.final) {
-        transcript.addChunk(data.transcript.final);
+        const speaker = data.words?.[0]?.speaker;
+        transcript.addChunk(data.transcript.final, speaker);
         transcript.setInterimTranscript('');
       }
       // Handle word confidences if needed

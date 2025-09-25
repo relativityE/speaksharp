@@ -55,7 +55,7 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
       }
       console.log('[CloudAssemblyAI] Token received.');
 
-      const url = `wss://streaming.assemblyai.com/v3/ws?sample_rate=${mic.sampleRate}&token=${token}&format_turns=true`;
+      const url = `wss://streaming.assemblyai.com/v3/ws?sample_rate=${mic.sampleRate}&token=${token}&format_turns=true&speaker_labels=true`;
       this.socket = new WebSocket(url);
 
       this.socket.onopen = () => {

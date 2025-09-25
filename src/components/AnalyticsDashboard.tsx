@@ -10,6 +10,8 @@ import { generateSessionPdf } from '../lib/pdfGenerator';
 import { calculateOverallStats, calculateFillerWordTrends } from '../lib/analyticsUtils';
 import { formatDate, formatDateTime } from '../lib/dateUtils';
 import { FillerWordTable } from './analytics/FillerWordTable';
+import { TopFillerWords } from './analytics/TopFillerWords';
+import { AccuracyComparison } from './analytics/AccuracyComparison';
 import { supabase } from '@/lib/supabaseClient';
 import logger from '../lib/logger';
 import type { PracticeSession } from '@/types/session';
@@ -165,6 +167,9 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ sessionH
                 <StatCard icon={<Target size={24} className="text-muted-foreground" />} label="Avg. Accuracy" value={overallStats.avgAccuracy} unit="%" testId="avg-accuracy" />
             </div>
             <div className="grid grid-cols-1 gap-8 lg:grid-cols-5">
+                <div className="col-span-1 lg:col-span-5">
+                    <AccuracyComparison />
+                </div>
                 <Card className="col-span-1 lg:col-span-3">
                     <CardHeader><CardTitle>Filler Word Trend</CardTitle></CardHeader>
                     <CardContent className="pl-2">
@@ -183,9 +188,10 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ sessionH
                         )}
                     </CardContent>
                 </Card>
-                <Card className="col-span-1 lg:col-span-2">
+                <div className="col-span-1 lg:col-span-2 space-y-8">
+                    <TopFillerWords />
                     <FillerWordTable trendData={fillerWordTrends} />
-                </Card>
+                </div>
             </div>
             <Card>
                 <CardHeader><CardTitle>Session History</CardTitle></CardHeader>

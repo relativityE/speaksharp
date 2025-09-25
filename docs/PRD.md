@@ -83,7 +83,7 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Filler Word Detection** | Detects and counts common filler words (um, uh, like, etc.). | ✅ Implemented | ✅ Yes |
 | **Speaking Pace (WPM)** | Provides real-time words-per-minute analysis. | ✅ Implemented | ✅ Yes |
 | **Custom Vocabulary** | Allows users to add custom words to improve accuracy. | 🔴 Not Started | 🔴 No |
-| **Speaker Identification**| Distinguishes between multiple speakers in a transcript. | 🔴 Not Started | 🔴 No |
+| **Speaker Identification**| Distinguishes between multiple speakers in a transcript. | ✅ Implemented | ✅ Yes |
 
 #### 🚧 Should-Have
 
@@ -93,8 +93,8 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Filler Word Trend** | Analyzes the trend of filler word usage across sessions. | ✅ Implemented | ✅ Yes |
 | **Session Comparison** | Compares stats from the 4 most recent sessions. | ✅ Implemented | ✅ Yes |
 | **PDF Export** | Allows users to download a PDF report of their session. | ✅ Implemented | ✅ Yes |
-| **STT Accuracy Comparison** | Rolling average comparison of STT engine accuracy. | 🔴 Not Started | 🔴 No |
-| **Top 2 Filler Words**| Maintains the top 2 highest filler words for the most recent 4 sessions. | 🔴 Not Started | 🔴 No |
+| **STT Accuracy Comparison** | Rolling average comparison of STT engine accuracy. | 🟡 In Progress | ✅ Yes |
+| **Top 2 Filler Words**| Maintains the top 2 highest filler words for the most recent 4 sessions. | ✅ Implemented | ✅ Yes |
 
 #### 🌱 Could-Have
 
