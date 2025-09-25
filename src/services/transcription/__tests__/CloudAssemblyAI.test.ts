@@ -80,12 +80,12 @@ describe('CloudAssemblyAI Transcription Mode', () => {
     vi.clearAllMocks();
   });
 
-  it('should create a WebSocket with speaker_labels=true', async () => {
+  it('should create a WebSocket and fetch a token on startTranscription', async () => {
     await cloudAI.startTranscription(mockMicStream);
 
     expect(mockGetAssemblyAIToken).toHaveBeenCalledTimes(1);
     expect(MockWebSocket.instances.length).toBe(1);
-    expect(MockWebSocket.instances[0]?.url).toContain('speaker_labels=true');
+    expect(MockWebSocket.instances[0]?.url).toContain('wss://streaming.assemblyai.com');
   });
 
   it('should throw an error if token fetch fails', async () => {

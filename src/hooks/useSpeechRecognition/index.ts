@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from 'react';
+import { useCallback } from 'react';
 import { useAuth } from '../../contexts/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import { useTranscriptState } from './useTranscriptState';
 import { useFillerWords } from './useFillerWords';
 import { useTranscriptionService } from './useTranscriptionService';
-import type { UseSpeechRecognitionProps, TranscriptStats, WordConfidence } from './types';
+import type { UseSpeechRecognitionProps, TranscriptStats } from './types';
 import type { FillerCounts } from '../../utils/fillerWordUtils';
 
 export const useSpeechRecognition = (props: UseSpeechRecognitionProps = {}) => {
@@ -43,33 +43,24 @@ export const useSpeechRecognition = (props: UseSpeechRecognitionProps = {}) => {
     }
   }, [authSession]);
 
-  // Service options with stable callbacks
-  const serviceOptions = useMemo(() => ({
-    onTranscriptUpdate: (data: any) => {
+  const service = useTranscriptionService({
+    onTranscriptUpdate: (data: { transcript: { partial?: string; final?: string } }) => {
       if (data.transcript?.partial && !data.transcript.partial.startsWith('Downloading model')) {
         transcript.setInterimTranscript(data.transcript.partial);
       }
       if (data.transcript?.final) {
-        const speaker = data.words?.[0]?.speaker;
-        transcript.addChunk(data.transcript.final, speaker);
+        transcript.addChunk(data.transcript.final);
         transcript.setInterimTranscript('');
       }
-      // Handle word confidences if needed
-      if (data.words) {
-        // Add word confidence handling if required
-      }
     },
-    onReady: () => service.setIsReady(true),
-    onModelLoadProgress: (progress: number) => {
-      // Add model loading progress handling if needed
-    },
+    onReady: () => {},
+    onModelLoadProgress: () => {},
     profile: profile ?? null,
     session: session ?? null,
     navigate,
     getAssemblyAIToken,
-  }), [transcript, profile, session, navigate, getAssemblyAIToken]);
+  });
 
-  const service = useTranscriptionService(serviceOptions);
 
   // Composed reset function
   const reset = useCallback(() => {

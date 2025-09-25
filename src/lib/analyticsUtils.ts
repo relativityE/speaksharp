@@ -149,25 +149,3 @@ export const calculateFillerWordTrends = (sessions: PracticeSession[]): FillerWo
 
     return trendData;
 };
-
-export const calculateTopFillerWords = (history: PracticeSession[]): string[] => {
-    if (!history || history.length === 0) {
-        return [];
-    }
-
-    const recentSessions = history.slice(0, 4);
-    const allFillerCounts: { [key: string]: number } = recentSessions.reduce((acc: { [key: string]: number }, session) => {
-        const fillerData = session.filler_words || {};
-        for (const word in fillerData) {
-            acc[word] = (acc[word] || 0) + (fillerData[word].count || 0);
-        }
-        return acc;
-    }, {});
-
-    const topFillerWords = Object.entries(allFillerCounts)
-        .sort(([, a], [, b]) => b - a)
-        .slice(0, 2)
-        .map(([name]) => name);
-
-    return topFillerWords;
-};

@@ -80,22 +80,4 @@ describe('TranscriptPanel', () => {
         );
         expect(screen.getByText('Listening...')).toBeInTheDocument();
     });
-
-    it('renders speaker labels when provided', () => {
-        const chunksWithSpeakers = [
-            { text: 'Hello', id: 1, speaker: 'A' },
-            { text: 'Hi there', id: 2, speaker: 'B' },
-        ];
-        render(
-            <TranscriptPanel
-                chunks={chunksWithSpeakers}
-                interimTranscript=""
-                fillerData={{}}
-                isListening={true}
-                isReady={true}
-            />
-        );
-        expect(screen.getByText('Speaker A:')).toBeInTheDocument();
-        expect(screen.getByText('Speaker B:')).toBeInTheDocument();
-    });
 });

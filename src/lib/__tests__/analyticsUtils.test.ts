@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { calculateOverallStats, calculateFillerWordTrends, calculateTopFillerWords } from '../analyticsUtils';
+import { calculateOverallStats, calculateFillerWordTrends } from '../analyticsUtils';
 import { FILLER_WORD_KEYS } from '../../config';
 import type { PracticeSession } from '../../types/session';
 
@@ -216,33 +216,6 @@ describe('analyticsUtils', () => {
         }];
         const redTrends = calculateFillerWordTrends(redSession);
         expect(redTrends.um[0].severity).toBe('red');
-    });
-  });
-
-  describe('calculateTopFillerWords', () => {
-    it('should return an empty array for empty history', () => {
-      const topWords = calculateTopFillerWords([]);
-      expect(topWords).toEqual([]);
-    });
-
-    it('should return the top 2 filler words from the last 4 sessions', () => {
-      const topWords = calculateTopFillerWords(mockSessions);
-      expect(topWords).toEqual(['um', 'you know']);
-    });
-
-    it('should handle less than 4 sessions', () => {
-      const lessThanFourSessions = mockSessions.slice(0, 2);
-      const topWords = calculateTopFillerWords(lessThanFourSessions);
-      expect(topWords).toEqual(['you know', 'so']);
-    });
-
-    it('should handle sessions with no filler words', () => {
-      const noFillerWordsSessions: PracticeSession[] = [
-        { id: '1', created_at: '2023-01-01T00:00:00Z', user_id: '1', duration: 60, filler_words: {} },
-        { id: '2', created_at: '2023-01-02T00:00:00Z', user_id: '1', duration: 60, filler_words: {} },
-      ];
-      const topWords = calculateTopFillerWords(noFillerWordsSessions);
-      expect(topWords).toEqual([]);
     });
   });
 });

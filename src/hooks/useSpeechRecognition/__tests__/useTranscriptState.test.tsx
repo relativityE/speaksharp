@@ -63,15 +63,4 @@ describe('useTranscriptState', () => {
     expect(result.current.interimTranscript).toBe('');
     expect(result.current.transcript).toBe('');
   });
-
-  it('should add chunks with speaker data', () => {
-    const { result } = renderHook(() => useTranscriptState());
-
-    act(() => {
-      result.current.addChunk('Hello', 'A');
-    });
-
-    expect(result.current.finalChunks).toHaveLength(1);
-    expect(result.current.finalChunks[0].speaker).toBe('A');
-  });
 });
