@@ -17,13 +17,12 @@ const mockSocketInstance = {
 };
 
 // The mock WebSocket constructor returns our controllable instance
-const MockWebSocket = vi.fn(() => mockSocketInstance);
-
-// The code under test uses these static properties, so they must be on the mock
-MockWebSocket.CONNECTING = 0;
-MockWebSocket.OPEN = 1;
-MockWebSocket.CLOSING = 2;
-MockWebSocket.CLOSED = 3;
+const MockWebSocket = Object.assign(vi.fn(() => mockSocketInstance), {
+  CONNECTING: 0,
+  OPEN: 1,
+  CLOSING: 2,
+  CLOSED: 3,
+});
 
 describe('CloudAssemblyAI', () => {
   let cloudAI: CloudAssemblyAI;
@@ -38,7 +37,6 @@ describe('CloudAssemblyAI', () => {
     // Reset all mocks before each test
     vi.clearAllMocks();
     getAssemblyAIToken.mockResolvedValue('fake-token');
-
     // Reset the mock socket instance state for a clean slate
     Object.assign(mockSocketInstance, {
       send: vi.fn(),
@@ -75,7 +73,6 @@ describe('CloudAssemblyAI', () => {
   it('should get a token and open a websocket on startTranscription', async () => {
     const micStream = createMockMicStream();
     const startPromise = cloudAI.startTranscription(micStream);
-
     await vi.advanceTimersByTimeAsync(0); // Allow promises like getAssemblyAIToken to resolve
 
     expect(getAssemblyAIToken).toHaveBeenCalled();
@@ -127,7 +124,6 @@ describe('CloudAssemblyAI', () => {
     const micStream = createMockMicStream();
     cloudAI.startTranscription(micStream);
     await vi.advanceTimersByTimeAsync(0);
-
     const messageEvent = { data: JSON.stringify({ transcript: 'hello world', turn_is_formatted: true, end_of_turn: true, words: [] }) };
     mockSocketInstance.onmessage(messageEvent as MessageEvent);
 
