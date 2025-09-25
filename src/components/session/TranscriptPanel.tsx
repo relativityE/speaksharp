@@ -8,6 +8,7 @@ import type { FillerCounts } from '@/utils/fillerWordUtils';
 interface Chunk {
   id: number;
   text: string;
+    speaker?: string;
 }
 
 interface ChunkProps {
@@ -78,6 +79,7 @@ const HighlightedTranscript: React.FC<HighlightedTranscriptProps> = ({ chunks, i
         <p className="text-lg leading-relaxed text-foreground" data-testid="transcript-container">
             {chunks.map((chunk, index) => (
                 <React.Fragment key={chunk.id}>
+                {chunk.speaker && <strong className="mr-2 text-primary">{`Speaker ${chunk.speaker}:`}</strong>}
                     <MemoizedChunk chunk={chunk.text} fillerData={fillerData} />
                     {index < chunks.length - 1 && ' '}
                 </React.Fragment>

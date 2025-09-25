@@ -82,7 +82,7 @@ describe('useSpeechRecognition', () => {
   it('should call sub-hooks with correct parameters', () => {
     renderHook(() => useSpeechRecognition({
       customWords: ['like', 'um'],
-      profile: { id: 'pro-user', subscription_status: 'pro' },
+            profile: { id: 'pro-user', subscription_status: 'pro' },
       session: null
     }), { wrapper });
 

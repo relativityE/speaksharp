@@ -7,14 +7,11 @@
 * ⏱️ **7-Minute Timeout Constraint**
   Every script or command must complete within 7 minutes. If longer, split the work into multiple runs.
 
-* ✅ **Use the Local Audit Script**
-  The `./test-audit.sh` script is designed for local validation. It runs a fail-fast sequence of checks (lint, type-check, unit tests) to provide quick feedback.
+* ❌ **Avoidance of CI Scripts**
+  The script `./ci-run-all.sh` is **forbidden** in this environment due to timeout risk.
 
-* ❌ **Do Not Run the Full CI Pipeline Locally**
-  The full CI pipeline is defined in `.github/workflows/ci.yml` and is designed to run in a parallel, distributed environment. Do not attempt to run the entire workflow locally.
-
-* ⚠️ **`pnpm lint` Timeout**
-  The `pnpm lint` command is known to be slow and may time out in this environment. If you encounter a timeout, you may need to temporarily modify the `./test-audit.sh` script to bypass this step.
+  * Instead, use the new local audit script: `./test-audit.sh`. This script is designed to run quickly and provide fast feedback.
+  * Do not attempt to run the full CI pipeline locally.
 
 * ⚠️ **Recovery Script Warning**
   `./vm-recovery.sh` may reset or alter the dev environment.
@@ -37,11 +34,15 @@ Think like a **senior engineer**: safe, evidence-based, and long-term decisions.
 
 You must complete all items **before any commit/PR**:
 
-1. **Run Local Audit Script**
+1. **Lint & Type Check**
 
-   * Run `./test-audit.sh`.
-   * This script will run linting, type-checking, and core unit tests in a fail-fast sequence.
-   * All errors must be resolved.
+   * Run `pnpm lint:fix` and `pnpm type-check`.
+   * All errors and warnings must be resolved.
+
+2. **Run Tests**
+
+   * Run `pnpm test:unit` and targeted E2E tests.
+   * Do **not** run `./ci-run-all.sh` in this environment.
 
 3. **Documentation**
 

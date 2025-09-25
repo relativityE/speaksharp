@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useMemo, useCallback } from 'react';
 import { useAuth } from '../../contexts/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
@@ -43,24 +43,28 @@ export const useSpeechRecognition = (props: UseSpeechRecognitionProps = {}) => {
     }
   }, [authSession]);
 
-  const service = useTranscriptionService({
-    onTranscriptUpdate: (data: { transcript: { partial?: string; final?: string } }) => {
+  // Service options with stable callbacks
+  const serviceOptions = useMemo(() => ({
+    onTranscriptUpdate: (data: { transcript: { partial?: string; final?: string }; speaker?: string }) => {
       if (data.transcript?.partial && !data.transcript.partial.startsWith('Downloading model')) {
         transcript.setInterimTranscript(data.transcript.partial);
       }
       if (data.transcript?.final) {
-        transcript.addChunk(data.transcript.final);
+        transcript.addChunk(data.transcript.final, data.speaker);
         transcript.setInterimTranscript('');
       }
     },
     onReady: () => {},
-    onModelLoadProgress: () => {},
+    onModelLoadProgress: () => {
+      // Add model loading progress handling if needed
+    },
     profile: profile ?? null,
     session: session ?? null,
     navigate,
     getAssemblyAIToken,
-  });
+  }), [transcript, profile, session, navigate, getAssemblyAIToken]);
 
+  const service = useTranscriptionService(serviceOptions);
 
   // Composed reset function
   const reset = useCallback(() => {

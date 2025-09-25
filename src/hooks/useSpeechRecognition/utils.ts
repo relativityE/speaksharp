@@ -10,7 +10,8 @@ export const createFullTranscript = (chunks: Chunk[], interim: string): string =
 export const generateChunkId = (): number =>
   Date.now() + Math.random();
 
-export const createChunk = (text: string): Chunk => ({
+export const createChunk = (text: string, speaker?: string): Chunk => ({
   text,
+  speaker,
   id: generateChunkId()
 });

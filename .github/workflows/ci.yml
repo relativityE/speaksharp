@@ -1,10 +1,10 @@
-name: SpeakSharp CI
+name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   fast-feedback:
@@ -14,38 +14,14 @@ jobs:
       - uses: pnpm/action-setup@v2
         with:
           version: 8
-      - name: Setup Node.js
+      - name: Use Node.js 18
         uses: actions/setup-node@v3
         with:
-          node-version: '18'
+          node-version: 18
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install
-
-      - name: Lint & Type Check
-        run: pnpm lint && pnpm type-check
-
-      - name: Unit Tests
-        run: pnpm test:unit
-
-  parallel-e2e:
-    needs: fast-feedback
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1/2, 2/2]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: pnpm/action-setup@v2
-        with:
-          version: 8
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
-          cache: 'pnpm'
+        run: pnpm install --frozen-lockfile
 
       - name: Cache Playwright browsers
         uses: actions/cache@v3
@@ -55,14 +31,50 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-playwright-
 
+      - name: Install Playwright Browsers
+        run: pnpm exec playwright install --with-deps
+
+      - name: Lint & Type Check
+        run: |
+          pnpm lint
+          pnpm typecheck
+
+      - name: Run Core Unit Tests
+        run: pnpm test:unit:core
+
+  parallel-e2e:
+    needs: fast-feedback
+    strategy:
+      matrix:
+        shard: [1, 2]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      - name: Use Node.js 18
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: 'pnpm'
+
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/ms-playwright/
+          key: ${{ runner.os }}-playwright-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
 
       - name: Install Playwright Browsers
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps
 
       - name: Run E2E Shard
-        run: pnpm exec playwright test --shard=${{ matrix.shard }}
+        run: pnpm test:e2e:shard ${{ matrix.shard }}
 
   visual-regression:
     needs: fast-feedback
@@ -72,11 +84,14 @@ jobs:
       - uses: pnpm/action-setup@v2
         with:
           version: 8
-      - name: Setup Node.js
+      - name: Use Node.js 18
         uses: actions/setup-node@v3
         with:
-          node-version: '18'
+          node-version: 18
           cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Cache Playwright browsers
         uses: actions/cache@v3
@@ -86,11 +101,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-playwright-
 
-      - name: Install dependencies
-        run: pnpm install
-
       - name: Install Playwright Browsers
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps
 
-      - name: Screenshot Tests
+      - name: Run Screenshot Tests
         run: pnpm test:screenshots

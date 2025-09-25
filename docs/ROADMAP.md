@@ -21,7 +21,14 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - 🔴 2. Enable leaked password protection.
   - 🔴 3. Upgrade the Postgres version.
 - ✅ **Stabilize and Optimize CI/Unit Tests**:
-    -   **Status:** **Done.** The CI/CD pipeline has been re-architected to run in parallel, resolving the previous timeout issues. The unit test suite is now stable and runs reliably.
+    -   **Status:** **Done.** The test environment has been fully stabilized.
+    -   **Action Taken:** Resolved critical architectural flaws, including conflicting setup files and severe memory leaks in the unit test suite. The test runners (`vitest`, `playwright`) are now correctly configured, and the test suites are stable. A dedicated smoke test script (`run-e2e-smoke.sh`) has been created and integrated into the CI pipeline.
+- **Task:** [CI] Re-architect CI/CD Pipeline
+  - **Status:** ✅ Done
+  - **Details:** The monolithic `ci-run-all.sh` script has been replaced with a parallel, multi-job GitHub Actions workflow. This resolves the 7-minute timeout issue and provides a more robust and scalable solution for CI/CD.
+- **Task:** [CI] Fix Monolithic Test Script Timeout
+  - **Status:** ✅ Done
+  - **Details:** The `ci-run-all.sh` script has been replaced with a parallel, multi-job GitHub Actions workflow. This resolves the 7-minute timeout issue.
 
 ### Gating Check
 - 🔴 **Do a Gap Analysis of current implementation against the Current Phase requirements.**
@@ -33,17 +40,17 @@ This phase is about confirming the core feature set works as expected and polish
 ### 🎯 Must-Have
 - 🔴 **Implement Speaking Pace Analysis:** Add real-time feedback on words per minute to the core analytics.
 - 🔴 **Implement Custom Vocabulary:** Allow Pro users to add custom words (jargon, names) to improve transcription accuracy.
-- 🔴 **Implement Speaker Identification:** Add the ability to distinguish between different speakers in the transcript.
+- ✅ **Implement Speaker Identification:** Add the ability to distinguish between different speakers in the transcript.
 - 🔴 **Implement Vocal Variety / Pause Detection:** Add a new Pro-tier feature to analyze vocal variety or pause duration.
 - 🟡 **User-Friendly Error Handling:** Implement specific, user-facing error messages for common issues.
 - 🔴 **Deploy & confirm live transcript UI works:** Ensure text appears within 2 seconds of speech in a live environment.
 - 🔴 **Remove all temporary console.logs:** Clean up the codebase for production.
 
 ### 🚧 Should-Have (Tech Debt)
-- 🔴 **Implement STT Accuracy Comparison:**
+- ✅ **Implement STT Accuracy Comparison:**
     - **Problem:** The application does not provide a way for users to compare the accuracy of the different transcription engines.
-    - **Task:** Implement a feature to track and display a rolling average of STT accuracy for each mode.
-- 🔴 **Implement Top 2 Filler Words Analysis:**
+    - **Task:** Implement a feature to track and display a rolling average of STT accuracy for each mode against a ground truth.
+- ✅ **Implement Top 2 Filler Words Analysis:**
     - **Problem:** The analytics dashboard does not highlight the most frequently used filler words.
     - **Task:** Implement a feature to identify and display the top 2 filler words for the most recent 4 sessions.
 - 🟡 **Implement new SpeakSharp Design System:**

@@ -5,7 +5,7 @@
 
 # SpeakSharp System Architecture
 
-**Version 3.1** | **Last Updated: 2025-09-19**
+**Version 3.2** | **Last Updated: 2025-09-25**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -39,7 +39,8 @@ This section contains a high-level block diagram of the SpeakSharp full-stack ar
 |    |     - `useTranscriptState`      |       |---------------------------------|       |       (Payments)        |  |
 |    |     - `useFillerWords`          |       | - `users`, `sessions`           |<----->| (via webhooks)          |  |
 |    |     - `useTranscriptionService` |       | - `transcripts`, `usage`        |       +-------------------------+  |
-|    | - `src/lib` (Utils)             |       +---------------------------------+                 ^                |
+|    |   - `useAnalytics`              |       | - `ground_truth` in sessions    |                 ^                |
+|    | - `src/lib` (Utils)             |       +---------------------------------+                 |                |
 |    |   - `pdfGenerator`              |<----->| - `users`, `sessions`           |<----->| (via webhooks)          |  |
 |    +---------------------------------+       | - `transcripts`, `usage`        |       +-------------------------+  |
 |              |         |                      +---------------------------------+                 ^                |
@@ -187,50 +188,40 @@ Another key lesson was the importance of ensuring all necessary binaries are pre
 
 ### CI/CD Test Execution Workflow
 
-To combat the ~7-minute execution timeout in the CI environment, the testing process has been re-architected to run as a parallel, distributed pipeline. This approach, defined in `.github/workflows/ci.yml`, replaces the previous monolithic `ci-run-all.sh` script and ensures that the entire test suite can complete well within the time limit.
+The CI/CD pipeline has been re-architected to be a parallel, dependency-aware pipeline orchestrated by GitHub Actions. This new architecture replaces the previous monolithic script (`ci-run-all.sh`) and is defined in `.github/workflows/ci.yml`.
 
-The following diagram illustrates the new parallel workflow:
+The new pipeline consists of three jobs:
+
+1.  `fast-feedback`: Runs linting, type-checking, and core unit tests. This job provides quick feedback to the developer.
+2.  `parallel-e2e`: Runs the E2E test suite, sharded across two runners. This job runs in parallel with the `visual-regression` job.
+3.  `visual-regression`: Runs screenshot tests. This job runs in parallel with the `parallel-e2e` job.
+
+This new architecture significantly reduces the pipeline execution time and provides a more robust and scalable solution for CI/CD.
+
+### CI/CD Pipeline Diagram
 
 ```
-                      ┌───────────────────────┐
-                      │      CI Trigger       │
-                      │ (Push or Pull Request)│
-                      └─────────┬─────────────┘
-                                │
-                                ▼
-                      ┌───────────────────────┐
-                      │     fast-feedback     │
-                      │ (Lint, Type-Check,    │
-                      │      Unit Tests)      │
-                      └─────────┬─────────────┘
-                                │
-           ┌────────────────────┼────────────────────┐
-           │                    │                    │
-           ▼                    ▼                    ▼
-┌───────────────────┐  ┌───────────────────┐  ┌───────────────────┐
-│  parallel-e2e     │  │  parallel-e2e     │  │ visual-regression │
-│  (Shard 1/2)      │  │  (Shard 2/2)      │  │(Screenshot Tests) │
-└───────────────────┘  └───────────────────┘  └───────────────────┘
++---------------------+
+|   Push to main      |
++---------------------+
+          |
+          v
++---------------------+
+|   fast-feedback     |
+| (Lint, Type-check,  |
+|  Core Unit Tests)   |
++---------------------+
+          |
+          v
++---------------------+      +---------------------+
+|   parallel-e2e      |----->|  visual-regression  |
+| (E2E Shards 1 & 2)  |      | (Screenshot Tests)  |
++---------------------+      +---------------------+
 ```
 
-The new CI pipeline consists of three main stages that run in parallel:
+### Containerized Test Environment
 
-1.  **`fast-feedback`**: This job runs linting, type-checking, and a core set of unit tests (`test:unit:core`). These checks provide the quickest feedback on code quality and correctness and typically complete in under two minutes.
-
-2.  **`parallel-e2e`**: This job runs after the `fast-feedback` job completes successfully. It is sharded across multiple runners (currently 2) to split the E2E test suite and run it in parallel. This allows the full E2E suite to be run without hitting the timeout.
-
-3.  **`visual-regression`**: This job also runs after `fast-feedback` and is responsible for running screenshot tests.
-
-This parallel architecture provides the following benefits:
-*   **Speed:** The total CI run time is now determined by the longest-running parallel job, not the sum of all jobs.
-*   **Fail-Fast:** Failures in the `fast-feedback` job are reported quickly, preventing the costly E2E suite from running unnecessarily.
-*   **Scalability:** The number of E2E shards can be easily increased as the test suite grows, ensuring the pipeline remains fast and efficient.
-
-For local development, the `./test-audit.sh` script provides a comprehensive, fail-fast testing sequence that mirrors the logic of the CI pipeline.
-
-**Known Limitation: Containerized Test Environment**
-
-The expert analysis proposed a containerized test environment using Docker. However, the CI environment does not have a running Docker daemon that is accessible to the user. Therefore, this part of the proposed architecture cannot be implemented at this time.
+The proposed containerized test environment is not currently viable due to a lack of Docker daemon access in the CI environment. This is a known limitation and will be addressed in a future iteration.
 
 ### Agent Execution Environment
 
@@ -261,10 +252,11 @@ The frontend is a single-page application (SPA) built with React and Vite.
     *   **`AuthContext`:** The primary source for authentication state. It provides the Supabase `session` object, the `user` object, and the user's `profile` data.
     *   **`SessionContext`:** Manages the collection of a user's practice sessions (`sessionHistory`).
     *   **`useSessionManager`:** A custom hook that encapsulates the logic for saving, deleting, and exporting sessions. The anonymous user flow is now stable.
+    *   **`useAnalytics`:** A custom hook that fetches and processes analytics data from the Supabase database.
 *   **Routing:** Client-side routing is handled by `react-router-dom`, with protected routes implemented to secure sensitive user pages.
 *   **Logging:** The application uses `pino` for structured logging.
 *   **PDF Generation:** Session reports can be exported as PDF documents using the `jspdf` and `jspdf-autotable` libraries. The `pdfGenerator.ts` utility encapsulates the logic for creating these reports.
-*   **Analytics Components:** The frontend includes several components for displaying analytics, such as `FillerWordTable`, `FillerWordTrend`, and `SessionComparison`.
+*   **Analytics Components:** The frontend includes several components for displaying analytics, such as `FillerWordTable`, `FillerWordTrend`, `SessionComparison`, `TopFillerWords`, and `AccuracyComparison`.
 *   **AI-Powered Suggestions:** The `AISuggestions` component provides users with feedback on their speech.
 *   **Image Processing:** The application uses `Jimp` for image processing tasks, such as resizing user-uploaded images. The `processImage.ts` utility provides a convenient wrapper for this functionality.
 
@@ -330,6 +322,14 @@ The `LocalWhisper` provider uses the [`@xenova/transformers.js`](https://github.
     *   **Performance:** On-device has a one-time initial download cost. After caching, it is very fast. Cloud AI has a constant network latency for streaming audio and receiving transcripts.
     *   **Cost:** On-device has no per-use cost. Cloud AI has a direct cost per minute of transcribed audio.
     *   **Availability:** On-device mode is highly available. It works offline after the initial model download (from either the Hub or the local fallback). A failure of the Hugging Face Hub will not prevent the feature from working, as the local fallback will be used.
+
+### Speaker Identification
+
+Speaker identification (or diarization) is handled by the AssemblyAI API. When the `speaker_labels` parameter is set to `true` in the transcription request, the API will return a `speaker` property for each utterance in the transcript. This allows the frontend to display who said what.
+
+### STT Accuracy Comparison
+
+The STT accuracy comparison feature calculates the Word Error Rate (WER) of each transcription engine against a "ground truth" transcript. The ground truth is a manually transcribed version of the audio that is stored in the `practice_sessions` table. The WER is then used to calculate an accuracy percentage, which is displayed in the analytics dashboard. This provides users with a clear understanding of how each STT engine performs.
 
 ## 7. CI/CD
 

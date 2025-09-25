@@ -4,6 +4,7 @@ import type { UserProfile } from '../../types/user';
 export interface Chunk {
   text: string;
   id: number;
+  speaker?: string;
 }
 
 export interface WordConfidence {

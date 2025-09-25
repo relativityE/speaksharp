@@ -17,13 +17,13 @@ describe('useFillerWords', () => {
       total: { count: 0, color: '' },
       um: { count: 0, color: '' },
       uh: { count: 0, color: '' },
-      like: { count: 0, color: '' }
+      like: { count: 0, color: '' },
     };
     const mockCounts = {
       total: { count: 2, color: '' },
       um: { count: 1, color: '' },
       uh: { count: 1, color: '' },
-      like: { count: 0, color: '' }
+      like: { count: 0, color: '' },
     };
     vi.mocked(fillerWordUtils.createInitialFillerData).mockReturnValue(mockFillerData);
     vi.mocked(fillerWordUtils.countFillerWords).mockReturnValue(mockCounts);
