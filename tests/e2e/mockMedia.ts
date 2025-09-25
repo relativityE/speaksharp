@@ -13,7 +13,6 @@ export async function mockGetUserMedia(page: Page) {
   await page.addInitScript(() => {
     // A mock MediaStream to return.
     let mockStream: MediaStream | null = null;
-
     // A helper to create a silent, fake audio stream.
     const createFakeStream = (): MediaStream => {
       if (mockStream) {
