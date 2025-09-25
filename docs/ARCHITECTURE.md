@@ -36,7 +36,10 @@ This section contains a high-level block diagram of the SpeakSharp full-stack ar
 |    | - `src/hooks` (Logic)           |                   v                                       |                |
 |    |   - `useSessionManager`         |       +---------------------------------+       +-------------------------+  |
 |    |   - `useSpeechRecognition`      |       |    Supabase DB (Postgres)       |       |        Stripe           |  |
-|    | - `src/lib` (Utils)             |       |---------------------------------|       |       (Payments)        |  |
+|    |     - `useTranscriptState`      |       |---------------------------------|       |       (Payments)        |  |
+|    |     - `useFillerWords`          |       | - `users`, `sessions`           |<----->| (via webhooks)          |  |
+|    |     - `useTranscriptionService` |       | - `transcripts`, `usage`        |       +-------------------------+  |
+|    | - `src/lib` (Utils)             |       +---------------------------------+                 ^                |
 |    |   - `pdfGenerator`              |<----->| - `users`, `sessions`           |<----->| (via webhooks)          |  |
 |    +---------------------------------+       | - `transcripts`, `usage`        |       +-------------------------+  |
 |              |         |                      +---------------------------------+                 ^                |

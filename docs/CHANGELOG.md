@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CI Pipeline Instability:** The main CI script (`./ci-run-all.sh`) is currently unstable and consistently fails due to a 7-minute timeout in the execution environment. This affects long-running steps like linting and type-checking, preventing the full test suite from completing automatically. This is a pre-existing environment issue that needs to be addressed separately.
 
 ### Fixed
+- **Hook Architecture & Performance:** Refactored the monolithic `useSpeechRecognition` hook to resolve critical performance issues, including memory exhaustion and infinite re-renders. The hook is now decomposed into smaller, single-responsibility hooks (`useTranscriptState`, `useFillerWords`, `useTranscriptionService`), making it more testable, maintainable, and performant. This also included creating a comprehensive new test suite that passes reliably.
 - **Performance:** Fixed a major performance issue on the session page where the entire page would re-render every second during an active session. Refactored the timer logic to isolate updates and prevent unnecessary renders.
 - **Test Environment Architecture:** Resolved critical architectural flaws that caused the entire test suite to be unstable. This included:
   - **Conflicting Setups:** Consolidated multiple, conflicting `global-setup.ts` files into a clear, purpose-driven structure (`unit-global-setup.ts`, `e2e-global-setup.ts`).
