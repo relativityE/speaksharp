@@ -10,11 +10,15 @@ To get started with SpeakSharp, you'll need to have Node.js and pnpm installed.
     ```bash
     git clone https://github.com/relativityE/speaksharp.git
     ```
-2.  **Install dependencies:**
+2.  **Change into the directory:**
+    ```bash
+    cd speaksharp
+    ```
+3.  **Install dependencies:**
     ```bash
     pnpm install
     ```
-3.  **Run the development server:**
+4.  **Run the development server:**
     ```bash
     pnpm dev
     ```
