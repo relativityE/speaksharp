@@ -37,7 +37,6 @@ describe('CloudAssemblyAI', () => {
     // Reset all mocks before each test
     vi.clearAllMocks();
     getAssemblyAIToken.mockResolvedValue('fake-token');
-
     // Reset the mock socket instance state for a clean slate
     Object.assign(mockSocketInstance, {
       send: vi.fn(),
