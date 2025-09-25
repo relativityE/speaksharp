@@ -73,6 +73,7 @@ describe('CloudAssemblyAI', () => {
   it('should get a token and open a websocket on startTranscription', async () => {
     const micStream = createMockMicStream();
     const startPromise = cloudAI.startTranscription(micStream);
+
     await vi.advanceTimersByTimeAsync(0); // Allow promises like getAssemblyAIToken to resolve
 
     expect(getAssemblyAIToken).toHaveBeenCalled();
@@ -124,6 +125,7 @@ describe('CloudAssemblyAI', () => {
     const micStream = createMockMicStream();
     cloudAI.startTranscription(micStream);
     await vi.advanceTimersByTimeAsync(0);
+
     const messageEvent = { data: JSON.stringify({ transcript: 'hello world', turn_is_formatted: true, end_of_turn: true, words: [] }) };
     mockSocketInstance.onmessage(messageEvent as MessageEvent);
 
