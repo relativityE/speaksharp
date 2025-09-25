@@ -14,20 +14,27 @@ export async function mockGetUserMedia(page: Page) {
     // A mock MediaStream to return.
     let mockStream: MediaStream | null = null;
 
+    // Define a type for the window object that includes the webkit-prefixed AudioContext.
+    type PatchedWindow = {
+      AudioContext: typeof AudioContext;
+      webkitAudioContext: typeof AudioContext;
+    };
+
     // A helper to create a silent, fake audio stream.
-    const createFakeStream = () => {
+    const createFakeStream = (): MediaStream => {
       if (mockStream) {
         return mockStream;
       }
-      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-      const audioContext = new AudioContext();
+      const TheAudioContext = (window as unknown as PatchedWindow).AudioContext || (window as unknown as PatchedWindow).webkitAudioContext;
+      const audioContext = new TheAudioContext();
       const oscillator = audioContext.createOscillator();
       const destination = audioContext.createMediaStreamDestination();
       oscillator.connect(destination);
       oscillator.start();
-      mockStream = destination.stream;
+      const newStream = destination.stream;
+
       // Add a 'stop' method to the tracks to mimic a real MediaStreamTrack
-      mockStream.getTracks().forEach(track => {
+      newStream.getTracks().forEach((track: MediaStreamTrack) => {
         const originalStop = track.stop.bind(track);
         track.stop = () => {
           originalStop();
@@ -36,6 +43,7 @@ export async function mockGetUserMedia(page: Page) {
           audioContext.close();
         };
       });
+      mockStream = newStream;
       return mockStream;
     };
 
@@ -46,7 +54,8 @@ export async function mockGetUserMedia(page: Page) {
       navigator.mediaDevices.getUserMedia = async (constraints?: MediaStreamConstraints): Promise<MediaStream> => {
         // If audio is requested, return our fake stream.
         if (constraints?.audio) {
-          return Promise.resolve(createFakeStream());
+          const stream = createFakeStream();
+          return Promise.resolve(stream);
         }
         // If video or other constraints are requested, fall back to the original function.
         // This makes the mock more robust for other potential uses.

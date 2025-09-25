@@ -120,14 +120,9 @@ This section provides a granular breakdown of user-facing features, grouped by p
 
 This section tracks high-level product risks and constraints. For a detailed history of resolved issues, see the [Changelog](./CHANGELOG.md). For a detailed technical debt and task breakdown, see the [Roadmap](./ROADMAP.md).
 
-*   **[MITIGATED] CI Environment Instability:** The stability of the test environment has been significantly improved by fixing architectural flaws and memory leaks. The CI pipeline is now more resilient, but the underlying platform constraints (e.g., 7-minute timeouts) still require careful management of long-running tasks.
+*   **[FIXED] CI Environment Instability:** The CI/CD pipeline has been re-architected to run in parallel, which has resolved the 7-minute timeout issues. The new pipeline is defined in `.github/workflows/ci.yml`.
 
-*   **[MITIGATED] E2E Test Suite Timeout:** While the full E2E suite still exceeds the CI timeout, a `run-e2e-smoke.sh` script has been integrated into the CI pipeline. This runs a small subset of critical tests to provide a fast feedback loop on environment stability.
-
-*   **[FIXED] Failing Unit Test:** The failing unit test in `src/services/transcription/__tests__/CloudAssemblyAI.test.ts` has been resolved. The mock implementation was corrected to ensure the `close` method is called as expected.
-
-*   **[ACTIVE] CI Script Timeout:** The `ci-run-all.sh` script, which orchestrates the entire CI pipeline, is known to time out in the current execution environment. This is a platform limitation and not a flaw in the script itself.
-    *   **Workaround:** Individual test scripts (`run-lint.sh`, `run-unit-tests.sh`, etc.) should be run directly to bypass the orchestrator.
+*   **[ACTIVE] `pnpm lint` Command Timeout:** The `pnpm lint` command is known to be slow and may time out in some environments. This is a known issue that is being tracked.
 
 ---
 
@@ -216,7 +211,7 @@ We can strengthen user confidence by adding a feature that compares accuracy acr
 
 **Problem:** The current Software Quality Metrics section in this document is not updated automatically and relies on placeholder data.
 
-**Solution Implemented:** A robust CI/CD pipeline has been implemented, orchestrated by `ci-run-all.sh`. This pipeline deconstructs the testing process into granular, single-purpose scripts to avoid environment timeouts. After the test runs, `run-metrics.sh` aggregates the results and `update-sqm-doc.sh` automatically injects the metrics table into this PRD, ensuring it is always up-to-date.
+**Solution Implemented:** A robust, parallel CI/CD pipeline has been implemented in `.github/workflows/ci.yml`. This workflow runs all necessary checks, including linting, type-checking, unit tests, and E2E tests, in a distributed and efficient manner. The results of these checks can be used to automatically update the Software Quality Metrics section of this document.
 
 ---
 
