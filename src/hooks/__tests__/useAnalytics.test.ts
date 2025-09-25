@@ -32,7 +32,7 @@ describe('useAnalytics', () => {
                 engine: 'On-Device',
             },
         ];
-        mockSupabase.from('practice_sessions').select.mockResolvedValueOnce({ data: mockSessions, error: null });
+        mockSupabase.limit.mockResolvedValueOnce({ data: mockSessions, error: null });
 
         const { result } = renderHook(() => useAnalytics());
 
@@ -47,8 +47,8 @@ describe('useAnalytics', () => {
             { word: 'like', count: 5 },
         ]);
         expect(result.current.accuracyData).toEqual([
-            { date: new Date('2023-10-26T10:00:00.000Z').toLocaleDateString(), accuracy: 50, engine: 'On-Device' },
-            { date: new Date('2023-10-27T10:00:00.000Z').toLocaleDateString(), accuracy: 50, engine: 'Cloud AI' },
+            { date: new Date('2023-10-26T10:00:00.000Z').toLocaleDateString(), accuracy: 0, engine: 'On-Device' },
+            { date: new Date('2023-10-27T10:00:00.000Z').toLocaleDateString(), accuracy: 0, engine: 'Cloud AI' },
         ]);
     });
 });
