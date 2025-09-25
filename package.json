@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --mode test",
     "setup:dev": "pnpm install && pnpm exec playwright install --with-deps",
     "build": "vite build",
     "preview": "vite preview",
@@ -14,7 +14,7 @@
     "test": "pnpm test:unit:full",
     "test:audit": "./test-audit.sh",
     "test:unit:full": "vitest",
-    "test:unit:core": "vitest run --reporter verbose --pool=threads --poolOptions.threads=2 --max-memory=2048",
+    "test:unit:core": "vitest run --reporter verbose --pool=threads --poolOptions.threads=2",
     "test:e2e": "playwright test",
     "test:e2e:shard": "playwright test --shard=$1/2",
     "test:e2e:ui": "playwright test --ui",

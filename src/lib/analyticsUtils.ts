@@ -5,11 +5,12 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
     const totalPracticeTime = Math.round(sessionHistory.reduce((sum, s) => sum + (s.duration || 0), 0) / 60);
     const totalWords = sessionHistory.reduce((sum, s) => sum + (s.total_words || 0), 0);
     const avgWpm = totalPracticeTime > 0 ? Math.round(totalWords / (totalPracticeTime)) : 0;
-    const avgFillerWordsPerMin = totalPracticeTime > 0 ? (sessionHistory.reduce((sum, s) => sum + Object.values(s.filler_words || {}).reduce((s, f) => s + f.count, 0), 0) / totalPracticeTime).toFixed(1) : "0.0";
+    const totalFillerWords = sessionHistory.reduce((sum, s) => sum + (s.filler_words?.total?.count || 0), 0);
+    const avgFillerWordsPerMin = totalPracticeTime > 0 ? (totalFillerWords / totalPracticeTime).toFixed(1) : "0.0";
     const avgAccuracy = totalSessions > 0 ? (sessionHistory.reduce((sum, s) => sum + (s.accuracy || 0), 0) / totalSessions * 100).toFixed(1) : "0.0";
     const chartData = sessionHistory.map(s => ({
         date: new Date(s.created_at).toLocaleDateString(),
-        'FW/min': s.duration > 0 ? (Object.values(s.filler_words || {}).reduce((sum, f) => sum + f.count, 0) / (s.duration / 60)).toFixed(2) : 0
+        'FW/min': s.duration > 0 ? ((s.filler_words?.total?.count || 0) / (s.duration / 60)).toFixed(2) : "0.0"
     })).reverse();
 
     return { totalSessions, totalPracticeTime, avgWpm, avgFillerWordsPerMin, avgAccuracy, chartData };

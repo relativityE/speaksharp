@@ -40,9 +40,16 @@ describe('useFillerWords', () => {
       useFillerWords([], '', customWords)
     );
 
+    const expectedInitialData = {
+      total: { count: 0, color: '' },
+      um: { count: 0, color: '' },
+      uh: { count: 0, color: '' },
+      like: { count: 0, color: '' },
+    };
+
     expect(fillerWordUtils.createInitialFillerData).toHaveBeenCalledWith(customWords);
-    expect(result.current.fillerData).toEqual({ total: 0, um: 0, uh: 0, like: 0 });
-    expect(result.current.finalFillerData).toEqual({ total: 0, um: 0, uh: 0, like: 0 });
+    expect(result.current.fillerData).toEqual(expectedInitialData);
+    expect(result.current.finalFillerData).toEqual(expectedInitialData);
   });
 
   it('should update final filler data when chunks change', () => {
