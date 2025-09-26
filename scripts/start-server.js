@@ -15,7 +15,7 @@ const PORT = process.env.VITE_PORT || '5173';
     await killPort(PORT);
     console.log(`✅ Port ${PORT} cleared`);
 
-    const server = spawn('pnpm', ['dev:test', '--', '--port', PORT], {
+    const server = spawn('pnpm', ['run', 'dev', '--', '--port', PORT], {
       stdio: 'inherit',
       shell: true,
     });

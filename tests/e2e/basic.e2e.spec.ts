@@ -9,6 +9,25 @@ function logStep(step: string, message?: string) {
 }
 
 test.describe('Basic Environment Verification (fast-fail)', () => {
+  // This hook runs before each test in this suite.
+  test.beforeEach(async ({ page }) => {
+    // *** START DIAGNOSTIC CODE ***
+    // Log every single network request to the console to find the hanging request.
+    page.on('request', request => {
+      console.log('>> Requesting:', request.method(), request.url());
+    });
+    page.on('response', response => {
+      console.log('<< Response:', response.status(), response.url());
+    });
+    // *** END DIAGNOSTIC CODE ***
+
+    // Navigate to the root page to ensure the app and MSW are loaded.
+    await page.goto('/');
+    // Wait for the mswReady promise to resolve, which indicates the mock server is active.
+    await page.waitForFunction(() => (window as any).mswReady);
+    logStep('beforeEach', 'Mock Service Worker is ready.');
+  });
+
   test('should load homepage and verify environment', async ({ page, baseURL }) => {
     logStep('start', `Base URL: ${baseURL}`);
 
@@ -24,13 +43,9 @@ test.describe('Basic Environment Verification (fast-fail)', () => {
     logStep('loginUser', '✅ Success');
 
     // --- Step 2: Navigate ---
+    // Navigation is now handled in the beforeEach hook.
     console.time('[smoke][page.goto]');
-    try {
-      await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 10_000 });
-    } catch (err) {
-      logStep('page.goto', `FAILED to load page: ${err}`);
-      throw err;
-    }
+    expect(page.url()).toContain('/'); // Ensure we are on the homepage
     console.timeEnd('[smoke][page.goto]');
     logStep('page.goto', `Current URL: ${page.url()}`);
 
