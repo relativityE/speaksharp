@@ -43,6 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`pnpm lint` Command Timeout:** The `pnpm lint` command is known to be slow and may time out in some environments. This is a known issue that is being tracked.
 
 ### Fixed
+- **E2E Test Hanging:** Resolved a persistent E2E test timeout by fixing multiple, cascading issues:
+  - Replaced the unstable `jimp` image processing library with the more reliable `canvas` package for the test environment.
+  - Fixed a race condition between the Playwright test runner and the Mock Service Worker (MSW) by implementing a promise-based synchronization (`window.mswReady`).
+  - Corrected a data mismatch in the MSW handlers that caused a silent `400 Bad Request` on login, which was the final root cause of the hang.
 - **CI Pipeline Instability:** Replaced the monolithic `ci-run-all.sh` script with a parallelized GitHub Actions workflow, resolving the 7-minute timeout issue and stabilizing the CI process.
 - **Hook Architecture & Performance:** Refactored the monolithic `useSpeechRecognition` hook to resolve critical performance issues, including memory exhaustion and infinite re-renders. The hook is now decomposed into smaller, single-responsibility hooks (`useTranscriptState`, `useFillerWords`, `useTranscriptionService`), making it more testable, maintainable, and performant. This also included creating a comprehensive new test suite that passes reliably.
 - **Performance:** Fixed a major performance issue on the session page where the entire page would re-render every second during an active session. Refactored the timer logic to isolate updates and prevent unnecessary renders.

@@ -14,7 +14,6 @@ const PORT = process.env.VITE_PORT || '5173';
     // Free the port if something is already listening
     await killPort(PORT);
     console.log(`✅ Port ${PORT} cleared`);
-
     const server = spawn('pnpm', ['dev', '--', '--port', PORT], {
       stdio: 'inherit',
       shell: true,

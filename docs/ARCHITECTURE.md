@@ -5,7 +5,7 @@
 
 # SpeakSharp System Architecture
 
-**Version 3.2** | **Last Updated: 2025-09-25**
+**Version 3.2** | **Last Updated: 2025-09-26**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -49,7 +49,7 @@ This section contains a high-level block diagram of the SpeakSharp full-stack ar
 |              |         +--------------------->|     PDF & Image Libs          |       | Sentry (Errors)         |  |
 |              |                                |---------------------------------|       | PostHog (Analytics)     |  |
 |              v                                | - jspdf, jspdf-autotable        |       +-------------------------+  |
-|    +---------------------------------+       | - jimp (replaces sharp)         |                 ^                |
+|    +---------------------------------+       | - canvas (replaces jimp/sharp)  |                 ^                |
 |    | TranscriptionService            |       +---------------------------------+                 |                |
 |    |---------------------------------|                   ^                                       |                |
 |    | - `CloudAssemblyAI / LocalWhisper` (Pro)       |-------------------+                                       |
@@ -88,6 +88,8 @@ SpeakSharp is built on a modern, serverless technology stack designed for real-t
     *   **Unit/Integration:** Vitest (`^2.1.9`)
     *   **DOM Environment:** happy-dom (`^18.0.1`)
     *   **E2E:** Playwright
+    *   **API Mocking:** Mock Service Worker (MSW)
+    *   **Image Processing (Test):** node-canvas (replaces Jimp/Sharp for stability)
 
 ## Testing Strategy
 
@@ -142,6 +144,10 @@ Recent investigations revealed significant stability issues with both the unit a
         *   The `vitest.config.mjs` has been configured to run tests in isolated forked processes (`pool: 'forks'`) and sequentially (`maxConcurrency: 1`) to prevent memory accumulation.
         *   Problematic tests (`LocalWhisper.test.ts`, `SessionSidebar.test.tsx`) have been refactored to use `vi.useFakeTimers()` and proper `afterEach` cleanup hooks to manage timers and unmount components correctly.
 
+3.  **E2E Test Race Condition Mitigation:**
+    *   **Problem:** E2E tests would hang due to a race condition where the test would attempt to interact with the application before the Mock Service Worker (MSW) was fully initialized.
+    *   **Solution:** The test environment now exposes a `window.mswReady` promise that resolves only when MSW is active. A `beforeEach` hook in the E2E tests waits for this promise, guaranteeing the mock server is ready before any test interactions occur.
+
 ### Core Artifacts
 
 | File | Purpose |
@@ -164,7 +170,7 @@ To solve this, we use a mocking strategy for the test environment:
 
 1.  **Optional Dependency:** The native dependency (`sharp`) is listed as an `optionalDependency` in `package.json`. This prevents the package manager from failing the installation if the native build step fails.
 2.  **Vitest Alias:** In `vitest.config.mjs`, we create aliases that redirect imports of `sharp` and `@xenova/transformers` to mock files.
-3.  **Jimp-based Mock:** The mock for `sharp` (`src/test/mocks/sharp.ts`) uses the `jimp` library, a pure JavaScript image processing tool, to provide a functional equivalent of the `sharp` API for our tests. The mock for `@xenova/transformers` provides a simplified, lightweight implementation for unit tests.
+3.  **Canvas-based Mock:** To improve stability, the mock for `sharp` (`src/test/mocks/sharp.ts`) now uses the `canvas` library, a pure JavaScript image processing tool with better stability in headless environments than `jimp`. The mock for `@xenova/transformers` provides a simplified, lightweight implementation for unit tests.
 4.  **Dependency Inlining:** Because the `@xenova/transformers` import happens within a dependency, we must configure Vitest to process this dependency by adding it to `test.deps.inline`. This ensures the alias is applied correctly.
 
 This approach allows us to use the high-performance native library in production while maintaining a stable and easy-to-manage test environment.
@@ -258,7 +264,7 @@ The frontend is a single-page application (SPA) built with React and Vite.
 *   **PDF Generation:** Session reports can be exported as PDF documents using the `jspdf` and `jspdf-autotable` libraries. The `pdfGenerator.ts` utility encapsulates the logic for creating these reports.
 *   **Analytics Components:** The frontend includes several components for displaying analytics, such as `FillerWordTable`, `FillerWordTrend`, `SessionComparison`, `TopFillerWords`, and `AccuracyComparison`.
 *   **AI-Powered Suggestions:** The `AISuggestions` component provides users with feedback on their speech.
-*   **Image Processing:** The application uses `Jimp` for image processing tasks, such as resizing user-uploaded images. The `processImage.ts` utility provides a convenient wrapper for this functionality.
+*   **Image Processing:** The application uses `canvas` in the test environment for image processing tasks (replacing `Jimp` for stability), such as resizing user-uploaded images. The `processImage.ts` utility provides a convenient wrapper for this functionality.
 
 ### 3.1. Key Components
 

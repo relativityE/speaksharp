@@ -42,8 +42,8 @@ export const handlers = [
     const body = await request.json() as TokenRequestBody;
 
     if (body.grant_type === 'password') {
-      // Sign in with email/password
-      if (body.email === 'test@example.com' || body.email?.includes('example.com')) {
+      // THE FIX IS HERE: The condition now correctly checks for the test user emails.
+      if (body.email === 'free-user@test.com' || body.email?.includes('pro-user@test.com')) {
         return HttpResponse.json({
           access_token: 'mock-access-token',
           refresh_token: 'mock-refresh-token',
