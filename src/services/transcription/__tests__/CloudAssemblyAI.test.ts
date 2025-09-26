@@ -37,7 +37,6 @@ describe('CloudAssemblyAI', () => {
     // Reset all mocks before each test
     vi.clearAllMocks();
     getAssemblyAIToken.mockResolvedValue('fake-token');
-
     // Reset the mock socket instance state for a clean slate
     Object.assign(mockSocketInstance, {
       send: vi.fn(),
@@ -74,7 +73,6 @@ describe('CloudAssemblyAI', () => {
   it('should get a token and open a websocket on startTranscription', async () => {
     const micStream = createMockMicStream();
     const startPromise = cloudAI.startTranscription(micStream);
-
     await vi.advanceTimersByTimeAsync(0); // Allow promises like getAssemblyAIToken to resolve
 
     expect(getAssemblyAIToken).toHaveBeenCalled();
