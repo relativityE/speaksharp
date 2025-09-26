@@ -34,6 +34,9 @@ export default defineConfig(() => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      'jimp': process.env.VITEST
+        ? 'jimp'
+        : path.resolve(__dirname, 'node_modules/jimp/browser/lib/jimp.js'),
     },
   },
   define: {
