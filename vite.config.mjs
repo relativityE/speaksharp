@@ -44,5 +44,8 @@ export default defineConfig(({ mode }) => ({
   define: {
     'process.env': {},
     'global': 'globalThis'
-  }
+  },
+  optimizeDeps: {
+    exclude: ['jimp'],
+  },
 }));
