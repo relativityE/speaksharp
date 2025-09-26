@@ -1,19 +1,23 @@
-// This module acts as a wrapper for the 'jimp' library.
-// It conditionally imports the correct version of Jimp based on the environment.
-// In a Node.js environment (like Vitest during tests), it imports the standard 'jimp' package.
-// In a browser environment, it imports the browser-specific build.
+// This module conditionally provides image manipulation capabilities.
+// In a Node.js environment (like Vitest during tests), it exports the 'canvas' library.
+// In a browser environment, it exports null as canvas operations are handled by the browser's native APIs.
 
-let jimp;
+let imageProcessor;
 
 if (import.meta.env.MODE === 'test') {
-  const jimpModule = await import('jimp');
-  jimp = jimpModule.default;
+  // For the test environment, we use the node-canvas library for server-side image processing.
+  try {
+    imageProcessor = await import('canvas');
+    console.log('[imageProcessor] Using "canvas" for test environment.');
+  } catch (e) {
+    console.error('[imageProcessor] Failed to load "canvas" module in test mode.', e);
+    imageProcessor = null;
+  }
 } else {
-  // The browser build of jimp is needed for client-side execution.
-  // The browser build of jimp is needed for client-side execution.
-  // We import without the .js extension, which is a common pattern for module resolution.
-  const jimpModule = await import('jimp/browser/lib/jimp');
-  jimp = jimpModule.default;
+  // In the browser, we don't need a specific library as the browser provides the Canvas API.
+  // We can set this to null or a mock object if needed.
+  console.log('[imageProcessor] Using browser native APIs (no-op for this module).');
+  imageProcessor = null;
 }
 
-export default jimp;
+export default imageProcessor;
