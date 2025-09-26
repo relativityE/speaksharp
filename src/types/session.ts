@@ -13,4 +13,5 @@ export interface PracticeSession {
   };
   accuracy?: number;
   ground_truth?: string;
+  engine?: string;
 }
