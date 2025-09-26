@@ -10,6 +10,7 @@ function logStep(step: string, message?: string) {
 
 test.describe('Basic Environment Verification (fast-fail)', () => {
   // This hook runs before each test in this suite.
+  // It ensures the application is loaded and the mock service worker is ready.
   test.beforeEach(async ({ page }) => {
     // *** START DIAGNOSTIC CODE ***
     // Log every single network request to the console to find the hanging request.
@@ -44,6 +45,7 @@ test.describe('Basic Environment Verification (fast-fail)', () => {
 
     // --- Step 2: Navigate ---
     // Navigation is now handled in the beforeEach hook.
+    // We can verify the current URL as a sanity check.
     console.time('[smoke][page.goto]');
     expect(page.url()).toContain('/'); // Ensure we are on the homepage
     console.timeEnd('[smoke][page.goto]');
