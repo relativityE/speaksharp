@@ -1,4 +1,4 @@
-import Jimp from 'jimp/browser/lib/jimp.js';
+import Jimp from '../../lib/jimp';
 
 // A simplified mock of the sharp API using Jimp
 const sharp = (input: Buffer | string) => {
