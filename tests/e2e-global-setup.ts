@@ -2,6 +2,10 @@ import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import fetch from 'node-fetch';
+import * as dotenv from 'dotenv';
+
+// Load environment variables from .env.test
+dotenv.config({ path: path.resolve(process.cwd(), '.env.test') });
 
 const PID_FILE = path.join(process.cwd(), '.vite.pid');
 const VITE_LOG = path.join(process.cwd(), 'vite.log');

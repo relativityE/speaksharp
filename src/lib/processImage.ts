@@ -1,8 +1,9 @@
-import imageProcessor from './canvas';
+import { imageProcessor, createCanvas, loadImage } from 'canvas';
 
 /**
- * Resizes an image buffer and returns a PNG buffer using the node-canvas API.
- * This is a more stable replacement for Jimp in test environments.
+ * Resizes an image buffer and returns a PNG buffer using the canvas API.
+ * This mimics the sharp-style API for easy swapping.
+
  */
 export async function processImage(
   imageBuffer: Buffer,
