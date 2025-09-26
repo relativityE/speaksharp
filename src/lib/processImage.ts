@@ -1,4 +1,4 @@
-import Jimp from 'jimp';
+import Jimp from './jimp';
 
 /**
  * Resizes an image buffer and returns a PNG buffer.
