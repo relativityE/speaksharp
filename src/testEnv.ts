@@ -1,55 +1,27 @@
 // src/testEnv.ts
-if (import.meta.env.MODE === "test") {
-  console.warn("[testEnv] Initializing runtime shims");
 
-  // PostHog stub
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (globalThis as any).posthog = {
-    capture: (...args: unknown[]) =>
-      console.warn("[testEnv] posthog.capture", args),
-    identify: () => {},
-    reset: () => {},
-  };
-
-  // Sentry stub
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (globalThis as any).Sentry = {
-    init: () => console.warn("[testEnv] Sentry.init stubbed"),
-    captureException: (e: unknown) =>
-      console.warn("[testEnv] Sentry.captureException", e),
-  };
-
-  // AssemblyAI WebSocket stub
-  const RealWS = globalThis.WebSocket;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (globalThis as any).WebSocket = class extends RealWS {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    constructor(url: string, ...args: any[]) {
-      if (url.includes("assemblyai.com")) {
-        console.warn("[testEnv] Blocking AssemblyAI WebSocket:", url);
-        super("ws://localhost:9", ...args); // dead socket
-      } else {
-        super(url, ...args);
-      }
-    }
-  };
-
-  // Supabase stub
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (globalThis as any).supabase = {
-    from: () => ({
-      select: () => ({
-        eq: () => ({
-          single: () => Promise.resolve({ data: null, error: null }),
-        }),
-      }),
-    }),
-    auth: {
-      getSession: () => Promise.resolve({ data: { session: null } }),
-      onAuthStateChange: () => ({
-        data: { subscription: { unsubscribe: () => {} } },
-      }),
-      signOut: () => Promise.resolve({ error: null }),
-    },
-  };
+// Extend the Window interface to include our custom promise for MSW readiness.
+declare global {
+  interface Window {
+    mswReady?: Promise<ServiceWorkerRegistration | undefined>;
+  }
 }
+
+async function initializeMocks() {
+  // We only want to initialize mocks in the 'test' environment.
+  if (import.meta.env.MODE === 'test') {
+    console.log('[testEnv] Initializing Mock Service Worker for E2E tests.');
+    const { worker } = await import('./test/mocks/browser');
+
+    // The worker.start() method returns a promise that resolves when the service worker is ready.
+    // We attach this promise to the window object so that our Playwright tests can wait for it.
+    window.mswReady = worker.start({
+      onUnhandledRequest: 'bypass', // Bypassing unhandled requests is safer for tests.
+    });
+
+    console.log('[testEnv] Mock Service Worker initialization promise has been set on window.mswReady.');
+  }
+}
+
+// Initialize the mocks.
+initializeMocks();
