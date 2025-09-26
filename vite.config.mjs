@@ -7,7 +7,7 @@ import tailwindcss from '@tailwindcss/vite';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export default defineConfig(() => ({
+export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss()],
   server: {
     port: 5173,
@@ -42,5 +42,8 @@ export default defineConfig(() => ({
   define: {
     'process.env': {},
     'global': 'globalThis'
-  }
+  },
+  optimizeDeps: {
+    exclude: ['jimp'],
+  },
 }));
