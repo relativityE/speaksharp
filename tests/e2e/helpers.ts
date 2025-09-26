@@ -147,10 +147,10 @@ export async function expectSubscriptionButton(page: Page, subscription: 'free' 
   }
 }
 
-test.afterEach(async ({ page }, testInfo) => {
-  if (testInfo.status !== testInfo.expectedStatus) {
-    const sanitizedTitle = testInfo.title.replace(/\s+/g, '-').toLowerCase();
-    console.warn(`[E2E DEBUG] Test failed: ${testInfo.title}. Dumping page state...`);
-    await dumpPageState(page, sanitizedTitle);
-  }
-});
+// test.afterEach(async ({ page }, testInfo) => {
+//   if (testInfo.status !== testInfo.expectedStatus) {
+//     const sanitizedTitle = testInfo.title.replace(/\s+/g, '-').toLowerCase();
+//     console.warn(`[E2E DEBUG] Test failed: ${testInfo.title}. Dumping page state...`);
+//     await dumpPageState(page, sanitizedTitle);
+//   }
+// });

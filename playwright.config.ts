@@ -27,7 +27,7 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
   },
-  // globalSetup: './tests/e2e-global-setup.ts',
+  globalSetup: './tests/e2e-global-setup.ts',
   globalTeardown: './tests/global-teardown.ts',
   // webServer: {
   //   command: 'node scripts/start-server.js',
