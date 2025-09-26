@@ -1,4 +1,4 @@
-import Jimp from 'jimp';
+import Jimp from 'jimp/browser/lib/jimp.js';
 
 /**
  * Resizes an image buffer and returns a PNG buffer.
