@@ -32,9 +32,17 @@ export const test = base.extend<{
 }>({
   sandboxPage: [
     async ({ page }, use) => {
+      // Log all requests to a file for debugging hangs
+      const logStream = fs.createWriteStream('network.log', { flags: 'w' }); // Use 'w' to overwrite the log each run
+      page.on('request', req => {
+        logStream.write(`[Request] ${req.method()} ${req.url()}\n`);
+      });
+
       await page.goto('about:blank');
       await stubThirdParties(page);
       await use();
+
+      logStream.end();
     },
     { auto: true },
   ],
@@ -147,10 +155,10 @@ export async function expectSubscriptionButton(page: Page, subscription: 'free' 
   }
 }
 
-// test.afterEach(async ({ page }, testInfo) => {
-//   if (testInfo.status !== testInfo.expectedStatus) {
-//     const sanitizedTitle = testInfo.title.replace(/\s+/g, '-').toLowerCase();
-//     console.warn(`[E2E DEBUG] Test failed: ${testInfo.title}. Dumping page state...`);
-//     await dumpPageState(page, sanitizedTitle);
-//   }
-// });
+test.afterEach(async ({ page }, testInfo) => {
+  if (testInfo.status !== testInfo.expectedStatus) {
+    const sanitizedTitle = testInfo.title.replace(/\s+/g, '-').toLowerCase();
+    console.warn(`[E2E DEBUG] Test failed: ${testInfo.title}. Dumping page state...`);
+    await dumpPageState(page, sanitizedTitle);
+  }
+});

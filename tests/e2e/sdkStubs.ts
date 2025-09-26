@@ -82,8 +82,8 @@ export async function stubThirdParties(page: Page, options: { usageExceeded?: bo
       if (hostname.endsWith('.supabase.co')) {
         console.log('[MOCKING]', url.href);
 
-        // --- Auth: token ---
-        if (pathname.includes('/auth/v1/token')) {
+        // --- Auth: signup and token ---
+        if (pathname.includes('/auth/v1/signup') || pathname.includes('/auth/v1/token')) {
           const postData = request.postDataJSON() as { email?: string; refresh_token?: string };
           let user: MockUser | undefined;
 
