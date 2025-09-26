@@ -1,5 +1,5 @@
 // tests/e2e/basic.e2e.spec.ts
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers';
 import { loginUser } from './helpers';
 import { TEST_USER_FREE } from '../constants';
 

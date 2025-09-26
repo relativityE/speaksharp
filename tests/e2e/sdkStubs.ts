@@ -65,7 +65,15 @@ function getMockSession(user?: MockUser) {
 export async function stubThirdParties(page: Page, options: { usageExceeded?: boolean; forceOnDevice?: boolean } = {}) {
   await page.route('**/*', async (route: Route) => {
     const request = route.request();
-    const url = new URL(request.url());
+    const requestUrl = request.url();
+    console.log(`[request-interceptor] Intercepting: ${requestUrl}`); // Add logging here
+
+    // Ignore non-http requests
+    if (!requestUrl.startsWith('http')) {
+      return route.continue();
+    }
+
+    const url = new URL(requestUrl);
     const hostname = url.hostname;
     const pathname = url.pathname;
 
@@ -133,13 +141,13 @@ export async function stubThirdParties(page: Page, options: { usageExceeded?: bo
           const userId = token?.split('-access-token')[0];
           const user = Object.values(MOCK_USERS).find(u => u.id === userId);
           const userDetails = user
-            ? [{
+            ? {
                 id: user.id,
                 email: user.email,
                 subscription_status: user.user_metadata.subscription_status,
                 preferred_mode: user.user_metadata.preferred_mode || 'cloud',
-              }]
-            : [];
+              }
+            : null; // Return null if user not found, not an empty array
           return route.fulfill({
             status: 200,
             contentType: 'application/json',
