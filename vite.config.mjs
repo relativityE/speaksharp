@@ -7,7 +7,7 @@ import tailwindcss from '@tailwindcss/vite';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export default defineConfig(() => ({
+export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss()],
   server: {
     port: 5173,
@@ -34,6 +34,11 @@ export default defineConfig(() => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // Conditionally resolve 'jimp' to the browser-specific build
+      // except when running in a Node.js environment (e.g., Vitest).
+      'jimp': mode === 'test' && process.env.VITEST
+        ? 'jimp'
+        : 'jimp/browser/lib/jimp.js',
     },
   },
   define: {
