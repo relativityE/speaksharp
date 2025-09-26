@@ -10,20 +10,19 @@ const mockSocketInstance = {
   send: vi.fn(),
   close: vi.fn(),
   readyState: 0, // This will be updated in tests
-  onopen: () => {},
-  onmessage: () => {},
-  onerror: () => {},
-  onclose: () => {},
+  onopen: vi.fn(),
+  onmessage: vi.fn(),
+  onerror: vi.fn(),
+  onclose: vi.fn(),
 };
 
 // The mock WebSocket constructor returns our controllable instance
-const MockWebSocket = vi.fn(() => mockSocketInstance);
-
-// The code under test uses these static properties, so they must be on the mock
-MockWebSocket.CONNECTING = 0;
-MockWebSocket.OPEN = 1;
-MockWebSocket.CLOSING = 2;
-MockWebSocket.CLOSED = 3;
+const MockWebSocket = Object.assign(vi.fn(() => mockSocketInstance), {
+  CONNECTING: 0,
+  OPEN: 1,
+  CLOSING: 2,
+  CLOSED: 3,
+});
 
 describe('CloudAssemblyAI', () => {
   let cloudAI: CloudAssemblyAI;
@@ -33,21 +32,20 @@ describe('CloudAssemblyAI', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
-    global.WebSocket = MockWebSocket as any;
+    global.WebSocket = MockWebSocket as unknown as typeof WebSocket;
 
     // Reset all mocks before each test
     vi.clearAllMocks();
     getAssemblyAIToken.mockResolvedValue('fake-token');
-
     // Reset the mock socket instance state for a clean slate
     Object.assign(mockSocketInstance, {
       send: vi.fn(),
       close: vi.fn(),
       readyState: MockWebSocket.CONNECTING,
-      onopen: () => {},
-      onmessage: () => {},
-      onerror: () => {},
-      onclose: () => {},
+      onopen: vi.fn(),
+      onmessage: vi.fn(),
+      onerror: vi.fn(),
+      onclose: vi.fn(),
     });
 
     cloudAI = new CloudAssemblyAI({
@@ -68,12 +66,13 @@ describe('CloudAssemblyAI', () => {
     onFrame: vi.fn(),
     offFrame: vi.fn(),
     close: vi.fn(),
+    stop: vi.fn(),
+    _mediaStream: new MediaStream(),
   });
 
   it('should get a token and open a websocket on startTranscription', async () => {
     const micStream = createMockMicStream();
     const startPromise = cloudAI.startTranscription(micStream);
-
     await vi.advanceTimersByTimeAsync(0); // Allow promises like getAssemblyAIToken to resolve
 
     expect(getAssemblyAIToken).toHaveBeenCalled();
@@ -81,7 +80,7 @@ describe('CloudAssemblyAI', () => {
 
     // Simulate the connection opening
     mockSocketInstance.readyState = MockWebSocket.OPEN;
-    mockSocketInstance.onopen({} as Event);
+    mockSocketInstance.onopen();
 
     await startPromise; // The promise should now resolve
 
@@ -96,7 +95,7 @@ describe('CloudAssemblyAI', () => {
 
     // Simulate socket opening to attach the frame handler
     mockSocketInstance.readyState = MockWebSocket.OPEN;
-    mockSocketInstance.onopen({} as Event);
+    mockSocketInstance.onopen();
 
     // The onFrame method on the mock should have been called with the handler
     const frameHandler = (micStream.onFrame as ReturnType<typeof vi.fn>).mock.calls[0][0];
@@ -142,7 +141,7 @@ describe('CloudAssemblyAI', () => {
 
     // The socket must be OPEN for close to be called
     mockSocketInstance.readyState = MockWebSocket.OPEN;
-    mockSocketInstance.onopen({} as Event);
+    mockSocketInstance.onopen();
 
     await cloudAI.stopTranscription();
 
