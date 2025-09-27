@@ -1,22 +1,11 @@
-import Jimp from '../../lib/jimp';
+// A simplified, dependency-free mock of the sharp API.
+// This mock returns placeholder data and is intended to prevent type errors
+// in the test environment where the real 'sharp' module is not available.
 
-// A simplified mock of the sharp API using Jimp
-const sharp = (input: Buffer | string) => {
-  const jimpPromise = typeof input === 'string' ? Jimp.read(input) : Jimp.read(input);
-
+const sharp = () => {
   const sharpInstance = {
-    resize: (width: number, height: number) => {
-      jimpPromise.then(image => image.resize(width, height));
-      return sharpInstance;
-    },
-
-    toBuffer: async (): Promise<Buffer> => {
-      const image = await jimpPromise;
-      return image.getBufferAsync(Jimp.MIME_PNG); // Using PNG to avoid quality loss issues
-    },
-
-    // Replicating other chainable methods, even if they do nothing,
-    // is important for code that calls them.
+    resize: () => sharpInstance,
+    toBuffer: async (): Promise<Buffer> => Buffer.from('mock-image-buffer'),
     jpeg: () => sharpInstance,
     png: () => sharpInstance,
     webp: () => sharpInstance,
@@ -29,17 +18,17 @@ const sharp = (input: Buffer | string) => {
     gamma: () => sharpInstance,
     negate: () => sharpInstance,
     normalize: () => sharpInstance,
-
-    toFile: async (path: string) => {
-      const image = await jimpPromise;
-      await image.writeAsync(path);
-      return { format: 'png', width: image.getWidth(), height: image.getHeight(), size: 0 };
-    },
-
-    metadata: async () => {
-      const image = await jimpPromise;
-      return { width: image.getWidth(), height: image.getHeight(), format: 'png' };
-    },
+    toFile: async () => ({
+      format: 'png',
+      width: 100,
+      height: 100,
+      size: 1000,
+    }),
+    metadata: async () => ({
+      width: 100,
+      height: 100,
+      format: 'png',
+    }),
   };
 
   return sharpInstance;

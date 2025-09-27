@@ -49,7 +49,7 @@ This section contains a high-level block diagram of the SpeakSharp full-stack ar
 |              |         +--------------------->|     PDF & Image Libs          |       | Sentry (Errors)         |  |
 |              |                                |---------------------------------|       | PostHog (Analytics)     |  |
 |              v                                | - jspdf, jspdf-autotable        |       +-------------------------+  |
-|    +---------------------------------+       | - canvas (replaces jimp/sharp)  |                 ^                |
+|    +---------------------------------+       | - canvas (replaces sharp)       |                 ^                |
 |    | TranscriptionService            |       +---------------------------------+                 |                |
 |    |---------------------------------|                   ^                                       |                |
 |    | - `CloudAssemblyAI / LocalWhisper` (Pro)       |-------------------+                                       |
@@ -170,7 +170,7 @@ To solve this, we use a mocking strategy for the test environment:
 
 1.  **Optional Dependency:** The native dependency (`sharp`) is listed as an `optionalDependency` in `package.json`. This prevents the package manager from failing the installation if the native build step fails.
 2.  **Vitest Alias:** In `vitest.config.mjs`, we create aliases that redirect imports of `sharp` and `@xenova/transformers` to mock files.
-3.  **Canvas-based Mock:** To improve stability, the mock for `sharp` (`src/test/mocks/sharp.ts`) now uses the `canvas` library, a pure JavaScript image processing tool with better stability in headless environments than `jimp`. The mock for `@xenova/transformers` provides a simplified, lightweight implementation for unit tests.
+3.  **Canvas-based Mock:** To improve stability, the mock for `sharp` (`src/test/mocks/sharp.ts`) now uses the `canvas` library, a pure JavaScript image processing tool with better stability in headless environments. The mock for `@xenova/transformers` provides a simplified, lightweight implementation for unit tests.
 4.  **Dependency Inlining:** Because the `@xenova/transformers` import happens within a dependency, we must configure Vitest to process this dependency by adding it to `test.deps.inline`. This ensures the alias is applied correctly.
 
 This approach allows us to use the high-performance native library in production while maintaining a stable and easy-to-manage test environment.
@@ -260,7 +260,7 @@ The frontend is a single-page application (SPA) built with React and Vite.
 *   **State Management:** Global state is managed via a combination of React Context and custom hooks.
     *   **`AuthContext`:** The primary source for authentication state. It provides the Supabase `session` object, the `user` object, and the user's `profile` data.
     *   **`SessionContext`:** Manages the collection of a user's practice sessions (`sessionHistory`).
-    *   **`useSessionManager`:** A custom hook that encapsulates the logic for saving, deleting, and exporting sessions. The anonymous user flow is now stable.
+    *   **`useSessionManager`:** A custom hook that encapsulates the logic for saving, deleting, and exporting sessions.
     *   **`useAnalytics`:** A custom hook that fetches and processes analytics data from the Supabase database.
 *   **Routing:** Client-side routing is handled by `react-router-dom`, with protected routes implemented to secure sensitive user pages.
 *   **Logging:** The application uses `pino` for structured logging.

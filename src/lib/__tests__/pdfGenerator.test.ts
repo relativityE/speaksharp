@@ -3,14 +3,19 @@ import jsPDF from 'jspdf';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { PracticeSession as Session } from '../../types/session';
 
-// Mock jimp to avoid image processing errors
-vi.mock('jimp', () => ({
-  default: {
-    read: vi.fn().mockResolvedValue({
-      resize: vi.fn().mockReturnThis(),
-      getBufferAsync: vi.fn().mockResolvedValue(Buffer.from('')),
-    }),
-  },
+// Mock canvas to avoid native dependency errors in test environment
+vi.mock('canvas', () => ({
+  createCanvas: vi.fn(() => ({
+    getContext: vi.fn(() => ({
+      drawImage: vi.fn(),
+      fillRect: vi.fn(),
+    })),
+    toBuffer: vi.fn(() => Buffer.from('mock-canvas-buffer')),
+  })),
+  loadImage: vi.fn().mockResolvedValue({
+    width: 100,
+    height: 100,
+  }),
 }));
 
 // Mock jsPDF with proper types

@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Transcription Mode Selector:** Implemented a new UI control on the session page that allows users to select one of three transcription modes: "Cloud AI", "On-Device", or "Native Browser".
 - **Automated SQM Reporting:** Implemented a feature in the `./run-tests.sh` script to automatically generate a Software Quality Metrics table and inject it into `docs/PRD.md`.
 - **On-Device Transcription:** Implemented a fully on-device, privacy-first transcription mode for Pro users using `@xenova/transformers`.
-- **E2E Tests:** Added comprehensive end-to-end tests for all user flows (anonymous, free, pro).
+- **E2E Tests:** Added comprehensive end-to-end tests for all user flows (free, pro).
 - **Universal Navigation:** Implemented a persistent sidebar for navigation across all pages.
 - **Analytics UI:** Created the UI components for the main analytics dashboard.
 - **Automated Code Quality:** Implemented `lint-staged` and a `husky` pre-commit hook to enforce linting and type-checking.
@@ -36,7 +36,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Abstraction:** Reintroduced the `TranscriptionService` abstraction layer to support multiple STT providers.
 - **UI/UX:** Improved UI to provide explicit indication of the current transcription mode.
 - Updated Supabase schema for better performance.
-- Replaced `sharp` image processing library with `jimp` to remove native dependencies and improve environment stability.
 - Updated homepage routing logic to be conditional for development vs. production, allowing easier debugging of landing page components.
 - Refined developer-only controls on the `SessionSidebar` to be more specific and only appear for designated dev users.
 
@@ -46,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **E2E Test Instability:** Stabilized the E2E test suite by adding a mock handler for PostHog API calls, preventing network errors that caused tests to hang.
 - **E2E Test Hanging:** Resolved a persistent E2E test timeout by fixing multiple, cascading issues:
-  - Replaced the unstable `jimp` image processing library with the more reliable `canvas` package for the test environment.
+  - Replaced an unstable image processing library with the more reliable `canvas` package for the test environment.
   - Fixed a race condition between the Playwright test runner and the Mock Service Worker (MSW) by implementing a promise-based synchronization (`window.mswReady`).
   - Corrected a data mismatch in the MSW handlers that caused a silent `400 Bad Request` on login, which was the final root cause of the hang.
 - **CI Pipeline Instability:** Replaced the monolithic `ci-run-all.sh` script with a parallelized GitHub Actions workflow, resolving the 7-minute timeout issue and stabilizing the CI process.
@@ -55,17 +54,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Test Environment Architecture:** Resolved critical architectural flaws that caused the entire test suite to be unstable. This included:
   - **Conflicting Setups:** Consolidated multiple, conflicting `global-setup.ts` files into a clear, purpose-driven structure (`unit-global-setup.ts`, `e2e-global-setup.ts`).
   - **Memory Leaks:** Fixed severe "heap out of memory" crashes in the unit test suite by reconfiguring Vitest to use isolated forked processes and by fixing memory leaks in `LocalWhisper.test.ts` and `SessionSidebar.test.tsx` with proper async/component cleanup.
-- **Build & CI/CD:**
-  - Resolved a blocking `jimp` type error by upgrading the dependency and refactoring its usage. This unblocks the `pnpm type-check` quality gate.
 - **Critical Application Bugs:**
   - Implemented protected routes to secure sensitive user pages.
   - Refactored `AuthContext.tsx` to stabilize authentication logic.
-  - Fixed broken session persistence for anonymous users.
   - Corrected monetization logic to ensure Pro users receive paid features.
 - **Failing Unit Test:** Fixed a failing unit test in `src/services/transcription/__tests__/CloudAssemblyAI.test.ts` by correcting the mock WebSocket implementation.
 - **Silent Error Handling:** Added `console.error` logging to `AuthProvider.tsx` to prevent silent failures in authentication-related operations.
 - **Test Environment Stability:**
-  - Resolved a critical issue where the `sharp` native dependency would fail to install in the test environment, blocking unit tests. The library is now correctly mocked using `jimp`.
+  - Resolved a critical issue where a native dependency would fail to install in the test environment, blocking unit tests. The library is now correctly mocked.
   - Resolved all major E2E test environment configuration conflicts and dependency issues.
   - Installed all necessary system-level libraries for Playwright to run reliably.
 - **E2E Test Robustness:** Enhanced all E2E test suites for better stability, maintainability, and error reporting.

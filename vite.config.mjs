@@ -34,9 +34,6 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
-      'jimp': process.env.VITEST
-        ? 'jimp'
-        : path.resolve(__dirname, 'node_modules/jimp/browser/lib/jimp.js'),
     },
   },
   define: {
@@ -44,7 +41,7 @@ export default defineConfig(({ mode }) => ({
     'global': 'globalThis'
   },
   optimizeDeps: {
-    exclude: ['jimp', '@xenova/transformers'],
+    exclude: ['@xenova/transformers'],
   },
   ssr: {
     external: ['@xenova/transformers'],
