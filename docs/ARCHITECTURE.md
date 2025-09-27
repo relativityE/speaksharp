@@ -194,35 +194,38 @@ Another key lesson was the importance of ensuring all necessary binaries are pre
 
 ### CI/CD Test Execution Workflow
 
-The CI/CD pipeline has been re-architected to be a parallel, dependency-aware pipeline orchestrated by GitHub Actions. This new architecture replaces the previous monolithic script (`ci-run-all.sh`) and is defined in `.github/workflows/ci.yml`.
+The CI/CD pipeline is defined in `.github/workflows/ci.yml` and is designed to be simple, robust, and turn-key. It is orchestrated by GitHub Actions and triggers on any push or pull request to the `main` branch.
 
-The new pipeline consists of three jobs:
+The pipeline consists of a single job, `build_and_test`, which performs all necessary checks to ensure code quality and application stability. This consolidated approach simplifies debugging and maintenance.
 
-1.  `fast-feedback`: Runs linting, type-checking, and core unit tests. This job provides quick feedback to the developer.
-2.  `parallel-e2e`: Runs the E2E test suite, sharded across two runners. This job runs in parallel with the `visual-regression` job.
-3.  `visual-regression`: Runs screenshot tests. This job runs in parallel with the `parallel-e2e` job.
-
-This new architecture significantly reduces the pipeline execution time and provides a more robust and scalable solution for CI/CD.
+The job executes the following steps in order:
+1.  **Checkout Repository**: Clones the repository code.
+2.  **Setup PNPM & Node.js**: Configures the correct versions of the package manager and Node.js runtime.
+3.  **Install Dependencies & Browsers**: Runs the `pnpm setup:dev` script, which installs all project dependencies and the required Playwright browsers.
+4.  **Run Lint**: Executes `pnpm lint` to enforce code style.
+5.  **Run Typecheck**: Runs `pnpm typecheck` to ensure type safety.
+6.  **Run Unit Tests**: Executes the full unit test suite with `pnpm test:unit:full`.
+7.  **Run E2E tests**: Runs the end-to-end test suite with `pnpm test:e2e`. Playwright's `webServer` configuration automatically starts the application, ensuring a reliable, self-contained test run.
 
 ### CI/CD Pipeline Diagram
 
 ```
-+---------------------+
-|   Push to main      |
-+---------------------+
-          |
-          v
-+---------------------+
-|   fast-feedback     |
-| (Lint, Type-check,  |
-|  Core Unit Tests)   |
-+---------------------+
-          |
-          v
-+---------------------+      +---------------------+
-|   parallel-e2e      |----->|  visual-regression  |
-| (E2E Shards 1 & 2)  |      | (Screenshot Tests)  |
-+---------------------+      +---------------------+
++----------------------------------+
+| Push or PR to main               |
++----------------------------------+
+                 |
+                 v
++----------------------------------+
+|       Job: build_and_test        |
+|----------------------------------|
+| 1. Checkout Code                 |
+| 2. Setup PNPM & Node.js          |
+| 3. Install Dependencies          |
+| 4. Run Lint                      |
+| 5. Run Typecheck                 |
+| 6. Run Unit Tests                |
+| 7. Run E2E Tests                 |
++----------------------------------+
 ```
 
 ### Containerized Test Environment

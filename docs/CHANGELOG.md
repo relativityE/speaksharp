@@ -25,7 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic session recording functionality.
 
 ### Changed
-- **CI/CD:** Re-architected the CI/CD pipeline to use parallel jobs for faster, more reliable builds. The new workflow is defined in `.github/workflows/ci.yml`.
+- **CI/CD:** Simplified the CI pipeline in `.github/workflows/ci.yml` to a single, consolidated job for improved maintainability and clarity.
+- **E2E Test Configuration**: Enabled Playwright's `webServer` to automatically start the application, making the test suite turn-key and CI-ready.
 - **Dependencies:** Updated `vite` and `happy-dom` to their latest versions to resolve security vulnerabilities.
 - **Test Scripts:** Removed the `--coverage` flag from the `test:unit` and `test:unit:watch` scripts in `package.json` to resolve a test runner hanging issue.
 - **Mode Selector:** Added access control logic to restrict transcription modes based on user tier (Free, Pro) and developer status.
@@ -43,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`pnpm lint` Command Timeout:** The `pnpm lint` command is known to be slow and may time out in some environments. This is a known issue that is being tracked.
 
 ### Fixed
+- **E2E Test Instability:** Stabilized the E2E test suite by adding a mock handler for PostHog API calls, preventing network errors that caused tests to hang.
 - **E2E Test Hanging:** Resolved a persistent E2E test timeout by fixing multiple, cascading issues:
   - Replaced the unstable `jimp` image processing library with the more reliable `canvas` package for the test environment.
   - Fixed a race condition between the Playwright test runner and the Mock Service Worker (MSW) by implementing a promise-based synchronization (`window.mswReady`).

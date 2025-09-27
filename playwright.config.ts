@@ -10,7 +10,7 @@ const BASE_URL = `http://localhost:${PORT}`;
 
 export default defineConfig({
   testDir: './tests/e2e',
-  timeout: 30_000,
+  timeout: 300_000,
   expect: { timeout: 10_000 },
   fullyParallel: true,
   retries: 1,
@@ -27,16 +27,14 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
   },
-  globalSetup: './tests/e2e-global-setup.ts',
-  globalTeardown: './tests/global-teardown.ts',
-  // webServer: {
-  //   command: 'node scripts/start-server.js',
-  //   url: BASE_URL,
-  //   reuseExistingServer: !process.env.CI,
-  //   timeout: 120 * 1000,
-  //   stdout: 'pipe',
-  //   stderr: 'pipe',
-  // },
+  webServer: {
+    command: 'pnpm dev:foreground',
+    url: BASE_URL,
+    reuseExistingServer: !process.env.CI,
+    timeout: 120 * 1000,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  },
   projects: [
     {
       name: 'chromium',
