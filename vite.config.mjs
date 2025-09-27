@@ -44,6 +44,9 @@ export default defineConfig(({ mode }) => ({
     'global': 'globalThis'
   },
   optimizeDeps: {
-    exclude: ['jimp'],
+    exclude: ['jimp', '@xenova/transformers'],
+  },
+  ssr: {
+    external: ['@xenova/transformers'],
   },
 }));
