@@ -14,9 +14,9 @@ To get started with SpeakSharp, you'll need to have Node.js and pnpm installed.
     ```bash
     cd speaksharp
     ```
-3.  **Install dependencies:**
+3.  **Install dependencies and browser binaries:**
     ```bash
-    pnpm install
+    pnpm setup:dev
     ```
 4.  **Run the development server:**
     ```bash
@@ -31,21 +31,15 @@ SpeakSharp uses Vitest for unit tests and Playwright for end-to-end tests.
     ```bash
     pnpm test:unit:full
     ```
-*   **Run core unit tests:**
+*   **Run all checks (lint, type-check, unit tests):**
     ```bash
-    pnpm test:unit:core
+    ./test-audit.sh
     ```
 *   **Run end-to-end tests:**
     ```bash
     pnpm test:e2e
     ```
-*   **Run the local audit script:**
-    ```bash
-    ./test-audit.sh
-    ```
-
-This will run linting, type-checking, and the core unit tests.
 
 ## CI/CD
 
-SpeakSharp uses GitHub Actions for CI/CD. The workflow is defined in `.github/workflows/ci.yml`. The pipeline is designed to be fast and efficient, with parallel jobs for different types of tests.
+SpeakSharp uses GitHub Actions for CI/CD. The workflow is defined in `.github/workflows/ci.yml`. It runs a single, consolidated job that executes linting, type-checking, unit tests, and end-to-end tests on every push to ensure code quality and application stability.
