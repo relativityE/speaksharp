@@ -29,14 +29,14 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      '@typescript-eslint/no-unused-vars': 'warn', // TODO: Re-enable this rule
+      '@typescript-eslint/no-unused-vars': 'error',
       'no-unused-vars': 'off', // Disable base rule to prefer TS version
-      '@typescript-eslint/no-explicit-any': 'warn', // TODO: Remove this warning and fix all 'any' types
-      '@typescript-eslint/no-empty-object-type': 'warn', // TODO: Re-enable this rule
-      '@typescript-eslint/no-require-imports': 'warn', // TODO: Re-enable this rule
-      'no-empty': 'warn', // TODO: Re-enable this rule
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/no-empty-object-type': 'error',
+      '@typescript-eslint/no-require-imports': 'error',
+      'no-empty': 'error',
       'react-refresh/only-export-components': [
-        'warn',
+        'error',
         { allowConstantExport: true },
       ],
     },
@@ -70,7 +70,7 @@ export default tseslint.config(
     },
     rules: {
       ...vitest.configs.recommended.rules,
-      'vitest/no-commented-out-tests': 'warn',
+      'vitest/no-commented-out-tests': 'error',
     },
     languageOptions: {
       globals: {

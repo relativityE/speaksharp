@@ -323,3 +323,11 @@ This section provides high-level insights into the SpeakSharp project from multi
 *   **Pro User (Authenticated):**
     *   **Price: $7.99/month.**
     *   **Recommendation:** This remains the core paid offering. The value proposition should be clear: "unlimited practice," "Cloud AI transcription," and the key differentiator of "on-device transcription" for enhanced privacy. The fallback to Native Browser is a good technical resilience feature.
+## Software Quality Metrics (Last Updated: Sat Sep 27 17:42:57 UTC 2025)
+| Metric | Value |
+|--------|-------|
+| Unit Tests | 0/0 passed |
+| E2E Tests | 0/0 passed |
+| Code Coverage | 0% (lines) |
+| Bundle Size | unknown |
+*Metrics updated automatically by the CI pipeline.*
