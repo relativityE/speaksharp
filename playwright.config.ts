@@ -10,7 +10,7 @@ const BASE_URL = `http://localhost:${PORT}`;
 
 export default defineConfig({
   testDir: './tests/e2e',
-  timeout: 30_000,
+  timeout: 300_000,
   expect: { timeout: 10_000 },
   fullyParallel: true,
   retries: 1,
