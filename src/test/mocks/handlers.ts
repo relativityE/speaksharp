@@ -169,6 +169,11 @@ export const handlers = [
     console.warn(`Unhandled Supabase request: ${request.method} ${request.url}`);
     return HttpResponse.json({ error: 'Not implemented in mock' }, { status: 501 });
   }),
+
+  // PostHog analytics - mock to prevent network errors
+  http.all('https://mock.posthog.com/*', () => {
+    return HttpResponse.json({ status: 'ok' });
+  }),
 ];
 
 // Anonymous user handlers (for tests that don't require auth)
