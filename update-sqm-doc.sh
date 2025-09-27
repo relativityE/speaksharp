@@ -19,28 +19,44 @@ fi
 
 # Extract metrics using jq
 unit_passed=$(jq -r '.unit_tests.passed // 0' "$METRICS_FILE")
+unit_failed=$(jq -r '.unit_tests.failed // 0' "$METRICS_FILE")
+unit_skipped=$(jq -r '.unit_tests.skipped // 0' "$METRICS_FILE")
 unit_total=$(jq -r '.unit_tests.total // 0' "$METRICS_FILE")
+coverage_lines=$(jq -r '.unit_tests.coverage.lines // "N/A"' "$METRICS_FILE")
 e2e_passed=$(jq -r '.e2e_tests.passed // 0' "$METRICS_FILE")
-e2e_total=$(jq -r '.e2e_tests.total // 0' "$METRICS_FILE")
-coverage=$(jq -r '.unit_tests.coverage.lines // 0' "$METRICS_FILE")
+e2e_failed=$(jq -r '.e2e_tests.failed // 0' "$METRICS_FILE")
+e2e_skipped=$(jq -r '.e2e_tests.skipped // 0' "$METRICS_FILE")
 bundle_size=$(jq -r '.bundle.size // "unknown"' "$METRICS_FILE")
 
 # Create the new metrics section content in a temporary file
 cat > "$REPLACEMENT_FILE" << EOL
 ## Software Quality Metrics (Last Updated: $(date))
+
+### Test Suite State
+
+| Test Type | Passed | Failed | Skipped | Total |
+|-----------|--------|--------|---------|-------|
+| Unit Tests| $unit_passed | $unit_failed | $unit_skipped | $unit_total |
+| E2E Tests | $e2e_passed | $e2e_failed | $e2e_skipped | N/A |
+
+### Coverage Summary
+
 | Metric | Value |
 |--------|-------|
-| Unit Tests | $unit_passed/$unit_total passed |
-| E2E Tests | $e2e_passed/$e2e_total passed |
-| Code Coverage | ${coverage}% (lines) |
+| Lines  | ${coverage_lines}% |
+
+### Code Bloat Metrics
+
+| Metric      | Value     |
+|-------------|-----------|
 | Bundle Size | $bundle_size |
+
 *Metrics updated automatically by the CI pipeline.*
 EOL
 
-# Use a more portable sed command to replace the section by reading from the temp file
+# Use a more portable sed command to replace the section
 if grep -q "## Software Quality Metrics" "$PRD_FILE"; then
     # This command deletes the old section and reads the new content from the replacement file.
-    # It is more robust than using the 'c' command with a variable.
     sed -i.bak -e "/## Software Quality Metrics/,/^\*Metrics updated automatically/ { /## Software Quality Metrics/r $REPLACEMENT_FILE" -e 'd' -e '}' "$PRD_FILE"
     rm "$PRD_FILE.bak"
 else

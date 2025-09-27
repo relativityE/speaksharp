@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit",
     "test": "pnpm test:unit:full",
     "test:audit": "./test-audit.sh",
-    "test:unit:full": "vitest",
+    "test:unit:full": "vitest run --coverage",
     "test:unit:core": "vitest run --reporter verbose --pool=threads --poolOptions.threads=2",
     "test:e2e": "playwright test",
     "test:e2e:shard": "playwright test --shard=$1/2",
