@@ -3,6 +3,7 @@ set -euo pipefail
 
 METRICS_FILE="test-results/metrics.json"
 PRD_FILE="docs/PRD.md"
+REPLACEMENT_FILE="docs/sqm_section.md"
 
 log() { echo "[SQM] $1"; }
 
@@ -24,25 +25,30 @@ e2e_total=$(jq -r '.e2e_tests.total // 0' "$METRICS_FILE")
 coverage=$(jq -r '.unit_tests.coverage.lines // 0' "$METRICS_FILE")
 bundle_size=$(jq -r '.bundle.size // "unknown"' "$METRICS_FILE")
 
-# Create the new metrics section content
-metrics_section="## Software Quality Metrics (Last Updated: $(date))
+# Create the new metrics section content in a temporary file
+cat > "$REPLACEMENT_FILE" << EOL
+## Software Quality Metrics (Last Updated: $(date))
 | Metric | Value |
 |--------|-------|
 | Unit Tests | $unit_passed/$unit_total passed |
 | E2E Tests | $e2e_passed/$e2e_total passed |
 | Code Coverage | ${coverage}% (lines) |
 | Bundle Size | $bundle_size |
-*Metrics updated automatically by the CI pipeline.*"
+*Metrics updated automatically by the CI pipeline.*
+EOL
 
-# Use sed to find and replace the existing metrics section, or append if it doesn't exist
+# Use a more portable sed command to replace the section by reading from the temp file
 if grep -q "## Software Quality Metrics" "$PRD_FILE"; then
-    # The regex here looks for the start of the section (## Software...) and the end (*Metrics updated...)
-    # The 'c' command in sed then replaces that entire block.
-    # Note: Using a temporary file for sed is safer on more platforms (like macOS)
-    sed -i.bak '/## Software Quality Metrics/,/^\*Metrics updated automatically/c\'"$metrics_section" "$PRD_FILE"
+    # This command deletes the old section and reads the new content from the replacement file.
+    # It is more robust than using the 'c' command with a variable.
+    sed -i.bak -e "/## Software Quality Metrics/,/^\*Metrics updated automatically/ { /## Software Quality Metrics/r $REPLACEMENT_FILE" -e 'd' -e '}' "$PRD_FILE"
     rm "$PRD_FILE.bak"
 else
-    echo -e "\n$metrics_section" >> "$PRD_FILE"
+    # If the section doesn't exist, append it.
+    echo "" >> "$PRD_FILE"
+    cat "$REPLACEMENT_FILE" >> "$PRD_FILE"
 fi
+
+rm "$REPLACEMENT_FILE"
 
 log "PRD.md updated successfully with the latest metrics."
