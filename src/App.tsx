@@ -1,46 +1,21 @@
 import React from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { Toaster } from '@/components/ui/sonner';
-import { SessionPage } from './pages/SessionPage';
-import { AnalyticsPage } from './pages/AnalyticsPage';
-import AuthPage from './pages/AuthPage';
-import { PricingPage } from './pages/PricingPage';
-import { ProtectedRoute } from './components/ProtectedRoute';
-import { HomePage } from './pages/HomePage';
+import Index from './pages/Index';
+import Session from './pages/Session';
+import Analytics from './pages/Analytics';
+import Navigation from './components/Navigation';
 
 const App: React.FC = () => {
   return (
     <div>
+      <Toaster />
+      <Navigation />
       <main data-testid="app-main">
-        <Toaster />
         <Routes>
-          <Route path="/auth" element={<AuthPage />} />
-          <Route path="/" element={<HomePage />} />
-          <Route path="/pricing" element={<PricingPage />} />
-          <Route
-            path="/session"
-            element={
-              <ProtectedRoute>
-                <SessionPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/analytics"
-            element={
-              <ProtectedRoute>
-                <AnalyticsPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/analytics/:sessionId"
-            element={
-              <ProtectedRoute>
-                <AnalyticsPage />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/" element={<Index />} />
+          <Route path="/session" element={<Session />} />
+          <Route path="/analytics" element={<Analytics />} />
         </Routes>
       </main>
     </div>
