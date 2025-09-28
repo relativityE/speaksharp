@@ -38,15 +38,15 @@ const Index = () => {
 
   const testimonials = [
     {
-      name: "Sarah Chen",
-      role: "Marketing Manager",
-      content: "SpeakSharp helped me eliminate filler words from my presentations. My confidence has skyrocketed!",
+      name: "TBD",
+      role: "TBD",
+      content: "TBD",
       rating: 5
     },
     {
-      name: "Michael Torres",
-      role: "Sales Director",
-      content: "The real-time feedback is incredible. I've improved my speaking rate and clarity significantly.",
+      name: "TBD",
+      role: "TBD",
+      content: "TBD",
       rating: 5
     }
   ];
