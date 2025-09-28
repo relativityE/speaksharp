@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "react-router-dom";
-import { Mic, BarChart3, Target, Zap, Shield, Users, CheckCircle, Star } from "lucide-react";
+import { Mic, BarChart3, Target, Zap, CheckCircle, Star } from "lucide-react";
 import heroImage from "@/assets/hero-speaker.jpg";
 
 const Index = () => {
