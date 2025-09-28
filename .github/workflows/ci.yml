@@ -9,14 +9,32 @@ on:
 jobs:
   build_and_test:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Check Node.js version consistency
+        run: |
+          NVMRC_VERSION=$(cat .nvmrc)
+          # Use jq to parse package.json and extract the node version
+          PKG_VERSION=$(jq -r '.engines.node // empty' package.json)
+          echo ".nvmrc version: $NVMRC_VERSION"
+          echo "package.json engines.node: $PKG_VERSION"
+          if [ -n "$PKG_VERSION" ] && [ "$NVMRC_VERSION" != "$PKG_VERSION" ]; then
+            echo "❌ Node.js version mismatch between .nvmrc and package.json!"
+            exit 1
+          fi
+
+      - name: Setup PNPM
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Use Node.js version from .nvmrc
         uses: actions/setup-node@v4
         with:
-          node-version: 22.12.0
+          node-version-file: '.nvmrc'
           cache: 'pnpm'
 
       - name: Setup PNPM
