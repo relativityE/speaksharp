@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "react-router-dom";
-import { Mic, BarChart3, Target, Zap, CheckCircle, Star } from "lucide-react";
+import { Mic, BarChart3, Target, Zap, Shield, Users, CheckCircle, Star } from "lucide-react";
 import heroImage from "@/assets/hero-speaker.jpg";
 
 const Index = () => {
@@ -38,15 +38,15 @@ const Index = () => {
 
   const testimonials = [
     {
-      name: "Sarah Chen",
-      role: "Marketing Manager",
-      content: "SpeakSharp helped me eliminate filler words from my presentations. My confidence has skyrocketed!",
+      name: "TBD for now",
+      role: "TBD for now",
+      content: "TBD for now",
       rating: 5
     },
     {
-      name: "Michael Torres",
-      role: "Sales Director",
-      content: "The real-time feedback is incredible. I've improved my speaking rate and clarity significantly.",
+      name: "TBD for now",
+      role: "TBD for now",
+      content: "TBD for now",
       rating: 5
     }
   ];
@@ -60,7 +60,7 @@ const Index = () => {
             <div className="space-y-8">
               <div className="space-y-4">
                 <Badge variant="secondary" className="w-fit">
-                  🎯 AI-Powered Speaking Coach
+                  🎯 Real-Time Filler Word Detection
                 </Badge>
                 <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-foreground leading-tight">
                   Speak with
