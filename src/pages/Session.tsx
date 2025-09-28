@@ -8,10 +8,10 @@ import { Mic, MicOff, Square, Play, Pause, AlertTriangle } from "lucide-react";
 const Session = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
-  const [sessionTime, setSessionTime] = useState("00:00");
-  const [fillerCount, setFillerCount] = useState(3);
-  const [wordsPerMinute, setWordsPerMinute] = useState(145);
-  const [clarityScore, setClarityScore] = useState(87);
+  const sessionTime = "00:00";
+  const fillerCount = 3;
+  const wordsPerMinute = 145;
+  const clarityScore = 87;
 
   const recentFillers = ["um", "uh", "like"];
 
