@@ -18,7 +18,7 @@ export default defineConfig({
     testTimeout: 30000, // Increased for cleanup
     hookTimeout: 10000,
     teardownTimeout: 10000, // Increased for cleanup
-    reporters: ['verbose', 'html', ['json', { outputFile: 'test-results/unit-metrics.json' }]],
+    reporters: ['verbose', 'html', ['json', { outputFile: 'unit-metrics.json' }]],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary', 'html'],

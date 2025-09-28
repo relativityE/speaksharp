@@ -8,7 +8,7 @@ METRICS_FILE="$TEST_RESULTS_DIR/metrics.json"
 echo "--- Combining Metrics and Generating Summary ---"
 
 # Unit Test Metrics
-unit_metrics_file="$TEST_RESULTS_DIR/unit-metrics.json"
+unit_metrics_file="unit-metrics.json"
 unit_passed=$(jq '.numPassedTests' "$unit_metrics_file")
 unit_failed=$(jq '.numFailedTests' "$unit_metrics_file")
 unit_skipped=$(jq '.numPendingTests' "$unit_metrics_file")
@@ -20,9 +20,15 @@ coverage_lines=$(jq '.total.lines.pct' "$coverage_file")
 
 # E2E Test Metrics
 e2e_results_file="$TEST_RESULTS_DIR/e2e-results/results.json"
-e2e_passed=$(jq '[.suites[].specs[] | select(.ok == true)] | length' "$e2e_results_file")
-e2e_failed=$(jq '[.suites[].specs[] | select(.ok == false)] | length' "$e2e_results_file")
-e2e_skipped=$(jq '[.suites[].specs[] | select(.ok != true and .ok != false)] | length' "$e2e_results_file")
+if [ -f "$e2e_results_file" ]; then
+    e2e_passed=$(jq '[.suites[].specs[] | select(.ok == true)] | length' "$e2e_results_file")
+    e2e_failed=$(jq '[.suites[].specs[] | select(.ok == false)] | length' "$e2e_results_file")
+    e2e_skipped=$(jq '[.suites[].specs[] | select(.ok != true and .ok != false)] | length' "$e2e_results_file")
+else
+    e2e_passed=0
+    e2e_failed=0
+    e2e_skipped=0
+fi
 
 # Bundle Size Metrics
 bundle_size=$(du -sh dist | awk '{print $1}')
