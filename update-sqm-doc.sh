@@ -28,22 +28,27 @@ e2e_failed=$(jq -r '.e2e_tests.failed // 0' "$METRICS_FILE")
 e2e_skipped=$(jq -r '.e2e_tests.skipped // 0' "$METRICS_FILE")
 bundle_size=$(jq -r '.bundle.size // "unknown"' "$METRICS_FILE")
 
+# Calculate E2E total and set display value
+e2e_total=$((e2e_passed + e2e_failed + e2e_skipped))
+if [ "$e2e_total" -eq 0 ]; then
+  e2e_total_display="N/A"
+else
+  e2e_total_display="$e2e_total"
+fi
+
 # Create the new metrics section content in a temporary file
 cat > "$REPLACEMENT_FILE" << EOL
 ## Software Quality Metrics (Last Updated: $(date))
 
-### Test Suite State
+### Test & Coverage Summary
 
-| Test Type | Passed | Failed | Skipped | Total |
-|-----------|--------|--------|---------|-------|
-| Unit Tests| $unit_passed | $unit_failed | $unit_skipped | $unit_total |
-| E2E Tests | $e2e_passed | $e2e_failed | $e2e_skipped | N/A |
-
-### Coverage Summary
-
-| Metric | Value |
-|--------|-------|
-| Lines  | ${coverage_lines}% |
+| Metric | Unit Tests | E2E Tests |
+|---|---|---|
+| **Passed** | $unit_passed | $e2e_passed |
+| **Failed** | $unit_failed | $e2e_failed |
+| **Skipped** | $unit_skipped | $e2e_skipped |
+| **Total** | $unit_total | $e2e_total_display |
+| **Coverage**| ${coverage_lines}% | N/A |
 
 ### Code Bloat Metrics
 
