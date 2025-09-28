@@ -8,10 +8,10 @@ import { Mic, MicOff, Square, Play, Pause, AlertTriangle } from "lucide-react";
 const Session = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
-  const [sessionTime] = useState("00:00");
-  const [fillerCount] = useState(3);
-  const [wordsPerMinute] = useState(145);
-  const [clarityScore] = useState(87);
+  const [sessionTime, setSessionTime] = useState("00:00");
+  const [fillerCount, setFillerCount] = useState(3);
+  const [wordsPerMinute, setWordsPerMinute] = useState(145);
+  const [clarityScore, setClarityScore] = useState(87);
 
   const recentFillers = ["um", "uh", "like"];
 
@@ -46,7 +46,7 @@ const Session = () => {
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
                   <span>Live Recording</span>
-                  <Badge variant={isRecording ? "error" : "secondary"}>
+                  <Badge variant={isRecording ? "destructive" : "secondary"}>
                     {isRecording ? (isPaused ? "PAUSED" : "LIVE") : "READY"}
                   </Badge>
                 </CardTitle>

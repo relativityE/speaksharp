@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Mic, BarChart3, Home } from "lucide-react";
+import { Mic, BarChart3, Home, User } from "lucide-react";
 import { useLocation, Link } from "react-router-dom";
 
 const Navigation = () => {
