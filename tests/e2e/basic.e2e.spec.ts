@@ -12,16 +12,6 @@ test.describe('Basic Environment Verification (fast-fail)', () => {
   // This hook runs before each test in this suite.
   // It ensures the application is loaded and the mock service worker is ready.
   test.beforeEach(async ({ page }) => {
-    // *** START DIAGNOSTIC CODE ***
-    // Log every single network request to the console to find the hanging request.
-    page.on('request', request => {
-      console.log('>> Requesting:', request.method(), request.url());
-    });
-    page.on('response', response => {
-      console.log('<< Response:', response.status(), response.url());
-    });
-    // *** END DIAGNOSTIC CODE ***
-
     // Navigate to the root page to ensure the app and MSW are loaded.
     await page.goto('/');
     // Wait for the mswReady promise to resolve, which indicates the mock server is active.
@@ -29,7 +19,7 @@ test.describe('Basic Environment Verification (fast-fail)', () => {
     logStep('beforeEach', 'Mock Service Worker is ready.');
   });
 
-  test('should load homepage and verify environment', async ({ page, baseURL }) => {
+  test('should load homepage and verify environment @smoke', async ({ page, baseURL }) => {
     logStep('start', `Base URL: ${baseURL}`);
 
     // --- Step 1: Login ---
