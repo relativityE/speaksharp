@@ -117,11 +117,10 @@ This section provides a granular breakdown of user-facing features, grouped by p
 
 ## 3. Known Issues & Risks
 
-This section tracks high-level product risks and constraints. For a detailed history of resolved issues, see the [Changelog](./CHANGELOG.md). For a detailed technical debt and task breakdown, see the [Roadmap](./ROADMAP.md).
+This section tracks high-level product risks and constraints. For a detailed history of resolved issues, see the [Changelog](./CHANGELOG.md).
 
-*   **[FIXED] CI Environment Instability:** The CI/CD pipeline has been re-architected to run in parallel, which has resolved the 7-minute timeout issues. The new pipeline is defined in `.github/workflows/ci.yml`.
-
-*   **[ACTIVE] `pnpm lint` Command Timeout:** The `pnpm lint` command is known to be slow and may time out in some environments. This is a known issue that is being tracked.
+*   **[ACTIVE] E2E Test Suite Performance:** The full end-to-end (E2E) test suite (`pnpm test:e2e`) is comprehensive but can be slow to run. To mitigate this during local development, a faster, non-blocking `test-audit.sh` script is used, which only runs a "smoke test" subset of the E2E suite. The full E2E suite is still strictly enforced in the CI pipeline on every push to `main`.
+*   **[ACTIVE] `pnpm lint` Command Performance:** The `pnpm lint` command is known to be slow and is currently commented out in the local `test-audit.sh` script to ensure fast local feedback. However, it is still enforced in the CI pipeline.
 
 ---
 
