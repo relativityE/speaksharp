@@ -23,24 +23,40 @@ To get started with SpeakSharp, you'll need to have Node.js and pnpm installed.
     pnpm dev
     ```
 
-## Testing
+## Testing and CI/CD
 
-SpeakSharp uses Vitest for unit tests and Playwright for end-to-end tests.
+This project uses a two-tiered testing strategy to balance rapid development with high code quality.
+
+### Local Testing
+
+For quick feedback during development, use the local audit script. This is the recommended check to run before committing your changes.
+
+*   **Run the quick local audit:**
+    ```bash
+    ./test-audit.sh
+    ```
+    This script runs a fast subset of checks: type-checking, a production build, all unit tests, and E2E smoke tests. Note that it does not run linting or the full E2E suite.
+
+If you need to run specific test suites, you can use the following commands:
 
 *   **Run all unit tests:**
     ```bash
     pnpm test:unit:full
     ```
-*   **Run all checks (lint, type-check, unit tests):**
-    ```bash
-    ./test-audit.sh
-    ```
 
-*   **Run end-to-end tests:**
+*   **Run the full end-to-end test suite:**
     ```bash
     pnpm test:e2e
     ```
 
-## CI/CD
+### Continuous Integration (CI)
 
-SpeakSharp uses GitHub Actions for CI/CD. The workflow is defined in `.github/workflows/ci.yml`. It runs a single, consolidated job that executes linting, type-checking, unit tests, and end-to-end tests on every push to ensure code quality and application stability.
+The definitive quality gate is our CI pipeline, which runs in GitHub Actions on every push and pull request to the `main` branch. The workflow is defined in `.github/workflows/ci.yml`.
+
+The CI pipeline runs a comprehensive set of checks, including:
+- Linting
+- Type-checking
+- Unit tests
+- The **full** end-to-end test suite
+
+A commit must pass all checks in the CI pipeline before it can be merged.
