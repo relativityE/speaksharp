@@ -43,7 +43,7 @@ export const handlers = [
 
     if (body.grant_type === 'password') {
       // THE FIX IS HERE: The condition now correctly checks for the test user emails.
-      if (body.email === 'free-user@test.com' || body.email?.includes('pro-user@test.com')) {
+      if (body.email?.includes('free-user@test.com') || body.email?.includes('pro-user@test.com')) {
         return HttpResponse.json({
           access_token: 'mock-access-token',
           refresh_token: 'mock-refresh-token',

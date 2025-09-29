@@ -16,8 +16,7 @@ export default defineConfig(({ mode }) => ({
         'test-results/',
         'coverage/',
         '**/*.log',
-        'docs/PRD.md',
-        'vite.config.mjs'
+        'docs/PRD.md'
       ]
     }
   },
