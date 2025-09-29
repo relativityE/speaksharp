@@ -32,40 +32,35 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchSessionAndProfile = async () => {
+    const updateAuthData = async (s: Session | null) => {
+      let userProfile: UserProfile | null = null;
+      if (s?.user) {
+        userProfile = await getProfileFromDb(s.user.id);
+      }
+      setProfile(userProfile);
+      if (import.meta.env.VITE_TEST_MODE) {
+        (window as WindowWithUser).__USER__ = userProfile;
+      }
+      setSession(s);
+    };
+
+    const fetchInitialSession = async () => {
       try {
         const { data: { session }, error } = await supabase.auth.getSession();
         if (error) throw error;
-
-        let userProfile: UserProfile | null = null;
-        if (session?.user) {
-          userProfile = await getProfileFromDb(session.user.id);
-        }
-        setProfile(userProfile);
-        if (import.meta.env.VITE_TEST_MODE) {
-          (window as WindowWithUser).__USER__ = userProfile;
-        }
-        setSession(session);
+        await updateAuthData(session);
       } catch (e) {
-        console.error('Error fetching session and profile:', e);
+        console.error('Error fetching initial session:', e);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchSessionAndProfile();
+    fetchInitialSession();
 
     const { data: listener } = supabase.auth.onAuthStateChange(
       async (_event, newSession) => {
-        let userProfile: UserProfile | null = null;
-        if (newSession?.user) {
-          userProfile = await getProfileFromDb(newSession.user.id);
-        }
-        setProfile(userProfile);
-        if (import.meta.env.VITE_TEST_MODE) {
-          (window as WindowWithUser).__USER__ = userProfile;
-        }
-        setSession(newSession);
+        await updateAuthData(newSession);
       }
     );
 
@@ -88,7 +83,6 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
     profile,
     loading,
     signOut: () => supabase.auth.signOut(),
-    is_anonymous: !session?.user || (session.user.is_anonymous ?? false),
   };
 
   return (

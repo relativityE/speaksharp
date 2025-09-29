@@ -1,33 +1,63 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Mic, MicOff, Square, Play, Pause, AlertTriangle } from "lucide-react";
+import { Mic, MicOff, Square, Play, AlertTriangle } from "lucide-react";
+import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
+import { useAuth } from "@/contexts/useAuth";
 
 const Session = () => {
-  const [isRecording, setIsRecording] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const sessionTime = "00:00";
-  const fillerCount = 3;
-  const wordsPerMinute = 145;
-  const clarityScore = 87;
+  const { session, profile } = useAuth();
+  const {
+    isListening,
+    startListening,
+    stopListening,
+    transcript,
+    fillerData,
+  } = useSpeechRecognition({ session, profile });
 
-  const recentFillers = ["um", "uh", "like"];
+  const [sessionTime, setSessionTime] = useState(0);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const handleStartStop = () => {
-    if (isRecording) {
-      setIsRecording(false);
-      setIsPaused(false);
+  useEffect(() => {
+    if (isListening) {
+      timerRef.current = setInterval(() => {
+        setSessionTime(prevTime => prevTime + 1);
+      }, 1000);
     } else {
-      setIsRecording(true);
-      setIsPaused(false);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    }
+
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+    };
+  }, [isListening]);
+
+  const handleStartStop = async () => {
+    if (isListening) {
+      await stopListening();
+    } else {
+      setSessionTime(0);
+      await startListening();
     }
   };
 
-  const handlePause = () => {
-    setIsPaused(!isPaused);
+  const formatTime = (timeInSeconds: number) => {
+    const minutes = Math.floor(timeInSeconds / 60).toString().padStart(2, '0');
+    const seconds = (timeInSeconds % 60).toString().padStart(2, '0');
+    return `${minutes}:${seconds}`;
   };
+
+  const fillerCount = fillerData.total;
+  const wordsPerMinute = transcript.wpm;
+  const clarityScore = transcript.clarity_score;
+  const recentFillers = fillerData.live;
 
   return (
     <div className="min-h-screen bg-gradient-subtle pt-20 pb-8">
@@ -46,8 +76,8 @@ const Session = () => {
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
                   <span>Live Recording</span>
-                  <Badge variant={isRecording ? "destructive" : "secondary"}>
-                    {isRecording ? (isPaused ? "PAUSED" : "LIVE") : "READY"}
+                  <Badge variant={isListening ? "destructive" : "secondary"}>
+                    {isListening ? "LIVE" : "READY"}
                   </Badge>
                 </CardTitle>
               </CardHeader>
@@ -55,21 +85,21 @@ const Session = () => {
                 {/* Recording Visualization */}
                 <div className="bg-muted rounded-lg p-8 text-center">
                   <div className={`w-24 h-24 mx-auto mb-4 rounded-full flex items-center justify-center transition-all duration-300 ${
-                    isRecording && !isPaused
+                    isListening
                       ? "bg-gradient-secondary animate-pulse shadow-elegant"
                       : "bg-gradient-primary"
                   }`}>
-                    {isRecording ? (
+                    {isListening ? (
                       <Mic className="h-12 w-12 text-white" />
                     ) : (
                       <MicOff className="h-12 w-12 text-white" />
                     )}
                   </div>
 
-                  <div className="text-2xl font-bold text-foreground mb-2">{sessionTime}</div>
+                  <div className="text-2xl font-bold text-foreground mb-2">{formatTime(sessionTime)}</div>
                   <div className="text-muted-foreground">
-                    {isRecording
-                      ? (isPaused ? "Session paused" : "Recording in progress...")
+                    {isListening
+                      ? "Recording in progress..."
                       : "Click start to begin recording"
                     }
                   </div>
@@ -78,12 +108,12 @@ const Session = () => {
                 {/* Controls */}
                 <div className="flex justify-center space-x-4">
                   <Button
-                    variant={isRecording ? "destructive" : "hero"}
+                    variant={isListening ? "destructive" : "hero"}
                     size="lg"
                     onClick={handleStartStop}
                     className="w-32"
                   >
-                    {isRecording ? (
+                    {isListening ? (
                       <>
                         <Square className="h-5 w-5 mr-2" />
                         Stop
@@ -95,27 +125,6 @@ const Session = () => {
                       </>
                     )}
                   </Button>
-
-                  {isRecording && (
-                    <Button
-                      variant="outline"
-                      size="lg"
-                      onClick={handlePause}
-                      className="w-32"
-                    >
-                      {isPaused ? (
-                        <>
-                          <Play className="h-5 w-5 mr-2" />
-                          Resume
-                        </>
-                      ) : (
-                        <>
-                          <Pause className="h-5 w-5 mr-2" />
-                          Pause
-                        </>
-                      )}
-                    </Button>
-                  )}
                 </div>
               </CardContent>
             </Card>

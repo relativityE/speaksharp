@@ -1,29 +1,34 @@
-import { test, expect } from './helpers';
+import { test, expect } from '../setup/verifyOnlyStepTracker';
 import { AuthPage } from './poms/authPage.pom';
 import { SessionPage } from './poms/sessionPage.pom';
 import { stubThirdParties } from './sdkStubs';
-import { TEST_USER_EMAIL, TEST_USER_PASSWORD } from '../constants';
 
 test.describe('Authentication', () => {
-  test('should allow a user to sign up and land on the session page', async ({ page }) => {
+  let authPage: AuthPage;
+  let sessionPage: SessionPage;
+
+  test.beforeEach(async ({ page }) => {
+    // Stub out any third-party services that are not relevant to this test
     await stubThirdParties(page);
-    const authPage = new AuthPage(page);
-    const sessionPage = new SessionPage(page);
-
+    authPage = new AuthPage(page);
+    sessionPage = new SessionPage(page);
     await authPage.goto();
+  });
 
-    // Switch to sign up view
-    await authPage.modeToggleButton.click();
+  test('should allow a user to sign up', async () => {
+    await authPage.signUp('test-user@example.com', 'password123');
+    await sessionPage.assertOnSessionPage();
+    await expect(sessionPage.page.getByText('Start For Free')).toBeVisible();
+  });
 
-    // Fill in sign up form
-    await authPage.emailInput.fill(TEST_USER_EMAIL);
-    await authPage.passwordInput.fill(TEST_USER_PASSWORD);
-    await authPage.signUpButton.click();
+  test('should show an error for an existing user', async () => {
+    await authPage.signUp('existing-user@example.com', 'password123');
+    await authPage.assertUserExistsError();
+  });
 
-    // After signing up, the user should be on the session page
-    await sessionPage.verifyOnPage();
-
-    // The URL should be /session
-    await expect(page).toHaveURL('/session');
+  test('should allow a user to sign in', async ({ page }) => {
+    await authPage.login('test-user@example.com', 'password123');
+    await sessionPage.assertOnSessionPage();
+    await expect(page.getByText('Start For Free')).toBeVisible();
   });
 });

@@ -25,6 +25,5 @@ export class AuthPage {
     await this.emailInput.fill(email);
     await this.passwordInput.fill(password_val);
     await this.signInButton.click();
-    await this.page.waitForURL('**/');
   }
 }

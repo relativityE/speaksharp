@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { useAuth } from '../../contexts/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
@@ -11,17 +11,19 @@ import { useFillerWords } from './useFillerWords';
 import { useTranscriptionService } from './useTranscriptionService';
 import type { UseSpeechRecognitionProps, TranscriptStats } from './types';
 import type { FillerCounts } from '../../utils/fillerWordUtils';
+import { ForceOptions } from './types';
 
 export const useSpeechRecognition = (props: UseSpeechRecognitionProps = {}) => {
   const { customWords = [], session, profile } = props;
   const { session: authSession } = useAuth();
   const navigate = useNavigate();
 
-  // Sub-hooks with single responsibilities
+  const [duration, setDuration] = useState(0);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
   const transcript = useTranscriptState();
   const fillerWords = useFillerWords(transcript.finalChunks, transcript.interimTranscript, customWords);
 
-  // Token logic extracted from original hook
   const getAssemblyAIToken = useCallback(async (): Promise<string | null> => {
     try {
       let userSession = authSession;
@@ -43,7 +45,6 @@ export const useSpeechRecognition = (props: UseSpeechRecognitionProps = {}) => {
     }
   }, [authSession]);
 
-  // Service options with stable callbacks
   const serviceOptions = useMemo(() => ({
     onTranscriptUpdate: (data: { transcript: { partial?: string; final?: string }; speaker?: string }) => {
       if (data.transcript?.partial && !data.transcript.partial.startsWith('Downloading model')) {
@@ -55,9 +56,7 @@ export const useSpeechRecognition = (props: UseSpeechRecognitionProps = {}) => {
       }
     },
     onReady: () => {},
-    onModelLoadProgress: () => {
-      // Add model loading progress handling if needed
-    },
+    onModelLoadProgress: () => {},
     profile: profile ?? null,
     session: session ?? null,
     navigate,
@@ -66,45 +65,70 @@ export const useSpeechRecognition = (props: UseSpeechRecognitionProps = {}) => {
 
   const service = useTranscriptionService(serviceOptions);
 
-  // Composed reset function
+  useEffect(() => {
+    if (service.isListening) {
+      timerRef.current = setInterval(() => {
+        setDuration(prev => prev + 1);
+      }, 1000);
+    } else {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    }
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+    };
+  }, [service.isListening]);
+
   const reset = useCallback(() => {
     transcript.reset();
     fillerWords.reset();
+    setDuration(0);
   }, [transcript, fillerWords]);
 
-  // Enhanced stopListening that returns stats
+  const startListening = useCallback(async (forceOptions: ForceOptions = {}) => {
+    reset();
+    await service.startListening(forceOptions);
+  }, [service, reset]);
+
   const stopListening = useCallback(async (): Promise<(TranscriptStats & { filler_words: FillerCounts }) | null> => {
     const result = await service.stopListening();
     if (result && result.success) {
       const stats = calculateTranscriptStats(
         transcript.finalChunks,
-        [], // word confidences - add if needed
-        transcript.interimTranscript
+        [],
+        transcript.interimTranscript,
+        duration
       );
       return { ...stats, filler_words: fillerWords.finalFillerData };
     }
     return null;
-  }, [service, transcript, fillerWords]);
+  }, [service, transcript, fillerWords, duration]);
+
+  const transcriptStats = useMemo(() => {
+    return calculateTranscriptStats(
+      transcript.finalChunks,
+      [],
+      transcript.interimTranscript,
+      duration
+    );
+  }, [transcript.finalChunks, transcript.interimTranscript, duration]);
 
   return {
-    // Transcript state
-    transcript: transcript.transcript,
+    transcript: transcriptStats,
     chunks: transcript.finalChunks,
     interimTranscript: transcript.interimTranscript,
-
-    // Filler word data
     fillerData: fillerWords.fillerData,
-
-    // Service state
     isListening: service.isListening,
     isReady: service.isReady,
     error: service.error,
     isSupported: service.isSupported,
     mode: service.mode,
-    modelLoadingProgress: null, // Add back if needed
-
-    // Actions
-    startListening: service.startListening,
+    modelLoadingProgress: null,
+    startListening,
     stopListening,
     reset
   };

@@ -47,7 +47,7 @@ export default async function globalSetup(): Promise<void> {
   const logStream = fs.createWriteStream(VITE_LOG, { flags: 'a' });
   const viteProcess: ChildProcessWithoutNullStreams = spawn(
     'pnpm',
-    ['vite', '--mode', 'test', '--host', '--clearScreen', 'false'],
+    ['vite', '--mode', 'test', '--host', '--clearScreen', 'false', '--strictPort'],
     { detached: true, shell: true }
   );
 
