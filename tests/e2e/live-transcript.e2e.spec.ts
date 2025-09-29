@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../setup/verifyOnlyStepTracker';
 import { loginUser } from './helpers';
 import { TEST_USER_FREE } from '../constants';
 import { SessionPage } from './poms/sessionPage.pom';

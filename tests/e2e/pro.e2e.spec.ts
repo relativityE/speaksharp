@@ -1,4 +1,4 @@
-import { test, expect } from './helpers';
+import { test, expect } from '../setup/verifyOnlyStepTracker';
 import { HomePage } from './poms/homePage.pom';
 import { SessionPage } from './poms/sessionPage.pom';
 import { TEST_USER_PRO } from '../constants';
