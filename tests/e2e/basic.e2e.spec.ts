@@ -4,10 +4,7 @@ import { loginUser } from './helpers';
 import { TEST_USER_FREE } from '../constants';
 
 test.describe('Basic Environment Verification (fast-fail)', () => {
-  // This hook runs before each test in this suite.
-  // It ensures the application is loaded and the mock service worker is ready.
   test.beforeEach(async ({ page }) => {
-    // Navigate to the root page to ensure the app and MSW are loaded.
     await page.goto('/');
     // Wait for the mswReady promise to resolve, which indicates the mock server is active.
     await page.waitForFunction(() => (window as Window & { mswReady: Promise<void> }).mswReady);

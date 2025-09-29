@@ -54,7 +54,7 @@ const Session = () => {
     const seconds = (timeInSeconds % 60).toString().padStart(2, '0');
     return `${minutes}:${seconds}`;
   };
-
+  
   const fillerCount = Object.values(fillerData).reduce((sum, data) => sum + data.count, 0);
   const wordsPerMinute = transcript.wpm;
   const clarityScore = transcript.clarity_score;

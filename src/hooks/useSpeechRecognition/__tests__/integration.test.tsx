@@ -61,7 +61,6 @@ describe('useSpeechRecognition Integration', () => {
     expect(result.current.transcript.clarity_score).toBe(0);
     expect(result.current.chunks).toEqual([]);
     expect(result.current.interimTranscript).toBe('');
-    // Check if a known filler word count is reset
-    expect(result.current.fillerData['um'].count).toBe(0);
+    expect(result.current.fillerData.total.count).toBe(0);
   });
 });
