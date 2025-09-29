@@ -16,23 +16,6 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
   const [error, setError] = useState<Error | null>(null);
 
   const fetchSessionHistory = useCallback(async () => {
-    if (user && user.is_anonymous) {
-      const savedSession = sessionStorage.getItem('anonymous-session');
-      if (savedSession) {
-        try {
-          const parsedSession = JSON.parse(savedSession) as PracticeSession;
-          setSessionHistory([parsedSession]);
-        } catch (e) {
-          logger.error(e, 'Failed to parse anonymous session from sessionStorage');
-          setSessionHistory([]);
-        }
-      } else {
-        setSessionHistory([]);
-      }
-      setLoading(false);
-      return;
-    }
-
     if (!user) {
       setSessionHistory([]);
       setLoading(false);
@@ -70,7 +53,8 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
   };
 
   const clearAnonymousSession = () => {
-      setSessionHistory([]);
+    sessionStorage.removeItem('anonymous-session');
+    setSessionHistory([]);
   }
 
   const value: SessionContextValue = {

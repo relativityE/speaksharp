@@ -41,28 +41,6 @@ describe('SessionProvider', () => {
     expect(contextValue?.loading).toBe(false);
   });
 
-  it('handles anonymous sessions correctly', async () => {
-    const mockUser = { id: 'anon1', is_anonymous: true };
-    mockUseAuth.mockReturnValue({ user: mockUser as User } as AuthContextValue);
-    sessionStorage.setItem('anonymous-session', JSON.stringify({ id: 's_anon', user_id: 'anon1' }));
-
-    let contextValue: SessionContextValue | undefined;
-    await act(async () => {
-        render(
-            <SessionProvider>
-              <SessionContext.Consumer>
-                {(value) => {
-                  contextValue = value;
-                  return null;
-                }}
-              </SessionContext.Consumer>
-            </SessionProvider>
-          );
-    });
-
-    expect(contextValue?.sessionHistory).toEqual([{ id: 's_anon', user_id: 'anon1' }]);
-    sessionStorage.clear();
-  });
 
   it('adds a session to the history', async () => {
     mockUseAuth.mockReturnValue({ user: { id: '123' } as User } as AuthContextValue);

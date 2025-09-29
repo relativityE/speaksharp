@@ -121,6 +121,8 @@ This section tracks high-level product risks and constraints. For a detailed his
 
 *   **[FIXED] CI Environment Instability:** The CI/CD pipeline has been re-architected to run in parallel, which has resolved the 7-minute timeout issues. The new pipeline is defined in `.github/workflows/ci.yml`.
 
+*   **[ACTIVE] E2E Test Suite Instability:** The Playwright E2E test suite is currently unstable and consistently fails with a timeout error. The root cause appears to be an unrecoverable issue within the test environment that prevents the installation of necessary browser dependencies. As a result, the `./test-audit.sh` script cannot run to completion. All feature verification must currently rely on unit tests and manual checks.
+
 *   **[ACTIVE] `pnpm lint` Command Timeout:** The `pnpm lint` command is known to be slow and may time out in some environments. This is a known issue that is being tracked.
 
 ---
