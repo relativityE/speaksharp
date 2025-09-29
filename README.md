@@ -35,13 +35,11 @@ SpeakSharp uses Vitest for unit tests and Playwright for end-to-end tests.
     ```bash
     ./test-audit.sh
     ```
-    **Note:** The `test-audit.sh` script may time out. It is recommended to run the commands within the script individually (`pnpm typecheck`, `pnpm build`, `pnpm test:unit:full`).
 
 *   **Run end-to-end tests:**
     ```bash
     pnpm test:e2e
     ```
-    **Note:** The end-to-end test suite is currently unstable and may time out. These tests are not reliable for verification at this time.
 
 ## CI/CD
 

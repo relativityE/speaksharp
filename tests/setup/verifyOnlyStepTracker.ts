@@ -6,6 +6,16 @@ type VerifyOnlyTest = {
 
 export const test = base.extend<VerifyOnlyTest>({
   page: async ({ page }, use, testInfo) => {
+    // Listen for all console events and log them to the test output.
+    // This is critical for debugging silent client-side failures.
+    page.on('console', msg => {
+      const type = msg.type().toUpperCase();
+      const text = msg.text();
+      // Ignore routine Vite HMR messages to keep the log clean.
+      if (text.includes('[vite]')) return;
+      console.log(`[BROWSER ${type}]: ${text}`);
+    });
+
     let lastStep: string | undefined;
 
     // Wrap page.goto

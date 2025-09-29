@@ -47,7 +47,9 @@ const defaultFillerPatterns: FillerPatterns = {
 const FILLER_WORD_COLORS: string[] = ['#BFDBFE', '#FCA5A5', '#FDE68A', '#86EFAC', '#FDBA74', '#C4B5FD', '#6EE7B7'];
 
 export const createInitialFillerData = (customWords: string[] = []): FillerCounts => {
-    const initial: FillerCounts = {};
+    const initial: FillerCounts = {
+        total: { count: 0, color: '' }
+    };
     const allFillerKeys: string[] = [...Object.values(FILLER_WORD_KEYS), ...customWords];
     allFillerKeys.forEach((key, index) => {
         initial[key] = {
@@ -69,14 +71,18 @@ export const createFillerPatterns = (customWords: string[] = []): FillerPatterns
 export const countFillerWords = (text: string, customWords: string[] = []): FillerCounts => {
     const counts: FillerCounts = createInitialFillerData(customWords);
     const patterns: FillerPatterns = createFillerPatterns(customWords);
+    let totalCount = 0;
 
     for (const key in patterns) {
         const pattern: RegExp = patterns[key];
         const matches: RegExpMatchArray | null = text.match(pattern);
         if (matches) {
-            counts[key].count = matches.length;
+            const count = matches.length;
+            counts[key].count = count;
+            totalCount += count;
         }
     }
+    counts.total = { count: totalCount, color: '' };
     return counts;
 };
 

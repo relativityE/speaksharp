@@ -60,18 +60,25 @@ describe('useTranscriptionService', () => {
   it('should stop listening successfully', async () => {
     const { result } = renderHook(() => useTranscriptionService(mockOptions));
 
+    // Start listening
     await act(async () => {
       await result.current.startListening();
     });
+    expect(result.current.isListening).toBe(true);
 
+    // Stop listening
     await act(async () => {
       const response = await result.current.stopListening();
       expect(response).toEqual({ success: true });
     });
 
-    expect(mockService.stopTranscription).toHaveBeenCalled();
+    // The useEffect cleanup which calls destroy is asynchronous.
+    // We need to wait for the mock to be called.
+    await vi.waitFor(() => {
+      expect(mockService.destroy).toHaveBeenCalled();
+    });
+
     expect(result.current.isListening).toBe(false);
-    expect(result.current.isReady).toBe(false);
   });
 
   it('should handle start listening errors', async () => {

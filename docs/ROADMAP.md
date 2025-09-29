@@ -107,5 +107,5 @@ This section is a prioritized list of technical debt items to be addressed.
   - **Problem:** The lack of easily discoverable, co-located unit tests makes the codebase harder to maintain.
 
 - **P1 (High): Refactor `useSpeechRecognition` Hook**
-  - **Problem:** The `useSpeechRecognition` hook is overly complex, combining state management, business logic, and service initialization. This has led to severe memory leaks and makes the hook difficult to test and maintain.
-  - **Required Action:** Refactor the hook into smaller, more focused hooks (e.g., `useTranscriptionService`, `useFillerWordCounter`). Separate concerns to improve testability and reduce complexity.
+  - **Status:** ✅ **Done.**
+  - **Action Taken:** The hook has been successfully refactored into smaller, more focused hooks (`useTranscriptionService`, `useFillerWords`, `useTranscriptState`). The underlying `useTranscriptionService` was further refactored to resolve a critical memory leak caused by improper instance management. The entire test suite is now passing, confirming the stability of the new implementation.

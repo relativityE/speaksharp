@@ -2,11 +2,10 @@
 import { setupWorker } from 'msw/browser';
 import { handlers, anonymousHandlers } from './handlers';
 
-// Set up the worker with our handlers
-export const worker = setupWorker(...handlers);
-
-// For anonymous user flows
-export const anonymousWorker = setupWorker(...handlers, ...anonymousHandlers);
+// Combine all handlers for a single, comprehensive worker.
+// This is the critical fix: the anonymous handlers were previously excluded,
+// causing the test environment to hang during initialization.
+export const worker = setupWorker(...handlers, ...anonymousHandlers);
 
 // Browser setup function for E2E tests
 export async function setupMSW() {

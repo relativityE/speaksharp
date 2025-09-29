@@ -66,8 +66,13 @@ export type { Response };
  */
 export async function loginUser(page: Page, email: string, password: string) {
   console.log(`Logging in as: ${email}`);
+
+  // This is the critical fix: instead of a hard navigation, we perform a client-side
+  // navigation by clicking the login link on the homepage. This preserves the
+  // application state and prevents the test from hanging.
+  await page.getByRole('link', { name: 'Login' }).click();
+
   const authPage = new AuthPage(page);
-  await authPage.goto();
   await authPage.login(email, password);
   await page.waitForURL('/');
   console.log('Successfully redirected to home page after login.');
