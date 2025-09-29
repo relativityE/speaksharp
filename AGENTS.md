@@ -2,82 +2,126 @@
 
 ---
 
-## 🚨 Critical Environment Rules
+## 🚨 Critical Environment Rules (Non-Negotiable)
 
-* ⏱️ **7-Minute Timeout Constraint**
-  Every script or command must complete within 7 minutes. If longer, split the work into multiple runs.
+1. ⏱️ **7-Minute Timeout Constraint**
 
-* ❌ **Avoidance of CI Scripts**
-  The script `./ci-run-all.sh` is **forbidden** in this environment due to timeout risk.
+   * Every script or command must complete within 7 minutes.
+   * If longer, split the work into smaller runs.
 
-  * Instead, use the new local audit script: `./test-audit.sh`. This script is designed to run quickly and provide fast feedback.
-  * Do not attempt to run the full CI pipeline locally.
+2. ❌ **No Background Execution**
 
-* ⚠️ **Recovery Script Warning**
-  `./vm-recovery.sh` may reset or alter the dev environment.
-  👉 **Always ask the user before running it.** Never execute without explicit approval.
+   * **Absolutely forbidden:** Running tasks in the background (e.g., with `&`, `nohup`, detached sessions).
+   * All tasks must run in the **foreground** so the user can see **real-time progress, errors, and logs**.
+   * Violation of this rule is unacceptable.
 
----
+3. 📢 **Full Debug Logging Requirement**
 
-## ⚡ Quick Reference – Non-Negotiable Rules
+   * During **testing or bug investigation**, all debug logs **must be enabled** and shown in real time.
+   * Never hide logs, buffer logs, or defer log output.
+   * Debug logs are required for efficient collaboration with the user.
 
-1. ✅ **Status & Pre-Check-In** – Run lint, type check, and unit/E2E tests before any commit or PR.
-2. 📄 **Documentation Before Review** – Update PRD, Architecture, Roadmap, and Changelog before review.
-3. ❌ **No Code Reversals Without Consent** – Never undo or revert user work without approval.
-4. ⏱️ **Status Updates** – Provide updates every 5 minutes if tasks run long.
+4. ⚠️ **Recovery Script Warning**
 
-Think like a **senior engineer**: safe, evidence-based, and long-term decisions.
+   * `./vm-recovery.sh` may reset or alter the dev environment.
+   * **Always ask the user before running it. Never execute without explicit approval.**
 
 ---
 
-## 🚦 Pre-Check-In List (MANDATORY)
+## ⚡ Mandatory Testing Rules
 
-You must complete all items **before any commit/PR**:
+1. ✅ **Default Test Command**
 
-1. **Run Local Audit Script**
+   * Always run:
 
-   * Run `./test-audit.sh`.
-   * This script will run linting, type-checking, and core unit tests in a fail-fast sequence.
-   * All errors must be resolved.
+     ```bash
+     ./test-audit.sh
+     ```
+   * This runs linting, type-checking, and core unit tests in a fail-fast sequence.
 
-3. **Documentation**
+2. ⚠️ **If Debugging or Timeout Issues Occur**
+   Run the commands inside `test-audit.sh` individually:
 
-   * Update: `README.md`, `docs/OUTLINE.md`, `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`.
-   * Ensure alignment with SSOT rules.
+   ```bash
+   pnpm typecheck
+   pnpm build
+   pnpm test:unit:full
+   ```
 
-4. **Traceability**
+3. 🧪 **End-to-End Tests**
 
-   * Link every change to PRD/Architecture/Roadmap.
+   * Run only when **explicitly requested**:
 
-5. **Security & Dependencies**
+     ```bash
+     pnpm test:e2e
+     ```
+   * ⚠️ These tests are known to be unstable and may time out. They are **not valid for verification**.
 
-   * Run `pnpm audit` after dependency changes.
-   * Document decisions in `ARCHITECTURE.md`.
+---
 
-6. **Branch & Commit Hygiene**
+## 🚦 Pre-Check-In Checklist (MANDATORY)
+
+Before any commit or PR:
+
+1. **Run Tests** – Execute `./test-audit.sh` (or its components individually if debugging).
+2. **Documentation** – Update:
+
+   * `README.md`
+   * `docs/OUTLINE.md`
+   * `docs/PRD.md`
+   * `docs/ARCHITECTURE.md`
+   * `docs/ROADMAP.md`
+   * `docs/CHANGELOG.md`
+3. **Traceability** – Link every change to PRD/Architecture/Roadmap.
+4. **Security & Dependencies** – Run `pnpm audit` after dependency changes. Document outcomes in `ARCHITECTURE.md`.
+5. **Branch & Commit Hygiene** –
 
    * Branch names: `feature/...`, `fix/...`, `chore/...`.
-   * Commit messages summarize actual changes.
+   * Commit messages must summarize **actual changes** clearly.
+6. **Final Confirmation** – Always ask the user:
 
-7. **Final User Confirmation**
+   > "All checks complete. May I run the validation (`./test-audit.sh`) or recovery script (`./vm-recovery.sh`)?"
 
-   * Ask:
+   * Proceed **only with explicit approval**.
 
-     > "All checks complete. May I run the validation script (`./ci-run-all.sh`) or recovery script (`./vm-recovery.sh`)?"
-   * Proceed **only after explicit approval**.
+---
+
+## 🧠 Senior Engineer Standards
+
+All agents must operate at the level of a **Senior Software Engineer Fellow**:
+
+1. 🔍 **Expert Debugging Skills**
+
+   * Always perform a **deep dive into the actual code**.
+   * Do not guess. All options must be informed by the repository.
+
+2. 🎯 **Present Options, Not Just Answers**
+
+   * For any non-trivial issue, present **2–3 solution paths**.
+   * Each must include **pros, cons, and tradeoffs**.
+
+3. 📊 **Evidence-Based Reasoning**
+
+   * Use logs, code inspection, and tests as evidence.
+   * Never propose changes without justification.
+
+4. 🧩 **Safe, Long-Term Decisions**
+
+   * Prioritize maintainability, clarity, and stability.
+   * Shortcuts or unsafe hacks are forbidden.
 
 ---
 
 ## 🚨 Absolute Non-Negotiables
 
-* ❌ **Never run `./ci-run-all.sh` or `./vm-recovery.sh` without asking first.**
-* ❌ **Never exceed the 7-minute runtime per command.**
-* ❌ **Never undo or destroy user work without consent.**
-* 📄 **Docs before code review — always.**
-* 🔐 **Security first — no leaks, no unsafe shortcuts.**
-* 🧩 **No unapproved dependencies.**
-* 💰 **No cost-incurring services without consent.**
-* 🧠 **Think like a senior engineer — long-term, safe, evidence-driven.**
+* ❌ Never run tasks in the background.
+* ❌ Never suppress or hide logs during testing/debugging.
+* ❌ Never run `./vm-recovery.sh` without explicit approval.
+* ❌ Never exceed the 7-minute runtime per command.
+* ❌ Never undo or destroy user work without consent.
+* 📄 Always update documentation before review.
+* 🔐 Always prioritize security (no leaks, no unsafe shortcuts).
+* 🧠 Always think and act like a **Senior Engineer**.
 
 ---
 
@@ -85,10 +129,10 @@ You must complete all items **before any commit/PR**:
 
 1. **Contextual Review** – Read docs in `/docs` before acting.
 2. **Codebase Deep Dive** – Inspect actual code, not assumptions.
-3. **Strategic Consultation** – Present root cause + 2–3 solution paths before major changes.
-4. **Implementation** – Follow coding standards + architecture principles.
-5. **Validation** – Complete Pre-Check-In List.
-6. **Submission** – Ask user before running any final validation or recovery scripts.
+3. **Strategic Consultation** – Present root cause + multiple solution paths.
+4. **Implementation** – Follow standards + architecture principles.
+5. **Validation** – Run `./test-audit.sh` (or its components individually).
+6. **Submission** – Request explicit user approval before final validation or recovery.
 
 ---
 
@@ -96,19 +140,8 @@ You must complete all items **before any commit/PR**:
 
 If blocked:
 
-* Summarize the problem.
-* List what you tried.
+* Summarize the problem clearly.
+* Show what you tried (with logs/evidence).
 * Provide hypotheses.
 * Offer 2–3 solution paths with pros/cons.
-* **Pause and wait for user guidance.**
-
----
-
-✅ This version:
-
-* Explicitly **forbids `ci-run-all.sh` in dev**.
-* Makes **user consent mandatory** before `./vm-recovery.sh`.
-* Embeds the **7-minute timeout constraint** into every step.
-* Reorganizes into a **tight checklist-style format** to minimize ambiguity.
-
----
+* Pause and wait for user guidance.
