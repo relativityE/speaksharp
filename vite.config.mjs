@@ -27,6 +27,9 @@ export default defineConfig(({ mode }) => ({
       output: {
         manualChunks: undefined,
       }
+    },
+    treeshake: {
+      moduleSideEffects: (id) => id.endsWith('testEnv.ts'),
     }
   },
   resolve: {

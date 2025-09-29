@@ -1,5 +1,45 @@
 import "./testEnv"; // Must be the first import
 
+// This check ensures that the E2E test environment fails loudly and immediately
+// if the mock server does not initialize, preventing silent timeouts.
+if (import.meta.env.MODE === 'test') {
+  // We wait for a short period to give the async `initializeMocks` function
+  // in testEnv.ts a chance to run and attach the `mswReady` promise to the window.
+  setTimeout(() => {
+    if (!window.mswReady) {
+      const errorMessage = `
+        [E2E TEST FATAL ERROR]
+        The MSW mock server did not initialize.
+        This is a critical failure in the test environment setup.
+
+        Root Cause: The 'import "./testEnv.ts"' statement in 'main.tsx' was likely tree-shaken by Vite,
+        so the mock server was never started.
+
+        Solution: To fix this, you must prevent Vite from tree-shaking this import in test mode.
+        Add the following configuration to 'vite.config.mjs':
+
+        build: {
+          // ... other build options
+          treeshake: {
+            moduleSideEffects: (id) => id.endsWith('testEnv.ts')
+          }
+        }
+
+        This test cannot proceed until the environment is fixed.
+      `;
+
+      // Display a prominent error message in the DOM for visual debugging in Playwright.
+      const root = document.getElementById('root');
+      if (root) {
+        root.innerHTML = `<div style="color: red; font-family: monospace; white-space: pre; padding: 2rem; background-color: #fff0f0; border: 2px solid red;">${errorMessage}</div>`;
+      }
+
+      // Throw a fatal error to crash the test runner and print the message to the console.
+      throw new Error(errorMessage);
+    }
+  }, 500); // 500ms is a generous wait time.
+}
+
 import { StrictMode } from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';

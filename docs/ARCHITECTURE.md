@@ -115,52 +115,31 @@ A multi-layered logging strategy is in place to capture artifacts from every sta
 
 Core services and contexts (e.g., `TranscriptionService`, `AuthContext`) are tested implicitly through the hooks and components that use them. The individual modes of the `TranscriptionService` (e.g., `CloudAssemblyAI`) have dedicated unit tests. This approach prioritizes the testing of integrated functionality as it is experienced by the user.
 
-### Test Environment Overview
+### E2E Test Environment
 
-The test configuration creates a controlled environment with the following flow:
-1.  **Playwright Test Start:** The test runner (`pnpm playwright test`) first invokes `global-setup.ts`.
-2.  **Vite Server Launch (`global-setup.ts`):**
-    *   Spawns the Vite dev server in a detached process group (`--mode test --host`).
-    *   Captures all `stdout` and `stderr` from the Vite process into a `vite.log` file for debugging.
-    *   Parses the Vite logs to **dynamically detect the port** the server is running on, avoiding hardcoded port conflicts.
-    *   Performs a **robust health check** by polling the detected URL until it returns a `200 OK` status, ensuring the application is fully ready before any tests begin.
-3.  **E2E Test Execution:** Once the health check passes, Playwright proceeds to run the test suites (e.g., `basic.e2e.spec.ts`).
-4.  **Teardown & Cleanup (`global-teardown.ts`):** After all tests complete, Playwright invokes `global-teardown.ts`.
-    *   It safely kills the entire Vite process group, first with a graceful `SIGTERM` and then with a `SIGKILL` if necessary, preventing zombie processes.
-    *   It cleans up the `.vite.pid` file.
-    *   For debugging purposes, it prints the last 20 lines of `vite.log` to the console.
+The end-to-end (E2E) test environment is managed by Playwright's built-in `webServer` configuration, providing a streamlined and reliable setup.
+
+1.  **Automated Server Management:** The `playwright.config.ts` file uses the `webServer` option to automatically manage the Vite development server.
+    *   **Command:** It runs the `pnpm dev:foreground` script (`vite --mode test`) to start the server.
+    *   **Health Check:** Playwright waits for the server to be fully available at the specified URL (`http://localhost:5173`) before starting any tests.
+    *   **Cleanup:** The server process is automatically terminated by Playwright when the tests are finished.
+    *   **Logging:** All `stdout` and `stderr` from the Vite server are piped directly into the test runner's output, making it easy to debug server-side issues during test runs.
+
+2.  **Mock Service Worker (MSW) Integration:**
+    *   **Problem:** E2E tests would hang due to a race condition where the test would attempt to interact with the application before the Mock Service Worker (MSW) was fully initialized.
+    *   **Solution:** The test environment now exposes a `window.mswReady` promise that resolves only when MSW is active. A `beforeEach` hook in the E2E tests waits for this promise, guaranteeing the mock server is ready before any test interactions occur.
+
+This modern approach eliminates the need for manual server management scripts (e.g., `global-setup.ts`, `global-teardown.ts`), resulting in a simpler, more robust, and easier-to-maintain testing environment.
 
 ### Test Stability and Memory Management
 
-Recent investigations revealed significant stability issues with both the unit and E2E test suites. The following architectural changes have been implemented to resolve them:
+Recent investigations revealed significant stability issues with the unit test suite. The following architectural changes have been implemented to resolve them:
 
-1.  **Consolidated Test Setup:**
-    *   **Problem:** The codebase contained multiple, conflicting `global-setup.ts` files for Vitest and Playwright, leading to incorrect test environments and initialization failures.
-    *   **Solution:** The setup files have been renamed for clarity (`unit-global-setup.ts`, `e2e-global-setup.ts`) and each test runner (`vitest.config.mjs`, `playwright.config.ts`) has been explicitly configured to use its own, correct setup file.
-
-2.  **Unit Test Memory Leak Mitigation:**
+1.  **Unit Test Memory Leak Mitigation:**
     *   **Problem:** The Vitest suite suffered from a "JavaScript heap out of memory" error, caused by accumulating state and un-cleaned-up async operations in tests.
     *   **Solution:**
         *   The `vitest.config.mjs` has been configured to run tests in isolated forked processes (`pool: 'forks'`) and sequentially (`maxConcurrency: 1`) to prevent memory accumulation.
         *   Problematic tests (`LocalWhisper.test.ts`, `SessionSidebar.test.tsx`) have been refactored to use `vi.useFakeTimers()` and proper `afterEach` cleanup hooks to manage timers and unmount components correctly.
-
-3.  **E2E Test Race Condition Mitigation:**
-    *   **Problem:** E2E tests would hang due to a race condition where the test would attempt to interact with the application before the Mock Service Worker (MSW) was fully initialized.
-    *   **Solution:** The test environment now exposes a `window.mswReady` promise that resolves only when MSW is active. A `beforeEach` hook in the E2E tests waits for this promise, guaranteeing the mock server is ready before any test interactions occur.
-
-### Core Artifacts
-
-| File | Purpose |
-|---|---|
-| `vite.config.mjs` | Main Vite dev server and build configuration. |
-| `vitest.config.mjs` | Vitest configuration, including test-specific aliases for mocking. |
-| `.env.test` | Environment variables for the test environment. |
-| `tests/global-setup.ts` | Starts the Vite server and waits for it to be fully ready. |
-| `tests/global-teardown.ts` | Safely stops the Vite server and provides diagnostic logs. |
-| `playwright.config.ts` | Configures Playwright projects, including the smoke test, and hooks in the global setup/teardown scripts. |
-| `vite.log` | Captures all output from the Vite server during a test run. |
-| `.vite.pid` | Stores the Process ID of the running Vite server for teardown. |
-| `tests/e2e/basic.e2e.spec.ts` | A baseline smoke test that validates the environment's stability. |
 
 ### Mocking Native Dependencies
 
@@ -351,26 +330,4 @@ The project includes a basic CI/CD pipeline defined in `.github/workflows/deploy
 
 ## 8. Technical Debt & Known Limitations
 
-**E2E Test Suite Timeout:** The full E2E test suite (`pnpm playwright test`) takes longer to run than the maximum timeout (~7 minutes) allowed by the current CI sandbox environment. This is not a flaw in the tests themselves, but a limitation of the environment's resources.
-- **Current Workaround:** As part of the CI pipeline, we will identify one or two fast and reliable E2E tests to run as a "smoke test" to provide some level of E2E coverage without exceeding the timeout. The full suite should be run manually in a less constrained environment before major releases.
-- **Long-Term Solution:** Migrate to a CI provider or plan that allows for longer timeout configurations.
-
-### Hardened E2E Test Configuration
-
-To address persistent environment instability and non-deterministic test outcomes, the E2E testing configuration has been significantly hardened. The following principles and configurations are now in place to ensure a stable and debuggable testing process.
-
-**Core Problems Addressed:**
-1.  **Silent Server Failures:** The Vite test server would sometimes fail to start correctly (e.g., due to an unset `VITE_PORT` environment variable), but Playwright would still attempt to run tests, leading to long, uninformative timeouts as it waited for a server that would never become available.
-2.  **Lack of Diagnostics:** It was difficult to determine whether a test failure was caused by an issue in the test itself, a server-side error during the test run, or a problem with the Playwright test runner's connection to the server.
-
-**Solutions Implemented:**
-
-1.  **Robust `package.json` Scripts:**
-    *   The `dev:test` script has been updated to `vite --mode test --port ${VITE_PORT:-5173}`. The `${VITE_PORT:-5173}` syntax ensures that if the `VITE_PORT` environment variable is not set, it will default to `5173`, preventing the server from failing to start due to a missing port.
-    *   The `test:e2e` and `test:screenshots` scripts have been updated to include `DEBUG=pw:server` by default. This provides verbose logging from Playwright's server component, offering clear insight into the test lifecycle.
-
-2.  **Hardened `playwright.config.ts`:**
-    *   The `webServer` configuration now includes `stdout: 'pipe'` and `stderr: 'pipe'`. This captures all log output from the Vite server process and pipes it directly into the Playwright test runner's output. This makes it immediately obvious if the server encounters an error during startup or while tests are running.
-    *   The configuration explicitly loads environment variables from `.env.test` using `dotenv`, ensuring a consistent environment for both the test runner and the server process it spawns.
-
-These changes create a more resilient and transparent testing environment, making it easier to diagnose and resolve issues quickly.
+This section is for tracking ongoing technical debt and limitations. All major known issues regarding test stability have been resolved.

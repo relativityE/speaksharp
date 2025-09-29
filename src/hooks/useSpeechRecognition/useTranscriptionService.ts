@@ -25,82 +25,68 @@ export const useTranscriptionService = (options: TranscriptionServiceOptions) =>
   const [currentMode, setCurrentMode] = useState<string | null>(null);
 
   const serviceRef = useRef<ITranscriptionService | null>(null);
-  const initStateRef = useRef({ isInitializing: false });
-  const isMountedRef = useRef<boolean>(true);
+  const forceOptionsRef = useRef<ForceOptions>({});
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
 
-  const startListening = useCallback(async (forceOptions: ForceOptions = {}) => {
-    if (isListening || initStateRef.current.isInitializing || !isMountedRef.current) return;
-
-    initStateRef.current.isInitializing = true;
-    setIsListening(true);
-    setError(null);
-    setIsReady(false);
-    setIsSupported(true);
-
-    try {
-      // Cleanup existing service
-      if (serviceRef.current) {
-        await serviceRef.current.destroy();
-        serviceRef.current = null;
-      }
-
-      // Create new service with force options
-      const serviceOptions = { ...options, ...forceOptions };
-      const service = new TranscriptionService(serviceOptions);
-      serviceRef.current = service as unknown as ITranscriptionService;
-
-      await service.init();
-      if (!isMountedRef.current) return;
-
-      await service.startTranscription();
-      if (isMountedRef.current) {
-        setCurrentMode(service.getMode());
-      }
-    } catch (err) {
-      if (isMountedRef.current) {
-        handleTranscriptionError(err, setError, setIsSupported, setIsListening);
-      }
-    } finally {
-      initStateRef.current.isInitializing = false;
-    }
-  }, [isListening, options]);
-
-  const stopListening = useCallback(async () => {
-    if (!isListening || !serviceRef.current || !isMountedRef.current) return null;
-
-    // Wait for initialization to complete
-    while (initStateRef.current.isInitializing) {
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
-
-    try {
-      await serviceRef.current.stopTranscription();
-      if (isMountedRef.current) {
-        setIsListening(false);
-        setIsReady(false);
-        return { success: true };
-      }
-    } catch (err) {
-      if (isMountedRef.current) {
-        const error = err instanceof Error ? err : new Error(String(err));
-        setError(error);
-      }
-    }
-    return null;
-  }, [isListening]);
-
-  // Cleanup on unmount
   useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-      if (serviceRef.current) {
-        serviceRef.current.destroy().catch(err => {
-          logger.error({ err }, 'Error destroying service on unmount');
+    let isCancelled = false;
+
+    const manageService = async () => {
+      if (isListening) {
+        // If listening starts, create and initialize a new service.
+        setError(null);
+        setIsReady(false);
+        setIsSupported(true);
+
+        const service = new TranscriptionService({
+          ...optionsRef.current,
+          ...forceOptionsRef.current,
         });
+        serviceRef.current = service as unknown as ITranscriptionService;
+
+        try {
+          await service.init();
+          if (isCancelled) return;
+
+          await service.startTranscription();
+          if (isCancelled) return;
+
+          setCurrentMode(service.getMode());
+        } catch (err) {
+          if (!isCancelled) {
+            handleTranscriptionError(err, setError, setIsSupported, setIsListening);
+          }
+        }
       }
     };
-  }, []);
+
+    manageService();
+
+    return () => {
+      isCancelled = true;
+      // Cleanup when isListening becomes false or on unmount.
+      if (serviceRef.current) {
+        serviceRef.current.destroy().catch(err => {
+          logger.error({ err }, 'Error destroying transcription service');
+        });
+        serviceRef.current = null;
+      }
+    };
+  }, [isListening]);
+
+  const startListening = useCallback(async (forceOptions: ForceOptions = {}) => {
+    if (isListening) return;
+    forceOptionsRef.current = forceOptions;
+    setIsListening(true);
+  }, [isListening]);
+
+  const stopListening = useCallback(async () => {
+    if (!isListening) return null;
+    setIsListening(false);
+    // The cleanup in the useEffect will handle the service destruction.
+    return { success: true };
+  }, [isListening]);
 
   return {
     isListening,
@@ -110,7 +96,7 @@ export const useTranscriptionService = (options: TranscriptionServiceOptions) =>
     mode: currentMode,
     startListening,
     stopListening,
-    setIsReady
+    setIsReady,
   };
 };
 
