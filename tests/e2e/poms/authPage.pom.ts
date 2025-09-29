@@ -1,4 +1,4 @@
-import { Page, Locator } from '@playwright/test';
+import { Page, Locator, expect } from '@playwright/test';
 
 export class AuthPage {
   readonly page: Page;
@@ -25,5 +25,16 @@ export class AuthPage {
     await this.emailInput.fill(email);
     await this.passwordInput.fill(password_val);
     await this.signInButton.click();
+  }
+
+  async signUp(email: string, password_val: string) {
+    await this.modeToggleButton.click();
+    await this.emailInput.fill(email);
+    await this.passwordInput.fill(password_val);
+    await this.signUpButton.click();
+  }
+
+  async assertUserExistsError() {
+    await expect(this.page.getByText(/User already registered/i)).toBeVisible();
   }
 }

@@ -32,7 +32,6 @@ export const AllTheProviders = ({ children, authMock, sessionMock, route = '/', 
     profile: null,
     loading: false,
     signOut: vi.fn().mockResolvedValue(undefined),
-    is_anonymous: true,
   };
 
   const defaultSessionMock: SessionContextValue = {

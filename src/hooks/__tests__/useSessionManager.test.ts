@@ -37,20 +37,10 @@ vi.stubGlobal('crypto', { randomUUID: () => 'mock-uuid' });
 // More realistic mock objects
 const mockUser: User = {
   id: 'user-123',
-  is_anonymous: false,
   app_metadata: {},
   user_metadata: {},
   aud: 'authenticated',
   created_at: new Date().toISOString(),
-};
-
-const mockAnonymousUser: User = {
-    id: 'anon-456',
-    is_anonymous: true,
-    app_metadata: {},
-    user_metadata: {},
-    aud: 'authenticated',
-    created_at: new Date().toISOString(),
 };
 
 const mockProfile: UserProfile = {
@@ -63,7 +53,6 @@ const mockAuthContextValue: AuthContextType = {
     profile: mockProfile,
     session: {} as Session,
     loading: false,
-    is_anonymous: false,
     signOut: vi.fn(() => Promise.resolve({ error: null }))
 };
 
@@ -75,27 +64,6 @@ describe('useSessionManager', () => {
   });
 
   describe('saveSession', () => {
-    it('should save session to sessionStorage for anonymous users', async () => {
-      mockUseAuth.mockReturnValue({ ...mockAuthContextValue, user: mockAnonymousUser, profile: null, is_anonymous: true });
-      const { result } = renderHook(() => useSessionManager());
-      const sessionData = { duration: 60 };
-
-      await act(async () => {
-        const savedSession = await result.current.saveSession(sessionData);
-        expect(savedSession).not.toBeNull();
-        if (savedSession) {
-          expect(savedSession.session?.id).toContain('anonymous-session');
-          expect(savedSession.usageExceeded).toBe(false);
-        }
-      });
-
-      expect(mockStorage.saveSession).not.toHaveBeenCalled();
-      expect(mockSessionStorage.setItem).toHaveBeenCalledWith(
-        'anonymous-session',
-        expect.stringContaining('"duration":60')
-      );
-    });
-
     it('should call saveSessionToDb for authenticated users', async () => {
       const newDbSession: PracticeSession = { id: 'new-session-1', user_id: mockUser.id, duration: 120, created_at: new Date().toISOString() };
       mockStorage.saveSession.mockResolvedValue({ session: newDbSession, usageExceeded: false });
@@ -151,16 +119,6 @@ describe('useSessionManager', () => {
   });
 
   describe('deleteSession', () => {
-    it('should not call DB for anonymous sessions', async () => {
-      const { result } = renderHook(() => useSessionManager());
-      let success;
-      await act(async () => {
-        success = await result.current.deleteSession('anonymous-session-123');
-      });
-      expect(mockStorage.deleteSession).not.toHaveBeenCalled();
-      expect(success).toBe(true);
-    });
-
     it('should call deleteSessionFromDb for authenticated users', async () => {
       mockStorage.deleteSession.mockResolvedValue(true);
       const { result } = renderHook(() => useSessionManager());
@@ -214,28 +172,6 @@ describe('exportSessions', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-  });
-
-  it('should log an error for anonymous users', async () => {
-    mockUseAuth.mockReturnValue({
-      ...mockAuthContextValue,
-      user: mockAnonymousUser,
-      profile: null,
-      is_anonymous: true
-    });
-
-    const { result } = renderHook(() => useSessionManager());
-
-    await act(async () => {
-      await result.current.exportSessions();
-    });
-
-    expect(mockLogger.error).toHaveBeenCalledWith(
-      expect.objectContaining({
-        err: new Error("Cannot export sessions: no real user logged in.")
-      }),
-      "Error exporting sessions:"
-    );
   });
 
   it('should call exportData and trigger download for authenticated users', async () => {

@@ -38,7 +38,8 @@ export const test = base.extend<VerifyOnlyTest>({
 
       // Optional ephemeral screenshot (Base64, in-memory only)
       try {
-        const screenshot = await page.screenshot({ encoding: 'base64' });
+        const screenshotBuffer = await page.screenshot();
+        const screenshot = screenshotBuffer.toString('base64');
         console.log(`---DEBUG_SCREENSHOT_BASE64_START---${screenshot}---DEBUG_SCREENSHOT_BASE64_END---`);
       } catch (e) {
         console.log(`---DEBUG_SCREENSHOT_FAILED---`);

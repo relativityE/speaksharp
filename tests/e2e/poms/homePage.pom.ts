@@ -3,10 +3,12 @@ import { Page, Locator, expect } from '@playwright/test';
 export class HomePage {
   readonly page: Page;
   readonly startFreeSessionButton: Locator;
+  readonly upgradeButton: Locator;
 
   constructor(page: Page) {
     this.page = page;
     this.startFreeSessionButton = page.getByTestId('start-free-session-button');
+    this.upgradeButton = page.getByRole('button', { name: /Upgrade/i });
   }
 
   async goto() {
@@ -22,7 +24,7 @@ export class HomePage {
   }
 
   async assertNotUpgradeButton() {
-    await expect(this.page.getByRole('button', { name: /Upgrade/ })).toBeHidden();
+    await expect(this.upgradeButton).toBeHidden();
   }
 
   async startSession() {

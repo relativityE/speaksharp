@@ -1,19 +1,27 @@
-import { test, expect } from './helpers';
+import { test, expect } from '../setup/verifyOnlyStepTracker';
 import { loginUser } from './helpers';
 import { SessionPage } from './poms/sessionPage.pom';
 import { TEST_USER_FREE } from '../constants';
 
 test.describe('Free User Flow', () => {
-  test('free user is on session page and sees upgrade prompt', async ({ page }) => {
+  let sessionPage: SessionPage;
+
+  test.beforeEach(async ({ page }) => {
+    // Log in as a free user before each test
     await loginUser(page, TEST_USER_FREE.email, TEST_USER_FREE.password);
-    await page.goto('/session');
+    sessionPage = new SessionPage(page);
+    await sessionPage.goto();
+  });
 
-    const sessionPage = new SessionPage(page);
-    await sessionPage.verifyOnPage(); // Use POM to wait for page to be ready
+  test('should display the correct UI for a free user', async ({ page }) => {
+    await expect(page.getByText('Free Plan')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Upgrade to Pro' })).toBeVisible();
+  });
 
-    // The 'Start Session' button in the SessionSidebar component has the upgrade prompt logic
-    // We can check for the button that contains the text 'Upgrade'
-    const upgradeButton = page.locator('button', { hasText: 'Upgrade' });
-    await expect(upgradeButton).toBeVisible();
+  test('should allow a free user to start and stop a session', async () => {
+    await sessionPage.startSession();
+    await sessionPage.assertSessionIsActive();
+    await sessionPage.stopSession();
+    await sessionPage.assertSessionIsStopped();
   });
 });

@@ -28,13 +28,6 @@ interface LeftColumnContentProps {
     setCustomWords: React.Dispatch<React.SetStateAction<string[]>>;
 }
 
-interface ModelLoadProgress {
-    status: string;
-    file?: string;
-    loaded?: number;
-    total?: number;
-}
-
 // --- Sub-components ---
 
 const LeftColumnContent: React.FC<LeftColumnContentProps> = ({ speechRecognition, customWords, setCustomWords }) => {
@@ -76,9 +69,9 @@ const LeftColumnContent: React.FC<LeftColumnContentProps> = ({ speechRecognition
                     defaultFillerWords={Object.values(FILLER_WORD_KEYS)}
                     className="flex-grow"
                 />
-                {!isListening && transcript && (
+                {!isListening && transcript.transcript && (
                     <div className="mt-8">
-                        <AISuggestions transcript={transcript} />
+                        <AISuggestions transcript={transcript.transcript} />
                     </div>
                 )}
             </div>
@@ -171,7 +164,7 @@ export const SessionPage: React.FC = () => {
                 </div>
 
                 <div className="hidden lg:block lg:w-1/3">
-                    <SessionSidebar {...speechRecognition} saveSession={saveAndBroadcastSession} actualMode={speechRecognition.mode} startTime={isListening ? startTimeRef.current : null} modelLoadingProgress={modelLoadingProgress as ModelLoadProgress | null} />
+                    <SessionSidebar {...speechRecognition} saveSession={saveAndBroadcastSession} actualMode={speechRecognition.mode} startTime={isListening ? startTimeRef.current : null} modelLoadingProgress={modelLoadingProgress} />
                 </div>
 
                 <div className="block lg:hidden">
@@ -184,7 +177,7 @@ export const SessionPage: React.FC = () => {
                         </DrawerTrigger>
                         <DrawerContent>
                             <div className="p-4 overflow-y-auto h-[80vh]">
-                                <SessionSidebar {...speechRecognition} saveSession={saveAndBroadcastSession} actualMode={speechRecognition.mode} startTime={isListening ? startTimeRef.current : null} modelLoadingProgress={modelLoadingProgress as ModelLoadProgress | null} />
+                                <SessionSidebar {...speechRecognition} saveSession={saveAndBroadcastSession} actualMode={speechRecognition.mode} startTime={isListening ? startTimeRef.current : null} modelLoadingProgress={modelLoadingProgress} />
                             </div>
                         </DrawerContent>
                     </Drawer>

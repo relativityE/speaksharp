@@ -6,6 +6,7 @@ import { Progress } from "@/components/ui/progress";
 import { Mic, MicOff, Square, Play, AlertTriangle } from "lucide-react";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useAuth } from "@/contexts/useAuth";
+import { FillerCounts } from "@/utils/fillerWordUtils";
 
 const Session = () => {
   const { session, profile } = useAuth();
@@ -53,11 +54,11 @@ const Session = () => {
     const seconds = (timeInSeconds % 60).toString().padStart(2, '0');
     return `${minutes}:${seconds}`;
   };
-
-  const fillerCount = fillerData.total;
+  
+  const fillerCount = Object.values(fillerData).reduce((sum, data) => sum + data.count, 0);
   const wordsPerMinute = transcript.wpm;
   const clarityScore = transcript.clarity_score;
-  const recentFillers = fillerData.live;
+  const recentFillers = Object.keys(fillerData).filter(key => fillerData[key].count > 0);
 
   return (
     <div className="min-h-screen bg-gradient-subtle pt-20 pb-8">

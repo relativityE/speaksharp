@@ -27,3 +27,9 @@ export interface TranscriptStats {
   accuracy: number;
   duration: number;
 }
+
+export interface ForceOptions {
+  forceCloud?: boolean;
+  forceOnDevice?: boolean;
+  forceNative?: boolean;
+}

@@ -1,35 +1,30 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../setup/verifyOnlyStepTracker';
 
 test.describe('App Navigation', () => {
   test.use({ storageState: 'storage/pro.json' });
 
-  const pages = [
-    { name: 'Session', path: '/session', heading: 'Practice Session' },
-    { name: 'Analytics', path: '/analytics', heading: 'Analytics Dashboard' },
-    { name: 'Pricing', path: '/pricing', heading: 'Upgrade to Pro' },
+  const pagesToTest = [
+    { name: 'Analytics', url: '/analytics', heading: 'Speaking Analytics' },
+    { name: 'Pricing', url: '/pricing', heading: 'Pricing Plans' },
   ];
 
-  test('should allow navigation between all main pages', async ({ page }) => {
-    // Start at the main session page
+  test('should allow navigation between pages from the sidebar', async ({ page }) => {
     await page.goto('/session');
-    await expect(page.getByRole('heading', { name: 'Practice Session' })).toBeVisible();
 
-    for (const targetPage of pages) {
-      // Navigate to the target page using the sidebar link
+    for (const targetPage of pagesToTest) {
+      // Click the link in the sidebar
       await page.getByRole('link', { name: targetPage.name }).click();
 
-      // Verify the URL is correct
-      await expect(page).toHaveURL(targetPage.path);
+      // Verify the URL has changed
+      await expect(page).toHaveURL(targetPage.url);
 
       // Verify the page has loaded by checking for its main heading
       await expect(page.getByRole('heading', { name: targetPage.heading })).toBeVisible();
-      console.log(`Successfully navigated to ${targetPage.name} page.`);
     }
 
     // Finally, test navigation back to the session page
     await page.getByRole('link', { name: 'Session' }).click();
     await expect(page).toHaveURL('/session');
     await expect(page.getByRole('heading', { name: 'Practice Session' })).toBeVisible();
-    console.log('Successfully navigated back to Session page.');
   });
 });
