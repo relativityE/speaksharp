@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../setup/verifyOnlyStepTracker';
 
 test.describe('App Navigation', () => {
   test.use({ storageState: 'storage/pro.json' });
@@ -23,13 +23,11 @@ test.describe('App Navigation', () => {
 
       // Verify the page has loaded by checking for its main heading
       await expect(page.getByRole('heading', { name: targetPage.heading })).toBeVisible();
-      console.log(`Successfully navigated to ${targetPage.name} page.`);
     }
 
     // Finally, test navigation back to the session page
     await page.getByRole('link', { name: 'Session' }).click();
     await expect(page).toHaveURL('/session');
     await expect(page.getByRole('heading', { name: 'Practice Session' })).toBeVisible();
-    console.log('Successfully navigated back to Session page.');
   });
 });

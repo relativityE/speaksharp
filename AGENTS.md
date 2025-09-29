@@ -92,6 +92,35 @@ You must complete all items **before any commit/PR**:
 
 ---
 
+## 🤖 Debugging E2E Test Failures
+
+The E2E test suite uses a custom Playwright fixture (`/tests/setup/verifyOnlyStepTracker.ts`) that provides robust, automated logging for CI environments where filesystem access is unavailable. You do not need to manually add logging to tests.
+
+When a test fails, analyze the CI logs for the following markers to diagnose the issue:
+
+1.  **`---STEP_START---{Step Name}---STEP_END---`**
+    *   This marker indicates the beginning of an automated step (e.g., `Click`, `Fill`, `Goto`, `Expect`). These are logged for every action.
+
+2.  **`---LAST_SUCCESSFUL_STEP---{Step Name}---LAST_SUCCESSFUL_STEP_END---`**
+    *   This marker **only appears on test failure**.
+    *   It tells you the last action that completed successfully. The error occurred on the *next logical step* in the test code. This is your primary clue for locating the failure.
+
+3.  **`[browser]`, `[pageerror]`, `[requestfailed]`**
+    *   These prefixes capture console logs, runtime errors, and failed network requests from the browser, providing context for the failure.
+
+4.  **`---DEBUG_SCREENSHOT_BASE64_START---{Base64 String}---DEBUG_SCREENSHOT_BASE64_END---`**
+    *   This marker **only appears on test failure**.
+    *   It contains a base64-encoded PNG of the page at the moment of failure. You can parse this string to visually inspect the state of the UI without needing to access a saved file.
+
+### Workflow for Debugging a Failed Test:
+1.  Scroll to the bottom of the test log and find the `---LAST_SUCCESSFUL_STEP---` marker.
+2.  Open the corresponding test file and locate the code for that step.
+3.  The failure occurred in the code immediately following that step.
+4.  Examine the surrounding logs for page errors or failed requests that might explain why the next step failed.
+5.  If necessary, parse the base64 screenshot to see what the UI looked like at the time of the error.
+
+---
+
 ## 📢 Escalation Protocol
 
 If blocked:

@@ -40,6 +40,11 @@ SpeakSharp uses Vitest for unit tests and Playwright for end-to-end tests.
     pnpm test:e2e
     ```
 
+### Debugging End-to-End Tests
+The project uses a custom Playwright fixture that automatically logs every step and action to the console. If a test fails in the CI/CD environment, the logs will contain detailed information about the last successful step and a base64-encoded screenshot of the failure.
+
+For a complete guide on how to interpret these logs and debug failed E2E tests, please see the **"Debugging E2E Test Failures"** section in `AGENTS.md`.
+
 ## CI/CD
 
 SpeakSharp uses GitHub Actions for CI/CD. The workflow is defined in `.github/workflows/ci.yml`. It runs a single, consolidated job that executes linting, type-checking, unit tests, and end-to-end tests on every push to ensure code quality and application stability.

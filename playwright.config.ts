@@ -16,16 +16,17 @@ export default defineConfig({
   retries: 1,
   reporter: [
     ['list'],
-    ['html', { outputFolder: 'playwright-report' }],
-    ['json', { outputFile: 'test-results/e2e-results/results.json' }],
+    ['json', { outputFile: 'test-results/playwright-report.json' }],
   ],
   use: {
     baseURL: BASE_URL,
     headless: true,
     viewport: { width: 1280, height: 720 },
+    deviceScaleFactor: 1,
     ignoreHTTPSErrors: true,
-    screenshot: 'only-on-failure',
-    trace: 'retain-on-failure',
+    screenshot: 'off',
+    video: 'off',
+    trace: 'off',
   },
   webServer: {
     command: 'pnpm dev:foreground',
