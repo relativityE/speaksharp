@@ -72,7 +72,7 @@ SpeakSharp is built on a modern, serverless technology stack designed for real-t
 *   **Frontend:**
     *   **Framework:** React (v18) with Vite (`^7.1.7`)
     *   **Language:** TypeScript (TSX)
-    *   **Styling:** Tailwind CSS with a CVA-based design system
+    *   **Styling:** Tailwind CSS with a standard PostCSS setup (migrated from `@tailwindcss/vite` for improved `arm64` compatibility) and a CVA-based design system.
     *   **State Management:** React Context and custom hooks
 *   **Backend (BaaS):**
     *   **Platform:** Supabase
@@ -189,6 +189,9 @@ During the development of the automated SQM reporting, we encountered a critical
 Another key lesson was the importance of ensuring all necessary binaries are present. Early failures were caused by missing Playwright browser binaries.
 
 **Solutions Implemented:**
+- **Build System Migration for Compatibility:** The project was migrated from `@tailwindcss/vite` to a standard `postcss` setup.
+  - **Problem:** The original `@tailwindcss/vite` plugin contained native binary dependencies that failed to build on `arm64` architectures (like Apple Silicon), blocking local development for some users.
+  - **Solution:** Replaced the Vite-specific plugin with the standard `tailwindcss`, `postcss`, and `autoprefixer` packages. This required removing the plugin from `vite.config.mjs` and ensuring `postcss.config.cjs` was correctly configured to use the new dependencies. This change resolves the `arm64` compatibility issue.
 - **Automated Browser Installation:** The `pnpm exec playwright install --with-deps` command is run as a dedicated step in `ci-run-all.sh` to ensure browsers are always installed. The `postinstall` script in `package.json` is used to initialize Mock Service Worker (`msw`), which is required for tests.
 - **Architectural Refactoring:** To address the timeout, the testing process was re-architected into a multi-script workflow orchestrated by `ci-run-all.sh`, ensuring each step could complete within the timeout window.
 
