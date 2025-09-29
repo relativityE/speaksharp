@@ -5,25 +5,23 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SessionSidebar } from '../SessionSidebar';
 import type { SessionSidebarProps } from '../SessionSidebar';
 import { AuthContextType } from '../../../contexts/AuthContext';
+import { AuthContext } from '../../../contexts/AuthContext';
 
 // Mock AuthContext instead of just the hook
-const mockAuthContextValue: AuthContextType = {
+const mockAuthContextValue: Partial<AuthContextType> = {
   user: null,
   profile: null,
   signOut: vi.fn(),
   loading: false,
   session: null,
-  is_anonymous: false,
 };
 
-import { AuthContext } from '../../../contexts/AuthContext';
-
 // Create a mock AuthProvider
-const MockAuthProvider: React.FC<{ children: React.ReactNode; value: AuthContextType }> = ({
+const MockAuthProvider: React.FC<{ children: React.ReactNode; value: Partial<AuthContextType> }> = ({
   children,
   value,
 }) => {
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={value as AuthContextType}>{children}</AuthContext.Provider>;
 };
 
 // Mock dependencies

@@ -5759,7 +5759,7 @@ snapshots:
     optional: true
 
   base64-js@1.5.1: {}
-  
+
   baseline-browser-mapping@2.8.9: {}
 
   bl@4.1.0:

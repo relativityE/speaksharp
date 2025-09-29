@@ -7,7 +7,6 @@ export interface AuthContextType {
   user: User | null;
   profile: UserProfile | null;
   loading: boolean;
-  is_anonymous: boolean;
   signOut: () => Promise<{ error: AuthError | null }>;
 }
 

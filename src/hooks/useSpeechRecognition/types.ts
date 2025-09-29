@@ -22,6 +22,14 @@ export interface UseSpeechRecognitionProps {
 export interface TranscriptStats {
   transcript: string;
   total_words: number;
+  wpm: number;
+  clarity_score: number;
   accuracy: number;
   duration: number;
+}
+
+export interface ForceOptions {
+  forceCloud?: boolean;
+  forceOnDevice?: boolean;
+  forceNative?: boolean;
 }

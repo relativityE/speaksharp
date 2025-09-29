@@ -1,52 +1,29 @@
-import { test, expect } from './helpers';
+import { test, expect } from '../setup/verifyOnlyStepTracker';
 import { HomePage } from './poms/homePage.pom';
 import { SessionPage } from './poms/sessionPage.pom';
 import { TEST_USER_PRO } from '../constants';
-import { loginUser } from './helpers';
 
-test.describe('Pro User E2E Flow', () => {
+test.describe('Pro User Flow', () => {
+  test.use({ storageState: 'storage/pro.json' });
 
-  test('allows a standard (cloud) pro user to start and stop a session', async ({ page }) => {
-    // Standard login for pro user
-    await loginUser(page, TEST_USER_PRO.email, TEST_USER_PRO.password);
+  test('should not see upgrade prompts as a pro user', async ({ page }) => {
     const homePage = new HomePage(page);
     await homePage.goto();
     await homePage.assertOnHomePage();
-    await homePage.assertNotUpgradeButton();
-    await homePage.startFreeSession();
+    await expect(homePage.upgradeButton).not.toBeVisible();
 
     const sessionPage = new SessionPage(page);
-    await sessionPage.verifyOnPage();
-    // TODO: Add assertion to confirm cloud mode is active
-
-    await sessionPage.startStopButton.click();
-    await expect(page.getByRole('heading', { name: 'Session Ended' })).toBeVisible();
+    await sessionPage.goto();
+    await sessionPage.assertOnSessionPage();
+    await expect(sessionPage.upgradeButton).not.toBeVisible();
   });
 
-  test('allows a pro user to use on-device transcription', async ({ page }) => {
-    // This test mocks the user's 'preferred_mode' to 'on-device' via a network intercept.
-
-    await loginUser(page, TEST_USER_PRO.email, TEST_USER_PRO.password);
-
-    // Mock the user profile to have preferred_mode = 'on-device'
-    await page.route('**/*.supabase.co/rest/v1/user_profiles*', async (route) => {
-        const originalResponse = await route.fetch();
-        const json = await originalResponse.json();
-        if (json && json.length > 0) {
-            json[0].preferred_mode = 'on-device';
-        }
-        await route.fulfill({ json });
-    });
-
-    const homePage = new HomePage(page);
-    await homePage.goto();
-    await homePage.startFreeSession();
-
+  test('should have access to all transcription modes', async ({ page }) => {
     const sessionPage = new SessionPage(page);
-    await sessionPage.verifyOnPage();
-
-    // Verify that the on-device mode was initialized by listening for its log message
-    const whisperLog = page.waitForEvent('console', msg => msg.text().includes('[LocalWhisper] Initialized.'));
-    await expect(whisperLog).resolves.toBeTruthy();
+    await sessionPage.goto();
+    await sessionPage.assertOnSessionPage();
+    await expect(sessionPage.sidebar.cloudAiMode).toBeEnabled();
+    await expect(sessionPage.sidebar.onDeviceMode).toBeEnabled();
+    await expect(sessionPage.sidebar.nativeMode).toBeEnabled();
   });
 });

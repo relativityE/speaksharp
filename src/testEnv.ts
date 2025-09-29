@@ -16,7 +16,10 @@ async function initializeMocks() {
     // The worker.start() method returns a promise that resolves when the service worker is ready.
     // We attach this promise to the window object so that our Playwright tests can wait for it.
     window.mswReady = worker.start({
-      onUnhandledRequest: 'bypass', // Bypassing unhandled requests is safer for tests.
+      onUnhandledRequest: 'bypass',
+      serviceWorker: {
+        url: '/mockServiceWorker.js',
+      },
     });
 
     console.log('[testEnv] Mock Service Worker initialization promise has been set on window.mswReady.');

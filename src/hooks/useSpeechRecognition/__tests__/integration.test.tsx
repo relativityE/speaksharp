@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import React from 'react';
 import { useSpeechRecognition } from '../index';
 
+// Mock dependencies that are not the target of the test
 vi.mock('../../../contexts/useAuth', () => ({
   useAuth: vi.fn(() => ({ session: null }))
 }));
@@ -18,18 +19,7 @@ vi.mock('../../../services/transcription/TranscriptionService', () => ({
   }))
 }));
 
-vi.mock('../../../utils/fillerWordUtils', () => ({
-  createInitialFillerData: vi.fn(() => ({ total: 0, um: 0 })),
-  countFillerWords: vi.fn(() => ({ total: 1, um: 1 })),
-  calculateTranscriptStats: vi.fn(() => ({
-    transcript: 'test transcript',
-    total_words: 2,
-    accuracy: 0.95,
-    duration: 30
-  })),
-  limitArray: vi.fn((arr) => arr)
-}));
-
+// Wrapper component for the hook
 function wrapper({ children }: { children: React.ReactNode }): React.ReactElement {
   return <MemoryRouter>{children}</MemoryRouter>;
 }
@@ -41,7 +31,6 @@ describe('useSpeechRecognition Integration', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
-    vi.clearAllTimers();
     vi.useRealTimers();
   });
 
@@ -51,13 +40,28 @@ describe('useSpeechRecognition Integration', () => {
       { wrapper }
     );
 
+    // Set some initial state to ensure reset works
+    act(() => {
+        result.current.startListening();
+        // Simulate some transcript data
+        const transcriptState = result.current.transcript;
+        transcriptState.transcript = "hello um world";
+        transcriptState.total_words = 3;
+    });
+
+    // Reset the state
     act(() => {
       result.current.reset();
     });
 
-    expect(result.current.transcript).toBe('');
+    // Assert that all relevant state properties are reset to their initial values
+    expect(result.current.transcript.transcript).toBe('');
+    expect(result.current.transcript.total_words).toBe(0);
+    expect(result.current.transcript.wpm).toBe(0);
+    expect(result.current.transcript.clarity_score).toBe(0);
     expect(result.current.chunks).toEqual([]);
     expect(result.current.interimTranscript).toBe('');
-    expect(result.current.fillerData).toEqual({ total: 0, um: 0 });
+    // Check if a known filler word count is reset
+    expect(result.current.fillerData['um'].count).toBe(0);
   });
 });

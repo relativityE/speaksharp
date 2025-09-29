@@ -1,9 +1,12 @@
 import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import * as dotenv from 'dotenv';
+
+dotenv.config({ path: path.resolve(process.cwd(), '.env.test') });
 
 const VITE_LOG = path.join(process.cwd(), 'vite.log');
-const VITE_PORT = 5173; // The port our Vite server is configured to use
+const VITE_PORT = parseInt(process.env.VITE_PORT || '5173', 10);
 
 /**
  * Finds and kills the process listening on the specified port.
