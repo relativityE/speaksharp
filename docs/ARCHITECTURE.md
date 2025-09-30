@@ -117,19 +117,25 @@ Core services and contexts (e.g., `TranscriptionService`, `AuthContext`) are tes
 
 ### E2E Test Environment
 
-The end-to-end (E2E) test environment is managed by Playwright's built-in `webServer` configuration, providing a streamlined and reliable setup.
+The end-to-end (E2E) test environment is designed to be robust, deterministic, and fully automated. It simulates the full application stack within a browser context, allowing for reliable testing of user flows.
 
-1.  **Automated Server Management:** The `playwright.config.ts` file uses the `webServer` option to automatically manage the Vite development server.
-    *   **Command:** It runs the `pnpm dev:foreground` script (`vite --mode test`) to start the server.
-    *   **Health Check:** Playwright waits for the server to be fully available at the specified URL (`http://localhost:5173`) before starting any tests.
-    *   **Cleanup:** The server process is automatically terminated by Playwright when the tests are finished.
-    *   **Logging:** All `stdout` and `stderr` from the Vite server are piped directly into the test runner's output, making it easy to debug server-side issues during test runs.
+1.  **Orchestration with Playwright and `concurrently`**:
+    *   **`playwright.config.ts`**: The configuration uses Playwright's `webServer` option to manage the application server.
+    *   **`pnpm dev:foreground`**: This `package.json` script is the entry point for the test server. It uses `concurrently` to start two essential services in parallel:
+        1.  `pnpm dev:app`: The Vite development server for the React frontend.
+        2.  `pnpm dev:supabase`: The local Supabase mock server.
+    *   This setup ensures that the entire application stack is running before any tests begin.
 
-2.  **Mock Service Worker (MSW) Integration:**
-    *   **Problem:** E2E tests would hang due to a race condition where the test would attempt to interact with the application before the Mock Service Worker (MSW) was fully initialized.
-    *   **Solution:** The test environment now exposes a `window.mswReady` promise that resolves only when MSW is active. A `beforeEach` hook in the E2E tests waits for this promise, guaranteeing the mock server is ready before any test interactions occur.
+2.  **API Mocking with Mock Service Worker (MSW)**:
+    *   **Role**: MSW is used to intercept all outgoing network requests from the browser during E2E tests. This allows us to provide consistent, predictable mock responses for all backend services (Supabase, Stripe, etc.) without making real network calls.
+    *   **Browser-Side Setup (`src/testEnv.ts`)**: The test environment uses `setupWorker` from `msw/browser` to run MSW as a service worker in the browser. This is a critical distinction from `setupServer` from `msw/node`, which is intended for Node.js environments. The incorrect use of `setupServer` was the root cause of the initial E2E test failures.
+    *   **Request Handlers**: Mock definitions for all intercepted routes are located in `src/test/mocks/handlers.ts`.
 
-This modern approach eliminates the need for manual server management scripts (e.g., `global-setup.ts`, `global-teardown.ts`), resulting in a simpler, more robust, and easier-to-maintain testing environment.
+3.  **Solving the Initialization Race Condition**:
+    *   **Problem**: A critical race condition existed where the React application could attempt to mount and make API calls *before* the MSW service worker was fully initialized and ready to intercept requests. This led to unpredictable test failures.
+    *   **Solution**:
+        1.  **`src/testEnv.ts`**: This file now attaches a `window.mswReady` promise to the `window` object. This promise resolves only when the MSW worker has successfully started.
+        2.  **`src/main.tsx`**: The application's entry point has been made "sandbox-safe." In test mode (`import.meta.env.MODE === 'test'`), it now contains a polling mechanism that waits for the `window.mswReady` promise to resolve before attempting to render the React application. This guarantees that the mock server is always ready before the application mounts, eliminating the race condition and ensuring stable, deterministic test runs.
 
 ### Test Stability and Memory Management
 

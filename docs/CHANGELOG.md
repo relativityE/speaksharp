@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`pnpm lint` Command Timeout:** The `pnpm lint` command is known to be slow and may time out in some environments. This is a known issue that is being tracked.
 
 ### Fixed
+- **Client-Side Rendering and E2E Test Stability:** Resolved a critical E2E test timeout caused by a client-side rendering failure. The fix involved correcting a component definition error in `src/pages/Session.tsx`, resolving multiple TypeScript errors, and implementing a sandbox-safe rendering mechanism in `src/main.tsx` to prevent a race condition with the mock server.
 - **Critical E2E Test Timeout:** Fixed a persistent E2E test timeout that was caused by a silent failure during test environment initialization.
   - **Root Cause:** Vite was tree-shaking the `src/testEnv.ts` script, which prevented the Mock Service Worker (MSW) from ever starting.
   - **Fix:** Updated `vite.config.mjs` to explicitly prevent `testEnv.ts` from being tree-shaken in test mode.

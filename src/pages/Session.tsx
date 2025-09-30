@@ -1,3 +1,5 @@
+// src/pages/Session.tsx
+
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,23 +16,22 @@ const Session = () => {
     isListening,
     startListening,
     stopListening,
-    transcript,
-    fillerData,
+    transcript = { wpm: 0, clarity_score: 0 },
+    fillerData = {} as FillerCounts,
   } = useSpeechRecognition({ session, profile });
 
   const [sessionTime, setSessionTime] = useState(0);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  // Browser-friendly timer ref
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (isListening) {
       timerRef.current = setInterval(() => {
-        setSessionTime(prevTime => prevTime + 1);
+        setSessionTime(prev => prev + 1);
       }, 1000);
-    } else {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
+    } else if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
     }
 
     return () => {
@@ -54,15 +55,19 @@ const Session = () => {
     const seconds = (timeInSeconds % 60).toString().padStart(2, '0');
     return `${minutes}:${seconds}`;
   };
-  
-  const fillerCount = Object.values(fillerData).reduce((sum, data) => sum + data.count, 0);
-  const wordsPerMinute = transcript.wpm;
-  const clarityScore = transcript.clarity_score;
-  const recentFillers = Object.keys(fillerData).filter(key => fillerData[key].count > 0);
+
+  const fillerCount = Object.values(fillerData).reduce(
+    (sum, data) => sum + (data?.count || 0),
+    0
+  );
+
+  const wordsPerMinute = transcript?.wpm ?? 0;
+  const clarityScore = transcript?.clarity_score ?? 0;
+  const recentFillers = Object.keys(fillerData).filter(key => fillerData[key]?.count > 0);
 
   return (
     <div className="min-h-screen bg-gradient-subtle pt-20 pb-8">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-foreground mb-2">Practice Session</h1>

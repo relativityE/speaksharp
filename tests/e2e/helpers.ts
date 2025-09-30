@@ -70,7 +70,33 @@ export async function loginUser(page: Page, email: string, password: string) {
   // This is the critical fix: instead of a hard navigation, we perform a client-side
   // navigation by clicking the login link on the homepage. This preserves the
   // application state and prevents the test from hanging.
-  await page.getByRole('link', { name: 'Login' }).click();
+
+  // First, wait for the network to be idle. This is the most reliable way to ensure
+  // that the single-page application has fully hydrated and is ready for interaction.
+  await page.waitForLoadState('networkidle', { timeout: 15000 });
+
+  // Debug: Log what buttons are available
+  try {
+    const buttons = await page.locator('button').all();
+    const buttonTexts = await Promise.all(buttons.map(b => b.textContent()));
+    console.log('Available buttons:', buttonTexts);
+  } catch {
+    console.warn('Could not enumerate buttons for debugging');
+  }
+
+  // Use a more flexible selector that handles case variations
+  // First try exact match, then fall back to role-based selector
+  let signInButton = page.getByText('Sign In', { exact: true });
+
+  const isVisible = await signInButton.isVisible({ timeout: 2000 }).catch(() => false);
+
+  if (!isVisible) {
+    console.log('Exact "Sign In" not found, trying role-based selector...');
+    signInButton = page.getByRole('button', { name: /sign in/i });
+  }
+
+  await expect(signInButton).toBeVisible({ timeout: 10000 });
+  await signInButton.click();
 
   const authPage = new AuthPage(page);
   await authPage.login(email, password);

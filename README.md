@@ -37,9 +37,27 @@ SpeakSharp uses Vitest for unit tests and Playwright for end-to-end tests.
     ```
 
 *   **Run end-to-end tests:**
-    ```bash
-    pnpm test:e2e
-    ```
+
+    To run the full E2E suite, you first need to create a test-specific environment file.
+
+    1.  **Create a `.env.test` file** in the root of the repository. This file is loaded by Playwright's configuration (`playwright.config.ts`) to provide necessary environment variables for the test run. A minimal example would be:
+        ```env
+        # Supabase (use mock values, as the real backend is mocked by MSW)
+        VITE_SUPABASE_URL="http://localhost:54321"
+        VITE_SUPABASE_ANON_KEY="your-supabase-anon-key"
+
+        # Stripe (use a mock value)
+        VITE_STRIPE_PUBLISHABLE_KEY="pk_test_your_stripe_pk"
+
+        # Vite server port
+        VITE_PORT=5173
+        ```
+
+    2.  **Run the tests:**
+        ```bash
+        pnpm test:e2e
+        ```
+        This command will automatically start the web server (both Vite and the Supabase mock server) using the `pnpm dev:foreground` script before running the Playwright tests.
 
 ## CI/CD
 
