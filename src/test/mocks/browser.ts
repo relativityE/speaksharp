@@ -1,11 +1,11 @@
 // src/test/mocks/browser.ts - For E2E tests
 import { setupWorker } from 'msw/browser';
-import { handlers, anonymousHandlers } from './handlers';
+import { handlers } from './handlers';
 
-// Combine all handlers for a single, comprehensive worker.
-// This is the critical fix: the anonymous handlers were previously excluded,
-// causing the test environment to hang during initialization.
-export const worker = setupWorker(...handlers, ...anonymousHandlers);
+// Setup the worker with only the active, correct handlers.
+// The legacy `anonymousHandlers` have been removed as they were preventing
+// the MSW worker from initializing correctly and causing test timeouts.
+export const worker = setupWorker(...handlers);
 
 // Browser setup function for E2E tests
 export async function setupMSW() {

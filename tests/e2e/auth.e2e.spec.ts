@@ -8,11 +8,13 @@ test.describe('Authentication', () => {
   let sessionPage: SessionPage;
 
   test.beforeEach(async ({ page }) => {
-    // Stub out any third-party services that are not relevant to this test
+    // The global setup navigates to `/` and waits for MSW.
+    // We still need to stub third-party services and initialize Page Object Models.
     await stubThirdParties(page);
     authPage = new AuthPage(page);
     sessionPage = new SessionPage(page);
-    await authPage.goto();
+    // Note: The call to authPage.goto() is no longer needed as the global
+    // setup already navigates to the root page.
   });
 
   test('should allow a user to sign up', async () => {

@@ -43,6 +43,10 @@ export default defineConfig(({ mode }) => ({
   },
   optimizeDeps: {
     exclude: ['@xenova/transformers'],
+    // Force the test environment setup file to be included by the dev server.
+    // This prevents it from being tree-shaken in test mode, which was the
+    // root cause of the MSW worker failing to initialize.
+    include: ['src/testEnv.ts'],
   },
   ssr: {
     external: ['@xenova/transformers'],

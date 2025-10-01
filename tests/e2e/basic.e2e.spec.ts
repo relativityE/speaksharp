@@ -4,16 +4,14 @@ import { loginUser } from './helpers';
 import { TEST_USER_FREE } from '../constants';
 
 test.describe('Basic Environment Verification (fast-fail)', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    // Wait for the mswReady promise to resolve, which indicates the mock server is active.
-    await page.waitForFunction(() => (window as Window & { mswReady: Promise<void> }).mswReady);
-  });
+  // The global setup in `verifyOnlyStepTracker.ts` now handles page navigation
+  // and waiting for MSW. No `beforeEach` is needed here anymore.
 
   test('should load homepage and verify environment @smoke', async ({ page }) => {
+    // The global setup navigates to `/` and waits for MSW.
+    // We can now proceed directly with test-specific actions.
     await loginUser(page, TEST_USER_FREE.email, TEST_USER_FREE.password);
 
-    // The beforeEach hook handles navigation, so we just verify the result.
     await expect(page).toHaveURL('/');
     await expect(page).toHaveTitle(/SpeakSharp/, { timeout: 7_000 });
 

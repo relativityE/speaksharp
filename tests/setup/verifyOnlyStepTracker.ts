@@ -1,10 +1,40 @@
+// tests/setup/verifyOnlyStepTracker.ts
 import { test as base, Page, expect as baseExpect } from '@playwright/test';
 
 type VerifyOnlyTest = {
   page: Page;
 };
 
-export const test = base.extend<VerifyOnlyTest>({
+// By extending the base `test` object, we can create a robust, global setup
+// that applies to every test file. This is the single source of truth for test setup.
+export const test = base.extend<VerifyOnlyTest & { auto: void }>({
+  // This 'auto' fixture will run before every test, automatically.
+  // By typing it as `void`, we signal that it doesn't return a value to the test function.
+  auto: [
+    async ({ page }, use) => {
+      // This beforeEach hook is now applied globally.
+
+      // 1. Log network requests for easier debugging.
+      page.on("request", (req) => console.log(`[E2E Request] ${req.method()} ${req.url()}`));
+
+      // 2. Navigate to the root of the application.
+      await page.goto('/');
+
+      // 3. Wait for the Mock Service Worker to be ready.
+      await page.waitForFunction(() => (window as any).mswReady);
+
+      // 4. Verify that no MSW initialization error occurred.
+      const mswError = await page.evaluate(() => (window as any).__E2E_MSW_ERROR || false);
+      // The .toBeFalsy() matcher does not accept an argument. Custom messages
+      // are typically handled by wrapping the assertion or using a different library.
+      // For now, we remove the argument to fix the TypeScript error.
+      baseExpect(mswError).toBeFalsy();
+
+      await use(); // This continues the test execution.
+    },
+    { auto: true }, // This option makes the fixture run automatically for every test.
+  ],
+
   page: async ({ page }, use, testInfo) => {
     // Listen for all console events and log them to the test output.
     // This is critical for debugging silent client-side failures.
