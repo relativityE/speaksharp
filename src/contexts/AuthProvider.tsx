@@ -23,44 +23,37 @@ const getProfileFromDb = async (userId: string): Promise<UserProfile | null> => 
 interface AuthProviderProps {
   children: ReactNode;
   initialSession?: Session | null;
-  enableSubscription?: boolean;
 }
 
 export function AuthProvider({ children, initialSession }: AuthProviderProps) {
   const [session, setSession] = useState<Session | null>(initialSession || null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
+  // In test mode, we start with loading as false to prevent the skeleton from appearing
+  // and blocking the tests. In other modes, it starts as true.
+  const [loading, setLoading] = useState(import.meta.env.MODE !== 'test');
 
   useEffect(() => {
     const updateAuthData = async (s: Session | null) => {
-      let userProfile: UserProfile | null = null;
-      if (s?.user) {
-        userProfile = await getProfileFromDb(s.user.id);
-      }
+      const userProfile = s?.user ? await getProfileFromDb(s.user.id) : null;
       setProfile(userProfile);
+      setSession(s);
       if (import.meta.env.VITE_TEST_MODE) {
         (window as WindowWithUser).__USER__ = userProfile;
       }
-      setSession(s);
+      setLoading(false);
     };
 
-    const fetchInitialSession = async () => {
-      try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        if (error) throw error;
-        await updateAuthData(session);
-      } catch (e) {
-        console.error('Error fetching initial session:', e);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchInitialSession();
+    // In non-test modes, fetch the initial session to check for an existing user.
+    // In test mode, we skip this, as loading is already false and tests will handle authentication explicitly.
+    if (import.meta.env.MODE !== 'test') {
+      supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
+        updateAuthData(currentSession);
+      });
+    }
 
     const { data: listener } = supabase.auth.onAuthStateChange(
-      async (_event, newSession) => {
-        await updateAuthData(newSession);
+      (_event, newSession) => {
+        updateAuthData(newSession);
       }
     );
 

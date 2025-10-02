@@ -1,52 +1,53 @@
+// tests/setup/verifyOnlyStepTracker.ts
 import { test as base, Page, expect as baseExpect } from '@playwright/test';
 
 type VerifyOnlyTest = {
   page: Page;
 };
 
+// Maximum timeouts for page actions (ms)
+const ACTION_TIMEOUT = 10000; // 10s
+const NAVIGATION_TIMEOUT = 15000; // 15s
+
 export const test = base.extend<VerifyOnlyTest>({
   page: async ({ page }, use, testInfo) => {
-    // Listen for all console events and log them to the test output.
-    // This is critical for debugging silent client-side failures.
-    page.on('console', msg => {
+    // Log all console messages from the browser
+    page.on('console', (msg) => {
       const type = msg.type().toUpperCase();
       const text = msg.text();
-      // Ignore routine Vite HMR messages to keep the log clean.
-      if (text.includes('[vite]')) return;
+      if (text.includes('[vite]')) return; // ignore routine HMR logs
       console.log(`[BROWSER ${type}]: ${text}`);
     });
 
     let lastStep: string | undefined;
 
-    // Wrap page.goto
-    const originalGoto = page.goto.bind(page);
-    page.goto = async (url, options) => {
-      lastStep = `Goto ${url}`;
-      console.log(`---STEP_START---${lastStep}---STEP_END---`);
-      return originalGoto(url, options);
-    };
-
-    // Helper to wrap common actions
-    const wrapAction = (actionName: string, original: Function) => {
+    // Helper to wrap an action with logging + timeout
+    const wrapAction = (actionName: string, original: Function, timeout: number) => {
       return async (...args: any[]) => {
         lastStep = `${actionName} ${args[0] ?? ''}`;
         console.log(`---STEP_START---${lastStep}---STEP_END---`);
-        return original(...args);
+        return Promise.race([
+          original(...args),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error(`${actionName} timed out after ${timeout}ms`)), timeout)
+          ),
+        ]);
       };
     };
 
-    // Wrap actions
-    page.click = wrapAction('Click', page.click.bind(page));
-    page.fill = wrapAction('Fill', page.fill.bind(page));
-    page.type = wrapAction('Type', page.type.bind(page));
+    // Wrap page.goto with timeout
+    page.goto = wrapAction('Goto', page.goto.bind(page), NAVIGATION_TIMEOUT);
+    // Wrap other common actions
+    page.click = wrapAction('Click', page.click.bind(page), ACTION_TIMEOUT);
+    page.fill = wrapAction('Fill', page.fill.bind(page), ACTION_TIMEOUT);
+    page.type = wrapAction('Type', page.type.bind(page), ACTION_TIMEOUT);
 
     await use(page);
 
-    // After each test: print last successful step
+    // After each test: print last successful step and optional screenshot
     if (testInfo.status !== testInfo.expectedStatus) {
       console.log(`---LAST_SUCCESSFUL_STEP---${lastStep ?? 'none'}---LAST_SUCCESSFUL_STEP_END---`);
 
-      // Optional ephemeral screenshot (Base64, in-memory only)
       try {
         const screenshotBuffer = await page.screenshot();
         const screenshot = screenshotBuffer.toString('base64');
@@ -70,3 +71,7 @@ export const expect = new Proxy(baseExpect, {
     return target[prop as keyof typeof target];
   },
 });
+
+// Export plain base test for smoke tests or cases where logging wrapper is not needed
+export const plainTest = base;
+export const plainExpect = baseExpect;

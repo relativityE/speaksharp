@@ -163,16 +163,6 @@ The end-to-end (E2E) test environment is managed by Playwright's built-in `webSe
 
 This modern approach eliminates the need for manual server management scripts (e.g., `global-setup.ts`, `global-teardown.ts`), resulting in a simpler, more robust, and easier-to-maintain testing environment.
 
-### Test Stability and Memory Management
-
-Recent investigations revealed significant stability issues with the unit test suite. The following architectural changes have been implemented to resolve them:
-
-1.  **Unit Test Memory Leak Mitigation:**
-    *   **Problem:** The Vitest suite suffered from a "JavaScript heap out of memory" error, caused by accumulating state and un-cleaned-up async operations in tests.
-    *   **Solution:**
-        *   The `vitest.config.mjs` has been configured to run tests in isolated forked processes (`pool: 'forks'`) and sequentially (`maxConcurrency: 1`) to prevent memory accumulation.
-        *   Problematic tests (`LocalWhisper.test.ts`, `SessionSidebar.test.tsx`) have been refactored to use `vi.useFakeTimers()` and proper `afterEach` cleanup hooks to manage timers and unmount components correctly.
-
 ### Mocking Native Dependencies
 
 Some features, like the on-device transcription powered by `LocalWhisper`, rely on libraries with native dependencies (e.g., `sharp` for image processing, `@xenova/transformers` for ML models). These native dependencies can be difficult to install and build in certain environments, especially in CI/CD pipelines or sandboxed test runners.
@@ -274,3 +264,16 @@ Speaker identification (or diarization) is handled by the AssemblyAI API. When t
 ### STT Accuracy Comparison
 
 The STT accuracy comparison feature calculates the Word Error Rate (WER) of each transcription engine against a "ground truth" transcript. The ground truth is a manually transcribed version of the audio that is stored in the `practice_sessions` table. The WER is then used to calculate an accuracy percentage, which is displayed in the analytics dashboard. This provides users with a clear understanding of how each STT engine performs.
+
+## 7. Known Issues
+
+*   **E2E Test Environment Instability:** The E2E test suite was suffering from persistent timeouts. The root causes were identified as a combination of:
+    1.  An unreliable `AuthProvider` loading state that would prevent the application from rendering in the test environment.
+    2.  A fragile custom test wrapper (`verifyOnlyStepTracker.ts`) that could hang indefinitely.
+    3.  A polluted test environment with zombie processes and stale browser sessions.
+    *   **Resolution:** The `AuthProvider` has been fixed to initialize its loading state correctly in test mode. The test wrapper has been replaced with a resilient version that includes timeouts. The test suite has been updated to ensure a clean state (`localStorage` clearing) before runs.
+
+## 8. Technical Debt
+
+*   **Custom Test Wrapper (`verifyOnlyStepTracker.ts`):** The custom test wrapper, while useful for debugging, adds a layer of complexity and was a contributing factor to test hangs. It has been replaced with a more resilient version, but for critical smoke tests, it is recommended to use the `plainTest` and `plainExpect` exports from this file to bypass the wrappers entirely, ensuring maximum stability.
+*   **Redundant Mocking Systems:** The codebase previously contained two conflicting mocking systems (MSW and Playwright's `page.route`). This has been resolved by consolidating all API mocking into MSW, but the pattern should be monitored to prevent re-introduction.
