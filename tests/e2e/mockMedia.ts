@@ -66,9 +66,9 @@ export async function mockGetUserMedia(page: Page) {
   });
 }
 
-export async function mockAudioStream(page: Page) {
+export async function mockAudioStream() {
   // This function is now a stub to satisfy the type checker.
-  // The actual media mocking is handled by mockGetUserMedia,
+  // The actual media mocking is handled by mockGetUserMocks,
   // which is called automatically by the test setup.
   // We can add logic here in the future if we need to simulate
   // specific audio chunks during a test.

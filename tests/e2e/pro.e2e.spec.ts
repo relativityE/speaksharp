@@ -1,29 +1,55 @@
-import { test, expect } from '../setup/verifyOnlyStepTracker';
-import { HomePage } from './poms/homePage.pom';
+// tests/e2e/pro.e2e.spec.ts
+import { test, expect } from '@playwright/test';
+import { programmaticLogin, MockUser } from './helpers';
 import { SessionPage } from './poms/sessionPage.pom';
-import { TEST_USER_PRO } from '../constants';
+import { HomePage } from './poms/homePage.pom';
+import { stubThirdParties } from './sdkStubs';
+
+// Define a mock user for this test suite.
+const proUser: MockUser = {
+  id: 'user-id-pro',
+  email: 'pro-user@example.com',
+  subscription_status: 'pro',
+};
 
 test.describe('Pro User Flow', () => {
-  test.use({ storageState: 'storage/pro.json' });
+  // Note: We are no longer using test.use({ storageState: ... })
+  // Instead, we use a consistent, programmatic login for all tests.
+
+  test.beforeEach(async ({ page }) => {
+    // Stub out third-party services before logging in.
+    await stubThirdParties(page);
+
+    await test.step('Programmatically log in as a pro user', async () => {
+      await programmaticLogin(page, proUser);
+    });
+  });
 
   test('should not see upgrade prompts as a pro user', async ({ page }) => {
-    const homePage = new HomePage(page);
-    await homePage.goto();
-    await homePage.assertOnHomePage();
-    await expect(homePage.upgradeButton).not.toBeVisible();
-
     const sessionPage = new SessionPage(page);
-    await sessionPage.goto();
-    await sessionPage.assertOnSessionPage();
-    await expect(sessionPage.upgradeButton).not.toBeVisible();
+    const homePage = new HomePage(page);
+
+    await test.step('Verify no upgrade button on session page', async () => {
+      // We start on the session page after login
+      await sessionPage.assertOnSessionPage();
+      await expect(sessionPage.upgradeButton).not.toBeVisible();
+    });
+
+    await test.step('Verify no upgrade button on home page', async () => {
+      await homePage.goto();
+      await homePage.assertOnHomePage();
+      await expect(homePage.upgradeButton).not.toBeVisible();
+    });
   });
 
   test('should have access to all transcription modes', async ({ page }) => {
     const sessionPage = new SessionPage(page);
-    await sessionPage.goto();
-    await sessionPage.assertOnSessionPage();
-    await expect(sessionPage.sidebar.cloudAiMode).toBeEnabled();
-    await expect(sessionPage.sidebar.onDeviceMode).toBeEnabled();
-    await expect(sessionPage.sidebar.nativeMode).toBeEnabled();
+    await sessionPage.goto(); // Ensure we are on the session page
+
+    await test.step('Verify all transcription modes are enabled', async () => {
+      await expect(sessionPage.sidebar.cloudAiMode).toBeEnabled();
+      await expect(sessionPage.sidebar.onDeviceMode).toBeEnabled();
+      await expect(sessionPage.sidebar.nativeMode).toBeEnabled();
+    });
   });
 });

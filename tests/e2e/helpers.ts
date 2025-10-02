@@ -1,4 +1,5 @@
 import { Page, Response, test as base, expect } from '@playwright/test';
+import { Session } from '@supabase/supabase-js';
 import { stubThirdParties } from './sdkStubs';
 import fs from 'fs';
 import { AuthPage } from './poms/authPage.pom';
@@ -25,17 +26,15 @@ export async function dumpPageState(page: Page, name = 'failure') {
   }
 }
 
-// Extend the base test object with our sandboxed page fixture
 export const test = base.extend<{
   sandboxPage: void;
   authPage: AuthPage;
 }>({
   sandboxPage: [
     async ({ page }, use) => {
-      // Log all requests to a file for debugging hangs
-      const logStream = fs.createWriteStream('network.log', { flags: 'w' }); // Use 'w' to overwrite the log each run
+      const logStream = fs.createWriteStream('network.log', { flags: 'w' });
       page.on('request', req => {
-        logStream.write(`[Request] ${req.method()} ${req.url()}\n`);
+        logStream.write(`[Request] ${req.method()} ${req.url()}\\n`);
       });
 
       await page.goto('about:blank');
@@ -52,55 +51,55 @@ export const test = base.extend<{
 });
 
 export { expect };
-
-// Re-exporting Response type for convenience in tests
 export type { Response };
 
-/**
- * A helper function to log in a user with a given email and password.
- * It handles navigation to the auth page, filling in credentials,
- * and waiting for the redirect back to the app's home page.
- * @param page The Playwright Page object.
- * @param email The user's email.
- * @param password The user's password.
- */
-export async function loginUser(page: Page, email: string, password: string) {
-  console.log(`Logging in as: ${email}`);
+export type MockUser = {
+  id: string;
+  email: string;
+  subscription_status: 'free' | 'pro';
+};
 
-  // This is the critical fix: instead of a hard navigation, we perform a client-side
-  // navigation by clicking the login link on the homepage. This preserves the
-  // application state and prevents the test from hanging.
-  await page.getByRole('link', { name: 'Sign In' }).click();
+export async function programmaticLogin(page: Page, user: MockUser) {
+  const mockSession: Session = {
+    access_token: `mock-access-token-for-${user.id}`,
+    token_type: 'bearer',
+    expires_in: 3600,
+    expires_at: Math.floor(Date.now() / 1000) + 3600,
+    refresh_token: `mock-refresh-token-for-${user.id}`,
+    user: {
+      id: user.id,
+      aud: 'authenticated',
+      role: 'authenticated',
+      email: user.email,
+      app_metadata: {
+        provider: 'email',
+      },
+      user_metadata: {
+        subscription_status: user.subscription_status,
+      },
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+  };
 
-  const authPage = new AuthPage(page);
-  await authPage.login(email, password);
-  await page.waitForURL('/');
-  console.log('Successfully redirected to home page after login.');
+  await page.goto('/');
+  await page.evaluate((session) => {
+    window.__setSupabaseSession(session);
+  }, mockSession as any); // Use 'as any' to bypass serialization issues with complex types in evaluate
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
 }
 
-/**
- * A helper to start a practice session.
- * @param page The Playwright Page object.
- * @param buttonText The text or regex of the button to start the session.
- */
 export async function startSession(page: Page, buttonText: string | RegExp = 'Start For Free') {
-  // Ensure we are at the root of the application before starting a session
   if (!page.url().endsWith('/')) {
     await page.goto('/', { waitUntil: 'networkidle' });
   }
-
-  // First, wait for any loading/connecting indicators to disappear.
-  // This makes the test more robust against race conditions where the button
-  // is temporarily in a loading state.
   await expect(page.getByRole('button', { name: /Initializing|Connecting/ })).not.toBeVisible({ timeout: 20000 });
-
   const startButton = page.getByRole('button', { name: buttonText });
   await expect(startButton).toBeVisible({ timeout: 10000 });
   await expect(startButton).toBeEnabled({ timeout: 10000 });
   await startButton.click();
-
   try {
-    // Wait for the URL to change to include '/session/'
     await page.waitForURL(/\/session\//, { timeout: 15000 });
     await page.waitForLoadState('networkidle');
   } catch (err) {
@@ -110,47 +109,29 @@ export async function startSession(page: Page, buttonText: string | RegExp = 'St
   }
 }
 
-/**
- * A helper to stop a practice session.
- * @param page The Playwright Page object.
- */
 export async function stopSession(page: Page) {
   const stopButton = page.getByRole('button', { name: 'Stop' });
   await expect(stopButton).toBeVisible();
   await expect(stopButton).toBeEnabled();
-
-  // Wait for the API call that saves the session data
   const responsePromise = page.waitForResponse(
     (res: Response) => res.url().includes('/rest/v1/sessions') && res.status() === 201,
     { timeout: 5000 }
   );
-
   await stopButton.click();
-
   try {
     await responsePromise;
   } catch {
     console.warn('Session save API did not respond within the timeout. This might be acceptable in some test flows.');
   }
-
-  // After stopping, we expect to see a confirmation
   await expect(page.getByText(/Session [Ee]nded|Analysis/)).toBeVisible({ timeout: 10000 });
 }
 
-/**
- * Waits for the user profile to be loaded and asserts upgrade button visibility
- * @param page Playwright Page
- * @param subscription 'free' | 'pro'
- */
 export async function expectSubscriptionButton(page: Page, subscription: 'free' | 'pro') {
-  // Wait until the profile is loaded in test mode and has the correct subscription status
   await page.waitForFunction(
-    (sub) => window.__USER__?.subscription_status === sub,
+    (sub) => (window as any).__USER__?.subscription_status === sub,
     subscription
   );
-
   const upgradeButton = page.getByRole('button', { name: 'Upgrade Now' });
-
   if (subscription === 'free') {
     await expect(upgradeButton).toBeVisible({ timeout: 10000 });
   } else {

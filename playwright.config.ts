@@ -28,7 +28,7 @@ export default defineConfig({
     ignoreHTTPSErrors: true,
     screenshot: 'off',
     video: 'off',
-    trace: 'off',
+    trace: 'on-first-retry',
   },
   webServer: {
     command: 'pnpm dev:foreground',

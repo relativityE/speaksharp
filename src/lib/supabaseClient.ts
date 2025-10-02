@@ -1,11 +1,9 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, Session } from '@supabase/supabase-js';
 
 const supabaseUrl: string | undefined = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey: string | undefined = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  // In test mode, we can allow this to be empty and rely on mocks.
-  // In other modes, it's a critical error.
   if (import.meta.env.MODE !== 'test') {
     throw new Error("Supabase URL and Anon Key are missing. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env file.");
   }
@@ -13,9 +11,6 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 const isTest: boolean = import.meta.env.MODE === 'test';
 
-// The '!' non-null assertion operator is used here because the check above ensures
-// that for non-test environments, these variables will be defined.
-// In a test environment, they might be undefined, but the client will be mocked.
 export const supabase = createClient(supabaseUrl!, supabaseAnonKey!, {
   auth: {
     autoRefreshToken: !isTest,
@@ -23,3 +18,14 @@ export const supabase = createClient(supabaseUrl!, supabaseAnonKey!, {
     detectSessionInUrl: !isTest,
   },
 });
+
+// In test mode, expose a helper function to set the session programmatically.
+// The global type for this is defined in `src/types/global.d.ts`.
+if (import.meta.env.MODE === 'test') {
+  window.__setSupabaseSession = async (session: Session) => {
+    const { error } = await supabase.auth.setSession(session);
+    if (error) {
+      console.error('E2E: Error setting supabase session', error);
+    }
+  };
+}

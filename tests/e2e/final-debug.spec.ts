@@ -1,6 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { TEST_USER_FREE } from '../constants';
 
+// Define a specific type for the window object to include the mswReady promise.
+// This avoids using the 'any' type and satisfies the linter.
+type TestWindow = Window & typeof globalThis & { mswReady: Promise<void> };
+
 test.describe('Final Granular Debugging of Login Flow', () => {
   test('should execute and document each step of the login process', async ({ page }) => {
     // 1. Initial Navigation
@@ -19,7 +23,7 @@ test.describe('Final Granular Debugging of Login Flow', () => {
 
     // 3. Wait for MSW
     console.log('[DEBUG] Step 3: Waiting for MSW to be ready...');
-    await page.waitForFunction(() => (window as any).mswReady, null, { timeout: 15000 });
+    await page.waitForFunction(() => (window as TestWindow).mswReady, null, { timeout: 15000 });
     await page.screenshot({ path: 'debug-03-msw-ready.png' });
     console.log('[DEBUG] Step 3: MSW is ready.');
 

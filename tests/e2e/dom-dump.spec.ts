@@ -19,7 +19,7 @@ test.describe('DOM and Console Dump', () => {
     try {
       await page.waitForFunction(() => window.mswReady, null, { timeout: 15000 });
       console.log('MSW is ready.');
-    } catch (error) {
+    } catch {
       console.error('Timed out waiting for MSW to become ready.');
       // We still proceed to dump the DOM and logs for debugging
     }
