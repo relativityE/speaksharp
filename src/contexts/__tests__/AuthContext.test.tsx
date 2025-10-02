@@ -83,9 +83,11 @@ describe('AuthContext', () => {
 
     // Assert
     // With the initialSession provided, the component renders the final state immediately.
+    // The loading skeleton is intentionally not rendered in the test environment
+    // to avoid race conditions. We directly wait for the final state.
     await waitFor(() => {
-      expect(screen.getByTestId('session-email')).toHaveTextContent('test@test.com');
-      expect(screen.getByTestId('profile-status')).toHaveTextContent('pro');
+      expect(screen.getByTestId('session-email')).toHaveTextContent(mockSession.user.email as string);
+      expect(screen.getByTestId('profile-status')).toHaveTextContent(mockProfile.subscription_status);
     });
   });
 

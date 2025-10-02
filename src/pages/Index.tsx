@@ -59,13 +59,15 @@ const Index = () => {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div className="space-y-8">
               <div className="space-y-4">
-                <Badge variant="secondary" className="w-fit">
-                  🎯 Real-Time Filler Word Detection
+                <Badge variant="outline" className="bg-orange-500/10 text-orange-500 border-orange-500/30 w-fit">
+                  <Zap className="h-4 w-4 mr-2" />
+                  AI-Powered Speaking Coach
                 </Badge>
-                <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-foreground leading-tight">
-                  Speak with
-                  <span className="bg-gradient-hero bg-clip-text text-transparent"> Crystal Clarity</span>
-                </h1>
+                <div className="text-4xl md:text-5xl lg:text-6xl font-bold text-foreground leading-tight">
+                  <span className="font-medium">Speak with</span>
+                  <br />
+                  <span className="text-primary">Crystal</span> Clarity
+                </div>
                 <p className="text-xl text-muted-foreground leading-relaxed">
                   Transform your communication skills with real-time feedback, filler word detection,
                   and AI-powered insights that help you speak with confidence and precision.
