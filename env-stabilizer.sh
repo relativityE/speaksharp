@@ -1,42 +1,55 @@
 #!/bin/bash
 set -euo pipefail
 
-echo "[stabilizer] Killing zombie processes..."
+echo "[stabilizer] 🔹 Aggressive environment cleanup..."
+
+# Kill lingering processes
 pkill -f 'node|vite|playwright' || true
 
-echo "[stabilizer] Clearing caches..."
-rm -rf node_modules/.vite .cache .playwright
+# Verify critical ports are free
+echo "[stabilizer] 🔹 Checking ports 5173, 9323..."
+if lsof -iTCP:5173 -sTCP:LISTEN -t || lsof -iTCP:9323 -sTCP:LISTEN -t; then
+  echo "[stabilizer] ❌ Ports still in use. Aborting."
+  exit 1
+fi
 
-echo "[stabilizer] Verifying no ports in use..."
-lsof -i :3000 -i :5173 -i :9323 || true
+# Remove caches and temporary directories
+echo "[stabilizer] 🔹 Clearing caches and build artifacts..."
+rm -rf node_modules test-results coverage dist .cache .playwright node_modules/.vite
+git reset --hard HEAD >/dev/null 2>&1
+git clean -fdx >/dev/null 2>&1
 
-echo "[stabilizer] Sanity check: shell works..."
+# Sanity check
+echo "[stabilizer] 🔹 Verifying shell works..."
 echo "sanity-ok" | tee sanity.log
 
-# Guard clause: detect missing build artifacts
-MISSING_ARTIFACTS=false
-if [ ! -d "node_modules" ]; then
-  echo "[stabilizer] node_modules missing!"
-  MISSING_ARTIFACTS=true
-fi
-
-if [ ! -d "dist" ] && [ ! -d "build" ]; then
-  echo "[stabilizer] Build artifacts missing!"
-  MISSING_ARTIFACTS=true
-fi
-
-if [ "$MISSING_ARTIFACTS" = true ]; then
-  echo "[stabilizer] Environment incomplete. Recommended fix:"
-  echo "1. Run 'pnpm install' to ensure dependencies are installed."
-  echo "2. Run 'pnpm setup:dev' to build dev artifacts."
+# Install dependencies using official dev setup
+echo "[stabilizer] 🔹 Installing dependencies via pnpm setup:dev..."
+if ! pnpm setup:dev; then
+  echo "[stabilizer] ❌ Dependency setup failed. Aborting."
   exit 1
 fi
 
-echo "[stabilizer] Sanity check: vite dev startup..."
+# Optional Playwright hardening
+echo "[stabilizer] 🔹 Temporarily adjusting Playwright config for isolated tests..."
+PLAYWRIGHT_CONFIG="playwright.config.ts"
+if [ -f "$PLAYWRIGHT_CONFIG" ]; then
+  # Make a backup
+  cp "$PLAYWRIGHT_CONFIG" "$PLAYWRIGHT_CONFIG.bak"
+  # Patch config: workers=1, reuseExistingServer=false
+  sed -i '' 's/workers:.*/workers: 1,/' "$PLAYWRIGHT_CONFIG" || true
+  sed -i '' 's/reuseExistingServer:.*/reuseExistingServer: false,/' "$PLAYWRIGHT_CONFIG" || true
+fi
+
+# Basic vite dev sanity test (optional, short)
+echo "[stabilizer] 🔹 Quick Vite dev sanity check..."
 if ! timeout 60 pnpm run dev | tee vite-start.log | grep -q "ready in"; then
-  echo "[stabilizer] Vite did not start cleanly. Recommend vm-recovery.sh"
+  echo "[stabilizer] ❌ Vite did not start cleanly. Consider running ./vm-recovery.sh"
   exit 1
 fi
 
-echo "[stabilizer] Environment looks stable."
+echo "[stabilizer] ✅ Environment appears stable."
+
+# Instructions for restoring Playwright config after tests
+echo "[stabilizer] ℹ️ Remember to restore Playwright config from $PLAYWRIGHT_CONFIG.bak after testing."
 

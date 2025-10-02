@@ -7,6 +7,21 @@
 * ⏱️ **7-Minute Timeout Constraint**
   Every script or command must complete within 7 minutes. If longer, split the work into multiple runs.
 
+⚠️ Environment Stabilization
+  Before any task, run:
+    ./env-stabilizer.sh
+  
+  * This ensures a clean, stable environment by:
+  * Killing lingering node, vite, and Playwright processes
+  * Clearing caches and temporary files
+  * Verifying critical ports (5173, 9323) are free
+  * Installing dependencies via pnpm setup:dev
+  * Running a quick sanity check to verify Vite starts
+
+📖 Read the README.md Before Running Anything
+  The agent must read README.md to understand the correct setup and workflow.
+  This prevents mistakes like using pnpm install directly instead of the required pnpm setup:dev.
+
 * ✅ **Local Audit Script (Read From README.md)**
   Always use the **designated local audit script** (documented in `README.md`) to run lint, type-checking, and unit/E2E tests.
 
@@ -90,6 +105,7 @@ You must complete all items **before any commit/PR**:
 
 ## 🔍 Task Workflow
 
+0. **Contextual Review** - Read docs in /docs and README.md before acting.
 1. **Stabilize** – Run `./env-stabilizer.sh`.
 2. **Grounding** – Read `README.md` and `/docs`.
 3. **Codebase Deep Dive** – Inspect actual code, not assumptions.
