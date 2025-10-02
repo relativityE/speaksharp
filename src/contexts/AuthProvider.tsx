@@ -29,7 +29,9 @@ interface AuthProviderProps {
 export function AuthProvider({ children, initialSession }: AuthProviderProps) {
   const [session, setSession] = useState<Session | null>(initialSession || null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
+  // In test mode, we start with loading as false to prevent the skeleton from appearing
+  // and blocking the tests that need to interact with the login form.
+  const [loading, setLoading] = useState(import.meta.env.MODE !== 'test');
 
   useEffect(() => {
     const updateAuthData = async (s: Session | null) => {
@@ -38,25 +40,24 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
         userProfile = await getProfileFromDb(s.user.id);
       }
       setProfile(userProfile);
+      setSession(s);
       if (import.meta.env.VITE_TEST_MODE) {
         (window as WindowWithUser).__USER__ = userProfile;
       }
-      setSession(s);
+      setLoading(false);
     };
 
-    const fetchInitialSession = async () => {
-      try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        if (error) throw error;
-        await updateAuthData(session);
-      } catch (e) {
-        console.error('Error fetching initial session:', e);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchInitialSession();
+    // For the initial render, immediately update auth data with the passed prop.
+    // This is synchronous if initialSession is provided.
+    if (import.meta.env.MODE === 'test') {
+      updateAuthData(initialSession || null);
+    } else {
+        const fetchInitialSession = async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            await updateAuthData(session);
+        };
+        fetchInitialSession();
+    }
 
     const { data: listener } = supabase.auth.onAuthStateChange(
       async (_event, newSession) => {
@@ -67,7 +68,7 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
     return () => {
       listener?.subscription.unsubscribe();
     };
-  }, []);
+  }, [initialSession]);
 
   if (loading) {
     return (

@@ -41,6 +41,17 @@ export const handlers = [
   http.post('https://*.supabase.co/auth/v1/token', async ({ request }) => {
     const body = await request.json() as TokenRequestBody;
 
+    // Tripwire for obsolete anonymous grant type.
+    // This ensures any part of the app still trying to use the old anonymous
+    // flow will fail loudly and explicitly instead of causing a timeout.
+    if (body.grant_type === 'anonymous') {
+      console.error('FATAL: Obsolete anonymous grant type requested in tests.');
+      return HttpResponse.json(
+        { error: 'Anonymous grant type is unsupported in tests' },
+        { status: 400 }
+      );
+    }
+
     if (body.grant_type === 'password') {
       // THE FIX IS HERE: The condition now correctly checks for the test user emails.
       if (body.email?.includes('free-user@test.com') || body.email?.includes('pro-user@test.com')) {
@@ -173,40 +184,5 @@ export const handlers = [
   // PostHog analytics - mock to prevent network errors
   http.all('https://mock.posthog.com/*', () => {
     return HttpResponse.json({ status: 'ok' });
-  }),
-];
-
-// Anonymous user handlers (for tests that don't require auth)
-export const anonymousHandlers = [
-  // Anonymous sign-in
-  http.post('https://*.supabase.co/auth/v1/token', async ({ request }) => {
-    const body = await request.json() as TokenRequestBody;
-
-    if (body.grant_type === 'anonymous') {
-      return HttpResponse.json({
-        access_token: 'anon-access-token',
-        refresh_token: 'anon-refresh-token',
-        expires_in: 3600,
-        user: {
-          id: 'anon-user',
-          email: null,
-          created_at: new Date().toISOString(),
-          is_anonymous: true
-        }
-      });
-    }
-
-    return HttpResponse.json({ error: 'Invalid grant type' }, { status: 400 });
-  }),
-
-  // Anonymous sessions storage
-  http.post('https://*.supabase.co/rest/v1/anonymous_sessions', async ({ request }) => {
-    const body = await request.json() as SessionRequestBody;
-
-    return HttpResponse.json({
-      id: `anon-session-${Date.now()}`,
-      ...body,
-      created_at: new Date().toISOString()
-    }, { status: 201 });
   }),
 ];
