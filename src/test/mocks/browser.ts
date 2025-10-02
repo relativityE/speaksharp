@@ -1,6 +1,6 @@
 // src/test/mocks/browser.ts - For E2E tests
 import { setupWorker } from 'msw/browser';
-import { handlers, anonymousHandlers } from './handlers';
+import { handlers } from './handlers';
 
 // Combine all handlers for a single, comprehensive worker.
 // The obsolete anonymousHandlers have been removed to prevent conflicting mocks.

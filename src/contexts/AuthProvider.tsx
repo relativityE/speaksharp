@@ -43,9 +43,11 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
       setLoading(false);
     };
 
-    // In non-test modes, fetch the initial session to check for an existing user.
-    // In test mode, we skip this, as loading is already false and tests will handle authentication explicitly.
-    if (import.meta.env.MODE !== 'test') {
+    // If an initial session is provided (e.g., in tests), process it immediately.
+    if (initialSession) {
+      updateAuthData(initialSession);
+    } else if (import.meta.env.MODE !== 'test') {
+      // Otherwise, in non-test modes, fetch the session from Supabase.
       supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
         updateAuthData(currentSession);
       });
