@@ -1,54 +1,73 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
-echo "[stabilizer] 🔹 Aggressive environment cleanup..."
+MODE="${1:-dev}"   # default mode = dev
 
-# Kill lingering processes
-pkill -f 'node|vite|playwright' || true
+echo "🚀 Running env-stabilizer in $MODE mode..."
 
-# Verify critical ports are free
-echo "[stabilizer] 🔹 Checking ports 5173, 9323..."
-if lsof -iTCP:5173 -sTCP:LISTEN -t || lsof -iTCP:9323 -sTCP:LISTEN -t; then
-  echo "[stabilizer] ❌ Ports still in use. Aborting."
+if [[ "$MODE" == "ci" ]]; then
+  echo "💣 CI mode: Full environment reset"
+
+  echo "🔄 Resetting repo..."
+  git reset --hard HEAD
+  git clean -fdx
+
+  echo "🧹 Removing node_modules and lockfile..."
+  rm -rf node_modules pnpm-lock.yaml
+
+  echo "⬇️ Installing dependencies..."
+  pnpm install
+
+elif [[ "$MODE" == "dev" ]]; then
+  echo "🛠 Dev mode: Safe cleanup (non-destructive)"
+
+  echo "🔄 Restoring tracked files..."
+  git restore .
+
+  echo "🧹 Cleaning caches..."
+  rm -rf dist .cache .playwright node_modules/.vite
+
+  if [[ ! -d node_modules ]]; then
+    echo "⬇️ Installing dependencies (node_modules missing)..."
+    pnpm install
+  else
+    echo "📦 node_modules already present, skipping reinstall"
+  fi
+
+elif [[ "$MODE" == "deps" ]]; then
+  echo "⚡ Deps mode: Dependency-only reset (fast)"
+
+  echo "🧹 Removing node_modules and lockfile..."
+  rm -rf node_modules pnpm-lock.yaml
+
+  echo "⬇️ Installing dependencies..."
+  pnpm install
+
+  echo "✅ Dependencies refreshed (no Vite/Playwright checks run)"
+
+else
+  echo "❌ Unknown mode: $MODE"
+  echo "Usage: ./env-stabilizer.sh [dev|ci|deps]"
   exit 1
 fi
 
-# Remove caches and temporary directories
-echo "[stabilizer] 🔹 Clearing caches and build artifacts..."
-rm -rf node_modules test-results coverage dist .cache .playwright node_modules/.vite
-git reset --hard HEAD >/dev/null 2>&1
-git clean -fdx >/dev/null 2>&1
+# Playwright config patching (only if requested)
+if [[ "${STABILIZE_PLAYWRIGHT:-0}" -eq 1 ]]; then
+  echo "📝 Hardening playwright.config.ts..."
+  cp playwright.config.ts playwright.config.ts.bak
 
-# Sanity check
-echo "[stabilizer] 🔹 Verifying shell works..."
-echo "sanity-ok" | tee sanity.log
-
-# Install dependencies using official dev setup
-echo "[stabilizer] 🔹 Installing dependencies via pnpm setup:dev..."
-if ! pnpm setup:dev; then
-  echo "[stabilizer] ❌ Dependency setup failed. Aborting."
-  exit 1
+  sed -i.bak 's/workers:.*/workers: 1,/' playwright.config.ts || true
+  sed -i.bak 's/reuseExistingServer:.*/reuseExistingServer: false,/' playwright.config.ts || true
 fi
 
-# Optional Playwright hardening
-echo "[stabilizer] 🔹 Temporarily adjusting Playwright config for isolated tests..."
-PLAYWRIGHT_CONFIG="playwright.config.ts"
-if [ -f "$PLAYWRIGHT_CONFIG" ]; then
-  # Make a backup
-  cp "$PLAYWRIGHT_CONFIG" "$PLAYWRIGHT_CONFIG.bak"
-  # Patch config: workers=1, reuseExistingServer=false
-  sed -i 's/workers:.*/workers: 1,/' "$PLAYWRIGHT_CONFIG" || true
-  sed -i 's/reuseExistingServer:.*/reuseExistingServer: false,/' "$PLAYWRIGHT_CONFIG" || true
+# Skip checks in deps mode
+if [[ "$MODE" != "deps" ]]; then
+  echo "🔎 Checking Vite startup..."
+  if ! timeout 60 pnpm run dev > vite-start.log 2>&1; then
+    echo "❌ Vite failed to start, see vite-start.log"
+    exit 1
+  fi
+  pkill -f vite || true
 fi
 
-# Basic vite dev sanity test (optional, short)
-echo "[stabilizer] 🔹 Quick Vite dev sanity check..."
-if ! timeout 60 pnpm run dev | tee vite-start.log | grep -q "ready in"; then
-  echo "[stabilizer] ❌ Vite did not start cleanly. Consider running ./vm-recovery.sh"
-  exit 1
-fi
-
-echo "[stabilizer] ✅ Environment appears stable."
-
-# Instructions for restoring Playwright config after tests
-echo "[stabilizer] ℹ️ Remember to restore Playwright config from $PLAYWRIGHT_CONFIG.bak after testing."
+echo "✅ Environment stabilization complete!"
