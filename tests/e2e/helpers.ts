@@ -70,7 +70,7 @@ export async function loginUser(page: Page, email: string, password: string) {
   // This is the critical fix: instead of a hard navigation, we perform a client-side
   // navigation by clicking the login link on the homepage. This preserves the
   // application state and prevents the test from hanging.
-  await page.getByRole('link', { name: 'Login' }).click();
+  await page.getByRole('link', { name: 'Sign In' }).click();
 
   const authPage = new AuthPage(page);
   await authPage.login(email, password);

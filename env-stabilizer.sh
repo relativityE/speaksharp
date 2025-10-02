@@ -37,8 +37,8 @@ if [ -f "$PLAYWRIGHT_CONFIG" ]; then
   # Make a backup
   cp "$PLAYWRIGHT_CONFIG" "$PLAYWRIGHT_CONFIG.bak"
   # Patch config: workers=1, reuseExistingServer=false
-  sed -i '' 's/workers:.*/workers: 1,/' "$PLAYWRIGHT_CONFIG" || true
-  sed -i '' 's/reuseExistingServer:.*/reuseExistingServer: false,/' "$PLAYWRIGHT_CONFIG" || true
+  sed -i 's/workers:.*/workers: 1,/' "$PLAYWRIGHT_CONFIG" || true
+  sed -i 's/reuseExistingServer:.*/reuseExistingServer: false,/' "$PLAYWRIGHT_CONFIG" || true
 fi
 
 # Basic vite dev sanity test (optional, short)
@@ -52,4 +52,3 @@ echo "[stabilizer] ✅ Environment appears stable."
 
 # Instructions for restoring Playwright config after tests
 echo "[stabilizer] ℹ️ Remember to restore Playwright config from $PLAYWRIGHT_CONFIG.bak after testing."
-

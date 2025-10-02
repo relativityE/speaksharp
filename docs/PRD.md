@@ -119,7 +119,9 @@ This section provides a granular breakdown of user-facing features, grouped by p
 
 This section tracks high-level product risks and constraints. For a detailed history of resolved issues, see the [Changelog](./CHANGELOG.md).
 
-*   **[ACTIVE] E2E Test Suite Performance:** The full end-to-end (E2E) test suite (`pnpm test:e2e`) is comprehensive but can be slow to run. To mitigate this during local development, a faster, non-blocking `test-audit.sh` script is used, which only runs a "smoke test" subset of the E2E suite. The full E2E suite is still strictly enforced in the CI pipeline on every push to `main`.
+*   **[RESOLVED] E2E Test Suite Instability:** The E2E test suite was previously suffering from persistent timeouts and instability. This was a critical issue blocking reliable testing.
+    *   **Root Cause:** A combination of an `AuthProvider` loading state bug, a fragile custom test wrapper, and conflicting API mocking systems.
+    *   **Resolution:** The underlying architectural flaws have been fixed. The test environment is now stable, and tests are passing reliably.
 *   **[ACTIVE] `pnpm lint` Command Performance:** The `pnpm lint` command is known to be slow and is currently commented out in the local `test-audit.sh` script to ensure fast local feedback. However, it is still enforced in the CI pipeline.
 
 ---

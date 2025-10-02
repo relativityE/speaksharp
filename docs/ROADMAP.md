@@ -22,7 +22,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - 🔴 3. Upgrade the Postgres version.
 - ✅ **Stabilize and Optimize CI/Unit Tests**:
     -   **Status:** **Done.** The test environment has been fully stabilized.
-    -   **Action Taken:** Resolved critical architectural flaws, including conflicting setup files and severe memory leaks in the unit test suite. The test runners (`vitest`, `playwright`) are now correctly configured, and the test suites are stable. A dedicated smoke test script (`run-e2e-smoke.sh`) has been created and integrated into the CI pipeline.
+    -   **Action Taken:** Resolved critical architectural flaws that caused persistent E2E test timeouts and memory leaks. The root cause was a combination of an `AuthProvider` loading state bug, a fragile test wrapper, and conflicting mock systems. The test environment is now stable, and a dedicated smoke test script (`run-e2e-smoke.sh`) has been integrated into the CI pipeline.
 - **Task:** [CI] Re-architect CI/CD Pipeline
   - **Status:** ✅ Done
   - **Details:** The monolithic `ci-run-all.sh` script has been replaced with a parallel, multi-job GitHub Actions workflow. This resolves the 7-minute timeout issue and provides a more robust and scalable solution for CI/CD.
@@ -102,6 +102,10 @@ This section is a prioritized list of technical debt items to be addressed.
 - **P3 (Medium): Incomplete TypeScript Migration**
   - **Problem:** Several test-related files and utilities are still JavaScript.
   - **Files to migrate:** `__mocks__/*.js`, `src/services/transcription/utils/audio-processor.worklet.js`.
+
+- **P3 (Low): Harden Custom Test Wrapper (`verifyOnlyStepTracker.ts`)**
+  - **Problem:** The custom test wrapper, while useful for debugging, can be fragile and was a contributing factor to test hangs. It has been replaced with a more resilient version, but for critical smoke tests, it is recommended to use the `plainTest` and `plainExpect` exports to bypass the wrappers entirely.
+  - **Required Action:** The wrapper should be audited for further hardening, or a decision should be made to remove it in favor of standard Playwright logging features to improve long-term maintainability.
 
 - **P4 (Low): Improve Unit Test Discoverability**
   - **Problem:** The lack of easily discoverable, co-located unit tests makes the codebase harder to maintain.

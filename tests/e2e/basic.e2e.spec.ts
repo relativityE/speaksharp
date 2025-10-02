@@ -5,7 +5,12 @@ import { TEST_USER_FREE } from '../constants';
 
 test.describe('Basic Environment Verification (fast-fail)', () => {
   test.beforeEach(async ({ page }) => {
+    // Navigate to the root page to establish an origin for localStorage
     await page.goto('/');
+    // Clear localStorage to ensure no stale session from previous runs
+    await page.evaluate(() => localStorage.clear());
+    // Reload the page to ensure the AuthProvider re-initializes with a clean state
+    await page.reload();
     // Wait for the mswReady promise to resolve, which indicates the mock server is active.
     await page.waitForFunction(() => (window as Window & { mswReady: Promise<void> }).mswReady);
   });
