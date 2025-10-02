@@ -27,7 +27,7 @@ test('login page DOM dump and console inspection', async ({ page }) => {
   try {
     await page.waitForFunction(() => window.mswReady, null, { timeout: 15000 });
     console.log('MSW is ready.');
-  } catch (error) {
+  } catch {
     console.error('Timed out waiting for MSW to become ready.');
   }
 

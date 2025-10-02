@@ -6,7 +6,6 @@ import { Progress } from "@/components/ui/progress";
 import { Mic, MicOff, Square, Play, AlertTriangle } from "lucide-react";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useAuth } from "@/contexts/useAuth";
-import { FillerCounts } from "@/utils/fillerWordUtils";
 
 const Session = () => {
   const { session, profile } = useAuth();

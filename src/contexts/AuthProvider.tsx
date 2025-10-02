@@ -6,13 +6,16 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { AuthContext, AuthContextType } from './AuthContext';
 
 interface WindowWithUser extends Window {
-    __USER__?: UserProfile | null;
+  __USER__?: UserProfile | null;
 }
 
 const getProfileFromDb = async (userId: string): Promise<UserProfile | null> => {
   try {
     const { data, error } = await supabase.from('user_profiles').select('*').eq('id', userId).single();
-    if (error) return null;
+    if (error) {
+      console.error('Error fetching profile in test:', error.message);
+      return null;
+    }
     return data;
   } catch (e) {
     console.error('Error fetching profile:', e);
@@ -25,16 +28,20 @@ interface AuthProviderProps {
   initialSession?: Session | null;
 }
 
-export function AuthProvider({ children, initialSession }: AuthProviderProps) {
-  const [session, setSession] = useState<Session | null>(initialSession || null);
+export function AuthProvider({ children, initialSession = null }: AuthProviderProps) {
+  const [session, setSession] = useState<Session | null>(initialSession);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  // In test mode, we start with loading as false to prevent the skeleton from appearing
-  // and blocking the tests. In other modes, it starts as true.
   const [loading, setLoading] = useState(import.meta.env.MODE !== 'test');
 
   useEffect(() => {
     const updateAuthData = async (s: Session | null) => {
-      const userProfile = s?.user ? await getProfileFromDb(s.user.id) : null;
+      if (!s?.user) {
+        setProfile(null);
+        setSession(null);
+        setLoading(false);
+        return;
+      }
+      const userProfile = await getProfileFromDb(s.user.id);
       setProfile(userProfile);
       setSession(s);
       if (import.meta.env.VITE_TEST_MODE) {
@@ -43,9 +50,11 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
       setLoading(false);
     };
 
-    // In non-test modes, fetch the initial session to check for an existing user.
-    // In test mode, we skip this, as loading is already false and tests will handle authentication explicitly.
-    if (import.meta.env.MODE !== 'test') {
+    // The key fix: In test mode, if an initialSession is provided, we must
+    // proactively fetch its profile data to ensure the provider is fully hydrated.
+    if (import.meta.env.MODE === 'test' && initialSession) {
+      updateAuthData(initialSession);
+    } else if (import.meta.env.MODE !== 'test') {
       supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
         updateAuthData(currentSession);
       });
@@ -64,9 +73,9 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
 
   if (loading) {
     return (
-        <div className="w-full h-screen flex justify-center items-center">
-            <Skeleton className="h-24 w-24 rounded-full" />
-        </div>
+      <div className="w-full h-screen flex justify-center items-center">
+        <Skeleton className="h-24 w-24 rounded-full" />
+      </div>
     );
   }
 

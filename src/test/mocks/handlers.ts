@@ -10,10 +10,6 @@ interface SignupRequestBody {
   email?: string;
 }
 
-interface SessionRequestBody {
-  [key: string]: unknown;
-}
-
 interface Metrics {
   words_per_minute: number;
   accuracy: number;

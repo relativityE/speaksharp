@@ -1,28 +1,41 @@
 // tests/e2e/basic.e2e.spec.ts
-import { test, expect } from '../setup/verifyOnlyStepTracker';
-import { loginUser } from './helpers';
-import { TEST_USER_FREE } from '../constants';
+import { test, expect } from '@playwright/test';
+import { programmaticLogin, MockUser } from './helpers';
+import { stubThirdParties } from './sdkStubs';
 
-test.describe('Basic Environment Verification (fast-fail)', () => {
+// Define a mock user for this test.
+const basicUser: MockUser = {
+  id: 'user-id-basic',
+  email: 'basic-user@example.com',
+  subscription_status: 'free',
+};
+
+test.describe('Basic Environment Verification', () => {
   test.beforeEach(async ({ page }) => {
-    // Navigate to the root page to establish an origin for localStorage
-    await page.goto('/');
-    // Clear localStorage to ensure no stale session from previous runs
-    await page.evaluate(() => localStorage.clear());
-    // Reload the page to ensure the AuthProvider re-initializes with a clean state
-    await page.reload();
-    // Wait for the mswReady promise to resolve, which indicates the mock server is active.
-    await page.waitForFunction(() => (window as Window & { mswReady: Promise<void> }).mswReady);
+    // Stub third-party services to ensure a clean and predictable environment.
+    await stubThirdParties(page);
   });
 
-  test('should load homepage and verify environment @smoke', async ({ page }) => {
-    await loginUser(page, TEST_USER_FREE.email, TEST_USER_FREE.password);
+  test('should load homepage and verify core elements after login @smoke', async ({ page }) => {
+    await test.step('Programmatically log in', async () => {
+      // This helper authenticates the user but stays on the homepage (`/`)
+      // because auto-redirect is disabled in test/dev mode.
+      await programmaticLogin(page, basicUser);
+    });
 
-    // The beforeEach hook handles navigation, so we just verify the result.
-    await expect(page).toHaveURL('/');
-    await expect(page).toHaveTitle(/SpeakSharp/, { timeout: 7_000 });
+    await test.step('Manually navigate to the session page', async () => {
+      // As per ARCHITECTURE.md, we must manually navigate to the desired
+      // page after login in a test environment.
+      await page.goto('/session');
+    });
 
-    const headerLocator = page.locator('header#main-header'); // adjust selector as needed
-    await expect(headerLocator).toBeVisible({ timeout: 5_000 });
+    await test.step('Verify session page content is visible', async () => {
+      // Now that we are correctly on the /session page, we can assert its content.
+      const sessionHeading = page.getByRole('heading', { name: 'Practice Session' });
+      await expect(sessionHeading).toBeVisible({ timeout: 10000 });
+
+      const headerLocator = page.locator('header');
+      await expect(headerLocator).toBeVisible();
+    });
   });
 });

@@ -16,7 +16,7 @@ interface CustomRenderOptions extends Omit<RenderOptions, 'wrapper'> {
 export function renderWithProviders(ui: ReactElement, { route = '/', session = null, ...renderOptions }: CustomRenderOptions = {}) {
   const Wrapper = ({ children }: { children: React.ReactNode }) => (
     <MemoryRouter initialEntries={[route]}>
-      <AuthProvider initialSession={session} enableSubscription={false}>
+      <AuthProvider initialSession={session}>
         <SessionProvider>
           {children}
         </SessionProvider>
