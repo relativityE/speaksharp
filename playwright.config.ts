@@ -12,7 +12,9 @@ export default defineConfig({
   testDir: './tests/e2e',
   timeout: 300_000,
   expect: { timeout: 10_000 },
-  fullyParallel: true,
+  // Set workers to 1 to prevent parallel execution during stabilization
+  workers: 1,
+  fullyParallel: false,
   retries: 1,
   reporter: [
     ['list'],
@@ -31,7 +33,8 @@ export default defineConfig({
   webServer: {
     command: 'pnpm dev:foreground',
     url: BASE_URL,
-    reuseExistingServer: !process.env.CI,
+    // Do not reuse a server from a previous run, especially in a flaky environment
+    reuseExistingServer: false,
     timeout: 120 * 1000,
     stdout: 'pipe',
     stderr: 'pipe',
@@ -41,8 +44,5 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
     },
-    // add more browsers if needed:
-    // { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
-    // { name: 'webkit', use: { ...devices['Desktop Safari'] } },
   ],
 });
