@@ -60,7 +60,7 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
     return () => {
       listener?.subscription.unsubscribe();
     };
-  }, []);
+  }, [initialSession]);
 
   if (loading) {
     return (

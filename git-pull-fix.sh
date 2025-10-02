@@ -27,6 +27,19 @@ if git diff --name-only HEAD~1 HEAD | grep -q "package.json\|pnpm-lock.yaml"; th
     echo "🔧 Adding ARM64 native binaries for local Mac development..."
     pnpm add -D @rollup/rollup-darwin-arm64 @esbuild/darwin-arm64
     
+    # --- Step 5b: Ensure LightningCSS native module exists for ARM64 ---
+    LIGHTNINGCSS_BIN="node_modules/lightningcss/node/lightningcss.darwin-arm64.node"
+    if [ ! -f "$LIGHTNINGCSS_BIN" ]; then
+      echo "⚠️  Missing LightningCSS ARM64 binary detected. Rebuilding..."
+      pnpm rebuild lightningcss
+      if [ ! -f "$LIGHTNINGCSS_BIN" ]; then
+        echo "❌ LightningCSS binary rebuild failed. Please check pnpm setup or architecture conflicts."
+        exit 1
+      else
+        echo "✅ LightningCSS ARM64 binary successfully rebuilt."
+      fi
+    fi
+
     echo "✅ Dependencies updated and ARM64 binaries installed!"
 else
     echo "📦 No package changes detected, skipping dependency update"
