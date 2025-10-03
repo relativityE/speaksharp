@@ -56,6 +56,7 @@ export const handlers = [
       );
     }
 
+    // For successful sign-up, return a full session to simulate immediate login for tests
     return HttpResponse.json({
       access_token: 'mock-access-token-signup',
       token_type: 'bearer',
