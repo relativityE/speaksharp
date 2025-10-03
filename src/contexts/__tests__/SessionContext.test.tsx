@@ -36,7 +36,7 @@ describe('SessionProvider', () => {
       );
     });
 
-    expect(mockGetSessionHistory).toHaveBeenCalledWith('123');
+    expect(mockGetSessionHistory).toHaveBeenCalledWithExactlyOnceWith('123');
     expect(contextValue?.sessionHistory).toEqual(mockHistory);
     expect(contextValue?.loading).toBe(false);
   });

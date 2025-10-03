@@ -52,7 +52,7 @@ describe('LocalWhisper Transcription Mode', () => {
 
     await localWhisper.init();
 
-    expect(mockPipeline).toHaveBeenCalledWith('automatic-speech-recognition', 'Xenova/whisper-tiny.en', {
+    expect(mockPipeline).toHaveBeenCalledWithExactlyOnceWith('automatic-speech-recognition', 'Xenova/whisper-tiny.en', {
       progress_callback: onModelLoadProgress,
     });
   });
@@ -65,7 +65,7 @@ describe('LocalWhisper Transcription Mode', () => {
     await localWhisper.init();
 
     expect(mockPipeline).toHaveBeenCalledTimes(2);
-    expect(mockPipeline).toHaveBeenCalledWith('automatic-speech-recognition', '/models/whisper-tiny.en/', {
+    expect(mockPipeline).toHaveBeenCalledWithExactlyOnceWith('automatic-speech-recognition', '/models/whisper-tiny.en/', {
       progress_callback: onModelLoadProgress,
     });
   });
@@ -110,8 +110,8 @@ describe('LocalWhisper Transcription Mode', () => {
     expect(frameHandlerCalled).toBe(true);
     expect(mockMicStream.onFrame).toHaveBeenCalled();
     expect(mockMicStream.offFrame).toHaveBeenCalled();
-    expect(mockPipelineInstance).toHaveBeenCalledWith(expect.any(Float32Array), expect.any(Object));
-    expect(onTranscriptUpdate).toHaveBeenCalledWith({
+    expect(mockPipelineInstance).toHaveBeenCalledWithExactlyOnceWith(expect.any(Float32Array), expect.any(Object));
+    expect(onTranscriptUpdate).toHaveBeenCalledWithExactlyOnceWith({
       transcript: { final: 'transcript' },
       chunks: [],
     });

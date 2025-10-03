@@ -86,7 +86,7 @@ describe('NativeBrowser Transcription Mode', () => {
         mockRecognition.onresult(event);
     }
 
-    expect(onTranscriptUpdate).toHaveBeenCalledWith({
+    expect(onTranscriptUpdate).toHaveBeenCalledWithExactlyOnceWith({
       transcript: { final: 'hello world' },
     });
   });
@@ -106,7 +106,7 @@ describe('NativeBrowser Transcription Mode', () => {
           mockRecognition.onresult(event);
       }
 
-      expect(onTranscriptUpdate).toHaveBeenCalledWith({
+      expect(onTranscriptUpdate).toHaveBeenCalledWithExactlyOnceWith({
         transcript: { partial: 'hello' },
       });
   });

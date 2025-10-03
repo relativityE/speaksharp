@@ -1,7 +1,8 @@
 // tests/e2e/basic.e2e.spec.ts
 import { test, expect } from '@playwright/test';
-import { programmaticLogin, MockUser } from './helpers';
+import { programmaticLogin } from './helpers';
 import { stubThirdParties } from './sdkStubs';
+
 
 // Define a mock user for this test.
 const basicUser: MockUser = {
@@ -20,7 +21,7 @@ test.describe('Basic Environment Verification', () => {
     await test.step('Programmatically log in', async () => {
       // This helper authenticates the user but stays on the homepage (`/`)
       // because auto-redirect is disabled in test/dev mode.
-      await programmaticLogin(page, basicUser);
+      await programmaticLogin(page);
     });
 
     await test.step('Manually navigate to the session page', async () => {

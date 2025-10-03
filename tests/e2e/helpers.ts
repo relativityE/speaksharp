@@ -1,5 +1,4 @@
 import { Page, Response, test as base, expect } from '@playwright/test';
-import { Session } from '@supabase/supabase-js';
 import { stubThirdParties } from './sdkStubs';
 import fs from 'fs';
 import { AuthPage } from './poms/authPage.pom';
@@ -115,7 +114,7 @@ export async function stopSession(page: Page) {
 
 export async function expectSubscriptionButton(page: Page, subscription: 'free' | 'pro') {
   await page.waitForFunction(
-    (sub) => (window as any).__USER__?.subscription_status === sub,
+    (sub) => window.__USER__?.subscription_status === sub,
     subscription
   );
   const upgradeButton = page.getByRole('button', { name: 'Upgrade Now' });

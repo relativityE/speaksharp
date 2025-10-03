@@ -87,8 +87,8 @@ describe('useSpeechRecognition', () => {
     }), { wrapper });
 
     expect(useTranscriptState).toHaveBeenCalled();
-    expect(useFillerWords).toHaveBeenCalledWith([], '', ['like', 'um']);
-    expect(useTranscriptionService).toHaveBeenCalledWith(
+    expect(useFillerWords).toHaveBeenCalledWithExactlyOnceWith([], '', ['like', 'um']);
+    expect(useTranscriptionService).toHaveBeenCalledWithExactlyOnceWith(
       expect.objectContaining({
         profile: { id: 'pro-user', subscription_status: 'pro' },
         session: null,
