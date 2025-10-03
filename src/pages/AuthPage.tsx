@@ -1,32 +1,27 @@
 import React, { useState, FormEvent, ChangeEvent } from 'react';
+import { supabase } from '@/lib/supabaseClient';
+import { useAuth } from '@/contexts/useAuth';
+import { Navigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { supabase } from '@/lib/supabaseClient';
-import { AuthError } from '@supabase/supabase-js';
-import { useAuth } from '@/contexts/useAuth';
-import { Navigate } from 'react-router-dom';
 
-// --- Types and Constants ---
-
+// --- Types ---
 type AuthView = 'sign_in' | 'sign_up' | 'forgot_password';
 
 const friendlyErrors: Record<string, string> = {
-  'Invalid login credentials': 'The email or password you entered is incorrect. Please try again.',
-  'User already registered': 'An account with this email already exists. Please sign in or reset your password.',
+  'Invalid login credentials': 'The email or password you entered is incorrect.',
+  'User already registered': 'An account with this email already exists. Please sign in.',
   'Password should be at least 6 characters': 'Your password must be at least 6 characters long.',
 };
 
-const mapError = (message: string): string => {
-    return friendlyErrors[message] || 'An unexpected error occurred. Please try again.';
-};
-
-// --- Main Component ---
+const mapError = (message: string) => friendlyErrors[message] || 'An unexpected error occurred.';
 
 export default function AuthPage() {
-  const { session, loading } = useAuth();
-  const [view, setView] = useState('sign_in'); // 'sign_in', 'sign_up', or 'forgot_password'
+  const { session, loading, setSession } = useAuth();
+
+  const [view, setView] = useState<AuthView>('sign_in');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -37,47 +32,64 @@ export default function AuthPage() {
     e.preventDefault();
     setIsSubmitting(true);
     setError(null);
-    setMessage('');
+    setMessage(null);
 
     try {
-      let authResult: { error: AuthError | null };
+      let authResult;
       if (view === 'sign_in') {
+        console.log('[AUTH] Attempting sign-in', { email });
         authResult = await supabase.auth.signInWithPassword({ email, password });
       } else if (view === 'sign_up') {
+        console.log('[AUTH] Attempting sign-up', { email });
         authResult = await supabase.auth.signUp({ email, password });
-        if (!authResult.error) setMessage('Success! Please check your email for a confirmation link to complete your registration.');
       } else { // forgot_password
-        authResult = await supabase.auth.resetPasswordForEmail(email, {
-            redirectTo: window.location.origin + '/',
+        console.log('[AUTH] Attempting password reset', { email });
+        const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: `${window.location.origin}/`,
         });
-        if (!authResult.error) setMessage('If an account with this email exists, a password reset link has been sent.');
+        if (resetError) throw resetError;
+        setMessage('Password reset link sent if account exists.');
+        return;
       }
-      if (authResult.error) throw authResult.error;
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        setError(mapError(err.message));
+
+      if (authResult.error) {
+        console.error('[AUTH] Error returned by Supabase', authResult.error);
+        throw authResult.error;
+      }
+
+      if (authResult.data.session) {
+        console.log('[AUTH] Session successfully established', authResult.data.session);
+        setSession(authResult.data.session);
+      } else if (view === 'sign_up') {
+        setMessage('Success! Please check your email for a confirmation link.');
       } else {
-        setError(mapError('An unknown error occurred.'));
+        throw new Error('No session returned from Supabase for sign-in.');
       }
+    } catch (err: unknown) {
+      console.error('[AUTH] Fatal error during auth', err);
+      setError(err instanceof Error ? mapError(err.message) : mapError('Unknown error'));
     } finally {
       setIsSubmitting(false);
     }
   };
 
   if (loading) {
-    return null; // or a loading spinner
+    console.log('[AUTH] Loading auth state...');
+    return null;
   }
 
   if (session) {
+    console.log('[AUTH] Session exists, redirecting...');
     return <Navigate to="/" replace />;
   }
 
   const handleViewChange = (newView: AuthView) => {
+    console.log('[AUTH] Switching view', { from: view, to: newView });
     setView(newView);
     setError(null);
-    setMessage('');
+    setMessage(null);
     setPassword('');
-  }
+  };
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-background p-4">
@@ -100,12 +112,12 @@ export default function AuthPage() {
         <CardContent>
           <form onSubmit={handleSubmit} data-testid={view === 'forgot_password' ? 'reset-password-form' : 'auth-form'}>
             <div className="grid gap-4">
-              <div className="grid gap-2" data-testid="email-input">
+              <div className="grid gap-2">
                 <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" placeholder="name@example.com" required value={email} onChange={(e: ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)} />
+                <Input data-testid="email-input" id="email" type="email" placeholder="name@example.com" required value={email} onChange={(e: ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)} />
               </div>
               {view !== 'forgot_password' && (
-                <div className="grid gap-2" data-testid="password-input">
+                <div className="grid gap-2">
                   <div className="flex items-center">
                     <Label htmlFor="password">Password</Label>
                     {view === 'sign_in' && (
@@ -114,13 +126,13 @@ export default function AuthPage() {
                        </Button>
                     )}
                   </div>
-                  <Input id="password" type="password" required value={password} onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)} />
+                  <Input data-testid="password-input" id="password" type="password" required value={password} onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)} />
                 </div>
               )}
               {error && <p className="text-sm text-destructive font-semibold">{error}</p>}
               {message && <p className="text-sm text-green-600 font-semibold bg-green-100 border border-green-200 rounded-md p-3 text-center">{message}</p>}
-              <div data-testid="sign-in-submit">
-                <Button type="submit" className="w-full text-base py-6" disabled={isSubmitting}>
+              <div>
+                <Button data-testid={view === 'sign_up' ? 'sign-up-submit' : 'sign-in-submit'} type="submit" className="w-full text-base py-6" disabled={isSubmitting}>
                   {isSubmitting ? (view === 'sign_in' ? 'Signing In...' : view === 'sign_up' ? 'Signing Up...' : 'Sending...') : (view === 'sign_in' ? 'Sign In' : view === 'sign_up' ? 'Sign Up' : 'Send Reset Link')}
                 </Button>
               </div>

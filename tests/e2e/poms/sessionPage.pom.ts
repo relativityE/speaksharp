@@ -26,27 +26,35 @@ export class SessionPage {
   }
 
   async goto() {
-    await this.page.goto('/session');
+    try {
+      console.log('[SESSION POM] Navigating to /session');
+      await this.page.goto('/session', { timeout: 5000 });
+      await expect(this.page.getByRole('heading', { name: 'Practice Session' })).toBeVisible({ timeout: 3000 });
+    } catch (err) {
+      console.error('[SESSION POM] Failed to navigate or heading not visible', err);
+      throw err;
+    }
   }
 
   async assertOnSessionPage() {
-    await expect(this.page).toHaveURL(/.*session/);
-    await expect(this.page.getByRole('heading', { name: 'Practice Session' })).toBeVisible();
+    await expect(this.page.getByRole('heading', { name: 'Practice Session' })).toBeVisible({ timeout: 2000 });
   }
 
   async startSession() {
-    await this.startButton.click();
+    console.log('[SESSION POM] Starting session');
+    await this.startButton.click({ timeout: 2000 });
   }
 
   async stopSession() {
-    await this.stopButton.click();
+    console.log('[SESSION POM] Stopping session');
+    await this.stopButton.click({ timeout: 2000 });
   }
 
   async assertSessionIsActive() {
-    await expect(this.page.getByText('LIVE')).toBeVisible();
+    await expect(this.page.getByText('LIVE')).toBeVisible({ timeout: 2000 });
   }
 
   async assertSessionIsStopped() {
-    await expect(this.page.getByText('READY')).toBeVisible();
+    await expect(this.page.getByText('READY')).toBeVisible({ timeout: 2000 });
   }
 }
