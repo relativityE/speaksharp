@@ -33,11 +33,13 @@ export default defineConfig({
   webServer: {
     command: 'pnpm dev:foreground',
     url: BASE_URL,
-    // Do not reuse a server from a previous run, especially in a flaky environment
     reuseExistingServer: false,
     timeout: 120 * 1000,
     stdout: 'pipe',
     stderr: 'pipe',
+    env: {
+      VITE_TEST_MODE: 'true',
+    },
   },
   projects: [
     {

@@ -7,11 +7,13 @@ declare module '@/lib/utils';
 import type { UserProfile } from './user';
 declare module '@/hooks/useBrowserSupport';
 
+import { Session } from '@supabase/supabase-js';
+
 declare global {
   interface Window {
     TEST_MODE?: boolean;
     _speakSharpRootInitialized?: boolean;
-    __E2E_MOCK_SESSION__?: boolean;
+    __E2E_MOCK_SESSION__?: Session | null;
     __E2E_MODE__?: boolean;
     transcriptionServiceRef?: React.RefObject<{
       init: () => Promise<{ success: boolean }>;

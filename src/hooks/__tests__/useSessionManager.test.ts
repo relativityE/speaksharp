@@ -79,7 +79,7 @@ describe('useSessionManager', () => {
         }
       });
 
-      expect(mockStorage.saveSession).toHaveBeenCalledWith(
+      expect(mockStorage.saveSession).toHaveBeenCalledWithExactlyOnceWith(
         { ...sessionData, user_id: mockUser.id },
         mockProfile
       );
@@ -111,7 +111,7 @@ describe('useSessionManager', () => {
         }
       });
 
-      expect(mockLogger.error).toHaveBeenCalledWith(
+      expect(mockLogger.error).toHaveBeenCalledWithExactlyOnceWith(
         expect.objectContaining({ err: new Error("Cannot save session: user profile not available.") }),
         "Error in useSessionManager -> saveSession:"
       );
@@ -127,7 +127,7 @@ describe('useSessionManager', () => {
         success = await result.current.deleteSession('db-session-123');
       });
 
-      expect(mockStorage.deleteSession).toHaveBeenCalledWith('db-session-123');
+      expect(mockStorage.deleteSession).toHaveBeenCalledWithExactlyOnceWith('db-session-123');
       expect(success).toBe(true);
     });
 
@@ -193,12 +193,12 @@ describe('exportSessions', () => {
     });
 
     // Verify the export flow
-    expect(mockStorage.exportData).toHaveBeenCalledWith(mockUser.id);
+    expect(mockStorage.exportData).toHaveBeenCalledWithExactlyOnceWith(mockUser.id);
     expect(global.URL.createObjectURL).toHaveBeenCalled();
-    expect(document.createElement).toHaveBeenCalledWith('a');
+    expect(document.createElement).toHaveBeenCalledWithExactlyOnceWith('a');
     expect(document.body.appendChild).toHaveBeenCalled();
     expect(document.body.removeChild).toHaveBeenCalled();
-    expect(global.URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
+    expect(global.URL.revokeObjectURL).toHaveBeenCalledWithExactlyOnceWith('blob:mock-url');
   });
 
   it('should handle export errors gracefully', async () => {
@@ -209,7 +209,7 @@ describe('exportSessions', () => {
       await result.current.exportSessions();
     });
 
-    expect(mockLogger.error).toHaveBeenCalledWith(
+    expect(mockLogger.error).toHaveBeenCalledWithExactlyOnceWith(
       expect.objectContaining({
         err: expect.any(Error)
       }),

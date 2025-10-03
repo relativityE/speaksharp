@@ -113,7 +113,7 @@ describe('SessionSidebar', () => {
       );
 
       await user.click(screen.getByText('Start Session'));
-      expect(mockStartListening).toHaveBeenCalledWith({
+      expect(mockStartListening).toHaveBeenCalledWithExactlyOnceWith({
         forceCloud: false,
         forceOnDevice: false,
         forceNative: true,
@@ -150,7 +150,7 @@ describe('SessionSidebar', () => {
       );
 
       await user.click(screen.getByText('Start Session'));
-      expect(mockStartListening).toHaveBeenCalledWith({
+      expect(mockStartListening).toHaveBeenCalledWithExactlyOnceWith({
         forceCloud: true,
         forceOnDevice: false,
         forceNative: false,
@@ -168,7 +168,7 @@ describe('SessionSidebar', () => {
       await user.click(screen.getByRole('button', { name: 'Cloud AI' }));
       await user.click(await screen.findByRole('menuitemradio', { name: 'On-Device' }));
       await user.click(screen.getByText('Start Session'));
-      expect(mockStartListening).toHaveBeenCalledWith({
+      expect(mockStartListening).toHaveBeenCalledWithExactlyOnceWith({
         forceCloud: false,
         forceOnDevice: true,
         forceNative: false,
