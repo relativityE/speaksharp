@@ -60,34 +60,21 @@ export type MockUser = {
 };
 
 export async function programmaticLogin(page: Page, user: MockUser) {
-  const mockSession: Session = {
-    access_token: `mock-access-token-for-${user.id}`,
-    token_type: 'bearer',
-    expires_in: 3600,
-    expires_at: Math.floor(Date.now() / 1000) + 3600,
-    refresh_token: `mock-refresh-token-for-${user.id}`,
-    user: {
-      id: user.id,
-      aud: 'authenticated',
-      role: 'authenticated',
-      email: user.email,
-      app_metadata: {
-        provider: 'email',
-      },
-      user_metadata: {
-        subscription_status: user.subscription_status,
-      },
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-  };
+  // Set the flag that tells the application to use its own hardcoded mock session.
+  // This script is injected before any page scripts run, preventing race conditions.
+  await page.addInitScript(() => {
+    window.__E2E_MOCK_SESSION__ = true;
+  });
 
+  // Now, navigate to the page. The AuthProvider will be hydrated on load
+  // using the mock session defined in `main.tsx`.
   await page.goto('/');
-  await page.evaluate((session) => {
-    window.__setSupabaseSession(session);
-  }, mockSession as any); // Use 'as any' to bypass serialization issues with complex types in evaluate
 
-  await page.reload({ waitUntil: 'domcontentloaded' });
+  // CRITICAL FIX: Wait for the application to signal that the user profile
+  // has been fully loaded into the AuthProvider. This prevents the race
+  // condition where the test navigates to a protected route before the
+  // app is fully authenticated.
+  await page.waitForFunction(() => window.__USER__, null, { timeout: 10000 });
 }
 
 export async function startSession(page: Page, buttonText: string | RegExp = 'Start For Free') {

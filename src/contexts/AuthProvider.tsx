@@ -38,7 +38,6 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       if (!s?.user) {
         setProfile(null);
         setSession(null);
-        setLoading(false);
         return;
       }
       const userProfile = await getProfileFromDb(s.user.id);
@@ -47,18 +46,23 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       if (import.meta.env.VITE_TEST_MODE) {
         (window as WindowWithUser).__USER__ = userProfile;
       }
+    };
+
+    const initialize = async () => {
+      if (import.meta.env.MODE === 'test') {
+        // In test mode, we must wait for the mock server to be ready.
+        await window.mswReady;
+        if (initialSession) {
+          await updateAuthData(initialSession);
+        }
+      } else {
+        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        await updateAuthData(currentSession);
+      }
       setLoading(false);
     };
 
-    // The key fix: In test mode, if an initialSession is provided, we must
-    // proactively fetch its profile data to ensure the provider is fully hydrated.
-    if (import.meta.env.MODE === 'test' && initialSession) {
-      updateAuthData(initialSession);
-    } else if (import.meta.env.MODE !== 'test') {
-      supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
-        updateAuthData(currentSession);
-      });
-    }
+    initialize();
 
     const { data: listener } = supabase.auth.onAuthStateChange(
       (_event, newSession) => {
