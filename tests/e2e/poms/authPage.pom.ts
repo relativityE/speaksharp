@@ -18,23 +18,47 @@ export class AuthPage {
   }
 
   async goto() {
-    await this.page.goto('/auth');
+    try {
+      console.log('[AUTH POM] Navigating to /auth');
+      await this.page.goto('/auth', { timeout: 5000 });
+      await expect(this.emailInput).toBeVisible({ timeout: 3000 });
+    } catch (err) {
+      console.error('[AUTH POM] Failed to navigate to /auth or email input not visible', err);
+      throw err;
+    }
   }
 
   async login(email: string, password_val: string) {
-    await this.emailInput.fill(email);
-    await this.passwordInput.fill(password_val);
-    await this.signInButton.click();
+    try {
+      console.log(`[AUTH POM] Logging in with ${email}`);
+      await this.emailInput.fill(email, { timeout: 2000 });
+      await this.passwordInput.fill(password_val, { timeout: 2000 });
+      await this.signInButton.click({ timeout: 2000 });
+    } catch (err) {
+      console.error('[AUTH POM] Login failed', err);
+      throw err;
+    }
   }
 
   async signUp(email: string, password_val: string) {
-    await this.modeToggleButton.click();
-    await this.emailInput.fill(email);
-    await this.passwordInput.fill(password_val);
-    await this.signUpButton.click();
+    try {
+      console.log(`[AUTH POM] Signing up with ${email}`);
+      await this.modeToggleButton.click({ timeout: 2000 });
+      await this.emailInput.fill(email, { timeout: 2000 });
+      await this.passwordInput.fill(password_val, { timeout: 2000 });
+      await this.signUpButton.click({ timeout: 2000 });
+    } catch (err) {
+      console.error('[AUTH POM] Sign-up failed', err);
+      throw err;
+    }
   }
 
   async assertUserExistsError() {
-    await expect(this.page.getByText(/User already registered/i)).toBeVisible();
+    try {
+      await expect(this.page.getByText(/An account with this email already exists/i)).toBeVisible({ timeout: 2000 });
+    } catch (err) {
+      console.error('[AUTH POM] User exists error not found', err);
+      throw err;
+    }
   }
 }

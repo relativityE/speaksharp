@@ -1,22 +1,22 @@
-// src/test/mocks/browser.ts - For E2E tests
 import { setupWorker } from 'msw/browser';
 import { handlers } from './handlers';
 
-// Combine all handlers for a single, comprehensive worker.
-// The obsolete anonymousHandlers have been removed to prevent conflicting mocks.
 export const worker = setupWorker(...handlers);
 
-// Browser setup function for E2E tests
 export async function setupMSW() {
-  if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+  if (typeof window === 'undefined') {
+    console.error('[MSW] Window is undefined. Cannot start MSW in Node environment.');
+    throw new Error('MSW can only run in browser context');
+  }
+  console.log('[MSW] Starting Service Worker...');
+  try {
     await worker.start({
-      onUnhandledRequest: 'warn',
-      serviceWorker: {
-        url: '/mockServiceWorker.js',
-        options: {
-          scope: '/',
-        },
-      },
+      onUnhandledRequest: 'error', // Fail loudly on unhandled requests
+      serviceWorker: { url: '/mockServiceWorker.js', options: { scope: '/' } },
     });
+    console.log('[MSW] Service Worker started successfully');
+  } catch (err) {
+    console.error('[MSW] Failed to start Service Worker', err);
+    throw err;
   }
 }
