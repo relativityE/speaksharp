@@ -131,11 +131,25 @@ export const handlers = [
   http.get('https://*.supabase.co/rest/v1/user_profiles', ({ request }) => {
     const url = new URL(request.url);
     const userId = url.searchParams.get('id')?.replace('eq.', '');
+    const acceptHeader = request.headers.get('Accept') || '';
 
-    if (userId && mockProfiles[userId as keyof typeof mockProfiles]) {
-      return HttpResponse.json([mockProfiles[userId as keyof typeof mockProfiles]]);
+    const profile = userId ? mockProfiles[userId as keyof typeof mockProfiles] : null;
+
+    if (profile) {
+      // If the client is requesting a single object, return it directly.
+      if (acceptHeader.includes('application/vnd.pgrst.object+json')) {
+        return HttpResponse.json(profile);
+      }
+      // Otherwise, return it as an array.
+      return HttpResponse.json([profile]);
     }
 
+    // If no profile is found but a single object was requested, Supabase returns 404.
+    if (acceptHeader.includes('application/vnd.pgrst.object+json')) {
+      return new HttpResponse(null, { status: 404 });
+    }
+
+    // Default to an empty array for non-single requests with no result.
     return HttpResponse.json([]);
   }),
 

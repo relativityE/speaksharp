@@ -3,13 +3,6 @@ import { test, expect } from '@playwright/test';
 import { programmaticLogin, MockUser } from './helpers';
 import { stubThirdParties } from './sdkStubs';
 
-// This user is specifically designed to work with the mock API handlers.
-const smokeTestUser: MockUser = {
-  id: 'user-123',
-  email: 'free-user@test.com',
-  subscription_status: 'free',
-};
-
 test.describe('Smoke Test', () => {
   test.beforeEach(async ({ page }) => {
     // Stub third-party services to ensure a clean and predictable environment.
@@ -18,7 +11,7 @@ test.describe('Smoke Test', () => {
 
   test('should successfully log in and display the main application header @smoke', async ({ page }) => {
     await test.step('Programmatically log in with a valid mock user', async () => {
-      await programmaticLogin(page, smokeTestUser);
+      await programmaticLogin(page);
     });
 
     await test.step('Manually navigate to the session page', async () => {
@@ -26,10 +19,10 @@ test.describe('Smoke Test', () => {
       await page.goto('/session');
     });
 
-    await test.step('Verify that the main application header is visible', async () => {
-      // The header is a fundamental part of the UI and a good indicator of a successful page load.
-      const headerLocator = page.locator('header');
-      await expect(headerLocator).toBeVisible({ timeout: 15000 }); // Increased timeout for stability
+    await test.step('Verify that the main application navigation is visible', async () => {
+      // The navigation bar is a fundamental part of the UI and a good indicator of a successful page load.
+      const navLocator = page.locator('nav');
+      await expect(navLocator).toBeVisible({ timeout: 15000 }); // Increased timeout for stability
     });
 
     await test.step('Verify the main heading is present', async () => {
