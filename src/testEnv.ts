@@ -26,5 +26,7 @@ async function initializeMocks() {
   }
 }
 
-// Initialize the mocks.
-initializeMocks();
+// Initialize the mocks only if in a browser environment.
+if (typeof window !== 'undefined') {
+  initializeMocks();
+}
