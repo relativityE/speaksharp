@@ -86,21 +86,28 @@ export const handlers = [
   http.post('https://*.supabase.co/auth/v1/signup', async ({ request }) => {
     const body = await request.json() as SignupRequestBody;
 
-    if (body.email?.includes('existing@')) {
+    if (body.email === 'existing-user@example.com') {
       return HttpResponse.json(
-        { error: 'User already registered' },
-        { status: 422 }
+        { message: 'User already registered', error: 'User already registered' },
+        { status: 400 } // Use 400 for consistency with Supabase behavior
       );
     }
 
+    // For successful sign-up, return a full session to simulate immediate login for tests
     return HttpResponse.json({
+      access_token: 'mock-access-token-signup',
+      token_type: 'bearer',
+      expires_in: 3600,
+      refresh_token: 'mock-refresh-token-signup',
       user: {
-        id: 'new-user-id',
+        id: 'new-user-id-signup',
+        aud: 'authenticated',
+        role: 'authenticated',
         email: body.email,
+        user_metadata: { subscription_status: 'free' },
         created_at: new Date().toISOString(),
-        email_confirmed_at: null
+        updated_at: new Date().toISOString(),
       },
-      session: null // Email confirmation required
     });
   }),
 

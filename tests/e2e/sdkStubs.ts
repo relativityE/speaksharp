@@ -13,39 +13,23 @@ const BLOCKED_DOMAINS = [
 
 // --- Main Stubbing Function ---
 export async function stubThirdParties(page: Page) {
-  await page.route('**/*', async (route: Route) => {
-    const request = route.request();
-    const requestUrl = request.url();
-
-    // Ignore non-http requests
-    if (!requestUrl.startsWith('http')) {
-      return route.continue();
-    }
-
-    const url = new URL(requestUrl);
-    const hostname = url.hostname;
-
-    try {
-      // 1️⃣ Mock Stripe
-      if (hostname.endsWith('stripe.com')) {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/javascript',
-          body: '/* Mock Stripe.js */',
-        });
-      }
-
-      // 2️⃣ Block unwanted external domains
-      if (BLOCKED_DOMAINS.some(d => hostname.endsWith(d))) {
-        console.log(`[BLOCKED] External domain: ${hostname}`);
-        return route.abort('connectionrefused');
-      }
-
-      // 3️⃣ Allow everything else (including requests to our app and Supabase, which MSW will handle)
-      return route.continue();
-    } catch (err) {
-      console.error('Error in route handler:', err);
-      return route.abort();
-    }
+  // 1️⃣ Mock Stripe more efficiently
+  await page.route('**/*.stripe.com/*', (route) => {
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/javascript',
+      body: '/* Mock Stripe.js */',
+    });
   });
+
+  // 2️⃣ Block unwanted external domains more efficiently
+  for (const domain of BLOCKED_DOMAINS) {
+    await page.route(`**/*.${domain}/*`, (route) => {
+      console.log(`[BLOCKED] External domain: ${domain}`);
+      return route.abort('connectionrefused');
+    });
+  }
+
+  // ❗ No catch-all handler is needed. If a request doesn't match the routes above,
+  // it will be allowed to continue by default. This is much more performant.
 }

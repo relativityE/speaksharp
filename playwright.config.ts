@@ -31,7 +31,7 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
   webServer: {
-    command: 'pnpm dev:foreground',
+    command: 'pnpm dev:playwright',
     url: BASE_URL,
     reuseExistingServer: false,
     timeout: 120 * 1000,

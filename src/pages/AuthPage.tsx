@@ -100,12 +100,12 @@ export default function AuthPage() {
         <CardContent>
           <form onSubmit={handleSubmit} data-testid={view === 'forgot_password' ? 'reset-password-form' : 'auth-form'}>
             <div className="grid gap-4">
-              <div className="grid gap-2" data-testid="email-input">
+            <div className="grid gap-2">
                 <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" placeholder="name@example.com" required value={email} onChange={(e: ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)} />
+              <Input data-testid="email-input" id="email" type="email" placeholder="name@example.com" required value={email} onChange={(e: ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)} />
               </div>
               {view !== 'forgot_password' && (
-                <div className="grid gap-2" data-testid="password-input">
+              <div className="grid gap-2">
                   <div className="flex items-center">
                     <Label htmlFor="password">Password</Label>
                     {view === 'sign_in' && (
@@ -114,13 +114,13 @@ export default function AuthPage() {
                        </Button>
                     )}
                   </div>
-                  <Input id="password" type="password" required value={password} onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)} />
+                <Input data-testid="password-input" id="password" type="password" required value={password} onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)} />
                 </div>
               )}
               {error && <p className="text-sm text-destructive font-semibold">{error}</p>}
               {message && <p className="text-sm text-green-600 font-semibold bg-green-100 border border-green-200 rounded-md p-3 text-center">{message}</p>}
-              <div data-testid="sign-in-submit">
-                <Button type="submit" className="w-full text-base py-6" disabled={isSubmitting}>
+            <div>
+              <Button data-testid={view === 'sign_up' ? 'sign-up-submit' : 'sign-in-submit'} type="submit" className="w-full text-base py-6" disabled={isSubmitting}>
                   {isSubmitting ? (view === 'sign_in' ? 'Signing In...' : view === 'sign_up' ? 'Signing Up...' : 'Sending...') : (view === 'sign_in' ? 'Sign In' : view === 'sign_up' ? 'Sign Up' : 'Send Reset Link')}
                 </Button>
               </div>
