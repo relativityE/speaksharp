@@ -5,8 +5,8 @@ import { stubThirdParties } from './sdkStubs';
 
 // Define a mock user for this test.
 const basicUser: MockUser = {
-  id: 'user-id-basic',
-  email: 'basic-user@example.com',
+  id: 'user-123',
+  email: 'free-user@test.com', // CORRECTED: Use an email that the mock API accepts.
   subscription_status: 'free',
 };
 
