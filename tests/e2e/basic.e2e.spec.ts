@@ -3,6 +3,14 @@ import { test, expect } from '@playwright/test';
 import { programmaticLogin } from './helpers';
 import { stubThirdParties } from './sdkStubs';
 
+
+// Define a mock user for this test.
+const basicUser: MockUser = {
+  id: 'user-123',
+  email: 'free-user@test.com', // CORRECTED: Use an email that the mock API accepts.
+  subscription_status: 'free',
+};
+
 test.describe('Basic Environment Verification', () => {
   test.beforeEach(async ({ page }) => {
     // Stub third-party services to ensure a clean and predictable environment.

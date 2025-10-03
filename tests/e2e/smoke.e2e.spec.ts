@@ -1,7 +1,14 @@
 // tests/e2e/smoke.e2e.spec.ts
 import { test, expect } from '@playwright/test';
-import { programmaticLogin } from './helpers';
+import { programmaticLogin, MockUser } from './helpers';
 import { stubThirdParties } from './sdkStubs';
+
+// This user is specifically designed to work with the mock API handlers.
+const smokeTestUser: MockUser = {
+  id: 'user-123',
+  email: 'free-user@test.com',
+  subscription_status: 'free',
+};
 
 test.describe('Smoke Test', () => {
   test.beforeEach(async ({ page }) => {
@@ -11,7 +18,7 @@ test.describe('Smoke Test', () => {
 
   test('should successfully log in and display the main application header @smoke', async ({ page }) => {
     await test.step('Programmatically log in with a valid mock user', async () => {
-      await programmaticLogin(page);
+      await programmaticLogin(page, smokeTestUser);
     });
 
     await test.step('Manually navigate to the session page', async () => {

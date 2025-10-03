@@ -58,7 +58,7 @@ export type MockUser = {
   subscription_status: 'free' | 'pro';
 };
 
-export async function programmaticLogin(page: Page) {
+export async function programmaticLogin(page: Page, user: MockUser) {
   // Set the flag that tells the application to use its own hardcoded mock session.
   // This script is injected before any page scripts run, preventing race conditions.
   await page.addInitScript(() => {
