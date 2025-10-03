@@ -64,7 +64,7 @@ const Session = () => {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-foreground mb-2">Practice Session</h1>
+          <h1 className="text-3xl font-bold text-foreground mb-2" data-testid="practice-session-heading">Practice Session</h1>
           <p className="text-muted-foreground">Speak clearly and we'll analyze your speech patterns in real-time</p>
         </div>
 

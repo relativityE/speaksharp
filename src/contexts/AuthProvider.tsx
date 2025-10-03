@@ -43,7 +43,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       const userProfile = await getProfileFromDb(s.user.id);
       setProfile(userProfile);
       setSession(s);
-      if (import.meta.env.VITE_TEST_MODE) {
+      if (import.meta.env.MODE === 'test') {
         (window as WindowWithUser).__USER__ = userProfile;
       }
     };

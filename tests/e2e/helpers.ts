@@ -58,7 +58,7 @@ export type MockUser = {
   subscription_status: 'free' | 'pro';
 };
 
-export async function programmaticLogin(page: Page, user: MockUser) {
+export async function programmaticLogin(page: Page) {
   // Set the flag that tells the application to use its own hardcoded mock session.
   // This script is injected before any page scripts run, preventing race conditions.
   await page.addInitScript(() => {
@@ -68,6 +68,11 @@ export async function programmaticLogin(page: Page, user: MockUser) {
   // Now, navigate to the page. The AuthProvider will be hydrated on load
   // using the mock session defined in `main.tsx`.
   await page.goto('/');
+
+  // Wait for MSW to be ready before we expect the app to have a user.
+  await page.evaluate(async () => {
+    await window.mswReady;
+  });
 
   // CRITICAL FIX: Wait for the application to signal that the user profile
   // has been fully loaded into the AuthProvider. This prevents the race

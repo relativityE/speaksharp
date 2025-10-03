@@ -1,7 +1,6 @@
 import logger from '../../lib/logger';
 import CloudAssemblyAI from './modes/CloudAssemblyAI';
 import NativeBrowser from './modes/NativeBrowser';
-import LocalWhisper from './modes/LocalWhisper';
 import { createMicStream } from './utils/audioUtils';
 import { UserProfile } from '../../types/user';
 import { Session } from '@supabase/supabase-js';
@@ -114,6 +113,7 @@ export default class TranscriptionService {
 
     if (useOnDevice) {
       logger.info('[TranscriptionService] Attempting to use On-Device (LocalWhisper) mode for Pro user.');
+      const { default: LocalWhisper } = await import('./modes/LocalWhisper');
       this.instance = new LocalWhisper(providerConfig);
       await this.instance.init();
       await this.instance.startTranscription(this.mic);

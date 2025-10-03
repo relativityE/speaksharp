@@ -4,13 +4,6 @@ import { programmaticLogin } from './helpers';
 import { stubThirdParties } from './sdkStubs';
 
 
-// Define a mock user for this test.
-const basicUser: MockUser = {
-  id: 'user-123',
-  email: 'free-user@test.com', // CORRECTED: Use an email that the mock API accepts.
-  subscription_status: 'free',
-};
-
 test.describe('Basic Environment Verification', () => {
   test.beforeEach(async ({ page }) => {
     // Stub third-party services to ensure a clean and predictable environment.
@@ -32,11 +25,12 @@ test.describe('Basic Environment Verification', () => {
 
     await test.step('Verify session page content is visible', async () => {
       // Now that we are correctly on the /session page, we can assert its content.
-      const sessionHeading = page.getByRole('heading', { name: 'Practice Session' });
+      const sessionHeading = page.getByTestId('practice-session-heading');
       await expect(sessionHeading).toBeVisible({ timeout: 10000 });
 
-      const headerLocator = page.locator('header');
-      await expect(headerLocator).toBeVisible();
+      // The navigation bar is part of the main layout, let's keep verifying it.
+      const navLocator = page.locator('nav');
+      await expect(navLocator).toBeVisible();
     });
   });
 });
