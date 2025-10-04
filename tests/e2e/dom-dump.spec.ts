@@ -1,4 +1,4 @@
-import { test } from '@playwright/test';
+import { test, Page } from '@playwright/test';
 import fs from 'fs';
 import path from 'path';
 
@@ -12,7 +12,7 @@ const ensureDumpDir = () => {
 };
 
 // Helper to dump DOM content
-const dumpDom = async (page, url, filename) => {
+const dumpDom = async (page: Page, url: string, filename: string) => {
   await page.goto(url);
   // Using a short, fixed wait is more reliable than 'networkidle' for dev servers.
   await page.waitForTimeout(2000);
