@@ -9,29 +9,6 @@ interface SignupRequestBody {
   email?: string;
 }
 
-interface Metrics {
-  words_per_minute: number;
-  accuracy: number;
-}
-
-// Mock user profiles - CORRECTED
-const mockProfiles = {
-  'user-123': { id: 'user-123', subscription_status: 'free' },
-  'pro-user': { id: 'pro-user', subscription_status: 'pro' },
-  'new-user-id-signup': { id: 'new-user-id-signup', subscription_status: 'free' },
-  'mock-user-id-signin': { id: 'mock-user-id-signin', subscription_status: 'free' },
-};
-
-// Mock sessions
-const mockSessions = [
-  {
-    id: 'session-1',
-    user_id: 'user-123',
-    session_duration: 300,
-    created_at: '2024-01-01T00:00:00Z',
-    metrics: { words_per_minute: 150, accuracy: 95 }
-  }
-];
 
 export const handlers = [
   http.post('https://*.supabase.co/auth/v1/token', async ({ request }) => {
@@ -161,7 +138,8 @@ export const handlers = [
     const mockProfiles = {
       'user-123': { id: 'user-123', subscription_status: 'free' },
       'pro-user': { id: 'pro-user', subscription_status: 'pro' },
-      'new-user-id-signup': {id: 'new-user-id-signup', subscription_status: 'free'}
+      'new-user-id-signup': {id: 'new-user-id-signup', subscription_status: 'free'},
+      'mock-user-id': { id: 'mock-user-id', email: 'test@example.com', subscription_status: 'free' },
     };
 
     const profile = userId ? mockProfiles[userId as keyof typeof mockProfiles] : null;
