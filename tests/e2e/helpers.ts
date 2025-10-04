@@ -59,14 +59,12 @@ export type MockUser = {
 };
 
 export async function programmaticLogin(page: Page) {
-  // Set the flag that tells the application to use its own hardcoded mock session.
-  // This script is injected before any page scripts run, preventing race conditions.
+  // This script runs before any page navigation, ensuring the mock session is ready.
   await page.addInitScript(() => {
     window.__E2E_MOCK_SESSION__ = true;
   });
 
-  // Now, navigate to the page. The AuthProvider will be hydrated on load
-  // using the mock session defined in `main.tsx`.
+  // Navigate to the root to apply the mock session.
   await page.goto('/');
 
   // Wait for MSW to be ready before we expect the app to have a user.
@@ -74,11 +72,10 @@ export async function programmaticLogin(page: Page) {
     await window.mswReady;
   });
 
-  // CRITICAL FIX: Wait for the application to signal that the user profile
-  // has been fully loaded into the AuthProvider. This prevents the race
-  // condition where the test navigates to a protected route before the
-  // app is fully authenticated.
+  // The application will now use the mock session, so we wait for the user
+  // object to be available on the window, which is set by the AuthProvider.
   await page.waitForFunction(() => window.__USER__, null, { timeout: 10000 });
+  await page.waitForResponse(resp => resp.url().includes('/user_profiles') && resp.status() < 400, { timeout: 5000 });
 }
 
 export async function startSession(page: Page, buttonText: string | RegExp = 'Start For Free') {
