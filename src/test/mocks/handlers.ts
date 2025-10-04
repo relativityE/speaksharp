@@ -1,4 +1,3 @@
-// src/test/mocks/handlers.ts
 import { http, HttpResponse } from 'msw';
 
 interface TokenRequestBody {
@@ -35,7 +34,6 @@ const mockSessions = [
 ];
 
 export const handlers = [
-  // Supabase Auth endpoints
   http.post('https://*.supabase.co/auth/v1/token', async ({ request }) => {
     const body = await request.json() as TokenRequestBody;
     console.log(`[MSW] Auth token request for grant_type=${body.grant_type}`);
@@ -93,8 +91,6 @@ export const handlers = [
 
     return HttpResponse.json({ error: 'Unsupported grant type' }, { status: 400 });
   }),
-
-  // Sign up
   http.post('https://*.supabase.co/auth/v1/signup', async ({ request }) => {
     const body = await request.json() as SignupRequestBody;
     console.log(`[MSW] Sign-up request for ${body.email}`);
@@ -155,10 +151,18 @@ export const handlers = [
 
   // Database endpoints - User profiles
   http.get('https://*.supabase.co/rest/v1/user_profiles', ({ request }) => {
+    console.log(`[MSW] Fetching user_profiles with Accept=${request.headers.get('Accept')}`);
+    // ... (rest of the logic from your provided file)
     const url = new URL(request.url);
     const userId = url.searchParams.get('id')?.replace('eq.', '');
     const acceptHeader = request.headers.get('Accept') || '';
     console.log(`[MSW] Fetching user_profiles for id: ${userId} with Accept=${acceptHeader}`);
+
+    const mockProfiles = {
+      'user-123': { id: 'user-123', subscription_status: 'free' },
+      'pro-user': { id: 'pro-user', subscription_status: 'pro' },
+      'new-user-id-signup': {id: 'new-user-id-signup', subscription_status: 'free'}
+    };
 
     const profile = userId ? mockProfiles[userId as keyof typeof mockProfiles] : null;
 
@@ -175,40 +179,6 @@ export const handlers = [
 
     return HttpResponse.json([]);
   }),
-
-  // Database endpoints - Sessions
-  http.get('https://*.supabase.co/rest/v1/sessions', ({ request }) => {
-    const url = new URL(request.url);
-    const userId = url.searchParams.get('user_id')?.replace('eq.', '');
-
-    const userSessions = mockSessions.filter(s => s.user_id === userId);
-    return HttpResponse.json(userSessions);
-  }),
-
-  http.post('https://*.supabase.co/rest/v1/sessions', async ({ request }) => {
-    const body = await request.json() as { session_duration: number, metrics: Metrics, user_id?: string };
-
-    const newSession = {
-      id: `session-${Date.now()}`,
-      user_id: body.user_id || 'user-123',
-      session_duration: body.session_duration,
-      created_at: new Date().toISOString(),
-      metrics: body.metrics,
-    };
-
-    mockSessions.push(newSession);
-    return HttpResponse.json(newSession, { status: 201 });
-  }),
-
-  // Stripe endpoints (if needed)
-  http.post('https://api.stripe.com/v1/checkout/sessions', () => {
-    return HttpResponse.json({
-      id: 'cs_mock_checkout_session',
-      url: 'https://checkout.stripe.com/mock-url'
-    });
-  }),
-
-  // Handle any other Supabase endpoints
   http.all('https://*.supabase.co/', ({ request }) => {
     console.error(`[MSW] Unhandled Supabase request: ${request.method} ${request.url}`);
     return HttpResponse.json({ error: 'Unhandled request' }, { status: 501 });
