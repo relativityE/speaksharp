@@ -1,5 +1,5 @@
 // src/contexts/__tests__/AuthContext.test.tsx
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, cleanup } from '@testing-library/react';
 import { AuthProvider } from '../AuthProvider';
 import { useAuth } from '../useAuth';
 import { supabase } from '../../lib/supabaseClient';
@@ -57,7 +57,10 @@ const TestConsumer = () => {
 
 describe('AuthContext', () => {
   afterEach(() => {
-    vi.clearAllMocks();
+    // Clear localStorage to prevent state leakage between tests
+    localStorage.clear();
+    cleanup();
+    vi.restoreAllMocks();
   });
 
   it('should provide session and profile when user is authenticated', async () => {
@@ -92,7 +95,17 @@ describe('AuthContext', () => {
   });
 
   it('should provide null session and profile when user is not authenticated', async () => {
-    // Arrange: No session is provided, so initialSession is null by default.
+    // Arrange: Mock the database query to return no profile, ensuring an unauthenticated state.
+    const mockSelect = vi.fn().mockReturnThis();
+    const mockEq = vi.fn().mockReturnThis();
+    const mockSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+
+    (supabase.from as Mock).mockReturnValue({
+      select: mockSelect,
+      eq: mockEq,
+      single: mockSingle,
+    });
+
     // Act
     render(
       <AuthProvider>

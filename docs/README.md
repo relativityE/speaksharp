@@ -62,7 +62,7 @@ Here are the direct links to the core documents:
 Our goal is to make local development as smooth as possible. Here are some key scripts and variables to help you.
 
 *   **Testing Pro Features Locally:**
-    To test Pro features without a real Stripe subscription, you can grant any user 'pro' status on the client-side. Add the following line to your `.env.test` file:
+    To test Pro features without a real Stripe subscription, you can grant any user 'pro' status on the client-side. Add the following line to your `.env.development.local` file (you may need to create it):
     ```
     VITE_DEV_PRO_ACCESS=true
     ```
@@ -77,39 +77,39 @@ Our goal is to make local development as smooth as possible. Here are some key s
 
 ### Running the Development Server
 
-To start the Vite development server, run:
+To start the Vite development server in standard `development` mode, run:
 
 ```bash
 pnpm dev
 ```
 
-The application will be available at `http://localhost:5173`.
+The application will be available at `http://localhost:5173`. This mode is for general development and does not load any test-specific mocks.
 
 ### Troubleshooting
 *   **`rounded-pill` error on startup:** This is often a caching issue with Vite. Try deleting the `node_modules/.vite` directory and restarting the dev server.
-*   **API Key errors (401 Unauthorized):** Ensure your `.env.test` file is correctly populated with the `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` if you are using your own Supabase project.
+*   **API Key errors (401 Unauthorized):** Ensure your `.env` or `.env.development.local` file is correctly populated with the `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` if you are using your own Supabase project.
 *   **`toast` notifications not appearing:** This is a known issue in local development. Please see the full list of [Known Issues in the PRD](./PRD.md#3-known-issues) for status.
 
 ## ✅ Testing
 
-This project uses a suite of scripts to ensure code quality, run tests, and generate software quality metrics. The entire pipeline has been orchestrated into a single, robust command.
+This project uses a comprehensive local audit script to ensure code quality and alignment with the CI pipeline.
 
-### Running the Full CI Pipeline
+### Running the Local Audit Script
 
-To run the entire suite of checks (linting, type-checking, unit tests, E2E tests, build, etc.) exactly as it runs in the CI environment, use the main orchestrator script:
+To run the entire suite of checks (linting, type-checking, unit tests, and E2E tests) exactly as it runs in the CI environment, use the main orchestrator script:
 
 ```bash
-./ci-run-all.sh
+./test-audit.sh
 ```
 
-This script executes all the necessary steps in the correct order, leveraging caching to run efficiently. It is the single source of truth for validating the application.
+This script is the **single source of truth** for validating the application locally before pushing code. It ensures that your changes will pass the CI checks.
 
 ### Forcing a Full Environment Recovery
 
-If the test environment becomes unstable, you can force a full cleanup before running the pipeline by setting the `FORCE_VM_RECOVERY` environment variable:
+If the test environment becomes unstable, you can force a full cleanup by running the `vm-recovery.sh` script before the audit:
 
 ```bash
-FORCE_VM_RECOVERY=1 ./ci-run-all.sh
+./vm-recovery.sh && ./test-audit.sh
 ```
 
 This will delete all build artifacts and `node_modules` before reinstalling and running the tests.

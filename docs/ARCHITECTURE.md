@@ -93,75 +93,59 @@ SpeakSharp is built on a modern, serverless technology stack designed for real-t
 
 ## Testing and CI/CD
 
-SpeakSharp employs a two-tiered testing strategy to balance development velocity with code quality, enforced by a comprehensive Continuous Integration (CI) pipeline using GitHub Actions.
+SpeakSharp employs a unified testing strategy to ensure that the local development experience perfectly mirrors the Continuous Integration (CI) pipeline, eliminating "it works on my machine" issues.
 
-### Local Audit vs. Comprehensive CI
+### The Local Audit Script: The Single Source of Truth
 
-1.  **Local Audit (`./test-audit.sh`):**
-    *   **Purpose:** A quick verification script intended for developers to run before committing code. It provides rapid feedback on the most critical parts of the application.
-    *   **Scope:**
-        *   Runs static analysis (`pnpm typecheck`). Note: `pnpm lint` is currently commented out in the script.
-        *   Performs a full production build (`pnpm build`).
-        *   Executes the full unit test suite (`pnpm test:unit:full`).
-        *   Runs only the E2E *smoke tests* (`pnpm test:e2e:smoke`).
-    *   **Behavior:** This script is designed to be non-blocking. It will report E2E smoke test failures but will not exit with an error, allowing the process to complete and generate reports. This prevents slow or flaky E2E tests from blocking local development.
+The `./test-audit.sh` script is the cornerstone of our quality assurance process. It is the **single source of truth** for all code validation.
 
-2.  **Comprehensive CI (GitHub Actions):**
-    *   **Purpose:** The definitive source of truth for code quality. This workflow runs automatically on every push and pull request to the `main` branch.
-    *   **Location:** The workflow is defined in `.github/workflows/ci.yml`.
-    *   **Scope:** It executes a complete and strict set of checks:
-        *   Dependency Installation
-        *   Linting (`pnpm lint`)
-        *   Type Checking (`pnpm typecheck`)
-        *   Full Unit Test Suite (`pnpm test:unit:full`)
-        *   **Full End-to-End (E2E) Test Suite (`pnpm test:e2e`)**
-    *   **Behavior:** Unlike the local audit, the CI pipeline is strict. A failure in *any* step (including the full E2E suite) will cause the entire workflow to fail, preventing merges of broken code.
+*   **Purpose:** To run the exact same suite of checks that the CI pipeline runs. This ensures that if the local audit passes, the CI pipeline will also pass.
+*   **Scope:**
+    *   **Static Analysis:** Runs linting (`pnpm lint`) and type checking (`pnpm typecheck`).
+    *   **Production Build:** Verifies that the application can be successfully built for production (`pnpm build`).
+    *   **Unit Tests:** Executes the full unit test suite (`pnpm test:unit:full`).
+    *   **End-to-End Tests:** Runs the *entire* E2E test suite (`pnpm test:e2e`).
+*   **Behavior:** The script is designed to be strict and will exit with an error if any step fails, just like the CI pipeline.
 
 ### CI/CD Pipeline
 
-The project has two GitHub Actions workflows:
+The project's CI pipeline, defined in `.github/workflows/ci.yml`, is now a direct reflection of the local audit script. It performs the following steps on every push and pull request to the `main` branch:
 
-1.  **`ci.yml` (Continuous Integration):** This is the primary workflow for ensuring code quality.
-
-    ```
-    +----------------------------------+
-    | Push or PR to main               |
-    +----------------------------------+
-                     |
-                     v
-    +----------------------------------+
-    |       Job: build_and_test        |
-    |----------------------------------|
-    | 1. Checkout Code                 |
-    | 2. Check Node.js Version         |
-    | 3. Setup PNPM & Node.js          |
-    | 4. Install Dependencies          |
-    | 5. Run Lint                      |
-    | 6. Run Typecheck                 |
-    | 7. Run Unit Tests                |
-    | 8. Run E2E Tests                 |
-    +----------------------------------+
-    ```
-
-2.  **`deploy.yml` (Manual Deployment):**
-    *   **Purpose:** A manually triggered workflow for deploying database changes to the Supabase backend.
-    *   **Steps:** It installs the Supabase CLI, links the project, and pushes database migrations (`supabase db push`).
+```
++----------------------------------+
+| Push or PR to main               |
++----------------------------------+
+                 |
+                 v
++----------------------------------+
+|       Job: build_and_test        |
+|----------------------------------|
+| 1. Checkout Code                 |
+| 2. Check Node.js Version         |
+| 3. Setup PNPM & Node.js          |
+| 4. Install Dependencies          |
+| 5. Run Lint                      |
+| 6. Run Typecheck                 |
+| 7. Run Unit Tests                |
+| 8. Run E2E Tests                 |
+| 9. Run Production Build          |
++----------------------------------+
+```
 
 ### E2E Test Environment
 
-The end-to-end (E2E) test environment is managed by Playwright's built-in `webServer` configuration, providing a streamlined and reliable setup.
+The E2E test environment is designed to be isolated and reliable, ensuring that tests run consistently both locally and in CI.
 
-1.  **Automated Server Management:** The `playwright.config.ts` file uses the `webServer` option to automatically manage the Vite development server.
-    *   **Command:** It runs the `pnpm dev:foreground` script (`vite --mode test`) to start the server.
-    *   **Health Check:** Playwright waits for the server to be fully available at the specified URL (`http://localhost:5173`) before starting any tests.
-    *   **Cleanup:** The server process is automatically terminated by Playwright when the tests are finished.
-    *   **Logging:** All `stdout` and `stderr` from the Vite server are piped directly into the test runner's output, making it easy to debug server-side issues during test runs.
-
-2.  **Mock Service Worker (MSW) Integration:**
-    *   **Problem:** E2E tests would hang due to a race condition where the test would attempt to interact with the application before the Mock Service Worker (MSW) was fully initialized.
-    *   **Solution:** The test environment now exposes a `window.mswReady` promise that resolves only when MSW is active. A `beforeEach` hook in the E2E tests waits for this promise, guaranteeing the mock server is ready before any test interactions occur.
-
-This modern approach eliminates the need for manual server management scripts (e.g., `global-setup.ts`, `global-teardown.ts`), resulting in a simpler, more robust, and easier-to-maintain testing environment.
+1.  **Environment Separation:**
+    *   The standard `pnpm dev` command runs the Vite server in **development mode**. This is for manual development and does not include any test-specific mocks or logic.
+    *   The E2E tests (`pnpm test:e2e`) run against a Vite server that is launched with the `VITE_TEST_MODE=true` environment variable.
+2.  **Conditional Mocking:**
+    *   When `VITE_TEST_MODE` is true, the application's entry point (`src/main.tsx`) conditionally imports `/tests/e2e/testEnv.ts`.
+    *   This `testEnv.ts` script is responsible for initializing the Mock Service Worker (MSW) and setting up the `window.mswReady` promise.
+    *   This approach ensures that test-specific code is completely isolated and never included in a production build.
+3.  **Automated Server Management:**
+    *   Playwright's `webServer` configuration in `playwright.config.ts` automatically starts the test server (`pnpm dev`) with the necessary `VITE_TEST_MODE` flag.
+    *   It waits for the server to be ready and automatically terminates it after the test run, simplifying the testing workflow.
 
 ### Mocking Native Dependencies
 

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Test Environment Overhaul:**
+  - **Environment Separation:** The Vite development server now runs in standard `development` mode by default, isolating it from the `test` environment. Test-specific logic (like MSW) is now conditionally loaded only when `VITE_TEST_MODE` is true.
+  - **Test Isolation:**
+    - **E2E:** Fixed fatal JavaScript errors by conditionally disabling third-party SDKs (Sentry, PostHog) during E2E tests.
+    - **Unit:** Resolved state leakage in `AuthContext` tests by clearing `localStorage` and adding specific mocks to ensure each test runs in a clean, isolated environment.
+  - **CI/CD Alignment:** The local audit script (`test-audit.sh`) now runs the full E2E suite, aligning it with the CI pipeline to prevent discrepancies.
+  - **Code Reorganization:** Moved all test-related files from `src/test` to a top-level `tests` directory for better separation of concerns.
+
 ### Fixed
 - **Critical E2E Test Timeout and Instability:** Resolved a persistent and complex E2E test timeout issue through a series of fixes:
   - **`AuthProvider` Loading State:** Fixed a bug where the `AuthProvider` would get stuck in a permanent loading state in the test environment, preventing the application from rendering and causing tests to hang. The loading state is now correctly initialized to `false` in test mode.
