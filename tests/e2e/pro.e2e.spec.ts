@@ -1,16 +1,9 @@
 // tests/e2e/pro.e2e.spec.ts
 import { test, expect } from '@playwright/test';
-import { programmaticLogin, MockUser } from './helpers';
+import { programmaticLogin } from './helpers';
 import { SessionPage } from './poms/sessionPage.pom';
 import { HomePage } from './poms/homePage.pom';
 import { stubThirdParties } from './sdkStubs';
-
-// Define a mock user for this test suite.
-const proUser: MockUser = {
-  id: 'user-id-pro',
-  email: 'pro-user@example.com',
-  subscription_status: 'pro',
-};
 
 test.describe('Pro User Flow', () => {
   // Note: We are no longer using test.use({ storageState: ... })
@@ -21,7 +14,7 @@ test.describe('Pro User Flow', () => {
     await stubThirdParties(page);
 
     await test.step('Programmatically log in as a pro user', async () => {
-      await programmaticLogin(page, proUser);
+      await programmaticLogin(page);
     });
   });
 
@@ -30,7 +23,7 @@ test.describe('Pro User Flow', () => {
     const homePage = new HomePage(page);
 
     await test.step('Verify no upgrade button on session page', async () => {
-      // We start on the session page after login
+      await sessionPage.goto(); // Manually navigate to session page
       await sessionPage.assertOnSessionPage();
       await expect(sessionPage.upgradeButton).not.toBeVisible();
     });

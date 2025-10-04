@@ -1,41 +1,43 @@
-// tests/e2e/dom-dump.spec.ts
-import { test, expect } from '@playwright/test';
+import { test, Page } from '@playwright/test';
 import fs from 'fs';
+import path from 'path';
 
-test.describe('DOM and Console Dump', () => {
-  const capturedLogs: string[] = [];
+const DUMP_DIR = 'test-results/debug';
 
-  test.beforeEach(async ({ page }) => {
-    // Listen to all console events and store them
-    page.on('console', msg => {
-      capturedLogs.push(`[${msg.type()}] ${msg.text()}`);
-    });
+// Helper to ensure the debug directory exists
+const ensureDumpDir = () => {
+  if (!fs.existsSync(DUMP_DIR)) {
+    fs.mkdirSync(DUMP_DIR, { recursive: true });
+  }
+};
+
+// Helper to dump DOM content
+const dumpDom = async (page: Page, url: string, filename: string) => {
+  await page.goto(url);
+  // Using a short, fixed wait is more reliable than 'networkidle' for dev servers.
+  await page.waitForTimeout(2000);
+  const html = await page.content();
+  const dumpFile = path.join(DUMP_DIR, filename);
+  fs.writeFileSync(dumpFile, html);
+  console.log(`DOM for ${url} dumped to ${dumpFile}`);
+};
+
+test.describe('DEBUG: DOM Dump', () => {
+  test.beforeAll(ensureDumpDir);
+
+  test('Dumps the DOM of the Home page', async ({ page }) => {
+    await dumpDom(page, '/', 'homepage-dom.html');
   });
 
-  test('should load the homepage and dump the DOM', async ({ page }) => {
-    await page.goto('/');
-
-    // Wait for MSW to be ready
-    try {
-      await page.waitForFunction(() => window.mswReady, null, { timeout: 15000 });
-      console.log('MSW is ready.');
-    } catch {
-      console.error('Timed out waiting for MSW to become ready.');
-      // We still proceed to dump the DOM and logs for debugging
-    }
-
-    // Dump the DOM content to a file
-    const domContent = await page.content();
-    fs.writeFileSync('debug-dom.html', domContent);
-    console.log('DOM content has been saved to debug-dom.html');
-
-    // The test will pass if it reaches here, its purpose is artifact generation
-    expect(domContent.length).toBeGreaterThan(100);
+  test('Dumps the DOM of the Session page', async ({ page }) => {
+    await dumpDom(page, '/session', 'session-page-dom.html');
   });
 
-  test.afterEach(() => {
-    // Write captured console logs to a file
-    fs.writeFileSync('debug-console.log', capturedLogs.join('\\n'));
-    console.log('Browser console logs saved to debug-console.log');
+  test('Dumps the DOM of the Analytics page', async ({ page }) => {
+    await dumpDom(page, '/analytics', 'analytics-page-dom.html');
+  });
+
+  test('Dumps the DOM of the Auth page', async ({ page }) => {
+    await dumpDom(page, '/auth', 'auth-page-dom.html');
   });
 });

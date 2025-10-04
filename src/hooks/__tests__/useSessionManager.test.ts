@@ -53,7 +53,8 @@ const mockAuthContextValue: AuthContextType = {
     profile: mockProfile,
     session: {} as Session,
     loading: false,
-    signOut: vi.fn(() => Promise.resolve({ error: null }))
+    signOut: vi.fn(() => Promise.resolve({ error: null })),
+    setSession: vi.fn()
 };
 
 describe('useSessionManager', () => {
@@ -79,7 +80,7 @@ describe('useSessionManager', () => {
         }
       });
 
-      expect(mockStorage.saveSession).toHaveBeenCalledWithExactlyOnceWith(
+      expect(mockStorage.saveSession).toHaveBeenCalledExactlyOnceWith(
         { ...sessionData, user_id: mockUser.id },
         mockProfile
       );
@@ -111,7 +112,7 @@ describe('useSessionManager', () => {
         }
       });
 
-      expect(mockLogger.error).toHaveBeenCalledWithExactlyOnceWith(
+      expect(mockLogger.error).toHaveBeenCalledExactlyOnceWith(
         expect.objectContaining({ err: new Error("Cannot save session: user profile not available.") }),
         "Error in useSessionManager -> saveSession:"
       );
@@ -127,7 +128,7 @@ describe('useSessionManager', () => {
         success = await result.current.deleteSession('db-session-123');
       });
 
-      expect(mockStorage.deleteSession).toHaveBeenCalledWithExactlyOnceWith('db-session-123');
+      expect(mockStorage.deleteSession).toHaveBeenCalledExactlyOnceWith('db-session-123');
       expect(success).toBe(true);
     });
 
@@ -193,12 +194,13 @@ describe('exportSessions', () => {
     });
 
     // Verify the export flow
-    expect(mockStorage.exportData).toHaveBeenCalledWithExactlyOnceWith(mockUser.id);
+    expect(mockStorage.exportData).toHaveBeenCalledExactlyOnceWith(mockUser.id);
     expect(global.URL.createObjectURL).toHaveBeenCalled();
-    expect(document.createElement).toHaveBeenCalledWithExactlyOnceWith('a');
+    // eslint-disable-next-line vitest/prefer-called-exactly-once-with
+    expect(document.createElement).toHaveBeenCalledWith('a');
     expect(document.body.appendChild).toHaveBeenCalled();
     expect(document.body.removeChild).toHaveBeenCalled();
-    expect(global.URL.revokeObjectURL).toHaveBeenCalledWithExactlyOnceWith('blob:mock-url');
+    expect(global.URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith('blob:mock-url');
   });
 
   it('should handle export errors gracefully', async () => {
@@ -209,7 +211,7 @@ describe('exportSessions', () => {
       await result.current.exportSessions();
     });
 
-    expect(mockLogger.error).toHaveBeenCalledWithExactlyOnceWith(
+    expect(mockLogger.error).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
         err: expect.any(Error)
       }),

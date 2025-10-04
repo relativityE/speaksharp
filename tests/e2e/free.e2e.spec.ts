@@ -1,15 +1,8 @@
 // tests/e2e/free.e2e.spec.ts
 import { test, expect } from '@playwright/test';
-import { programmaticLogin, MockUser } from './helpers';
+import { programmaticLogin } from './helpers';
 import { SessionPage } from './poms/sessionPage.pom';
 import { stubThirdParties } from './sdkStubs';
-
-// Define a mock user for this test suite.
-const freeUser: MockUser = {
-  id: 'user-id-free',
-  email: 'free-user@example.com',
-  subscription_status: 'free',
-};
 
 test.describe('Free User Flow', () => {
   let sessionPage: SessionPage;
@@ -19,12 +12,12 @@ test.describe('Free User Flow', () => {
     await stubThirdParties(page);
 
     await test.step('Programmatically log in as a free user', async () => {
-      await programmaticLogin(page, freeUser);
+      await programmaticLogin(page);
     });
 
     sessionPage = new SessionPage(page);
-    // Note: sessionPage.goto() is no longer needed because programmaticLogin
-    // handles navigation and ensures the page is ready.
+    // After programmatic login, we must manually navigate to the session page.
+    await sessionPage.goto();
   });
 
   test('should display the correct UI for a free user', async ({ page }) => {

@@ -76,7 +76,7 @@ describe('CloudAssemblyAI', () => {
     await vi.advanceTimersByTimeAsync(0); // Allow promises like getAssemblyAIToken to resolve
 
     expect(getAssemblyAIToken).toHaveBeenCalled();
-    expect(MockWebSocket).toHaveBeenCalledWithExactlyOnceWith(expect.stringContaining('token=fake-token'));
+    expect(MockWebSocket).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('token=fake-token'));
 
     // Simulate the connection opening
     mockSocketInstance.readyState = MockWebSocket.OPEN;
@@ -85,7 +85,7 @@ describe('CloudAssemblyAI', () => {
     await startPromise; // The promise should now resolve
 
     expect(onReady).toHaveBeenCalled();
-    expect(micStream.onFrame).toHaveBeenCalledWithExactlyOnceWith(expect.any(Function));
+    expect(micStream.onFrame).toHaveBeenCalledExactlyOnceWith(expect.any(Function));
   });
 
   it('should send audio data when the websocket is open', async () => {
@@ -115,7 +115,7 @@ describe('CloudAssemblyAI', () => {
     const messageEvent = { data: JSON.stringify({ transcript: 'hello', turn_is_formatted: false }) };
     mockSocketInstance.onmessage(messageEvent as MessageEvent);
 
-    expect(onTranscriptUpdate).toHaveBeenCalledWithExactlyOnceWith({
+    expect(onTranscriptUpdate).toHaveBeenCalledExactlyOnceWith({
       transcript: { partial: 'hello' },
     });
   });
@@ -128,7 +128,7 @@ describe('CloudAssemblyAI', () => {
     const messageEvent = { data: JSON.stringify({ transcript: 'hello world', turn_is_formatted: true, end_of_turn: true, words: [] }) };
     mockSocketInstance.onmessage(messageEvent as MessageEvent);
 
-    expect(onTranscriptUpdate).toHaveBeenCalledWithExactlyOnceWith({
+    expect(onTranscriptUpdate).toHaveBeenCalledExactlyOnceWith({
       transcript: { final: 'hello world' },
       words: [],
     });
@@ -146,6 +146,6 @@ describe('CloudAssemblyAI', () => {
     await cloudAI.stopTranscription();
 
     expect(micStream.offFrame).toHaveBeenCalled();
-    expect(mockSocketInstance.close).toHaveBeenCalledWithExactlyOnceWith(1000);
+    expect(mockSocketInstance.close).toHaveBeenCalledExactlyOnceWith(1000);
   });
 });

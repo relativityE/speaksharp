@@ -1,16 +1,9 @@
 // tests/e2e/live-transcript.e2e.spec.ts
 import { test, expect } from '@playwright/test';
-import { programmaticLogin, MockUser } from './helpers';
+import { programmaticLogin } from './helpers';
 import { SessionPage } from './poms/sessionPage.pom';
 import { mockAudioStream } from './mockMedia';
 import { stubThirdParties } from './sdkStubs';
-
-// Define a mock user for this test suite.
-const transcriptUser: MockUser = {
-  id: 'user-id-transcript',
-  email: 'transcript-user@example.com',
-  subscription_status: 'free',
-};
 
 test.describe('Live Transcript', () => {
   let sessionPage: SessionPage;
@@ -24,10 +17,11 @@ test.describe('Live Transcript', () => {
     await stubThirdParties(page);
 
     await test.step('Programmatically log in as a free user', async () => {
-      await programmaticLogin(page, transcriptUser);
+      await programmaticLogin(page);
     });
 
     sessionPage = new SessionPage(page);
+    await sessionPage.goto();
   });
 
   test('should display a live transcript during a session', async () => {

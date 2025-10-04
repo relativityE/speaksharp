@@ -28,52 +28,63 @@ interface AuthProviderProps {
   initialSession?: Session | null;
 }
 
-export function AuthProvider({ children, initialSession = null }: AuthProviderProps) {
-  const [session, setSession] = useState<Session | null>(initialSession);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(import.meta.env.MODE !== 'test');
+// Key for storing session in localStorage
+const SESSION_STORAGE_KEY = 'speaksharp-session';
 
-  useEffect(() => {
-    const updateAuthData = async (s: Session | null) => {
-      if (!s?.user) {
-        setProfile(null);
-        setSession(null);
-        return;
-      }
+export function AuthProvider({ children, initialSession }: AuthProviderProps) {
+  const [session, setSessionState] = useState<Session | null>(initialSession || null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const setSession = async (s: Session | null) => {
+    if (s?.user) {
       const userProfile = await getProfileFromDb(s.user.id);
       setProfile(userProfile);
-      setSession(s);
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(s));
       if (import.meta.env.MODE === 'test') {
         (window as WindowWithUser).__USER__ = userProfile;
       }
-    };
+    } else {
+      setProfile(null);
+      localStorage.removeItem(SESSION_STORAGE_KEY);
+    }
+    setSessionState(s);
+  };
 
-    const initialize = async () => {
-      if (import.meta.env.MODE === 'test') {
-        // In test mode, we must wait for the mock server to be ready.
-        await window.mswReady;
-        if (initialSession) {
-          await updateAuthData(initialSession);
-        }
+  useEffect(() => {
+    const bootstrapAuth = async () => {
+      // initialSession from props is already in the state.
+      // If it's there, we just need to load the profile.
+      if (session?.user) {
+        await getProfileFromDb(session.user.id).then(setProfile);
       } else {
-        const { data: { session: currentSession } } = await supabase.auth.getSession();
-        await updateAuthData(currentSession);
+        // If no session in state, try localStorage.
+        try {
+          const storedSession = localStorage.getItem(SESSION_STORAGE_KEY);
+          if (storedSession) {
+            await setSession(JSON.parse(storedSession));
+          }
+        } catch (error) {
+          console.warn('Could not parse session from localStorage:', error);
+          localStorage.removeItem(SESSION_STORAGE_KEY);
+        }
       }
       setLoading(false);
     };
 
-    initialize();
+    bootstrapAuth();
 
     const { data: listener } = supabase.auth.onAuthStateChange(
-      (_event, newSession) => {
-        updateAuthData(newSession);
+      async (_event, newSession) => {
+        await setSession(newSession);
+        setLoading(false);
       }
     );
 
     return () => {
       listener?.subscription.unsubscribe();
     };
-  }, [initialSession]);
+  }, [initialSession, session?.user]);
 
   if (loading) {
     return (
@@ -88,12 +99,13 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     user: session?.user ?? null,
     profile,
     loading,
-    signOut: () => supabase.auth.signOut(),
+    signOut: async () => {
+      const { error } = await supabase.auth.signOut();
+      await setSession(null);
+      return { error };
+    },
+    setSession,
   };
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
