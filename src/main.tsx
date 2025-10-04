@@ -1,5 +1,3 @@
-import "./testEnv"; // Must be the first import
-
 // The redundant readiness check that caused a race condition has been removed.
 // The waiting logic is now correctly handled inside AuthProvider.
 
@@ -39,6 +37,11 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 
 const renderApp = async () => {
+  if (import.meta.env.VITE_TEST_MODE === 'true') {
+    // This path is relative to the project root, as Vite serves from there.
+    await import('/tests/e2e/testEnv.ts');
+  }
+
   if (rootElement && !window._speakSharpRootInitialized) {
     window._speakSharpRootInitialized = true;
 
@@ -48,7 +51,8 @@ const renderApp = async () => {
 
       // Initialize services
       try {
-        if (import.meta.env.VITE_POSTHOG_KEY && import.meta.env.VITE_POSTHOG_HOST) {
+        // Disable PostHog in E2E test mode to prevent network errors
+        if (import.meta.env.VITE_POSTHOG_KEY && import.meta.env.VITE_POSTHOG_HOST && !window.__E2E_MOCK_SESSION__) {
           posthog.init(import.meta.env.VITE_POSTHOG_KEY, {
             api_host: import.meta.env.VITE_POSTHOG_HOST,
             capture_exceptions: true,
@@ -62,44 +66,37 @@ const renderApp = async () => {
       const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY!);
 
       try {
-        Sentry.init({
-          dsn: import.meta.env.VITE_SENTRY_DSN,
-          integrations: [
-            Sentry.browserTracingIntegration(),
-            Sentry.replayIntegration(),
-          ],
-          environment: import.meta.env.MODE,
-          tracesSampleRate: 1.0,
-          replaysSessionSampleRate: 0.1,
-          replaysOnErrorSampleRate: 1.0,
-          sendDefaultPii: true,
-        });
+        // Disable Sentry in E2E test mode
+        if (!window.__E2E_MOCK_SESSION__) {
+          Sentry.init({
+            dsn: import.meta.env.VITE_SENTRY_DSN,
+            integrations: [
+              Sentry.browserTracingIntegration(),
+              Sentry.replayIntegration(),
+            ],
+            environment: import.meta.env.MODE,
+            tracesSampleRate: 1.0,
+            replaysSessionSampleRate: 0.1,
+            replaysOnErrorSampleRate: 1.0,
+            sendDefaultPii: true,
+          });
+        }
       } catch (error) {
         logger.warn({ error }, "Sentry failed to initialize:");
       }
 
-      const initialSession = window.__E2E_MOCK_SESSION__ ? {
+      // In E2E test mode, we might want to inject a mock session.
+      const mockSession = window.__E2E_MOCK_SESSION__ ? {
+        user: { id: 'mock-user-id', email: 'test@example.com' },
         access_token: 'mock-token',
-        token_type: 'bearer',
-        expires_in: 3600,
         refresh_token: 'mock-refresh-token',
-        user: {
-          id: 'user-123', // Use a user ID that has a corresponding mock profile
-          aud: 'authenticated',
-          role: 'authenticated',
-          email: 'free-user@test.com',
-          app_metadata: {},
-          user_metadata: {},
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }
       } : null;
 
       root.render(
         <StrictMode>
           <BrowserRouter>
             <PostHogProvider client={posthog}>
-              <AuthProvider initialSession={initialSession}>
+              <AuthProvider initialSession={mockSession}>
                 <SessionProvider>
                   <Elements stripe={stripePromise}>
                     <Sentry.ErrorBoundary fallback={<div>An error has occurred. Please refresh the page.</div>}>

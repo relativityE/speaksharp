@@ -32,7 +32,7 @@ interface AuthProviderProps {
 const SESSION_STORAGE_KEY = 'speaksharp-session';
 
 export function AuthProvider({ children, initialSession }: AuthProviderProps) {
-  const [session, setSessionState] = useState<Session | null>(initialSession || null);
+  const [session, setSessionState] = useState<Session | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -53,12 +53,10 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
 
   useEffect(() => {
     const bootstrapAuth = async () => {
-      // initialSession from props is already in the state.
-      // If it's there, we just need to load the profile.
-      if (session?.user) {
-        await getProfileFromDb(session.user.id).then(setProfile);
+      setLoading(true);
+      if (initialSession) {
+        await setSession(initialSession);
       } else {
-        // If no session in state, try localStorage.
         try {
           const storedSession = localStorage.getItem(SESSION_STORAGE_KEY);
           if (storedSession) {
@@ -76,6 +74,7 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
 
     const { data: listener } = supabase.auth.onAuthStateChange(
       async (_event, newSession) => {
+        setLoading(true);
         await setSession(newSession);
         setLoading(false);
       }
@@ -84,7 +83,7 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
     return () => {
       listener?.subscription.unsubscribe();
     };
-  }, [initialSession, session?.user]);
+  }, [initialSession]);
 
   if (loading) {
     return (

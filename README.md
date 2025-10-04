@@ -29,13 +29,13 @@ This project uses a two-tiered testing strategy to balance rapid development wit
 
 ### Local Testing
 
-For quick feedback during development, use the local audit script. This is the recommended check to run before committing your changes.
+For comprehensive local validation, use the local audit script. This script is designed to mirror the checks run in our CI pipeline and is the recommended check to run before committing your changes.
 
-*   **Run the quick local audit:**
+*   **Run the comprehensive local audit:**
     ```bash
     ./test-audit.sh
     ```
-    This script runs a fast subset of checks: type-checking, a production build, all unit tests, and E2E smoke tests. Note that it does not run linting or the full E2E suite.
+    This script runs a full suite of checks, including: linting, type-checking, a production build, all unit tests, and the complete E2E test suite. Running this script locally is the best way to ensure your changes will pass in CI.
 
 If you need to run specific test suites, you can use the following commands:
 
