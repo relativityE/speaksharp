@@ -1,5 +1,5 @@
 // tests/e2e/free.e2e.spec.ts
-import { test, expect } from '@playwright/test';
+import { test, expect, MockUser } from './helpers';
 import { programmaticLogin } from './helpers';
 import { SessionPage } from './poms/sessionPage.pom';
 import { stubThirdParties } from './sdkStubs';
@@ -12,7 +12,12 @@ test.describe('Free User Flow', () => {
     await stubThirdParties(page);
 
     await test.step('Programmatically log in as a free user', async () => {
-      await programmaticLogin(page);
+      const mockUser: MockUser = {
+        id: 'mock-user-id',
+        email: 'free-user@test.com',
+        subscription_status: 'free',
+      };
+      await programmaticLogin(page, mockUser);
     });
 
     sessionPage = new SessionPage(page);

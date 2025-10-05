@@ -37,11 +37,6 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 
 const renderApp = async () => {
-  if (import.meta.env.VITE_TEST_MODE === 'true') {
-    // This path is relative to the project root, as Vite serves from there.
-    await import('/tests/e2e/testEnv.ts');
-  }
-
   if (rootElement && !window._speakSharpRootInitialized) {
     window._speakSharpRootInitialized = true;
 
@@ -87,9 +82,24 @@ const renderApp = async () => {
 
       // In E2E test mode, we might want to inject a mock session.
       const mockSession = window.__E2E_MOCK_SESSION__ ? {
-        user: { id: 'mock-user-id', email: 'test@example.com' },
+        user: {
+          id: 'mock-user-id',
+          email: 'test@example.com',
+          aud: 'authenticated',
+          role: 'authenticated',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          app_metadata: {
+            provider: 'email',
+            providers: ['email'],
+          },
+          user_metadata: { subscription_status: 'free' },
+        },
         access_token: 'mock-token',
         refresh_token: 'mock-refresh-token',
+        expires_in: 3600,
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
+        token_type: 'bearer',
       } : null;
 
       root.render(

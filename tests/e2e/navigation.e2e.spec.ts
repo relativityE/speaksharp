@@ -1,5 +1,5 @@
 // tests/e2e/navigation.e2e.spec.ts
-import { test, expect } from '@playwright/test';
+import { test, expect, MockUser } from './helpers';
 import { programmaticLogin } from './helpers';
 import { stubThirdParties } from './sdkStubs';
 
@@ -15,7 +15,12 @@ test.describe('App Navigation', () => {
     await stubThirdParties(page);
 
     await test.step('Programmatically log in as a pro user', async () => {
-      await programmaticLogin(page);
+      const mockUser: MockUser = {
+        id: 'mock-user-id-pro',
+        email: 'pro-user@test.com',
+        subscription_status: 'pro',
+      };
+      await programmaticLogin(page, mockUser);
     });
   });
 

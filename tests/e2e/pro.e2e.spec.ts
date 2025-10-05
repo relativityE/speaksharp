@@ -1,5 +1,5 @@
 // tests/e2e/pro.e2e.spec.ts
-import { test, expect } from '@playwright/test';
+import { test, expect, MockUser } from './helpers';
 import { programmaticLogin } from './helpers';
 import { SessionPage } from './poms/sessionPage.pom';
 import { HomePage } from './poms/homePage.pom';
@@ -14,7 +14,12 @@ test.describe('Pro User Flow', () => {
     await stubThirdParties(page);
 
     await test.step('Programmatically log in as a pro user', async () => {
-      await programmaticLogin(page);
+      const mockUser: MockUser = {
+        id: 'mock-user-id-pro',
+        email: 'pro-user@test.com',
+        subscription_status: 'pro',
+      };
+      await programmaticLogin(page, mockUser);
     });
   });
 
