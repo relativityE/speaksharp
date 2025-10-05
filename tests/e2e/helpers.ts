@@ -58,24 +58,49 @@ export type MockUser = {
   subscription_status: 'free' | 'pro';
 };
 
-export async function programmaticLogin(page: Page) {
-  // This script runs before any page navigation, ensuring the mock session is ready.
-  await page.addInitScript(() => {
-    window.__E2E_MOCK_SESSION__ = true;
+export async function programmaticLogin(page: Page, mockUser: MockUser) {
+  // Inject the mock user directly into the window before the page loads.
+  // This is more reliable than setting a flag and waiting for the app to react.
+  await page.addInitScript(user => {
+    window.__USER__ = user;
+    window.__E2E_MOCK_SESSION__ = true; // Keep flag for any legacy checks
+  }, mockUser);
+
+  // Intercept the user_profiles call specifically for this test to ensure it returns
+  // the correct data, isolating the test from global MSW handlers.
+  await page.route('**/rest/v1/user_profiles*', async (route, request) => {
+    const url = new URL(request.url());
+    const userId = url.searchParams.get('id')?.replace('eq.', '');
+
+    if (userId === mockUser.id) {
+      console.log(`[E2E Helper] Intercepted and mocked /user_profiles for user: ${userId}`);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        // Ensure the response is a single object, as if from .single()
+        body: JSON.stringify({ id: mockUser.id, email: mockUser.email, subscription_status: mockUser.subscription_status }),
+      });
+    } else {
+      // For any other user_profiles request, let it fall back to the global MSW handlers
+      console.log(`[E2E Helper] Passing through /user_profiles request for other users.`);
+      await route.continue();
+    }
   });
 
-  // Navigate to the root to apply the mock session.
+  // Navigate to the app's entry point.
   await page.goto('/');
 
-  // Wait for MSW to be ready before we expect the app to have a user.
-  await page.evaluate(async () => {
-    await window.mswReady;
-  });
+  // Wait for the user object to be available on the window.
+  await page.waitForFunction(() => !!window.__USER__, null, { timeout: 15000 });
 
-  // The application will now use the mock session, so we wait for the user
-  // object to be available on the window, which is set by the AuthProvider.
-  await page.waitForFunction(() => window.__USER__, null, { timeout: 10000 });
-  await page.waitForResponse(resp => resp.url().includes('/user_profiles') && resp.status() < 400, { timeout: 5000 });
+  // Wait for the mocked user_profiles response to ensure the AuthProvider has initialized.
+  await page.waitForResponse(resp =>
+    resp.url().includes('/user_profiles') && resp.status() === 200,
+    { timeout: 5000 }
+  );
+
+  const userOnPage = await page.evaluate(() => window.__USER__);
+  console.log('[E2E Helper] Logged in as user:', userOnPage);
 }
 
 export async function startSession(page: Page, buttonText: string | RegExp = 'Start For Free') {

@@ -13,7 +13,7 @@
     "preview": "vite preview",
     "lint": "eslint 'src/**/*.{js,jsx,ts,tsx}' 'tests/**/*.{js,jsx,ts,tsx}' --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "eslint 'src/**/*.{js,jsx,ts,tsx}' 'tests/**/*.{js,jsx,ts,tsx}' --fix",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --build --verbose",
     "test": "pnpm test:unit:full",
     "test:audit": "./test-audit.sh",
     "test:unit:full": "vitest run --coverage",
