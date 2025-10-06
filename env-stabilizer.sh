@@ -63,11 +63,24 @@ fi
 # Skip checks in deps mode
 if [[ "$MODE" != "deps" ]]; then
   echo "🔎 Checking Vite startup..."
-  if ! timeout 60 pnpm run dev > vite-start.log 2>&1; then
-    echo "❌ Vite failed to start, see vite-start.log"
+  # Run Vite in the background and give it a moment to start
+  pnpm run dev > vite-start.log 2>&1 &
+  VITE_PID=$!
+  sleep 10
+
+  # Check if Vite started successfully by looking for the ready message
+  if ! grep -q "ready in" vite-start.log; then
+    echo "❌ Vite failed to start. Log content:"
+    cat vite-start.log
+    kill $VITE_PID || true
     exit 1
+  else
+    echo "✅ Vite started successfully."
   fi
-  pkill -f vite || true
+
+  # Kill the Vite process after verification
+  kill $VITE_PID || true
 fi
 
 echo "✅ Environment stabilization complete!"
+
