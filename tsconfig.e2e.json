@@ -1,9 +1,8 @@
 {
+  "extends": "./tsconfig.json",
   "compilerOptions": {
-    "module": "esnext",
-    "target": "esnext",
-    "types": [],
-    "isolatedModules": true
+    "types": ["vitest/globals", "node"],
+    "composite": true
   },
-  "include": ["tests/e2e"]
+  "include": ["tests/e2e/**/*.ts"]
 }

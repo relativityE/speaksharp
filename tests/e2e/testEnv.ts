@@ -1,4 +1,4 @@
-// src/testEnv.ts
+// tests/e2e/testEnv.ts
 
 // Extend the Window interface to include our custom promise for MSW readiness.
 declare global {
@@ -9,8 +9,8 @@ declare global {
 
 async function initializeMocks() {
   console.log('[testEnv] Initializing Mock Service Worker for E2E tests.');
-  // Using an absolute path from the project root for robustness.
-  const { worker } = await import('/tests/support/mocks/browser.ts');
+  // Use the 'tests/' alias for a robust, non-relative path.
+  const { worker } = await import('tests/support/mocks/browser');
 
   // The worker.start() method returns a promise that resolves when the service worker is ready.
   // We attach this promise to the window object so that our Playwright tests can wait for it.
@@ -28,3 +28,7 @@ async function initializeMocks() {
 if (typeof window !== 'undefined') {
   initializeMocks();
 }
+
+// Export an empty object to ensure this file is treated as a module.
+// This is necessary for the `declare global` to work correctly.
+export {};

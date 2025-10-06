@@ -27,7 +27,7 @@ if (!/VITE_PORT/.test(envTest)) {
 // Check Playwright browsers installed
 try {
   execSync('pnpm exec playwright install --with-deps', { stdio: 'inherit' });
-} catch (err) {
+} catch {
   console.error('❌ Playwright browser install failed');
   ok = false;
 }

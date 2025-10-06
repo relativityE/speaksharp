@@ -80,6 +80,16 @@ export default tseslint.config(
     },
   },
 
+  // Config for Test Support scripts
+  {
+    files: ['test-support/**/*.{js,ts}'],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
+    },
+  },
+
   // Config for project-level config files
   {
     files: ['*.{js,cjs,mjs,ts}'],
@@ -88,5 +98,13 @@ export default tseslint.config(
         ...globals.node,
       },
     },
+  },
+
+  // Specific override for tailwind config
+  {
+    files: ['tailwind.config.ts'],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+    }
   }
 );

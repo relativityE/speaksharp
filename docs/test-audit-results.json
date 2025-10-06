@@ -1,0 +1,37 @@
+[
+  {
+    "test": "lint & typescript",
+    "status": "PASS",
+    "runtime": 0
+  },
+  {
+    "file": "tests/e2e/auth.e2e.spec.ts",
+    "status": "FAIL",
+    "runtime": 62
+  },
+  {
+    "file": "tests/e2e/free.e2e.spec.ts",
+    "status": "FAIL",
+    "runtime": 38
+  },
+  {
+    "file": "tests/e2e/pro.e2e.spec.ts",
+    "status": "FAIL",
+    "runtime": 33
+  },
+  {
+    "file": "tests/e2e/navigation.e2e.spec.ts",
+    "status": "FAIL",
+    "runtime": 18
+  },
+  {
+    "file": "tests/e2e/live-transcript.e2e.spec.ts",
+    "status": "FAIL",
+    "runtime": 10
+  },
+  {
+    "file": "tests/e2e/smoke.e2e.spec.ts",
+    "status": "PASS",
+    "runtime": 6
+  }
+]

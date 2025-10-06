@@ -4,7 +4,6 @@
  * Run any E2E screenshot test file safely.
  */
 import { spawnSync } from 'child_process';
-import path from 'path';
 
 const args = process.argv.slice(2);
 if (!args.length) {

@@ -1,0 +1,13 @@
+{
+  "generatedAt": "2025-10-06T07:21:44.919Z",
+  "shards": [
+    [
+      "/app/tests/e2e/auth.e2e.spec.ts",
+      "/app/tests/e2e/free.e2e.spec.ts",
+      "/app/tests/e2e/pro.e2e.spec.ts",
+      "/app/tests/e2e/navigation.e2e.spec.ts",
+      "/app/tests/e2e/live-transcript.e2e.spec.ts",
+      "/app/tests/e2e/smoke.e2e.spec.ts"
+    ]
+  ]
+}

@@ -5,6 +5,13 @@ MODE="${1:-dev}"   # default mode = dev
 
 echo "🚀 Running env-stabilizer in $MODE mode..."
 
+# Helper: kill process if running
+kill_if_alive() {
+  if [[ -n "${1-}" ]]; then
+    kill "$1" 2>/dev/null || true
+  fi
+}
+
 if [[ "$MODE" == "ci" ]]; then
   echo "💣 CI mode: Full environment reset"
 
@@ -44,7 +51,6 @@ elif [[ "$MODE" == "deps" ]]; then
   pnpm install
 
   echo "✅ Dependencies refreshed (no Vite/Playwright checks run)"
-
 else
   echo "❌ Unknown mode: $MODE"
   echo "Usage: ./env-stabilizer.sh [dev|ci|deps]"
@@ -60,14 +66,33 @@ if [[ "${STABILIZE_PLAYWRIGHT:-0}" -eq 1 ]]; then
   sed -i.bak 's/reuseExistingServer:.*/reuseExistingServer: false,/' playwright.config.ts || true
 fi
 
-# Skip checks in deps mode
+# Skip dev checks in deps mode
 if [[ "$MODE" != "deps" ]]; then
   echo "🔎 Checking Vite startup..."
-  if ! timeout 60 pnpm run dev > vite-start.log 2>&1; then
-    echo "❌ Vite failed to start, see vite-start.log"
-    exit 1
-  fi
-  pkill -f vite || true
+
+  # Start Vite in background
+  pnpm run dev > vite-start.log 2>&1 &
+  VITE_PID=$!
+  MAX_WAIT=30  # seconds
+  WAITED=0
+
+  echo "⏳ Waiting up to $MAX_WAIT seconds for Vite to start..."
+  until grep -q "ready in" vite-start.log; do
+    sleep 1
+    ((WAITED++))
+    if (( WAITED >= MAX_WAIT )); then
+      echo "❌ Vite failed to start after $MAX_WAIT seconds. Log content:"
+      cat vite-start.log
+      kill_if_alive $VITE_PID
+      exit 1
+    fi
+  done
+
+  echo "✅ Vite started successfully after $WAITED seconds."
+
+  # Optionally: keep Vite alive for E2E tests
+  # Uncomment next line if you want to shut down immediately
+  # kill_if_alive $VITE_PID
 fi
 
 echo "✅ Environment stabilization complete!"
