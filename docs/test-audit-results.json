@@ -7,27 +7,27 @@
   {
     "file": "tests/e2e/auth.e2e.spec.ts",
     "status": "FAIL",
-    "runtime": 62
+    "runtime": 61
   },
   {
     "file": "tests/e2e/free.e2e.spec.ts",
     "status": "FAIL",
-    "runtime": 38
+    "runtime": 39
   },
   {
     "file": "tests/e2e/pro.e2e.spec.ts",
     "status": "FAIL",
-    "runtime": 33
+    "runtime": 32
   },
   {
     "file": "tests/e2e/navigation.e2e.spec.ts",
     "status": "FAIL",
-    "runtime": 18
+    "runtime": 17
   },
   {
     "file": "tests/e2e/live-transcript.e2e.spec.ts",
     "status": "FAIL",
-    "runtime": 10
+    "runtime": 14
   },
   {
     "file": "tests/e2e/smoke.e2e.spec.ts",
