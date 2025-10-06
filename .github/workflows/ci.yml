@@ -17,7 +17,6 @@ jobs:
       - name: Check Node.js version consistency
         run: |
           NVMRC_VERSION=$(cat .nvmrc)
-          # Use jq to parse package.json and extract the node version
           PKG_VERSION=$(jq -r '.engines.node // empty' package.json)
           echo ".nvmrc version: $NVMRC_VERSION"
           echo "package.json engines.node: $PKG_VERSION"
@@ -37,12 +36,6 @@ jobs:
           node-version-file: '.nvmrc'
           cache: 'pnpm'
 
-      - name: Setup PNPM
-        uses: pnpm/action-setup@v3
-        with:
-          version: 9
-          run_install: false
-
       - name: Verify Environment
         run: |
           node -v
@@ -51,17 +44,14 @@ jobs:
       - name: Install Dependencies & Browsers
         run: pnpm setup:dev
 
-      - name: Build Application
-        run: pnpm build
+      - name: Run Full Test Audit
+        run: ./test-audit.sh
 
-      - name: Run Lint
-        run: pnpm lint
-
-      - name: Run Typecheck
-        run: pnpm typecheck
-
-      - name: Run Unit Tests
-        run: pnpm test:unit:full
-
-      - name: Run E2E Tests
-        run: pnpm test:e2e
+      - name: Upload Test Audit Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-audit-report
+          path: |
+            docs/test-audit-status.md
+            docs/e2e-test-runtimes.json
