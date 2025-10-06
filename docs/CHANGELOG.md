@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Comprehensive Testing Framework Overhaul:**
+  - Implemented a new canonical audit script (`./test-audit.sh`) that orchestrates all static analysis and E2E tests, serving as the single source of truth for local and CI validation.
+  - Introduced a dynamic, runtime-based sharding system (`test-support/utils/create-shards.js`) to split the E2E test suite into smaller chunks, preventing CI platform timeouts.
+  - Refactored all major E2E tests to use a new, robust `loginAndWait` helper, eliminating race conditions and improving stability.
+  - Hardened the environment stabilization script (`./env-stabilizer.sh`) to be more resilient against stale processes and port conflicts.
+  - Established a new `test-support/` directory to centralize all testing-related scripts and reports, cleaning up the repository root.
+
 ### Changed
 - **Test Environment Overhaul:**
   - **Environment Separation:** The Vite development server now runs in standard `development` mode by default, isolating it from the `test` environment. Test-specific logic (like MSW) is now conditionally loaded only when `VITE_TEST_MODE` is true.

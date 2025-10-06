@@ -55,6 +55,8 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
     const bootstrapAuth = async () => {
       setLoading(true);
       if (initialSession) {
+        // In a test environment with a mock session, clear any real session data
+        localStorage.clear();
         await setSession(initialSession);
       } else {
         try {
@@ -72,17 +74,20 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
 
     bootstrapAuth();
 
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      async (_event, newSession) => {
-        setLoading(true);
-        await setSession(newSession);
-        setLoading(false);
-      }
-    );
+    // Do not attach the listener if we are in a test environment with a mock session
+    if (!initialSession) {
+      const { data: listener } = supabase.auth.onAuthStateChange(
+        async (_event, newSession) => {
+          setLoading(true);
+          await setSession(newSession);
+          setLoading(false);
+        }
+      );
 
-    return () => {
-      listener?.subscription.unsubscribe();
-    };
+      return () => {
+        listener?.subscription.unsubscribe();
+      };
+    }
   }, [initialSession]);
 
   if (loading) {

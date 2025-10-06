@@ -37,6 +37,11 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 
 const renderApp = async () => {
+  // Conditionally import MSW for E2E test environments
+  if (import.meta.env.VITE_TEST_MODE === 'true') {
+    await import('../tests/e2e/testEnv.ts');
+  }
+
   if (rootElement && !window._speakSharpRootInitialized) {
     window._speakSharpRootInitialized = true;
 

@@ -1,8 +1,0 @@
-packages:
-  - 'supabase/functions/*'
-supportedArchitectures:
-  os:
-    - linux
-    - current
-  cpu:
-    - x64

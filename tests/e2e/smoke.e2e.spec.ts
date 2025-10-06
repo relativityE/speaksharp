@@ -1,6 +1,5 @@
 // tests/e2e/smoke.e2e.spec.ts
-import { test, expect, MockUser } from './helpers';
-import { programmaticLogin } from './helpers';
+import { test, expect, MockUser, loginAndWait } from './helpers';
 import { stubThirdParties } from './sdkStubs';
 
 test.describe('Smoke Test', () => {
@@ -11,7 +10,7 @@ test.describe('Smoke Test', () => {
       email: 'test@example.com',
       subscription_status: 'free',
     };
-    await programmaticLogin(page, mockUser);
+    await loginAndWait(page, mockUser);
   });
 
   test('should log in, navigate to session page, and verify core UI elements @smoke', async ({ page }) => {

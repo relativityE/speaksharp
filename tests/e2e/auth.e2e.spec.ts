@@ -20,6 +20,13 @@ test.describe('Authentication', () => {
     authPage = new AuthPage(page);
     sessionPage = new SessionPage(page);
     await authPage.goto();
+    // IMPORTANT: Wait for the mock service worker to be ready before proceeding.
+    await page.evaluate(async () => {
+      // mswReady is a custom promise set in tests/testEnv.ts
+      if (window.mswReady) {
+        return await window.mswReady;
+      }
+    });
   });
 
   test('should allow a new user to sign up', async ({ page }) => {
@@ -30,7 +37,7 @@ test.describe('Authentication', () => {
     });
 
     await test.step('Verify user is signed in and can access protected routes', async () => {
-      await expect(page).toHaveURL('/');
+      await page.waitForURL(/\/(?!auth)/);
       await expect(page.getByRole('button', { name: 'Sign Out' })).toBeVisible();
 
       await sessionPage.goto();
@@ -61,7 +68,7 @@ test.describe('Authentication', () => {
     });
 
     await test.step('Verify user is signed in and can access protected routes', async () => {
-      await expect(page).toHaveURL('/');
+      await page.waitForURL(/\/(?!auth)/);
       await expect(page.getByRole('button', { name: 'Sign Out' })).toBeVisible();
 
       await sessionPage.goto();

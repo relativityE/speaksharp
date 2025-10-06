@@ -28,5 +28,6 @@ declare global {
     webkitSpeechRecognition: {
       new (): SpeechRecognition;
     };
+    mswReady?: Promise<ServiceWorkerRegistration | undefined>;
   }
 }

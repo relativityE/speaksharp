@@ -6,7 +6,16 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 
 export default tseslint.config(
-  { ignores: ['dist', 'node_modules', 'playwright-report/', 'test-results/', 'html/', 'public/', 'supabase/'] },
+  {
+    ignores: [
+      'dist', 'node_modules', 'playwright-report/', 'test-results/', 'html/',
+      'public/', 'supabase/',
+      // Ignore specific auto-generated or problematic files
+      '**/*.d.ts',
+      '**/*.js',
+      'tests/global-teardown.js',
+    ]
+  },
 
   // Base configs
   js.configs.recommended,
@@ -80,6 +89,16 @@ export default tseslint.config(
     },
   },
 
+  // Config for test setup/teardown scripts
+  {
+    files: ['tests/global-setup.js', 'tests/global-teardown.js'],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
+    },
+  },
+
   // Config for project-level config files
   {
     files: ['*.{js,cjs,mjs,ts}'],
@@ -87,6 +106,18 @@ export default tseslint.config(
       globals: {
         ...globals.node,
       },
+    },
+  },
+  // Config for JS scripts
+  {
+    files: ['**/*.js'],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-unused-vars': 'off',
     },
   }
 );

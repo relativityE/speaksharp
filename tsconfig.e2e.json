@@ -1,9 +1,0 @@
-{
-  "compilerOptions": {
-    "module": "esnext",
-    "target": "esnext",
-    "types": [],
-    "isolatedModules": true
-  },
-  "include": ["tests/e2e"]
-}

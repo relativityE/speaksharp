@@ -1,6 +1,6 @@
 import React, { ReactElement } from 'react';
-import { AuthProvider } from '../contexts/AuthProvider';
-import { SessionProvider } from '../contexts/SessionProvider';
+import { AuthProvider } from '@/contexts/AuthProvider';
+import { SessionProvider } from '@/contexts/SessionProvider';
 import { render, RenderOptions } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { Session } from '@supabase/supabase-js';

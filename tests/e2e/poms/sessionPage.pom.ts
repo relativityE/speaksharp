@@ -14,7 +14,8 @@ export class SessionPage {
 
   constructor(page: Page) {
     this.page = page;
-    this.startButton = page.getByRole('button', { name: 'Start' });
+    // This selector needs to be specific to avoid conflicts with other "Start" buttons on the page.
+    this.startButton = page.getByTestId('app-main').getByRole('button', { name: 'Start' });
     this.stopButton = page.getByRole('button', { name: 'Stop' });
     this.transcriptPanel = page.getByTestId('transcript-panel');
     this.upgradeButton = page.getByRole('button', { name: /upgrade/i });

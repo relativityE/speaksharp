@@ -1,6 +1,5 @@
 // tests/e2e/navigation.e2e.spec.ts
-import { test, expect, MockUser } from './helpers';
-import { programmaticLogin } from './helpers';
+import { test, expect, MockUser, loginAndWait } from './helpers';
 import { stubThirdParties } from './sdkStubs';
 
 test.describe('App Navigation', () => {
@@ -14,14 +13,12 @@ test.describe('App Navigation', () => {
     // Stub out third-party services.
     await stubThirdParties(page);
 
-    await test.step('Programmatically log in as a pro user', async () => {
-      const mockUser: MockUser = {
-        id: 'mock-user-id-pro',
-        email: 'pro-user@test.com',
-        subscription_status: 'pro',
-      };
-      await programmaticLogin(page, mockUser);
-    });
+    const mockUser: MockUser = {
+      id: 'mock-user-id-pro',
+      email: 'pro-user@test.com',
+      subscription_status: 'pro',
+    };
+    await loginAndWait(page, mockUser);
   });
 
   test('should allow navigation between pages from the sidebar', async ({ page }) => {

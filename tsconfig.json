@@ -5,10 +5,11 @@
     "module": "ESNext",
     "jsx": "react-jsx",
     "allowJs": false,
-    "moduleResolution": "bundler",
+    "moduleResolution": "node",
     "esModuleInterop": true,
     "strict": true,
     "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"]
@@ -21,11 +22,6 @@
     }
   },
   "include": ["src", "tests"],
-  "exclude": [
-    "playwright.config.ts",
-    "tailwind.config.ts",
-    "tests/global-setup.ts",
-    "tests/global-teardown.ts"
-  ],
+  "exclude": [],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

@@ -1,6 +1,4 @@
-// tests/e2e/live-transcript.e2e.spec.ts
-import { test, expect, MockUser } from './helpers';
-import { programmaticLogin } from './helpers';
+import { test, expect, MockUser, loginAndWait, programmaticLogin } from './helpers';
 import { SessionPage } from './poms/sessionPage.pom';
 import { mockAudioStream } from './mockMedia';
 import { stubThirdParties } from './sdkStubs';
@@ -22,27 +20,31 @@ test.describe('Live Transcript', () => {
         email: 'free-user@test.com',
         subscription_status: 'free',
       };
-      await programmaticLogin(page, mockUser);
+      await loginAndWait(page, mockUser);
     });
 
     sessionPage = new SessionPage(page);
     await sessionPage.goto();
   });
 
-  test('should display a live transcript during a session', async () => {
-    await test.step('Start session and mock audio stream', async () => {
+  test('should display a live transcript during a session', async ({ page }) => {
+    await test.step('Start a session and provide mock audio', async () => {
       await sessionPage.startSession();
-      await mockAudioStream();
+      await mockAudioStream(page);
     });
 
-    await test.step('Assert that transcript contains expected text', async () => {
-      const transcriptLocator = sessionPage.transcriptPanel;
-      await expect(transcriptLocator).toContainText('hello', { timeout: 15000 });
-      await expect(transcriptLocator).toContainText('world', { timeout: 15000 });
+    await test.step('Verify that transcript text is visible', async () => {
+      await expect(sessionPage.transcriptPanel).toBeVisible();
+      // Wait for the text to contain some expected content from the mock audio.
+      await expect(sessionPage.transcriptPanel).toContainText('This is a test of the emergency broadcast system', { timeout: 10000 });
     });
 
     await test.step('Stop the session', async () => {
       await sessionPage.stopSession();
+    });
+
+    await test.step('Verify that the transcript container is no longer visible', async () => {
+      await expect(sessionPage.transcriptPanel).not.toBeVisible();
     });
   });
 });

@@ -12,7 +12,7 @@ const App: React.FC = () => {
     <div>
       <Toaster />
       <Navigation />
-      <main data-testid="app-main">
+      <main data-testid="app-main-container">
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/auth" element={<AuthPage />} /> {/* Add the missing auth route */}

@@ -1,6 +1,5 @@
 // tests/e2e/pro.e2e.spec.ts
-import { test, expect, MockUser } from './helpers';
-import { programmaticLogin } from './helpers';
+import { test, expect, MockUser, loginAndWait } from './helpers';
 import { SessionPage } from './poms/sessionPage.pom';
 import { HomePage } from './poms/homePage.pom';
 import { stubThirdParties } from './sdkStubs';
@@ -13,14 +12,12 @@ test.describe('Pro User Flow', () => {
     // Stub out third-party services before logging in.
     await stubThirdParties(page);
 
-    await test.step('Programmatically log in as a pro user', async () => {
-      const mockUser: MockUser = {
-        id: 'mock-user-id-pro',
-        email: 'pro-user@test.com',
-        subscription_status: 'pro',
-      };
-      await programmaticLogin(page, mockUser);
-    });
+    const mockUser: MockUser = {
+      id: 'mock-user-id-pro',
+      email: 'pro-user@test.com',
+      subscription_status: 'pro',
+    };
+    await loginAndWait(page, mockUser);
   });
 
   test('should not see upgrade prompts as a pro user', async ({ page }) => {

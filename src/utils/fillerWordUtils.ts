@@ -23,7 +23,7 @@ interface FinalChunk {
     text: string;
 }
 
-interface TranscriptStats {
+export interface TranscriptStats {
     transcript: string;
     total_words: number;
     wpm: number;

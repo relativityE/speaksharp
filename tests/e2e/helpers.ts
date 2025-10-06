@@ -93,33 +93,26 @@ export async function programmaticLogin(page: Page, mockUser: MockUser) {
   // Wait for the user object to be available on the window.
   await page.waitForFunction(() => !!window.__USER__, null, { timeout: 15000 });
 
-  // Wait for the mocked user_profiles response to ensure the AuthProvider has initialized.
-  await page.waitForResponse(resp =>
-    resp.url().includes('/user_profiles') && resp.status() === 200,
-    { timeout: 5000 }
-  );
+  // Wait for MSW to be ready before proceeding. This ensures all API calls are mocked.
+  await page.evaluate(async () => {
+    if (window.mswReady) {
+      await window.mswReady;
+    }
+  });
 
   const userOnPage = await page.evaluate(() => window.__USER__);
   console.log('[E2E Helper] Logged in as user:', userOnPage);
 }
 
-export async function startSession(page: Page, buttonText: string | RegExp = 'Start For Free') {
-  if (!page.url().endsWith('/')) {
-    await page.goto('/', { waitUntil: 'networkidle' });
-  }
-  await expect(page.getByRole('button', { name: /Initializing|Connecting/ })).not.toBeVisible({ timeout: 20000 });
-  const startButton = page.getByRole('button', { name: buttonText });
-  await expect(startButton).toBeVisible({ timeout: 10000 });
-  await expect(startButton).toBeEnabled({ timeout: 10000 });
-  await startButton.click();
-  try {
-    await page.waitForURL(/\/session\//, { timeout: 15000 });
-    await page.waitForLoadState('networkidle');
-  } catch (err) {
-    console.error('Failed to navigate to session page after starting practice.', err);
-    await page.screenshot({ path: 'debug-start-session-failed.png' });
-    throw err;
-  }
+export async function loginAndWait(page: Page, mockUser: MockUser) {
+  await programmaticLogin(page, mockUser);
+  // Wait for the redirect to the main app page. This is more reliable than
+  // immediately checking for a UI element.
+  await page.waitForURL(/\/app\//, { timeout: 10000 });
+  // Now that the URL is correct, we can safely wait for the main container.
+  await expect(page.getByTestId('app-main-container')).toBeVisible({ timeout: 5000 });
+  await page.waitForFunction(() => !!window.__USER__, null, { timeout: 10000 });
+  console.log('[E2E Helper] App is ready after login.');
 }
 
 export async function stopSession(page: Page) {

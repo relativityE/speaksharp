@@ -93,44 +93,32 @@ SpeakSharp is built on a modern, serverless technology stack designed for real-t
 
 ## Testing and CI/CD
 
-SpeakSharp employs a unified testing strategy to ensure that the local development experience perfectly mirrors the Continuous Integration (CI) pipeline, eliminating "it works on my machine" issues.
+SpeakSharp employs a robust, automated testing strategy designed around the principles of **"Trust but Verify"** and **"Single Source of Truth."** The entire framework is orchestrated to ensure that the local development experience perfectly mirrors the Continuous Integration (CI) pipeline.
 
-### The Local Audit Script: The Single Source of Truth
+### The Local Audit Script: The Canonical Entry Point
 
-The `./test-audit.sh` script is the cornerstone of our quality assurance process. It is the **single source of truth** for all code validation.
+The `./test-audit.sh` script, located in the repository root, is the cornerstone of our quality assurance process. It is the **single, canonical entry point** for all code validation, used by both developers and the CI/CD pipeline.
 
-*   **Purpose:** To run the exact same suite of checks that the CI pipeline runs. This ensures that if the local audit passes, the CI pipeline will also pass.
-*   **Scope:**
-    *   **Static Analysis:** Runs linting (`pnpm lint`) and type checking (`pnpm typecheck`).
-    *   **Production Build:** Verifies that the application can be successfully built for production (`pnpm build`).
-    *   **Unit Tests:** Executes the full unit test suite (`pnpm test:unit:full`).
-    *   **End-to-End Tests:** Runs the *entire* E2E test suite (`pnpm test:e2e`).
-*   **Behavior:** The script is designed to be strict and will exit with an error if any step fails, just like the CI pipeline.
+*   **Purpose:** To provide a reliable, reproducible, and comprehensive audit of the codebase. If the local audit passes, the CI pipeline is expected to pass as well.
+*   **Workflow:**
+    1.  **Environment Cleaning:** Cleans the workspace by removing stale build artifacts and TypeScript caches (`tsconfig.tsbuildinfo`) to prevent phantom errors.
+    2.  **Static Analysis:** Runs linting (`pnpm eslint`) and type checking (`pnpm tsc --noEmit`).
+    3.  **E2E Test Baseline:** Measures the runtime of each individual E2E test with a 4-minute timeout and saves the results to `docs/e2e-test-runtimes.json`.
+    4.  **Dynamic Sharding:** Executes the `test-support/utils/create-shards.js` script to dynamically group tests into shards. Each shard's cumulative runtime is kept under 7 minutes to avoid platform timeouts in CI.
+    5.  **Sharded Test Execution:** Runs each test shard sequentially.
+    6.  **Reporting:** Generates a comprehensive markdown report at `test-support/test-audit-status.md`, summarizing the results of all steps.
+
+### The `test-support/` Directory
+
+All testing-related scripts, utilities, and generated reports are centralized in the `test-support/` directory to keep the root of the repository clean.
+
+*   `utils/create-shards.js`: The dynamic sharding utility.
+*   `shards/shard-manifest.json`: The generated shard plan (regenerated on each run).
+*   `test-audit-status.md`: The final markdown report, serving as the Single Source of Truth for the latest audit run.
 
 ### CI/CD Pipeline
 
-The project's CI pipeline, defined in `.github/workflows/ci.yml`, is now a direct reflection of the local audit script. It performs the following steps on every push and pull request to the `main` branch:
-
-```
-+----------------------------------+
-| Push or PR to main               |
-+----------------------------------+
-                 |
-                 v
-+----------------------------------+
-|       Job: build_and_test        |
-|----------------------------------|
-| 1. Checkout Code                 |
-| 2. Check Node.js Version         |
-| 3. Setup PNPM & Node.js          |
-| 4. Install Dependencies          |
-| 5. Run Lint                      |
-| 6. Run Typecheck                 |
-| 7. Run Unit Tests                |
-| 8. Run E2E Tests                 |
-| 9. Run Production Build          |
-+----------------------------------+
-```
+The project's CI pipeline, defined in `.github/workflows/ci.yml`, is now a direct consumer of the `test-audit.sh` script. This ensures perfect alignment between local and remote validation. The pipeline simply checks out the code, installs dependencies, and runs `./test-audit.sh`.
 
 ### E2E Test Environment
 

@@ -74,7 +74,7 @@ export const handlers = [
 
     if (body.email === 'existing-user@example.com') {
       return HttpResponse.json(
-        { message: 'User already registered', error: 'User already registered' },
+        { message: 'An account with this email already exists.', error: 'user_exists' },
         { status: 400 }
       );
     }

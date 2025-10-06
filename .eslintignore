@@ -1,0 +1,15 @@
+# Ignore auto-generated declaration files
+*.d.ts
+*.js
+
+# Ignore transpiled test utility scripts
+tests/global-teardown.js
+
+# Ignore build outputs and caches
+dist/
+build/
+.cache/
+node_modules/
+playwright-report/
+test-results/
+.vite/

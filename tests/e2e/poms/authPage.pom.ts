@@ -34,8 +34,13 @@ export class AuthPage {
       await this.emailInput.fill(email, { timeout: 2000 });
       await this.passwordInput.fill(password_val, { timeout: 2000 });
       await this.signInButton.click({ timeout: 2000 });
+      // Wait for the URL to change to the app, indicating successful login.
+      await this.page.waitForURL(/\/app/, { timeout: 5000 });
+      // Also wait for the main content area to be visible.
+      await expect(this.page.locator('main')).toBeVisible({ timeout: 3000 });
     } catch (err) {
       console.error('[AUTH POM] Login failed', err);
+      await this.page.screenshot({ path: `test-results/debug/login-failed.png` });
       throw err;
     }
   }
@@ -47,17 +52,26 @@ export class AuthPage {
       await this.emailInput.fill(email, { timeout: 2000 });
       await this.passwordInput.fill(password_val, { timeout: 2000 });
       await this.signUpButton.click({ timeout: 2000 });
+      // Wait for the URL to change to the app, indicating successful sign-up.
+      await this.page.waitForURL(/\/app/, { timeout: 5000 });
+      // Also wait for the main content area to be visible.
+      await expect(this.page.locator('main')).toBeVisible({ timeout: 3000 });
     } catch (err) {
       console.error('[AUTH POM] Sign-up failed', err);
+      await this.page.screenshot({ path: `test-results/debug/signup-failed.png` });
       throw err;
     }
   }
 
   async assertUserExistsError() {
+    const errorLocator = this.page.getByText(/An account with this email already exists/i);
     try {
-      await expect(this.page.getByText(/An account with this email already exists/i)).toBeVisible({ timeout: 2000 });
+      await errorLocator.waitFor({ state: 'visible', timeout: 3000 });
+      await expect(errorLocator).toBeVisible();
     } catch (err) {
       console.error('[AUTH POM] User exists error not found', err);
+      // Capture a screenshot for debugging if the element is not found.
+      await this.page.screenshot({ path: `test-results/debug/user-exists-error-not-found.png` });
       throw err;
     }
   }
