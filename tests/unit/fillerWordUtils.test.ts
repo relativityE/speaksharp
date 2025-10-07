@@ -4,8 +4,8 @@ import {
     countFillerWords,
     calculateTranscriptStats,
     limitArray
-} from '../utils/fillerWordUtils';
-import { FILLER_WORD_KEYS } from '../config';
+} from '@/utils/fillerWordUtils';
+import { FILLER_WORD_KEYS } from '@/config';
 
 describe('fillerWordUtils', () => {
     describe('createInitialFillerData', () => {

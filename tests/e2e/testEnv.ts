@@ -9,8 +9,8 @@ declare global {
 
 async function initializeMocks() {
   console.log('[testEnv] Initializing Mock Service Worker for E2E tests.');
-  // Using an absolute path from the project root for robustness.
-  const { worker } = await import('/tests/support/mocks/browser.ts');
+  // Using a relative path from the project root for robustness.
+  const { worker } = await import('../support/mocks/browser');
 
   // The worker.start() method returns a promise that resolves when the service worker is ready.
   // We attach this promise to the window object so that our Playwright tests can wait for it.
@@ -28,3 +28,6 @@ async function initializeMocks() {
 if (typeof window !== 'undefined') {
   initializeMocks();
 }
+
+// Treat this file as a module to allow global augmentation.
+export {};

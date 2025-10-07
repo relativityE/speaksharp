@@ -28,7 +28,6 @@ export const handlers = [
       }
 
       if (userId) {
-        // CORRECTED RESPONSE SHAPE
         return HttpResponse.json({
           data: {
             session: {
@@ -74,13 +73,11 @@ export const handlers = [
 
     if (body.email === 'existing-user@example.com') {
       return HttpResponse.json(
-        { message: 'User already registered', error: 'User already registered' },
+        { message: 'An account with this email already exists.', error: 'user_already_exists' },
         { status: 400 }
       );
     }
 
-    // For successful sign-up, return a full session to simulate immediate login for tests
-    // CORRECTED RESPONSE SHAPE
     return HttpResponse.json({
       data: {
         session: {
@@ -128,18 +125,16 @@ export const handlers = [
 
   // Database endpoints - User profiles
   http.get('https://*.supabase.co/rest/v1/user_profiles', ({ request }) => {
-    console.log(`[MSW] Fetching user_profiles with Accept=${request.headers.get('Accept')}`);
-    // ... (rest of the logic from your provided file)
     const url = new URL(request.url);
     const userId = url.searchParams.get('id')?.replace('eq.', '');
     const acceptHeader = request.headers.get('Accept') || '';
-    console.log(`[MSW] Fetching user_profiles for id: ${userId} with Accept=${acceptHeader}`);
 
     const mockProfiles = {
       'user-123': { id: 'user-123', subscription_status: 'free' },
       'pro-user': { id: 'pro-user', subscription_status: 'pro' },
       'new-user-id-signup': {id: 'new-user-id-signup', subscription_status: 'free'},
       'mock-user-id': { id: 'mock-user-id', email: 'test@example.com', subscription_status: 'free' },
+      'mock-user-id-signin': { id: 'mock-user-id-signin', subscription_status: 'free' },
     };
 
     const profile = userId ? mockProfiles[userId as keyof typeof mockProfiles] : null;
