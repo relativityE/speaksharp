@@ -1,17 +1,17 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
-import App from '../App';
-import ConfigurationNeededPage from '../pages/ConfigurationNeededPage';
+import App from '@/App';
+import ConfigurationNeededPage from '@/pages/ConfigurationNeededPage';
 
 // Mock child components and dependencies to isolate the logic of the entry point.
-vi.mock('../App', () => ({
+vi.mock('@/App', () => ({
   default: () => <div>Mock App</div>,
 }));
-vi.mock('../pages/ConfigurationNeededPage', () => ({
+vi.mock('@/pages/ConfigurationNeededPage', () => ({
   default: () => <div>Configuration Needed</div>,
 }));
-vi.mock('../lib/supabaseClient');
+vi.mock('@/lib/supabaseClient');
 
 interface MainEntryPointProps {
   config: {

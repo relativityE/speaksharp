@@ -12,6 +12,7 @@ import posthog from 'posthog-js';
 import { PostHogProvider } from 'posthog-js/react';
 import { Elements } from '@stripe/react-stripe-js';
 import { loadStripe } from '@stripe/stripe-js';
+import { Session } from '@supabase/supabase-js';
 import * as Sentry from "@sentry/react";
 import ConfigurationNeededPage from "./pages/ConfigurationNeededPage";
 
@@ -81,7 +82,7 @@ const renderApp = async () => {
       }
 
       // In E2E test mode, we might want to inject a mock session.
-      const mockSession = window.__E2E_MOCK_SESSION__ ? {
+      const mockSession = window.__E2E_MOCK_SESSION__ ? ({
         user: {
           id: 'mock-user-id',
           email: 'test@example.com',
@@ -100,7 +101,7 @@ const renderApp = async () => {
         expires_in: 3600,
         expires_at: Math.floor(Date.now() / 1000) + 3600,
         token_type: 'bearer',
-      } : null;
+      } as Session) : null;
 
       root.render(
         <StrictMode>

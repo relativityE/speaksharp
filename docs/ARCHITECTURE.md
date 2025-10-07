@@ -93,44 +93,63 @@ SpeakSharp is built on a modern, serverless technology stack designed for real-t
 
 ## Testing and CI/CD
 
-SpeakSharp employs a unified testing strategy to ensure that the local development experience perfectly mirrors the Continuous Integration (CI) pipeline, eliminating "it works on my machine" issues.
+SpeakSharp employs a unified and resilient testing strategy to ensure that the local development experience perfectly mirrors the Continuous Integration (CI) pipeline, eliminating "it works on my machine" issues. The process is designed for speed, reliability, and deterministic execution.
 
 ### The Local Audit Script: The Single Source of Truth
 
-The `./test-audit.sh` script is the cornerstone of our quality assurance process. It is the **single source of truth** for all code validation.
+The `./test-audit.sh` script is the cornerstone of our quality assurance process. It is the **single source of truth** for all code validation, designed to be run both locally by developers and remotely by the CI pipeline.
 
-*   **Purpose:** To run the exact same suite of checks that the CI pipeline runs. This ensures that if the local audit passes, the CI pipeline will also pass.
-*   **Scope:**
-    *   **Static Analysis:** Runs linting (`pnpm lint`) and type checking (`pnpm typecheck`).
-    *   **Production Build:** Verifies that the application can be successfully built for production (`pnpm build`).
-    *   **Unit Tests:** Executes the full unit test suite (`pnpm test:unit:full`).
-    *   **End-to-End Tests:** Runs the *entire* E2E test suite (`pnpm test:e2e`).
-*   **Behavior:** The script is designed to be strict and will exit with an error if any step fails, just like the CI pipeline.
+*   **Purpose:** To orchestrate a comprehensive suite of checks that validate the application's quality, from static analysis to sharded end-to-end tests.
+*   **Staged Execution:** The script is modular and accepts commands (`prepare`, `test <shard-index>`, `report`, `all`) to support a multi-stage CI process.
+*   **Key Features:**
+    *   **Static Analysis & Build:** Runs linting, type checking, and a production build.
+    *   **Unit Tests:** Executes the full unit test suite and generates a coverage report.
+    *   **E2E Test Timing & Sharding:** Times each E2E test individually and then partitions the suite into balanced shards (≤7 minutes each) based on those runtimes.
+    *   **Sharded E2E Execution:** Runs the E2E tests shard by shard, forcing serial execution within each shard (`--workers=1`) to prevent resource contention and ensure stability. It generates a separate JSON report for each shard.
+    *   **Report Aggregation:** Merges the individual E2E shard reports into a single, final JSON report that can be consumed by other metric scripts.
+    *   **Documentation Update:** Automatically runs the necessary scripts (`./run-metrics.sh`, `./update-sqm-doc.sh`) to update the Software Quality Metrics in `docs/PRD.md`.
+*   **Behavior:** The script is designed to be strict (`set -euo pipefail`) and will exit with an error if any critical step fails, preventing the pipeline from proceeding with incomplete or failed results.
 
-### CI/CD Pipeline
+### CI/CD Pipeline: Parallel Execution
 
-The project's CI pipeline, defined in `.github/workflows/ci.yml`, is now a direct reflection of the local audit script. It performs the following steps on every push and pull request to the `main` branch:
+The project's CI pipeline, defined in `.github/workflows/ci.yml`, leverages the sharded execution of the `test-audit.sh` script to run E2E tests in parallel, significantly reducing feedback time.
 
-```
+```ascii
 +----------------------------------+
-| Push or PR to main               |
+|      Push or PR to main          |
 +----------------------------------+
                  |
                  v
 +----------------------------------+
-|       Job: build_and_test        |
+|      Job: prepare                |
 |----------------------------------|
-| 1. Checkout Code                 |
-| 2. Check Node.js Version         |
-| 3. Setup PNPM & Node.js          |
-| 4. Install Dependencies          |
-| 5. Run Lint                      |
-| 6. Run Typecheck                 |
-| 7. Run Unit Tests                |
-| 8. Run E2E Tests                 |
-| 9. Run Production Build          |
+| 1. Checkout & Install            |
+| 2. Run ./test-audit.sh prepare   |
+|    (Lint, Build, Unit, Shard)    |
+| 3. Upload test-support/          |
++----------------------------------+
+                 |
+                 v
++----------------------------------+       +----------------------------------+
+|       Job: test (Shard 0)        |------>|       Job: test (Shard 1)        | ...
+|----------------------------------|       |----------------------------------|
+| 1. Download Artifacts            |       | 1. Download Artifacts            |
+| 2. Run ./test-audit.sh test 0    |       | 2. Run ./test-audit.sh test 1    |
++----------------------------------+       +----------------------------------+
+                 |                                  |
+                 +----------------------------------+
+                                  |
+                                  v
++----------------------------------+
+|         Job: report              |
+|----------------------------------|
+| 1. Download Artifacts            |
+| 2. Run ./test-audit.sh report    |
+|    (Merge reports, update docs)  |
+| 3. Commit docs/PRD.md            |
 +----------------------------------+
 ```
+This multi-stage, parallel approach ensures that local validation (`./test-audit.sh all`) and CI execution are perfectly aligned while maximizing speed and resource utilization.
 
 ### E2E Test Environment
 
