@@ -11,11 +11,12 @@ mkdir -p "$E2E_RESULTS_DIR"
 mkdir -p "./test-support/originals/docs-backup"
 
 TASK_TIMEOUT=600
-E2E_TEST_TIMEOUT=240
+E2E_TEST_TIMEOUT=300 # Increased to 5 minutes for more stability
 MAX_SHARD_TIME=420
 
 RUNTIME_FILE="./test-support/e2e-test-runtimes.json"
 SHARDS_FILE="./test-support/e2e-shards.json"
+E2E_SUMMARY_REPORT="./test-support/e2e-summary-report.md"
 FINAL_MERGED_E2E_REPORT="$E2E_RESULTS_DIR/results.json"
 
 # ================================
@@ -51,7 +52,6 @@ prepare_stage() {
 
     for TEST_FILE in "${TEST_FILES[@]}"; do
         START=$(date +%s)
-        # Run in a subshell to prevent script exit on test failure
         (timeout "$E2E_TEST_TIMEOUT"s pnpm exec playwright test "$TEST_FILE" --workers=1 --reporter=list > /dev/null 2>&1) || true
         END=$(date +%s)
         DURATION=$((END-START))
@@ -59,21 +59,22 @@ prepare_stage() {
         jq --arg test "$TEST_FILE" --argjson dur "$DURATION" '. + {($test): $dur}' "$RUNTIME_FILE" > "$TMP_JSON" && mv "$TMP_JSON" "$RUNTIME_FILE"
     done
 
+    if [ ! -f "$RUNTIME_FILE" ]; then echo "❌ FATAL: E2E runtime file was not created." >&2; exit 1; fi
+
     echo "--- Auto-sharding E2E Tests ---"
     python3 -c "
 import json
 with open('$RUNTIME_FILE', 'r') as f: runtimes = json.load(f)
-shards, current_shard, current_sum = [], [], 0
-for test, duration in sorted(runtimes.items(), key=lambda x: x[1], reverse=True):
-    if current_sum + duration > $MAX_SHARD_TIME and current_shard:
-        shards.append(current_shard)
-        current_shard, current_sum = [], 0
-    current_shard.append(test)
-    current_sum += duration
-if current_shard: shards.append(current_shard)
+shards, c_shard, c_sum = [], [], 0
+for test, dur in sorted(runtimes.items(), key=lambda x: x[1], reverse=True):
+    if c_sum + dur > $MAX_SHARD_TIME and c_shard:
+        shards.append(c_shard); c_shard, c_sum = [], 0
+    c_shard.append(test); c_sum += dur
+if c_shard: shards.append(c_shard)
 with open('$SHARDS_FILE', 'w') as f: json.dump({'shards': shards, 'shard_count': len(shards)}, f, indent=2)
 print(f'Shards written to $SHARDS_FILE')
 "
+    if [ ! -f "$SHARDS_FILE" ]; then echo "❌ FATAL: Shards file was not created." >&2; exit 1; fi
 }
 
 # ================================
@@ -82,15 +83,10 @@ print(f'Shards written to $SHARDS_FILE')
 test_stage() {
     SHARD_INDEX=$1
     echo "--- Running Test Stage for Shard $SHARD_INDEX ---"
-
     SHARD_TESTS=$(jq -r ".shards[$SHARD_INDEX][]" "$SHARDS_FILE")
-    if [ -z "$SHARD_TESTS" ]; then
-        echo "⚠️ No tests found for shard $SHARD_INDEX. Skipping."
-        return 0
-    fi
+    if [ -z "$SHARD_TESTS" ]; then echo "⚠️ No tests for shard $SHARD_INDEX."; return 0; fi
 
     echo "⏱ Running tests for shard $SHARD_INDEX"
-    # CRITICAL FIX: Add --workers=1 to force serial execution and prevent resource contention.
     if ! pnpm exec playwright test $SHARD_TESTS --workers=1 --reporter=json --output="$E2E_RESULTS_DIR/shard-${SHARD_INDEX}-report.json"; then
         echo "❌ Test shard $SHARD_INDEX failed."
         return 1
@@ -105,8 +101,21 @@ report_stage() {
     echo "--- Running Report Stage ---"
 
     echo "--- Merging E2E Test Reports ---"
-    # This command can fail if no tests were run (e.g., all shards were empty)
-    pnpm exec playwright merge-reports --reporter json --output "$FINAL_MERGED_E2E_REPORT" "$E2E_RESULTS_DIR"/shard-*-report.json || echo "⚠️ Could not merge E2E reports. This may happen if no tests were run."
+    pnpm exec playwright merge-reports --reporter json --output "$FINAL_MERGED_E2E_REPORT" "$E2E_RESULTS_DIR"/shard-*-report.json || echo "⚠️ Could not merge E2E reports."
+
+    echo "--- Generating Human-Readable Summary Report ---"
+    {
+        echo "# E2E Test Summary Report"
+        echo ""
+        echo "| Test File | Status | Duration (s) |"
+        echo "|-----------|--------|--------------|"
+    } > "$E2E_SUMMARY_REPORT"
+
+    jq -r '.suites[].suites[].specs[] | "\(.file) | \(.status) | \(.tests[0].results[0].duration / 1000)"' "$FINAL_MERGED_E2E_REPORT" | \
+    sed 's/passed/✅ Passed/; s/failed/❌ Failed/; s/timedOut/❌ Timed Out/' | \
+    awk -F '|' '{printf "| `%-45s` | %-12s | %-12s |\n", $1, $2, $3}' >> "$E2E_SUMMARY_REPORT"
+
+    echo "✅ E2E Summary Report generated at $E2E_SUMMARY_REPORT"
 
     echo "--- Updating SQM Data in PRD.md ---"
     if [ -f "./run-metrics.sh" ] && [ -f "./update-sqm-doc.sh" ]; then
@@ -125,35 +134,21 @@ COMMAND=${1:-"all"}
 SHARD_INDEX=${2:-}
 
 case "$COMMAND" in
-    prepare)
-        prepare_stage
-        ;;
-    test)
-        test_stage "$SHARD_INDEX"
-        ;;
-    report)
-        report_stage
-        ;;
+    prepare) prepare_stage ;;
+    test) test_stage "$SHARD_INDEX" ;;
+    report) report_stage ;;
     all)
         prepare_stage
-
         echo "--- Running All Test Shards ---"
         NUM_SHARDS=$(jq '.shard_count' "$SHARDS_FILE")
         FAIL=0
         for i in $(seq 0 $((NUM_SHARDS - 1))); do
             test_stage "$i" || FAIL=1
         done
-
-        # The report stage should run regardless of test failure to report on the results.
         report_stage
-
         if [ "$FAIL" -eq 1 ]; then
-            echo "❌ One or more test shards failed." >&2
-            exit 1
+            echo "❌ One or more test shards failed." >&2; exit 1
         fi
         ;;
-    *)
-        echo "❌ ERROR: Unknown command '$COMMAND'." >&2
-        exit 1
-        ;;
+    *) echo "❌ ERROR: Unknown command '$COMMAND'." >&2; exit 1 ;;
 esac

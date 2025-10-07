@@ -21,6 +21,8 @@ dist/
 *.png
 *.html
 debug*
+html/assets/index-*
+*.gz
 
 # OS / Editor Files
 .DS_Store
