@@ -41,6 +41,13 @@ const renderApp = async () => {
   if (rootElement && !window._speakSharpRootInitialized) {
     window._speakSharpRootInitialized = true;
 
+    // Conditionally initialize the MSW for E2E testing.
+    // This must happen before the main application renders to intercept all requests.
+    if (import.meta.env.VITE_TEST_MODE === 'true') {
+      const { startMockWorker } = await import('./mocks/browser');
+      await startMockWorker();
+    }
+
     if (areEnvVarsPresent()) {
       // Environment variables are present, load the main application.
       const { default: App } = await import('./App');
