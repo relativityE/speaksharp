@@ -1,32 +1,18 @@
-declare module '@/config';
-declare module '../config';
-declare module '@/lib/supabaseClient';
-declare module '../lib/supabaseClient';
-declare module '@/lib/logger';
-declare module '@/lib/utils';
-import type { UserProfile } from './user';
-declare module '@/hooks/useBrowserSupport';
+// src/types/ambient.d.ts
+import { SetupWorkerApi } from 'msw/browser';
 
 declare global {
   interface Window {
-    TEST_MODE?: boolean;
+    mswReady: Promise<ServiceWorkerRegistration | undefined>;
     _speakSharpRootInitialized?: boolean;
     __E2E_MOCK_SESSION__?: boolean;
-    __E2E_MODE__?: boolean;
-    transcriptionServiceRef?: React.RefObject<{
-      init: () => Promise<{ success: boolean }>;
-      startTranscription: () => Promise<void>;
-      stopTranscription: () => Promise<string>;
-      destroy: () => Promise<void>;
-      getMode: () => 'native' | 'cloud' | 'on-device' | null;
-    } | null>;
-    __TRANSCRIPTION_READY__?: boolean;
-    __USER__?: UserProfile | null;
-    SpeechRecognition: {
-      new (): SpeechRecognition;
-    };
-    webkitSpeechRecognition: {
-      new (): SpeechRecognition;
+    __USER__?: {
+      id: string;
+      email: string;
+      subscription_status: 'free' | 'pro';
     };
   }
 }
+
+// This is necessary to make the file a module.
+export {};

@@ -44,8 +44,13 @@ const renderApp = async () => {
     // Conditionally initialize the MSW for E2E testing.
     // This must happen before the main application renders to intercept all requests.
     if (import.meta.env.VITE_TEST_MODE === 'true') {
-      const { startMockWorker } = await import('./mocks/browser');
-      await startMockWorker();
+      const { worker } = await import('./mocks/browser');
+      window.mswReady = worker.start({
+        onUnhandledRequest: 'error',
+        serviceWorker: {
+          url: '/mockServiceWorker.js',
+        },
+      });
     }
 
     if (areEnvVarsPresent()) {
