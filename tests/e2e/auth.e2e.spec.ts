@@ -1,14 +1,10 @@
 // tests/e2e/auth.e2e.spec.ts
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/mswFixture';
 import { AuthPage } from './poms/authPage.pom';
 import { SessionPage } from './poms/sessionPage.pom';
 import { stubThirdParties } from './sdkStubs';
 
-// Get Supabase URL from environment variables for mocking. This is crucial for robust mocking.
-const supabaseUrl = process.env.VITE_SUPABASE_URL;
-if (!supabaseUrl) {
-  throw new Error('VITE_SUPABASE_URL is not defined. Please check your .env.test file.');
-}
+// The Supabase URL check is no longer needed as MSW will intercept API calls.
 
 test.describe('Authentication', () => {
   let authPage: AuthPage;
