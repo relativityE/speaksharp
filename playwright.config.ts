@@ -10,6 +10,7 @@ const BASE_URL = `http://localhost:${PORT}`;
 
 export default defineConfig({
   testDir: './tests/e2e',
+  globalSetup: require.resolve('./tests/globalSetup.ts'),
   timeout: 300_000,
   expect: { timeout: 10_000 },
   // Set workers to 1 to prevent parallel execution during stabilization

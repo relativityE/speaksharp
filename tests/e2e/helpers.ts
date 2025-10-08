@@ -90,6 +90,13 @@ export async function programmaticLogin(page: Page, mockUser: MockUser) {
   // Navigate to the app's entry point.
   await page.goto('/');
 
+  // Wait for the MSW to be ready before proceeding.
+  await page.waitForFunction(() => (window as any).mswReady, null, {
+    timeout: 7000,
+  });
+  // Set a flag for any subsequent checks that might need it.
+  await page.evaluate(() => { (window as any).mswIsReady = true; });
+
   // Wait for the user object to be available on the window.
   await page.waitForFunction(() => !!window.__USER__, null, { timeout: 15000 });
 
