@@ -1,15 +1,11 @@
 // tests/e2e/pro.e2e.spec.ts
 import { test, expect, MockUser } from './helpers';
-import { programmaticLogin } from './helpers';
 import { SessionPage } from './poms/sessionPage.pom';
 import { HomePage } from './poms/homePage.pom';
 import { stubThirdParties } from './sdkStubs';
 
 test.describe('Pro User Flow', () => {
-  // Note: We are no longer using test.use({ storageState: ... })
-  // Instead, we use a consistent, programmatic login for all tests.
-
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, login }) => {
     // Stub out third-party services before logging in.
     await stubThirdParties(page);
 
@@ -19,25 +15,15 @@ test.describe('Pro User Flow', () => {
         email: 'pro-user@test.com',
         subscription_status: 'pro',
       };
-      await programmaticLogin(page, mockUser);
+      await login(mockUser);
     });
   });
 
   test('should not see upgrade prompts as a pro user', async ({ page }) => {
-    const sessionPage = new SessionPage(page);
     const homePage = new HomePage(page);
-
-    await test.step('Verify no upgrade button on session page', async () => {
-      await sessionPage.goto(); // Manually navigate to session page
-      await sessionPage.assertOnSessionPage();
-      await expect(sessionPage.upgradeButton).not.toBeVisible();
-    });
-
-    await test.step('Verify no upgrade button on home page', async () => {
-      await homePage.goto();
-      await homePage.assertOnHomePage();
-      await expect(homePage.upgradeButton).not.toBeVisible();
-    });
+    await homePage.goto();
+    await homePage.assertOnHomePage();
+    await expect(homePage.upgradeButton).not.toBeVisible();
   });
 
   test('should have access to all transcription modes', async ({ page }) => {

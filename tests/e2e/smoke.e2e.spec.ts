@@ -1,17 +1,11 @@
 // tests/e2e/smoke.e2e.spec.ts
-import { test, expect, MockUser } from './helpers';
-import { programmaticLogin } from './helpers';
+import { test, expect } from './helpers';
 import { stubThirdParties } from './sdkStubs';
 
 test.describe('Smoke Test', () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, login }) => {
     await stubThirdParties(page);
-    const mockUser: MockUser = {
-      id: 'mock-user-id',
-      email: 'test@example.com',
-      subscription_status: 'free',
-    };
-    await programmaticLogin(page, mockUser);
+    await login(); // Use the default free user from the fixture
   });
 
   test('should log in, navigate to session page, and verify core UI elements @smoke', async ({ page }) => {

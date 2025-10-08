@@ -4,6 +4,7 @@ import { Session } from '@supabase/supabase-js';
 import { UserProfile } from '../types/user';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AuthContext, AuthContextType } from './AuthContext';
+import logger from '@/lib/logger';
 
 interface WindowWithUser extends Window {
   __USER__?: UserProfile | null;
@@ -11,14 +12,16 @@ interface WindowWithUser extends Window {
 
 const getProfileFromDb = async (userId: string): Promise<UserProfile | null> => {
   try {
+    logger.info({ userId }, '[AuthProvider] Fetching profile from DB...');
     const { data, error } = await supabase.from('user_profiles').select('*').eq('id', userId).single();
     if (error) {
-      console.error('Error fetching profile in test:', error.message);
+      logger.error({ error }, 'Error fetching profile in test');
       return null;
     }
+    logger.info({ data }, '[AuthProvider] Profile fetched successfully.');
     return data;
   } catch (e) {
-    console.error('Error fetching profile:', e);
+    logger.error({ error: e }, 'Exception fetching profile');
     return null;
   }
 };
@@ -37,14 +40,17 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
   const [loading, setLoading] = useState(true);
 
   const setSession = async (s: Session | null) => {
+    logger.info(s ? { userId: s.user.id } : { session: null }, '[AuthProvider] setSession called.');
     if (s?.user) {
       const userProfile = await getProfileFromDb(s.user.id);
+      logger.info({ userProfile }, '[AuthProvider] Setting user profile.');
       setProfile(userProfile);
       localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(s));
       if (import.meta.env.MODE === 'test') {
         (window as WindowWithUser).__USER__ = userProfile;
       }
     } else {
+      logger.info('[AuthProvider] Clearing user profile and session.');
       setProfile(null);
       localStorage.removeItem(SESSION_STORAGE_KEY);
     }
@@ -53,27 +59,34 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
 
   useEffect(() => {
     const bootstrapAuth = async () => {
+      logger.info('[AuthProvider] Bootstrapping authentication...');
       setLoading(true);
       if (initialSession) {
+        logger.info('[AuthProvider] Using initialSession prop.');
         await setSession(initialSession);
       } else {
         try {
           const storedSession = localStorage.getItem(SESSION_STORAGE_KEY);
           if (storedSession) {
+            logger.info('[AuthProvider] Found session in localStorage. Restoring...');
             await setSession(JSON.parse(storedSession));
+          } else {
+            logger.info('[AuthProvider] No session found in localStorage.');
           }
         } catch (error) {
-          console.warn('Could not parse session from localStorage:', error);
+          logger.warn({ error }, 'Could not parse session from localStorage.');
           localStorage.removeItem(SESSION_STORAGE_KEY);
         }
       }
       setLoading(false);
+      logger.info('[AuthProvider] Bootstrap complete.');
     };
 
     bootstrapAuth();
 
     const { data: listener } = supabase.auth.onAuthStateChange(
       async (_event, newSession) => {
+        logger.info({ event: _event }, '[AuthProvider] onAuthStateChange triggered.');
         setLoading(true);
         await setSession(newSession);
         setLoading(false);
@@ -81,6 +94,7 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
     );
 
     return () => {
+      logger.info('[AuthProvider] Unsubscribing from onAuthStateChange.');
       listener?.subscription.unsubscribe();
     };
   }, [initialSession]);
@@ -99,6 +113,7 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
     profile,
     loading,
     signOut: async () => {
+      logger.info('[AuthProvider] Signing out.');
       const { error } = await supabase.auth.signOut();
       await setSession(null);
       return { error };

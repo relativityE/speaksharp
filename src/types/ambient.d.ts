@@ -1,32 +1,37 @@
-declare module '@/config';
-declare module '../config';
-declare module '@/lib/supabaseClient';
-declare module '../lib/supabaseClient';
-declare module '@/lib/logger';
-declare module '@/lib/utils';
-import type { UserProfile } from './user';
-declare module '@/hooks/useBrowserSupport';
+// src/types/ambient.d.ts
+
+// This file provides global type definitions for custom properties attached to the window object.
+// These are used for testing, environment flags, and browser-specific APIs.
 
 declare global {
   interface Window {
-    TEST_MODE?: boolean;
+    // MSW promise for E2E tests to await
+    mswReady: Promise<ServiceWorkerRegistration | undefined>;
+
+    // General app state
     _speakSharpRootInitialized?: boolean;
+
+    // E2E testing flags and data
     __E2E_MOCK_SESSION__?: boolean;
-    __E2E_MODE__?: boolean;
-    transcriptionServiceRef?: React.RefObject<{
-      init: () => Promise<{ success: boolean }>;
-      startTranscription: () => Promise<void>;
-      stopTranscription: () => Promise<string>;
-      destroy: () => Promise<void>;
-      getMode: () => 'native' | 'cloud' | 'on-device' | null;
-    } | null>;
-    __TRANSCRIPTION_READY__?: boolean;
-    __USER__?: UserProfile | null;
-    SpeechRecognition: {
-      new (): SpeechRecognition;
-    };
-    webkitSpeechRecognition: {
-      new (): SpeechRecognition;
-    };
+    __USER__?: {
+      id: string;
+      email?: string;
+      subscription_status: 'free' | 'pro';
+    } | null;
+
+    // Browser-specific speech recognition APIs
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    SpeechRecognition?: new () => any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    webkitSpeechRecognition?: new () => any;
+
+    // General test mode flag
+    TEST_MODE?: boolean;
+
+    // Supabase client stub for tests
+    supabase?: any;
   }
 }
+
+// This is necessary to make the file a module.
+export {};

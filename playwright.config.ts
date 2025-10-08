@@ -12,9 +12,9 @@ export default defineConfig({
   testDir: './tests/e2e',
   timeout: 300_000,
   expect: { timeout: 10_000 },
-  // Set workers to 1 to prevent parallel execution during stabilization
-  workers: 1,
-  fullyParallel: false,
+  // In CI, allow parallel tests. For local, limit to 1 worker for stability.
+  workers: process.env.CI ? 'auto' : 1,
+  fullyParallel: true,
   retries: 1,
   reporter: [
     ['list'],
@@ -33,7 +33,7 @@ export default defineConfig({
   webServer: {
     command: 'pnpm dev',
     url: BASE_URL,
-    reuseExistingServer: false,
+    reuseExistingServer: !!process.env.CI,
     timeout: 120 * 1000,
     stdout: 'pipe',
     stderr: 'pipe',

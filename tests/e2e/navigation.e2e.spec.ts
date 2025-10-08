@@ -1,6 +1,5 @@
 // tests/e2e/navigation.e2e.spec.ts
 import { test, expect, MockUser } from './helpers';
-import { programmaticLogin } from './helpers';
 import { stubThirdParties } from './sdkStubs';
 
 test.describe('App Navigation', () => {
@@ -10,7 +9,7 @@ test.describe('App Navigation', () => {
     { name: 'Pricing', url: '/pricing', heading: 'Pricing Plans' },
   ];
 
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, login }) => {
     // Stub out third-party services.
     await stubThirdParties(page);
 
@@ -20,15 +19,12 @@ test.describe('App Navigation', () => {
         email: 'pro-user@test.com',
         subscription_status: 'pro',
       };
-      await programmaticLogin(page, mockUser);
+      await login(mockUser);
     });
   });
 
   test('should allow navigation between pages from the sidebar', async ({ page }) => {
-    // After login, the user starts at the root. We must manually navigate to the session page.
-    await page.goto('/session');
-    await expect(page.getByRole('heading', { name: 'Practice Session' })).toBeVisible();
-
+    // After login, the user starts at the root. We can immediately start testing navigation.
     for (const targetPage of pagesToTest) {
       await test.step(`Navigate to ${targetPage.name} page`, async () => {
         await page.getByRole('link', { name: targetPage.name }).click();

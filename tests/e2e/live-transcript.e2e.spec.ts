@@ -1,6 +1,5 @@
 // tests/e2e/live-transcript.e2e.spec.ts
-import { test, expect, MockUser } from './helpers';
-import { programmaticLogin } from './helpers';
+import { test, expect } from './helpers';
 import { SessionPage } from './poms/sessionPage.pom';
 import { mockAudioStream } from './mockMedia';
 import { stubThirdParties } from './sdkStubs';
@@ -8,7 +7,7 @@ import { stubThirdParties } from './sdkStubs';
 test.describe('Live Transcript', () => {
   let sessionPage: SessionPage;
 
-  test.beforeEach(async ({ page, context }) => {
+  test.beforeEach(async ({ page, context, login }) => {
     await test.step('Grant microphone permissions', async () => {
       await context.grantPermissions(['microphone']);
     });
@@ -17,12 +16,7 @@ test.describe('Live Transcript', () => {
     await stubThirdParties(page);
 
     await test.step('Programmatically log in as a free user', async () => {
-      const mockUser: MockUser = {
-        id: 'mock-user-id',
-        email: 'free-user@test.com',
-        subscription_status: 'free',
-      };
-      await programmaticLogin(page, mockUser);
+      await login(); // Use the default free user from the fixture
     });
 
     sessionPage = new SessionPage(page);
