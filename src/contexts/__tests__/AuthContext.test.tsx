@@ -11,11 +11,10 @@ import { Session } from '@supabase/supabase-js';
 vi.mock('../../lib/supabaseClient', () => ({
   supabase: {
     auth: {
-      getSession: vi.fn(() => Promise.resolve({ data: { session: null } })),
+      // getSession is no longer called by the provider in test mode, so we don't need to mock it.
       onAuthStateChange: vi.fn(() => ({
         data: { subscription: { unsubscribe: vi.fn() } },
       })),
-      getSession: vi.fn().mockResolvedValue({ data: { session: null } }),
     },
     from: vi.fn(),
   },

@@ -9,7 +9,6 @@ declare module '@/hooks/useBrowserSupport';
 
 declare global {
   interface Window {
-    mswReady?: Promise<boolean>;
     TEST_MODE?: boolean;
     _speakSharpRootInitialized?: boolean;
     __E2E_MOCK_SESSION__?: boolean;

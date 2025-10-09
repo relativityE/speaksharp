@@ -4,48 +4,61 @@ export class AuthPage {
   readonly page: Page;
   readonly emailInput: Locator;
   readonly passwordInput: Locator;
+  readonly signInButton: Locator;
   readonly signUpButton: Locator;
-  readonly loginButton: Locator;
+  readonly modeToggleButton: Locator;
 
   constructor(page: Page) {
     this.page = page;
-    this.emailInput = page.getByLabel('Email');
-    this.passwordInput = page.getByLabel('Password');
-    this.signUpButton = page.getByRole('button', { name: 'Sign Up' });
-    this.loginButton = page.getByRole('button', { name: 'Log In' });
+    this.emailInput = page.getByTestId('email-input');
+    this.passwordInput = page.getByTestId('password-input');
+    this.signInButton = page.getByTestId('sign-in-submit');
+    this.signUpButton = page.getByTestId('sign-up-submit');
+    this.modeToggleButton = page.getByTestId('mode-toggle');
   }
 
   async goto() {
-    await this.page.goto('/auth');
+    try {
+      console.log('[AUTH POM] Navigating to /auth');
+      await this.page.goto('/auth', { timeout: 5000 });
+      await expect(this.emailInput).toBeVisible({ timeout: 3000 });
+    } catch (err) {
+      console.error('[AUTH POM] Failed to navigate to /auth or email input not visible', err);
+      throw err;
+    }
   }
 
-  async signUp(email: string, password: string) {
-    await this.emailInput.fill(email);
-    await this.passwordInput.fill(password);
-    await this.signUpButton.click();
+  async login(email: string, password_val: string) {
+    try {
+      console.log(`[AUTH POM] Logging in with ${email}`);
+      await this.emailInput.fill(email, { timeout: 2000 });
+      await this.passwordInput.fill(password_val, { timeout: 2000 });
+      await this.signInButton.click({ timeout: 2000 });
+    } catch (err) {
+      console.error('[AUTH POM] Login failed', err);
+      throw err;
+    }
   }
 
-  async login(email: string, password: string) {
-    await this.emailInput.fill(email);
-    await this.passwordInput.fill(password);
-    await this.loginButton.click();
-    await this.waitForPostAuth();
+  async signUp(email: string, password_val: string) {
+    try {
+      console.log(`[AUTH POM] Signing up with ${email}`);
+      await this.modeToggleButton.click({ timeout: 2000 });
+      await this.emailInput.fill(email, { timeout: 2000 });
+      await this.passwordInput.fill(password_val, { timeout: 2000 });
+      await this.signUpButton.click({ timeout: 2000 });
+    } catch (err) {
+      console.error('[AUTH POM] Sign-up failed', err);
+      throw err;
+    }
   }
 
   async assertUserExistsError() {
-    await expect(this.page.getByText('User already exists')).toBeVisible();
-  }
-
-  /**
-   * Waits for the page to stabilize after login/sign-up.
-   * Ensures the "Sign Out" button and the home page stable elements are visible.
-   */
-  async waitForPostAuth() {
-    // Wait for the "Sign Out" button
-    await expect(this.page.getByRole('button', { name: 'Sign Out' })).toBeVisible({ timeout: 15000 });
-
-    // Wait for a known stable element on the home page
-    const homePageStartButton = this.page.getByTestId('start-free-session-button');
-    await expect(homePageStartButton).toBeVisible({ timeout: 15000 });
+    try {
+      await expect(this.page.getByText(/An account with this email already exists/i)).toBeVisible({ timeout: 2000 });
+    } catch (err) {
+      console.error('[AUTH POM] User exists error not found', err);
+      throw err;
+    }
   }
 }

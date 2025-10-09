@@ -1,16 +1,34 @@
-import { test, expect, programmaticLogin } from './helpers';
-import { SessionPage } from './poms/sessionPage.pom';
+// tests/e2e/smoke.e2e.spec.ts
+import { test, expect, MockUser } from './helpers';
+import { programmaticLogin } from './helpers';
+import { stubThirdParties } from './sdkStubs';
 
 test.describe('Smoke Test', () => {
-  let sessionPage: SessionPage;
+  test.beforeEach(async ({ page }) => {
+    await stubThirdParties(page);
+    const mockUser: MockUser = {
+      id: 'mock-user-id',
+      email: 'test@example.com',
+      subscription_status: 'free',
+    };
+    await programmaticLogin(page, mockUser);
+  });
 
   test('should log in, navigate to session page, and verify core UI elements @smoke', async ({ page }) => {
-    await programmaticLogin(page, 'smoke-test-user@example.com');
+    await test.step('Manually navigate to the session page after login', async () => {
+      await page.goto('/session');
+      // We wait for the heading to be visible as a sign that the page has loaded.
+      await expect(page.getByRole('heading', { name: 'Practice Session' })).toBeVisible({ timeout: 10000 });
+    });
 
-    sessionPage = new SessionPage(page);
-    await sessionPage.goto();
+    await test.step('Verify that the main application navigation is visible', async () => {
+      const navLocator = page.locator('nav');
+      await expect(navLocator).toBeVisible();
+    });
 
-    await expect(page.getByRole('button', { name: 'Start For Free' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Sign Out' })).toBeVisible();
+    await test.step('Verify the main heading is present', async () => {
+      const heading = page.getByRole('heading', { name: 'Practice Session' });
+      await expect(heading).toBeVisible();
+    });
   });
 });

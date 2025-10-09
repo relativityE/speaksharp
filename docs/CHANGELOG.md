@@ -23,7 +23,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Code Reorganization:** Moved all test-related files from `src/test` to a top-level `tests` directory for better separation of concerns.
 
 ### Fixed
-- **E2E Test Race Conditions:** Refactored the entire E2E test suite to fix critical race conditions and timeouts. Implemented a `window.mswReady` promise to ensure tests wait for the Mock Service Worker to be initialized. Introduced a `programmaticLogin` helper to create a stable, authenticated state for tests, eliminating UI-based login flakiness.
 - **Critical E2E Test Timeout and Instability:** Resolved a persistent and complex E2E test timeout issue through a series of fixes:
   - **`AuthProvider` Loading State:** Fixed a bug where the `AuthProvider` would get stuck in a permanent loading state in the test environment, preventing the application from rendering and causing tests to hang. The loading state is now correctly initialized to `false` in test mode.
   - **Incorrect Test Selector:** Corrected the login helper function (`loginUser`) to use the proper "Sign In" link text instead of "Login".

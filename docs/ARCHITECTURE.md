@@ -151,24 +151,20 @@ The project's CI pipeline, defined in `.github/workflows/ci.yml`, leverages the 
 ```
 This multi-stage, parallel approach ensures that local validation (`./test-audit.sh all`) and CI execution are perfectly aligned while maximizing speed and resource utilization.
 
-### E2E Test Environment & Core Patterns
+### E2E Test Environment
 
-The E2E test environment is designed for stability and isolation, ensuring tests run reliably both locally and in CI. The key to this stability is a set of core patterns for handling asynchronous operations like API mocking and authentication.
+The E2E test environment is designed to be isolated and reliable, ensuring that tests run consistently both locally and in CI.
 
-1.  **MSW Synchronization via `window.mswReady`:**
-    *   **Problem:** E2E tests would often fail because they tried to interact with the app before the Mock Service Worker (MSW) was ready to intercept API calls, leading to race conditions.
-    *   **Solution:** The application's entry point (`src/main.tsx`) has been modified. When `VITE_TEST_MODE` is true, it now starts the MSW browser worker and, crucially, assigns the worker's `start()` promise to `window.mswReady`.
-    *   **In Tests:** Before any significant interaction (like navigation or login), tests use a `waitForMSW(page)` helper function. This function pauses test execution until the `window.mswReady` promise resolves, guaranteeing that the mock API layer is fully active.
-
-2.  **Programmatic & UI-Based Logins:**
-    *   **`programmaticLogin(page, user)`:** For tests where the login process itself is not under test, this helper function provides a fast and reliable way to authenticate. It works by directly setting the mock session data in `localStorage` via an `addInitScript` and then reloading the page. This bypasses the UI, avoids network calls, and prevents auth-related race conditions. It is the **preferred method** for setting up an authenticated state.
-    *   **`authPage.login(email, password)`:** For tests that specifically need to validate the UI login form, the `AuthPage` POM provides a standard `login` method. This method now includes a call to `waitForPostAuth()`, a robust function that waits for a reliable element on the post-login page (e.g., the "Sign Out" button) to be visible. This ensures the application has fully transitioned to its authenticated state before the test continues.
-    *   **`authPage.signUp(email, password)`:** Similarly, the sign-up flow is followed by a call to `waitForPostAuth()` to ensure the UI is stable after registration.
-
-3.  **Third-Party Service Stubbing:**
-    *   To prevent external services like Sentry and PostHog from causing noise or failures in E2E tests, the `stubThirdParties(page)` helper is used. It intercepts and aborts any requests to these services' domains, ensuring tests are isolated and deterministic.
-
-These patterns work together to create a robust testing foundation, eliminating the primary sources of flakiness and making the E2E suite a reliable indicator of application quality.
+1.  **Environment Separation:**
+    *   The standard `pnpm dev` command runs the Vite server in **development mode**. This is for manual development and does not include any test-specific mocks or logic.
+    *   The E2E tests (`pnpm test:e2e`) run against a Vite server that is launched with the `VITE_TEST_MODE=true` environment variable.
+2.  **Conditional Mocking:**
+    *   When `VITE_TEST_MODE` is true, the application's entry point (`src/main.tsx`) conditionally imports `/tests/e2e/testEnv.ts`.
+    *   This `testEnv.ts` script is responsible for initializing the Mock Service Worker (MSW) and setting up the `window.mswReady` promise.
+    *   This approach ensures that test-specific code is completely isolated and never included in a production build.
+3.  **Automated Server Management:**
+    *   Playwright's `webServer` configuration in `playwright.config.ts` automatically starts the test server (`pnpm dev`) with the necessary `VITE_TEST_MODE` flag.
+    *   It waits for the server to be ready and automatically terminates it after the test run, simplifying the testing workflow.
 
 ### Mocking Native Dependencies
 

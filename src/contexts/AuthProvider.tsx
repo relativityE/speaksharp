@@ -66,9 +66,14 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
             setProfile(JSON.parse(profileCache));
           }
         }
+      } else if (initialSession) {
+        // Unit test support for providing an initial session
+        await setSession(initialSession);
       } else {
         // Standard auth flow for production and development
-        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        const {
+          data: { session: currentSession },
+        } = await supabase.auth.getSession();
         await setSession(currentSession);
       }
       setLoading(false);
@@ -76,18 +81,14 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
 
     bootstrapAuth();
 
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      async (_event, newSession) => {
-        setLoading(true);
-        await setSession(newSession);
-        setLoading(false);
-      }
-    );
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+    });
 
     return () => {
       listener?.subscription.unsubscribe();
     };
-  }, []);
+  }, [initialSession]);
 
   if (loading) {
     return (

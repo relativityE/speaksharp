@@ -1,23 +1,53 @@
-import { test, expect, programmaticLogin } from './helpers';
+// tests/e2e/pro.e2e.spec.ts
+import { test, expect, MockUser } from './helpers';
+import { programmaticLogin } from './helpers';
 import { SessionPage } from './poms/sessionPage.pom';
+import { HomePage } from './poms/homePage.pom';
+import { stubThirdParties } from './sdkStubs';
 
 test.describe('Pro User Flow', () => {
-  let sessionPage: SessionPage;
+  // Note: We are no longer using test.use({ storageState: ... })
+  // Instead, we use a consistent, programmatic login for all tests.
 
   test.beforeEach(async ({ page }) => {
-    sessionPage = new SessionPage(page);
+    // Stub out third-party services before logging in.
+    await stubThirdParties(page);
+
+    await test.step('Programmatically log in as a pro user', async () => {
+      const mockUser: MockUser = {
+        id: 'mock-user-id-pro',
+        email: 'pro-user@test.com',
+        subscription_status: 'pro',
+      };
+      await programmaticLogin(page, mockUser);
+    });
   });
 
   test('should not see upgrade prompts as a pro user', async ({ page }) => {
-    await programmaticLogin(page, 'pro-user@example.com');
-    await expect(page.getByRole('button', { name: 'Sign Out' })).toBeVisible();
-    await expect(page.getByTestId('upgrade-banner')).toHaveCount(0);
+    const sessionPage = new SessionPage(page);
+    const homePage = new HomePage(page);
+
+    await test.step('Verify no upgrade button on session page', async () => {
+      await sessionPage.goto(); // Manually navigate to session page
+      await sessionPage.assertOnSessionPage();
+      await expect(sessionPage.upgradeButton).not.toBeVisible();
+    });
+
+    await test.step('Verify no upgrade button on home page', async () => {
+      await homePage.goto();
+      await homePage.assertOnHomePage();
+      await expect(homePage.upgradeButton).not.toBeVisible();
+    });
   });
 
   test('should have access to all transcription modes', async ({ page }) => {
-    await programmaticLogin(page, 'pro-user@example.com');
-    await sessionPage.goto();
-    // Verify transcription modes UI elements
-    await expect(page.getByTestId('transcription-mode')).toHaveCountGreaterThan(0);
+    const sessionPage = new SessionPage(page);
+    await sessionPage.goto(); // Ensure we are on the session page
+
+    await test.step('Verify all transcription modes are enabled', async () => {
+      await expect(sessionPage.sidebar.cloudAiMode).toBeEnabled();
+      await expect(sessionPage.sidebar.onDeviceMode).toBeEnabled();
+      await expect(sessionPage.sidebar.nativeMode).toBeEnabled();
+    });
   });
 });
