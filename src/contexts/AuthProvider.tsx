@@ -37,6 +37,10 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
   const [loading, setLoading] = useState(true);
 
   const setSession = async (s: Session | null) => {
+    // Set session immediately to avoid blocking UI updates.
+    // The user profile can be fetched in the background.
+    setSessionState(s);
+
     if (s?.user) {
       const userProfile = await getProfileFromDb(s.user.id);
       setProfile(userProfile);
@@ -48,7 +52,6 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
       setProfile(null);
       localStorage.removeItem(SESSION_STORAGE_KEY);
     }
-    setSessionState(s);
   };
 
   useEffect(() => {

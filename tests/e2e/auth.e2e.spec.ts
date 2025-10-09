@@ -1,7 +1,8 @@
 // tests/e2e/auth.e2e.spec.ts
-import { test, expect } from './fixtures/mswFixture';
+import { test, expect } from './helpers';
 import { AuthPage } from './poms/authPage.pom';
 import { SessionPage } from './poms/sessionPage.pom';
+import { HomePage } from './poms/homePage.pom';
 import { stubThirdParties } from './sdkStubs';
 
 // The Supabase URL check is no longer needed as MSW will intercept API calls.
@@ -9,27 +10,33 @@ import { stubThirdParties } from './sdkStubs';
 test.describe('Authentication', () => {
   let authPage: AuthPage;
   let sessionPage: SessionPage;
+  let homePage: HomePage;
 
   test.beforeEach(async ({ page }) => {
     // Stub out any third-party services that are not relevant to this test
     await stubThirdParties(page);
     authPage = new AuthPage(page);
     sessionPage = new SessionPage(page);
+    homePage = new HomePage(page);
     await authPage.goto();
   });
 
   test('should allow a new user to sign up', async ({ page }) => {
     await test.step('Fill and submit sign-up form', async () => {
-      // Use a unique email to ensure this test is always for a "new" user.
-      await authPage.signUp(`test-user-${Date.now()}@example.com`, 'password123');
+      // Use a consistent email to rely on MSW, but make it unique enough
+      // to avoid conflicts if tests were ever run against a real backend.
+      const email = `test-user-signup-${Date.now()}@example.com`;
+      await authPage.signUp(email, 'password123');
     });
 
     await test.step('Verify user is signed in and can access protected routes', async () => {
-      // Instead of checking for a URL change which can be racy,
-      // we wait for a reliable element that only appears after login.
-      await expect(page.getByRole('button', { name: 'Sign Out' })).toBeVisible();
+      // Wait for the home page to be ready by waiting for a known element to be visible.
+      await expect(homePage.startFreeSessionButton).toBeVisible({ timeout: 15000 });
+      // After a successful sign-up, the app should redirect to the root page
+      // where the 'Sign Out' button is visible.
+      await expect(page.getByRole('button', { name: 'Sign Out' })).toBeVisible({ timeout: 15000 });
 
-      // Now that we've confirmed login, we can proceed to check other pages.
+      // Additionally, verify navigation to a protected route works.
       await sessionPage.goto();
       await sessionPage.assertOnSessionPage();
     });
@@ -48,19 +55,20 @@ test.describe('Authentication', () => {
   });
 
   test('should allow an existing user to sign in', async ({ page }) => {
-    const email = 'test-user-signin@example.com';
-    const password = 'password123';
-
     await test.step('Fill and submit login form', async () => {
-      await authPage.login(email, password);
+      // This test relies on the MSW handler being configured
+      // to accept 'test-user-signin@example.com'.
+      await authPage.login('test-user-signin@example.com', 'password123');
     });
 
     await test.step('Verify user is signed in and can access protected routes', async () => {
-      // Instead of checking for a URL change which can be racy,
-      // we wait for a reliable element that only appears after login.
-      await expect(page.getByRole('button', { name: 'Sign Out' })).toBeVisible();
+      // Wait for the home page to be ready by waiting for a known element to be visible.
+      await expect(homePage.startFreeSessionButton).toBeVisible({ timeout: 15000 });
+      // After a successful sign-in, the app should redirect to the root page
+      // where the 'Sign Out' button is visible.
+      await expect(page.getByRole('button', { name: 'Sign Out' })).toBeVisible({ timeout: 15000 });
 
-      // Now that we've confirmed login, we can proceed to check other pages.
+      // Additionally, verify navigation to a protected route works.
       await sessionPage.goto();
       await sessionPage.assertOnSessionPage();
     });

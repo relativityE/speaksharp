@@ -39,9 +39,9 @@ export default defineConfig({
         trace: 'on-first-retry',
     },
     webServer: {
-        command: 'pnpm dev',
+        command: 'pnpm exec vite --mode test',
         url: BASE_URL,
-        reuseExistingServer: false,
+        reuseExistingServer: true,
         timeout: 120 * 1000,
         stdout: 'pipe',
         stderr: 'pipe',

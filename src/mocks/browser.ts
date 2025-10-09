@@ -11,23 +11,3 @@ export const worker = setupWorker(...handlers);
  * during test mode. It sets a global flag `window.mswReady` that resolves
  * to `true` when the worker is ready, allowing Playwright tests to wait for it.
  */
-export async function startMockWorker() {
-  // Do not start in non-browser environments.
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  // Set an initial flag. Tests can wait for this to become `true`.
-  (window as any).mswReady = false;
-
-  await worker.start({
-    onUnhandledRequest: 'bypass',
-    serviceWorker: {
-      url: '/mockServiceWorker.js',
-    },
-  });
-
-  // Once the worker is ready, set the flag to true.
-  (window as any).mswReady = true;
-  console.log('[MSW] Mock Service Worker is ready.');
-}
