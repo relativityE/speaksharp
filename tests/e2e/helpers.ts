@@ -13,8 +13,10 @@ import { AuthPage } from './poms/authPage.pom';
  * our `startMockWorker` function in the browser.
  */
 export async function waitForMSW(page: Page) {
-  await page.waitForFunction(() => (window as any).mswReady === true, null, {
-    timeout: 15_000,
+  await page.evaluate(async () => {
+    // This will wait until the mswReady promise resolves.
+    // If it rejects or never resolves, the test will fail, which is correct.
+    await window.mswReady;
   });
 }
 
