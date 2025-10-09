@@ -47,9 +47,6 @@ const renderApp = async () => {
       const { worker } = await import('./mocks/browser');
       window.mswReady = worker.start({
         onUnhandledRequest: 'bypass',
-        serviceWorker: {
-          url: '/mockServiceWorker.js',
-        },
       }).then(() => {
         console.log('[MSW] Mock Service Worker is ready.');
         return true;
