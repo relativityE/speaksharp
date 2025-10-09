@@ -11,11 +11,10 @@ import { Session } from '@supabase/supabase-js';
 vi.mock('../../lib/supabaseClient', () => ({
   supabase: {
     auth: {
-      getSession: vi.fn(() => Promise.resolve({ data: { session: null } })),
+      getSession: vi.fn().mockResolvedValue({ data: { session: null } }),
       onAuthStateChange: vi.fn(() => ({
         data: { subscription: { unsubscribe: vi.fn() } },
       })),
-      getSession: vi.fn().mockResolvedValue({ data: { session: null } }),
     },
     from: vi.fn(),
   },
@@ -46,27 +45,26 @@ const mockProfile = {
 
 // A simple component to consume and display auth context values
 const TestConsumer = () => {
-  const { session, profile } = useAuth();
-  // In test mode, loading is false, so we don't need a loading state check.
+  const { session, profile, loading } = useAuth();
+  if (loading) {
+    return <div>Loading...</div>;
+  }
   return (
     <div>
-      <div data-testid="session-email">{session?.user?.email || ''}</div>
-      <div data-testid="profile-status">{profile?.subscription_status || ''}</div>
+      <div data-testid="session-email">{session?.user?.email || 'No session'}</div>
+      <div data-testid="profile-status">{profile?.subscription_status || 'No profile'}</div>
     </div>
   );
 };
 
 describe('AuthContext', () => {
   afterEach(() => {
-    // Clear localStorage to prevent state leakage between tests
-    localStorage.clear();
     cleanup();
     vi.restoreAllMocks();
   });
 
   it('should provide session and profile when user is authenticated', async () => {
     // Arrange
-    // Mock the database query for the user's profile.
     const mockSelect = vi.fn().mockReturnThis();
     const mockEq = vi.fn().mockReturnThis();
     const mockSingle = vi.fn().mockResolvedValue({ data: mockProfile, error: null });
@@ -78,7 +76,6 @@ describe('AuthContext', () => {
     });
 
     // Act
-    // The key fix: Pass the mock session directly to the provider.
     render(
       <AuthProvider initialSession={mockSession}>
         <TestConsumer />
@@ -86,9 +83,6 @@ describe('AuthContext', () => {
     );
 
     // Assert
-    // With the initialSession provided, the component renders the final state immediately.
-    // The loading skeleton is intentionally not rendered in the test environment
-    // to avoid race conditions. We directly wait for the final state.
     await waitFor(() => {
       expect(screen.getByTestId('session-email')).toHaveTextContent(mockSession.user.email as string);
       expect(screen.getByTestId('profile-status')).toHaveTextContent(mockProfile.subscription_status);
@@ -96,16 +90,8 @@ describe('AuthContext', () => {
   });
 
   it('should provide null session and profile when user is not authenticated', async () => {
-    // Arrange: Mock the database query to return no profile, ensuring an unauthenticated state.
-    const mockSelect = vi.fn().mockReturnThis();
-    const mockEq = vi.fn().mockReturnThis();
-    const mockSingle = vi.fn().mockResolvedValue({ data: null, error: null });
-
-    (supabase.from as Mock).mockReturnValue({
-      select: mockSelect,
-      eq: mockEq,
-      single: mockSingle,
-    });
+    // Arrange
+    (supabase.auth.getSession as Mock).mockResolvedValue({ data: { session: null } });
 
     // Act
     render(
@@ -115,10 +101,9 @@ describe('AuthContext', () => {
     );
 
     // Assert
-    // We wait for a tick to ensure any async effects have settled.
     await waitFor(() => {
-      expect(screen.getByTestId('session-email')).toHaveTextContent('');
-      expect(screen.getByTestId('profile-status')).toHaveTextContent('');
+      expect(screen.getByTestId('session-email')).toHaveTextContent('No session');
+      expect(screen.getByTestId('profile-status')).toHaveTextContent('No profile');
     });
   });
 });
