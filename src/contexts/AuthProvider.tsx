@@ -7,6 +7,7 @@ import { AuthContext, AuthContextType } from './AuthContext';
 
 interface WindowWithUser extends Window {
   __USER__?: UserProfile | null;
+  __E2E_MOCK_SESSION__?: boolean;
 }
 
 const getProfileFromDb = async (userId: string): Promise<UserProfile | null> => {
@@ -28,7 +29,6 @@ interface AuthProviderProps {
   initialSession?: Session | null;
 }
 
-// Key for storing session in localStorage
 const SESSION_STORAGE_KEY = 'speaksharp-session';
 
 export function AuthProvider({ children, initialSession }: AuthProviderProps) {
@@ -37,10 +37,7 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
   const [loading, setLoading] = useState(true);
 
   const setSession = async (s: Session | null) => {
-    // Set session immediately to avoid blocking UI updates.
-    // The user profile can be fetched in the background.
     setSessionState(s);
-
     if (s?.user) {
       const userProfile = await getProfileFromDb(s.user.id);
       setProfile(userProfile);
@@ -57,18 +54,22 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
   useEffect(() => {
     const bootstrapAuth = async () => {
       setLoading(true);
-      if (initialSession) {
-        await setSession(initialSession);
-      } else {
-        try {
-          const storedSession = localStorage.getItem(SESSION_STORAGE_KEY);
-          if (storedSession) {
-            await setSession(JSON.parse(storedSession));
+      // E2E test optimization: If a mock session is injected, use it directly.
+      if (import.meta.env.MODE === 'test' && (window as any).__E2E_MOCK_SESSION__) {
+        const storedSession = localStorage.getItem(SESSION_STORAGE_KEY);
+        if (storedSession) {
+          const sessionData = JSON.parse(storedSession);
+          setSessionState(sessionData.currentSession);
+          // In test mode, we trust the profile cache injected by programmaticLogin
+          const profileCache = localStorage.getItem('user-profile-cache');
+          if (profileCache) {
+            setProfile(JSON.parse(profileCache));
           }
-        } catch (error) {
-          console.warn('Could not parse session from localStorage:', error);
-          localStorage.removeItem(SESSION_STORAGE_KEY);
         }
+      } else {
+        // Standard auth flow for production and development
+        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        await setSession(currentSession);
       }
       setLoading(false);
     };
@@ -86,7 +87,7 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
     return () => {
       listener?.subscription.unsubscribe();
     };
-  }, [initialSession]);
+  }, []);
 
   if (loading) {
     return (
