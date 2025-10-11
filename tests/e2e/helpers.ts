@@ -1,4 +1,4 @@
-// tests/e2e/helpers.ts (Fixed)
+// tests/e2e/helpers.ts
 import { test as base, expect, Page, Response } from '@playwright/test';
 import fs from 'fs';
 import { AuthPage } from './poms/authPage.pom';
