@@ -1,9 +1,17 @@
 import { Button } from "@/components/ui/button";
-import { Mic, BarChart3, Home } from "lucide-react";
-import { useLocation, Link } from "react-router-dom";
+import { Mic, BarChart3, Home, LogOut } from "lucide-react";
+import { useLocation, Link, useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/useAuth";
 
 const Navigation = () => {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { session, supabase } = useAuth();
+
+  const handleSignOut = async () => {
+    await supabase?.auth.signOut();
+    navigate("/", { replace: true });
+  };
 
   const navItems = [
     { path: "/", icon: Home, label: "Home" },
@@ -24,38 +32,50 @@ const Navigation = () => {
           </Link>
 
           {/* Navigation Items */}
-          <div className="hidden md:flex items-center space-x-1">
-            {navItems.map((item) => {
-              const isActive = location.pathname === item.path;
-              return (
-                <Button
-                  key={item.path}
-                  variant={isActive ? "default" : "ghost"}
-                  size="sm"
-                  asChild
-                >
-                  <Link to={item.path} className="flex items-center space-x-2">
-                    <item.icon className="h-4 w-4" />
-                    <span>{item.label}</span>
-                  </Link>
-                </Button>
-              );
-            })}
-          </div>
+          {session && (
+            <div className="hidden md:flex items-center space-x-1">
+              {navItems.map((item) => {
+                const isActive = location.pathname === item.path;
+                return (
+                  <Button
+                    key={item.path}
+                    variant={isActive ? "default" : "ghost"}
+                    size="sm"
+                    asChild
+                  >
+                    <Link to={item.path} className="flex items-center space-x-2">
+                      <item.icon className="h-4 w-4" />
+                      <span>{item.label}</span>
+                    </Link>
+                  </Button>
+                );
+              })}
+            </div>
+          )}
 
           {/* User Actions */}
           <div className="flex items-center space-x-3">
-            <Button variant="outline" size="sm">
-              Sign In
-            </Button>
-            <Button variant="hero" size="sm">
-              Get Started
-            </Button>
+            {session ? (
+              <Button variant="ghost" size="sm" onClick={handleSignOut}>
+                <LogOut className="h-4 w-4 mr-2" />
+                Sign Out
+              </Button>
+            ) : (
+              <>
+                <Button variant="outline" size="sm" asChild>
+                  <Link to="/auth">Sign In</Link>
+                </Button>
+                <Button variant="hero" size="sm" asChild>
+                  <Link to="/auth">Get Started</Link>
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </div>
 
       {/* Mobile Navigation */}
+      {session && (
       <div className="md:hidden flex justify-center space-x-1 px-4 pb-3">
         {navItems.map((item) => {
           const isActive = location.pathname === item.path;
