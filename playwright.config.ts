@@ -26,7 +26,7 @@ export default defineConfig({
     viewport: { width: 1280, height: 720 },
     deviceScaleFactor: 1,
     ignoreHTTPSErrors: true,
-    screenshot: 'off',
+    screenshot: 'only-on-failure',
     video: 'off',
     trace: 'on-first-retry',
   },
