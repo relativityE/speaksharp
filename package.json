@@ -22,7 +22,7 @@
     "test:e2e:shard": "playwright test --shard=$1/2",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:smoke": "playwright test --grep @smoke",
-    "test:e2e:smoke:no-browser": "playwright test --grep @smoke --browser=none",
+    "test:e2e:smoke:no-browser": "playwright test --grep @smoke --browser=chromium",
     "test:screenshots": "playwright test --grep @visual",
     "playwright:install": "playwright install",
     "prepare": "HUSKY=0 husky install",
