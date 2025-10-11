@@ -23,6 +23,7 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:smoke": "playwright test --grep @smoke",
     "test:screenshots": "playwright test --grep @visual",
+    "playwright:install": "playwright install",
     "prepare": "HUSKY=0 husky install",
     "postinstall": "msw init public/ --no-save"
   },
