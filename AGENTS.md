@@ -45,7 +45,7 @@ The agent must read README.md to understand the correct setup and workflow. This
 
   * Do **not** invent your own runner.
   * If the README’s script fails or is missing, stop and escalate.
-  * Current runner: `./test-audit.sh` (check README.md first).
+  * Current runner: `./scripts/e2e-run.sh` (check README.md first).
 
 * ⚠️ **Recovery Scripts Hierarchy**
 

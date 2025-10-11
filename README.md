@@ -29,15 +29,19 @@ This project uses a two-tiered testing strategy to balance rapid development wit
 
 ### Local Testing
 
-For comprehensive local validation, use the local audit script. This script is designed to mirror the checks run in our CI pipeline and is the recommended check to run before committing your changes.
+For comprehensive local validation, use the new E2E orchestrator script. This script is designed to run a full, phase-locked E2E test suite, mirroring the checks that will eventually be run in a dedicated CI pipeline.
 
-*   **Run the comprehensive local audit:**
+*   **Run the environment pre-check:** Before running the full suite, it is recommended to run the pre-check script to ensure your environment is correctly configured.
     ```bash
-    ./test-audit.sh
+    ./scripts/pre-check.sh
     ```
-    This script runs a full suite of checks, including: linting, type-checking, a production build, all unit tests, and the complete E2E test suite. Running this script locally is the best way to ensure your changes will pass in CI.
+*   **Run the comprehensive local E2E test suite:**
+    ```bash
+    ./scripts/e2e-run.sh
+    ```
+    This script runs a full, 7-phase E2E test, including environment setup, DOM validation, and visual verification. All logs and artifacts are stored in the `./logs` directory.
 
-If you need to run specific test suites, you can use the following commands:
+If you need to run specific test suites, you can still use the following commands:
 
 *   **Run all unit tests:**
     ```bash
