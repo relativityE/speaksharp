@@ -40,7 +40,15 @@
 
 ---
 
-## 📖 Read README.md Before Acting
+📖 **Read the README.md Before Running Anything**
+The agent must read README.md to understand the correct setup and workflow. This prevents mistakes like using `pnpm install` directly instead of the required `pnpm setup:dev`.
+
+* ✅ **Local Audit Script (Read From README.md)**
+  Always use the **designated local audit script** (documented in `README.md`) to run lint, type-checking, and unit/E2E tests.
+
+  * Do **not** invent your own runner.
+  * If the README’s script fails or is missing, stop and escalate.
+  * Current runner: `./scripts/e2e-run.sh` (check README.md first).
 
 * Always read `README.md` to understand setup, workflow, and scripts.
 * Use designated runners; **never invent your own**.
