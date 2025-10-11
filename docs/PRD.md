@@ -346,3 +346,11 @@ This section provides high-level insights into the SpeakSharp project from multi
 | Bundle Size | 6.2M |
 
 *Metrics updated automatically by the CI pipeline.*
+
+
+<!-- test-audit:START -->
+Auto-generated E2E shard metrics.
+Generated: Mon Oct  6 21:39:57 UTC 2025
+Runtimes: see `./test-support/e2e-test-runtimes.json`
+Shards (1 total): see `./test-support/e2e-shards.json`
+<!-- test-audit:END -->

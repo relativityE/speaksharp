@@ -12,6 +12,7 @@ import posthog from 'posthog-js';
 import { PostHogProvider } from 'posthog-js/react';
 import { Elements } from '@stripe/react-stripe-js';
 import { loadStripe } from '@stripe/stripe-js';
+import { Session } from '@supabase/supabase-js';
 import * as Sentry from "@sentry/react";
 import ConfigurationNeededPage from "./pages/ConfigurationNeededPage";
 
@@ -39,6 +40,18 @@ const root = ReactDOM.createRoot(rootElement);
 const renderApp = async () => {
   if (rootElement && !window._speakSharpRootInitialized) {
     window._speakSharpRootInitialized = true;
+
+    // Conditionally initialize the MSW for E2E testing.
+    // This must happen before the main application renders to intercept all requests.
+    if (import.meta.env.VITE_TEST_MODE === 'true') {
+      const { worker } = await import('./mocks/browser');
+      window.mswReady = worker.start({
+        onUnhandledRequest: 'bypass',
+      }).then(() => {
+        console.log('[MSW] Mock Service Worker is ready.');
+        return true;
+      });
+    }
 
     if (areEnvVarsPresent()) {
       // Environment variables are present, load the main application.
@@ -81,7 +94,7 @@ const renderApp = async () => {
       }
 
       // In E2E test mode, we might want to inject a mock session.
-      const mockSession = window.__E2E_MOCK_SESSION__ ? {
+      const mockSession = window.__E2E_MOCK_SESSION__ ? ({
         user: {
           id: 'mock-user-id',
           email: 'test@example.com',
@@ -100,7 +113,7 @@ const renderApp = async () => {
         expires_in: 3600,
         expires_at: Math.floor(Date.now() / 1000) + 3600,
         token_type: 'bearer',
-      } : null;
+      } as Session) : null;
 
       root.render(
         <StrictMode>

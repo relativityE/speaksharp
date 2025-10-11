@@ -1,4 +1,4 @@
-name: CI
+name: "CI - Test Audit"
 
 on:
   push:
@@ -7,61 +7,95 @@ on:
     branches: [main]
 
 jobs:
-  build_and_test:
+  prepare:
     runs-on: ubuntu-latest
-
+    outputs:
+      matrix: ${{ steps.shard.outputs.matrix }}
     steps:
-      - name: Checkout Repository
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Check Node.js version consistency
-        run: |
-          NVMRC_VERSION=$(cat .nvmrc)
-          # Use jq to parse package.json and extract the node version
-          PKG_VERSION=$(jq -r '.engines.node // empty' package.json)
-          echo ".nvmrc version: $NVMRC_VERSION"
-          echo "package.json engines.node: $PKG_VERSION"
-          if [ -n "$PKG_VERSION" ] && [ "$NVMRC_VERSION" != "$PKG_VERSION" ]; then
-            echo "❌ Node.js version mismatch between .nvmrc and package.json!"
-            exit 1
-          fi
-
-      - name: Setup PNPM
-        uses: pnpm/action-setup@v3
-        with:
-          version: 9
-
-      - name: Use Node.js version from .nvmrc
+      - name: Setup Node.js and pnpm
         uses: actions/setup-node@v4
         with:
-          node-version-file: '.nvmrc'
-          cache: 'pnpm'
-
-      - name: Setup PNPM
-        uses: pnpm/action-setup@v3
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
         with:
-          version: 9
-          run_install: false
+          version: 10
 
-      - name: Verify Environment
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Prepare Stage (Lint, Typecheck, Build, Unit, Shard)
+        id: shard
         run: |
-          node -v
-          pnpm -v
+          ./test-audit.sh prepare
 
-      - name: Install Dependencies & Browsers
-        run: pnpm setup:dev
+          # Count shards and prepare JSON array for matrix
+          COUNT=$(jq '.shard_count' ./test-support/e2e-shards.json)
+          INDICES=$(seq 0 $((COUNT-1)) | jq -R . | jq -s .)
+          echo "matrix=$INDICES" >> $GITHUB_OUTPUT
 
-      - name: Build Application
-        run: pnpm build
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts
+          path: ./test-support/
 
-      - name: Run Lint
-        run: pnpm lint
+  test:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard-index: ${{ fromJson(needs.prepare.outputs.matrix) }}
 
-      - name: Run Typecheck
-        run: pnpm typecheck
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      - name: Run Unit Tests
-        run: pnpm test:unit:full
+      - name: Setup Node.js and pnpm
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
 
-      - name: Run E2E Tests
-        run: pnpm test:e2e
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: test-artifacts
+          path: ./test-support/
+
+      - name: Run E2E Test Shard
+        run: ./test-audit.sh test ${{ matrix.shard-index }}
+
+  report:
+    needs: [prepare, test]
+    # Always run the report stage to see partial results, even if tests fail
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: test-artifacts
+          path: ./test-support/
+
+      - name: Generate Final Report and Update Docs
+        run: ./test-audit.sh report
+
+      - name: Commit documentation changes
+        if: success() # Only commit if the entire workflow was successful
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "docs(sqm): Update test audit metrics"
+          branch: ${{ github.head_ref || github.ref_name }}
+          file_pattern: 'docs/PRD.md'

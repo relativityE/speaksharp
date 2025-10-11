@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **CI/CD and Testing Pipeline Overhaul:**
+  - Implemented a resilient, sharded E2E testing framework managed by a new `test-audit.sh` script.
+  - The script now times each E2E test individually with a 4-minute timeout to prevent hangs.
+  - E2E tests are now dynamically auto-sharded into groups with a maximum runtime of 7 minutes, enabling parallel execution in CI.
+  - The CI pipeline has been updated to leverage this sharding, running test shards in parallel to significantly reduce build times.
+  - This new process ensures that local and CI test execution are perfectly aligned.
 - **Test Environment Overhaul:**
   - **Environment Separation:** The Vite development server now runs in standard `development` mode by default, isolating it from the `test` environment. Test-specific logic (like MSW) is now conditionally loaded only when `VITE_TEST_MODE` is true.
   - **Test Isolation:**
@@ -17,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Code Reorganization:** Moved all test-related files from `src/test` to a top-level `tests` directory for better separation of concerns.
 
 ### Fixed
+- **E2E Test Race Conditions:** Refactored the entire E2E test suite to fix critical race conditions and timeouts. Implemented a `window.mswReady` promise to ensure tests wait for the Mock Service Worker to be initialized. Introduced a `programmaticLogin` helper to create a stable, authenticated state for tests, eliminating UI-based login flakiness.
 - **Critical E2E Test Timeout and Instability:** Resolved a persistent and complex E2E test timeout issue through a series of fixes:
   - **`AuthProvider` Loading State:** Fixed a bug where the `AuthProvider` would get stuck in a permanent loading state in the test environment, preventing the application from rendering and causing tests to hang. The loading state is now correctly initialized to `false` in test mode.
   - **Incorrect Test Selector:** Corrected the login helper function (`loginUser`) to use the proper "Sign In" link text instead of "Login".
@@ -40,9 +47,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 - **Visual Regression Test:** Removed the `visual.e2e.spec.ts` file as its file-based screenshot comparison strategy is incompatible with the new artifact-free testing approach.
-
-### Known Issues
-- **`pnpm lint` Command Timeout:** The `pnpm lint` command is known to be slow and may time out in some environments. This is a known issue that is being tracked.
 
 ## [0.1.0] - 2025-09-08
 

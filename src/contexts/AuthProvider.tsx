@@ -5,15 +5,11 @@ import { UserProfile } from '../types/user';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AuthContext, AuthContextType } from './AuthContext';
 
-interface WindowWithUser extends Window {
-  __USER__?: UserProfile | null;
-}
-
 const getProfileFromDb = async (userId: string): Promise<UserProfile | null> => {
   try {
     const { data, error } = await supabase.from('user_profiles').select('*').eq('id', userId).single();
     if (error) {
-      console.error('Error fetching profile in test:', error.message);
+      console.error('Error fetching profile:', error.message);
       return null;
     }
     return data;
@@ -28,45 +24,36 @@ interface AuthProviderProps {
   initialSession?: Session | null;
 }
 
-// Key for storing session in localStorage
-const SESSION_STORAGE_KEY = 'speaksharp-session';
-
 export function AuthProvider({ children, initialSession }: AuthProviderProps) {
-  const [session, setSessionState] = useState<Session | null>(null);
+  const [session, setSessionState] = useState<Session | null>(initialSession === undefined ? null : initialSession);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(initialSession === undefined);
 
-  const setSession = async (s: Session | null) => {
+  const updateSession = async (s: Session | null) => {
+    setSessionState(s);
     if (s?.user) {
       const userProfile = await getProfileFromDb(s.user.id);
       setProfile(userProfile);
-      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(s));
-      if (import.meta.env.MODE === 'test') {
-        (window as WindowWithUser).__USER__ = userProfile;
-      }
     } else {
       setProfile(null);
-      localStorage.removeItem(SESSION_STORAGE_KEY);
     }
-    setSessionState(s);
   };
 
   useEffect(() => {
+    if (initialSession !== undefined) {
+      // When initialSession is provided, we assume a controlled testing environment.
+      // The session is already set, so we can skip the async bootstrap.
+      if(initialSession) {
+        updateSession(initialSession);
+      }
+      setLoading(false);
+      return;
+    }
+
     const bootstrapAuth = async () => {
       setLoading(true);
-      if (initialSession) {
-        await setSession(initialSession);
-      } else {
-        try {
-          const storedSession = localStorage.getItem(SESSION_STORAGE_KEY);
-          if (storedSession) {
-            await setSession(JSON.parse(storedSession));
-          }
-        } catch (error) {
-          console.warn('Could not parse session from localStorage:', error);
-          localStorage.removeItem(SESSION_STORAGE_KEY);
-        }
-      }
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      await updateSession(currentSession);
       setLoading(false);
     };
 
@@ -75,7 +62,7 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
     const { data: listener } = supabase.auth.onAuthStateChange(
       async (_event, newSession) => {
         setLoading(true);
-        await setSession(newSession);
+        await updateSession(newSession);
         setLoading(false);
       }
     );
@@ -87,8 +74,8 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
 
   if (loading) {
     return (
-      <div className="w-full h-screen flex justify-center items-center">
-        <Skeleton className="h-24 w-24 rounded-full" />
+      <div className="w-full h-screen flex justify-center items-center" data-testid="loading-skeleton-container">
+        <Skeleton className="h-24 w-24 rounded-full" data-testid="loading-skeleton" />
       </div>
     );
   }
@@ -100,10 +87,10 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
     loading,
     signOut: async () => {
       const { error } = await supabase.auth.signOut();
-      await setSession(null);
+      await updateSession(null);
       return { error };
     },
-    setSession,
+    setSession: updateSession,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

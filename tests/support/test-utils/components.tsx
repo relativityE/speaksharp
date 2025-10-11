@@ -1,8 +1,8 @@
 import React, { ReactNode } from 'react';
 import { MemoryRouter, Routes, Route, Location } from 'react-router-dom';
 import { vi } from 'vitest';
-import { AuthContext, AuthContextType } from '../../contexts/AuthContext';
-import { SessionContext, SessionContextValue } from '../../contexts/SessionContext';
+import { AuthContext, AuthContextType } from '@/contexts/AuthContext';
+import { SessionContext, SessionContextValue } from '@/contexts/SessionContext';
 import { Toaster } from '@/components/ui/sonner';
 
 export const MockElements = ({ children }: { children: ReactNode }) => <>{children}</>;

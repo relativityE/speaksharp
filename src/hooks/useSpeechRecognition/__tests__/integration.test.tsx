@@ -34,27 +34,27 @@ describe('useSpeechRecognition Integration', () => {
     vi.useRealTimers();
   });
 
-  it('should reset all state when reset is called', () => {
+  it('should reset all state when reset is called', async () => {
     const { result } = renderHook(() =>
       useSpeechRecognition({ customWords: ['um'] }),
       { wrapper }
     );
 
-    // Set some initial state to ensure reset works
-    act(() => {
-        result.current.startListening();
-        // Simulate some transcript data
-        const transcriptState = result.current.transcript;
-        transcriptState.transcript = "hello um world";
-        transcriptState.total_words = 3;
+    // Call startListening to change the hook's internal state from its initial values.
+    await act(async () => {
+      await result.current.startListening('native');
     });
 
+    // Verify that some state has indeed changed (this is optional but good practice)
+    expect(result.current.isListening).toBe(true);
+
     // Reset the state
-    act(() => {
+    await act(async () => {
       result.current.reset();
     });
 
     // Assert that all relevant state properties are reset to their initial values
+    expect(result.current.isListening).toBe(false);
     expect(result.current.transcript.transcript).toBe('');
     expect(result.current.transcript.total_words).toBe(0);
     expect(result.current.transcript.wpm).toBe(0);

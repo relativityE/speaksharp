@@ -6,7 +6,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 
 export default tseslint.config(
-  { ignores: ['dist', 'node_modules', 'playwright-report/', 'test-results/', 'html/', 'public/', 'supabase/'] },
+  { ignores: ['dist', 'node_modules', 'playwright-report/', 'test-results/', 'html/', 'public/', 'supabase/', 'tests/global-teardown.js'] },
 
   // Base configs
   js.configs.recommended,
@@ -55,6 +55,16 @@ export default tseslint.config(
   // Config for scripts
   {
     files: ['scripts/**/*.js'],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
+    },
+  },
+
+  // Config for Test helper/setup files
+  {
+    files: ['tests/**/*.{js,ts}'],
     languageOptions: {
       globals: {
         ...globals.node,

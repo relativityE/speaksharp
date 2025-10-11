@@ -93,59 +93,82 @@ SpeakSharp is built on a modern, serverless technology stack designed for real-t
 
 ## Testing and CI/CD
 
-SpeakSharp employs a unified testing strategy to ensure that the local development experience perfectly mirrors the Continuous Integration (CI) pipeline, eliminating "it works on my machine" issues.
+SpeakSharp employs a unified and resilient testing strategy to ensure that the local development experience perfectly mirrors the Continuous Integration (CI) pipeline, eliminating "it works on my machine" issues. The process is designed for speed, reliability, and deterministic execution.
 
 ### The Local Audit Script: The Single Source of Truth
 
-The `./test-audit.sh` script is the cornerstone of our quality assurance process. It is the **single source of truth** for all code validation.
+The `./test-audit.sh` script is the cornerstone of our quality assurance process. It is the **single source of truth** for all code validation, designed to be run both locally by developers and remotely by the CI pipeline.
 
-*   **Purpose:** To run the exact same suite of checks that the CI pipeline runs. This ensures that if the local audit passes, the CI pipeline will also pass.
-*   **Scope:**
-    *   **Static Analysis:** Runs linting (`pnpm lint`) and type checking (`pnpm typecheck`).
-    *   **Production Build:** Verifies that the application can be successfully built for production (`pnpm build`).
-    *   **Unit Tests:** Executes the full unit test suite (`pnpm test:unit:full`).
-    *   **End-to-End Tests:** Runs the *entire* E2E test suite (`pnpm test:e2e`).
-*   **Behavior:** The script is designed to be strict and will exit with an error if any step fails, just like the CI pipeline.
+*   **Purpose:** To orchestrate a comprehensive suite of checks that validate the application's quality, from static analysis to sharded end-to-end tests.
+*   **Staged Execution:** The script is modular and accepts commands (`prepare`, `test <shard-index>`, `report`, `all`) to support a multi-stage CI process.
+*   **Key Features:**
+    *   **Static Analysis & Build:** Runs linting, type checking, and a production build.
+    *   **Unit Tests:** Executes the full unit test suite and generates a coverage report.
+    *   **E2E Test Timing & Sharding:** Times each E2E test individually and then partitions the suite into balanced shards (≤7 minutes each) based on those runtimes.
+    *   **Sharded E2E Execution:** Runs the E2E tests shard by shard, forcing serial execution within each shard (`--workers=1`) to prevent resource contention and ensure stability. It generates a separate JSON report for each shard.
+    *   **Report Aggregation:** Merges the individual E2E shard reports into a single, final JSON report that can be consumed by other metric scripts.
+    *   **Documentation Update:** Automatically runs the necessary scripts (`./run-metrics.sh`, `./update-sqm-doc.sh`) to update the Software Quality Metrics in `docs/PRD.md`.
+*   **Behavior:** The script is designed to be strict (`set -euo pipefail`) and will exit with an error if any critical step fails, preventing the pipeline from proceeding with incomplete or failed results.
 
-### CI/CD Pipeline
+### CI/CD Pipeline: Parallel Execution
 
-The project's CI pipeline, defined in `.github/workflows/ci.yml`, is now a direct reflection of the local audit script. It performs the following steps on every push and pull request to the `main` branch:
+The project's CI pipeline, defined in `.github/workflows/ci.yml`, leverages the sharded execution of the `test-audit.sh` script to run E2E tests in parallel, significantly reducing feedback time.
 
-```
+```ascii
 +----------------------------------+
-| Push or PR to main               |
+|      Push or PR to main          |
 +----------------------------------+
                  |
                  v
 +----------------------------------+
-|       Job: build_and_test        |
+|      Job: prepare                |
 |----------------------------------|
-| 1. Checkout Code                 |
-| 2. Check Node.js Version         |
-| 3. Setup PNPM & Node.js          |
-| 4. Install Dependencies          |
-| 5. Run Lint                      |
-| 6. Run Typecheck                 |
-| 7. Run Unit Tests                |
-| 8. Run E2E Tests                 |
-| 9. Run Production Build          |
+| 1. Checkout & Install            |
+| 2. Run ./test-audit.sh prepare   |
+|    (Lint, Build, Unit, Shard)    |
+| 3. Upload test-support/          |
++----------------------------------+
+                 |
+                 v
++----------------------------------+       +----------------------------------+
+|       Job: test (Shard 0)        |------>|       Job: test (Shard 1)        | ...
+|----------------------------------|       |----------------------------------|
+| 1. Download Artifacts            |       | 1. Download Artifacts            |
+| 2. Run ./test-audit.sh test 0    |       | 2. Run ./test-audit.sh test 1    |
++----------------------------------+       +----------------------------------+
+                 |                                  |
+                 +----------------------------------+
+                                  |
+                                  v
++----------------------------------+
+|         Job: report              |
+|----------------------------------|
+| 1. Download Artifacts            |
+| 2. Run ./test-audit.sh report    |
+|    (Merge reports, update docs)  |
+| 3. Commit docs/PRD.md            |
 +----------------------------------+
 ```
+This multi-stage, parallel approach ensures that local validation (`./test-audit.sh all`) and CI execution are perfectly aligned while maximizing speed and resource utilization.
 
-### E2E Test Environment
+### E2E Test Environment & Core Patterns
 
-The E2E test environment is designed to be isolated and reliable, ensuring that tests run consistently both locally and in CI.
+The E2E test environment is designed for stability and isolation, ensuring tests run reliably both locally and in CI. The key to this stability is a set of core patterns for handling asynchronous operations like API mocking and authentication.
 
-1.  **Environment Separation:**
-    *   The standard `pnpm dev` command runs the Vite server in **development mode**. This is for manual development and does not include any test-specific mocks or logic.
-    *   The E2E tests (`pnpm test:e2e`) run against a Vite server that is launched with the `VITE_TEST_MODE=true` environment variable.
-2.  **Conditional Mocking:**
-    *   When `VITE_TEST_MODE` is true, the application's entry point (`src/main.tsx`) conditionally imports `/tests/e2e/testEnv.ts`.
-    *   This `testEnv.ts` script is responsible for initializing the Mock Service Worker (MSW) and setting up the `window.mswReady` promise.
-    *   This approach ensures that test-specific code is completely isolated and never included in a production build.
-3.  **Automated Server Management:**
-    *   Playwright's `webServer` configuration in `playwright.config.ts` automatically starts the test server (`pnpm dev`) with the necessary `VITE_TEST_MODE` flag.
-    *   It waits for the server to be ready and automatically terminates it after the test run, simplifying the testing workflow.
+1.  **MSW Synchronization via `window.mswReady`:**
+    *   **Problem:** E2E tests would often fail because they tried to interact with the app before the Mock Service Worker (MSW) was ready to intercept API calls, leading to race conditions.
+    *   **Solution:** The application's entry point (`src/main.tsx`) has been modified. When `VITE_TEST_MODE` is true, it now starts the MSW browser worker and, crucially, assigns the worker's `start()` promise to `window.mswReady`.
+    *   **In Tests:** Before any significant interaction (like navigation or login), tests use a `waitForMSW(page)` helper function. This function pauses test execution until the `window.mswReady` promise resolves, guaranteeing that the mock API layer is fully active.
+
+2.  **Programmatic & UI-Based Logins:**
+    *   **`programmaticLogin(page, user)`:** For tests where the login process itself is not under test, this helper function provides a fast and reliable way to authenticate. It works by directly setting the mock session data in `localStorage` via an `addInitScript` and then reloading the page. This bypasses the UI, avoids network calls, and prevents auth-related race conditions. It is the **preferred method** for setting up an authenticated state.
+    *   **`authPage.login(email, password)`:** For tests that specifically need to validate the UI login form, the `AuthPage` POM provides a standard `login` method. This method now includes a call to `waitForPostAuth()`, a robust function that waits for a reliable element on the post-login page (e.g., the "Sign Out" button) to be visible. This ensures the application has fully transitioned to its authenticated state before the test continues.
+    *   **`authPage.signUp(email, password)`:** Similarly, the sign-up flow is followed by a call to `waitForPostAuth()` to ensure the UI is stable after registration.
+
+3.  **Third-Party Service Stubbing:**
+    *   To prevent external services like Sentry and PostHog from causing noise or failures in E2E tests, the `stubThirdParties(page)` helper is used. It intercepts and aborts any requests to these services' domains, ensuring tests are isolated and deterministic.
+
+These patterns work together to create a robust testing foundation, eliminating the primary sources of flakiness and making the E2E suite a reliable indicator of application quality.
 
 ### Mocking Native Dependencies
 
