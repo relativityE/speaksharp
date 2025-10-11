@@ -40,8 +40,11 @@ export default function AuthPage() {
         console.log('[AUTH] Attempting sign-in', { email });
         authResult = await supabase.auth.signInWithPassword({ email, password });
       } else if (view === 'sign_up') {
-        console.log('[AUTH] Attempting sign-up', { email });
-        authResult = await supabase.auth.signUp({ email, password });
+        console.log('[AUTH] Attempting sign-up and immediate sign-in for E2E', { email });
+        const { error: signUpError } = await supabase.auth.signUp({ email, password });
+        if (signUpError) throw signUpError;
+        // In an E2E test, immediately sign in to create a session
+        authResult = await supabase.auth.signInWithPassword({ email, password });
       } else { // forgot_password
         console.log('[AUTH] Attempting password reset', { email });
         const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {

@@ -7,21 +7,12 @@
 * ⏱️ **7-Minute Timeout Constraint**
   Every script or command must complete within 7 minutes. If longer, split the work into multiple runs.
 
-* **Node Version Enforcement**
-  Node must match project requirement (`22.12.x`). Verify before running tasks:
-
+* **Setup & Pre-Check**
+  Run once per environment or when errors occur:
   ```bash
-  node -v | grep '^v22\.12\.' || echo "[WARN] Node version mismatch. Consider switching with nvm."
+  ./scripts/env-setup.sh
   ```
-
-* **Playwright Browsers**
-  Ensure browsers are installed once per environment:
-
-  ```bash
-  pnpm exec playwright install --with-deps
-  ```
-
-  Only rerun if Phase 1/2 fails due to missing binaries.
+  This script handles Node version validation, pnpm installation, dependency installation, and Playwright browser setup.
 
 * **Do not run `./env-stabilizer.sh` automatically before every task.**
   Use it **only when needed**, based on observed instability:
@@ -39,9 +30,6 @@
   4. Escalate **before using** `./vm-recovery.sh`.
 
 ---
-
-📖 **Read the README.md Before Running Anything**
-The agent must read README.md to understand the correct setup and workflow. This prevents mistakes like using `pnpm install` directly instead of the required `pnpm setup:dev`.
 
 * ✅ **Local Audit Script (Read From README.md)**
   Always use the **designated local audit script** (documented in `README.md`) to run lint, type-checking, and unit/E2E tests.
@@ -65,7 +53,6 @@ The agent must read README.md to understand the correct setup and workflow. This
 5. ✅ **Scripts** – Use approved `package.json` scripts:
 
    ```json
-   "setup:dev": "pnpm install && pnpm exec playwright install --with-deps",
    "dev": "vite",
    "build": "vite build",
    "preview": "vite preview",

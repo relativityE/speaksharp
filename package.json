@@ -7,8 +7,8 @@
     "node": "22.12.0"
   },
   "scripts": {
+    "setup:env": "bash ./scripts/env-setup.sh",
     "dev": "vite",
-    "setup:dev": "pnpm install && pnpm exec playwright install --with-deps",
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint 'src/**/*.{js,jsx,ts,tsx}' 'tests/**/*.{js,jsx,ts,tsx}' --report-unused-disable-directives --max-warnings 0",

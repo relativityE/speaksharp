@@ -14,9 +14,10 @@ To get started with SpeakSharp, you'll need to have Node.js and pnpm installed.
     ```bash
     cd speaksharp
     ```
-3.  **Install dependencies and browser binaries:**
+3.  **Setup the environment:**
+    Run once per environment or when errors occur:
     ```bash
-    pnpm setup:dev
+    ./scripts/env-setup.sh
     ```
 4.  **Run the development server:**
     ```bash
@@ -31,9 +32,10 @@ This project uses a two-tiered testing strategy to balance rapid development wit
 
 For comprehensive local validation, use the new E2E orchestrator script. This script is designed to run a full, phase-locked E2E test suite, mirroring the checks that will eventually be run in a dedicated CI pipeline.
 
-*   **Run the environment pre-check:** Before running the full suite, it is recommended to run the pre-check script to ensure your environment is correctly configured.
+*   **Setup & Pre-Check:**
+    Run once per environment or when errors occur:
     ```bash
-    ./scripts/pre-check.sh
+    ./scripts/env-setup.sh
     ```
 *   **Run the comprehensive local E2E test suite:**
     ```bash
