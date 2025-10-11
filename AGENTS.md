@@ -7,77 +7,102 @@
 * ⏱️ **7-Minute Timeout Constraint**
   Every script or command must complete within 7 minutes. If longer, split the work into multiple runs.
 
-### ⚠️ Environment Stabilization (Updated)
+* **Node Version Enforcement**
+  Node must match project requirement (`22.12.x`). Verify before running tasks:
+
+  ```bash
+  node -v | grep '^v22\.12\.' || echo "[WARN] Node version mismatch. Consider switching with nvm."
+  ```
+
+* **Playwright Browsers**
+  Ensure browsers are installed once per environment:
+
+  ```bash
+  pnpm exec playwright install --with-deps
+  ```
+
+  Only rerun if Phase 1/2 fails due to missing binaries.
 
 * **Do not run `./env-stabilizer.sh` automatically before every task.**
   Use it **only when needed**, based on observed instability:
 
-  **Signs that it may be necessary:**
-
-  * Tests hang or timeout unexpectedly
-  * Vite, Node, or Playwright processes are stuck or unresponsive
-  * Port conflicts on 5173 or 9323
+  * Tests hang or timeout
+  * Vite, Node, or Playwright processes stuck
+  * Port conflicts on `5173` or `9323`
   * Cache corruption or dependency errors
 
-* **Recommended workflow:**
+* **Recommended stabilization workflow**:
 
   1. Attempt the task normally.
-
-  2. If issues occur (sluggishness, failures, zombie processes), run:
-
-     ```bash
-     ./env-stabilizer.sh
-     ```
-
-  3. Retry the task after stabilization.
-
-  4. If still failing, escalate **before** using more aggressive recovery (`./vm-recovery.sh`).
-
-* **Quick sanity check:** Ensure Vite starts and critical ports are free after running `./env-stabilizer.sh`.
+  2. If issues occur, run: `./env-stabilizer.sh`
+  3. Retry the task.
+  4. Escalate **before using** `./vm-recovery.sh`.
 
 ---
 
-📖 **Read the README.md Before Running Anything**
-The agent must read README.md to understand the correct setup and workflow. This prevents mistakes like using `pnpm install` directly instead of the required `pnpm setup:dev`.
+## 📖 Read README.md Before Acting
 
-* ✅ **Local Audit Script (Read From README.md)**
-  Always use the **designated local audit script** (documented in `README.md`) to run lint, type-checking, and unit/E2E tests.
-
-  * Do **not** invent your own runner.
-  * If the README’s script fails or is missing, stop and escalate.
-  * Current runner: `./test-audit.sh` (check README.md first).
-
-* ⚠️ **Recovery Scripts Hierarchy**
-
-  1. Run `./env-stabilizer.sh` **only if needed**.
-  2. If stability still fails, **ask before running `./vm-recovery.sh`**. Never execute without explicit approval.
+* Always read `README.md` to understand setup, workflow, and scripts.
+* Use designated runners; **never invent your own**.
+* Current audit runner: `./test-audit.sh`
 
 ---
 
 ## ⚡ Quick Reference – Non-Negotiable Rules
 
-1. ✅ **Environment Stabilization** – Run `./env-stabilizer.sh` **selectively**, only when signs of instability are present.
-2. ✅ **Codebase Context**
+1. ✅ **Environment Stabilization** – Run `./env-stabilizer.sh` selectively.
+2. ✅ **Codebase Context** – Inspect `/src`, `/tests`, `/contexts`, `/docs` before acting.
+3. ❌ **No Code Reversals Without Consent** – Never undo user work.
+4. ⏱️ **Status Updates** – Provide updates every 5 minutes for long-running tasks.
+5. ✅ **Scripts** – Use approved `package.json` scripts:
 
-   * Run `pnpm setup:dev` (❌ never `pnpm install`).
-   * Inspect `/src`, `/tests`, `/contexts`, and `/docs` before acting.
-   * Read `README.md` first to ground yourself in current scripts and workflows.
-3. ❌ **No Code Reversals Without Consent** – Never undo or revert user work without approval.
-4. ⏱️ **Status Updates** – Provide updates every 5 minutes if tasks run long.
+   ```json
+   "setup:dev": "pnpm install && pnpm exec playwright install --with-deps",
+   "dev": "vite",
+   "build": "vite build",
+   "preview": "vite preview",
+   "lint": "eslint 'src/**/*.{js,jsx,ts,tsx}' 'tests/**/*.{js,jsx,ts,tsx}' --report-unused-disable-directives --max-warnings 0",
+   "lint:fix": "eslint 'src/**/*.{js,jsx,ts,tsx}' 'tests/**/*.{js,jsx,ts,tsx}' --fix",
+   "typecheck": "tsc --build",
+   "test:audit": "./test-audit.sh",
+   "test:unit:full": "vitest run --coverage",
+   "test:unit:core": "vitest run --reporter verbose --pool=threads --poolOptions.threads=2",
+   "test:e2e": "playwright test --reporter=list",
+   "test:e2e:shard": "playwright test --shard=$1/2",
+   "test:e2e:ui": "playwright test --ui",
+   "test:e2e:smoke": "playwright test --grep @smoke",
+   "test:e2e:smoke:headless": "playwright test --grep @smoke --headed=false",
+   "test:screenshots": "playwright test --grep @visual",
+   "playwright:install": "playwright install"
+   ```
+6. ✅ **Foreground Logging** – All E2E tasks must run in foreground with live logs (`tee`) for agent traceability.
 
-Think like a **senior engineer**: safe, evidence-based, long-term stable.
+---
+
+## 🔍 Task Workflow
+
+1. **Contextual Review** – Read `/docs` and `README.md` before acting.
+2. **Stabilize Environment** – Run `./env-stabilizer.sh` only if instability signs appear.
+3. **Grounding** – Review current workflows, scripts, and audit runners.
+4. **Codebase Deep Dive** – Inspect actual code, not assumptions.
+5. **Strategic Consultation** – Present root cause + 2–3 solution paths **before major changes**.
+6. **Implementation** – Follow coding standards, architecture principles, and scripts.
+7. **Validation** – Complete Pre-Check-In List (see below).
+8. **Submission** – Ask user **before running recovery scripts** (`./vm-recovery.sh`).
 
 ---
 
 ## 🚦 Pre-Check-In List (MANDATORY)
 
-Complete all items **before any commit/PR**:
+*Complete before any commit or PR:*
 
 1. **Run Local Audit Script**
 
-   * Use the script defined in `README.md` (`./test-audit.sh`).
-   * It runs linting, type-checking, and core unit tests.
-   * All errors must be resolved.
+   ```bash
+   ./test-audit.sh
+   ```
+
+   Must pass lint, typecheck, unit/E2E tests.
 
 2. **Documentation**
 
@@ -91,7 +116,7 @@ Complete all items **before any commit/PR**:
 4. **Security & Dependencies**
 
    * Run `pnpm audit` after dependency changes.
-   * Document in `ARCHITECTURE.md`.
+   * Document results in `ARCHITECTURE.md`.
 
 5. **Branch & Commit Hygiene**
 
@@ -99,37 +124,30 @@ Complete all items **before any commit/PR**:
    * Commit messages summarize actual changes.
 
 6. **Final User Confirmation**
-   Ask:
 
    > "All checks complete. May I run the environment recovery script (`./vm-recovery.sh`)?"
 
-   Proceed **only after explicit approval**.
-
 ---
 
-## 🚨 Absolute Non-Negotiables
+## ⚠️ Phase-Specific Guidelines
 
-* ❌ Never run `./vm-recovery.sh` without asking first.
-* ❌ Never exceed the 7-minute runtime per command.
-* ❌ Never undo or destroy user work without consent.
-* 📄 Docs before code review — always.
-* 🔐 Security first — no leaks, no unsafe shortcuts.
-* 🧩 No unapproved dependencies.
-* 💰 No cost-incurring services without consent.
-* 🧠 Think like a senior engineer — long-term, safe, evidence-driven.
+### Phase 1: Dev Server
 
----
+* Ensure `5173` port is free.
+* Run Vite dev server in foreground with live logging.
+* Timeout: 5 minutes.
 
-## 🔍 Task Workflow
+### Phase 2: DOM Inspection
 
-0. **Contextual Review** – Read `/docs` and `README.md` before acting.
-1. **Stabilize** – Run `./env-stabilizer.sh` **only if signs of instability appear**.
-2. **Grounding** – Read `README.md` and `/docs`.
-3. **Codebase Deep Dive** – Inspect actual code, not assumptions.
-4. **Strategic Consultation** – Present root cause + 2–3 solution paths before major changes.
-5. **Implementation** – Follow coding standards + architecture principles.
-6. **Validation** – Complete Pre-Check-In List.
-7. **Submission** – Ask user before running any recovery scripts.
+* Use `playwright eval` scripts.
+* Capture output in `./logs/auth-dom.json`.
+* Browser: headless Chromium by default.
+
+### Phase 7: Visual Verification
+
+* Run `playwright test --grep @visual`.
+* Convert screenshots to base64 or save `.png` to `./logs`.
+* Live log output required.
 
 ---
 
@@ -137,8 +155,21 @@ Complete all items **before any commit/PR**:
 
 If blocked:
 
-* Summarize the problem.
-* List what you tried.
-* Provide hypotheses.
-* Offer 2–3 solution paths with pros/cons.
-* **Pause and wait for user guidance.**
+1. Summarize the problem.
+2. List what you tried.
+3. Provide hypotheses.
+4. Offer 2–3 solution paths with pros/cons.
+5. **Pause and wait for user guidance** before proceeding.
+
+---
+
+## 🔐 Absolute Non-Negotiables
+
+* ❌ Never run `./vm-recovery.sh` without asking first.
+* ❌ Never exceed 7-minute runtime per command.
+* ❌ Never undo or destroy user work without consent.
+* 📄 Documentation first.
+* 🔐 Security first — no leaks or unsafe shortcuts.
+* 🧠 Think like a senior engineer — evidence-based, long-term stability.
+
+---
