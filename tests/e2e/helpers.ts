@@ -277,8 +277,9 @@ export type MockUser = {
  * @param page - Playwright Page instance
  * @param email - User email address
  * @param password - User password (optional, not used for mock auth but kept for API consistency)
+ * @param url - The URL to navigate to after logging in (defaults to '/')
  */
-export async function programmaticLogin(page: Page, email: string, password?: string) {
+export async function programmaticLogin(page: Page, email: string, password?: string, url: string = '/') {
     const user: MockUser = {
         id: `${email.split('@')[0]}-id`,
         email,
@@ -312,7 +313,7 @@ export async function programmaticLogin(page: Page, email: string, password?: st
             );
         }
 
-        // 3. Inject the session into localStorage with the correct key format
+        // 3. Now that we are on the correct origin, set the authentication token in localStorage
         await page.evaluate(({ mockUser, supabaseUrl }) => {
             // Extract project reference from Supabase URL
             const urlParts = supabaseUrl.split('//')[1]?.split('.') || ['local'];
@@ -344,8 +345,8 @@ export async function programmaticLogin(page: Page, email: string, password?: st
                 }
             };
 
-            // Store with correct key format
             window.localStorage.setItem(storageKey, JSON.stringify(session));
+        }, { mockUser: user, supabaseUrl: process.env.VITE_SUPABASE_URL });
 
             // Also set legacy format for backwards compatibility
             window.localStorage.setItem('supabase.auth.token', JSON.stringify({
@@ -356,8 +357,8 @@ export async function programmaticLogin(page: Page, email: string, password?: st
             // Set flag for E2E mock session
             (window as any).__E2E_MOCK_SESSION__ = true;
 
-            console.log(`[E2E] Set auth session with key: ${storageKey}`);
-        }, { mockUser: user, supabaseUrl });
+        // 5. FAIL FAST: Check for any authentication errors IMMEDIATELY
+        await checkForAuthErrors(page, 'post-login');
 
         // 4. Reload the page for the AuthProvider to pick up the session
         await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });

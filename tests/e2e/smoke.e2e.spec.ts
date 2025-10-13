@@ -1,8 +1,10 @@
-import { test, expect, programmaticLogin } from './helpers';
-import { SessionPage } from './poms/sessionPage.pom';
+// tests/e2e/smoke.e2e.spec.ts
+import { test, expect, getLogger } from './helpers';
+import { programmaticLogin, stubThirdParties } from './helpers';
 
 test.describe('Smoke Test', () => {
-  let sessionPage: SessionPage;
+  test('should log in, navigate to session page, and verify core UI elements @smoke', async ({ page }, testInfo) => {
+    const logger = getLogger(testInfo.title);
 
   test('should log in, navigate to session page, and verify core UI elements @smoke', async ({ page }) => {
     // First, programmatically log in the user.
