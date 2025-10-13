@@ -346,7 +346,6 @@ export async function programmaticLogin(page: Page, email: string, password?: st
             };
 
             window.localStorage.setItem(storageKey, JSON.stringify(session));
-        }, { mockUser: user, supabaseUrl: process.env.VITE_SUPABASE_URL });
 
             // Also set legacy format for backwards compatibility
             window.localStorage.setItem('supabase.auth.token', JSON.stringify({
@@ -356,6 +355,7 @@ export async function programmaticLogin(page: Page, email: string, password?: st
 
             // Set flag for E2E mock session
             (window as any).__E2E_MOCK_SESSION__ = true;
+        }, { mockUser: user, supabaseUrl: process.env.VITE_SUPABASE_URL });
 
         // 5. FAIL FAST: Check for any authentication errors IMMEDIATELY
         await checkForAuthErrors(page, 'post-login');
