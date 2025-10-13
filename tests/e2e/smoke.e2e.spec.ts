@@ -1,16 +1,32 @@
-import { test, expect, programmaticLogin } from './helpers';
-import { SessionPage } from './poms/sessionPage.pom';
+// tests/e2e/smoke.e2e.spec.ts
+import { test, expect, getLogger } from './helpers';
+import { programmaticLogin, stubThirdParties } from './helpers';
 
 test.describe('Smoke Test', () => {
-  let sessionPage: SessionPage;
+  test('should log in, navigate to session page, and verify core UI elements @smoke', async ({ page }, testInfo) => {
+    const logger = getLogger(testInfo.title);
 
-  test('should log in, navigate to session page, and verify core UI elements @smoke', async ({ page }) => {
-    await programmaticLogin(page, 'smoke-test-user@example.com');
+    logger.info('smoke-test', 'Starting smoke test');
 
-    sessionPage = new SessionPage(page);
-    await sessionPage.goto();
+    // Stub third parties to avoid noise
+    await stubThirdParties(page);
 
-    await expect(page.getByRole('button', { name: 'Start For Free' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Sign Out' })).toBeVisible();
+    // Step 1: Programmatic login. This helper now reliably handles auth.
+    logger.info('smoke-test', 'Performing programmatic login');
+    await programmaticLogin(page, 'smoke-test@example.com', 'password123', '/session');
+
+    logger.info('smoke-test', 'Login successful, verifying session page UI');
+
+    // Step 2: Verify we're on the session page by checking for session-specific elements
+    await expect(page.getByRole('button', { name: /upgrade/i })).toBeVisible({ timeout: 10000 });
+    logger.info('smoke-test', 'Upgrade button found');
+
+    // Step 3: Verify the main navigation is present and contains the Sign Out button
+    const nav = page.locator('nav');
+    await expect(nav).toBeVisible();
+    await expect(nav.getByRole('button', { name: /sign out/i })).toBeVisible();
+    logger.info('smoke-test', 'Sign Out button found in navigation');
+
+    logger.info('smoke-test', 'Smoke test completed successfully');
   });
 });

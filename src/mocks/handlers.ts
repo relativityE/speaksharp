@@ -1,5 +1,5 @@
 import { http, HttpResponse, type RequestHandler } from 'msw';
-import type { Session } from '@supabase/supabase-js';
+import type { Session, User } from '@supabase/supabase-js';
 
 /**
  * Creates a realistic, structurally-correct mock Supabase session object.
@@ -32,7 +32,34 @@ function createMockSession(userData: { id: string; email: string; }): Session {
   };
 }
 
+function createMockUser(userData: { id: string; email: string; }): User {
+    const now = new Date().toISOString();
+    return {
+        id: userData.id,
+        email: userData.email,
+        app_metadata: { provider: 'email', providers: ['email'] },
+        user_metadata: { subscription_status: 'free' },
+        aud: 'authenticated',
+        role: 'authenticated',
+        created_at: now,
+        updated_at: now,
+    };
+}
+
+
 export const handlers: RequestHandler[] = [
+  // Mock for session validation (the missing piece!)
+  http.get('*/auth/v1/user', ({ request }) => {
+    const authHeader = request.headers.get('Authorization');
+    // If the mock token is present, return a mock user.
+    if (authHeader && authHeader.includes('mock-access-token')) {
+        const mockUser = createMockUser({ id: 'smoke-test-user-id', email: 'smoke-test-user@example.com' });
+        return HttpResponse.json(mockUser);
+    }
+    // Otherwise, return an unauthenticated error.
+    return HttpResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }),
+
   // Mock for user sign-up
   http.post('*/auth/v1/signup', async ({ request }) => {
     const { email } = await request.json() as { email: string };

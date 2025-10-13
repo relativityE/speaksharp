@@ -4,6 +4,7 @@ import { Session } from '@supabase/supabase-js';
 import { UserProfile } from '../types/user';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AuthContext, AuthContextType } from './AuthContext';
+import { getSyncSession } from '../lib/utils';
 
 const getProfileFromDb = async (userId: string): Promise<UserProfile | null> => {
   try {
@@ -25,9 +26,15 @@ interface AuthProviderProps {
 }
 
 export function AuthProvider({ children, initialSession }: AuthProviderProps) {
-  const [session, setSessionState] = useState<Session | null>(initialSession === undefined ? null : initialSession);
+  // Initialize session state SYNCHRONOUSLY from localStorage
+  const [session, setSessionState] = useState<Session | null>(() => {
+    if (initialSession !== undefined) return initialSession;
+    return getSyncSession();
+  });
+
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(initialSession === undefined);
+  // Start with loading=false as we have a sync session
+  const [loading, setLoading] = useState(false);
 
   const updateSession = async (s: Session | null) => {
     setSessionState(s);
@@ -40,37 +47,22 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
   };
 
   useEffect(() => {
-    if (initialSession !== undefined) {
-      // When initialSession is provided, we assume a controlled testing environment.
-      // The session is already set, so we can skip the async bootstrap.
-      if(initialSession) {
-        updateSession(initialSession);
-      }
-      setLoading(false);
-      return;
+    // If we have a session (either sync or from props), fetch the profile
+    if (session?.user) {
+      getProfileFromDb(session.user.id).then(setProfile);
     }
-
-    const bootstrapAuth = async () => {
-      setLoading(true);
-      const { data: { session: currentSession } } = await supabase.auth.getSession();
-      await updateSession(currentSession);
-      setLoading(false);
-    };
-
-    bootstrapAuth();
 
     const { data: listener } = supabase.auth.onAuthStateChange(
       async (_event, newSession) => {
-        setLoading(true);
+        // Still use the listener to react to real-time changes
         await updateSession(newSession);
-        setLoading(false);
       }
     );
 
     return () => {
       listener?.subscription.unsubscribe();
     };
-  }, [initialSession]);
+  }, []);
 
   if (loading) {
     return (
