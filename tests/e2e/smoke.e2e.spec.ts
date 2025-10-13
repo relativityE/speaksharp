@@ -10,7 +10,10 @@ test.describe('Smoke Test', () => {
     sessionPage = new SessionPage(page);
     await sessionPage.goto();
 
-    await expect(page.getByRole('button', { name: 'Start For Free' })).toBeVisible();
+    // Corrected Assertions:
+    // A logged-in user should see an "Upgrade" button on the session page
+    // and a "Sign Out" button in the main navigation.
+    await expect(page.getByRole('button', { name: /upgrade/i })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Sign Out' })).toBeVisible();
   });
 });
