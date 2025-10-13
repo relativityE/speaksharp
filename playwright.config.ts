@@ -31,9 +31,9 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
   webServer: {
-    command: 'pnpm exec vite --mode test',
+    command: 'pnpm exec dotenv -e .env.test -- pnpm exec vite --mode test',
     url: BASE_URL,
-    reuseExistingServer: true,
+    reuseExistingServer: false,
     timeout: 120 * 1000,
     stdout: 'pipe',
     stderr: 'pipe',
