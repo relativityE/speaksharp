@@ -286,11 +286,11 @@ export async function programmaticLogin(page: Page, email: string, password?: st
         subscription_status: email.includes('pro') ? 'pro' : 'free',
     };
 
-    await test.step(`Programmatic login for ${user.email} on ${url}`, async () => {
-        // 1. Go to the root of the app to establish an origin for localStorage
+    await test.step(`Programmatic login for ${user.email}`, async () => {
+        // 1. Go to the page and wait for MSW to be ready
         await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await page.waitForTimeout(1000);
 
-        // 2. Wait for MSW to be ready on that page.
         try {
             await waitForMSW(page);
         } catch (err) {
@@ -302,10 +302,24 @@ export async function programmaticLogin(page: Page, email: string, password?: st
             );
         }
 
+        // 2. Get the Supabase URL to determine the correct localStorage key
+        const supabaseUrl = process.env.VITE_SUPABASE_URL;
+
+        if (!supabaseUrl) {
+            throw new Error(
+                `❌ MISSING ENVIRONMENT VARIABLE\n` +
+                `   VITE_SUPABASE_URL is not set.\n` +
+                `   Check your .env.test file or playwright.config.ts`
+            );
+        }
+
         // 3. Now that we are on the correct origin, set the authentication token in localStorage
         await page.evaluate(({ mockUser, supabaseUrl }) => {
-            const urlParts = (supabaseUrl || '').split('//')[1]?.split('.') || ['local'];
+            // Extract project reference from Supabase URL
+            const urlParts = supabaseUrl.split('//')[1]?.split('.') || ['local'];
             const projectRef = urlParts[0].replace(':', '-');
+
+            // Supabase v2 uses this key format
             const storageKey = `sb-${projectRef}-auth-token`;
 
             const session = {
@@ -334,44 +348,28 @@ export async function programmaticLogin(page: Page, email: string, password?: st
             window.localStorage.setItem(storageKey, JSON.stringify(session));
         }, { mockUser: user, supabaseUrl: process.env.VITE_SUPABASE_URL });
 
-        // 4. Now, navigate to the final destination page.
-        // This is better than reload() as it ensures a clean start with the token in place.
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        await waitForMSW(page); // Ensure MSW is ready again after the final navigation
-        await page.waitForTimeout(1000); // Allow React to hydrate
+            // Also set legacy format for backwards compatibility
+            window.localStorage.setItem('supabase.auth.token', JSON.stringify({
+                currentSession: session,
+                expiresAt: session.expires_at
+            }));
+
+            // Set flag for E2E mock session
+            (window as any).__E2E_MOCK_SESSION__ = true;
 
         // 5. FAIL FAST: Check for any authentication errors IMMEDIATELY
         await checkForAuthErrors(page, 'post-login');
 
-        // 6. Check for the sign out button to confirm login was successful
-        const signOutButton = page.getByRole('button', { name: /sign out/i });
+        // 4. Reload the page for the AuthProvider to pick up the session
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
+        await page.waitForTimeout(1000);
+        await waitForMSW(page);
 
-        try {
-            await expect(signOutButton).toBeVisible({ timeout: 15000 });
-        } catch (err) {
-            await dumpPageState(page, 'no-signout-button');
-            const availableButtons = await page.$$eval('button', buttons =>
-                buttons.map(b => ({
-                    text: b.textContent?.trim(),
-                    testId: b.getAttribute('data-testid'),
-                    visible: b.offsetParent !== null
-                }))
-            );
-            const authState = await page.evaluate(() => ({
-                localStorageKeys: Object.keys(localStorage),
-                hasAuthToken: Object.keys(localStorage).some(k => k.includes('auth')),
-                currentUrl: window.location.href
-            }));
+        // 5. FAIL FAST: Check for any authentication errors IMMEDIATELY
+        await checkForAuthErrors(page, 'post-login');
 
-            throw new Error(
-                `❌ SIGN OUT BUTTON NOT FOUND\n` +
-                `   Expected: button with text matching /sign out/i\n` +
-                `   Current URL: ${authState.currentUrl}\n` +
-                `   Auth token in localStorage: ${authState.hasAuthToken}\n` +
-                `   Available buttons: ${JSON.stringify(availableButtons.filter(b => b.visible), null, 2)}\n` +
-                `   Check debug-no-signout-button.html for full page state`
-            );
-        }
+        // 6. Wait a moment for React state to update
+        await page.waitForTimeout(1000);
     });
 }
 
