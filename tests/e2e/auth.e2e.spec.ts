@@ -1,5 +1,5 @@
 // tests/e2e/auth.e2e.spec.ts
-import { test, expect, getLogger } from './helpers';
+import { test, getLogger } from './helpers';
 import { AuthPage } from './poms/authPage.pom';
 import { SessionPage } from './poms/sessionPage.pom';
 import { stubThirdParties, programmaticLogin } from './helpers';
@@ -21,6 +21,7 @@ test.describe('Authentication', () => {
     logger.info('setup', 'Setup complete');
   });
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   test('should allow a new user to sign up', async ({ page }, testInfo) => {
     const logger = getLogger(testInfo.title);
     const email = `test-user-signup-${Date.now()}@example.com`;
@@ -56,6 +57,7 @@ test.describe('Authentication', () => {
     });
   });
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   test('should show an error when signing up with an existing user email', async ({ page }, testInfo) => {
     const logger = getLogger(testInfo.title);
     const email = 'existing-user@example.com';
@@ -83,13 +85,12 @@ test.describe('Authentication', () => {
   test('should allow an existing user to sign in', async ({ page }, testInfo) => {
     const logger = getLogger(testInfo.title);
     const email = 'test-user-signin@example.com';
-    const password = 'password123';
 
     await test.step('Programmatically login an existing user', async () => {
       logger.info('signin', 'Starting programmatic login', { email });
 
       // Pass logger to programmaticLogin for detailed logging
-      await programmaticLogin(page, email, password);
+      await programmaticLogin(page, email);
 
       logger.info('signin', 'Programmatic login complete');
     });

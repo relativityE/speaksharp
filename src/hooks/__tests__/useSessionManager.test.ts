@@ -196,7 +196,7 @@ describe('exportSessions', () => {
     // Verify the export flow
     expect(mockStorage.exportData).toHaveBeenCalledExactlyOnceWith(mockUser.id);
     expect(global.URL.createObjectURL).toHaveBeenCalled();
-    // eslint-disable-next-line vitest/prefer-called-exactly-once-with
+
     expect(document.createElement).toHaveBeenCalledWith('a');
     expect(document.body.appendChild).toHaveBeenCalled();
     expect(document.body.removeChild).toHaveBeenCalled();

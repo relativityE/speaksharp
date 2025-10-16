@@ -34,7 +34,7 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   // Start with loading=false as we have a sync session
-  const [loading, setLoading] = useState(false);
+  const [loading] = useState(false);
 
   const updateSession = async (s: Session | null) => {
     setSessionState(s);
@@ -62,7 +62,7 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
     return () => {
       listener?.subscription.unsubscribe();
     };
-  }, []);
+  }, [session?.user]);
 
   if (loading) {
     return (

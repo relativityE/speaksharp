@@ -2,24 +2,20 @@
 import { test as base, expect, Page, Response } from '@playwright/test';
 import fs from 'fs';
 import { AuthPage } from './poms/authPage.pom';
+import { Session, User } from '@supabase/supabase-js';
+import { UserProfile } from '@/types/user';
 
-declare global {
-  interface Window {
-    mswReady: Promise<any>;
-    __USER__: MockUser;
-    __E2E_MOCK_SESSION__: boolean;
-  }
-}
+// Note: Global window types are now solely defined in src/types/ambient.d.ts
 
 // ---------------------------------
 // MSW Readiness Helper
 // ---------------------------------
 export async function waitForMSW(page: Page) {
-  await page.waitForFunction(() => window.mswReady, { timeout: 10000 }).catch(async (err) => {
-    console.error(`[HELPER] MSW readiness timeout: ${err.message}`);
-    const consoleLogs = await page.evaluate(() => (window as any).consoleLog);
+  await page.waitForFunction(() => window.mswReady, { timeout: 10000 }).catch(async () => {
+    console.error(`[HELPER] MSW readiness timeout`);
+    const consoleLogs = await page.evaluate(() => window.consoleLog);
     console.error('[HELPER] Browser console logs:', consoleLogs);
-    throw err;
+    throw new Error('MSW readiness timeout');
   });
 }
 
@@ -73,7 +69,7 @@ export async function checkForAuthErrors(page: Page, context: string) {
 
   // Check console for errors
   const consoleErrors = await page.evaluate(() => {
-    return (window as any).__E2E_CONSOLE_ERRORS__ || [];
+    return window.__E2E_CONSOLE_ERRORS__ || [];
   });
 
   if (consoleErrors.length > 0) {
@@ -85,7 +81,7 @@ export async function checkForAuthErrors(page: Page, context: string) {
 // Timestamped Logging System
 // ---------------------------------
 export class TestLogger {
-  private logs: Array<{ timestamp: string; level: string; context: string; message: string; data?: any }> = [];
+  private logs: Array<{ timestamp: string; elapsed: string; level: string; context: string; message: string; data?: unknown }> = [];
   private testName: string;
   private startTime: number;
 
@@ -103,7 +99,7 @@ export class TestLogger {
     return `+${(elapsed / 1000).toFixed(2)}s`;
   }
 
-  info(context: string, message: string, data?: any) {
+  info(context: string, message: string, data?: unknown) {
     const entry = {
       timestamp: this.getTimestamp(),
       elapsed: this.getElapsed(),
@@ -116,7 +112,7 @@ export class TestLogger {
     console.log(`[${entry.elapsed}] [INFO] [${context}] ${message}`, data || '');
   }
 
-  warn(context: string, message: string, data?: any) {
+  warn(context: string, message: string, data?: unknown) {
     const entry = {
       timestamp: this.getTimestamp(),
       elapsed: this.getElapsed(),
@@ -129,7 +125,7 @@ export class TestLogger {
     console.warn(`[${entry.elapsed}] [WARN] [${context}] ${message}`, data || '');
   }
 
-  error(context: string, message: string, data?: any) {
+  error(context: string, message: string, data?: unknown) {
     const entry = {
       timestamp: this.getTimestamp(),
       elapsed: this.getElapsed(),
@@ -259,8 +255,8 @@ export async function dumpPageState(page: Page, name = 'failure') {
       console.log(`--- DEBUG_SCREENSHOT_BASE64_END_${name} ---`);
     }
 
-  } catch (err) {
-    console.error('Failed to dump page state', err);
+  } catch {
+    console.error('Failed to dump page state');
   }
 }
 
@@ -276,10 +272,8 @@ export type MockUser = {
  *
  * @param page - Playwright Page instance
  * @param email - User email address
- * @param password - User password (optional, not used for mock auth but kept for API consistency)
- * @param url - The URL to navigate to after logging in (defaults to '/')
  */
-export async function programmaticLogin(page: Page, email: string, password?: string, url: string = '/') {
+export async function programmaticLogin(page: Page, email: string) {
     const user: MockUser = {
         id: `${email.split('@')[0]}-id`,
         email,
@@ -293,7 +287,7 @@ export async function programmaticLogin(page: Page, email: string, password?: st
 
         try {
             await waitForMSW(page);
-        } catch (err) {
+        } catch {
             await dumpPageState(page, 'msw-timeout');
             throw new Error(
                 `❌ MSW initialization timeout\n` +
@@ -322,7 +316,7 @@ export async function programmaticLogin(page: Page, email: string, password?: st
             // Supabase v2 uses this key format
             const storageKey = `sb-${projectRef}-auth-token`;
 
-            const session = {
+            const session: Session = {
                 access_token: "fake-access-token",
                 refresh_token: "fake-refresh-token",
                 expires_in: 3600,
@@ -342,7 +336,7 @@ export async function programmaticLogin(page: Page, email: string, password?: st
                     identities: [],
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString()
-                }
+                } as User
             };
 
             window.localStorage.setItem(storageKey, JSON.stringify(session));
@@ -354,8 +348,8 @@ export async function programmaticLogin(page: Page, email: string, password?: st
             }));
 
             // Set flag for E2E mock session
-            (window as any).__E2E_MOCK_SESSION__ = true;
-        }, { mockUser: user, supabaseUrl: process.env.VITE_SUPABASE_URL });
+            window.__E2E_MOCK_SESSION__ = true;
+        }, { mockUser: user, supabaseUrl: process.env.VITE_SUPABASE_URL! });
 
         // 5. FAIL FAST: Check for any authentication errors IMMEDIATELY
         await checkForAuthErrors(page, 'post-login');
@@ -381,10 +375,10 @@ export async function stubThirdParties(page: Page) {
 // Capture console errors for fail-fast detection
 base.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
-        (window as any).__E2E_CONSOLE_ERRORS__ = [];
+        window.__E2E_CONSOLE_ERRORS__ = [];
         const originalError = console.error;
-        console.error = (...args: any[]) => {
-            (window as any).__E2E_CONSOLE_ERRORS__.push(args.join(' '));
+        console.error = (...args: unknown[]) => {
+            window.__E2E_CONSOLE_ERRORS__.push(args.join(' '));
             originalError.apply(console, args);
         };
     });

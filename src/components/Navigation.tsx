@@ -6,10 +6,10 @@ import { useAuth } from "@/contexts/useAuth";
 const Navigation = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { session, supabase } = useAuth();
+  const { session, signOut } = useAuth();
 
   const handleSignOut = async () => {
-    await supabase?.auth.signOut();
+    await signOut();
     navigate("/", { replace: true });
   };
 
