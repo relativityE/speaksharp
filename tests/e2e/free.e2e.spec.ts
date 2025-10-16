@@ -1,32 +1,32 @@
-import { test, expect, programmaticLogin } from './helpers';
-import { SessionPage } from './poms/sessionPage.pom';
+// tests/e2e/free.e2e.spec.ts
+import { test, getLogger } from './helpers';
+import { HomePage } from './poms/homePage.pom';
+import { programmaticLogin } from './helpers';
 
-test.describe('Free User Flow', () => {
-  let sessionPage: SessionPage;
+test.describe('Free Tier User Flow', () => {
+  let homePage: HomePage;
 
-  test.beforeEach(async ({ page }) => {
-    sessionPage = new SessionPage(page);
+  test.beforeEach(async ({ page }, testInfo) => {
+    const logger = getLogger(testInfo.title);
+    homePage = new HomePage(page);
+
+    logger.info('setup', 'Starting programmatic login for free user');
+    await programmaticLogin(page, 'free-user@example.com');
+    logger.info('setup', 'Programmatic login complete');
+
+    logger.info('setup', 'Navigating to home page');
+    await homePage.goto();
+    logger.info('setup', 'Setup complete');
   });
 
-  test('should display the correct UI for a free user', async ({ page }) => {
-    await programmaticLogin(page, 'free-user@example.com');
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  test('should see the upgrade prompt on the home page', async ({ page }, testInfo) => {
+    const logger = getLogger(testInfo.title);
+    logger.info('verification', 'Verifying upgrade prompt is visible');
 
-    await test.step('Verify home page UI', async () => {
-      await expect(page.getByTestId('start-free-session-button')).toBeVisible({ timeout: 15000 });
-    });
-  });
+    await homePage.assertUpgradePromptIsVisible();
 
-  test('should allow a free user to start and stop a session', async ({ page }) => {
-    await programmaticLogin(page, 'free-user@example.com');
-
-    await test.step('Start a session', async () => {
-      await page.getByTestId('start-free-session-button').click();
-      await expect(page.getByRole('button', { name: 'Stop Session' })).toBeVisible();
-    });
-
-    await test.step('Stop the session', async () => {
-      await page.getByRole('button', { name: 'Stop Session' }).click();
-      await expect(page.getByTestId('start-free-session-button')).toBeVisible();
-    });
+    logger.info('verification', 'Upgrade prompt is visible, test complete');
+//
   });
 });

@@ -47,7 +47,7 @@ describe('useFillerWords', () => {
       like: { count: 0, color: '' },
     };
 
-    // eslint-disable-next-line vitest/prefer-called-exactly-once-with
+
     expect(fillerWordUtils.createInitialFillerData).toHaveBeenCalledWith(customWords);
     expect(result.current.fillerData).toEqual(expectedInitialData);
     expect(result.current.finalFillerData).toEqual(expectedInitialData);
@@ -58,7 +58,7 @@ describe('useFillerWords', () => {
       useFillerWords(mockChunks, '', customWords)
     );
 
-    // eslint-disable-next-line vitest/prefer-called-exactly-once-with
+
     expect(fillerWordUtils.countFillerWords).toHaveBeenCalledWith('Hello um world', customWords);
   });
 
@@ -76,7 +76,7 @@ describe('useFillerWords', () => {
     });
 
     // Now should be called for live data
-    // eslint-disable-next-line vitest/prefer-called-exactly-once-with
+
     expect(fillerWordUtils.countFillerWords).toHaveBeenCalledWith('Hello um world uh test', customWords);
   });
 
@@ -86,7 +86,7 @@ describe('useFillerWords', () => {
       result.current.reset();
     });
 
-    // eslint-disable-next-line vitest/prefer-called-exactly-once-with
+
     expect(fillerWordUtils.createInitialFillerData).toHaveBeenCalledWith(customWords);
   });
 });

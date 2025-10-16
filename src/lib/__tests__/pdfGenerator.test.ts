@@ -67,21 +67,21 @@ describe('generateSessionPdf', () => {
     const jsPDFMockInstance = (jsPDF as unknown as ReturnType<typeof vi.fn>).mock.results[0].value;
 
     // Header
-    // eslint-disable-next-line vitest/prefer-called-exactly-once-with
+
     expect(jsPDFMockInstance.setFontSize).toHaveBeenCalledWith(20);
-    // eslint-disable-next-line vitest/prefer-called-exactly-once-with
+
     expect(jsPDFMockInstance.text).toHaveBeenCalledWith('SpeakSharp Session Report', 14, 22);
 
     // Metadata
-    // eslint-disable-next-line vitest/prefer-called-exactly-once-with
+
     expect(jsPDFMockInstance.setFontSize).toHaveBeenCalledWith(12);
-    // eslint-disable-next-line vitest/prefer-called-exactly-once-with
+
     expect(jsPDFMockInstance.text).toHaveBeenCalledWith('Date: September 23rd, 2025', 14, 32);
-    // eslint-disable-next-line vitest/prefer-called-exactly-once-with
+
     expect(jsPDFMockInstance.text).toHaveBeenCalledWith('Duration: 5 minutes', 14, 42);
 
     // Analytics table
-    // eslint-disable-next-line vitest/prefer-called-exactly-once-with
+
     expect(jsPDFMockInstance.autoTable).toHaveBeenCalledWith({
       startY: 70,
       head: [['Filler Word', 'Count']],
@@ -92,22 +92,22 @@ describe('generateSessionPdf', () => {
 
     // Transcript
     expect(jsPDFMockInstance.addPage).toHaveBeenCalled();
-    // eslint-disable-next-line vitest/prefer-called-exactly-once-with
+
     expect(jsPDFMockInstance.text).toHaveBeenCalledWith('Transcript', 14, 22);
-    // eslint-disable-next-line vitest/prefer-called-exactly-once-with
+
     expect(jsPDFMockInstance.splitTextToSize).toHaveBeenCalledWith('This is a test transcript.', 180);
-    // eslint-disable-next-line vitest/prefer-called-exactly-once-with
+
     expect(jsPDFMockInstance.text).toHaveBeenCalledWith(['This is a test transcript.'], 14, 32);
 
     // Footer
     expect(jsPDFMockInstance.setPage).toHaveBeenCalledTimes(2);
-    // eslint-disable-next-line vitest/prefer-called-exactly-once-with
+
     expect(jsPDFMockInstance.text).toHaveBeenCalledWith('Page 1 of 2', 14, 287);
-    // eslint-disable-next-line vitest/prefer-called-exactly-once-with
+
     expect(jsPDFMockInstance.text).toHaveBeenCalledWith('Page 2 of 2', 14, 287);
 
     // Save
-    // eslint-disable-next-line vitest/prefer-called-exactly-once-with
+
     expect(jsPDFMockInstance.save).toHaveBeenCalledWith('SpeakSharp-Session-123.pdf');
   });
 
@@ -124,7 +124,7 @@ describe('generateSessionPdf', () => {
     await generateSessionPdf(noTranscript as unknown as Session);
 
     const jsPDFMockInstance = (jsPDF as unknown as ReturnType<typeof vi.fn>).mock.results[0].value;
-    // eslint-disable-next-line vitest/prefer-called-exactly-once-with
+
     expect(jsPDFMockInstance.splitTextToSize).toHaveBeenCalledWith('No transcript available.', 180);
   });
 });

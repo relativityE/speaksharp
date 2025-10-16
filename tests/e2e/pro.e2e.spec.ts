@@ -18,6 +18,7 @@ test.describe('Pro User Flow', () => {
     await programmaticLogin(page, 'pro-user@example.com');
     await sessionPage.goto();
     // Verify transcription modes UI elements
-    await expect(page.getByTestId('transcription-mode')).toHaveCountGreaterThan(0);
+    const transcriptionModeCount = await page.getByTestId('transcription-mode').count();
+    expect(transcriptionModeCount).toBeGreaterThan(0);
   });
 });

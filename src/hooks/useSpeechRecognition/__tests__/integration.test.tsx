@@ -42,7 +42,7 @@ describe('useSpeechRecognition Integration', () => {
 
     // Call startListening to change the hook's internal state from its initial values.
     await act(async () => {
-      await result.current.startListening('native');
+      await result.current.startListening();
     });
 
     // Verify that some state has indeed changed (this is optional but good practice)

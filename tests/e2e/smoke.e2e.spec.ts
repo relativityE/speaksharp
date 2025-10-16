@@ -13,7 +13,7 @@ test.describe('Smoke Test', () => {
 
     // Step 1: Programmatic login (this will navigate to home page and verify Sign Out there)
     logger.info('smoke-test', 'Performing programmatic login');
-    await programmaticLogin(page, 'smoke-test@example.com', 'password123');
+    await programmaticLogin(page, 'smoke-test@example.com');
 
     logger.info('smoke-test', 'Login successful, user is authenticated');
 
