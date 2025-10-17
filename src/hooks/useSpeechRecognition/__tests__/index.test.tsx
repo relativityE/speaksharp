@@ -52,6 +52,7 @@ describe('useSpeechRecognition', () => {
     mode: null,
     startListening: vi.fn(),
     stopListening: vi.fn().mockResolvedValue({ success: true }),
+    reset: vi.fn(),
     setIsReady: vi.fn()
   };
 

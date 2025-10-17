@@ -37,10 +37,14 @@ run_with_timeout() {
 # STAGE 1: Prepare
 # ================================
 prepare_stage() {
-    echo "--- Running Prepare Stage ---"
-    echo "🔹 Installing Playwright browsers..."
-    pnpm exec playwright install --with-deps > "$LOG_DIR/playwright-install.log" 2>&1
+    echo "--- Running Pre-flight Validation ---"
+    if ! ./scripts/preflight.sh > "$LOG_DIR/preflight.log" 2>&1; then
+        echo "❌ Pre-flight validation failed. See log at $LOG_DIR/preflight.log" >&2
+        exit 1
+    fi
+    echo "✅ Pre-flight validation successful."
 
+    echo "--- Running Prepare Stage ---"
     run_with_timeout "pnpm lint" "$LOG_DIR/lint.log"
     run_with_timeout "pnpm typecheck" "$LOG_DIR/typecheck.log"
     run_with_timeout "pnpm build" "$LOG_DIR/build.log"
