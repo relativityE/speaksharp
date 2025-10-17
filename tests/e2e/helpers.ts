@@ -3,7 +3,6 @@ import { test as base, expect, Page, Response } from '@playwright/test';
 import fs from 'fs';
 import { AuthPage } from './poms/authPage.pom';
 import { Session, User } from '@supabase/supabase-js';
-import { UserProfile } from '@/types/user';
 
 // Note: Global window types are now solely defined in src/types/ambient.d.ts
 
@@ -378,7 +377,7 @@ base.beforeEach(async ({ page }) => {
         window.__E2E_CONSOLE_ERRORS__ = [];
         const originalError = console.error;
         console.error = (...args: unknown[]) => {
-            window.__E2E_CONSOLE_ERRORS__.push(args.join(' '));
+            window.__E2E_CONSOLE_ERRORS__!.push(args.join(' '));
             originalError.apply(console, args);
         };
     });

@@ -14,6 +14,9 @@ declare global {
     _speakSharpRootInitialized?: boolean;
     __E2E_MOCK_SESSION__?: boolean;
     __E2E_MODE__?: boolean;
+    // For E2E test debugging
+    consoleLog?: string[];
+    __E2E_CONSOLE_ERRORS__?: string[];
     transcriptionServiceRef?: React.RefObject<{
       init: () => Promise<{ success: boolean }>;
       startTranscription: () => Promise<void>;
