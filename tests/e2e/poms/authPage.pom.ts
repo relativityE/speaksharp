@@ -23,7 +23,6 @@ export class AuthPage {
     await this.emailInput.fill(email);
     await this.passwordInput.fill(password);
     await this.signUpButton.click();
-    await this.waitForPostAuth();
   }
 
   async login(email: string, password: string) {

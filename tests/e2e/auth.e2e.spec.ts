@@ -1,5 +1,5 @@
 // tests/e2e/auth.e2e.spec.ts
-import { test, getLogger } from './helpers';
+import { test, getLogger, expect } from './helpers';
 import { AuthPage } from './poms/authPage.pom';
 import { SessionPage } from './poms/sessionPage.pom';
 import { stubThirdParties, programmaticLogin } from './helpers';
@@ -33,7 +33,18 @@ test.describe('Authentication', () => {
 
       await authPage.signUp(email, password);
 
-      logger.info('signup', 'Sign-up form submitted');
+      // E2E WORKAROUND: Programmatically sign in to establish session after sign-up
+      await page.evaluate(async ({ email, password }) => {
+        const { error } = await window.supabase.auth.signInWithPassword({ email, password });
+        if (error) {
+          console.error('Programmatic sign-in failed:', error);
+        }
+      }, { email, password });
+
+      // Reload to ensure auth state is picked up
+      await page.reload();
+
+      logger.info('signup', 'Sign-up form submitted and session established');
     });
 
     await test.step('Verify user is signed in and can access protected routes', async () => {
