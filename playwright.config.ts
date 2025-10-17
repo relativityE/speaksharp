@@ -10,7 +10,7 @@ const BASE_URL = `http://localhost:${PORT}`;
 
 export default defineConfig({
   testDir: './tests/e2e',
-  timeout: 300_000,
+  timeout: 240_000, // 4-minute global timeout for each test file
   expect: { timeout: 10_000 },
   // Set workers to 1 to prevent parallel execution during stabilization
   workers: 1,

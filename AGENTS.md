@@ -36,10 +36,9 @@
 
   * Do **not** invent your own runner.
   * If the README’s script fails or is missing, stop and escalate.
-  * Current runner: `./scripts/e2e-run.sh` (check README.md first).
 
 * Always read `README.md` to understand setup, workflow, and scripts.
-* Use designated runners; **never invent your own**.
+* Use designated runners; **never invent your own**. The primary runner is now `./test-audit.sh`.
 * Current audit runner: `./test-audit.sh`
 
 ---
@@ -168,3 +167,24 @@ If blocked:
 * 🧠 Think like a senior engineer — evidence-based, long-term stability.
 
 ---
+
+---
+---
+
+## 🚀 New Simplified Workflow (Effective Immediately)
+
+To address persistent environment instability, a new automated pre-flight check has been created. This is now the **mandatory** first step for all sessions. It replaces the need to manually run `env-setup.sh` or `env-stabilizer.sh` for routine work.
+
+**Your first action in every session MUST be to execute the pre-flight validation script:**
+
+```bash
+./scripts/preflight.sh
+```
+
+This script will:
+1.  Terminate any lingering processes.
+2.  Install all dependencies.
+3.  Install all required browser binaries.
+4.  Run a smoke test to verify the environment is stable.
+
+Do not proceed until this script completes successfully. The `./test-audit.sh` script has been updated to run this check automatically.
