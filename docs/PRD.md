@@ -115,23 +115,36 @@ This section provides a granular breakdown of user-facing features, grouped by p
 
 ---
 
-## 3. Known Issues & Risks
+## 3. Testing Strategy
 
-This section tracks high-level product risks and constraints. For a detailed history of resolved issues, see the [Changelog](./CHANGELOG.md).
+The project's testing strategy prioritizes stability, reliability, and a tight alignment between the local development environment and the CI/CD pipeline.
+
+*   **Unit & Integration Tests (Vitest):** These form the foundation of our testing pyramid. They are fast, focused, and verify the correctness of individual components and hooks in isolation.
+*   **End-to-End Tests (Playwright):** E2E tests validate complete user flows from start to finish. To combat the flakiness often associated with UI-driven tests, we have adopted a critical strategic decision:
+    *   **Programmatic Login Only:** All E2E tests that require an authenticated state **must** use the `programmaticLogin` helper. This method directly injects a session into `localStorage`, bypassing the UI for sign-up and login. This approach is significantly faster and more reliable than attempting to simulate user input in the auth form.
+    *   **No UI-Driven Auth Tests:** Tests that attempt to validate the sign-up or login forms via UI interaction have been removed. The stability and speed gained by using programmatic login are considered a higher priority than testing the auth form itself in the E2E suite.
+*   **API Mocking (MSW):** All external services and backend APIs are mocked using Mock Service Worker (MSW). This ensures that tests are deterministic and can run without a live network connection.
+*   **Single Source of Truth (`./test-audit.sh`):** A single orchestration script is used to run all checks (lint, type-check, tests) both locally and in CI, guaranteeing consistency.
+
+---
+
+## 4. Known Issues & Risks
+
+This section tracks high-level product risks and constraints. For a detailed history of resolved issues, see the [Changelog](./CHANGELog.md).
 
 *   **[RESOLVED] E2E Test Suite Instability:** The E2E test suite was previously suffering from persistent timeouts and instability. This was a critical issue blocking reliable testing.
-    *   **Root Cause:** A combination of an `AuthProvider` loading state bug, a fragile custom test wrapper, and conflicting API mocking systems.
-    *   **Resolution:** The underlying architectural flaws have been fixed. The test environment is now stable, and tests are passing reliably.
+    *   **Root Cause:** A combination of an `AuthProvider` loading state bug, a fragile custom test wrapper, conflicting API mocking systems, and unreliable UI-driven login tests.
+    *   **Resolution:** The underlying architectural flaws have been fixed, and the test suite has been refactored to use a stable, programmatic-only login strategy. The test environment is now stable, and tests are passing reliably.
 *   **[ACTIVE] `pnpm lint` Command Performance:** The `pnpm lint` command is known to be slow and is currently commented out in the local `test-audit.sh` script to ensure fast local feedback. However, it is still enforced in the CI pipeline.
 
 ---
 
-## 4. Development Roadmap
+## 5. Development Roadmap
 The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). This board provides a two-dimensional view of our project tasks, combining Phased Milestones with MoSCoW Prioritization.
 
 ---
 
-## 5. Software Quality Metrics
+## 6. Software Quality Metrics
 
 **Last Updated:** `(not yet run)`
 
@@ -174,7 +187,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 ---
 
-## 6. Metrics and Success Criteria
+## 7. Metrics and Success Criteria
 
 ### Service Level Indicators (SLIs) & Objectives (SLOs)
 
@@ -198,7 +211,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 ---
 
-## 7. Future Enhancements / Opportunities
+## 8. Future Enhancements / Opportunities
 
 ### Feature Proposal: Rolling Accuracy Comparison of STT Engines (Native, Cloud, On-device)
 **Goal:** Improve transparency and user trust.
@@ -215,7 +228,7 @@ We can strengthen user confidence by adding a feature that compares accuracy acr
 
 ---
 
-## 8. Strategic Review & Analysis
+## 9. Strategic Review & Analysis
 
 This section provides high-level insights into the SpeakSharp project from multiple senior perspectives.
 

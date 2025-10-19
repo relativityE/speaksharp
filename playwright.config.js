@@ -18,7 +18,7 @@ var PORT = process.env.VITE_PORT || '5173';
 var BASE_URL = "http://localhost:".concat(PORT);
 export default defineConfig({
     testDir: './tests/e2e',
-    timeout: 300000,
+    timeout: 240000, // 4-minute global timeout for each test file
     expect: { timeout: 10000 },
     // Set workers to 1 to prevent parallel execution during stabilization
     workers: 1,

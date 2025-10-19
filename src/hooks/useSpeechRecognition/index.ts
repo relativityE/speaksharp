@@ -87,7 +87,8 @@ export const useSpeechRecognition = (props: UseSpeechRecognitionProps = {}) => {
     transcript.reset();
     fillerWords.reset();
     setDuration(0);
-  }, [transcript, fillerWords]);
+    service.reset();
+  }, [transcript, fillerWords, service]);
 
   const startListening = useCallback(async (forceOptions: ForceOptions = {}) => {
     reset();

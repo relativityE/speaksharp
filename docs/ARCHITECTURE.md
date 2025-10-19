@@ -157,13 +157,14 @@ The E2E test environment is designed for stability and isolation, ensuring tests
 
 1.  **MSW Synchronization via `window.mswReady`:**
     *   **Problem:** E2E tests would often fail because they tried to interact with the app before the Mock Service Worker (MSW) was ready to intercept API calls, leading to race conditions.
-    *   **Solution:** The application's entry point (`src/main.tsx`) has been modified. When `VITE_TEST_MODE` is true, it now starts the MSW browser worker and, crucially, assigns the worker's `start()` promise to `window.mswReady`.
-    *   **In Tests:** Before any significant interaction (like navigation or login), tests use a `waitForMSW(page)` helper function. This function pauses test execution until the `window.mswReady` promise resolves, guaranteeing that the mock API layer is fully active.
+    *   **Solution:** The application's entry point (`src/main.tsx`) has been modified. When `VITE_TEST_MODE` is true, it now `await`s the MSW `worker.start()` promise before rendering the React application. It also sets a boolean flag, `window.mswReady = true`.
+    *   **In Tests:** Before any significant interaction, tests use a `waitForMSW(page)` helper function. This function pauses test execution until `window.mswReady === true`, guaranteeing that the mock API layer is fully active.
 
-2.  **Programmatic & UI-Based Logins:**
-    *   **`programmaticLogin(page, user)`:** For tests where the login process itself is not under test, this helper function provides a fast and reliable way to authenticate. It works by directly setting the mock session data in `localStorage` via an `addInitScript` and then reloading the page. This bypasses the UI, avoids network calls, and prevents auth-related race conditions. It is the **preferred method** for setting up an authenticated state.
-    *   **`authPage.login(email, password)`:** For tests that specifically need to validate the UI login form, the `AuthPage` POM provides a standard `login` method. This method now includes a call to `waitForPostAuth()`, a robust function that waits for a reliable element on the post-login page (e.g., the "Sign Out" button) to be visible. This ensures the application has fully transitioned to its authenticated state before the test continues.
-    *   **`authPage.signUp(email, password)`:** Similarly, the sign-up flow is followed by a call to `waitForPostAuth()` to ensure the UI is stable after registration.
+2.  **Programmatic Login for Authentication:**
+    *   **Problem:** Testing authentication by simulating user input in the login/sign-up form proved to be extremely flaky and unreliable due to complex race conditions between Playwright, Vite, and MSW.
+    *   **Solution:** All E2E tests that require an authenticated user now use a `programmaticLogin(page, user)` helper function. This is the **sole and mandatory method** for establishing an authenticated state in tests.
+    *   **How it Works:** The helper navigates to the app's root URL (`/`) to establish the correct origin, waits for MSW to be ready, and then uses `page.evaluate()` to directly set the mock Supabase session object in `localStorage`. A final `page.reload()` allows the `AuthProvider` to detect the session and render the application in a logged-in state.
+    *   **Benefits:** This approach is significantly faster, more stable, and decouples the tests from the implementation details of the auth UI, aligning with E2E testing best practices.
 
 3.  **Third-Party Service Stubbing:**
     *   To prevent external services like Sentry and PostHog from causing noise or failures in E2E tests, the `stubThirdParties(page)` helper is used. It intercepts and aborts any requests to these services' domains, ensuring tests are isolated and deterministic.

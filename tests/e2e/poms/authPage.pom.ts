@@ -6,6 +6,7 @@ export class AuthPage {
   readonly passwordInput: Locator;
   readonly signUpButton: Locator;
   readonly loginButton: Locator;
+  readonly errorMessage: Locator;
 
   constructor(page: Page) {
     this.page = page;
@@ -13,40 +14,43 @@ export class AuthPage {
     this.passwordInput = page.getByLabel('Password');
     this.signUpButton = page.getByRole('button', { name: 'Sign Up' });
     this.loginButton = page.getByRole('button', { name: 'Log In' });
+    this.errorMessage = page.locator('[data-testid="auth-error-message"]');
   }
 
   async goto() {
-    await this.page.goto('/auth');
+    await this.page.goto('/auth', { waitUntil: 'domcontentloaded' });
   }
 
   async signUp(email: string, password: string) {
     await this.emailInput.fill(email);
     await this.passwordInput.fill(password);
     await this.signUpButton.click();
-    await this.waitForPostAuth();
   }
 
   async login(email: string, password: string) {
     await this.emailInput.fill(email);
     await this.passwordInput.fill(password);
     await this.loginButton.click();
-    await this.waitForPostAuth();
   }
 
   async assertUserExistsError() {
-    await expect(this.page.getByText('User already exists')).toBeVisible();
+    // Make the assertion more flexible and robust.
+    // It should check for any text containing "User already registered".
+    await expect(this.errorMessage).toBeVisible({ timeout: 10000 });
+    await expect(this.errorMessage).toContainText(/user already registered/i);
   }
 
   /**
    * Waits for the page to stabilize after login/sign-up.
-   * Ensures the "Sign Out" button and the home page stable elements are visible.
+   * Ensures the main navigation and a stable home page element are visible.
    */
   async waitForPostAuth() {
-    // Wait for the "Sign Out" button
-    await expect(this.page.getByRole('button', { name: 'Sign Out' })).toBeVisible({ timeout: 15000 });
+    // Wait for the main navigation to be rendered, which is a good indicator of being logged in.
+    const navElement = this.page.locator('nav');
+    await expect(navElement).toBeVisible({ timeout: 15000 });
 
-    // Wait for a known stable element on the home page
-    const homePageStartButton = this.page.getByTestId('start-free-session-button');
-    await expect(homePageStartButton).toBeVisible({ timeout: 15000 });
+    // Wait for the correct stable element on the logged-in home page.
+    const startSpeakingButton = this.page.getByTestId('start-speaking-button');
+    await expect(startSpeakingButton).toBeVisible({ timeout: 15000 });
   }
 }

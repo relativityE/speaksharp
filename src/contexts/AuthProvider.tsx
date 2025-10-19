@@ -26,43 +26,41 @@ interface AuthProviderProps {
 }
 
 export function AuthProvider({ children, initialSession }: AuthProviderProps) {
-  // Initialize session state SYNCHRONOUSLY from localStorage
-  const [session, setSessionState] = useState<Session | null>(() => {
-    if (initialSession !== undefined) return initialSession;
-    return getSyncSession();
-  });
-
+  const [session, setSessionState] = useState<Session | null>(() => getSyncSession());
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  // Start with loading=false as we have a sync session
-  const [loading] = useState(false);
-
-  const updateSession = async (s: Session | null) => {
-    setSessionState(s);
-    if (s?.user) {
-      const userProfile = await getProfileFromDb(s.user.id);
-      setProfile(userProfile);
-    } else {
-      setProfile(null);
-    }
-  };
+  const [loading, setLoading] = useState(true); // Start with loading=true
 
   useEffect(() => {
-    // If we have a session (either sync or from props), fetch the profile
-    if (session?.user) {
-      getProfileFromDb(session.user.id).then(setProfile);
-    }
+    // This effect handles the initial session, whether from props or localStorage
+    const initializeSession = async () => {
+      const currentSession = initialSession !== undefined ? initialSession : getSyncSession();
+      setSessionState(currentSession);
+      if (currentSession?.user) {
+        const userProfile = await getProfileFromDb(currentSession.user.id);
+        setProfile(userProfile);
+      }
+      setLoading(false); // End loading after the initial session is processed
+    };
+    initializeSession();
+  }, [initialSession]);
 
+  useEffect(() => {
     const { data: listener } = supabase.auth.onAuthStateChange(
       async (_event, newSession) => {
-        // Still use the listener to react to real-time changes
-        await updateSession(newSession);
+        setSessionState(newSession);
+        if (newSession?.user) {
+          const userProfile = await getProfileFromDb(newSession.user.id);
+          setProfile(userProfile);
+        } else {
+          setProfile(null);
+        }
       }
     );
 
     return () => {
       listener?.subscription.unsubscribe();
     };
-  }, [session?.user]);
+  }, []);
 
   if (loading) {
     return (
@@ -79,10 +77,19 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
     loading,
     signOut: async () => {
       const { error } = await supabase.auth.signOut();
-      await updateSession(null);
+      setSessionState(null);
+      setProfile(null);
       return { error };
     },
-    setSession: updateSession,
+    setSession: async (s: Session | null) => {
+        setSessionState(s);
+        if (s?.user) {
+            const userProfile = await getProfileFromDb(s.user.id);
+            setProfile(userProfile);
+        } else {
+            setProfile(null);
+        }
+    },
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
