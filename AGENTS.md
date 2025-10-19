@@ -2,74 +2,66 @@
 
 ---
 
-## 🚨 Critical Environment Rules
+## 🚨 Critical Environment & Workflow Rules
 
-* ⏱️ **7-Minute Timeout Constraint**
-  Every script or command must complete within 7 minutes. If longer, split the work into multiple runs.
+### 1. Mandatory Pre-flight Check (Start Here)
 
-* **Setup & Pre-Check**
-  Run once per environment or when errors occur:
-  ```bash
-  ./scripts/env-setup.sh
-  ```
-  This script handles Node version validation, pnpm installation, dependency installation, and Playwright browser setup.
+To address persistent environment instability, a new automated pre-flight check has been created. This is now the **mandatory** first step for all sessions.
 
-* **Do not run `./env-stabilizer.sh` automatically before every task.**
-  Use it **only when needed**, based on observed instability:
+**Your first action in every session MUST be to execute this script:**
 
-  * Tests hang or timeout
-  * Vite, Node, or Playwright processes stuck
-  * Port conflicts on `5173` or `9323`
-  * Cache corruption or dependency errors
+```bash
+./scripts/preflight.sh
+```
 
-* **Recommended stabilization workflow**:
+This script will:
+1.  Terminate any lingering processes.
+2.  Install all dependencies (`pnpm install`).
+3.  Install all required browser binaries (`pnpm exec playwright install --with-deps`).
+4.  Run a smoke test to verify the environment is stable.
 
-  1. Attempt the task normally.
-  2. If issues occur, run: `./env-stabilizer.sh`
-  3. Retry the task.
-  4. Escalate **before using** `./vm-recovery.sh`.
+Do not proceed until this script completes successfully.
 
----
+### 2. The Local Audit Script (Single Source of Truth for Testing)
 
-* ✅ **Local Audit Script (Read From README.md)**
-  Always use the **designated local audit script** (documented in `README.md`) to run lint, type-checking, and unit/E2E tests.
+The primary runner for all local validation is `./test-audit.sh`. This script is the SSOT for running lint, type-checking, and all tests.
 
-  * Do **not** invent your own runner.
-  * If the README’s script fails or is missing, stop and escalate.
+*   **Always use this script for validation.** Do not invent your own runners or call `pnpm test` or `pnpm lint` directly for final validation.
+*   The audit script automatically runs the `preflight.sh` check, ensuring a stable environment for the test run.
 
-* Always read `README.md` to understand setup, workflow, and scripts.
-* Use designated runners; **never invent your own**. The primary runner is now `./test-audit.sh`.
-* Current audit runner: `./test-audit.sh`
+### 3. Selective Use of `env-stabilizer.sh`
+
+The `./env-stabilizer.sh` script is a powerful tool for recovering a broken environment, but it should be used selectively.
+
+*   Run `preflight.sh` first.
+*   If instability persists (e.g., hanging tests, port conflicts), then run `./env-stabilizer.sh`.
+*   Escalate to the user **before using** `./vm-recovery.sh`.
+*   Always read `README.md` to understand setup, workflow, and scripts.
 
 ---
 
 ## ⚡ Quick Reference – Non-Negotiable Rules
 
-1. ✅ **Environment Stabilization** – Run `./env-stabilizer.sh` selectively.
-2. ✅ **Codebase Context** – Inspect `/src`, `/tests`, `/contexts`, `/docs` before acting.
-3. ❌ **No Code Reversals Without Consent** – Never undo user work.
-4. ⏱️ **Status Updates** – Provide updates every 5 minutes for long-running tasks.
-5. ✅ **Scripts** – Use approved `package.json` scripts:
+1.  ✅ **Pre-flight Check** – Always start with `./scripts/preflight.sh`.
+2.  ✅ **Codebase Context** – Inspect `/src`, `/tests`, `/docs` before acting.
+3.  ❌ **No Code Reversals Without Consent** – Never undo user work.
+4.  ⏱️ **Timeout Constraint** – Every command must complete within 7 minutes.
+5.  ✅ **Approved Scripts** – Use the following `package.json` scripts when necessary for targeted tasks (but use `./test-audit.sh` for full validation):
 
    ```json
    "dev": "vite",
    "build": "vite build",
    "preview": "vite preview",
    "lint": "eslint 'src/**/*.{js,jsx,ts,tsx}' 'tests/**/*.{js,jsx,ts,tsx}' --report-unused-disable-directives --max-warnings 0",
-   "lint:fix": "eslint 'src/**/*.{js,jsx,ts,tsx}' 'tests/**/*.{js,jsx,ts,tsx}' --fix",
-   "typecheck": "tsc --build",
+   "typecheck": "tsc --build --verbose",
+   "test": "pnpm test:unit:full",
+   "test:ci": "./test-audit.sh all",
    "test:audit": "./test-audit.sh",
    "test:unit:full": "vitest run --coverage",
-   "test:unit:core": "vitest run --reporter verbose --pool=threads --poolOptions.threads=2",
    "test:e2e": "playwright test --reporter=list",
-   "test:e2e:shard": "playwright test --shard=$1/2",
-   "test:e2e:ui": "playwright test --ui",
-   "test:e2e:smoke": "playwright test --grep @smoke",
-   "test:e2e:smoke:headless": "playwright test --grep @smoke --headed=false",
-   "test:screenshots": "playwright test --grep @visual",
-   "playwright:install": "playwright install"
+   "test:e2e:smoke": "playwright test --grep @smoke"
    ```
-6. ✅ **Foreground Logging** – All E2E tasks must run in foreground with live logs (`tee`) for agent traceability.
+6. ✅ **Foreground Logging** – All E2E tasks must run in the foreground with live logs (`tee`) for traceability.
 
 ---
 
@@ -90,58 +82,18 @@
 
 *Complete before any commit or PR:*
 
-1. **Run Local Audit Script**
-
+1.  **Run Local Audit Script**
    ```bash
-   ./test-audit.sh
+   ./test-audit.sh all
    ```
+   Must pass lint, typecheck, and all unit/E2E tests.
 
-   Must pass lint, typecheck, unit/E2E tests.
+2.  **Documentation (SSOT)**
+   *   Review and update the seven mandatory documents as per `docs/OUTLINE.md`: `README.md`, `AGENTS.md`, `docs/OUTLINE.md`, `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`.
 
-2. **Documentation**
-
-   * Update: `README.md`, `docs/OUTLINE.md`, `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`.
-   * Ensure alignment with SSOT rules.
-
-3. **Traceability**
-
-   * Link every change to PRD/Architecture/Roadmap.
-
-4. **Security & Dependencies**
-
-   * Run `pnpm audit` after dependency changes.
-   * Document results in `ARCHITECTURE.md`.
-
-5. **Branch & Commit Hygiene**
-
-   * Branches: `feature/...`, `fix/...`, `chore/...`.
-   * Commit messages summarize actual changes.
-
-6. **Final User Confirmation**
-
-   > "All checks complete. May I run the environment recovery script (`./vm-recovery.sh`)?"
-
----
-
-## ⚠️ Phase-Specific Guidelines
-
-### Phase 1: Dev Server
-
-* Ensure `5173` port is free.
-* Run Vite dev server in foreground with live logging.
-* Timeout: 5 minutes.
-
-### Phase 2: DOM Inspection
-
-* Use `playwright eval` scripts.
-* Capture output in `./logs/auth-dom.json`.
-* Browser: headless Chromium by default.
-
-### Phase 7: Visual Verification
-
-* Run `playwright test --grep @visual`.
-* Convert screenshots to base64 or save `.png` to `./logs`.
-* Live log output required.
+3.  **Branch & Commit Hygiene**
+   *   Branches: `feature/...`, `fix/...`, `chore/...`.
+   *   Commit messages must clearly summarize the changes and their impact.
 
 ---
 
@@ -149,42 +101,18 @@
 
 If blocked:
 
-1. Summarize the problem.
-2. List what you tried.
-3. Provide hypotheses.
-4. Offer 2–3 solution paths with pros/cons.
-5. **Pause and wait for user guidance** before proceeding.
+1.  Summarize the problem.
+2.  List what you tried.
+3.  Provide hypotheses.
+4.  Offer 2–3 solution paths with pros/cons.
+5.  **Pause and wait for user guidance** before proceeding.
 
 ---
 
 ## 🔐 Absolute Non-Negotiables
 
-* ❌ Never run `./vm-recovery.sh` without asking first.
-* ❌ Never exceed 7-minute runtime per command.
-* ❌ Never undo or destroy user work without consent.
-* 📄 Documentation first.
-* 🔐 Security first — no leaks or unsafe shortcuts.
-* 🧠 Think like a senior engineer — evidence-based, long-term stability.
-
----
-
----
----
-
-## 🚀 New Simplified Workflow (Effective Immediately)
-
-To address persistent environment instability, a new automated pre-flight check has been created. This is now the **mandatory** first step for all sessions. It replaces the need to manually run `env-setup.sh` or `env-stabilizer.sh` for routine work.
-
-**Your first action in every session MUST be to execute the pre-flight validation script:**
-
-```bash
-./scripts/preflight.sh
-```
-
-This script will:
-1.  Terminate any lingering processes.
-2.  Install all dependencies.
-3.  Install all required browser binaries.
-4.  Run a smoke test to verify the environment is stable.
-
-Do not proceed until this script completes successfully. The `./test-audit.sh` script has been updated to run this check automatically.
+*   ❌ Never run `./vm-recovery.sh` without asking first.
+*   ❌ Never exceed the 7-minute runtime per command.
+*   ❌ Never undo or destroy user work without consent.
+*   📄 Documentation first.
+*   🧠 Think like a senior engineer — prioritize evidence-based, long-term stability.

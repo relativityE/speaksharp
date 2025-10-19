@@ -4,7 +4,7 @@ SpeakSharp is an AI-powered speech coaching application that helps users improve
 
 ## Getting Started
 
-To get started with SpeakSharp, you'll need to have Node.js and pnpm installed.
+To get started with SpeakSharp, you'll need to have Node.js (version 22.12.0 or higher) and pnpm installed.
 
 1.  **Clone the repository:**
     ```bash
@@ -14,10 +14,10 @@ To get started with SpeakSharp, you'll need to have Node.js and pnpm installed.
     ```bash
     cd speaksharp
     ```
-3.  **Setup the environment:**
-    Run once per environment or when errors occur:
+3.  **Run the Pre-flight Check (Mandatory First Step):**
+    This script prepares your environment by installing dependencies, installing browser binaries, and running a smoke test to ensure stability.
     ```bash
-    ./scripts/env-setup.sh
+    ./scripts/preflight.sh
     ```
 4.  **Run the development server:**
     ```bash
@@ -26,43 +26,35 @@ To get started with SpeakSharp, you'll need to have Node.js and pnpm installed.
 
 ## Testing and CI/CD
 
-This project uses a two-tiered testing strategy to balance rapid development with high code quality.
+This project uses a unified testing strategy to ensure that local validation and the CI pipeline are perfectly aligned.
 
-### Local Testing
+### The Local Audit Script: Your Primary Tool
 
-For comprehensive local validation, use the new E2E orchestrator script. This script is designed to run a full, phase-locked E2E test suite, mirroring the checks that will eventually be run in a dedicated CI pipeline.
+For all local testing and validation, use the `test-audit.sh` script. It is the **single source of truth** for ensuring code quality.
 
-*   **Setup & Pre-Check:**
-    Run once per environment or when errors occur:
+*   **Run the full local audit (lint, type-check, all tests):**
     ```bash
-    ./scripts/env-setup.sh
+    ./test-audit.sh all
     ```
-*   **Run the comprehensive local E2E test suite:**
-    ```bash
-    ./scripts/e2e-run.sh
-    ```
-    This script runs a full, 7-phase E2E test, including environment setup, DOM validation, and visual verification. All logs and artifacts are stored in the `./logs` directory.
+    This command mirrors the exact checks that are run in the CI pipeline.
 
-If you need to run specific test suites, you can still use the following commands:
+If you need to run specific test suites during development, you can use the following `package.json` scripts:
 
-*   **Run all unit tests:**
+*   **Run all unit tests with coverage:**
     ```bash
     pnpm test:unit:full
     ```
 
-*   **Run the full end-to-end test suite:**
+*   **Run all end-to-end tests:**
     ```bash
     pnpm test:e2e
     ```
 
+*   **Run only the smoke tests:**
+    ```bash
+    pnpm test:e2e:smoke
+    ```
+
 ### Continuous Integration (CI)
 
-The definitive quality gate is our CI pipeline, which runs in GitHub Actions on every push and pull request to the `main` branch. The workflow is defined in `.github/workflows/ci.yml`.
-
-The CI pipeline runs a comprehensive set of checks, including:
-- Linting
-- Type-checking
-- Unit tests
-- The **full** end-to-end test suite
-
-A commit must pass all checks in the CI pipeline before it can be merged.
+The definitive quality gate is our CI pipeline, which runs in GitHub Actions on every push and pull request to the `main` branch. The workflow is defined in `.github/workflows/ci.yml` and is orchestrated by the same `./test-audit.sh` script used for local validation. This ensures perfect consistency between the developer environment and the CI environment.

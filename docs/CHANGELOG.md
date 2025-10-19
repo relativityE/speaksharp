@@ -23,7 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Code Reorganization:** Moved all test-related files from `src/test` to a top-level `tests` directory for better separation of concerns.
 
 ### Fixed
-- **E2E Test Race Conditions:** Refactored the entire E2E test suite to fix critical race conditions and timeouts. Implemented a `window.mswReady` promise to ensure tests wait for the Mock Service Worker to be initialized. Introduced a `programmaticLogin` helper to create a stable, authenticated state for tests, eliminating UI-based login flakiness.
+- **E2E Authentication Test Flakiness:** Overhauled the E2E authentication test suite (`auth.e2e.spec.ts`) to resolve persistent and critical test failures.
+    - **Strategy Shift:** Abandoned unreliable UI-driven login/sign-up tests in favor of a robust, programmatic-only login strategy. All tests requiring authentication now use a `programmaticLogin` helper, which is faster and not subject to UI race conditions.
+    - **Improved Mocking:** Corrected the MSW mock error response for existing user sign-ups to be compliant with what the Supabase client expects, allowing the application's error handling logic to be properly tested.
+    - **Enhanced Testability:** Added stable `data-testid` attributes to key UI elements (e.g., error messages, buttons) to ensure reliable test selectors.
 - **Critical E2E Test Timeout and Instability:** Resolved a persistent and complex E2E test timeout issue through a series of fixes:
   - **`AuthProvider` Loading State:** Fixed a bug where the `AuthProvider` would get stuck in a permanent loading state in the test environment, preventing the application from rendering and causing tests to hang. The loading state is now correctly initialized to `false` in test mode.
   - **Incorrect Test Selector:** Corrected the login helper function (`loginUser`) to use the proper "Sign In" link text instead of "Login".
