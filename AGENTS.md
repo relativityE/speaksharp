@@ -36,6 +36,7 @@ The `./env-stabilizer.sh` script is a powerful tool for recovering a broken envi
 *   Run `preflight.sh` first.
 *   If instability persists (e.g., hanging tests, port conflicts), then run `./env-stabilizer.sh`.
 *   Escalate to the user **before using** `./vm-recovery.sh`.
+*   Always read `README.md` to understand setup, workflow, and scripts.
 
 ---
 
