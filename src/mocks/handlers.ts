@@ -48,15 +48,13 @@ function createMockUser(userData: { id: string; email: string; }): User {
 
 
 export const handlers: RequestHandler[] = [
-  // Mock for session validation (the missing piece!)
+  // Mock for session validation
   http.get('*/auth/v1/user', ({ request }) => {
     const authHeader = request.headers.get('Authorization');
-    // If the mock token is present, return a mock user.
     if (authHeader && authHeader.includes('mock-access-token')) {
         const mockUser = createMockUser({ id: 'smoke-test-user-id', email: 'smoke-test-user@example.com' });
         return HttpResponse.json(mockUser);
     }
-    // Otherwise, return an unauthenticated error.
     return HttpResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }),
 
@@ -65,13 +63,14 @@ export const handlers: RequestHandler[] = [
     const { email } = await request.json() as { email: string };
 
     if (email === 'existing-user@example.com') {
+      // FIX: Return a structure that the Supabase client will interpret as an error.
+      // The key is the 'message' property.
       return HttpResponse.json(
-        { message: 'User already registered', code: '422' },
-        { status: 422 }
+        { "message": "User already registered" },
+        { status: 400 }
       );
     }
 
-    // For any other email, simulate successful sign-up by returning a session
     const session = createMockSession({
       id: `new-user-${Date.now()}`,
       email: email,
@@ -101,7 +100,6 @@ export const handlers: RequestHandler[] = [
       subscription_status: 'free',
     };
 
-    // Supabase .single() requests this header. We must return an object, not an array.
     if (request.headers.get('Accept') === 'application/vnd.pgrst.object+json') {
       return HttpResponse.json(profile);
     }

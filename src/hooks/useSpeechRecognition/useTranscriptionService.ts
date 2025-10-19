@@ -88,6 +88,11 @@ export const useTranscriptionService = (options: TranscriptionServiceOptions) =>
     return { success: true };
   }, [isListening]);
 
+  const reset = useCallback(() => {
+    setIsListening(false);
+    setError(null);
+  }, []);
+
   return {
     isListening,
     isReady,
@@ -96,6 +101,7 @@ export const useTranscriptionService = (options: TranscriptionServiceOptions) =>
     mode: currentMode,
     startListening,
     stopListening,
+    reset,
     setIsReady,
   };
 };

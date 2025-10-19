@@ -16,7 +16,17 @@ const friendlyErrors: Record<string, string> = {
   'Password should be at least 6 characters': 'Your password must be at least 6 characters long.',
 };
 
-const mapError = (message: string) => friendlyErrors[message] || 'An unexpected error occurred.';
+const mapError = (message: string) => {
+  try {
+    // Attempt to parse the message as JSON. Supabase often returns JSON errors in the message string.
+    const parsed = JSON.parse(message);
+    const friendlyMessage = friendlyErrors[parsed.message];
+    if (friendlyMessage) return friendlyMessage;
+  } catch {
+    // Not a JSON string, fall through to direct mapping.
+  }
+  return friendlyErrors[message] || 'An unexpected error occurred.';
+};
 
 export default function AuthPage() {
   const { session, loading, setSession } = useAuth();
@@ -132,7 +142,7 @@ export default function AuthPage() {
                   <Input data-testid="password-input" id="password" type="password" required value={password} onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)} />
                 </div>
               )}
-              {error && <p className="text-sm text-destructive font-semibold">{error}</p>}
+              {error && <p data-testid="auth-error-message" className="text-sm text-destructive font-semibold">{error}</p>}
               {message && <p className="text-sm text-green-600 font-semibold bg-green-100 border border-green-200 rounded-md p-3 text-center">{message}</p>}
               <div>
                 <Button data-testid={view === 'sign_up' ? 'sign-up-submit' : 'sign-in-submit'} type="submit" className="w-full text-base py-6" disabled={isSubmitting}>

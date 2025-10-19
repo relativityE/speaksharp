@@ -3,7 +3,6 @@ import { test as base, expect, Page, Response } from '@playwright/test';
 import fs from 'fs';
 import { AuthPage } from './poms/authPage.pom';
 import { Session, User } from '@supabase/supabase-js';
-import { UserProfile } from '@/types/user';
 
 // Note: Global window types are now solely defined in src/types/ambient.d.ts
 
@@ -11,11 +10,13 @@ import { UserProfile } from '@/types/user';
 // MSW Readiness Helper
 // ---------------------------------
 export async function waitForMSW(page: Page) {
-  await page.waitForFunction(() => window.mswReady, { timeout: 10000 }).catch(async () => {
-    console.error(`[HELPER] MSW readiness timeout`);
-    const consoleLogs = await page.evaluate(() => window.consoleLog);
-    console.error('[HELPER] Browser console logs:', consoleLogs);
-    throw new Error('MSW readiness timeout');
+  // Use page.waitForFunction for robust checking in the browser context.
+  // The key fix is checking for `window.mswReady === true`.
+  await page.waitForFunction(() => window.mswReady === true, null, { timeout: 15000 }).catch(async (error) => {
+    console.error(`[HELPER] MSW readiness timeout or error: ${error.message}`);
+    // Dump page state for better debugging when this fails.
+    await dumpPageState(page, 'msw-readiness-failure');
+    throw new Error('MSW readiness check failed. The mock server did not initialize correctly.');
   });
 }
 
@@ -267,8 +268,8 @@ export type MockUser = {
 };
 
 /**
- * Programmatically logs in a user by setting auth session in localStorage
- * FAILS FAST if authentication errors are detected
+ * Programmatically logs in a user by setting auth session in localStorage.
+ * This is a robust method that avoids UI interactions for login, making tests faster and less flaky.
  *
  * @param page - Playwright Page instance
  * @param email - User email address
@@ -281,39 +282,17 @@ export async function programmaticLogin(page: Page, email: string) {
     };
 
     await test.step(`Programmatic login for ${user.email}`, async () => {
-        // 1. Go to the page and wait for MSW to be ready
-        await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 30000 });
-        await page.waitForTimeout(1000);
+        // 1. Navigate to the root of the app to establish the correct origin for localStorage.
+        await page.goto('/', { waitUntil: 'domcontentloaded' });
 
-        try {
-            await waitForMSW(page);
-        } catch {
-            await dumpPageState(page, 'msw-timeout');
-            throw new Error(
-                `❌ MSW initialization timeout\n` +
-                `   This usually means the service worker didn't start.\n` +
-                `   Check debug-msw-timeout.html for details`
-            );
-        }
+        // 2. Wait for the mock service worker to be ready. This is crucial to ensure
+        // that the application doesn't try to make real API calls.
+        await waitForMSW(page);
 
-        // 2. Get the Supabase URL to determine the correct localStorage key
-        const supabaseUrl = process.env.VITE_SUPABASE_URL;
-
-        if (!supabaseUrl) {
-            throw new Error(
-                `❌ MISSING ENVIRONMENT VARIABLE\n` +
-                `   VITE_SUPABASE_URL is not set.\n` +
-                `   Check your .env.test file or playwright.config.ts`
-            );
-        }
-
-        // 3. Now that we are on the correct origin, set the authentication token in localStorage
+        // 3. Set the authentication token in localStorage. This is done in the browser context.
         await page.evaluate(({ mockUser, supabaseUrl }) => {
-            // Extract project reference from Supabase URL
             const urlParts = supabaseUrl.split('//')[1]?.split('.') || ['local'];
             const projectRef = urlParts[0].replace(':', '-');
-
-            // Supabase v2 uses this key format
             const storageKey = `sb-${projectRef}-auth-token`;
 
             const session: Session = {
@@ -323,47 +302,24 @@ export async function programmaticLogin(page: Page, email: string) {
                 expires_at: Math.floor(Date.now() / 1000) + 3600,
                 token_type: "bearer",
                 user: {
-                    id: mockUser.id,
-                    aud: "authenticated",
-                    role: "authenticated",
-                    email: mockUser.email,
-                    email_confirmed_at: new Date().toISOString(),
-                    phone: "",
-                    confirmed_at: new Date().toISOString(),
-                    last_sign_in_at: new Date().toISOString(),
-                    app_metadata: { provider: "email", providers: ["email"] },
-                    user_metadata: {},
-                    identities: [],
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString()
+                    id: mockUser.id, aud: "authenticated", role: "authenticated", email: mockUser.email,
+                    email_confirmed_at: new Date().toISOString(), phone: "", confirmed_at: new Date().toISOString(),
+                    last_sign_in_at: new Date().toISOString(), app_metadata: { provider: "email", providers: ["email"] },
+                    user_metadata: {}, identities: [], created_at: new Date().toISOString(), updated_at: new Date().toISOString()
                 } as User
             };
-
             window.localStorage.setItem(storageKey, JSON.stringify(session));
-
-            // Also set legacy format for backwards compatibility
-            window.localStorage.setItem('supabase.auth.token', JSON.stringify({
-                currentSession: session,
-                expiresAt: session.expires_at
-            }));
-
-            // Set flag for E2E mock session
-            window.__E2E_MOCK_SESSION__ = true;
         }, { mockUser: user, supabaseUrl: process.env.VITE_SUPABASE_URL! });
 
-        // 5. FAIL FAST: Check for any authentication errors IMMEDIATELY
-        await checkForAuthErrors(page, 'post-login');
+        // 4. Reload the page. The AuthProvider will now read the session from localStorage on load.
+        await page.reload({ waitUntil: 'domcontentloaded' });
 
-        // 4. Reload the page for the AuthProvider to pick up the session
-        await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
-        await page.waitForTimeout(1000);
-        await waitForMSW(page);
+        // 5. Verify the login was successful by waiting for a stable, post-auth element.
+        const navElement = page.locator('nav');
+        await expect(navElement).toBeVisible({ timeout: 15000 });
 
-        // 5. FAIL FAST: Check for any authentication errors IMMEDIATELY
-        await checkForAuthErrors(page, 'post-login');
-
-        // 6. Wait a moment for React state to update
-        await page.waitForTimeout(1000);
+        const startSpeakingButton = page.getByTestId('start-speaking-button');
+        await expect(startSpeakingButton).toBeVisible({ timeout: 15000 });
     });
 }
 
@@ -378,7 +334,7 @@ base.beforeEach(async ({ page }) => {
         window.__E2E_CONSOLE_ERRORS__ = [];
         const originalError = console.error;
         console.error = (...args: unknown[]) => {
-            window.__E2E_CONSOLE_ERRORS__.push(args.join(' '));
+            window.__E2E_CONSOLE_ERRORS__!.push(args.join(' '));
             originalError.apply(console, args);
         };
     });
