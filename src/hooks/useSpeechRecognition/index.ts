@@ -14,6 +14,15 @@ import type { FillerCounts } from '../../utils/fillerWordUtils';
 import { ForceOptions } from './types';
 
 export const useSpeechRecognition = (props: UseSpeechRecognitionProps = {}) => {
+  // ============================================================================
+  // CRITICAL FIX: Check for E2E mock BEFORE any other code runs
+  // ============================================================================
+  if (typeof window !== 'undefined' && window.__MOCK_SPEECH_RECOGNITION__) {
+    console.log('[useSpeechRecognition] Using E2E mock implementation');
+    return window.__MOCK_SPEECH_RECOGNITION__ as any;
+  }
+  // ============================================================================
+
   const { customWords = [], session, profile } = props;
   const { session: authSession } = useAuth();
   const navigate = useNavigate();

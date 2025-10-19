@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Code Reorganization:** Moved all test-related files from `src/test` to a top-level `tests` directory for better separation of concerns.
 
 ### Fixed
+- **`live-transcript` E2E Test Failure:** Resolved a fatal JavaScript error in the `live-transcript.e2e.spec.ts` test caused by the `onnxruntime-web` library. The fix introduces a mock for the `useSpeechRecognition` hook that prevents the unstable module from being loaded in the test environment.
+- **E2E Test Suite Stability:** Performed a comprehensive refactoring of the E2E test suite to improve stability and maintainability.
+    - **Standardized Page Object Models (POMs):** Centralized all POMs into a single `tests/pom` directory with a barrel file (`index.ts`) for consistent imports.
+    - **Updated Test Assertions:** Revised obsolete selectors and test logic across the entire E2E suite to align with the current application UI.
 - **E2E Authentication Test Flakiness:** Overhauled the E2E authentication test suite (`auth.e2e.spec.ts`) to resolve persistent and critical test failures.
     - **Strategy Shift:** Abandoned unreliable UI-driven login/sign-up tests in favor of a robust, programmatic-only login strategy. All tests requiring authentication now use a `programmaticLogin` helper, which is faster and not subject to UI race conditions.
     - **Improved Mocking:** Corrected the MSW mock error response for existing user sign-ups to be compliant with what the Supabase client expects, allowing the application's error handling logic to be properly tested.

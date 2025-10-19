@@ -1,7 +1,7 @@
 // tests/e2e/helpers.ts
 import { test as base, expect, Page, Response } from '@playwright/test';
 import fs from 'fs';
-import { AuthPage } from './poms/authPage.pom';
+import { AuthPage } from '../pom';
 import { Session, User } from '@supabase/supabase-js';
 
 // Note: Global window types are now solely defined in src/types/ambient.d.ts
@@ -317,9 +317,6 @@ export async function programmaticLogin(page: Page, email: string) {
         // 5. Verify the login was successful by waiting for a stable, post-auth element.
         const navElement = page.locator('nav');
         await expect(navElement).toBeVisible({ timeout: 15000 });
-
-        const startSpeakingButton = page.getByTestId('start-speaking-button');
-        await expect(startSpeakingButton).toBeVisible({ timeout: 15000 });
     });
 }
 

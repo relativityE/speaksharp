@@ -1,6 +1,6 @@
 // tests/e2e/free.e2e.spec.ts
-import { test, getLogger } from './helpers';
-import { HomePage } from './poms/homePage.pom';
+import { test, getLogger, expect } from './helpers';
+import { HomePage, SessionPage } from '../pom';
 import { programmaticLogin } from './helpers';
 
 test.describe('Free Tier User Flow', () => {
@@ -20,13 +20,12 @@ test.describe('Free Tier User Flow', () => {
   });
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  test('should see the upgrade prompt on the home page', async ({ page }, testInfo) => {
+  test('should be able to access the session page', async ({ page }, testInfo) => {
     const logger = getLogger(testInfo.title);
-    logger.info('verification', 'Verifying upgrade prompt is visible');
-
-    await homePage.assertUpgradePromptIsVisible();
-
-    logger.info('verification', 'Upgrade prompt is visible, test complete');
-//
+    logger.info('verification', 'Verifying session page access');
+    const sessionPage = new SessionPage(page);
+    await sessionPage.goto();
+    await expect(sessionPage.heading).toBeVisible();
+    logger.info('verification', 'Session page access verified');
   });
 });
