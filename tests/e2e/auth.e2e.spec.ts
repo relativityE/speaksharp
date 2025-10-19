@@ -1,5 +1,5 @@
 // tests/e2e/auth.e2e.spec.ts
-import { test, getLogger } from './helpers';
+import { test, getLogger, expect } from './helpers';
 import { AuthPage } from './poms/authPage.pom';
 import { SessionPage } from './poms/sessionPage.pom';
 import { stubThirdParties, programmaticLogin } from './helpers';
