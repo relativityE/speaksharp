@@ -169,6 +169,11 @@ The E2E test environment is designed for stability and isolation, ensuring tests
 3.  **Third-Party Service Stubbing:**
     *   To prevent external services like Sentry and PostHog from causing noise or failures in E2E tests, the `stubThirdParties(page)` helper is used. It intercepts and aborts any requests to these services' domains, ensuring tests are isolated and deterministic.
 
+4.  **Standardized Page Object Model (POM):**
+    *   **Problem:** The E2E test suite had an inconsistent and duplicated structure for Page Object Models, leading to confusion and maintenance overhead.
+    *   **Solution:** The POMs have been centralized into a single, canonical location: `tests/pom/`.
+    *   **Barrel Exports:** A barrel file (`tests/pom/index.ts`) is used to export all POMs from this central location. This provides a single, clean import path for all test files (e.g., `import { SessionPage } from '../pom';`), which improves maintainability and prevents module resolution issues in the test runner.
+
 These patterns work together to create a robust testing foundation, eliminating the primary sources of flakiness and making the E2E suite a reliable indicator of application quality.
 
 ### Mocking Native Dependencies
