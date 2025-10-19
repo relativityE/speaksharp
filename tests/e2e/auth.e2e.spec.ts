@@ -1,7 +1,6 @@
 // tests/e2e/auth.e2e.spec.ts
 import { test, getLogger, expect } from './helpers';
-import { AuthPage } from './poms/authPage.pom';
-import { SessionPage } from './poms/sessionPage.pom';
+import { AuthPage, SessionPage } from '../pom';
 import { stubThirdParties, programmaticLogin } from './helpers';
 
 test.describe('Authentication', () => {
@@ -32,7 +31,7 @@ test.describe('Authentication', () => {
       await authPage.waitForPostAuth(); // This correctly waits for the logged-in home page
       logger.info('verification', 'Navigating to protected session page');
       await sessionPage.goto();
-      await sessionPage.assertOnSessionPage();
+      await expect(sessionPage.heading).toBeVisible();
       logger.info('verification', 'Successfully verified access to protected routes');
     });
   });
