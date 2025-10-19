@@ -1,6 +1,4 @@
-// The redundant readiness check that caused a race condition has been removed.
-// The waiting logic is now correctly handled inside AuthProvider.
-
+// src/main.tsx
 import { StrictMode } from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
@@ -37,103 +35,86 @@ if (!rootElement) {
 
 const root = ReactDOM.createRoot(rootElement);
 
-const renderApp = async () => {
+const renderApp = (initialSession: Session | null = null) => {
   if (rootElement && !window._speakSharpRootInitialized) {
     window._speakSharpRootInitialized = true;
 
-    // Conditionally initialize the MSW for E2E testing.
-    // This must happen before the main application renders to intercept all requests.
-    if (import.meta.env.VITE_TEST_MODE === 'true') {
-      const { worker } = await import('./mocks/browser');
-      window.mswReady = worker.start({
-        onUnhandledRequest: 'bypass',
-      }).then(() => {
-        console.log('[MSW] Mock Service Worker is ready.');
-        return true;
-      });
-    }
-
     if (areEnvVarsPresent()) {
-      // Environment variables are present, load the main application.
-      const { default: App } = await import('./App');
-
-      // Initialize services
-      try {
-        // Disable PostHog in E2E test mode to prevent network errors
-        if (import.meta.env.VITE_POSTHOG_KEY && import.meta.env.VITE_POSTHOG_HOST && !window.__E2E_MOCK_SESSION__) {
-          posthog.init(import.meta.env.VITE_POSTHOG_KEY, {
-            api_host: import.meta.env.VITE_POSTHOG_HOST,
-            capture_exceptions: true,
-            debug: import.meta.env.MODE === 'development',
-          });
+      import('./App').then(({ default: App }) => {
+        // Initialize services
+        try {
+          if (import.meta.env.VITE_POSTHOG_KEY && import.meta.env.VITE_POSTHOG_HOST && !window.__E2E_MOCK_SESSION__) {
+            posthog.init(import.meta.env.VITE_POSTHOG_KEY, {
+              api_host: import.meta.env.VITE_POSTHOG_HOST,
+              capture_exceptions: true,
+              debug: import.meta.env.MODE === 'development',
+            });
+          }
+        } catch (error) {
+          logger.warn({ error }, "PostHog failed to initialize:");
         }
-      } catch (error) {
-        logger.warn({ error }, "PostHog failed to initialize:");
-      }
 
-      const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY!);
+        const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY!);
 
-      try {
-        // Disable Sentry in E2E test mode
-        if (!window.__E2E_MOCK_SESSION__) {
-          Sentry.init({
-            dsn: import.meta.env.VITE_SENTRY_DSN,
-            integrations: [
-              Sentry.browserTracingIntegration(),
-              Sentry.replayIntegration(),
-            ],
-            environment: import.meta.env.MODE,
-            tracesSampleRate: 1.0,
-            replaysSessionSampleRate: 0.1,
-            replaysOnErrorSampleRate: 1.0,
-            sendDefaultPii: true,
-          });
+        try {
+          if (!window.__E2E_MOCK_SESSION__) {
+            Sentry.init({
+              dsn: import.meta.env.VITE_SENTRY_DSN,
+              integrations: [
+                Sentry.browserTracingIntegration(),
+                Sentry.replayIntegration(),
+              ],
+              environment: import.meta.env.MODE,
+              tracesSampleRate: 1.0,
+              replaysSessionSampleRate: 0.1,
+              replaysOnErrorSampleRate: 1.0,
+              sendDefaultPii: true,
+            });
+          }
+        } catch (error) {
+          logger.warn({ error }, "Sentry failed to initialize:");
         }
-      } catch (error) {
-        logger.warn({ error }, "Sentry failed to initialize:");
-      }
 
-      // In E2E test mode, we might want to inject a mock session.
-      const mockSession = window.__E2E_MOCK_SESSION__ ? ({
-        user: {
-          id: 'mock-user-id',
-          email: 'test@example.com',
-          aud: 'authenticated',
-          role: 'authenticated',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          app_metadata: {
-            provider: 'email',
-            providers: ['email'],
+        const sessionToUse = window.__E2E_MOCK_SESSION__ ? ({
+          user: {
+            id: 'mock-user-id',
+            email: 'test@example.com',
+            aud: 'authenticated',
+            role: 'authenticated',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            app_metadata: {
+              provider: 'email',
+              providers: ['email'],
+            },
+            user_metadata: { subscription_status: 'free' },
           },
-          user_metadata: { subscription_status: 'free' },
-        },
-        access_token: 'mock-token',
-        refresh_token: 'mock-refresh-token',
-        expires_in: 3600,
-        expires_at: Math.floor(Date.now() / 1000) + 3600,
-        token_type: 'bearer',
-      } as Session) : null;
+          access_token: 'mock-token',
+          refresh_token: 'mock-refresh-token',
+          expires_in: 3600,
+          expires_at: Math.floor(Date.now() / 1000) + 3600,
+          token_type: 'bearer',
+        } as Session) : initialSession;
 
-      root.render(
-        <StrictMode>
-          <BrowserRouter>
-            <PostHogProvider client={posthog}>
-              <AuthProvider initialSession={mockSession}>
-                <SessionProvider>
-                  <Elements stripe={stripePromise}>
-                    <Sentry.ErrorBoundary fallback={<div>An error has occurred. Please refresh the page.</div>}>
-                      <App />
-                    </Sentry.ErrorBoundary>
-                  </Elements>
-                </SessionProvider>
-              </AuthProvider>
-            </PostHogProvider>
-          </BrowserRouter>
-        </StrictMode>
-      );
+        root.render(
+          <StrictMode>
+            <BrowserRouter>
+              <PostHogProvider client={posthog}>
+                <AuthProvider initialSession={sessionToUse}>
+                  <SessionProvider>
+                    <Elements stripe={stripePromise}>
+                      <Sentry.ErrorBoundary fallback={<div>An error has occurred. Please refresh the page.</div>}>
+                        <App />
+                      </Sentry.ErrorBoundary>
+                    </Elements>
+                  </SessionProvider>
+                </AuthProvider>
+              </PostHogProvider>
+            </BrowserRouter>
+          </StrictMode>
+        );
+      });
     } else {
-      // Missing environment variables, render the configuration needed page.
       root.render(
         <StrictMode>
           <ConfigurationNeededPage />
@@ -143,4 +124,24 @@ const renderApp = async () => {
   }
 };
 
-renderApp();
+const initialize = async () => {
+  if (import.meta.env.VITE_TEST_MODE === 'true') {
+    window.__E2E_MODE__ = true;
+    window.mswReady = false; // Set to false first
+
+    const { worker } = await import('./mocks/browser');
+
+    // Start the worker and wait for it to be ready
+    await worker.start({
+      onUnhandledRequest: 'bypass',
+    });
+
+    console.log('[MSW] Mock Service Worker is ready.');
+    window.mswReady = true; // Set to true after it's ready
+    renderApp();
+  } else {
+    renderApp();
+  }
+};
+
+initialize();

@@ -5,6 +5,8 @@ declare module '../lib/supabaseClient';
 declare module '@/lib/logger';
 declare module '@/lib/utils';
 import type { UserProfile } from './user';
+import type { SupabaseClient } from '@supabase/supabase-js';
+
 declare module '@/hooks/useBrowserSupport';
 
 declare global {
@@ -17,6 +19,8 @@ declare global {
     // For E2E test debugging
     consoleLog?: string[];
     __E2E_CONSOLE_ERRORS__?: string[];
+    supabase?: SupabaseClient;
+    __setSupabaseSession?: (session: Session) => Promise<void>;
     transcriptionServiceRef?: React.RefObject<{
       init: () => Promise<{ success: boolean }>;
       startTranscription: () => Promise<void>;
