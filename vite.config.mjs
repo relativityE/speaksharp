@@ -42,7 +42,7 @@ export default defineConfig(({ mode }) => ({
     'global': 'globalThis'
   },
   optimizeDeps: {
-    exclude: ['@xenova/transformers'],
+    exclude: [],
   },
   ssr: {
     external: ['@xenova/transformers'],

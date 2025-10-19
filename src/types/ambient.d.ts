@@ -6,6 +6,7 @@ declare module '@/lib/logger';
 declare module '@/lib/utils';
 import type { UserProfile } from './user';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 
 declare module '@/hooks/useBrowserSupport';
 
@@ -16,6 +17,7 @@ declare global {
     _speakSharpRootInitialized?: boolean;
     __E2E_MOCK_SESSION__?: boolean;
     __E2E_MODE__?: boolean;
+    __MOCK_SPEECH_RECOGNITION__?: DeepPartial<ReturnType<typeof useSpeechRecognition>>;
     // For E2E test debugging
     consoleLog?: string[];
     __E2E_CONSOLE_ERRORS__?: string[];
@@ -38,3 +40,5 @@ declare global {
     };
   }
 }
+
+type DeepPartial<T> = T extends object ? { [P in keyof T]?: DeepPartial<T[P]>; } : T;

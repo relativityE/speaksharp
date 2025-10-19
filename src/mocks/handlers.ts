@@ -93,10 +93,15 @@ export const handlers: RequestHandler[] = [
     const url = new URL(request.url);
     const userId = url.searchParams.get('id')?.replace('eq.', '');
 
+    let email = 'fallback-user@example.com';
+    if (userId) {
+      email = `${userId.replace('-id', '')}@example.com`;
+    }
+
     const profile = {
       id: userId || 'fallback-id',
       name: 'Test User',
-      email: `${userId || 'test'}@example.com`,
+      email,
       subscription_status: 'free',
     };
 

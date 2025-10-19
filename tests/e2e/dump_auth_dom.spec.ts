@@ -1,6 +1,6 @@
 // tests/e2e/dump_auth_dom.spec.ts
 import { test } from './helpers';
-import { AuthPage } from './poms/authPage.pom';
+import { AuthPage } from '../pom';
 import { dumpPageState } from './helpers';
 
 test.describe('DOM Dumping for Auth Analysis', () => {
