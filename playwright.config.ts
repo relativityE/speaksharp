@@ -10,9 +10,8 @@ const BASE_URL = `http://localhost:${PORT}`;
 
 export default defineConfig({
   testDir: './tests/e2e',
-  timeout: 240_000, // 4-minute global timeout for each test file
+  timeout: 60_000, // 1-minute global timeout for each test file
   expect: { timeout: 10_000 },
-  // Set workers to 1 to prevent parallel execution during stabilization
   workers: 1,
   fullyParallel: false,
   retries: 1,
@@ -20,6 +19,7 @@ export default defineConfig({
     ['list'],
     ['json', { outputFile: 'test-results/playwright-report.json' }],
   ],
+  globalSetup: './tests/global-setup.ts',
   use: {
     baseURL: BASE_URL,
     headless: true,
@@ -34,7 +34,7 @@ export default defineConfig({
     command: 'pnpm exec dotenv -e .env.test -- pnpm exec vite --mode test',
     url: BASE_URL,
     reuseExistingServer: false,
-    timeout: 120 * 1000,
+    timeout: 60 * 1000, // 1 minute
     stdout: 'pipe',
     stderr: 'pipe',
     env: {
@@ -47,4 +47,9 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
+  // Add this to capture console logs
+  onPage: page => {
+    page.on('console', msg => console.log('[BROWSER CONSOLE]', msg.text()));
+    page.on('pageerror', err => console.error('[BROWSER ERROR]', err));
+  },
 });

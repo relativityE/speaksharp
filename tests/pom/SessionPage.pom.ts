@@ -1,13 +1,15 @@
+// tests/pom/SessionPage.pom.ts
 import type { Page } from '@playwright/test';
 
 export class SessionPage {
-  constructor(public readonly page: Page) {}
+  constructor(private page: Page) {}
 
   async navigate() {
     await this.page.goto('/session');
+    await this.page.waitForLoadState('domcontentloaded');
   }
 
-  get heading() {
-    return this.page.getByTestId('practice-session-heading');
+  get startButton() {
+    return this.page.getByRole('button', { name: /start/i });
   }
 }

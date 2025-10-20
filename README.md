@@ -1,3 +1,6 @@
+**Owner:** [unassigned]
+**Last Reviewed:** 2025-10-19
+
 # SpeakSharp
 
 SpeakSharp is an AI-powered speech coaching application that helps users improve their public speaking skills. It provides real-time feedback on filler words, speaking pace, and more.

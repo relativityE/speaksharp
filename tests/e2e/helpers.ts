@@ -314,9 +314,13 @@ export async function programmaticLogin(page: Page, email: string) {
         // 4. Reload the page. The AuthProvider will now read the session from localStorage on load.
         await page.reload({ waitUntil: 'domcontentloaded' });
 
-        // 5. Verify the login was successful by waiting for a stable, post-auth element.
+        // 5. Verify the login was successful by waiting for our custom E2E flag.
+        // This is more reliable than waiting for a UI element that might be affected by timing.
+        await page.waitForFunction(() => window.__E2E_PROFILE_LOADED__ === true, null, { timeout: 15000 });
+
+        // Finally, confirm a stable post-auth element is visible.
         const navElement = page.locator('nav');
-        await expect(navElement).toBeVisible({ timeout: 15000 });
+        await expect(navElement).toBeVisible({ timeout: 5000 });
     });
 }
 
@@ -327,6 +331,18 @@ export async function stubThirdParties(page: Page) {
 
 // Capture console errors for fail-fast detection
 base.beforeEach(async ({ page }) => {
+    // Capture ALL runtime console errors
+    page.on('console', msg => {
+      if (msg.type() === 'error') {
+        console.error('[BROWSER ERROR]', msg.text());
+      }
+    });
+
+    // Capture unhandled exceptions
+    page.on('pageerror', err => {
+      console.error('[PAGE EXCEPTION]', err);
+    });
+
     await page.addInitScript(() => {
         window.__E2E_CONSOLE_ERRORS__ = [];
         const originalError = console.error;
