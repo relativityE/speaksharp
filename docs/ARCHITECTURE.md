@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-09-08
+**Last Reviewed:** 2025-10-19
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -280,13 +280,4 @@ The STT accuracy comparison feature calculates the Word Error Rate (WER) of each
 
 ## 7. Known Issues
 
-*   **E2E Test Environment Instability:** The E2E test suite was suffering from persistent timeouts. The root causes were identified as a combination of:
-    1.  An unreliable `AuthProvider` loading state that would prevent the application from rendering in the test environment.
-    2.  A fragile custom test wrapper (`verifyOnlyStepTracker.ts`) that could hang indefinitely.
-    3.  A polluted test environment with zombie processes and stale browser sessions.
-    *   **Resolution:** The `AuthProvider` has been fixed to initialize its loading state correctly in test mode. The test wrapper has been replaced with a resilient version that includes timeouts. The test suite has been updated to ensure a clean state (`localStorage` clearing) before runs.
-
-## 8. Technical Debt
-
-*   **Custom Test Wrapper (`verifyOnlyStepTracker.ts`):** The custom test wrapper, while useful for debugging, adds a layer of complexity and was a contributing factor to test hangs. It has been replaced with a more resilient version, but for critical smoke tests, it is recommended to use the `plainTest` and `plainExpect` exports from this file to bypass the wrappers entirely, ensuring maximum stability.
-*   **Redundant Mocking Systems:** The codebase previously contained two conflicting mocking systems (MSW and Playwright's `page.route`). This has been resolved by consolidating all API mocking into MSW, but the pattern should be monitored to prevent re-introduction.
+*This section is for tracking active, unresolved issues. As issues are resolved, they should be moved to the [Changelog](./CHANGELOG.md).*

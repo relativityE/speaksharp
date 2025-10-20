@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-09-20
+**Last Reviewed:** 2025-10-19
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -20,15 +20,6 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - 🔴 1. Shorten OTP expiry to less than one hour.
   - 🔴 2. Enable leaked password protection.
   - 🔴 3. Upgrade the Postgres version.
-- ✅ **Stabilize and Optimize CI/Unit Tests**:
-    -   **Status:** **Done.** The test environment has been fully stabilized.
-    -   **Action Taken:** Resolved critical architectural flaws that caused persistent E2E test timeouts and memory leaks. The root cause was a combination of an `AuthProvider` loading state bug, a fragile test wrapper, and conflicting mock systems. The test environment is now stable, and a dedicated smoke test script (`run-e2e-smoke.sh`) has been integrated into the CI pipeline.
-- **Task:** [CI] Re-architect CI/CD Pipeline
-  - **Status:** ✅ Done
-  - **Details:** The monolithic `ci-run-all.sh` script has been replaced with a parallel, multi-job GitHub Actions workflow. This resolves the 7-minute timeout issue and provides a more robust and scalable solution for CI/CD.
-- **Task:** [CI] Fix Monolithic Test Script Timeout
-  - **Status:** ✅ Done
-  - **Details:** The `ci-run-all.sh` script has been replaced with a parallel, multi-job GitHub Actions workflow. This resolves the 7-minute timeout issue.
 
 ### Gating Check
 - 🔴 **Do a Gap Analysis of current implementation against the Current Phase requirements.**
@@ -40,19 +31,12 @@ This phase is about confirming the core feature set works as expected and polish
 ### 🎯 Must-Have
 - 🔴 **Implement Speaking Pace Analysis:** Add real-time feedback on words per minute to the core analytics.
 - 🔴 **Implement Custom Vocabulary:** Allow Pro users to add custom words (jargon, names) to improve transcription accuracy.
-- ✅ **Implement Speaker Identification:** Add the ability to distinguish between different speakers in the transcript.
 - 🔴 **Implement Vocal Variety / Pause Detection:** Add a new Pro-tier feature to analyze vocal variety or pause duration.
 - 🟡 **User-Friendly Error Handling:** Implement specific, user-facing error messages for common issues.
 - 🔴 **Deploy & confirm live transcript UI works:** Ensure text appears within 2 seconds of speech in a live environment.
 - 🔴 **Remove all temporary console.logs:** Clean up the codebase for production.
 
 ### 🚧 Should-Have (Tech Debt)
-- ✅ **Implement STT Accuracy Comparison:**
-    - **Problem:** The application does not provide a way for users to compare the accuracy of the different transcription engines.
-    - **Task:** Implement a feature to track and display a rolling average of STT accuracy for each mode against a ground truth.
-- ✅ **Implement Top 2 Filler Words Analysis:**
-    - **Problem:** The analytics dashboard does not highlight the most frequently used filler words.
-    - **Task:** Implement a feature to identify and display the top 2 filler words for the most recent 4 sessions.
 - 🟡 **Implement new SpeakSharp Design System:**
   - 🟡 3. Refactor UI Components & Test
   - 🔴 4. Final Verification & Test
@@ -90,10 +74,6 @@ This section is a prioritized list of technical debt items to be addressed.
     - **Transcription Modes:** `LocalWhisper`, `NativeBrowser`.
     - **Session & Analytics:** `SessionContext`.
 
-- **P2 (Medium): Complete Removal of Obsolete User Tiers**
-  - **Status:** Completed.
-  - **Action Taken:** A full audit for "anonymous" and "premium" references was conducted. All legacy code paths related to these user tiers have been removed, and the codebase now exclusively uses the "free" and "pro" user types.
-
 - **P2 (Medium): Investigate ESLint `caughtErrorsIgnorePattern` Anomaly**
   - **Problem:** The ESLint configuration (`eslint.config.js`) has been updated to ignore unused variables prefixed with an underscore (`_`). While this works for standard variables and function arguments, it is not being respected for `catch` block errors (`caughtErrorsIgnorePattern`).
   - **Current Workaround:** The affected `catch` blocks in `tests/global-setup.ts` and `tests/global-teardown.ts` have been temporarily disabled with `// eslint-disable-next-line` comments to unblock the CI pipeline.
@@ -109,7 +89,3 @@ This section is a prioritized list of technical debt items to be addressed.
 
 - **P4 (Low): Improve Unit Test Discoverability**
   - **Problem:** The lack of easily discoverable, co-located unit tests makes the codebase harder to maintain.
-
-- **P1 (High): Refactor `useSpeechRecognition` Hook**
-  - **Status:** ✅ **Done.**
-  - **Action Taken:** The hook has been successfully refactored into smaller, more focused hooks (`useTranscriptionService`, `useFillerWords`, `useTranscriptState`). The underlying `useTranscriptionService` was further refactored to resolve a critical memory leak caused by improper instance management. The entire test suite is now passing, confirming the stability of the new implementation.

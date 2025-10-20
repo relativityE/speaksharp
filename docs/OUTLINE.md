@@ -1,3 +1,6 @@
+**Owner:** [unassigned]
+**Last Reviewed:** 2025-10-19
+
 # 📚 SpeakSharp Documentation Outline
 
 This outline explains the structure and purpose of all project documentation.
