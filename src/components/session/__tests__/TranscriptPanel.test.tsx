@@ -98,4 +98,32 @@ describe('TranscriptPanel', () => {
         expect(screen.getByText('Speaker A:')).toBeInTheDocument();
         expect(screen.getByText('Speaker B:')).toBeInTheDocument();
     });
+
+    it('renders the initial state panel before any session activity', () => {
+        render(<TranscriptPanel />);
+        expect(screen.getByText('Ready to Go')).toBeInTheDocument();
+        expect(screen.getByText('Click the "Start Session" button to begin recording and transcription.')).toBeInTheDocument();
+    });
+
+    it('renders the loading state panel when loading', () => {
+        render(<TranscriptPanel isLoading={true} />);
+        expect(screen.getAllByTestId('loading-skeleton').length).toBeGreaterThan(0);
+    });
+
+    it('renders the error state panel when an error is provided', () => {
+        const error = new Error('A test error occurred');
+        render(<TranscriptPanel error={error} />);
+        expect(screen.getByText('An Error Occurred')).toBeInTheDocument();
+        expect(screen.getByText('A test error occurred')).toBeInTheDocument();
+    });
+
+    it('renders the empty state panel after a session with no speech', () => {
+        const { rerender } = render(<TranscriptPanel isListening={true} />);
+
+        // Transition from listening to not listening to set hasEverListened ref
+        rerender(<TranscriptPanel isListening={false} />);
+
+        expect(screen.getByText('Session Complete')).toBeInTheDocument();
+        expect(screen.getByText('No speech was detected during the session.')).toBeInTheDocument();
+    });
 });
