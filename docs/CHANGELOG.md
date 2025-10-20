@@ -1,3 +1,6 @@
+**Owner:** [unassigned]
+**Last Reviewed:** 2025-10-19
+
 # Changelog
 
 All notable changes to this project will be documented in this file.
@@ -6,6 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Added
+- **Ephemeral E2E Test Logging:** Implemented a new automated logging system for Playwright tests using a custom fixture (`verifyOnlyStepTracker.ts`). This system provides detailed, inline diagnostics (including step tracking and ephemeral base64 screenshots) directly in CI logs without relying on filesystem artifacts.
+- **Speaker Identification:** Re-implemented the speaker identification feature to correctly handle speaker labels from the AssemblyAI API.
+- **Top 2 Filler Words:** Re-implemented the "Top 2 Filler Words" analytics feature.
+- **STT Accuracy Comparison:** Re-implemented the "STT Accuracy Comparison" feature to compare against a ground truth.
 
 ### Changed
 - **CI/CD and Testing Pipeline Overhaul:**
@@ -21,6 +30,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - **Unit:** Resolved state leakage in `AuthContext` tests by clearing `localStorage` and adding specific mocks to ensure each test runs in a clean, isolated environment.
   - **CI/CD Alignment:** The local audit script (`test-audit.sh`) now runs the full E2E suite, aligning it with the CI pipeline to prevent discrepancies.
   - **Code Reorganization:** Moved all test-related files from `src/test` to a top-level `tests` directory for better separation of concerns.
+- **E2E Test Suite Refactoring:** Refactored the entire E2E test suite to use the new automated, ephemeral logging fixture, improving consistency and maintainability while removing manual logging code.
+- **CI/CD:** Simplified the CI pipeline in `.github/workflows/ci.yml` to a single, consolidated job for improved maintainability and clarity.
+- **E2E Test Configuration**: Enabled Playwright's `webServer` to automatically start the application, making the test suite turn-key and CI-ready.
+- **Dependencies:** Updated `vite` and `happy-dom` to their latest versions to resolve security vulnerabilities.
+- **UI & UX:**
+- Updated homepage routing logic to be conditional for development vs. production, allowing easier debugging of landing page components.
+- Refined developer-only controls on the `SessionSidebar` to be more specific and only appear for designated dev users.
 
 ### Fixed
 - **`live-transcript` E2E Test Failure:** Resolved a fatal JavaScript error in the `live-transcript.e2e.spec.ts` test caused by the `onnxruntime-web` library. The fix introduces a mock for the `useSpeechRecognition` hook that prevents the unstable module from being loaded in the test environment.
@@ -37,23 +53,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Fragile Test Infrastructure:** Replaced the custom test wrapper (`verifyOnlyStepTracker.ts`) with a new, resilient version that includes action timeouts to prevent indefinite hangs.
   - **Conflicting Mocking Systems:** Removed a redundant Playwright-based mocking system from `sdkStubs.ts` to consolidate all API mocking within MSW, eliminating race conditions.
 
-### Added
-- **Ephemeral E2E Test Logging:** Implemented a new automated logging system for Playwright tests using a custom fixture (`verifyOnlyStepTracker.ts`). This system provides detailed, inline diagnostics (including step tracking and ephemeral base64 screenshots) directly in CI logs without relying on filesystem artifacts.
-- **Speaker Identification:** Re-implemented the speaker identification feature to correctly handle speaker labels from the AssemblyAI API.
-- **Top 2 Filler Words:** Re-implemented the "Top 2 Filler Words" analytics feature.
-- **STT Accuracy Comparison:** Re-implemented the "STT Accuracy Comparison" feature to compare against a ground truth.
-
-### Changed
-- **E2E Test Suite Refactoring:** Refactored the entire E2E test suite to use the new automated, ephemeral logging fixture, improving consistency and maintainability while removing manual logging code.
-- **CI/CD:** Simplified the CI pipeline in `.github/workflows/ci.yml` to a single, consolidated job for improved maintainability and clarity.
-- **E2E Test Configuration**: Enabled Playwright's `webServer` to automatically start the application, making the test suite turn-key and CI-ready.
-- **Dependencies:** Updated `vite` and `happy-dom` to their latest versions to resolve security vulnerabilities.
-- **UI & UX:**
-- Updated homepage routing logic to be conditional for development vs. production, allowing easier debugging of landing page components.
-- Refined developer-only controls on the `SessionSidebar` to be more specific and only appear for designated dev users.
-
 ### Removed
 - **Visual Regression Test:** Removed the `visual.e2e.spec.ts` file as its file-based screenshot comparison strategy is incompatible with the new artifact-free testing approach.
+- **Obsolete User Tiers:** A full audit for "anonymous" and "premium" references was conducted. All legacy code paths related to these user tiers have been removed, and the codebase now exclusively uses the "free" and "pro" user types.
+
+### Refactored
+- **`useSpeechRecognition` Hook:** The hook has been successfully refactored into smaller, more focused hooks (`useTranscriptionService`, `useFillerWords`, `useTranscriptState`). The underlying `useTranscriptionService` was further refactored to resolve a critical memory leak caused by improper instance management. The entire test suite is now passing, confirming the stability of the new implementation.
 
 ## [0.1.0] - 2025-09-08
 
