@@ -10,11 +10,8 @@ import { Session, User } from '@supabase/supabase-js';
 // MSW Readiness Helper
 // ---------------------------------
 export async function waitForMSW(page: Page) {
-  // Use page.waitForFunction for robust checking in the browser context.
-  // The key fix is checking for `window.mswReady === true`.
   await page.waitForFunction(() => window.mswReady === true, null, { timeout: 15000 }).catch(async (error) => {
     console.error(`[HELPER] MSW readiness timeout or error: ${error.message}`);
-    // Dump page state for better debugging when this fails.
     await dumpPageState(page, 'msw-readiness-failure');
     throw new Error('MSW readiness check failed. The mock server did not initialize correctly.');
   });
@@ -38,7 +35,6 @@ export type { Response, Page };
 // Error Detection Helper - FAIL FAST!
 // ---------------------------------
 export async function checkForAuthErrors(page: Page, context: string) {
-  // Common error selectors (add more as you discover them)
   const errorSelectors = [
     '[data-testid="auth-error-message"]',
     '[data-testid="error-message"]',
@@ -54,11 +50,7 @@ export async function checkForAuthErrors(page: Page, context: string) {
 
     if (await errorElement.isVisible({ timeout: 1000 }).catch(() => false)) {
       const errorText = await errorElement.textContent();
-
-      // Dump detailed state for debugging
       await dumpPageState(page, `error-${context}`);
-
-      // Fail loudly with context
       throw new Error(
         `❌ AUTH ERROR DETECTED (${context})\n` +
         `   Selector: ${selector}\n` +
@@ -68,7 +60,6 @@ export async function checkForAuthErrors(page: Page, context: string) {
     }
   }
 
-  // Check console for errors
   const consoleErrors = await page.evaluate(() => {
     return window.__E2E_CONSOLE_ERRORS__ || [];
   });
@@ -232,7 +223,6 @@ export async function dumpPageState(page: Page, name = 'failure') {
     await page.screenshot({ path: screenshotPath, fullPage: true });
     console.log(`Saved debug state to ${htmlPath} and ${screenshotPath}`);
 
-    // Also dump useful runtime state
     const runtimeState = await page.evaluate(() => ({
       url: window.location.href,
       localStorage: Object.keys(localStorage).reduce((acc, key) => {
@@ -267,13 +257,6 @@ export type MockUser = {
   subscription_status: 'free' | 'pro';
 };
 
-/**
- * Programmatically logs in a user by setting auth session in localStorage.
- * This is a robust method that avoids UI interactions for login, making tests faster and less flaky.
- *
- * @param page - Playwright Page instance
- * @param email - User email address
- */
 export async function programmaticLogin(page: Page, email: string) {
     const user: MockUser = {
         id: `${email.split('@')[0]}-id`,
@@ -282,14 +265,10 @@ export async function programmaticLogin(page: Page, email: string) {
     };
 
     await test.step(`Programmatic login for ${user.email}`, async () => {
-        // 1. Navigate to the root of the app to establish the correct origin for localStorage.
         await page.goto('/', { waitUntil: 'domcontentloaded' });
-
-        // 2. Wait for the mock service worker to be ready. This is crucial to ensure
-        // that the application doesn't try to make real API calls.
+        await expect(page.locator('[data-testid="app-main"]')).toBeVisible({ timeout: 15000 });
         await waitForMSW(page);
 
-        // 3. Set the authentication token in localStorage. This is done in the browser context.
         await page.evaluate(({ mockUser, supabaseUrl }) => {
             const urlParts = supabaseUrl.split('//')[1]?.split('.') || ['local'];
             const projectRef = urlParts[0].replace(':', '-');
@@ -311,16 +290,10 @@ export async function programmaticLogin(page: Page, email: string) {
             window.localStorage.setItem(storageKey, JSON.stringify(session));
         }, { mockUser: user, supabaseUrl: process.env.VITE_SUPABASE_URL! });
 
-        // 4. Reload the page. The AuthProvider will now read the session from localStorage on load.
         await page.reload({ waitUntil: 'domcontentloaded' });
-
-        // 5. Verify the login was successful by waiting for our custom E2E flag.
-        // This is more reliable than waiting for a UI element that might be affected by timing.
+        await page.waitForURL('**/', { timeout: 10000 });
         await page.waitForFunction(() => window.__E2E_PROFILE_LOADED__ === true, null, { timeout: 15000 });
-
-        // Finally, confirm a stable post-auth element is visible.
-        const navElement = page.locator('nav');
-        await expect(navElement).toBeVisible({ timeout: 5000 });
+        await expect(page.locator('nav')).toBeVisible({ timeout: 5000 });
     });
 }
 
@@ -329,16 +302,13 @@ export async function stubThirdParties(page: Page) {
     await page.route(/https:\/\/.*\.posthog\.com\/.*/, route => route.abort());
 }
 
-// Capture console errors for fail-fast detection
 base.beforeEach(async ({ page }) => {
-    // Capture ALL runtime console errors
     page.on('console', msg => {
       if (msg.type() === 'error') {
         console.error('[BROWSER ERROR]', msg.text());
       }
     });
 
-    // Capture unhandled exceptions
     page.on('pageerror', err => {
       console.error('[PAGE EXCEPTION]', err);
     });

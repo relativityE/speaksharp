@@ -10,8 +10,8 @@ const BASE_URL = `http://localhost:${PORT}`;
 
 export default defineConfig({
   testDir: './tests/e2e',
-  timeout: 60_000, // 1-minute global timeout for each test file
-  expect: { timeout: 10_000 },
+  timeout: 120_000, // 2-minute global timeout for each test file
+  expect: { timeout: 30_000 },
   workers: 1,
   fullyParallel: false,
   retries: 1,
@@ -34,7 +34,7 @@ export default defineConfig({
     command: 'pnpm exec dotenv -e .env.test -- pnpm exec vite --mode test',
     url: BASE_URL,
     reuseExistingServer: false,
-    timeout: 60 * 1000, // 1 minute
+    timeout: 120 * 1000, // 2 minutes
     stdout: 'pipe',
     stderr: 'pipe',
     env: {

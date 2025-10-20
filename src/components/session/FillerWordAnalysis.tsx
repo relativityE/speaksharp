@@ -36,7 +36,7 @@ const SEVERITY_PALETTE: Record<string, string> = {
 // --- Sub-components ---
 
 const FillerWordCard: React.FC<FillerWordCardProps> = ({ word, count, colorClass, progress }) => (
-  <div className={`p-2 rounded-lg text-left ${colorClass}`}>
+  <div className={`p-2 rounded-lg text-left ${colorClass}`} data-testid="filler-word-card">
     <div className="flex justify-between items-center mb-1">
       <span className="text-xs font-semibold text-gray-800 capitalize">{word}</span>
       <span className="text-base font-bold text-gray-900">{count}</span>
