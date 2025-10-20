@@ -174,6 +174,13 @@ The E2E test environment is designed for stability and isolation, ensuring tests
     *   **Solution:** The POMs have been centralized into a single, canonical location: `tests/pom/`.
     *   **Barrel Exports:** A barrel file (`tests/pom/index.ts`) is used to export all POMs from this central location. This provides a single, clean import path for all test files (e.g., `import { SessionPage } from '../pom';`), which improves maintainability and prevents module resolution issues in the test runner.
 
+5.  **Source-Code-Level Guard for Incompatible Libraries:**
+    *   **Problem:** The on-device transcription feature uses the `onnxruntime-web` library, which relies on WebAssembly. This library is fundamentally incompatible with the Playwright test environment and causes a silent, catastrophic browser crash that is untraceable with standard debugging tools.
+    *   **Solution:** A test-aware guard has been implemented directly in the application's source code.
+        *   **Flag Injection:** The `programmaticLogin` helper in `tests/e2e/helpers.ts` uses `page.addInitScript()` to inject a global `window.TEST_MODE = true;` flag before any application code runs.
+        *   **Conditional Import:** The `TranscriptionService.ts` checks for the presence of `window.TEST_MODE`. If the flag is true, it completely skips the dynamic import of the `LocalWhisper` module that would have loaded the crashing library. Instead, it gracefully falls back to the safe, native browser transcription engine.
+    *   **Benefit:** This source-code-level solution is more robust than network-level blocking (`page.route`), which can be unreliable with modern bundlers. It directly prevents the incompatible code from ever being loaded in the test environment.
+
 These patterns work together to create a robust testing foundation, eliminating the primary sources of flakiness and making the E2E suite a reliable indicator of application quality.
 
 ### Mocking Native Dependencies
