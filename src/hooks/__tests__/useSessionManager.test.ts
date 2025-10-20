@@ -143,9 +143,41 @@ describe('useSessionManager', () => {
         expect(mockLogger.error).toHaveBeenCalled();
         expect(success).toBe(false);
       });
+
+    it('should do nothing for anonymous sessions but return true', async () => {
+        mockUseAuth.mockReturnValue({ ...mockAuthContextValue, user: { ...mockUser, is_anonymous: true } });
+        const { result } = renderHook(() => useSessionManager());
+        let success;
+        await act(async () => {
+            success = await result.current.deleteSession('anonymous-session-123');
+        });
+        expect(mockStorage.deleteSession).not.toHaveBeenCalled();
+        expect(success).toBe(true);
+    });
   });
 
-describe('exportSessions', () => {
+  describe('Anonymous User Flow', () => {
+    beforeEach(() => {
+        mockUseAuth.mockReturnValue({ ...mockAuthContextValue, user: { ...mockUser, is_anonymous: true } });
+    });
+
+    it('saveSession should save to sessionStorage for anonymous users', async () => {
+        const { result } = renderHook(() => useSessionManager());
+        const sessionData = { duration: 60 };
+
+        await act(async () => {
+            await result.current.saveSession(sessionData);
+        });
+
+        expect(mockSessionStorage.setItem).toHaveBeenCalledWith(
+            'anonymous-session',
+            expect.any(String)
+        );
+        expect(mockStorage.saveSession).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('exportSessions', () => {
   // Set up proper DOM mocks before each test
   beforeEach(() => {
     // Mock URL object methods

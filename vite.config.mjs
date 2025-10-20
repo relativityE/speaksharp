@@ -8,6 +8,9 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig(({ mode }) => ({
   plugins: [react()],
+  worker: {
+    format: 'es'
+  },
   server: {
     port: 5173,
     host: true,

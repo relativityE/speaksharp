@@ -1,14 +1,11 @@
-import type { Page } from '@playwright/test';
+import { Page, expect } from '@playwright/test';
 
 export class AnalyticsPage {
   constructor(private page: Page) {}
 
   async navigate() {
-    await this.page.goto('/analytics');  // ✅ FIXED: Correct route
-    await this.page.waitForLoadState('domcontentloaded');  // ✅ FIXED: More reliable
-
-    // Wait for heading to confirm page loaded
-    await this.page.waitForSelector('[data-testid="dashboard-heading"]', { timeout: 10000 });
+    await this.page.goto('/analytics');
+    await expect(this.heading).toBeVisible({ timeout: 15000 });
   }
 
   get heading() {

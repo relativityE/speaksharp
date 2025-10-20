@@ -116,7 +116,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro 
 };
 
 export const AnalyticsDashboardSkeleton: React.FC = () => (
-    <div className="space-y-8 animate-pulse">
+    <div className="space-y-8 animate-pulse" data-testid="analytics-dashboard-skeleton">
         <div className="grid gap-6 md:grid-cols-3">
             <Card><CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0"><Skeleton className="h-5 w-2/5" /></CardHeader><CardContent><Skeleton className="h-8 w-1/3" /></CardContent></Card>
             <Card><CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0"><Skeleton className="h-5 w-4/5" /></CardHeader><CardContent><Skeleton className="h-8 w-1/3" /></CardContent></Card>
