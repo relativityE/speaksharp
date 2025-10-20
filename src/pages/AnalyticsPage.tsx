@@ -66,7 +66,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
             <div className="lg:col-span-4">
                 {user && !isPro && !sessionId && <UpgradeBanner />}
                 <div className="mb-8">
-                    <h1 className="text-3xl font-bold text-foreground">{sessionId ? "Session Analysis" : "Your Dashboard"}</h1>
+                    <h1 className="text-3xl font-bold text-foreground" data-testid="dashboard-heading">{sessionId ? "Session Analysis" : "Your Dashboard"}</h1>
                     <p className="mt-2 text-base text-muted-foreground">
                         {sessionId ? "A detailed breakdown of your recent practice session." : "Here's an overview of your progress. Keep it up!"}
                     </p>
@@ -118,11 +118,10 @@ const AnonymousAnalyticsView: React.FC = () => {
 
 export const AnalyticsPage: React.FC = () => {
     const { user } = useAuth();
-    const isDevUser = import.meta.env.VITE_DEV_USER === 'true';
 
     return (
         <div className="container mx-auto px-4 py-10">
-            {(user && !isDevUser) ? <AuthenticatedAnalyticsView /> : <AnonymousAnalyticsView />}
+            {user ? <AuthenticatedAnalyticsView /> : <AnonymousAnalyticsView />}
         </div>
     );
 };

@@ -1,17 +1,29 @@
 import { test, expect, programmaticLogin } from './helpers';
-import { SessionPage } from '../pom';
+import { AnalyticsPage } from '../pom';
 
 test.describe('User Tier Flows', () => {
-  let sessionPage: SessionPage;
+  let analyticsPage: AnalyticsPage;
 
   test.beforeEach(async ({ page }) => {
-    sessionPage = new SessionPage(page);
+    analyticsPage = new AnalyticsPage(page);
   });
 
-  test('should not see upgrade prompts as a pro user', async ({ page }) => {
-    await programmaticLogin(page, 'pro-user@example.com');
-    await sessionPage.goto();
-    await expect(sessionPage.heading).toBeVisible();
-    await expect(page.getByTestId('upgrade-banner')).toHaveCount(0);
-  });
+  const userTiers = [
+    { type: 'pro', email: 'pro-user@example.com', shouldSeeBanner: false },
+    { type: 'free', email: 'free-user@example.com', shouldSeeBanner: true },
+  ];
+
+  for (const user of userTiers) {
+    test(`should handle upgrade banner correctly for ${user.type} user`, async ({ page }) => {
+      await programmaticLogin(page, user.email);
+      await analyticsPage.navigate();
+      await expect(analyticsPage.heading).toBeVisible();
+
+      if (user.shouldSeeBanner) {
+        await expect(analyticsPage.upgradeBanner).toBeVisible();
+      } else {
+        await expect(analyticsPage.upgradeBanner).toHaveCount(0);
+      }
+    });
+  }
 });

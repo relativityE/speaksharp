@@ -1,52 +1,61 @@
 // tests/e2e/smoke.e2e.spec.ts
 import { test, expect, getLogger } from './helpers';
 import { programmaticLogin, stubThirdParties } from './helpers';
+import { AnalyticsPage, SessionPage } from '../pom';
 
 test.describe('Smoke Test', () => {
-  test('should log in, navigate to session page, and verify core UI elements @smoke', async ({ page }, testInfo) => {
+  test('should perform a full user journey: login, start session, view analytics, and log out @smoke', async ({ page }, testInfo) => {
     const logger = getLogger(testInfo.title);
+    logger.info('smoke-test', 'Starting comprehensive smoke test');
 
-    logger.info('smoke-test', 'Starting smoke test');
-
-    // Stub third parties to avoid noise
     await stubThirdParties(page);
 
-    // Step 1: Programmatic login (this will navigate to home page and verify Sign Out there)
+    // Step 1: Programmatic login
     logger.info('smoke-test', 'Performing programmatic login');
     await programmaticLogin(page, 'smoke-test@example.com');
+    logger.info('smoke-test', 'Login successful');
 
-    logger.info('smoke-test', 'Login successful, user is authenticated');
+    // Step 2: Navigate to Session Page and start a session
+    const sessionPage = new SessionPage(page);
+    await sessionPage.navigate();
+    logger.info('smoke-test', 'Navigated to session page');
+    await expect(sessionPage.startButton).toBeVisible();
+    await sessionPage.startButton.click();
+    logger.info('smoke-test', 'Session started');
 
-    // Step 2: Now that we're logged in, navigate to session page
-    logger.info('smoke-test', 'Navigating to session page');
-    await page.goto('/session');
+    // For the smoke test, we don't need to wait for a full session.
+    // We just need to ensure the core UI loads post-start.
+    await expect(page.getByTestId('session-in-progress-indicator')).toBeVisible({ timeout: 15000 });
+    logger.info('smoke-test', 'Session in-progress UI is visible');
 
-    // Wait for session page to load
-    await page.waitForLoadState('networkidle');
-    logger.info('smoke-test', 'On session page');
+    // Step 3: Navigate to Analytics Page
+    const analyticsPage = new AnalyticsPage(page);
+    await analyticsPage.navigate();
+    logger.info('smoke-test', 'Navigated to analytics page');
 
-    // Step 3: Verify session-specific UI elements (NOT Sign Out, that's on home/nav)
-    logger.info('smoke-test', 'Verifying session page elements');
+    // Step 4: Verify Analytics Page core elements
+    await expect(analyticsPage.heading).toBeVisible();
+    logger.info('smoke-test', 'Analytics dashboard heading is visible');
+    // The default smoke user is 'free', so the banner should be visible
+    await expect(analyticsPage.upgradeBanner).toBeVisible();
+    logger.info('smoke-test', 'Upgrade banner is visible as expected for free user');
 
-    // Check for the "Start" button that actually exists on this page
-    await expect(page.getByRole('button', { name: /start/i })).toBeVisible({ timeout: 10000 });
-    logger.info('smoke-test', 'Start button found');
+    // Step 5: Log out
+    const navSignOutButton = page.getByTestId('nav-sign-out-button');
+    await expect(navSignOutButton).toBeVisible();
+    await navSignOutButton.click();
+    logger.info('smoke-test', 'Clicked sign out button');
 
-    // Check for upgrade button if it exists
-    const upgradeButton = page.getByRole('button', { name: /upgrade/i });
-    const hasUpgradeButton = await upgradeButton.count() > 0;
+    // Step 6: Verify successful logout
+    // After logout, the user should be redirected to the home page,
+    // and the "Sign In" button should be visible again.
+    const navSignInButton = page.getByTestId('nav-sign-in-button');
+    await expect(navSignInButton).toBeVisible({ timeout: 10000 });
+    await expect(navSignOutButton).not.toBeVisible();
+    expect(page.url()).not.toContain('/analytics');
+    expect(page.url()).not.toContain('/session');
+    logger.info('smoke-test', 'Logout successful, user is on home page');
 
-    if (hasUpgradeButton) {
-      await expect(upgradeButton).toBeVisible();
-      logger.info('smoke-test', 'Upgrade button found');
-    } else {
-      logger.info('smoke-test', 'Upgrade button not present (may be conditional)');
-    }
-
-    // Verify we're actually on the session page by checking URL
-    expect(page.url()).toContain('/session');
-    logger.info('smoke-test', 'Confirmed on session page');
-
-    logger.info('smoke-test', 'Smoke test completed successfully');
+    logger.info('smoke-test', 'Comprehensive smoke test completed successfully');
   });
 });

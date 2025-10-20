@@ -41,39 +41,47 @@ const renderApp = (initialSession: Session | null = null) => {
 
     if (areEnvVarsPresent()) {
       import('./App').then(({ default: App }) => {
-        // Initialize services
-        try {
-          if (import.meta.env.VITE_POSTHOG_KEY && import.meta.env.VITE_POSTHOG_HOST && !window.__E2E_MOCK_SESSION__) {
-            posthog.init(import.meta.env.VITE_POSTHOG_KEY, {
-              api_host: import.meta.env.VITE_POSTHOG_HOST,
-              capture_exceptions: true,
-              debug: import.meta.env.MODE === 'development',
-            });
+        // 🛑 Skip ALL analytics in E2E mode
+        if (!window.__E2E_MODE__ && !import.meta.env.VITE_TEST_MODE) {
+          const dsn = import.meta.env.VITE_SENTRY_DSN;
+          if (dsn) {
+            try {
+              Sentry.init({
+                dsn,
+                integrations: [
+                  Sentry.browserTracingIntegration(),
+                  Sentry.replayIntegration(),
+                ],
+                environment: import.meta.env.MODE,
+                tracesSampleRate: 1.0,
+                replaysSessionSampleRate: 0.1,
+                replaysOnErrorSampleRate: 1.0,
+                sendDefaultPii: true,
+              });
+            } catch (err) {
+              console.warn('[Sentry Disabled] Invalid DSN:', err);
+            }
+          } else {
+            console.warn('[Sentry Disabled] No DSN provided');
           }
-        } catch (error) {
-          logger.warn({ error }, "PostHog failed to initialize:");
+
+          try {
+            if (import.meta.env.VITE_POSTHOG_KEY && import.meta.env.VITE_POSTHOG_HOST) {
+              posthog.init(import.meta.env.VITE_POSTHOG_KEY, {
+                api_host: import.meta.env.VITE_POSTHOG_HOST,
+                capture_exceptions: true,
+                debug: import.meta.env.MODE === 'development',
+              });
+            }
+          } catch (error) {
+            logger.warn({ error }, "PostHog failed to initialize:");
+          }
+        } else {
+          console.warn('[E2E MODE] Analytics disabled entirely.');
         }
+
 
         const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY!);
-
-        try {
-          if (!window.__E2E_MOCK_SESSION__) {
-            Sentry.init({
-              dsn: import.meta.env.VITE_SENTRY_DSN,
-              integrations: [
-                Sentry.browserTracingIntegration(),
-                Sentry.replayIntegration(),
-              ],
-              environment: import.meta.env.MODE,
-              tracesSampleRate: 1.0,
-              replaysSessionSampleRate: 0.1,
-              replaysOnErrorSampleRate: 1.0,
-              sendDefaultPii: true,
-            });
-          }
-        } catch (error) {
-          logger.warn({ error }, "Sentry failed to initialize:");
-        }
 
         const sessionToUse = window.__E2E_MOCK_SESSION__ ? ({
           user: {

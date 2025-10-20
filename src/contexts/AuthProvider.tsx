@@ -36,8 +36,10 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
       const currentSession = initialSession !== undefined ? initialSession : getSyncSession();
       setSessionState(currentSession);
       if (currentSession?.user) {
+        window.__E2E_PROFILE_LOADED__ = false;
         const userProfile = await getProfileFromDb(currentSession.user.id);
         setProfile(userProfile);
+        window.__E2E_PROFILE_LOADED__ = true;
       }
       setLoading(false); // End loading after the initial session is processed
     };
@@ -49,10 +51,13 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
       async (_event, newSession) => {
         setSessionState(newSession);
         if (newSession?.user) {
+          window.__E2E_PROFILE_LOADED__ = false;
           const userProfile = await getProfileFromDb(newSession.user.id);
           setProfile(userProfile);
+          window.__E2E_PROFILE_LOADED__ = true;
         } else {
           setProfile(null);
+          window.__E2E_PROFILE_LOADED__ = true;
         }
       }
     );
@@ -84,10 +89,13 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
     setSession: async (s: Session | null) => {
         setSessionState(s);
         if (s?.user) {
+            window.__E2E_PROFILE_LOADED__ = false;
             const userProfile = await getProfileFromDb(s.user.id);
             setProfile(userProfile);
+            window.__E2E_PROFILE_LOADED__ = true;
         } else {
             setProfile(null);
+            window.__E2E_PROFILE_LOADED__ = true;
         }
     },
   };

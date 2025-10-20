@@ -2,10 +2,10 @@ import React from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { Toaster } from '@/components/ui/sonner';
 import Index from './pages/Index';
-import Session from './pages/Session';
-import Analytics from './pages/Analytics';
-import AuthPage from './pages/AuthPage'; // Import the AuthPage component
+import { AnalyticsPage } from './pages/AnalyticsPage';
+import AuthPage from './pages/AuthPage';
 import Navigation from './components/Navigation';
+import { SessionPage } from './pages/SessionPage';
 
 const App: React.FC = () => {
   return (
@@ -15,9 +15,9 @@ const App: React.FC = () => {
       <main data-testid="app-main">
         <Routes>
           <Route path="/" element={<Index />} />
-          <Route path="/auth" element={<AuthPage />} /> {/* Add the missing auth route */}
-          <Route path="/session" element={<Session />} />
-          <Route path="/analytics" element={<Analytics />} />
+          <Route path="/auth" element={<AuthPage />} />
+          <Route path="/session" element={<SessionPage />} />
+          <Route path="/analytics" element={<AnalyticsPage />} />
         </Routes>
       </main>
     </div>

@@ -102,7 +102,7 @@ export const handlers: RequestHandler[] = [
       id: userId || 'fallback-id',
       name: 'Test User',
       email,
-      subscription_status: 'free',
+      subscription_status: email.includes('pro') ? 'pro' : 'free',
     };
 
     if (request.headers.get('Accept') === 'application/vnd.pgrst.object+json') {
