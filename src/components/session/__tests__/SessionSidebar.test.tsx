@@ -235,4 +235,68 @@ describe('SessionSidebar', () => {
       });
     });
   });
+
+  describe('UI States', () => {
+    it('shows the model loading indicator when the model is loading', () => {
+      const props = {
+        ...defaultProps,
+        modelLoadingProgress: { status: 'download', file: 'model.bin', loaded: 50, total: 100 },
+      };
+      render(
+        <MockAuthProvider value={mockAuthContextValue}>
+          <SessionSidebar {...props} />
+        </MockAuthProvider>
+      );
+      expect(screen.getByTestId('model-loading-indicator')).toBeInTheDocument();
+      expect(screen.getByText(/Downloading model/)).toBeInTheDocument();
+    });
+
+    it('shows the error display when an error is present', () => {
+      const props = { ...defaultProps, error: new Error('Test Error') };
+      render(
+        <MockAuthProvider value={mockAuthContextValue}>
+          <SessionSidebar {...props} />
+        </MockAuthProvider>
+      );
+      expect(screen.getByText('An Error Occurred')).toBeInTheDocument();
+      expect(screen.getByText('Test Error')).toBeInTheDocument();
+    });
+
+    it('disables controls and shows "Connecting..." when connecting', () => {
+      const props = { ...defaultProps, isListening: true, isReady: false };
+      render(
+        <MockAuthProvider value={mockAuthContextValue}>
+          <SessionSidebar {...props} />
+        </MockAuthProvider>
+      );
+      expect(screen.getByTestId('session-start-stop-button')).toBeDisabled();
+      expect(screen.getByText(/Connecting.../)).toBeInTheDocument();
+    });
+
+    it('displays the digital timer when a session has started', () => {
+      const props = { ...defaultProps, startTime: Date.now() };
+       render(
+        <MockAuthProvider value={mockAuthContextValue}>
+          <SessionSidebar {...props} />
+        </MockAuthProvider>
+      );
+      expect(screen.getByText(/00:00/)).toBeInTheDocument();
+    });
+  });
+
+  describe('Session Flow', () => {
+    it('calls stopListening and shows the end session dialog when stopping a session', async () => {
+      const user = userEvent.setup();
+      const props = { ...defaultProps, isListening: true, startTime: Date.now() };
+      render(
+        <MockAuthProvider value={mockAuthContextValue}>
+          <SessionSidebar {...props} />
+        </MockAuthProvider>
+      );
+
+      await user.click(screen.getByTestId('session-start-stop-button'));
+      expect(mockStopListening).toHaveBeenCalledOnce();
+      expect(await screen.findByText('Session Ended')).toBeInTheDocument();
+    });
+  });
 });

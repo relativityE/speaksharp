@@ -113,4 +113,91 @@ describe('useSpeechRecognition', () => {
       }));
     });
   });
+
+  it('should call reset on all sub-hooks when startListening is called', async () => {
+    const { result } = renderHook(() => useSpeechRecognition(), { wrapper });
+
+    await act(async () => {
+      await result.current.startListening();
+    });
+
+    expect(mockUseTranscriptState.reset).toHaveBeenCalled();
+    expect(mockUseFillerWords.reset).toHaveBeenCalled();
+    expect(mockUseTranscriptionService.reset).toHaveBeenCalled();
+    expect(mockUseTranscriptionService.startListening).toHaveBeenCalled();
+  });
+
+  it('should call reset on all sub-hooks when reset is called', () => {
+    const { result } = renderHook(() => useSpeechRecognition(), { wrapper });
+
+    act(() => {
+      result.current.reset();
+    });
+
+    expect(mockUseTranscriptState.reset).toHaveBeenCalled();
+    expect(mockUseFillerWords.reset).toHaveBeenCalled();
+    expect(mockUseTranscriptionService.reset).toHaveBeenCalled();
+  });
+
+  it('should handle partial transcript updates from the service', () => {
+    renderHook(() => useSpeechRecognition(), { wrapper });
+
+    // Get the onTranscriptUpdate callback passed to the service
+    const onTranscriptUpdate = vi.mocked(useTranscriptionService).mock.calls[0][0].onTranscriptUpdate;
+    act(() => {
+        onTranscriptUpdate({ transcript: { partial: 'hello' } });
+    });
+
+    expect(mockUseTranscriptState.setInterimTranscript).toHaveBeenCalledWith('hello');
+  });
+
+  it('should handle final transcript updates from the service', () => {
+    renderHook(() => useSpeechRecognition(), { wrapper });
+
+    const onTranscriptUpdate = vi.mocked(useTranscriptionService).mock.calls[0][0].onTranscriptUpdate;
+    act(() => {
+      onTranscriptUpdate({ transcript: { final: 'hello world' }, speaker: 'A' });
+    });
+
+    expect(mockUseTranscriptState.addChunk).toHaveBeenCalledWith('hello world', 'A');
+    expect(mockUseTranscriptState.setInterimTranscript).toHaveBeenCalledWith('');
+  });
+
+  it('should return null from stopListening on failure', async () => {
+    vi.mocked(useTranscriptionService).mockReturnValue({
+      ...mockUseTranscriptionService,
+      stopListening: vi.fn().mockResolvedValue({ success: false }),
+    });
+
+    const { result } = renderHook(() => useSpeechRecognition(), { wrapper });
+
+    await act(async () => {
+      const stats = await result.current.stopListening();
+      expect(stats).toBeNull();
+    });
+  });
+
+  it('should handle errors during startListening', async () => {
+    const error = new Error('Permission denied');
+    vi.mocked(useTranscriptionService).mockReturnValue({
+      ...mockUseTranscriptionService,
+      startListening: vi.fn().mockRejectedValue(new Error('Permission denied')),
+      error: error,
+      isSupported: false,
+    });
+
+    const { result } = renderHook(() => useSpeechRecognition(), { wrapper });
+
+    await act(async () => {
+      try {
+        await result.current.startListening();
+      } catch (e) {
+        // Expected rejection
+      }
+    });
+
+    expect(result.current.error).toEqual(error);
+    expect(result.current.isListening).toBe(false);
+    expect(result.current.isSupported).toBe(false);
+  });
 });
