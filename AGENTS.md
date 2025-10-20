@@ -41,6 +41,14 @@ The `./env-stabilizer.sh` script is a powerful tool for recovering a broken envi
 *   Escalate to the user **before using** `./vm-recovery.sh`.
 *   Always read `README.md` to understand setup, workflow, and scripts.
 
+### 4. Handling Silent Crashes in E2E Tests
+
+The E2E test environment has a critical incompatibility with the `onnxruntime-web` library, which is used for on-device speech recognition. This library is loaded via a dynamic import.
+
+*   **Symptom:** When a test runs that triggers this import, the browser will crash instantly and silently, resulting in a blank screenshot and no console or network errors. This is a fatal, untraceable error.
+*   **Solution:** A source-code-level guard is in place. A `window.TEST_MODE = true` flag is injected by the test setup. The application code (`src/services/transcription/TranscriptionService.ts`) checks for this flag and conditionally skips the dynamic import of the module that causes the crash.
+*   **Implication:** Do not remove this flag or the corresponding check in the application code. If you encounter a similar silent crash, investigate for other dynamic imports of heavy, WebAssembly-based libraries.
+
 ---
 
 ## ⚡ Quick Reference – Non-Negotiable Rules

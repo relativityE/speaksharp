@@ -39,6 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refined developer-only controls on the `SessionSidebar` to be more specific and only appear for designated dev users.
 
 ### Fixed
+- **Critical E2E Test Browser Crash:** Resolved a silent, catastrophic browser crash that was causing all authenticated E2E tests to fail with a blank screen.
+    - **Root Cause:** The dynamic import of the `onnxruntime-web` library (used for on-device transcription) was found to be incompatible with the Playwright test environment, causing the browser to crash without any logs.
+    - **Solution:** Implemented a source-code-level guard. A `window.TEST_MODE` flag is now injected during E2E tests, and the application's `TranscriptionService` uses this flag to conditionally skip the dynamic import, ensuring stability.
 - **`live-transcript` E2E Test Failure:** Resolved a fatal JavaScript error in the `live-transcript.e2e.spec.ts` test caused by the `onnxruntime-web` library. The fix introduces a mock for the `useSpeechRecognition` hook that prevents the unstable module from being loaded in the test environment.
 - **E2E Test Suite Stability:** Performed a comprehensive refactoring of the E2E test suite to improve stability and maintainability.
     - **Standardized Page Object Models (POMs):** Centralized all POMs into a single `tests/pom` directory with a barrel file (`index.ts`) for consistent imports.

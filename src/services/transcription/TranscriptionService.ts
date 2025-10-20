@@ -111,7 +111,7 @@ export default class TranscriptionService {
     // Pro users can prefer on-device mode. Also allow forcing for dev.
     const useOnDevice = this.forceOnDevice || (isPro && this.profile?.preferred_mode === 'on-device');
 
-    if (useOnDevice) {
+    if (useOnDevice && !(typeof window !== 'undefined' && window.TEST_MODE)) {
       logger.info('[TranscriptionService] Attempting to use On-Device (LocalWhisper) mode for Pro user.');
       const { default: LocalWhisper } = await import('./modes/LocalWhisper');
       this.instance = new LocalWhisper(providerConfig);

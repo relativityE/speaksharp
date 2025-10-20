@@ -258,6 +258,12 @@ export type MockUser = {
 };
 
 export async function programmaticLogin(page: Page, email: string) {
+    // Set a global flag to signal E2E test mode. This must be done
+    // before any application logic that might trigger the crash.
+    await page.addInitScript(() => {
+        window.TEST_MODE = true;
+    });
+
     const user: MockUser = {
         id: `${email.split('@')[0]}-id`,
         email,
@@ -284,7 +290,11 @@ export async function programmaticLogin(page: Page, email: string) {
                     id: mockUser.id, aud: "authenticated", role: "authenticated", email: mockUser.email,
                     email_confirmed_at: new Date().toISOString(), phone: "", confirmed_at: new Date().toISOString(),
                     last_sign_in_at: new Date().toISOString(), app_metadata: { provider: "email", providers: ["email"] },
-                    user_metadata: {}, identities: [], created_at: new Date().toISOString(), updated_at: new Date().toISOString()
+                    user_metadata: {
+                        user_profile: {
+                            subscription_status: mockUser.subscription_status
+                        }
+                    }, identities: [], created_at: new Date().toISOString(), updated_at: new Date().toISOString()
                 } as User
             };
             window.localStorage.setItem(storageKey, JSON.stringify(session));
