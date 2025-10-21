@@ -160,11 +160,14 @@ The E2E test environment is designed for stability and isolation, ensuring tests
     *   **Solution:** The application's entry point (`src/main.tsx`) has been modified. When `VITE_TEST_MODE` is true, it now `await`s the MSW `worker.start()` promise before rendering the React application. It also sets a boolean flag, `window.mswReady = true`.
     *   **In Tests:** Before any significant interaction, tests use a `waitForMSW(page)` helper function. This function pauses test execution until `window.mswReady === true`, guaranteeing that the mock API layer is fully active.
 
-2.  **Programmatic Login for Authentication:**
-    *   **Problem:** Testing authentication by simulating user input in the login/sign-up form proved to be extremely flaky and unreliable due to complex race conditions between Playwright, Vite, and MSW.
-    *   **Solution:** All E2E tests that require an authenticated user now use a `programmaticLogin(page, user)` helper function. This is the **sole and mandatory method** for establishing an authenticated state in tests.
-    *   **How it Works:** The helper navigates to the app's root URL (`/`) to establish the correct origin, waits for MSW to be ready, and then uses `page.evaluate()` to directly set the mock Supabase session object in `localStorage`. A final `page.reload()` allows the `AuthProvider` to detect the session and render the application in a logged-in state.
-    *   **Benefits:** This approach is significantly faster, more stable, and decouples the tests from the implementation details of the auth UI, aligning with E2E testing best practices.
+2.  **Programmatic Login for Authentication (E2E):**
+    *   **Problem:** E2E tests require a fast, stable, and isolated way to authenticate a user without relying on flaky UI interactions or external authentication providers. The Supabase client's internal session management is complex and sensitive to the structure of the session object and JWT.
+    *   **Solution:** All E2E tests use a `programmaticLogin(page)` helper function, which is the **single source of truth** for test authentication. This function uses a multi-step process designed for maximum stability:
+        1.  **Inject E2E Hooks:** It uses `page.addInitScript()` to set global flags (`window.TEST_MODE` and `window.__E2E_MODE__`) *before* any application code runs. The `__E2E_MODE__` flag signals to the `AuthProvider` that it should expose a special helper function on the `window` object.
+        2.  **Generate Valid Mock Data:** The helper generates a structurally valid, Base64Url-encoded JSON Web Token (JWT) with all the claims required by the Supabase client (`sub`, `aud`, `role`, `exp`, `iat`). It also constructs a complete mock session object that mirrors the exact structure expected by `supabase.auth.setSession()`.
+        3.  **Inject Session via Helper:** After navigating to the page, the script waits for the application's E2E hook (`window.__setSupabaseSession`) to be available. It then calls this function to inject the mock session directly into the Supabase client instance within the browser.
+        4.  **Synchronize with AuthProvider:** After a `page.reload()`, the script waits for the `AuthProvider` to complete its own internal state initialization by polling for `window.__E2E_PROFILE_LOADED__ === true`. This prevents race conditions where the test would proceed before the user profile is loaded and the UI is in its final authenticated state.
+    *   **Benefits:** This method bypasses `localStorage`, is immune to UI changes, and guarantees a valid, consistent authentication state for every test run.
 
 3.  **Third-Party Service Stubbing:**
     *   To prevent external services like Sentry and PostHog from causing noise or failures in E2E tests, the `stubThirdParties(page)` helper is used. It intercepts and aborts any requests to these services' domains, ensuring tests are isolated and deterministic.
@@ -288,3 +291,5 @@ The STT accuracy comparison feature calculates the Word Error Rate (WER) of each
 ## 7. Known Issues
 
 *This section is for tracking active, unresolved issues. As issues are resolved, they should be moved to the [Changelog](./CHANGELOG.md).*
+
+*   **Client-Side Routing in Playwright:** There is a known, unresolved issue where client-side navigation initiated by simulating a click on a `react-router-dom` `<Link>` component does not reliably trigger a page transition within the Playwright test environment. Tests that need to navigate between pages must use direct `page.goto("/path")` calls as a workaround. This issue is specific to the test environment and does not affect the application in a real browser.
