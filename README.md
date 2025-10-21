@@ -41,6 +41,14 @@ For all local testing and validation, use the `test-audit.sh` script. It is the 
     ```
     This command mirrors the exact checks that are run in the CI pipeline.
 
+For a faster, lighter-weight check to simply validate that your environment is set up correctly, you can use the `preflight.sh` script.
+
+*   **Run the pre-flight environment check:**
+    ```bash
+    ./scripts/preflight.sh
+    ```
+    This script is designed to be a quick pass/fail test to ensure your dependencies, browser binaries, and basic application startup are all working before you begin development or run the full test suite.
+
 If you need to run specific test suites during development, you can use the following `package.json` scripts:
 
 *   **Run all unit tests with coverage:**

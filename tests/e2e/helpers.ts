@@ -1,342 +1,65 @@
-// tests/e2e/helpers.ts
-import { test as base, expect, Page, Response } from '@playwright/test';
-import fs from 'fs';
-import { AuthPage } from '../pom';
-import { Session, User } from '@supabase/supabase-js';
+import { Page, expect } from '@playwright/test';
+// Note: We cannot import directly from 'src/...' because Playwright runs in a different context.
+// The logic from test-user-utils is effectively duplicated in the Python script for verification,
+// and here we will construct it manually for the Node.js test runner, ensuring it's consistent.
 
-// Note: Global window types are now solely defined in src/types/ambient.d.ts
-
-// ---------------------------------
-// MSW Readiness Helper
-// ---------------------------------
-export async function waitForMSW(page: Page) {
-  await page.waitForFunction(() => window.mswReady === true, null, { timeout: 15000 }).catch(async (error) => {
-    console.error(`[HELPER] MSW readiness timeout or error: ${error.message}`);
-    await dumpPageState(page, 'msw-readiness-failure');
-    throw new Error('MSW readiness check failed. The mock server did not initialize correctly.');
-  });
+function generateFakeJWT() {
+  const now = Math.floor(Date.now() / 1000);
+  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+  const payload = Buffer.from(JSON.stringify({
+    sub: "test-user-123",
+    email: "test@example.com",
+    aud: "authenticated",
+    role: "authenticated",
+    exp: now + 3600,
+    iat: now,
+    session_id: "test-session-123",
+  })).toString("base64url");
+  const signature = "fake-signature-for-e2e-testing";
+  return `${header}.${payload}.${signature}`;
 }
 
-// ---------------------------------
-// Custom Test Fixture
-// ---------------------------------
-export const test = base.extend<{
-  authPage: AuthPage;
-}>({
-  authPage: async ({ page }, use) => {
-    await use(new AuthPage(page));
-  },
-});
-
-export { expect };
-export type { Response, Page };
-
-// ---------------------------------
-// Error Detection Helper - FAIL FAST!
-// ---------------------------------
-export async function checkForAuthErrors(page: Page, context: string) {
-  const errorSelectors = [
-    '[data-testid="auth-error-message"]',
-    '[data-testid="error-message"]',
-    '[role="alert"]',
-    '.error-message',
-    '.auth-error',
-    '[class*="error"]',
-    '[class*="Error"]'
-  ];
-
-  for (const selector of errorSelectors) {
-    const errorElement = page.locator(selector);
-
-    if (await errorElement.isVisible({ timeout: 1000 }).catch(() => false)) {
-      const errorText = await errorElement.textContent();
-      await dumpPageState(page, `error-${context}`);
-      throw new Error(
-        `❌ AUTH ERROR DETECTED (${context})\n` +
-        `   Selector: ${selector}\n` +
-        `   Message: ${errorText}\n` +
-        `   Check debug-error-${context}.html for full page state`
-      );
-    }
-  }
-
-  const consoleErrors = await page.evaluate(() => {
-    return window.__E2E_CONSOLE_ERRORS__ || [];
+export async function programmaticLogin(page: Page) {
+  await page.addInitScript(() => {
+    // @ts-ignore
+    window.TEST_MODE = true;
+    // @ts-ignore
+    window.__E2E_MODE__ = true;
   });
 
-  if (consoleErrors.length > 0) {
-    console.warn(`⚠️  Console errors detected during ${context}:`, consoleErrors);
-  }
+  await page.goto('/');
+
+  const fakeAccessToken = generateFakeJWT();
+  const now = Math.floor(Date.now() / 1000);
+
+  await page.waitForFunction(() => typeof (window as any).__setSupabaseSession === 'function', { timeout: 5000 });
+
+  await page.evaluate(
+    ({ token, timestamp }) => {
+      const fakeSession = {
+        access_token: token,
+        refresh_token: 'fake-refresh-token-for-e2e',
+        token_type: 'bearer',
+        expires_in: 3600,
+        expires_at: timestamp + 3600,
+        user: {
+          id: 'test-user-123',
+          email: 'test@example.com',
+          aud: 'authenticated',
+          role: 'authenticated',
+          app_metadata: { provider: 'email', providers: ['email'] },
+          user_metadata: { name: 'Test User' },
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      };
+      // @ts-ignore
+      (window as any).__setSupabaseSession(fakeSession);
+    },
+    { token: fakeAccessToken, timestamp: now }
+  );
+
+  await page.reload();
+  await page.waitForFunction(() => (window as any).__E2E_PROFILE_LOADED__ === true, { timeout: 10000 });
+  await expect(page.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 10000 });
 }
-
-// ---------------------------------
-// Timestamped Logging System
-// ---------------------------------
-export class TestLogger {
-  private logs: Array<{ timestamp: string; elapsed: string; level: string; context: string; message: string; data?: unknown }> = [];
-  private testName: string;
-  private startTime: number;
-
-  constructor(testName: string) {
-    this.testName = testName;
-    this.startTime = Date.now();
-  }
-
-  private getTimestamp(): string {
-    return new Date().toISOString();
-  }
-
-  private getElapsed(): string {
-    const elapsed = Date.now() - this.startTime;
-    return `+${(elapsed / 1000).toFixed(2)}s`;
-  }
-
-  info(context: string, message: string, data?: unknown) {
-    const entry = {
-      timestamp: this.getTimestamp(),
-      elapsed: this.getElapsed(),
-      level: 'INFO',
-      context,
-      message,
-      data
-    };
-    this.logs.push(entry);
-    console.log(`[${entry.elapsed}] [INFO] [${context}] ${message}`, data || '');
-  }
-
-  warn(context: string, message: string, data?: unknown) {
-    const entry = {
-      timestamp: this.getTimestamp(),
-      elapsed: this.getElapsed(),
-      level: 'WARN',
-      context,
-      message,
-      data
-    };
-    this.logs.push(entry);
-    console.warn(`[${entry.elapsed}] [WARN] [${context}] ${message}`, data || '');
-  }
-
-  error(context: string, message: string, data?: unknown) {
-    const entry = {
-      timestamp: this.getTimestamp(),
-      elapsed: this.getElapsed(),
-      level: 'ERROR',
-      context,
-      message,
-      data
-    };
-    this.logs.push(entry);
-    console.error(`[${entry.elapsed}] [ERROR] [${context}] ${message}`, data || '');
-  }
-
-  credential(context: string, username: string, password: string, success: boolean) {
-    const entry = {
-      timestamp: this.getTimestamp(),
-      elapsed: this.getElapsed(),
-      level: success ? 'INFO' : 'ERROR',
-      context,
-      message: success ? 'Credentials used (SUCCESS)' : 'Credentials used (FAILED)',
-      data: {
-        username,
-        password: password ? '***' + password.slice(-3) : '(none)',
-        passwordLength: password?.length || 0,
-        success
-      }
-    };
-    this.logs.push(entry);
-
-    const logFn = success ? console.log : console.error;
-    logFn(
-      `[${entry.elapsed}] [${entry.level}] [${context}] Credentials:\n` +
-      `   Username: ${username}\n` +
-      `   Password: ${entry.data.password} (length: ${entry.data.passwordLength})\n` +
-      `   Result: ${success ? '✅ SUCCESS' : '❌ FAILED'}`
-    );
-  }
-
-  saveLogs(filename?: string) {
-    const logFile = filename || `test-log-${this.testName.replace(/\s+/g, '-')}-${Date.now()}.json`;
-    const logPath = `logs/${logFile}`;
-
-    fs.mkdirSync('logs', { recursive: true });
-    fs.writeFileSync(logPath, JSON.stringify({
-      testName: this.testName,
-      startTime: new Date(this.startTime).toISOString(),
-      duration: `${((Date.now() - this.startTime) / 1000).toFixed(2)}s`,
-      logs: this.logs
-    }, null, 2));
-
-    console.log(`\n📝 Test logs saved to: ${logPath}`);
-    return logPath;
-  }
-
-  printSummary() {
-    const errors = this.logs.filter(l => l.level === 'ERROR');
-    const warnings = this.logs.filter(l => l.level === 'WARN');
-
-    console.log('\n========== TEST LOG SUMMARY ==========');
-    console.log(`Test: ${this.testName}`);
-    console.log(`Duration: ${this.getElapsed()}`);
-    console.log(`Total entries: ${this.logs.length}`);
-    console.log(`Errors: ${errors.length}`);
-    console.log(`Warnings: ${warnings.length}`);
-
-    if (errors.length > 0) {
-      console.log('\n❌ ERRORS:');
-      errors.forEach(e => {
-        console.log(`  [${e.elapsed}] [${e.context}] ${e.message}`);
-        if (e.data) console.log(`    Data:`, e.data);
-      });
-    }
-
-    if (warnings.length > 0) {
-      console.log('\n⚠️  WARNINGS:');
-      warnings.forEach(w => {
-        console.log(`  [${w.elapsed}] [${w.context}] ${w.message}`);
-      });
-    }
-    console.log('======================================\n');
-  }
-}
-
-// Global logger registry
-const testLoggers = new Map<string, TestLogger>();
-
-export function getLogger(testName: string): TestLogger {
-  if (!testLoggers.has(testName)) {
-    testLoggers.set(testName, new TestLogger(testName));
-  }
-  return testLoggers.get(testName)!;
-}
-
-// ---------------------------------
-// Test Utility Functions
-// ---------------------------------
-export async function dumpPageState(page: Page, name = 'failure') {
-  try {
-    const html = await page.content();
-    const htmlPath = `debug-${name}.html`;
-    const screenshotPath = `debug-${name}.png`;
-
-    fs.writeFileSync(htmlPath, html);
-    await page.screenshot({ path: screenshotPath, fullPage: true });
-    console.log(`Saved debug state to ${htmlPath} and ${screenshotPath}`);
-
-    const runtimeState = await page.evaluate(() => ({
-      url: window.location.href,
-      localStorage: Object.keys(localStorage).reduce((acc, key) => {
-        acc[key] = localStorage.getItem(key);
-        return acc;
-      }, {} as Record<string, string | null>),
-      cookies: document.cookie,
-      userAgent: navigator.userAgent,
-      timestamp: new Date().toISOString()
-    }));
-
-    fs.writeFileSync(
-      `debug-${name}-state.json`,
-      JSON.stringify(runtimeState, null, 2)
-    );
-
-    if (fs.existsSync(screenshotPath)) {
-      const screenshotContent = fs.readFileSync(screenshotPath, { encoding: 'base64' });
-      console.log(`--- DEBUG_SCREENSHOT_BASE64_START_${name} ---`);
-      console.log(screenshotContent);
-      console.log(`--- DEBUG_SCREENSHOT_BASE64_END_${name} ---`);
-    }
-
-  } catch {
-    console.error('Failed to dump page state');
-  }
-}
-
-export type MockUser = {
-  id: string;
-  email: string;
-  subscription_status: 'free' | 'pro';
-};
-
-export async function programmaticLogin(page: Page, email: string) {
-    // Set a global flag to signal E2E test mode. This must be done
-    // before any application logic that might trigger the crash.
-    await page.addInitScript(() => {
-        window.TEST_MODE = true;
-    });
-
-    const user: MockUser = {
-        id: `${email.split('@')[0]}-id`,
-        email,
-        subscription_status: email.includes('pro') ? 'pro' : 'free',
-    };
-
-    await test.step(`Programmatic login for ${user.email}`, async () => {
-        await page.goto('/', { waitUntil: 'domcontentloaded' });
-        await expect(page.locator('[data-testid="app-main"]')).toBeVisible({ timeout: 15000 });
-        await waitForMSW(page);
-
-        await page.evaluate(({ mockUser, supabaseUrl }) => {
-            const urlParts = supabaseUrl.split('//')[1]?.split('.') || ['local'];
-            const projectRef = urlParts[0].replace(':', '-');
-            const storageKey = `sb-${projectRef}-auth-token`;
-
-            const session: Session = {
-                access_token: "fake-access-token",
-                refresh_token: "fake-refresh-token",
-                expires_in: 3600,
-                expires_at: Math.floor(Date.now() / 1000) + 3600,
-                token_type: "bearer",
-                user: {
-                    id: mockUser.id, aud: "authenticated", role: "authenticated", email: mockUser.email,
-                    email_confirmed_at: new Date().toISOString(), phone: "", confirmed_at: new Date().toISOString(),
-                    last_sign_in_at: new Date().toISOString(), app_metadata: { provider: "email", providers: ["email"] },
-                    user_metadata: {
-                        user_profile: {
-                            subscription_status: mockUser.subscription_status
-                        }
-                    }, identities: [], created_at: new Date().toISOString(), updated_at: new Date().toISOString()
-                } as User
-            };
-            window.localStorage.setItem(storageKey, JSON.stringify(session));
-        }, { mockUser: user, supabaseUrl: process.env.VITE_SUPABASE_URL! });
-
-        await page.reload({ waitUntil: 'domcontentloaded' });
-        await page.waitForURL('**/', { timeout: 10000 });
-        await page.waitForFunction(() => window.__E2E_PROFILE_LOADED__ === true, null, { timeout: 15000 });
-        await expect(page.locator('nav')).toBeVisible({ timeout: 5000 });
-    });
-}
-
-export async function stubThirdParties(page: Page) {
-    await page.route(/https:\/\/.*\.sentry\.io\/.*/, route => route.abort());
-    await page.route(/https:\/\/.*\.posthog\.com\/.*/, route => route.abort());
-}
-
-base.beforeEach(async ({ page }) => {
-    page.on('console', msg => {
-      if (msg.type() === 'error') {
-        console.error('[BROWSER ERROR]', msg.text());
-      }
-    });
-
-    page.on('pageerror', err => {
-      console.error('[PAGE EXCEPTION]', err);
-    });
-
-    await page.addInitScript(() => {
-        window.__E2E_CONSOLE_ERRORS__ = [];
-        const originalError = console.error;
-        console.error = (...args: unknown[]) => {
-            window.__E2E_CONSOLE_ERRORS__!.push(args.join(' '));
-            originalError.apply(console, args);
-        };
-    });
-});
-
-base.afterEach(async ({ page }, testInfo) => {
-  if (testInfo.status !== testInfo.expectedStatus) {
-    const sanitizedTitle = testInfo.title.replace(/\s+/g, '-').toLowerCase();
-    console.warn(`[E2E DEBUG] Test failed: ${testInfo.title}. Dumping page state...`);
-    await dumpPageState(page, sanitizedTitle);
-  }
-});

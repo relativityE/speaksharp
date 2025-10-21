@@ -32,6 +32,19 @@ interface WindowWithwebkitAudioContext extends Window {
 export async function createMicStreamImpl(
   { sampleRate = 16000, frameSize = 1024 }: MicStreamOptions = {}
 ): Promise<MicStream> {
+  // In test mode, return a mock stream to avoid hardware errors in CI
+  if (window.TEST_MODE) {
+    logger.info('Mocking microphone stream for TEST_MODE');
+    return {
+      sampleRate,
+      onFrame: () => {},
+      offFrame: () => {},
+      stop: () => {},
+      close: () => {},
+      _mediaStream: new MediaStream(),
+    };
+  }
+
   // Early environment check
   if (typeof navigator === 'undefined' || !navigator.mediaDevices) {
     throw new Error('Media devices not available in this environment');
@@ -60,7 +73,7 @@ export async function createMicStreamImpl(
   };
 
   const gainNode = audioCtx.createGain();
-  gainNode.gain.value = 0; // Mute the output to prevent feedback
+  gainNode.gain.value = 0; // Mute the aoutput to prevent feedback
   source.connect(node).connect(gainNode).connect(audioCtx.destination); // destination keeps graph alive
 
   const stopAndClose = () => {

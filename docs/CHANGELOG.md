@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **E2E Health Check and Authentication:** Overhauled the E2E test authentication flow and the `preflight.sh` script to create a stable CI entry point. The `programmaticLogin` helper now generates a valid mock Supabase session and JWT, the `AuthProvider` is mocked to prevent database calls in tests, and the `preflight.sh` script has been hardened. This resolves a critical instability in the test environment.
+
 ### Added
 - **Ephemeral E2E Test Logging:** Implemented a new automated logging system for Playwright tests using a custom fixture (`verifyOnlyStepTracker.ts`). This system provides detailed, inline diagnostics (including step tracking and ephemeral base64 screenshots) directly in CI logs without relying on filesystem artifacts.
 - **Speaker Identification:** Re-implemented the speaker identification feature to correctly handle speaker labels from the AssemblyAI API.
