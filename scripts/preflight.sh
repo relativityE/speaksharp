@@ -1,34 +1,40 @@
-#!/bin/bash
-# Pre-flight Validation Script
-# This script MUST be run at the start of every session to ensure a stable environment.
-# It performs the following actions:
-#   1. Terminates any orphaned Node.js or Vite processes.
-#   2. Installs all pnpm dependencies.
-#   3. Installs all required Playwright browser binaries.
-#   4. Runs a minimal E2E smoke test to verify application and test runner stability.
-set -e
+#!/usr/bin/env bash
+# -------------------------------------------------------
+# 🧪 Pre-flight Validation Script
+# Ensures the environment is stable before running full E2E or CI pipelines.
+# -------------------------------------------------------
+set -euo pipefail
 
 echo "🚀 Starting Pre-flight Environment Validation..."
 
-# 1. Terminate Orphaned Processes
-echo "  - Checking for and terminating orphaned Node.js or Vite processes..."
-pgrep -fa node | xargs -r kill -9 || true
-pgrep -fa vite | xargs -r kill -9 || true
-echo "    ✅ Orphaned processes terminated."
+# 1️⃣ Kill Orphaned Processes
+echo "  - Cleaning up stale Node.js or Vite processes..."
+pgrep -fa node | grep -v "pgrep" | xargs -r kill -9 || true
+pgrep -fa vite | grep -v "pgrep" | xargs -r kill -9 || true
+echo "    ✅ Clean environment ensured."
 
-# 2. Install Dependencies
-echo "  - Installing pnpm dependencies..."
-pnpm install
-echo "    ✅ Dependencies installed."
+# 2️⃣ Setup Environment
+export NODE_ENV=test
+export DOTENV_CONFIG_PATH=.env.test
 
-# 3. Install Playwright Browsers
-echo "  - Installing Playwright browser binaries..."
+# 3️⃣ Install Dependencies
+echo "  - Installing dependencies..."
+pnpm install --frozen-lockfile
+echo "    ✅ Dependencies ready."
+
+# 4️⃣ Ensure Playwright Browsers Installed
+echo "  - Checking Playwright browsers..."
 pnpm exec playwright install --with-deps
-echo "    ✅ Playwright browsers installed."
+echo "    ✅ Playwright browsers ready."
 
-# 4. Run E2E Smoke Test
-echo "  - Running E2E smoke test to verify environment stability..."
-pnpm test:e2e:smoke --grep "should log in"
-echo "    ✅ E2E smoke test passed."
+# 5️⃣ Build the App (optional for CI smoke)
+echo "  - Building project..."
+pnpm run build
+echo "    ✅ Build successful."
 
-echo "✅ Pre-flight Environment Validation Complete. The environment is stable and ready."
+# 6️⃣ Run Health-Check Test (fast, minimal)
+echo "  - Running E2E health check..."
+pnpm exec playwright test "tests/e2e/health-check.e2e.spec.ts" --project=chromium --reporter=line
+echo "    ✅ Health check passed."
+
+echo "✅ Pre-flight Validation Complete. Environment is healthy and ready!"
