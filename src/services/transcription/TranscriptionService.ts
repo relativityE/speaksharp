@@ -111,14 +111,18 @@ export default class TranscriptionService {
     // Pro users can prefer on-device mode. Also allow forcing for dev.
     const useOnDevice = this.forceOnDevice || (isPro && this.profile?.preferred_mode === 'on-device');
 
-    if (useOnDevice && !(typeof window !== 'undefined' && window.TEST_MODE)) {
-      logger.info('[TranscriptionService] Attempting to use On-Device (LocalWhisper) mode for Pro user.');
-      const { default: LocalWhisper } = await import('./modes/LocalWhisper');
-      this.instance = new LocalWhisper(providerConfig);
-      await this.instance.init();
-      await this.instance.startTranscription(this.mic);
-      this.mode = 'on-device';
-      return;
+    if (useOnDevice) {
+      if (typeof window !== 'undefined' && (window as any).TEST_MODE) {
+        console.log('[TEST_MODE] Skipping LocalWhisper module load');
+      } else {
+        logger.info('[TranscriptionService] Attempting to use On-Device (LocalWhisper) mode for Pro user.');
+        const { default: LocalWhisper } = await import('./modes/LocalWhisper');
+        this.instance = new LocalWhisper(providerConfig);
+        await this.instance.init();
+        await this.instance.startTranscription(this.mic);
+        this.mode = 'on-device';
+        return;
+      }
     }
 
     // Pro users who don't prefer on-device get Cloud AI. Also allow forcing for dev.

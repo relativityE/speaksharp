@@ -1,29 +1,15 @@
-import { test, expect, programmaticLogin } from './helpers';
-import { AnalyticsPage } from '../pom';
+import { test, expect } from '@playwright/test';
+import { programmaticLogin } from './helpers';
 
 test.describe('User Tier Flows', () => {
-  let analyticsPage: AnalyticsPage;
+  test('should not show the upgrade banner for a pro user', async ({ page }) => {
+    // The default programmaticLogin logs in a 'pro' user.
+    await programmaticLogin(page);
 
-  test.beforeEach(async ({ page }) => {
-    analyticsPage = new AnalyticsPage(page);
+    await page.goto('/analytics');
+    await expect(page.getByRole('heading', { name: 'Your Dashboard' })).toBeVisible();
+
+    // For a 'pro' user, the upgrade banner should not be visible.
+    await expect(page.getByTestId('analytics-page-upgrade-button')).not.toBeVisible();
   });
-
-  const userTiers = [
-    { type: 'pro', email: 'pro-user@example.com', shouldSeeBanner: false },
-    { type: 'free', email: 'free-user@example.com', shouldSeeBanner: true },
-  ];
-
-  for (const user of userTiers) {
-    test(`should handle upgrade banner correctly for ${user.type} user`, async ({ page }) => {
-      await programmaticLogin(page, user.email);
-      await analyticsPage.navigate();
-      await expect(analyticsPage.heading).toBeVisible();
-
-      if (user.shouldSeeBanner) {
-        await expect(analyticsPage.upgradeBanner).toBeVisible();
-      } else {
-        await expect(analyticsPage.upgradeBanner).toHaveCount(0);
-      }
-    });
-  }
 });

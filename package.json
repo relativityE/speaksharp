@@ -22,8 +22,9 @@
     "test:e2e": "playwright test --reporter=list",
     "test:e2e:shard": "playwright test --shard=$1/2",
     "test:e2e:ui": "playwright test --ui",
-    "test:e2e:smoke": "playwright test --grep @smoke",
-    "test:e2e:smoke:no-browser": "playwright test --grep @smoke --browser=chromium",
+    "test:e2e:health": "cross-env DOTENV_CONFIG_PATH=.env.test playwright test tests/e2e/health-check.e2e.spec.ts",
+    "test:e2e:smoke": "cross-env DOTENV_CONFIG_PATH=.env.test playwright test tests/e2e/smoke.e2e.spec.ts",
+    "test:e2e:debug": "cross-env DEBUG=pw:api DOTENV_CONFIG_PATH=.env.test playwright test --headed --trace on --project=chromium",
     "test:screenshots": "playwright test --grep @visual",
     "playwright:install": "playwright install",
     "prepare": "HUSKY=0 husky install",
@@ -83,7 +84,7 @@
     "canvas": "^3.2.0",
     "class-variance-authority": "^0.7.1",
     "concurrently": "^9.2.1",
-    "cross-env": "^10.0.0",
+    "cross-env": "^10.1.0",
     "dotenv": "^16.6.1",
     "dotenv-cli": "^10.0.0",
     "eslint": "^9.36.0",
@@ -92,6 +93,7 @@
     "eslint-plugin-react-refresh": "^0.4.8",
     "happy-dom": "^18.0.1",
     "husky": "^8.0.3",
+    "jose": "^6.1.0",
     "lightningcss-darwin-arm64": "^1.30.2",
     "lint-staged": "^15.2.7",
     "lucide-react": "^0.543.0",
@@ -107,7 +109,8 @@
     "typescript": "^5.2.2",
     "typescript-eslint": "^8.44.0",
     "vite": "^7.1.7",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "wait-on": "^9.0.1"
   },
   "msw": {
     "workerDirectory": "public"

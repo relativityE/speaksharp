@@ -27,18 +27,19 @@ export default defineConfig({
     deviceScaleFactor: 1,
     ignoreHTTPSErrors: true,
     screenshot: 'only-on-failure',
-    video: 'off',
+    video: 'retain-on-failure', // Capture video on failure
     trace: 'on-first-retry',
+    launchOptions: {
+      dumpio: true, // Dump browser process stdio
+    },
   },
   webServer: {
-    command: 'pnpm exec dotenv -e .env.test -- pnpm exec vite --mode test',
+    command: "pnpm run dev",
     url: BASE_URL,
-    reuseExistingServer: false,
+    reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000, // 2 minutes
-    stdout: 'pipe',
-    stderr: 'pipe',
     env: {
-      VITE_TEST_MODE: 'true',
+      DOTENV_CONFIG_PATH: ".env.test",
     },
   },
   projects: [
@@ -47,9 +48,4 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-  // Add this to capture console logs
-  onPage: page => {
-    page.on('console', msg => console.log('[BROWSER CONSOLE]', msg.text()));
-    page.on('pageerror', err => console.error('[BROWSER ERROR]', err));
-  },
 });

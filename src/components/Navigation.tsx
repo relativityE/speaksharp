@@ -57,7 +57,7 @@ const Navigation = () => {
             {/* User Actions */}
             <div className="flex items-center space-x-3">
               {session ? (
-                <Button variant="ghost" size="sm" onClick={handleSignOut}>
+                <Button variant="ghost" size="sm" onClick={handleSignOut} data-testid="nav-sign-out-button">
                   <LogOut className="h-4 w-4 mr-2" />
                   Sign Out
                 </Button>

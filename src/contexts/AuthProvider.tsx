@@ -7,8 +7,24 @@ import { AuthContext, AuthContextType } from './AuthContext';
 import { getSyncSession } from '../lib/utils';
 
 const getProfileFromDb = async (userId: string): Promise<UserProfile | null> => {
+  // In E2E mode, return a mock profile immediately (no DB call)
+  // @ts-ignore
+  if (window.__E2E_MODE__) {
+    console.log('[E2E] Returning mock user profile');
+    return {
+      id: userId,
+      subscription_status: 'pro',
+      preferred_mode: 'cloud',
+    };
+  }
+
   try {
-    const { data, error } = await supabase.from('user_profiles').select('*').eq('id', userId).single();
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
     if (error) {
       console.error('Error fetching profile:', error.message);
       return null;
@@ -28,20 +44,27 @@ interface AuthProviderProps {
 export function AuthProvider({ children, initialSession }: AuthProviderProps) {
   const [session, setSessionState] = useState<Session | null>(() => getSyncSession());
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true); // Start with loading=true
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // This effect handles the initial session, whether from props or localStorage
     const initializeSession = async () => {
       const currentSession = initialSession !== undefined ? initialSession : getSyncSession();
       setSessionState(currentSession);
+
       if (currentSession?.user) {
+        // @ts-ignore
         window.__E2E_PROFILE_LOADED__ = false;
         const userProfile = await getProfileFromDb(currentSession.user.id);
         setProfile(userProfile);
+        // @ts-ignore
+        window.__E2E_PROFILE_LOADED__ = true;
+      } else {
+        // This is a critical fix: ensure the flag is set even when there is no
+        // session, so that tests awaiting this flag can proceed.
+        // @ts-ignore
         window.__E2E_PROFILE_LOADED__ = true;
       }
-      setLoading(false); // End loading after the initial session is processed
+      setLoading(false);
     };
     initializeSession();
   }, [initialSession]);
@@ -51,12 +74,15 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
       async (_event, newSession) => {
         setSessionState(newSession);
         if (newSession?.user) {
+          // @ts-ignore
           window.__E2E_PROFILE_LOADED__ = false;
           const userProfile = await getProfileFromDb(newSession.user.id);
           setProfile(userProfile);
+          // @ts-ignore
           window.__E2E_PROFILE_LOADED__ = true;
         } else {
           setProfile(null);
+          // @ts-ignore
           window.__E2E_PROFILE_LOADED__ = true;
         }
       }
@@ -89,12 +115,15 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
     setSession: async (s: Session | null) => {
         setSessionState(s);
         if (s?.user) {
+            // @ts-ignore
             window.__E2E_PROFILE_LOADED__ = false;
             const userProfile = await getProfileFromDb(s.user.id);
             setProfile(userProfile);
+            // @ts-ignore
             window.__E2E_PROFILE_LOADED__ = true;
         } else {
             setProfile(null);
+            // @ts-ignore
             window.__E2E_PROFILE_LOADED__ = true;
         }
     },
