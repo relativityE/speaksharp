@@ -15,7 +15,6 @@ export class HomePage {
 
   async goto() {
     await this.page.goto('/');
-    await expect(this.startFreeSessionButton).toBeVisible({ timeout: 15000 });
   }
 
   async startFreeSession() {

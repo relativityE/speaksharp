@@ -2,19 +2,19 @@ import { http, HttpResponse, type RequestHandler } from 'msw';
 import { createMockSession, createMockUserProfile, createMockUser } from './test-user-utils';
 
 export const handlers: RequestHandler[] = [
-  http.get('*/auth/v1/user', ({ request }) => {
+  http.get('*/auth/v1/user', ({ request: _request }) => {
     // This handler is less important when using programmatic login,
     // but we keep it for completeness.
     const user = createMockUser();
     return HttpResponse.json(user);
   }),
 
-  http.post('*/auth/v1/signup', async ({ request }) => {
+  http.post('*/auth/v1/signup', async ({ request: _request }) => {
     const session = createMockSession();
     return HttpResponse.json(session);
   }),
 
-  http.post('*/auth/v1/token', async ({ request }) => {
+  http.post('*/auth/v1/token', async ({ request: _request }) => {
     const session = createMockSession();
     return HttpResponse.json(session);
   }),

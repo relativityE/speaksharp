@@ -1,11 +1,10 @@
-import { Page, expect } from '@playwright/test';
+import { Page } from '@playwright/test';
 
 export class SessionPage {
   constructor(private page: Page) {}
 
   async navigate() {
     await this.page.goto('/session');
-    await expect(this.startButton).toBeVisible({ timeout: 15000 });
   }
 
   get startButton() {

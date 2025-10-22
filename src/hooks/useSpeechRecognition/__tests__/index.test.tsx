@@ -191,7 +191,7 @@ describe('useSpeechRecognition', () => {
     await act(async () => {
       try {
         await result.current.startListening();
-      } catch (e) {
+      } catch (_e) {
         // Expected rejection
       }
     });

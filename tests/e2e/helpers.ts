@@ -21,9 +21,7 @@ function generateFakeJWT() {
 
 export async function programmaticLogin(page: Page) {
   await page.addInitScript(() => {
-    // @ts-ignore
     window.TEST_MODE = true;
-    // @ts-ignore
     window.__E2E_MODE__ = true;
   });
 
@@ -32,14 +30,14 @@ export async function programmaticLogin(page: Page) {
   const fakeAccessToken = generateFakeJWT();
   const now = Math.floor(Date.now() / 1000);
 
-  await page.waitForFunction(() => typeof (window as any).__setSupabaseSession === 'function', { timeout: 5000 });
+  await page.waitForFunction(() => typeof window.__setSupabaseSession === 'function', { timeout: 5000 });
 
   await page.evaluate(
     ({ token, timestamp }) => {
       const fakeSession = {
         access_token: token,
         refresh_token: 'fake-refresh-token-for-e2e',
-        token_type: 'bearer',
+        token_type: 'bearer' as const,
         expires_in: 3600,
         expires_at: timestamp + 3600,
         user: {
@@ -53,13 +51,14 @@ export async function programmaticLogin(page: Page) {
           updated_at: new Date().toISOString(),
         },
       };
-      // @ts-ignore
-      (window as any).__setSupabaseSession(fakeSession);
+      if (window.__setSupabaseSession) {
+        window.__setSupabaseSession(fakeSession);
+      }
     },
     { token: fakeAccessToken, timestamp: now }
   );
 
   await page.reload();
-  await page.waitForFunction(() => (window as any).__E2E_PROFILE_LOADED__ === true, { timeout: 10000 });
+  await page.waitForFunction(() => window.__E2E_PROFILE_LOADED__ === true, { timeout: 10000 });
   await expect(page.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 10000 });
 }

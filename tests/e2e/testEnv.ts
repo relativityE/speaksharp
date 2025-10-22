@@ -10,8 +10,8 @@ export const test = base.extend({
     await page.addInitScript(() => {
       // These flags are used by the application to enable test-specific behavior,
       // such as mocking APIs or exposing helper functions.
-      (window as any).TEST_MODE = true;
-      (window as any).__E2E_MODE__ = true;
+      window.TEST_MODE = true;
+      window.__E2E_MODE__ = true;
     });
 
     // The 'use' function passes the modified 'page' fixture to the test.

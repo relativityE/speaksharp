@@ -8,7 +8,7 @@ test.describe('App Navigation', () => {
     // From the homepage, navigate to the Analytics page
     await page.goto('/analytics');
     await expect(page).toHaveURL('/analytics');
-    await expect(page.getByRole('heading', { name: 'Your Dashboard' })).toBeVisible();
+    await expect(page.getByTestId('dashboard-heading')).toBeVisible();
 
     // Navigate from Analytics to the Session page
     await page.goto('/session');

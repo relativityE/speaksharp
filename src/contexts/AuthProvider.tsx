@@ -8,7 +8,6 @@ import { getSyncSession } from '../lib/utils';
 
 const getProfileFromDb = async (userId: string): Promise<UserProfile | null> => {
   // In E2E mode, return a mock profile immediately (no DB call)
-  // @ts-ignore
   if (window.__E2E_MODE__) {
     console.log('[E2E] Returning mock user profile');
     return {
@@ -52,16 +51,13 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
       setSessionState(currentSession);
 
       if (currentSession?.user) {
-        // @ts-ignore
         window.__E2E_PROFILE_LOADED__ = false;
         const userProfile = await getProfileFromDb(currentSession.user.id);
         setProfile(userProfile);
-        // @ts-ignore
         window.__E2E_PROFILE_LOADED__ = true;
       } else {
         // This is a critical fix: ensure the flag is set even when there is no
         // session, so that tests awaiting this flag can proceed.
-        // @ts-ignore
         window.__E2E_PROFILE_LOADED__ = true;
       }
       setLoading(false);
@@ -74,15 +70,12 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
       async (_event, newSession) => {
         setSessionState(newSession);
         if (newSession?.user) {
-          // @ts-ignore
           window.__E2E_PROFILE_LOADED__ = false;
           const userProfile = await getProfileFromDb(newSession.user.id);
           setProfile(userProfile);
-          // @ts-ignore
           window.__E2E_PROFILE_LOADED__ = true;
         } else {
           setProfile(null);
-          // @ts-ignore
           window.__E2E_PROFILE_LOADED__ = true;
         }
       }
@@ -115,15 +108,12 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
     setSession: async (s: Session | null) => {
         setSessionState(s);
         if (s?.user) {
-            // @ts-ignore
             window.__E2E_PROFILE_LOADED__ = false;
             const userProfile = await getProfileFromDb(s.user.id);
             setProfile(userProfile);
-            // @ts-ignore
             window.__E2E_PROFILE_LOADED__ = true;
         } else {
             setProfile(null);
-            // @ts-ignore
             window.__E2E_PROFILE_LOADED__ = true;
         }
     },

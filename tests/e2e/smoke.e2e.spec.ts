@@ -17,7 +17,7 @@ test.describe('Smoke Test', () => {
     // Step 3: Navigate to Analytics Page and verify content
     await test.step('Navigate to Analytics Page', async () => {
       await page.goto('/analytics');
-      await expect(page.getByRole('heading', { name: 'Your Dashboard' })).toBeVisible();
+      await expect(page.getByTestId('dashboard-heading')).toBeVisible();
     });
 
     // Step 4: Log out

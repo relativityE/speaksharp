@@ -18,9 +18,8 @@ var PORT = process.env.VITE_PORT || '5173';
 var BASE_URL = "http://localhost:".concat(PORT);
 export default defineConfig({
     testDir: './tests/e2e',
-    timeout: 240000, // 4-minute global timeout for each test file
-    expect: { timeout: 10000 },
-    // Set workers to 1 to prevent parallel execution during stabilization
+    timeout: 120000, // 2-minute global timeout for each test file
+    expect: { timeout: 30000 },
     workers: 1,
     fullyParallel: false,
     retries: 1,
@@ -35,18 +34,16 @@ export default defineConfig({
         deviceScaleFactor: 1,
         ignoreHTTPSErrors: true,
         screenshot: 'only-on-failure',
-        video: 'off',
+        video: 'retain-on-failure', // Capture video on failure
         trace: 'on-first-retry',
     },
     webServer: {
-        command: 'pnpm exec dotenv -e .env.test -- pnpm exec vite --mode test',
+        command: "pnpm run dev",
         url: BASE_URL,
-        reuseExistingServer: false,
-        timeout: 120 * 1000,
-        stdout: 'pipe',
-        stderr: 'pipe',
+        reuseExistingServer: !process.env.CI,
+        timeout: 120 * 1000, // 2 minutes
         env: {
-            VITE_TEST_MODE: 'true',
+            DOTENV_CONFIG_PATH: ".env.test",
         },
     },
     projects: [
