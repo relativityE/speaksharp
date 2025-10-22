@@ -15,7 +15,7 @@ const isTest: boolean = import.meta.env.MODE === 'test' || window.__E2E_MODE__ =
 export const supabase = createClient(supabaseUrl!, supabaseAnonKey!, {
   auth: {
     autoRefreshToken: !isTest,
-    persistSession: !isTest,
+    persistSession: true, // Always persist session in tests
     detectSessionInUrl: !isTest,
   },
 });

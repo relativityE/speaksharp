@@ -34,5 +34,5 @@ html/assets/index-*
 # Local Environment
 .env
 .env*.local
-pnpm-lock.yaml
 .vite.pid
+/playwright.config.js

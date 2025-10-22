@@ -36,9 +36,13 @@ vi.mock('@/components/analytics/FillerWordTable', () => ({
     FillerWordTable: () => <div data-testid="filler-word-table-mock" />,
 }));
 
+import { PracticeSession } from '@/types/session';
+import { UserProfile } from '@/types/user';
+
 // Test Data
-const mockSession = {
+const mockSession: PracticeSession = {
     id: '1',
+    user_id: 'user-123',
     created_at: new Date().toISOString(),
     title: 'Test Session',
     duration: 600,
@@ -47,13 +51,12 @@ const mockSession = {
     filler_words: { 'um': { count: 5 } },
 };
 
-const mockProfile = {
+const mockProfile: UserProfile = {
     id: '1',
-    email: 'test@example.com',
     subscription_status: 'free',
 };
 
-const renderWithRouter = (ui, { route = '/' } = {}) => {
+const renderWithRouter = (ui: React.ReactElement, { route = '/' } = {}) => {
     window.history.pushState({}, 'Test page', route)
     return render(ui, { wrapper: BrowserRouter })
 }
@@ -95,7 +98,7 @@ describe('AnalyticsDashboard', () => {
     });
 
     it('hides the upgrade prompt for pro users', () => {
-        const proProfile = { ...mockProfile, subscription_status: 'pro' };
+        const proProfile: UserProfile = { ...mockProfile, subscription_status: 'pro' };
         renderWithRouter(<AnalyticsDashboard sessionHistory={[mockSession]} profile={proProfile} loading={false} error={null} />);
         expect(screen.queryByTestId('analytics-dashboard-upgrade-button')).not.toBeInTheDocument();
     });

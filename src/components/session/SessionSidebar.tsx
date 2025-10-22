@@ -256,7 +256,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                         <div className={`text-xl font-semibold ${isListening && isReady ? 'text-green-500' : 'text-muted-foreground'}`}>
                             {isConnecting ? 'Connecting...' : (isListening ? 'Session Active' : (isModelLoading ? 'Initializing...' : 'Ready'))}
                         </div>
-                        <Button onClick={handleStartStop} size="lg" variant={isListening ? 'destructive' : 'default'} className="w-full h-16 text-xl font-bold rounded-lg" disabled={isConnecting || (isListening ? isEndingSession : isModelLoading)} data-testid="session-start-stop-button">
+                        <Button onClick={handleStartStop} size="lg" variant={isListening ? 'destructive' : 'default'} className="w-full h-16 text-xl font-bold rounded-lg" disabled={isModelLoading || isConnecting || (isListening && isEndingSession)} data-testid="session-start-stop-button">
                             {isListening ? <><Square className="w-4 h-4 mr-2" /> Stop Session</> : (isModelLoading || isConnecting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {isConnecting ? 'Connecting...' : 'Initializing...'}</> : <><Mic className="w-4 h-4 mr-2" /> Start Session</>)}
                         </Button>
                     </div>

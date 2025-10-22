@@ -46,12 +46,12 @@ export const useSpeechRecognition = (props: UseSpeechRecognitionProps = {}) => {
   }, [authSession]);
 
   const serviceOptions = useMemo(() => ({
-    onTranscriptUpdate: (data: { transcript: { partial?: string; final?: string }; speaker?: string }) => {
+    onTranscriptUpdate: (data: { transcript: { partial?: string; final?: string }; }) => {
       if (data.transcript?.partial && !data.transcript.partial.startsWith('Downloading model')) {
         transcript.setInterimTranscript(data.transcript.partial);
       }
       if (data.transcript?.final) {
-        transcript.addChunk(data.transcript.final, data.speaker);
+        transcript.addChunk(data.transcript.final);
         transcript.setInterimTranscript('');
       }
     },

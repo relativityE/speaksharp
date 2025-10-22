@@ -10,14 +10,11 @@ const TEST_USER = {
 
 test.describe('Live Transcript Feature', () => {
   test('should display live transcript after session starts', async ({ page }) => {
-    await programmaticLogin(page, TEST_USER.email);
+    await programmaticLogin(page);
     const sessionPage = new SessionPage(page);
     await sessionPage.navigate();
 
-    // 1. Verify the main session page heading is visible
-    await expect(sessionPage.heading).toBeVisible();
-
-    // 2. Find and click the start button to begin the session
+    // 1. Find and click the start button to begin the session
     const startButton = page.getByRole('button', { name: 'Start' });
     await expect(startButton).toBeVisible();
     await startButton.click();

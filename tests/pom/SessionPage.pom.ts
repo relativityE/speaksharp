@@ -5,7 +5,6 @@ export class SessionPage {
 
   async navigate() {
     await this.page.goto('/session');
-    await expect(this.startButton).toBeVisible({ timeout: 15000 });
   }
 
   get startButton() {

@@ -10,12 +10,12 @@ describe('useTranscriptState', () => {
         expect(result.current.transcript).toBe('');
     });
 
-    it('should add a chunk with a speaker and update the transcript', () => {
+    it('should add a chunk and update the transcript', () => {
         const { result } = renderHook(() => useTranscriptState());
         act(() => {
-            result.current.addChunk('Hello', 'Speaker A');
+            result.current.addChunk('Hello');
         });
-        expect(result.current.finalChunks[0]).toEqual(expect.objectContaining({ text: 'Hello', speaker: 'Speaker A' }));
+        expect(result.current.finalChunks[0]).toEqual(expect.objectContaining({ text: 'Hello' }));
         expect(result.current.transcript).toBe('Hello');
     });
 
