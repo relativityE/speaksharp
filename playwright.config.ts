@@ -19,7 +19,6 @@ export default defineConfig({
     ['list'],
     ['json', { outputFile: 'test-results/playwright-report.json' }],
   ],
-  globalSetup: './tests/global-setup.ts',
   use: {
     baseURL: BASE_URL,
     headless: true,
@@ -29,9 +28,6 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'retain-on-failure', // Capture video on failure
     trace: 'on-first-retry',
-    launchOptions: {
-      dumpio: true, // Dump browser process stdio
-    },
   },
   webServer: {
     command: "pnpm run dev",
