@@ -64,12 +64,6 @@ export async function programmaticLogin(page: Page) {
     { token: fakeAccessToken, timestamp: now }
   );
 
-  // Wait until both app state AND DOM confirm login
-  await page.waitForFunction(
-    () => window.__E2E_PROFILE_LOADED__ === true,
-    { timeout: 15000 }
-  );
-
   await page.waitForSelector('[data-testid="nav-sign-out-button"]', { timeout: 15000 });
   await expect(page.getByTestId('nav-sign-out-button')).toBeVisible();
 

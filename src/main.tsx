@@ -41,6 +41,7 @@ const renderApp = (initialSession: Session | null = null) => {
 
     if (areEnvVarsPresent()) {
       import('./App').then(({ default: App }) => {
+        console.log('[E2E DIAGNOSTIC] ./App imported successfully:', !!App);
         // 🛑 Skip ALL analytics in E2E mode
         if (!window.__E2E_MODE__ && !import.meta.env.VITE_TEST_MODE) {
           const dsn = import.meta.env.VITE_SENTRY_DSN;
@@ -132,19 +133,20 @@ const renderApp = (initialSession: Session | null = null) => {
   }
 };
 
-const initialize = () => {
+const initialize = async () => {
   if (import.meta.env.VITE_TEST_MODE === 'true') {
     window.__E2E_MODE__ = true;
 
     const startMsw = async () => {
       const { worker } = await import('./mocks/browser');
-      await worker.start({
-        onUnhandledRequest: 'bypass',
-      });
+      await worker.start({ onUnhandledRequest: 'bypass' });
       console.log('[MSW] Mock Service Worker is ready.');
     };
 
-    window.mswReady = startMsw();
+    window.mswReady = false;
+    await startMsw();
+    window.mswReady = true;
+    console.log('[E2E] MSW ready, now rendering app');
     renderApp();
   } else {
     renderApp();
