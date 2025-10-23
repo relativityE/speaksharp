@@ -8,8 +8,11 @@ import { getSyncSession } from '../lib/utils';
 
 const getProfileFromDb = async (userId: string): Promise<UserProfile | null> => {
   // In E2E mode, return a mock profile immediately (no DB call)
-  // @ts-ignore
   if (window.__E2E_MODE__) {
+    if (window.__E2E_MOCK_PROFILE__) {
+      console.log('[E2E] Returning mock user profile from window variable');
+      return window.__E2E_MOCK_PROFILE__;
+    }
     console.log('[E2E] Returning mock user profile');
     return {
       id: userId,
@@ -52,16 +55,13 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
       setSessionState(currentSession);
 
       if (currentSession?.user) {
-        // @ts-ignore
         window.__E2E_PROFILE_LOADED__ = false;
         const userProfile = await getProfileFromDb(currentSession.user.id);
         setProfile(userProfile);
-        // @ts-ignore
         window.__E2E_PROFILE_LOADED__ = true;
       } else {
         // This is a critical fix: ensure the flag is set even when there is no
         // session, so that tests awaiting this flag can proceed.
-        // @ts-ignore
         window.__E2E_PROFILE_LOADED__ = true;
       }
       setLoading(false);
@@ -74,15 +74,12 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
       async (_event, newSession) => {
         setSessionState(newSession);
         if (newSession?.user) {
-          // @ts-ignore
           window.__E2E_PROFILE_LOADED__ = false;
           const userProfile = await getProfileFromDb(newSession.user.id);
           setProfile(userProfile);
-          // @ts-ignore
           window.__E2E_PROFILE_LOADED__ = true;
         } else {
           setProfile(null);
-          // @ts-ignore
           window.__E2E_PROFILE_LOADED__ = true;
         }
       }
@@ -92,6 +89,34 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
       listener?.subscription.unsubscribe();
     };
   }, []);
+
+  // --- ADD THIS BLOCK ---
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.__E2E_MODE__) {
+      console.log('[AuthProvider] E2E mode detected — setting up __setSupabaseSession');
+
+      window.__setSupabaseSession = async (fakeSession: Session) => {
+        console.log('[E2E] Applying fake Supabase session');
+        await supabase.auth.setSession({
+          access_token: fakeSession.access_token,
+          refresh_token: fakeSession.refresh_token,
+        });
+
+        // Manually propagate to React state to ensure UI consistency
+        setSessionState(fakeSession);
+        if (fakeSession.user) {
+          window.__E2E_PROFILE_LOADED__ = false;
+          const userProfile = await getProfileFromDb(fakeSession.user.id);
+          setProfile(userProfile);
+          window.__E2E_PROFILE_LOADED__ = true;
+        } else {
+          setProfile(null);
+          window.__E2E_PROFILE_LOADED__ = true;
+        }
+      };
+    }
+  }, []);
+  // --- END ADDITION ---
 
   if (loading) {
     return (
@@ -115,15 +140,12 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
     setSession: async (s: Session | null) => {
         setSessionState(s);
         if (s?.user) {
-            // @ts-ignore
             window.__E2E_PROFILE_LOADED__ = false;
             const userProfile = await getProfileFromDb(s.user.id);
             setProfile(userProfile);
-            // @ts-ignore
             window.__E2E_PROFILE_LOADED__ = true;
         } else {
             setProfile(null);
-            // @ts-ignore
             window.__E2E_PROFILE_LOADED__ = true;
         }
     },

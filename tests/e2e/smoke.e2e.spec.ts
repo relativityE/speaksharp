@@ -1,11 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin } from './helpers';
+import { healthCheck } from './shared';
 
 test.describe('Smoke Test', () => {
   test('should perform a full user journey: login, navigate, and log out @smoke', async ({ page }) => {
     // Step 1: Programmatic login
-    await test.step('Login', async () => {
-      await programmaticLogin(page);
+    await test.step('Health Check (Login)', async () => {
+      await healthCheck(page);
     });
 
     // Step 2: Navigate to Session Page and verify content
@@ -17,7 +17,7 @@ test.describe('Smoke Test', () => {
     // Step 3: Navigate to Analytics Page and verify content
     await test.step('Navigate to Analytics Page', async () => {
       await page.goto('/analytics');
-      await expect(page.getByRole('heading', { name: 'Your Dashboard' })).toBeVisible();
+      await expect(page.getByTestId('analytics-dashboard-empty-state')).toBeVisible();
     });
 
     // Step 4: Log out

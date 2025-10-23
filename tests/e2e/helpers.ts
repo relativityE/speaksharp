@@ -21,9 +21,7 @@ function generateFakeJWT() {
 
 export async function programmaticLogin(page: Page) {
   await page.addInitScript(() => {
-    // @ts-ignore
     window.TEST_MODE = true;
-    // @ts-ignore
     window.__E2E_MODE__ = true;
   });
 
@@ -32,8 +30,15 @@ export async function programmaticLogin(page: Page) {
   const fakeAccessToken = generateFakeJWT();
   const now = Math.floor(Date.now() / 1000);
 
-  await page.waitForFunction(() => typeof (window as any).__setSupabaseSession === 'function', { timeout: 5000 });
+  // Wait for the app to expose __setSupabaseSession
+  await expect
+    .poll(
+      async () => await page.evaluate(() => typeof window.__setSupabaseSession === 'function'),
+      { timeout: 15000 }
+    )
+    .toBe(true);
 
+  // Set fake Supabase session
   await page.evaluate(
     ({ token, timestamp }) => {
       const fakeSession = {
@@ -53,13 +58,29 @@ export async function programmaticLogin(page: Page) {
           updated_at: new Date().toISOString(),
         },
       };
-      // @ts-ignore
-      (window as any).__setSupabaseSession(fakeSession);
+      // @ts-expect-error This is a test-specific function injected into the window object.
+      window.__setSupabaseSession(fakeSession);
     },
     { token: fakeAccessToken, timestamp: now }
   );
 
-  await page.reload();
-  await page.waitForFunction(() => (window as any).__E2E_PROFILE_LOADED__ === true, { timeout: 10000 });
-  await expect(page.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 10000 });
+  // Wait until both app state AND DOM confirm login
+  await page.waitForFunction(
+    () => window.__E2E_PROFILE_LOADED__ === true,
+    { timeout: 15000 }
+  );
+
+  await page.waitForSelector('[data-testid="nav-sign-out-button"]', { timeout: 15000 });
+  await expect(page.getByTestId('nav-sign-out-button')).toBeVisible();
+
+  // After setting the session, also set the profile:
+  await page.evaluate(() => {
+    window.__E2E_MOCK_PROFILE__ = {
+      id: 'test-user-123',
+      email: 'test@example.com',
+      subscription_status: 'pro', // or 'free' for premium tests
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+  });
 }

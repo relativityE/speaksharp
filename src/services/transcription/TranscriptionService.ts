@@ -112,7 +112,7 @@ export default class TranscriptionService {
     const useOnDevice = this.forceOnDevice || (isPro && this.profile?.preferred_mode === 'on-device');
 
     if (useOnDevice) {
-      if (typeof window !== 'undefined' && (window as any).TEST_MODE) {
+      if (typeof window !== 'undefined' && window.TEST_MODE) {
         console.log('[TEST_MODE] Skipping LocalWhisper module load');
       } else {
         logger.info('[TranscriptionService] Attempting to use On-Device (LocalWhisper) mode for Pro user.');

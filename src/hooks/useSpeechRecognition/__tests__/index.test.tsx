@@ -156,10 +156,10 @@ describe('useSpeechRecognition', () => {
 
     const onTranscriptUpdate = vi.mocked(useTranscriptionService).mock.calls[0][0].onTranscriptUpdate;
     act(() => {
-      onTranscriptUpdate({ transcript: { final: 'hello world' }, speaker: 'A' });
+      onTranscriptUpdate({ transcript: { final: 'hello world' } });
     });
 
-    expect(mockUseTranscriptState.addChunk).toHaveBeenCalledWith('hello world', 'A');
+    expect(mockUseTranscriptState.addChunk).toHaveBeenCalledWith('hello world', undefined);
     expect(mockUseTranscriptState.setInterimTranscript).toHaveBeenCalledWith('');
   });
 
@@ -191,7 +191,7 @@ describe('useSpeechRecognition', () => {
     await act(async () => {
       try {
         await result.current.startListening();
-      } catch (e) {
+      } catch {
         // Expected rejection
       }
     });

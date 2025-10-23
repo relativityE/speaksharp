@@ -132,20 +132,19 @@ const renderApp = (initialSession: Session | null = null) => {
   }
 };
 
-const initialize = async () => {
+const initialize = () => {
   if (import.meta.env.VITE_TEST_MODE === 'true') {
     window.__E2E_MODE__ = true;
-    window.mswReady = false; // Set to false first
 
-    const { worker } = await import('./mocks/browser');
+    const startMsw = async () => {
+      const { worker } = await import('./mocks/browser');
+      await worker.start({
+        onUnhandledRequest: 'bypass',
+      });
+      console.log('[MSW] Mock Service Worker is ready.');
+    };
 
-    // Start the worker and wait for it to be ready
-    await worker.start({
-      onUnhandledRequest: 'bypass',
-    });
-
-    console.log('[MSW] Mock Service Worker is ready.');
-    window.mswReady = true; // Set to true after it's ready
+    window.mswReady = startMsw();
     renderApp();
   } else {
     renderApp();

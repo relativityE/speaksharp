@@ -129,7 +129,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
     const [showEndSessionDialog, setShowEndSessionDialog] = useState(false);
     const [completedSessions, setCompletedSessions] = useState<PracticeSession[]>([]);
 
-    const isModelLoading = modelLoadingProgress && modelLoadingProgress.status !== 'ready' && modelLoadingProgress.status !== 'error';
+    const isModelLoading = !!(modelLoadingProgress && modelLoadingProgress.status !== 'ready' && modelLoadingProgress.status !== 'error');
     const isConnecting = isListening && !isReady;
 
     const endSessionAndSave = async () => {
