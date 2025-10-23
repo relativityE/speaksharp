@@ -1,20 +1,16 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin } from './helpers';
+import { healthCheck } from './shared';
 
 test.describe('Health Check', () => {
-  test('should successfully authenticate and display the logged-in state on the homepage', async ({ page }) => {
-    // The programmaticLogin helper handles the entire authentication flow,
-    // including waiting for the UI to update. It contains the core assertion
-    // that the 'nav-sign-out-button' becomes visible.
-    await programmaticLogin(page);
+  test('should successfully authenticate and display the logged-in state', async ({ page }) => {
+    // Use the centralized healthCheck function.
+    // This function encapsulates the entire login and verification process.
+    await healthCheck(page);
 
-    // After login, the user should remain on the landing page, but in an
-    // authenticated state. We verify the URL has not changed.
+    // The healthCheck function, via programmaticLogin, already confirms that the
+    // sign-out button is visible. We can add a final, explicit assertion here
+    // for clarity in the test report, ensuring we are on the correct page.
     await expect(page).toHaveURL('/', { timeout: 5000 });
-
-    // The final confirmation is that the sign-out button is indeed visible,
-    // which is already asserted inside programmaticLogin. For clarity in test
-    // reporting, we can assert it again here.
     await expect(page.getByTestId('nav-sign-out-button')).toBeVisible();
 
     // Capture a screenshot for verification of the final state.

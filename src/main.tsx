@@ -133,18 +133,28 @@ const renderApp = (initialSession: Session | null = null) => {
 };
 
 const initialize = () => {
-  if (import.meta.env.VITE_TEST_MODE === 'true') {
+  const urlParams = new URLSearchParams(window.location.search);
+  const isE2EMode = urlParams.get('e2e') === 'true';
+
+  console.log('[SpeakSharp] Initializing... E2E mode:', isE2EMode);
+
+  if (isE2EMode) {
     window.__E2E_MODE__ = true;
+    window.TEST_MODE = true;  // Set it here for backwards compat
 
     const startMsw = async () => {
       const { worker } = await import('./mocks/browser');
-      await worker.start({
-        onUnhandledRequest: 'bypass',
-      });
+      await worker.start({ onUnhandledRequest: 'bypass' });
       console.log('[MSW] Mock Service Worker is ready.');
     };
 
-    window.mswReady = startMsw();
+    (async () => {
+      window.mswReady = false;
+      await startMsw();
+      window.mswReady = true;
+      console.log('[MSW] window.mswReady set to true');
+    })();
+
     renderApp();
   } else {
     renderApp();
