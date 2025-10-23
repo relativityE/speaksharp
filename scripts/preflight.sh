@@ -19,6 +19,9 @@ export DOTENV_CONFIG_PATH=.env.test
 
 # 3️⃣ Install Dependencies
 echo "  - Installing dependencies..."
+echo "    🔄 Performing clean install to ensure no stale modules..."
+rm -rf node_modules
+pnpm store prune
 pnpm install --frozen-lockfile
 echo "    ✅ Dependencies ready."
 

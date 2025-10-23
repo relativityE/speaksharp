@@ -45,7 +45,7 @@ interface SessionHistoryItemProps {
 const EmptyState: React.FC = () => {
     const navigate = useNavigate();
     return (
-        <Card className="flex flex-col items-center justify-center p-12 text-center border-dashed">
+        <Card className="flex flex-col items-center justify-center p-12 text-center border-dashed" data-testid="analytics-dashboard-empty-state">
             <Sparkles className="w-12 h-12 text-yellow-400 mb-4" />
             <h2 className="text-xl font-bold text-foreground">Your Dashboard Awaits!</h2>
             <p className="max-w-md mx-auto my-4 text-base text-muted-foreground">
