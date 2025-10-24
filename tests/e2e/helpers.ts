@@ -1,80 +1,47 @@
 import { Page, expect } from '@playwright/test';
-// Note: We cannot import directly from 'src/...' because Playwright runs in a different context.
-// The logic from test-user-utils is effectively duplicated in the Python script for verification,
-// and here we will construct it manually for the Node.js test runner, ensuring it's consistent.
+import * as fs from 'fs';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
 
-function generateFakeJWT() {
-  const now = Math.floor(Date.now() / 1000);
-  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
-  const payload = Buffer.from(JSON.stringify({
-    sub: "test-user-123",
-    email: "test@example.com",
-    aud: "authenticated",
-    role: "authenticated",
-    exp: now + 3600,
-    iat: now,
-    session_id: "test-session-123",
-  })).toString("base64url");
-  const signature = "fake-signature-for-e2e-testing";
-  return `${header}.${payload}.${signature}`;
-}
+// ES Module-safe way to get the current directory name
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Read the mock client script content once
+const mockSupabaseClientScript = fs.readFileSync(path.join(__dirname, '../../src/mocks/mockSupabaseClient.ts'), 'utf-8');
 
 export async function programmaticLogin(page: Page) {
-  await page.addInitScript(() => {
-    window.TEST_MODE = true;
-    window.__E2E_MODE__ = true;
-  });
+  // 1. Inject the entire mock Supabase client script BEFORE any app code runs.
+  await page.addInitScript({ content: mockSupabaseClientScript });
 
-  await page.goto('/');
-
-  const fakeAccessToken = generateFakeJWT();
-  const now = Math.floor(Date.now() / 1000);
-
-  // Wait for the app to expose __setSupabaseSession
-  await expect
-    .poll(
-      async () => await page.evaluate(() => typeof window.__setSupabaseSession === 'function'),
-      { timeout: 15000 }
-    )
-    .toBe(true);
-
-  // Set fake Supabase session
-  await page.evaluate(
-    ({ token, timestamp }) => {
-      const fakeSession = {
-        access_token: token,
-        refresh_token: 'fake-refresh-token-for-e2e',
-        token_type: 'bearer',
-        expires_in: 3600,
-        expires_at: timestamp + 3600,
-        user: {
-          id: 'test-user-123',
-          email: 'test@example.com',
-          aud: 'authenticated',
-          role: 'authenticated',
-          app_metadata: { provider: 'email', providers: ['email'] },
-          user_metadata: { name: 'Test User' },
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-      };
-      // @ts-expect-error This is a test-specific function injected into the window object.
-      window.__setSupabaseSession(fakeSession);
-    },
-    { token: fakeAccessToken, timestamp: now }
-  );
-
-  await page.waitForSelector('[data-testid="nav-sign-out-button"]', { timeout: 15000 });
-  await expect(page.getByTestId('nav-sign-out-button')).toBeVisible();
-
-  // After setting the session, also set the profile:
-  await page.evaluate(() => {
-    window.__E2E_MOCK_PROFILE__ = {
+  const sessionData = {
+    access_token: 'fake-access-token-for-e2e',
+    refresh_token: 'fake-refresh-token-for-e2e',
+    user: {
       id: 'test-user-123',
       email: 'test@example.com',
-      subscription_status: 'pro', // or 'free' for premium tests
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-  });
+      aud: 'authenticated',
+      role: 'authenticated',
+      user_metadata: { subscription_status: 'pro' },
+    },
+  };
+
+  // 2. Navigate to the page. The app will initialize using our mock client.
+  await page.goto('/');
+
+  // 3. Wait for the page to load and our injected client to be available.
+  await page.waitForFunction(() => (window as any).supabase);
+
+  // 4. Inject the session. The onAuthStateChange listener in the mock client
+  // will notify the AuthProvider, which will then re-render.
+  await page.evaluate(async (data) => {
+    // Note: We are calling the method on the globally injected mock client
+    const { error } = await (window as any).supabase.auth.setSession(data);
+    if (error) {
+      console.error("E2E Login Error:", error);
+    }
+  }, sessionData);
+
+  // 5. Verify that the UI has updated to the authenticated state.
+  await expect(page.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 10000 });
 }
