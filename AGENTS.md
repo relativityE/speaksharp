@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-10-19
+**Last Reviewed:** 2025-10-24
 
 # Agent Instructions for SpeakSharp Repository
 
@@ -50,6 +50,58 @@ The E2E test environment has a critical incompatibility with the `onnxruntime-we
 *   **Implication:** Do not remove this flag or the corresponding check in the application code. If you encounter a similar silent crash, investigate for other dynamic imports of heavy, WebAssembly-based libraries.
 
 ---
+
+## ⚡ Non-negotiable rules
+
+No destructive reverts without user approval. If you reverted something, immediately report which files/lines and why.
+Always provide ≥2 solutions for any non-trivial problem (fast fix + robust fix).
+Every claim must include file path and exact line numbers and a 2–5 line code snippet as evidence.
+No escalation until Diagnostic Protocol completed (see §4).
+
+___
+
+## ⚡ Quick reference (most-common tasks)
+
+Use page.addInitScript() to set flags that must exist before app JS runs:
+await page.addInitScript(() => { window.__USE_MOCK_DATA__ = true; });
+
+For MSW: prefer handler-driven mocks over brittle query-param hacks.
+For flaky SPA navigation: prefer user-style navigation (clicks) or verify with waitForSelector() on a stable DOM marker.
+___
+
+## ⚡ Diagnostic Protocol — mandatory (follow exactly)
+
+Before asking questions or escalating, do the following in order:
+Read the error literally — copy/paste exact failing command + error.
+Reproduce minimal case — run the single failing test and capture artifacts:
+pnpm exec playwright test tests/e2e/that-test --workers=1 |& tee run.log
+Attach run.log, trace.zip, screenshot(s).
+Trace to code — open implicated files and cite filename:line-range and a short snippet (3–8 lines).
+Example: src/mocks/handlers.ts:35-40 with the snippet that returns [].
+Form 2 hypotheses (A and B). For each, state:
+What you expect to observe in logs/trace if true.
+One quick check that will falsify it (grep, console.log, DOM dump).
+Run quick checks (console logs, DOM dump, unzip trace, grep network entries). Attach outputs.
+Propose fixes (≥2) with:
+Code diff (file + line numbers)
+Pros / cons / risk level
+Confidence % (e.g., 90%)
+If you tried both fixes (or cannot), then escalate with the exact artifacts and choices tried.
+If any step is skipped, escalation will be rejected.
+
+___
+
+## ⚡ Evidence & PR expectations
+
+Any PR or patch must include:
+One-paragraph problem summary (plain English).
+Exact failing command and raw error.
+File:line snippets used as evidence.
+Two options (fast + robust) with code snippets and risks.
+Artifacts: trace.zip path, run.log, screenshot(s).
+PRs missing these will be returned for more detail.
+
+___
 
 ## ⚡ Quick Reference – Non-Negotiable Rules
 
@@ -118,7 +170,24 @@ If blocked:
 4.  Offer 2–3 solution paths with pros/cons.
 5.  **Pause and wait for user guidance** before proceeding.
 
+Escalation format (required)
+
+If you must escalate, submit a single message with:
+One-line result (what you attempted and outcome).
+Attached artifacts (trace.zip, run.log, screenshots).
+File evidence list (path:lines + snippets).
+Two actionable next steps (with diffs) and the one you recommend.
+
 ---
+
+## Behavioral checklist (short)
+
+Think like a senior: diagnose → propose → try → attach evidence → escalate.
+No “try one quick thing and ask” — do work first.
+Be concise, factual, and cite code.
+
+___
+
 
 ## 🔐 Absolute Non-Negotiables
 

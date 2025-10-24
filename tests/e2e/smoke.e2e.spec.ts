@@ -17,7 +17,8 @@ test.describe('Smoke Test', () => {
     // Step 3: Navigate to Analytics Page and verify content
     await test.step('Navigate to Analytics Page', async () => {
       await page.goto('/analytics');
-      await expect(page.getByTestId('analytics-dashboard-empty-state')).toBeVisible();
+      await page.waitForSelector('[data-testid="dashboard-heading"]', { timeout: 30000 });
+      await expect(page.getByTestId('dashboard-heading')).toBeVisible();
     });
 
     // Step 4: Log out

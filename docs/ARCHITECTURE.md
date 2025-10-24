@@ -155,19 +155,13 @@ This multi-stage, parallel approach ensures that local validation (`./test-audit
 
 The E2E test environment is designed for stability and isolation, ensuring tests run reliably both locally and in CI. The key to this stability is a set of core patterns for handling asynchronous operations like API mocking and authentication.
 
-1.  **MSW Synchronization via `window.mswReady`:**
-    *   **Problem:** E2E tests would often fail because they tried to interact with the app before the Mock Service Worker (MSW) was ready to intercept API calls, leading to race conditions.
-    *   **Solution:** The application's entry point (`src/main.tsx`) has been modified. When `VITE_TEST_MODE` is true, it now `await`s the MSW `worker.start()` promise before rendering the React application. It also sets a boolean flag, `window.mswReady = true`.
-    *   **In Tests:** Before any significant interaction, tests use a `waitForMSW(page)` helper function. This function pauses test execution until `window.mswReady === true`, guaranteeing that the mock API layer is fully active.
+1.  **Sequential MSW Initialization:**
+    *   **Problem:** E2E tests would fail with race conditions because the React application could mount and trigger network requests *before* the Mock Service Worker (MSW) was ready to intercept them.
+    *   **Solution:** The application's bootstrap logic in `src/main.tsx` has been made sequential for the test environment. It now strictly `await`s the asynchronous `msw.worker.start()` promise to complete **before** it calls `renderApp()`. This guarantees that the entire mock API layer is active before any React component mounts, eliminating the race condition. A `window.mswReady = true` flag is set after MSW is ready to signal this state to tests.
 
 2.  **Programmatic Login for Authentication (E2E):**
-    *   **Problem:** E2E tests require a fast, stable, and isolated way to authenticate a user without relying on flaky UI interactions or external authentication providers. The Supabase client's internal session management is complex and sensitive to the structure of the session object and JWT.
-    *   **Solution:** All E2E tests use a `programmaticLogin(page)` helper function, which is the **single source of truth** for test authentication. This function uses a multi-step process designed for maximum stability:
-        1.  **Inject E2E Hooks:** It uses `page.addInitScript()` to set global flags (`window.TEST_MODE` and `window.__E2E_MODE__`) *before* any application code runs. The `__E2E_MODE__` flag signals to the `AuthProvider` that it should expose a special helper function on the `window` object.
-        2.  **Generate Valid Mock Data:** The helper generates a structurally valid, Base64Url-encoded JSON Web Token (JWT) with all the claims required by the Supabase client (`sub`, `aud`, `role`, `exp`, `iat`). It also constructs a complete mock session object that mirrors the exact structure expected by `supabase.auth.setSession()`.
-        3.  **Inject Session via Helper:** After navigating to the page, the script waits for the application's E2E hook (`window.__setSupabaseSession`) to be available. It then calls this function to inject the mock session directly into the Supabase client instance within the browser.
-        4.  **Synchronize with AuthProvider:** After a `page.reload()`, the script waits for the `AuthProvider` to complete its own internal state initialization by polling for `window.__E2E_PROFILE_LOADED__ === true`. This prevents race conditions where the test would proceed before the user profile is loaded and the UI is in its final authenticated state.
-    *   **Benefits:** This method bypasses `localStorage`, is immune to UI changes, and guarantees a valid, consistent authentication state for every test run.
+    *   **Problem:** E2E tests require a fast, stable way to authenticate. The login process was flaky due to a race condition between the `AuthProvider`'s asynchronous state updates and the test's assertions against the DOM.
+    *   **Solution:** The `programmaticLogin` helper has been hardened. After injecting the mock session, it no longer waits for an unreliable internal flag (`window.__E2E_PROFILE_LOADED__`). Instead, it directly waits for the user-visible result of a successful login: the appearance of the "Sign Out" button in the navigation bar. This ensures the test only proceeds after React's render cycle is fully complete and the DOM is in a consistent, authenticated state.
 
 3.  **Third-Party Service Stubbing:**
     *   To prevent external services like Sentry and PostHog from causing noise or failures in E2E tests, the `stubThirdParties(page)` helper is used. It intercepts and aborts any requests to these services' domains, ensuring tests are isolated and deterministic.
@@ -292,4 +286,7 @@ The STT accuracy comparison feature calculates the Word Error Rate (WER) of each
 
 *This section is for tracking active, unresolved issues. As issues are resolved, they should be moved to the [Changelog](./CHANGELOG.md).*
 
-*   **Client-Side Routing in Playwright:** There is a known, unresolved issue where client-side navigation initiated by simulating a click on a `react-router-dom` `<Link>` component does not reliably trigger a page transition within the Playwright test environment. Tests that need to navigate between pages must use direct `page.goto("/path")` calls as a workaround. This issue is specific to the test environment and does not affect the application in a real browser.
+*   **Unreliable Client-Side Navigation in Playwright:** There is a deep-seated, unresolved issue where client-side navigation within the Playwright test environment is unreliable.
+    *   **Symptom:** Tests that require navigation between pages (e.g., from `/session` to `/analytics`) often fail because the navigation does not complete. The test continues to execute on the old page, leading to `TimeoutError` when waiting for elements that only exist on the destination page.
+    *   **Investigation:** This issue persists even when using direct `page.goto("/path")` calls, which are the recommended workaround for `react-router-dom` `<Link>` component issues. Standard Playwright synchronization mechanisms like `waitForURL` and `waitForSelector` have also proven ineffective in consistently resolving this.
+    *   **Impact:** This is a high-priority issue that blocks the entire E2E smoke test from passing. A permanent solution is required and is being tracked as a P1 technical debt item in the [Roadmap](./ROADMAP.md).
