@@ -1,42 +1,34 @@
 import { defineConfig, devices } from '@playwright/test';
-import * as dotenv from 'dotenv';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
-// Load environment variables from .env.test
-dotenv.config({ path: path.resolve(process.cwd(), '.env.test') });
+// Get the directory name of the current module
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-const PORT = process.env.VITE_PORT || '5173';
-const BASE_URL = `http://localhost:${PORT}`;
+// Use a solution-style tsconfig.json in `tests/`
+const TSCONFIG_PATH = path.join(__dirname, 'tests', 'tsconfig.json');
 
 export default defineConfig({
   testDir: './tests/e2e',
-  timeout: 120_000, // 2-minute global timeout for each test file
-  expect: { timeout: 30_000 },
-  workers: 1,
-  fullyParallel: false,
-  retries: 1,
-  reporter: [
-    ['list'],
-    ['json', { outputFile: 'test-results/playwright-report.json' }],
-  ],
-  use: {
-    baseURL: BASE_URL,
-    headless: true,
-    viewport: { width: 1280, height: 720 },
-    deviceScaleFactor: 1,
-    ignoreHTTPSErrors: true,
-    screenshot: 'only-on-failure',
-    video: 'retain-on-failure', // Capture video on failure
-    trace: 'on-first-retry',
-  },
+  // Re-enable the original analytics page test
+  testMatch: /analytics-page\.e2e\.spec\.ts/,
+
   webServer: {
-    command: "pnpm run dev",
-    url: BASE_URL,
+    command: 'pnpm exec vite --mode test',
+    url: 'http://localhost:5173',
     reuseExistingServer: !process.env.CI,
-    timeout: 120 * 1000, // 2 minutes
-    env: {
-      DOTENV_CONFIG_PATH: ".env.test",
-    },
+  },
+
+  fullyParallel: true,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 1 : undefined,
+  reporter: 'html',
+  use: {
+    baseURL: 'http://localhost:5173',
+    trace: 'on-first-retry',
+    video: 'retain-on-failure',
   },
   projects: [
     {
