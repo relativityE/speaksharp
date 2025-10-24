@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-10-19
+**Last Reviewed:** 2025-10-23
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -155,28 +155,23 @@ This multi-stage, parallel approach ensures that local validation (`./test-audit
 
 The E2E test environment is designed for stability and isolation, ensuring tests run reliably both locally and in CI. The key to this stability is a set of core patterns for handling asynchronous operations like API mocking and authentication.
 
-1.  **Sequential MSW Initialization:**
+1.  **Vite "Test" Mode:**
+    *   **Problem:** The Supabase client was configured to persist user sessions to `localStorage` by default. This is desirable for human users but disastrous for E2E tests, as it causes sessions to leak between tests and conflicts with programmatic login helpers.
+    *   **Solution:** The application now uses Vite's "test" mode (`vite --mode test`), which is activated by the `webServer` command in `playwright.config.ts`. The application's source code in `src/lib/supabaseClient.ts` detects this mode and explicitly disables session persistence (`persistSession: false`). This is the most critical piece of the E2E architecture, as it ensures perfect test isolation.
+
+2.  **Sequential MSW Initialization:**
     *   **Problem:** E2E tests would fail with race conditions because the React application could mount and trigger network requests *before* the Mock Service Worker (MSW) was ready to intercept them.
-    *   **Solution:** The application's bootstrap logic in `src/main.tsx` has been made sequential for the test environment. It now strictly `await`s the asynchronous `msw.worker.start()` promise to complete **before** it calls `renderApp()`. This guarantees that the entire mock API layer is active before any React component mounts, eliminating the race condition. A `window.mswReady = true` flag is set after MSW is ready to signal this state to tests.
+    *   **Solution:** The application's bootstrap logic in `src/main.tsx` has been made sequential for the test environment. It now reliably detects test mode by checking for a `?test=true` URL parameter. It then `await`s the asynchronous `msw.worker.start()` promise to complete **before** it calls `renderApp()`. This guarantees that the entire mock API layer is active before any React component mounts, eliminating the race condition.
 
-2.  **Programmatic Login for Authentication (E2E):**
-    *   **Problem:** E2E tests require a fast, stable way to authenticate. The login process was flaky due to a race condition between the `AuthProvider`'s asynchronous state updates and the test's assertions against the DOM.
-    *   **Solution:** The `programmaticLogin` helper has been hardened. After injecting the mock session, it no longer waits for an unreliable internal flag (`window.__E2E_PROFILE_LOADED__`). Instead, it directly waits for the user-visible result of a successful login: the appearance of the "Sign Out" button in the navigation bar. This ensures the test only proceeds after React's render cycle is fully complete and the DOM is in a consistent, authenticated state.
+3.  **Programmatic Login with `sessionStorage`:**
+    *   **Problem:** E2E tests require a fast, stable way to authenticate.
+    *   **Solution:** The `programmaticLogin` helper injects a mock user session directly into `sessionStorage`. Because the Supabase client has session persistence disabled (see point 1), it will read this session on page load but will not attempt to write to `localStorage`, avoiding any conflicts. `sessionStorage` is used because it is automatically cleared between tests, providing perfect isolation.
 
-3.  **Third-Party Service Stubbing:**
-    *   To prevent external services like Sentry and PostHog from causing noise or failures in E2E tests, the `stubThirdParties(page)` helper is used. It intercepts and aborts any requests to these services' domains, ensuring tests are isolated and deterministic.
-
-4.  **Standardized Page Object Model (POM):**
-    *   **Problem:** The E2E test suite had an inconsistent and duplicated structure for Page Object Models, leading to confusion and maintenance overhead.
-    *   **Solution:** The POMs have been centralized into a single, canonical location: `tests/pom/`.
-    *   **Barrel Exports:** A barrel file (`tests/pom/index.ts`) is used to export all POMs from this central location. This provides a single, clean import path for all test files (e.g., `import { SessionPage } from '../pom';`), which improves maintainability and prevents module resolution issues in the test runner.
-
-5.  **Source-Code-Level Guard for Incompatible Libraries:**
-    *   **Problem:** The on-device transcription feature uses the `onnxruntime-web` library, which relies on WebAssembly. This library is fundamentally incompatible with the Playwright test environment and causes a silent, catastrophic browser crash that is untraceable with standard debugging tools.
+4.  **Source-Code-Level Guard for Incompatible Libraries:**
+    *   **Problem:** The on-device transcription feature uses the `onnxruntime-web` library, which relies on WebAssembly. This library is fundamentally incompatible with the Playwright test environment and causes a silent, catastrophic browser crash.
     *   **Solution:** A test-aware guard has been implemented directly in the application's source code.
-        *   **Flag Injection:** The `programmaticLogin` helper in `tests/e2e/helpers.ts` uses `page.addInitScript()` to inject a global `window.TEST_MODE = true;` flag before any application code runs.
+        *   **Flag Injection:** The `healthCheck` helper in `tests/e2e/shared.ts` uses `page.addInitScript()` to inject a global `window.TEST_MODE = true;` flag before any application code runs.
         *   **Conditional Import:** The `TranscriptionService.ts` checks for the presence of `window.TEST_MODE`. If the flag is true, it completely skips the dynamic import of the `LocalWhisper` module that would have loaded the crashing library. Instead, it gracefully falls back to the safe, native browser transcription engine.
-    *   **Benefit:** This source-code-level solution is more robust than network-level blocking (`page.route`), which can be unreliable with modern bundlers. It directly prevents the incompatible code from ever being loaded in the test environment.
 
 These patterns work together to create a robust testing foundation, eliminating the primary sources of flakiness and making the E2E suite a reliable indicator of application quality.
 
