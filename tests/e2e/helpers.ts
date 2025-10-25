@@ -17,9 +17,108 @@ function generateFakeJWT() {
 }
 
 export async function programmaticLogin(page: Page) {
+  // FIX #1: Inject mock Supabase client inline (not from external file)
   await page.addInitScript(() => {
     (window as any).TEST_MODE = true;
     (window as any).__E2E_MODE__ = true;
+
+    // Create inline mock Supabase client
+    if (!(window as any).__MOCK_SUPABASE_CLIENT_INITIALIZED__) {
+      (window as any).__MOCK_SUPABASE_CLIENT_INITIALIZED__ = true;
+
+      let session: any = null;
+      const listeners = new Set<(event: string, session: any | null) => void>();
+
+      (window as any).supabase = {
+        auth: {
+          onAuthStateChange: (callback: (event: string, session: any | null) => void) => {
+            listeners.add(callback);
+            setTimeout(() => callback('INITIAL_SESSION', session), 0);
+            return {
+              data: {
+                subscription: {
+                  unsubscribe: () => listeners.delete(callback)
+                }
+              },
+            };
+          },
+
+          setSession: async (sessionData: any) => {
+            session = {
+              ...sessionData,
+              expires_at: Math.floor(Date.now() / 1000) + 3600
+            };
+
+            listeners.forEach(listener => {
+              try {
+                listener('SIGNED_IN', session);
+              } catch (e) {
+                console.error('[MockAuth] Listener error:', e);
+              }
+            });
+
+            return { data: { session, user: session.user }, error: null };
+          },
+
+          signOut: async () => {
+            session = null;
+            listeners.forEach(listener => listener('SIGNED_OUT', null));
+            return { error: null };
+          },
+
+          getSession: async () => {
+            return { data: { session }, error: null };
+          },
+        },
+
+        from: (table: string) => ({
+          select: (columns = '*') => ({
+            eq: (column: string, value: any) => ({
+              single: () => {
+                if (table === 'user_profiles' && column === 'id' && value === 'test-user-123') {
+                  return Promise.resolve({
+                    data: {
+                      id: 'test-user-123',
+                      subscription_status: 'pro',
+                      preferred_mode: 'cloud',
+                    },
+                    error: null,
+                  });
+                }
+                return Promise.resolve({ data: null, error: { message: 'Not found' } });
+              },
+              order: (orderColumn: string, options: { ascending: boolean }) => {
+                if (table === 'sessions' && column === 'user_id' && value === 'test-user-123') {
+                  return Promise.resolve({
+                    data: [
+                      {
+                        id: 'session-1',
+                        user_id: 'test-user-123',
+                        created_at: new Date().toISOString(),
+                        duration: 60,
+                        title: 'Test Session 1',
+                        total_words: 150,
+                        transcript: 'This is a test transcript.',
+                        filler_words: {
+                          um: { count: 5 },
+                          uh: { count: 2 },
+                        },
+                        accuracy: 95.5,
+                        engine: 'CloudAssemblyAI',
+                      },
+                    ],
+                    error: null,
+                  });
+                }
+                return Promise.resolve({ data: [], error: null });
+              }
+            }),
+          }),
+        }),
+      };
+
+      console.log('[MockClient] Supabase mock initialized inline');
+    }
   });
 
   await page.goto('/');
@@ -37,7 +136,7 @@ export async function programmaticLogin(page: Page) {
     },
     { timeout: 15000 }
   );
-  console.log('✅ App initialized (no loading skeleton)');
+  console.log('✅ App initialized');
 
   const fakeAccessToken = generateFakeJWT();
   const now = Math.floor(Date.now() / 1000);
@@ -78,8 +177,6 @@ export async function programmaticLogin(page: Page) {
       console.log('[Test] Setting session...');
       const result = await (window as any).supabase.auth.setSession(fakeSession);
       console.log('[Test] Session set result:', result);
-      // Manually dispatch an event to force the AuthProvider to re-render
-      window.dispatchEvent(new CustomEvent('__E2E_SESSION_INJECTED__', { detail: fakeSession }));
     },
     { token: fakeAccessToken, timestamp: now }
   );
@@ -99,5 +196,5 @@ export async function programmaticLogin(page: Page) {
   });
 
   await expect(page.getByTestId('nav-sign-out-button')).toBeVisible();
-  console.log('✅ Login complete - authenticated UI visible');
+  console.log('✅ Login complete');
 }
