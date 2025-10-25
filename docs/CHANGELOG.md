@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-10-19
+**Last Reviewed:** 2025-10-25
 
 # Changelog
 
@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **E2E Smoke Test Reliability:** Resolved a critical race condition in the E2E smoke test that caused consistent failures.
+    - **Root Cause:** The mock Supabase client was not persisting the user session across page navigations, causing the user to appear logged out on the analytics page.
+    - **Solution:** The mock client in `tests/e2e/helpers.ts` has been refactored to use `localStorage` for session state, accurately simulating the behavior of the real Supabase client and ensuring state persists across `page.goto()` calls.
+    - **Improvement:** The smoke test's assertion for the `SessionPage` has been strengthened to verify an authenticated state, preventing it from passing by coincidence.
 - **Critical E2E Test Environment Instability:** Resolved a cascade of critical issues that were causing the E2E test suite to be completely unstable. This work provides a stable foundation for future test development.
     - **Build-Time Crash:** Implemented a `test` build mode to conditionally exclude the `onnxruntime-web` library, which was causing silent, untraceable browser crashes.
     - **Authentication Race Condition:** Re-architected the `programmaticLogin` helper and the `AuthProvider` to use a custom browser event (`__E2E_SESSION_INJECTED__`), which synchronizes the test script with the application's React state and ensures the UI reliably updates after login.

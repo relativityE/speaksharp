@@ -17,6 +17,10 @@ test.describe('Smoke Test', () => {
     await test.step('Navigate to Session Page', async () => {
       await page.goto('/session');
       await expect(page.getByRole('heading', { name: 'Live Transcript' })).toBeVisible();
+
+      // New, stronger assertion: Verify that the session controls are visible.
+      // This is a reliable indicator that the user is authenticated, regardless of their subscription status.
+      await expect(page.getByTestId('session-sidebar-card')).toBeVisible();
     });
 
     // Step 3: Navigate to Analytics Page and verify content

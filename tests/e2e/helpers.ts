@@ -26,7 +26,18 @@ export async function programmaticLogin(page: Page) {
     if (!(window as any).__MOCK_SUPABASE_CLIENT_INITIALIZED__) {
       (window as any).__MOCK_SUPABASE_CLIENT_INITIALIZED__ = true;
 
+      const MOCK_SESSION_KEY = 'sb-mock-session';
       let session: any = null;
+      try {
+        const storedSession = localStorage.getItem(MOCK_SESSION_KEY);
+        if (storedSession) {
+          session = JSON.parse(storedSession);
+        }
+      } catch (e) {
+        console.error('[MockClient] Failed to parse stored session:', e);
+        localStorage.removeItem(MOCK_SESSION_KEY);
+      }
+
       const listeners = new Set<(event: string, session: any | null) => void>();
 
       (window as any).supabase = {
@@ -49,6 +60,12 @@ export async function programmaticLogin(page: Page) {
               expires_at: Math.floor(Date.now() / 1000) + 3600
             };
 
+            try {
+              localStorage.setItem(MOCK_SESSION_KEY, JSON.stringify(session));
+            } catch (e) {
+              console.error('[MockClient] Failed to save session to localStorage:', e);
+            }
+
             listeners.forEach(listener => {
               try {
                 listener('SIGNED_IN', session);
@@ -62,6 +79,7 @@ export async function programmaticLogin(page: Page) {
 
           signOut: async () => {
             session = null;
+            localStorage.removeItem(MOCK_SESSION_KEY);
             listeners.forEach(listener => listener('SIGNED_OUT', null));
             return { error: null };
           },
