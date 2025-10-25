@@ -1,4 +1,4 @@
-import { supabase } from './supabaseClient';
+import { getSupabaseClient } from './supabaseClient';
 import logger from './logger';
 import type { PracticeSession } from '../types/session';
 import type { UserProfile } from '../types/user';
@@ -10,6 +10,7 @@ import type { PostgrestError } from '@supabase/supabase-js';
  * @returns {Promise<Array>} A promise that resolves to an array of session objects.
  */
 export const getSessionHistory = async (userId: string): Promise<PracticeSession[]> => {
+  const supabase = getSupabaseClient();
   if (!userId) {
     logger.error('Get Session History: User ID is required.');
     return [];
@@ -34,6 +35,7 @@ export const getSessionHistory = async (userId: string): Promise<PracticeSession
  * @returns {Promise<{session: object|null, usageExceeded: boolean}>} A promise that resolves to an object containing the saved session and a flag for usage limit.
  */
 export const saveSession = async (sessionData: Partial<PracticeSession> & { user_id: string }, profile: UserProfile): Promise<{ session: PracticeSession | null, usageExceeded: boolean }> => {
+  const supabase = getSupabaseClient();
   if (!sessionData || !sessionData.user_id) {
     logger.error('Save Session: Session data and user ID are required.');
     return { session: null, usageExceeded: false };
@@ -76,6 +78,7 @@ export const saveSession = async (sessionData: Partial<PracticeSession> & { user
  * @returns {Promise<boolean>} A promise that resolves to true if successful, false otherwise.
  */
 export const deleteSession = async (sessionId: string): Promise<boolean> => {
+  const supabase = getSupabaseClient();
   if (!sessionId) {
     logger.error('Delete Session: Session ID is required.');
     return false;

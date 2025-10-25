@@ -1,11 +1,12 @@
 import React, { useState, useEffect, ReactNode } from 'react';
-import { supabase } from '../lib/supabaseClient';
+import { getSupabaseClient } from '../lib/supabaseClient';
 import { Session } from '@supabase/supabase-js';
 import { UserProfile } from '../types/user';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AuthContext, AuthContextType } from './AuthContext';
 
 const getProfileFromDb = async (userId: string): Promise<UserProfile | null> => {
+  const supabase = getSupabaseClient();
   try {
     const { data, error } = await supabase
       .from('user_profiles')
@@ -46,6 +47,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       window.addEventListener('__E2E_SESSION_INJECTED__', handleE2ESessionInject);
     }
 
+    const supabase = getSupabaseClient();
     const { data: listener } = supabase.auth.onAuthStateChange(
       async (_event, newSession) => {
         setSessionState(newSession);
@@ -53,10 +55,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
           if ((window as any).__E2E_MODE__) (window as any).__E2E_PROFILE_LOADED__ = false;
           const userProfile = await getProfileFromDb(newSession.user.id);
           setProfile(userProfile);
-          if ((window as any).__E2E_MODE__) (window as any).__E2E_PROFILE_LOADED__ = true;
+          if ((window as any).__E2E_MODE__) {
+            (window as any).__E2E_PROFILE_LOADED__ = true;
+          }
         } else {
           setProfile(null);
-          if ((window as any).__E2E_MODE__) (window as any).__E2E_PROFILE_LOADED__ = true;
+          if ((window as any).__E2E_MODE__) {
+            (window as any).__E2E_PROFILE_LOADED__ = true;
+          }
         }
         setLoading(false);
       }
@@ -83,7 +89,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     user: session?.user ?? null,
     profile,
     loading,
-    signOut: () => supabase.auth.signOut(),
+    signOut: () => getSupabaseClient().auth.signOut(),
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -22,6 +22,8 @@ test.describe('Smoke Test', () => {
     // Step 3: Navigate to Analytics Page and verify content
     await test.step('Navigate to Analytics Page', async () => {
       await page.goto('/analytics');
+      // Now that the SessionProvider is fixed, we can just wait for the data to load.
+      await expect(page.getByTestId('speaking-pace')).toBeVisible({ timeout: 15000 });
       await expect(page.getByTestId('dashboard-heading')).toBeVisible();
     });
 
