@@ -1,47 +1,103 @@
 import { Page, expect } from '@playwright/test';
-import * as fs from 'fs';
-import * as path from 'path';
-import { fileURLToPath } from 'url';
 
-// ES Module-safe way to get the current directory name
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Read the mock client script content once
-const mockSupabaseClientScript = fs.readFileSync(path.join(__dirname, '../../src/mocks/mockSupabaseClient.ts'), 'utf-8');
+function generateFakeJWT() {
+  const now = Math.floor(Date.now() / 1000);
+  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+  const payload = Buffer.from(JSON.stringify({
+    sub: "test-user-123",
+    email: "test@example.com",
+    aud: "authenticated",
+    role: "authenticated",
+    exp: now + 3600,
+    iat: now,
+    session_id: "test-session-123",
+  })).toString("base64url");
+  const signature = "fake-signature-for-e2e-testing";
+  return `${header}.${payload}.${signature}`;
+}
 
 export async function programmaticLogin(page: Page) {
-  // 1. Inject the entire mock Supabase client script BEFORE any app code runs.
-  await page.addInitScript({ content: mockSupabaseClientScript });
+  await page.addInitScript(() => {
+    (window as any).TEST_MODE = true;
+    (window as any).__E2E_MODE__ = true;
+  });
 
-  const sessionData = {
-    access_token: 'fake-access-token-for-e2e',
-    refresh_token: 'fake-refresh-token-for-e2e',
-    user: {
+  await page.goto('/');
+  console.log('✅ Page loaded');
+
+  // Wait for supabase client to be available
+  await page.waitForFunction(() => (window as any).supabase, { timeout: 10000 });
+  console.log('✅ Supabase client ready');
+
+  // Wait for initial app mount (loading skeleton disappears)
+  await page.waitForFunction(
+    () => {
+      const loadingSkeleton = document.querySelector('[data-testid="loading-skeleton"]');
+      return !loadingSkeleton;
+    },
+    { timeout: 15000 }
+  );
+  console.log('✅ App initialized (no loading skeleton)');
+
+  const fakeAccessToken = generateFakeJWT();
+  const now = Math.floor(Date.now() / 1000);
+
+  // Set mock profile BEFORE session
+  await page.evaluate(() => {
+    (window as any).__E2E_MOCK_PROFILE__ = {
       id: 'test-user-123',
       email: 'test@example.com',
-      aud: 'authenticated',
-      role: 'authenticated',
-      user_metadata: { subscription_status: 'pro' },
+      subscription_status: 'pro',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+  });
+  console.log('✅ Mock profile set');
+
+  // Set session and wait for it to complete
+  await page.evaluate(
+    async ({ token, timestamp }) => {
+      const fakeSession = {
+        access_token: token,
+        refresh_token: 'fake-refresh-token-for-e2e',
+        token_type: 'bearer',
+        expires_in: 3600,
+        expires_at: timestamp + 3600,
+        user: {
+          id: 'test-user-123',
+          email: 'test@example.com',
+          aud: 'authenticated',
+          role: 'authenticated',
+          app_metadata: { provider: 'email', providers: ['email'] },
+          user_metadata: { name: 'Test User' },
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      };
+
+      console.log('[Test] Setting session...');
+      const result = await (window as any).supabase.auth.setSession(fakeSession);
+      console.log('[Test] Session set result:', result);
+      // Manually dispatch an event to force the AuthProvider to re-render
+      window.dispatchEvent(new CustomEvent('__E2E_SESSION_INJECTED__', { detail: fakeSession }));
     },
-  };
+    { token: fakeAccessToken, timestamp: now }
+  );
+  console.log('✅ Session injected');
 
-  // 2. Navigate to the page. The app will initialize using our mock client.
-  await page.goto('/');
+  // Wait for profile to load
+  await page.waitForFunction(
+    () => (window as any).__E2E_PROFILE_LOADED__ === true,
+    { timeout: 15000 }
+  );
+  console.log('✅ Profile loaded');
 
-  // 3. Wait for the page to load and our injected client to be available.
-  await page.waitForFunction(() => (window as any).supabase);
+  // Wait for authenticated UI (sign-out button)
+  await page.waitForSelector('[data-testid="nav-sign-out-button"]', {
+    timeout: 15000,
+    state: 'visible'
+  });
 
-  // 4. Inject the session. The onAuthStateChange listener in the mock client
-  // will notify the AuthProvider, which will then re-render.
-  await page.evaluate(async (data) => {
-    // Note: We are calling the method on the globally injected mock client
-    const { error } = await (window as any).supabase.auth.setSession(data);
-    if (error) {
-      console.error("E2E Login Error:", error);
-    }
-  }, sessionData);
-
-  // 5. Verify that the UI has updated to the authenticated state.
-  await expect(page.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByTestId('nav-sign-out-button')).toBeVisible();
+  console.log('✅ Login complete - authenticated UI visible');
 }

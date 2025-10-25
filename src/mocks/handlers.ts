@@ -32,6 +32,19 @@ export const handlers: RequestHandler[] = [
   }),
 
   http.get('*/rest/v1/sessions', () => {
-    return HttpResponse.json([]);
+    const mockSessionHistory = [
+      {
+        id: 'session-1',
+        user_id: 'test-user-123',
+        created_at: new Date().toISOString(),
+        duration: 300,
+        transcript: 'This is a test transcript.',
+        clarity_score: 95,
+        articulation_score: 90,
+        pace_score: 85,
+        volume_score: 80,
+      },
+    ];
+    return HttpResponse.json(mockSessionHistory);
   }),
 ];

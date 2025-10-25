@@ -69,9 +69,10 @@ This phase focuses on long-term architecture, scalability, and preparing for fut
 
 This section is a prioritized list of technical debt items to be addressed.
 
-- **P1 (High): Resolve Unreliable E2E Client-Side Navigation**
-  - **Problem:** Client-side navigation in the Playwright E2E test environment is fundamentally unreliable. Direct calls to `page.goto()` for client-side routes (e.g., `/analytics`) frequently fail to complete, causing tests to time out on the wrong page. This is a known issue with `react-router-dom` in Playwright that blocks the smoke test.
-  - **Required Action:** A robust, permanent solution must be implemented. This may involve exploring alternative navigation strategies (e.g., simulating clicks on `<a>` tags with a `href` attribute instead of `<Link>` components, using a different test runner, or implementing a custom routing mechanism for tests).
+- **P1 (High): Resolve MSW Race Condition in E2E Tests**
+  - **Problem:** The E2E test suite is unstable due to a race condition where tests can execute before the Mock Service Worker (MSW) is fully initialized. This causes the application to make real network requests, which fail and cause the tests to time out.
+  - **Context:** This is the final blocker preventing the smoke test from passing reliably. A detailed handoff report is available in `docs/PRD.md` under "Known Issues".
+  - **Required Action:** Implement a robust synchronization strategy that ensures the test environment waits for MSW to be ready before initiating any application interaction.
 
 - **P1 (High): Add Unit Test Coverage for Core Features**
   - **Problem:** A new mandate requires unit tests for all features. The following are missing coverage:

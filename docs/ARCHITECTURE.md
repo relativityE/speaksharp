@@ -153,7 +153,19 @@ This multi-stage, parallel approach ensures that local validation (`./test-audit
 
 ### E2E Test Environment & Core Patterns
 
-The E2E test environment is designed for stability and isolation, ensuring tests run reliably both locally and in CI. The key to this stability is a set of core patterns for handling asynchronous operations like API mocking and authentication.
+The E2E test environment is designed for stability and isolation. Several key architectural patterns have been implemented to address sources of test flakiness and instability.
+
+1.  **Build-Time Conditional for Incompatible Libraries:**
+    *   **Problem:** Certain libraries, like `onnxruntime-web` (used for on-device transcription), are fundamentally incompatible with the Playwright/Node.js test environment and cause untraceable browser crashes.
+    *   **Architecture:** The build process now uses a dedicated Vite build mode (`--mode test`). This sets a build-time variable, `import.meta.env.VITE_TEST_MODE`. The application's source code uses this variable to create a compile-time conditional (`if (import.meta.env.VITE_TEST_MODE)`) that completely removes the problematic `import()` statements from the test build. This is a robust solution that prevents the incompatible code from ever being loaded.
+
+2.  **Explicit E2E Hooks for Authentication:**
+    *   **Problem:** Programmatically injecting a session into the Supabase client from a test script does not automatically trigger the necessary state updates within the application's React `AuthProvider` context.
+    *   **Architecture:** A custom event system was created to bridge this gap. The `programmaticLogin` test helper dispatches a custom browser event (`__E2E_SESSION_INJECTED__`) after setting the session. The `AuthProvider` now contains a `useEffect` hook that listens for this specific event and manually updates its internal state, forcing a UI re-render. This ensures the application reliably reflects the authenticated state during tests.
+
+3.  **Supabase Client Test Exposure:**
+    *   **Problem:** E2E tests need a reference to the application's internal Supabase client to perform programmatic login.
+    *   **Architecture:** The `supabaseClient.ts` module now attaches the client instance to the `window` object (`window.supabase`) when the application is not in a production environment. This provides a stable and predictable way for test helpers to access and interact with the client.
 
 1.  **Sequential MSW Initialization:**
     *   **Problem:** E2E tests would fail with race conditions because the React application could mount and trigger network requests *before* the Mock Service Worker (MSW) was ready to intercept them.

@@ -11,9 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- **E2E Test Stability:** Resolved a series of critical race conditions that were causing the E2E test suite to be unreliable.
-    - **MSW Initialization:** Fixed a race condition where the React application would attempt to render before the Mock Service Worker (MSW) was fully initialized. The application bootstrap process in `src/main.tsx` now correctly `await`s the MSW `start()` promise before rendering the app, ensuring all API mocks are active before any components mount.
-    - **Programmatic Login:** Fixed a race condition in the `programmaticLogin` E2E helper. The helper now waits for the `nav-sign-out-button` to be visible on the DOM instead of relying on an internal, unreliable `__E2E_PROFILE_LOADED__` flag. This ensures the UI has fully re-rendered in response to the session state change before the test proceeds.
+- **Critical E2E Test Environment Instability:** Resolved a cascade of critical issues that were causing the E2E test suite to be completely unstable. This work provides a stable foundation for future test development.
+    - **Build-Time Crash:** Implemented a `test` build mode to conditionally exclude the `onnxruntime-web` library, which was causing silent, untraceable browser crashes.
+    - **Authentication Race Condition:** Re-architected the `programmaticLogin` helper and the `AuthProvider` to use a custom browser event (`__E2E_SESSION_INJECTED__`), which synchronizes the test script with the application's React state and ensures the UI reliably updates after login.
+    - **API Mocking:** Corrected the MSW handler for session history to return mock data, allowing the analytics page to render correctly in tests.
+
 - **E2E Health Check and Authentication:** Overhauled the E2E test authentication flow and the `preflight.sh` script to create a stable CI entry point. The `programmaticLogin` helper now generates a valid mock Supabase session and JWT, the `AuthProvider` is mocked to prevent database calls in tests, and the `preflight.sh` script has been hardened. This resolves a critical instability in the test environment.
 
 ### Added

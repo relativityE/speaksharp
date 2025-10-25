@@ -6,11 +6,14 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export default defineConfig(({ mode }) => ({
-  plugins: [react()],
-  worker: {
-    format: 'es'
-  },
+export default defineConfig(({ mode }) => {
+  const isTestMode = mode === 'test';
+
+  return {
+    plugins: [react()],
+    worker: {
+      format: 'es'
+    },
   server: {
     port: 5173,
     host: true,
@@ -42,7 +45,8 @@ export default defineConfig(({ mode }) => ({
   },
   define: {
     'process.env': {},
-    'global': 'globalThis'
+    'global': 'globalThis',
+    'import.meta.env.VITE_TEST_MODE': JSON.stringify(isTestMode),
   },
   optimizeDeps: {
     exclude: [],
@@ -50,4 +54,4 @@ export default defineConfig(({ mode }) => ({
   ssr: {
     external: ['@xenova/transformers'],
   },
-}));
+}});
