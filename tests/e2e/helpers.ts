@@ -71,50 +71,107 @@ export async function programmaticLogin(page: Page) {
           },
         },
 
-        from: (table: string) => ({
-          select: (columns = '*') => ({
-            eq: (column: string, value: any) => ({
-              single: () => {
-                if (table === 'user_profiles' && column === 'id' && value === 'test-user-123') {
-                  return Promise.resolve({
-                    data: {
-                      id: 'test-user-123',
-                      subscription_status: 'pro',
-                      preferred_mode: 'cloud',
-                    },
-                    error: null,
-                  });
-                }
-                return Promise.resolve({ data: null, error: { message: 'Not found' } });
+from: (table: string) => {
+  const mockUserProfile = {
+    id: 'test-user-123',
+    subscription_status: 'pro',
+    preferred_mode: 'cloud',
+  };
+
+  const mockSessions = [
+    {
+      id: 'session-1',
+      user_id: 'test-user-123',
+      created_at: new Date(Date.now() - 86400000).toISOString(),
+      duration: 300,
+      word_count: 750,
+      filler_word_count: 15,
+      average_pace: 150,
+      clarity_score: 85,
+      confidence_score: 78,
+    },
+    {
+      id: 'session-2',
+      user_id: 'test-user-123',
+      created_at: new Date(Date.now() - 172800000).toISOString(),
+      duration: 420,
+      word_count: 1050,
+      filler_word_count: 12,
+      average_pace: 150,
+      clarity_score: 88,
+      confidence_score: 82,
+    },
+    {
+      id: 'session-3',
+      user_id: 'test-user-123',
+      created_at: new Date(Date.now() - 259200000).toISOString(),
+      duration: 360,
+      word_count: 900,
+      filler_word_count: 10,
+      average_pace: 150,
+      clarity_score: 90,
+      confidence_score: 85,
+    },
+  ];
+
+  return {
+    select: (columns = '*') => {
+      const selectResult = {
+        eq: (column: string, value: any) => {
+          if (table === 'user_profiles') {
+            return {
+              single: () => Promise.resolve({
+                data: mockUserProfile,
+                error: null
+              }),
+            };
+          }
+
+          if (table === 'sessions') {
+            return {
+              order: (col: string, opts: any) => {
+                const sorted = [...mockSessions].sort((a, b) => {
+                  if (opts.ascending) {
+                    return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+                  }
+                  return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+                });
+                return Promise.resolve({ data: sorted, error: null });
               },
-              order: (orderColumn: string, options: { ascending: boolean }) => {
-                if (table === 'sessions' && column === 'user_id' && value === 'test-user-123') {
-                  return Promise.resolve({
-                    data: [
-                      {
-                        id: 'session-1',
-                        user_id: 'test-user-123',
-                        created_at: new Date().toISOString(),
-                        duration: 60,
-                        title: 'Test Session 1',
-                        total_words: 150,
-                        transcript: 'This is a test transcript.',
-                        filler_words: {
-                          um: { count: 5 },
-                          uh: { count: 2 },
-                        },
-                        accuracy: 95.5,
-                        engine: 'CloudAssemblyAI',
-                      },
-                    ],
-                    error: null,
-                  });
-                }
-                return Promise.resolve({ data: [], error: null });
+            };
+          }
+
+          return Promise.resolve({ data: [], error: null });
+        },
+
+        order: (col: string, opts: any) => {
+          if (table === 'sessions') {
+            const sorted = [...mockSessions].sort((a, b) => {
+              if (opts.ascending) {
+                return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
               }
-            }),
-          }),
-        }),
+              return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+            });
+            return Promise.resolve({ data: sorted, error: null });
+          }
+          return Promise.resolve({ data: [], error: null });
+        },
+
+        single: () => {
+          if (table === 'user_profiles') {
+            return Promise.resolve({
+              data: mockUserProfile,
+              error: null
+            });
+          }
+          return Promise.resolve({ data: null, error: null });
+        },
+      };
+
+      return selectResult;
+    },
+  };
+},
       };
 
       console.log('[MockClient] Supabase mock initialized inline');
