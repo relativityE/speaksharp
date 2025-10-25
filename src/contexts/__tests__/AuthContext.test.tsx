@@ -2,22 +2,23 @@
 import { render, screen, waitFor, cleanup } from '@testing-library/react';
 import { AuthProvider } from '../AuthProvider';
 import { useAuth } from '../useAuth';
-import { supabase } from '../../lib/supabaseClient';
 import { vi, Mock } from 'vitest';
 import React from 'react';
 import { Session } from '@supabase/supabase-js';
 
 // Mock the supabase client
-vi.mock('../../lib/supabaseClient', () => ({
-  supabase: {
-    auth: {
-      getSession: vi.fn().mockResolvedValue({ data: { session: null } }),
-      onAuthStateChange: vi.fn(() => ({
-        data: { subscription: { unsubscribe: vi.fn() } },
-      })),
-    },
-    from: vi.fn(),
+const mockSupabase = {
+  auth: {
+    getSession: vi.fn().mockResolvedValue({ data: { session: null } }),
+    onAuthStateChange: vi.fn(() => ({
+      data: { subscription: { unsubscribe: vi.fn() } },
+    })),
   },
+  from: vi.fn(),
+};
+
+vi.mock('../../lib/supabaseClient', () => ({
+  getSupabaseClient: () => mockSupabase,
 }));
 
 // Cast the mock to the full Session type to ensure type safety.
@@ -69,7 +70,7 @@ describe('AuthContext', () => {
     const mockEq = vi.fn().mockReturnThis();
     const mockSingle = vi.fn().mockResolvedValue({ data: mockProfile, error: null });
 
-    (supabase.from as Mock).mockReturnValue({
+    (mockSupabase.from as Mock).mockReturnValue({
       select: mockSelect,
       eq: mockEq,
       single: mockSingle,
@@ -91,7 +92,7 @@ describe('AuthContext', () => {
 
   it('should provide null session and profile when user is not authenticated', async () => {
     // Arrange
-    (supabase.auth.getSession as Mock).mockResolvedValue({ data: { session: null } });
+    (mockSupabase.auth.getSession as Mock).mockResolvedValue({ data: { session: null } });
 
     // Act
     render(

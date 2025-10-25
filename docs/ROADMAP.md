@@ -75,6 +75,10 @@ This section is a prioritized list of technical debt items to be addressed.
     - **Transcription Modes:** `LocalWhisper`, `NativeBrowser`.
     - **Session & Analytics:** `SessionContext`.
 
+- **P2 (Medium): Add E2E Test for Analytics Empty State**
+  - **Problem:** There is no E2E test coverage for the analytics page when a new user has no session history.
+  - **Required Action:** Create a new E2E test that programmatically logs in a user, navigates to the `/analytics` page, and asserts that the correct "empty state" UI is displayed. This will ensure the new user experience is not broken by future changes.
+
 - **P2 (Medium): Investigate ESLint `caughtErrorsIgnorePattern` Anomaly**
   - **Problem:** The ESLint configuration (`eslint.config.js`) has been updated to ignore unused variables prefixed with an underscore (`_`). While this works for standard variables and function arguments, it is not being respected for `catch` block errors (`caughtErrorsIgnorePattern`).
   - **Current Workaround:** The affected `catch` blocks in `tests/global-setup.ts` and `tests/global-teardown.ts` have been temporarily disabled with `// eslint-disable-next-line` comments to unblock the CI pipeline.

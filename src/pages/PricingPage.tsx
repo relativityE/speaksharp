@@ -2,7 +2,7 @@ import React from 'react';
 import { CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { supabase } from '@/lib/supabaseClient';
+import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '@/lib/logger';
 
 interface Tier {
@@ -42,6 +42,8 @@ const tiers: Tier[] = [
 const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
   const handleUpgrade = async () => {
     try {
+      const supabase = getSupabaseClient();
+      if (!supabase) throw new Error("Supabase client not available");
       const { data, error } = await supabase.functions.invoke('stripe-checkout', {
         body: { priceId: tier.name.toLowerCase() }, // e.g., 'pro'
       });

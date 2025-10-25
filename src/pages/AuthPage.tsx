@@ -1,5 +1,5 @@
 import React, { useState, FormEvent, ChangeEvent } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { getSupabaseClient } from '@/lib/supabaseClient';
 import { useAuth } from '@/contexts/useAuth';
 import { Navigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -45,6 +45,9 @@ export default function AuthPage() {
     setMessage(null);
 
     try {
+      const supabase = getSupabaseClient();
+      if (!supabase) throw new Error("Supabase client not available");
+
       let authResult;
       if (view === 'sign_in') {
         console.log('[AUTH] Attempting sign-in', { email });

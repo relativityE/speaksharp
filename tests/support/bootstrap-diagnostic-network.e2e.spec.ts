@@ -27,10 +27,12 @@ test('Bootstrap Diagnostic + Network + Unhandled Promise Rejections', async ({ p
   await page.addInitScript(() => {
     window.__E2E_UNHANDLED_REJECTIONS__ = [];
     window.addEventListener('unhandledrejection', (event) => {
-      window.__E2E_UNHANDLED_REJECTIONS__.push({
-        reason: event.reason?.toString(),
-        promise: event.promise?.toString?.() ?? 'unknown'
-      });
+      if (window.__E2E_UNHANDLED_REJECTIONS__) {
+        window.__E2E_UNHANDLED_REJECTIONS__.push({
+          reason: event.reason?.toString(),
+          promise: event.promise?.toString?.() ?? 'unknown'
+        });
+      }
     });
   });
 

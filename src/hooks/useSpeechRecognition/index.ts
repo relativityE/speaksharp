@@ -1,7 +1,7 @@
 import { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { useAuth } from '../../contexts/useAuth';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/lib/supabaseClient';
+import { getSupabaseClient } from '@/lib/supabaseClient';
 import { calculateTranscriptStats } from '../../utils/fillerWordUtils';
 import logger from '../../lib/logger';
 import { toast } from 'sonner';
@@ -26,6 +26,8 @@ export const useSpeechRecognition = (props: UseSpeechRecognitionProps = {}) => {
 
   const getAssemblyAIToken = useCallback(async (): Promise<string | null> => {
     try {
+      const supabase = getSupabaseClient();
+      if (!supabase) throw new Error("Supabase client not available");
       let userSession = authSession;
       if (import.meta.env.VITE_DEV_MODE === 'true' && !userSession) {
         const { data, error } = await supabase.auth.signInAnonymously();

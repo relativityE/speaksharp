@@ -8,10 +8,12 @@ const mockQueryBuilder = {
   limit: vi.fn(),
 };
 
+const mockSupabase = {
+  from: vi.fn(() => mockQueryBuilder),
+};
+
 vi.mock('@/lib/supabaseClient', () => ({
-  supabase: {
-    from: vi.fn(() => mockQueryBuilder),
-  },
+  getSupabaseClient: () => mockSupabase,
 }));
 
 describe('useAnalytics', () => {

@@ -1,14 +1,15 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { UpgradePromptDialog } from '@/components/UpgradePromptDialog';
-import { supabase } from '@/lib/supabaseClient';
+
+const mockSupabase = {
+    functions: {
+        invoke: vi.fn(),
+    },
+};
 
 vi.mock('@/lib/supabaseClient', () => ({
-    supabase: {
-        functions: {
-            invoke: vi.fn(),
-        },
-    },
+    getSupabaseClient: () => mockSupabase,
 }));
 
 vi.mock('@/lib/logger', () => ({
@@ -38,7 +39,7 @@ describe('UpgradePromptDialog', () => {
     });
 
     it('calls the upgrade function and redirects on "View Plans" click', async () => {
-        vi.mocked(supabase.functions.invoke).mockResolvedValue({
+        vi.mocked(mockSupabase.functions.invoke).mockResolvedValue({
             data: { checkoutUrl: 'https://stripe.com/checkout' },
             error: null,
         });
@@ -52,7 +53,7 @@ describe('UpgradePromptDialog', () => {
         fireEvent.click(screen.getByTestId('upgrade-prompt-dialog-upgrade-button'));
 
         await waitFor(() => {
-            expect(supabase.functions.invoke).toHaveBeenCalledWith('stripe-checkout');
+            expect(mockSupabase.functions.invoke).toHaveBeenCalledWith('stripe-checkout');
         });
 
         expect(window.location.href).toBe('https://stripe.com/checkout');
