@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Critical E2E Test Environment Instability:** Resolved a cascade of critical issues that were causing the E2E test suite to be completely unstable. This work provides a stable foundation for future test development.
+    - **Build-Time Crash:** Implemented a `test` build mode to conditionally exclude the `onnxruntime-web` library, which was causing silent, untraceable browser crashes.
+    - **Authentication Race Condition:** Re-architected the `programmaticLogin` helper and the `AuthProvider` to use a custom browser event (`__E2E_SESSION_INJECTED__`), which synchronizes the test script with the application's React state and ensures the UI reliably updates after login.
+    - **API Mocking:** Corrected the MSW handler for session history to return mock data, allowing the analytics page to render correctly in tests.
+
 - **E2E Health Check and Authentication:** Overhauled the E2E test authentication flow and the `preflight.sh` script to create a stable CI entry point. The `programmaticLogin` helper now generates a valid mock Supabase session and JWT, the `AuthProvider` is mocked to prevent database calls in tests, and the `preflight.sh` script has been hardened. This resolves a critical instability in the test environment.
 
 ### Added

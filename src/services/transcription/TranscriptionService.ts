@@ -96,6 +96,20 @@ export default class TranscriptionService {
       getAssemblyAIToken: this.getAssemblyAIToken,
     };
 
+    // --- Provider Selection Logic ---
+
+    // CRITICAL FIX: In test mode, ALWAYS fall back to NativeBrowser
+    // to prevent silent crashes from the onnxruntime-web library.
+    // This MUST be the first check to prevent the dynamic import below.
+    if (typeof window !== 'undefined' && (window as any).TEST_MODE) {
+      logger.info('[TEST_MODE] Forcing Native Browser mode.');
+      this.instance = new NativeBrowser(providerConfig);
+      await this.instance.init();
+      await this.instance.startTranscription(this.mic);
+      this.mode = 'native';
+      return;
+    }
+
     if (this.forceNative) {
       logger.info('[TranscriptionService] Dev Toggle: Forcing Native Browser mode.');
       this.instance = new NativeBrowser(providerConfig);
@@ -105,15 +119,12 @@ export default class TranscriptionService {
       return;
     }
 
-    // --- Provider Selection Logic ---
     const isPro = this.profile?.subscription_status === 'pro';
-
-    // Pro users can prefer on-device mode. Also allow forcing for dev.
     const useOnDevice = this.forceOnDevice || (isPro && this.profile?.preferred_mode === 'on-device');
 
     if (useOnDevice) {
-      if (typeof window !== 'undefined' && window.TEST_MODE) {
-        console.log('[TEST_MODE] Skipping LocalWhisper module load');
+      if (import.meta.env.VITE_TEST_MODE) {
+        logger.warn('[TEST_MODE] On-device mode is disabled in test builds to prevent crashes. Falling back to native.');
       } else {
         logger.info('[TranscriptionService] Attempting to use On-Device (LocalWhisper) mode for Pro user.');
         const { default: LocalWhisper } = await import('./modes/LocalWhisper');
@@ -125,9 +136,7 @@ export default class TranscriptionService {
       }
     }
 
-    // Pro users who don't prefer on-device get Cloud AI. Also allow forcing for dev.
     const useCloud = this.forceCloud || isPro;
-
     if (useCloud) {
         logger.info('[TranscriptionService] Attempting to use Cloud (AssemblyAI) mode for Pro user.');
         const token = await this.getAssemblyAIToken();
@@ -146,7 +155,6 @@ export default class TranscriptionService {
         }
     }
 
-    // Default/fallback for free users or Pro users where cloud failed
     logger.info('[TranscriptionService] Starting Native Browser mode as default or fallback.');
     this.instance = new NativeBrowser(providerConfig);
     await this.instance.init();

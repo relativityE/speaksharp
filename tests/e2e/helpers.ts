@@ -1,7 +1,4 @@
 import { Page, expect } from '@playwright/test';
-// Note: We cannot import directly from 'src/...' because Playwright runs in a different context.
-// The logic from test-user-utils is effectively duplicated in the Python script for verification,
-// and here we will construct it manually for the Node.js test runner, ensuring it's consistent.
 
 function generateFakeJWT() {
   const now = Math.floor(Date.now() / 1000);
@@ -21,26 +18,45 @@ function generateFakeJWT() {
 
 export async function programmaticLogin(page: Page) {
   await page.addInitScript(() => {
-    window.TEST_MODE = true;
-    window.__E2E_MODE__ = true;
+    (window as any).TEST_MODE = true;
+    (window as any).__E2E_MODE__ = true;
   });
 
   await page.goto('/');
+  console.log('✅ Page loaded');
+
+  // Wait for supabase client to be available
+  await page.waitForFunction(() => (window as any).supabase, { timeout: 10000 });
+  console.log('✅ Supabase client ready');
+
+  // Wait for initial app mount (loading skeleton disappears)
+  await page.waitForFunction(
+    () => {
+      const loadingSkeleton = document.querySelector('[data-testid="loading-skeleton"]');
+      return !loadingSkeleton;
+    },
+    { timeout: 15000 }
+  );
+  console.log('✅ App initialized (no loading skeleton)');
 
   const fakeAccessToken = generateFakeJWT();
   const now = Math.floor(Date.now() / 1000);
 
-  // Wait for the app to expose __setSupabaseSession
-  await expect
-    .poll(
-      async () => await page.evaluate(() => typeof window.__setSupabaseSession === 'function'),
-      { timeout: 15000 }
-    )
-    .toBe(true);
+  // Set mock profile BEFORE session
+  await page.evaluate(() => {
+    (window as any).__E2E_MOCK_PROFILE__ = {
+      id: 'test-user-123',
+      email: 'test@example.com',
+      subscription_status: 'pro',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+  });
+  console.log('✅ Mock profile set');
 
-  // Set fake Supabase session
+  // Set session and wait for it to complete
   await page.evaluate(
-    ({ token, timestamp }) => {
+    async ({ token, timestamp }) => {
       const fakeSession = {
         access_token: token,
         refresh_token: 'fake-refresh-token-for-e2e',
@@ -58,29 +74,30 @@ export async function programmaticLogin(page: Page) {
           updated_at: new Date().toISOString(),
         },
       };
-      // @ts-expect-error This is a test-specific function injected into the window object.
-      window.__setSupabaseSession(fakeSession);
+
+      console.log('[Test] Setting session...');
+      const result = await (window as any).supabase.auth.setSession(fakeSession);
+      console.log('[Test] Session set result:', result);
+      // Manually dispatch an event to force the AuthProvider to re-render
+      window.dispatchEvent(new CustomEvent('__E2E_SESSION_INJECTED__', { detail: fakeSession }));
     },
     { token: fakeAccessToken, timestamp: now }
   );
+  console.log('✅ Session injected');
 
-  // Wait until both app state AND DOM confirm login
+  // Wait for profile to load
   await page.waitForFunction(
-    () => window.__E2E_PROFILE_LOADED__ === true,
+    () => (window as any).__E2E_PROFILE_LOADED__ === true,
     { timeout: 15000 }
   );
+  console.log('✅ Profile loaded');
 
-  await page.waitForSelector('[data-testid="nav-sign-out-button"]', { timeout: 15000 });
-  await expect(page.getByTestId('nav-sign-out-button')).toBeVisible();
-
-  // After setting the session, also set the profile:
-  await page.evaluate(() => {
-    window.__E2E_MOCK_PROFILE__ = {
-      id: 'test-user-123',
-      email: 'test@example.com',
-      subscription_status: 'pro', // or 'free' for premium tests
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
+  // Wait for authenticated UI (sign-out button)
+  await page.waitForSelector('[data-testid="nav-sign-out-button"]', {
+    timeout: 15000,
+    state: 'visible'
   });
+
+  await expect(page.getByTestId('nav-sign-out-button')).toBeVisible();
+  console.log('✅ Login complete - authenticated UI visible');
 }

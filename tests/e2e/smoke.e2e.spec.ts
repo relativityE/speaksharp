@@ -3,6 +3,11 @@ import { healthCheck } from './shared';
 
 test.describe('Smoke Test', () => {
   test('should perform a full user journey: login, navigate, and log out @smoke', async ({ page }) => {
+    // DIAGNOSTIC: Forward all browser console logs to the Node.js console.
+    page.on('console', msg => {
+      console.log(`[BROWSER CONSOLE] ${msg.type()}: ${msg.text()}`);
+    });
+
     // Step 1: Programmatic login
     await test.step('Health Check (Login)', async () => {
       await healthCheck(page);
@@ -17,7 +22,7 @@ test.describe('Smoke Test', () => {
     // Step 3: Navigate to Analytics Page and verify content
     await test.step('Navigate to Analytics Page', async () => {
       await page.goto('/analytics');
-      await expect(page.getByTestId('analytics-dashboard-empty-state')).toBeVisible();
+      await expect(page.getByTestId('dashboard-heading')).toBeVisible();
     });
 
     // Step 4: Log out
