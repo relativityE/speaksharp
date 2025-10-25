@@ -42,7 +42,7 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
 
   useEffect(() => {
     fetchSessionHistory();
-  }, [fetchSessionHistory]);
+  }, [fetchSessionHistory, user]);
 
   const addSession = (newSession: PracticeSession) => {
     if (!newSession || typeof newSession !== 'object') {

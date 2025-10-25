@@ -143,6 +143,11 @@ This section tracks high-level product risks and constraints. For a detailed his
 
 *   **[ACTIVE] `pnpm lint` Command Performance:** The `pnpm lint` command is known to be slow and is currently commented out in the local `test-audit.sh` script to ensure fast local feedback. However, it is still enforced in the CI pipeline.
 
+*   **[ACTIVE] Stale State in `SessionProvider`:** The `SessionProvider` React context exhibits a stale closure, causing it to not react to changes in the `AuthProvider`.
+    *   **Root Cause:** The `useEffect` hook in `SessionProvider.tsx` that triggers the `fetchSessionHistory` function does not include the `user` object in its dependency array. Because of this, the provider only fetches data when it first mounts. It does not re-fetch when the user logs in (as the `user` object changes from `null` to a user session), or when navigating between pages as a logged-in user.
+    *   **Impact:** This is the root cause of the E2E smoke test failure. The test logs in successfully, but when it navigates to the `/analytics` page, the `SessionProvider` still has a stale, empty `sessionHistory` array, causing the `AnalyticsDashboard` to render its empty state.
+    *   **Recommendation:** The `user` object should be added to the dependency array of the `useEffect` hook in `src/contexts/SessionProvider.tsx`. This will ensure that the `fetchSessionHistory` function is re-executed whenever the authentication state changes, keeping the application's data layer reactive and consistent.
+
 ---
 
 ## 5. Development Roadmap
