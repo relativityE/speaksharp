@@ -1,15 +1,16 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import AISuggestions from '@/components/session/AISuggestions';
-import { supabase } from '@/lib/supabaseClient';
 
 // Mocks
-vi.mock('@/lib/supabaseClient', () => ({
-    supabase: {
-        functions: {
-            invoke: vi.fn(),
-        },
+const mockSupabase = {
+    functions: {
+        invoke: vi.fn(),
     },
+};
+
+vi.mock('@/lib/supabaseClient', () => ({
+    getSupabaseClient: () => mockSupabase,
 }));
 
 vi.mock('@/lib/logger', () => ({
@@ -35,7 +36,7 @@ describe('AISuggestions', () => {
 
     it('fetches and displays suggestions when the button is clicked', async () => {
         // Corrected Mock: The function returns an object, and the component expects to find the suggestions *inside* a `suggestions` key within that object.
-        vi.mocked(supabase.functions.invoke).mockResolvedValue({
+        vi.mocked(mockSupabase.functions.invoke).mockResolvedValue({
             data: { suggestions: mockSuggestionsData },
             error: null
         });
@@ -58,7 +59,7 @@ describe('AISuggestions', () => {
 
     it('displays an error message when fetching suggestions fails', async () => {
         const mockError = new Error('Failed to fetch suggestions');
-        vi.mocked(supabase.functions.invoke).mockResolvedValue({ data: null, error: mockError });
+        vi.mocked(mockSupabase.functions.invoke).mockResolvedValue({ data: null, error: mockError });
 
         render(<AISuggestions transcript="This is a test transcript." />);
         const button = screen.getByRole('button', { name: 'Get Suggestions' });

@@ -18,6 +18,7 @@ function generateFakeJWT() {
 
 export async function programmaticLogin(page: Page) {
   // FIX #1: Inject mock Supabase client inline (not from external file)
+  console.log('[HealthCheck:Start] Beginning programmatic login.');
   await page.addInitScript(() => {
     (window as any).TEST_MODE = true;
     (window as any).__E2E_MODE__ = true;
@@ -26,7 +27,24 @@ export async function programmaticLogin(page: Page) {
     if (!(window as any).__MOCK_SUPABASE_CLIENT_INITIALIZED__) {
       (window as any).__MOCK_SUPABASE_CLIENT_INITIALIZED__ = true;
 
+      console.log('[HealthCheck:MockInject] Injecting mock Supabase client.');
+      const MOCK_SESSION_KEY = 'sb-mock-session';
       let session: any = null;
+      try {
+        const storedSession = localStorage.getItem(MOCK_SESSION_KEY);
+        if (storedSession) {
+          console.log('[HealthCheck:MockRead] Session found in localStorage.');
+          session = JSON.parse(storedSession);
+        } else {
+          console.log(
+            '[HealthCheck:MockRead] No session in localStorage.',
+          );
+        }
+      } catch (e) {
+        console.error('[MockClient] Failed to parse stored session:', e);
+        localStorage.removeItem(MOCK_SESSION_KEY);
+      }
+
       const listeners = new Set<(event: string, session: any | null) => void>();
 
       (window as any).supabase = {
@@ -49,6 +67,13 @@ export async function programmaticLogin(page: Page) {
               expires_at: Math.floor(Date.now() / 1000) + 3600
             };
 
+            try {
+              localStorage.setItem(MOCK_SESSION_KEY, JSON.stringify(session));
+              console.log('[HealthCheck:MockWrite] Session saved to localStorage.');
+            } catch (e) {
+              console.error('[MockClient] Failed to save session to localStorage:', e);
+            }
+
             listeners.forEach(listener => {
               try {
                 listener('SIGNED_IN', session);
@@ -62,6 +87,7 @@ export async function programmaticLogin(page: Page) {
 
           signOut: async () => {
             session = null;
+            localStorage.removeItem(MOCK_SESSION_KEY);
             listeners.forEach(listener => listener('SIGNED_OUT', null));
             return { error: null };
           },
@@ -178,12 +204,13 @@ from: (table: string) => {
     }
   });
 
+  console.log('[HealthCheck:Navigate] Navigating to root "/".');
   await page.goto('/');
-  console.log('✅ Page loaded');
+  console.log('[HealthCheck:Navigate] ✅ Page loaded');
 
   // Wait for supabase client to be available
   await page.waitForFunction(() => (window as any).supabase, { timeout: 10000 });
-  console.log('✅ Supabase client ready');
+  console.log('[HealthCheck:Navigate] ✅ Supabase client ready');
 
   // Wait for initial app mount (loading skeleton disappears)
   await page.waitForFunction(
@@ -231,13 +258,13 @@ from: (table: string) => {
         },
       };
 
-      console.log('[Test] Setting session...');
+      console.log('[HealthCheck:Inject] Setting session...');
       const result = await (window as any).supabase.auth.setSession(fakeSession);
-      console.log('[Test] Session set result:', result);
+      console.log('[HealthCheck:Inject] Session set result:', result);
     },
     { token: fakeAccessToken, timestamp: now }
   );
-  console.log('✅ Session injected');
+  console.log('[HealthCheck:Inject] ✅ Session injected');
 
   // Wait for profile to load
   await page.waitForFunction(
@@ -253,5 +280,5 @@ from: (table: string) => {
   });
 
   await expect(page.getByTestId('nav-sign-out-button')).toBeVisible();
-  console.log('✅ Login complete');
+  console.log('[HealthCheck:End] ✅ Login complete');
 }

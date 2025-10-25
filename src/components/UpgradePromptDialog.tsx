@@ -9,7 +9,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { supabase } from "@/lib/supabaseClient";
+import { getSupabaseClient } from "@/lib/supabaseClient";
 import logger from "@/lib/logger";
 
 interface UpgradePromptDialogProps {
@@ -21,6 +21,8 @@ export const UpgradePromptDialog: React.FC<UpgradePromptDialogProps> = ({ open, 
 
   const handleUpgrade = async () => {
     try {
+        const supabase = getSupabaseClient();
+        if (!supabase) throw new Error("Supabase client not available");
         const { data, error } = await supabase.functions.invoke('stripe-checkout');
         if (error) throw error;
         // The edge function returns a URL to the Stripe checkout page

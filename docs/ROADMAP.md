@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-10-19
+**Last Reviewed:** 2025-10-25
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -69,15 +69,15 @@ This phase focuses on long-term architecture, scalability, and preparing for fut
 
 This section is a prioritized list of technical debt items to be addressed.
 
-- **P1 (High): Resolve Intractable E2E Smoke Test Failure**
-  - **Problem:** The E2E smoke test is failing due to a deep, environmental race condition that prevents React context from propagating correctly during client-side navigation in the Playwright environment. This blocks all CI/CD deployments.
-  - **Context:** An exhaustive debugging effort has ruled out application code, test code, and mock implementation as the root cause. A detailed handoff report is available in `docs/PRD.md` under "Known Issues".
-  - **Required Action:** A senior engineer needs to perform a deep-dive investigation into the Playwright and Vite server interaction. The immediate goal is to find a reliable alternative to `page.goto()` for post-login navigation, such as simulating a user click, to unblock the test suite.
 
 - **P1 (High): Add Unit Test Coverage for Core Features**
   - **Problem:** A new mandate requires unit tests for all features. The following are missing coverage:
     - **Transcription Modes:** `LocalWhisper`, `NativeBrowser`.
     - **Session & Analytics:** `SessionContext`.
+
+- **P2 (Medium): Add E2E Test for Analytics Empty State**
+  - **Problem:** There is no E2E test coverage for the analytics page when a new user has no session history.
+  - **Required Action:** Create a new E2E test that programmatically logs in a user, navigates to the `/analytics` page, and asserts that the correct "empty state" UI is displayed. This will ensure the new user experience is not broken by future changes.
 
 - **P2 (Medium): Investigate ESLint `caughtErrorsIgnorePattern` Anomaly**
   - **Problem:** The ESLint configuration (`eslint.config.js`) has been updated to ignore unused variables prefixed with an underscore (`_`). While this works for standard variables and function arguments, it is not being respected for `catch` block errors (`caughtErrorsIgnorePattern`).
@@ -94,3 +94,10 @@ This section is a prioritized list of technical debt items to be addressed.
 
 - **P4 (Low): Improve Unit Test Discoverability**
   - **Problem:** The lack of easily discoverable, co-located unit tests makes the codebase harder to maintain.
+
+---
+### Resolved Technical Debt
+
+- **[RESOLVED] E2E Smoke Test Failure**
+  - **Problem:** The E2E smoke test was failing because the mock Supabase client did not persist its session state across page navigations, causing the user to appear logged out and tests to fail.
+  - **Solution:** The mock client was refactored to use `localStorage` for session persistence, accurately simulating the behavior of the real Supabase client. This ensures the authenticated state remains stable throughout the test's user journey.

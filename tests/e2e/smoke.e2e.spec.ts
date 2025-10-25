@@ -11,12 +11,19 @@ test.describe('Smoke Test', () => {
     // Step 1: Programmatic login
     await test.step('Health Check (Login)', async () => {
       await healthCheck(page);
+      console.log('✅ Health-check completed successfully.');
     });
 
     // Step 2: Navigate to Session Page and verify content
     await test.step('Navigate to Session Page', async () => {
       await page.goto('/session');
       await expect(page.getByRole('heading', { name: 'Live Transcript' })).toBeVisible();
+
+      // New, stronger assertion: Verify that the session controls are visible.
+      // This handles responsive design by asserting that exactly one of the two controls is visible.
+      const sidebar = page.getByTestId('session-sidebar-card');
+      const drawerTrigger = page.getByRole('button', { name: 'Open session controls' });
+      await expect(sidebar.or(drawerTrigger).filter({ has: page.locator(':visible') })).toHaveCount(1);
     });
 
     // Step 3: Navigate to Analytics Page and verify content
