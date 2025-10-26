@@ -1,9 +1,7 @@
 // src/config/env.ts
 export const getEnvVar = (key: string): string | undefined => {
-  // @ts-ignore
   if (typeof import.meta !== 'undefined' && import.meta.env) {
-    // @ts-ignore
-    return import.meta.env[key];
+    return (import.meta.env as Record<string, string>)[key];
   }
   if (typeof process !== 'undefined' && process.env) {
     return process.env[key];

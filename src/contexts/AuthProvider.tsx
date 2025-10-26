@@ -27,53 +27,57 @@ const getProfileFromDb = async (userId: string): Promise<UserProfile | null> => 
 
 interface AuthProviderProps {
   children: ReactNode;
+  initialSession?: Session | null;
 }
 
-export function AuthProvider({ children }: AuthProviderProps) {
-  const [session, setSessionState] = useState<Session | null>(null);
+export function AuthProvider({ children, initialSession = null }: AuthProviderProps) {
+  const [session, setSessionState] = useState<Session | null>(initialSession);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialSession);
 
   useEffect(() => {
-    // Custom event listener for E2E tests to manually trigger session updates
-    const handleE2ESessionInject = (event: Event) => {
-      const customEvent = event as CustomEvent<Session>;
-      const newSession = customEvent.detail;
-      console.log('[E2E] Manually setting session from custom event:', newSession);
-      setSessionState(newSession);
-    };
-
-    if ((window as any).__E2E_MODE__) {
-      window.addEventListener('__E2E_SESSION_INJECTED__', handleE2ESessionInject);
-    }
-
-    const supabase = getSupabaseClient();
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      async (_event, newSession) => {
-        setSessionState(newSession);
-        if (newSession?.user) {
-          if ((window as any).__E2E_MODE__) (window as any).__E2E_PROFILE_LOADED__ = false;
-          const userProfile = await getProfileFromDb(newSession.user.id);
-          setProfile(userProfile);
-          if ((window as any).__E2E_MODE__) {
-            (window as any).__E2E_PROFILE_LOADED__ = true;
-          }
-        } else {
-          setProfile(null);
-          if ((window as any).__E2E_MODE__) {
-            (window as any).__E2E_PROFILE_LOADED__ = true;
-          }
-        }
+    try {
+      const supabase = getSupabaseClient();
+      if (!supabase) {
+        console.error('[AuthProvider] Supabase client is null. Cannot proceed.');
         setLoading(false);
+        return;
       }
-    );
 
-    return () => {
-      listener?.subscription.unsubscribe();
-      if ((window as any).__E2E_MODE__) {
-        window.removeEventListener('__E2E_SESSION_INJECTED__', handleE2ESessionInject);
-      }
-    };
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        setSessionState(session);
+        if (!session) {
+          setLoading(false);
+        }
+      });
+
+      const { data: listener } = supabase.auth.onAuthStateChange(
+        async (_event, newSession) => {
+          setSessionState(newSession);
+          if (newSession?.user) {
+            if ((window as { __E2E_MODE__?: boolean }).__E2E_MODE__) (window as { __E2E_PROFILE_LOADED__?: boolean }).__E2E_PROFILE_LOADED__ = false;
+            const userProfile = await getProfileFromDb(newSession.user.id);
+            setProfile(userProfile);
+            if ((window as { __E2E_MODE__?: boolean }).__E2E_MODE__) {
+              (window as { __E2E_PROFILE_LOADED__?: boolean }).__E2E_PROFILE_LOADED__ = true;
+            }
+          } else {
+            setProfile(null);
+            if ((window as { __E2E_MODE__?: boolean }).__E2E_MODE__) {
+              (window as { __E2E_PROFILE_LOADED__?: boolean }).__E2E_PROFILE_LOADED__ = true;
+            }
+          }
+          setLoading(false);
+        }
+      );
+
+      return () => {
+        listener?.subscription.unsubscribe();
+      };
+    } catch (error) {
+      console.error('[AuthProvider] CRITICAL ERROR in useEffect:', error);
+      setLoading(false);
+    }
   }, []);
 
   if (loading) {
@@ -90,6 +94,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     profile,
     loading,
     signOut: () => getSupabaseClient().auth.signOut(),
+    setSession: setSessionState,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

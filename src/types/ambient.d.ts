@@ -10,7 +10,8 @@ declare global {
     _speakSharpRootInitialized?: boolean;
     __E2E_MOCK_SESSION__?: Session;
     __E2E_MOCK_PROFILE__?: UserProfile;
-    mswReady?: Promise<void>;
+    mswReady?: boolean;
+    __E2E_UNHANDLED_REJECTIONS__?: { reason: string; promise: string }[];
     SpeechRecognition?: unknown;
     webkitSpeechRecognition?: unknown;
   }

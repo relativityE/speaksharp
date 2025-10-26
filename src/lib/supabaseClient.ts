@@ -10,10 +10,12 @@ function getSupabaseClient(): SupabaseClient {
   }
 
   // 2. Check for an injected E2E mock client first
-  if (typeof window !== 'undefined' && (window as any).supabase) {
+  if (typeof window !== 'undefined' && 'supabase' in window) {
     console.log('[getSupabaseClient] Using injected mock Supabase client.');
-    supabaseInstance = (window as any).supabase;
-    return supabaseInstance;
+    supabaseInstance = (window as { supabase: SupabaseClient }).supabase || null;
+    if (supabaseInstance) {
+      return supabaseInstance;
+    }
   }
 
   // 3. Create a real client if no mock is found
@@ -33,7 +35,7 @@ function getSupabaseClient(): SupabaseClient {
        console.warn(
         '⚠️ Supabase client exposed on window object for debugging/testing. This should not be present in production.',
       );
-      (window as any).supabase = supabaseInstance;
+      (window as { supabase?: SupabaseClient }).supabase = supabaseInstance;
     }
 
     return supabaseInstance;
@@ -42,8 +44,5 @@ function getSupabaseClient(): SupabaseClient {
   throw new Error("Supabase URL or Anon Key is missing, and no mock client was injected.");
 }
 
-// Default export the client instance for convenience in most of the app
-const supabase = getSupabaseClient();
-
 // Export the getter function for cases where lazy initialization is critical
-export { getSupabaseClient, supabase };
+export { getSupabaseClient };

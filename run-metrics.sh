@@ -29,11 +29,11 @@ else
 fi
 
 # E2E Test Metrics
-e2e_results_file="$E2E_RESULTS_DIR/results.json" # Corrected path variable
+e2e_results_file="$TEST_RESULTS_DIR/e2e-results/results.json"
 if [ -f "$e2e_results_file" ]; then
-    e2e_passed=$(jq '[.suites[].specs[] | select(.ok == true)] | length' "$e2e_results_file")
-    e2e_failed=$(jq '[.suites[].specs[] | select(.ok == false)] | length' "$e2e_results_file")
-    e2e_skipped=$(jq '[.suites[].specs[] | select(.ok != true and .ok != false)] | length' "$e2e_results_file")
+    e2e_passed=$(jq '.stats.expected' "$e2e_results_file")
+    e2e_failed=$(jq '.stats.unexpected' "$e2e_results_file")
+    e2e_skipped=$(jq '.stats.skipped' "$e2e_results_file")
 else
     echo "⚠️ E2E results file not found at $e2e_results_file. Assuming 0 tests."
     e2e_passed=0

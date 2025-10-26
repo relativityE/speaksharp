@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { NavLink, useNavigate, useParams, useLocation } from 'react-router-dom';
+import { NavLink, useNavigate, useParams } from 'react-router-dom';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
 import { useSession } from '../contexts/useSession';
 import { useAuth } from '../contexts/useAuth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Zap, Sparkles, BarChart, Home } from 'lucide-react';
+import { Zap, Sparkles, BarChart } from 'lucide-react';
 import type { PracticeSession } from '@/types/session';
 
 // --- Sub-components ---
@@ -82,46 +82,12 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     );
 };
 
-const AnonymousAnalyticsView: React.FC = () => {
-    const location = useLocation();
-    const { sessionHistory } = (location.state as { sessionHistory?: PracticeSession[] }) || {};
-
-    if (!sessionHistory || sessionHistory.length === 0) {
-        return (
-            <div className="text-center py-16">
-                <h2 className="text-2xl font-semibold mb-4">No Session Data</h2>
-                <p className="text-muted-foreground mb-6">Complete a practice session to see your analysis here.</p>
-                <Button asChild>
-                    <NavLink to="/session"><Home className="mr-2 h-4 w-4" /> Start a New Session</NavLink>
-                </Button>
-            </div>
-        );
-    }
-
-    return (
-        <>
-            <div className="mb-8">
-                <h1 className="text-3xl font-bold text-foreground">Session Analysis</h1>
-                <p className="mt-2 text-base text-muted-foreground">Here's the analysis of your practice session. Sign up to save your progress!</p>
-            </div>
-            <AnalyticsDashboard
-                sessionHistory={sessionHistory}
-                profile={null}
-                loading={false}
-                error={null}
-            />
-        </>
-    );
-};
-
 // --- Main Component ---
 
 export const AnalyticsPage: React.FC = () => {
-    const { user } = useAuth();
-
     return (
         <div className="container mx-auto px-4 py-10">
-            {user ? <AuthenticatedAnalyticsView /> : <AnonymousAnalyticsView />}
+            <AuthenticatedAnalyticsView />
         </div>
     );
 };

@@ -15,10 +15,7 @@ export default defineConfig({
   workers: 1,
   fullyParallel: false,
   retries: 1,
-  reporter: [
-    ['list'],
-    ['json', { outputFile: 'test-results/playwright-report.json' }],
-  ],
+  reporter: 'list', // A single, simple reporter. The CLI will add others.
   use: {
     baseURL: BASE_URL,
     headless: true,
@@ -26,7 +23,7 @@ export default defineConfig({
     deviceScaleFactor: 1,
     ignoreHTTPSErrors: true,
     screenshot: 'only-on-failure',
-    video: 'retain-on-failure', // Capture video on failure
+    video: 'retain-on-failure',
     trace: 'on-first-retry',
   },
   webServer: {
