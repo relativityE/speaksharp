@@ -17,7 +17,7 @@
     "test": "pnpm test:unit:full",
     "test:ci": "./test-audit.sh all",
     "test:audit": "./test-audit.sh",
-    "test:unit:full": "vitest run --coverage",
+    "test:unit:full": "vitest --coverage",
     "test:unit:core": "vitest run --reporter verbose --pool=threads --poolOptions.threads=2",
     "test:e2e": "playwright test --reporter=list",
     "test:e2e:shard": "playwright test --shard=$1/2",
