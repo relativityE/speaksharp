@@ -87,7 +87,8 @@ test_stage() {
     SHARD_TESTS=$(cat "$SHARD_FILE")
 
     echo "⏱ Running tests for shard $SHARD_INDEX"
-    if ! pnpm exec playwright test $SHARD_TESTS --workers=1 --reporter=json --output="$E2E_RESULTS_DIR/shard-${SHARD_INDEX}-report.json"; then
+    export PLAYWRIGHT_JSON_OUTPUT_NAME="$E2E_RESULTS_DIR/shard-${SHARD_INDEX}-report.json"
+    if ! pnpm exec playwright test $SHARD_TESTS --workers=1 --reporter=json; then
         echo "❌ Test shard $SHARD_INDEX failed."
         return 1
     fi
@@ -101,7 +102,9 @@ report_stage() {
     echo "--- Running Report Stage ---"
 
     echo "--- Merging E2E Test Reports ---"
-    pnpm exec playwright merge-reports --reporter json --output "$FINAL_MERGED_E2E_REPORT" "$E2E_RESULTS_DIR"/shard-*-report.json || echo "⚠️ Could not merge E2E reports."
+    if ! jq -s '.[0] * { suites: [.[].suites] | flatten }' "$E2E_RESULTS_DIR"/shard-*-report.json > "$FINAL_MERGED_E2E_REPORT"; then
+        echo "⚠️ Could not merge E2E reports."
+    fi
 
     echo "--- Generating Human-Readable Summary Report ---"
     {

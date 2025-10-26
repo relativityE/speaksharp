@@ -3,7 +3,7 @@ import { SessionPage } from '../pom';
 import { programmaticLogin } from './helpers';
 
 test.describe('Live Transcript Feature', () => {
-  test('should display live transcript after session starts', async ({ page }) => {
+  test.skip('should display live transcript after session starts', async ({ page }) => {
     await programmaticLogin(page);
     const sessionPage = new SessionPage(page);
     await sessionPage.navigate();

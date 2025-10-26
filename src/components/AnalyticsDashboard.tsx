@@ -12,7 +12,7 @@ import { formatDate, formatDateTime } from '../lib/dateUtils';
 import { FillerWordTable } from './analytics/FillerWordTable';
 import { TopFillerWords } from './analytics/TopFillerWords';
 import { AccuracyComparison } from './analytics/AccuracyComparison';
-import { supabase } from '@/lib/supabaseClient';
+import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '../lib/logger';
 import type { PracticeSession } from '@/types/session';
 import type { UserProfile } from '@/types/user';
@@ -143,6 +143,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ sessionH
 
     const handleUpgrade = async () => {
         try {
+      const supabase = getSupabaseClient();
+      if (!supabase) throw new Error("Supabase client not available");
             const { data, error } = await supabase.functions.invoke('stripe-checkout');
             if (error) throw error;
             if (data.checkoutUrl) window.location.href = data.checkoutUrl;

@@ -27,10 +27,12 @@ test('Bootstrap Diagnostic + Network + Unhandled Promise Rejections', async ({ p
   await page.addInitScript(() => {
     window.__E2E_UNHANDLED_REJECTIONS__ = [];
     window.addEventListener('unhandledrejection', (event) => {
-      window.__E2E_UNHANDLED_REJECTIONS__.push({
-        reason: event.reason?.toString(),
-        promise: event.promise?.toString?.() ?? 'unknown'
-      });
+      if (window.__E2E_UNHANDLED_REJECTIONS__) {
+        window.__E2E_UNHANDLED_REJECTIONS__.push({
+          reason: event.reason?.toString(),
+          promise: event.promise?.toString?.() ?? 'unknown'
+        });
+      }
     });
   });
 
@@ -65,12 +67,12 @@ test('Bootstrap Diagnostic + Network + Unhandled Promise Rejections', async ({ p
   const globals = await page.evaluate(() => ({
     hasRoot: !!document.getElementById('root'),
     rootInnerHTML: document.getElementById('root')?.innerHTML?.slice(0, 400) ?? '(empty)',
-    mswReady: (window as any).mswReady,
-    testMode: (window as any).TEST_MODE,
-    e2eMode: (window as any).__E2E_MODE__,
-    speakSharpRootInitialized: (window as any)._speakSharpRootInitialized,
+    mswReady: (window as { mswReady?: boolean }).mswReady,
+    testMode: (window as { TEST_MODE?: boolean }).TEST_MODE,
+    e2eMode: (window as { __E2E_MODE__?: boolean }).__E2E_MODE__,
+    speakSharpRootInitialized: (window as { _speakSharpRootInitialized?: boolean })._speakSharpRootInitialized,
     url: window.location.href,
-    unhandledRejections: (window as any).__E2E_UNHANDLED_REJECTIONS__ ?? []
+    unhandledRejections: (window as { __E2E_UNHANDLED_REJECTIONS__?: unknown[] }).__E2E_UNHANDLED_REJECTIONS__ ?? []
   }));
   log(JSON.stringify(globals, null, 2));
 

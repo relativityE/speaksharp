@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert } from '@/components/ui/alert';
 import { Loader2, Sparkles, AlertTriangle } from 'lucide-react';
-import { supabase } from '@/lib/supabaseClient';
+import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '@/lib/logger';
 
 interface SuggestionItem {
@@ -31,6 +31,8 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript }) => {
     setSuggestions(null);
 
     try {
+      const supabase = getSupabaseClient();
+      if (!supabase) throw new Error("Supabase client not available");
       const { data, error: invokeError } = await supabase.functions.invoke('get-ai-suggestions', {
         body: { transcript },
       });

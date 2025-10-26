@@ -6,6 +6,7 @@ import { AnalyticsPage } from './pages/AnalyticsPage';
 import AuthPage from './pages/AuthPage';
 import Navigation from './components/Navigation';
 import { SessionPage } from './pages/SessionPage';
+import { ProtectedRoute } from './components/ProtectedRoute';
 
 const App: React.FC = () => {
   return (
@@ -17,7 +18,11 @@ const App: React.FC = () => {
           <Route path="/" element={<Index />} />
           <Route path="/auth" element={<AuthPage />} />
           <Route path="/session" element={<SessionPage />} />
-          <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/analytics" element={
+            <ProtectedRoute>
+              <AnalyticsPage />
+            </ProtectedRoute>
+          } />
         </Routes>
       </main>
     </div>

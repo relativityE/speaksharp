@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { getSupabaseClient } from '@/lib/supabaseClient';
 import type { PracticeSession } from '@/types/session';
 
 interface AnalyticsData {
@@ -44,6 +44,8 @@ export const useAnalytics = () => {
     useEffect(() => {
         const fetchAnalyticsData = async () => {
             try {
+                const supabase = getSupabaseClient();
+                if (!supabase) throw new Error("Supabase client not available");
                 const { data: sessions, error: sessionsError } = await supabase
                     .from('practice_sessions')
                     .select('*, ground_truth')
