@@ -55,16 +55,16 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
         async (_event, newSession) => {
           setSessionState(newSession);
           if (newSession?.user) {
-            if ((window as any).__E2E_MODE__) (window as any).__E2E_PROFILE_LOADED__ = false;
+            if ((window as { __E2E_MODE__?: boolean }).__E2E_MODE__) (window as { __E2E_PROFILE_LOADED__?: boolean }).__E2E_PROFILE_LOADED__ = false;
             const userProfile = await getProfileFromDb(newSession.user.id);
             setProfile(userProfile);
-            if ((window as any).__E2E_MODE__) {
-              (window as any).__E2E_PROFILE_LOADED__ = true;
+            if ((window as { __E2E_MODE__?: boolean }).__E2E_MODE__) {
+              (window as { __E2E_PROFILE_LOADED__?: boolean }).__E2E_PROFILE_LOADED__ = true;
             }
           } else {
             setProfile(null);
-            if ((window as any).__E2E_MODE__) {
-              (window as any).__E2E_PROFILE_LOADED__ = true;
+            if ((window as { __E2E_MODE__?: boolean }).__E2E_MODE__) {
+              (window as { __E2E_PROFILE_LOADED__?: boolean }).__E2E_PROFILE_LOADED__ = true;
             }
           }
           setLoading(false);

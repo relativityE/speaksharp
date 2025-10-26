@@ -101,7 +101,7 @@ export default class TranscriptionService {
     // CRITICAL FIX: In test mode, ALWAYS fall back to NativeBrowser
     // to prevent silent crashes from the onnxruntime-web library.
     // This MUST be the first check to prevent the dynamic import below.
-    if (typeof window !== 'undefined' && (window as any).TEST_MODE) {
+    if (typeof window !== 'undefined' && (window as { TEST_MODE?: boolean }).TEST_MODE) {
       logger.info('[TEST_MODE] Forcing Native Browser mode.');
       this.instance = new NativeBrowser(providerConfig);
       await this.instance.init();

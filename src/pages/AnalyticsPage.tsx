@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { NavLink, useNavigate, useParams, useLocation } from 'react-router-dom';
+import { NavLink, useNavigate, useParams } from 'react-router-dom';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
 import { useSession } from '../contexts/useSession';
 import { useAuth } from '../contexts/useAuth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Zap, Sparkles, BarChart, Home } from 'lucide-react';
+import { Zap, Sparkles, BarChart } from 'lucide-react';
 import type { PracticeSession } from '@/types/session';
 
 // --- Sub-components ---

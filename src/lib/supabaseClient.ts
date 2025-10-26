@@ -12,7 +12,7 @@ function getSupabaseClient(): SupabaseClient {
   // 2. Check for an injected E2E mock client first
   if (typeof window !== 'undefined' && 'supabase' in window) {
     console.log('[getSupabaseClient] Using injected mock Supabase client.');
-    supabaseInstance = (window as any).supabase || null;
+    supabaseInstance = (window as { supabase: SupabaseClient }).supabase || null;
     if (supabaseInstance) {
       return supabaseInstance;
     }
@@ -35,7 +35,7 @@ function getSupabaseClient(): SupabaseClient {
        console.warn(
         '⚠️ Supabase client exposed on window object for debugging/testing. This should not be present in production.',
       );
-      (window as any).supabase = supabaseInstance;
+      (window as { supabase?: SupabaseClient }).supabase = supabaseInstance;
     }
 
     return supabaseInstance;

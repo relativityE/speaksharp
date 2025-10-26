@@ -20,16 +20,16 @@ export async function programmaticLogin(page: Page) {
   // FIX #1: Inject mock Supabase client inline (not from external file)
   console.log('[HealthCheck:Start] Beginning programmatic login.');
   await page.addInitScript(() => {
-    (window as any).TEST_MODE = true;
-    (window as any).__E2E_MODE__ = true;
+    (window as { TEST_MODE?: boolean }).TEST_MODE = true;
+    (window as { __E2E_MODE__?: boolean }).__E2E_MODE__ = true;
 
     // Create inline mock Supabase client
-    if (!(window as any).__MOCK_SUPABASE_CLIENT_INITIALIZED__) {
-      (window as any).__MOCK_SUPABASE_CLIENT_INITIALIZED__ = true;
+    if (!(window as { __MOCK_SUPABASE_CLIENT_INITIALIZED__?: boolean }).__MOCK_SUPABASE_CLIENT_INITIALIZED__) {
+      (window as { __MOCK_SUPABASE_CLIENT_INITIALIZED__?: boolean }).__MOCK_SUPABASE_CLIENT_INITIALIZED__ = true;
 
       console.log('[HealthCheck:MockInject] Injecting mock Supabase client.');
       const MOCK_SESSION_KEY = 'sb-mock-session';
-      let session: any = null;
+      let session: unknown = null;
       try {
         const storedSession = localStorage.getItem(MOCK_SESSION_KEY);
         if (storedSession) {
@@ -45,11 +45,11 @@ export async function programmaticLogin(page: Page) {
         localStorage.removeItem(MOCK_SESSION_KEY);
       }
 
-      const listeners = new Set<(event: string, session: any | null) => void>();
+      const listeners = new Set<(event: string, session: unknown | null) => void>();
 
-      (window as any).supabase = {
+      (window as { supabase?: unknown }).supabase = {
         auth: {
-          onAuthStateChange: (callback: (event: string, session: any | null) => void) => {
+          onAuthStateChange: (callback: (event: string, session: unknown | null) => void) => {
             listeners.add(callback);
             setTimeout(() => callback('INITIAL_SESSION', session), 0);
             return {
@@ -61,9 +61,9 @@ export async function programmaticLogin(page: Page) {
             };
           },
 
-          setSession: async (sessionData: any) => {
+          setSession: async (sessionData: unknown) => {
             session = {
-              ...sessionData,
+              ...(sessionData as Record<string, unknown>),
               expires_at: Math.floor(Date.now() / 1000) + 3600
             };
 
@@ -82,7 +82,7 @@ export async function programmaticLogin(page: Page) {
               }
             });
 
-            return { data: { session, user: session.user }, error: null };
+            return { data: { session, user: (session as { user: unknown }).user }, error: null };
           },
 
           signOut: async () => {
@@ -100,8 +100,11 @@ export async function programmaticLogin(page: Page) {
 from: (table: string) => {
   const mockUserProfile = {
     id: 'test-user-123',
+    email: 'test@example.com',
     subscription_status: 'pro',
     preferred_mode: 'cloud',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
   };
 
   const mockSessions = [
@@ -141,10 +144,10 @@ from: (table: string) => {
   ];
 
   return {
-    select: (columns = '*') => {
-      const selectResult = {
-        eq: (column: string, value: any) => {
-          if (table === 'user_profiles') {
+    select: () => {
+      return {
+        eq: (column: string, value: unknown) => {
+          if (table === 'user_profiles' && column === 'id' && value === mockUserProfile.id) {
             return {
               single: () => Promise.resolve({
                 data: mockUserProfile,
@@ -155,7 +158,7 @@ from: (table: string) => {
 
           if (table === 'sessions') {
             return {
-              order: (col: string, opts: any) => {
+          order: (col: string, opts: { ascending: boolean }) => {
                 const sorted = [...mockSessions].sort((a, b) => {
                   if (opts.ascending) {
                     return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
@@ -170,7 +173,7 @@ from: (table: string) => {
           return Promise.resolve({ data: [], error: null });
         },
 
-        order: (col: string, opts: any) => {
+        order: (col: string, opts: { ascending: boolean }) => {
           if (table === 'sessions') {
             const sorted = [...mockSessions].sort((a, b) => {
               if (opts.ascending) {
@@ -193,8 +196,6 @@ from: (table: string) => {
           return Promise.resolve({ data: null, error: null });
         },
       };
-
-      return selectResult;
     },
   };
 },
@@ -209,7 +210,7 @@ from: (table: string) => {
   console.log('[HealthCheck:Navigate] ✅ Page loaded');
 
   // Wait for supabase client to be available
-  await page.waitForFunction(() => (window as any).supabase, { timeout: 10000 });
+  await page.waitForFunction(() => (window as { supabase?: unknown }).supabase, { timeout: 10000 });
   console.log('[HealthCheck:Navigate] ✅ Supabase client ready');
 
   // Wait for initial app mount (loading skeleton disappears)
@@ -227,7 +228,7 @@ from: (table: string) => {
 
   // Set mock profile BEFORE session
   await page.evaluate(() => {
-    (window as any).__E2E_MOCK_PROFILE__ = {
+    (window as { __E2E_MOCK_PROFILE__?: unknown }).__E2E_MOCK_PROFILE__ = {
       id: 'test-user-123',
       email: 'test@example.com',
       subscription_status: 'pro',
@@ -259,8 +260,11 @@ from: (table: string) => {
       };
 
       console.log('[HealthCheck:Inject] Setting session...');
-      const result = await (window as any).supabase.auth.setSession(fakeSession);
-      console.log('[HealthCheck:Inject] Session set result:', result);
+      const mockSupabase = (window as { supabase?: { auth: { setSession: (session: unknown) => Promise<unknown> } } }).supabase;
+      if (mockSupabase) {
+        const result = await mockSupabase.auth.setSession(fakeSession);
+        console.log('[HealthCheck:Inject] Session set result:', result);
+      }
     },
     { token: fakeAccessToken, timestamp: now }
   );
@@ -268,7 +272,7 @@ from: (table: string) => {
 
   // Wait for profile to load
   await page.waitForFunction(
-    () => (window as any).__E2E_PROFILE_LOADED__ === true,
+    () => (window as { __E2E_PROFILE_LOADED__?: boolean }).__E2E_PROFILE_LOADED__ === true,
     { timeout: 15000 }
   );
   console.log('✅ Profile loaded');
