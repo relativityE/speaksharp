@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-10-25
+**Last Reviewed:** 2025-10-26
 
 # Changelog
 
@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **SQM Pipeline Stability and Accuracy:** Overhauled the Software Quality Metrics pipeline to resolve critical bugs and ensure stable, accurate reporting.
+    - **E2E Test Sharding:** Re-implemented a robust sharding mechanism in `test-audit.sh` to prevent CI timeouts and ensure all tests run reliably.
+    - **Report Aggregation:** Replaced a fragile `jq`-based report merging script with a dedicated Node.js script (`scripts/merge-reports.mjs`) for reliable aggregation of sharded test results.
+    - **Documentation Corruption:** Fixed a critical bug in the `scripts/update-prd-metrics.mjs` script that was corrupting `docs/PRD.md` by writing incorrect newline characters.
+    - **CI Unit Test Execution:** Corrected the `test:unit:full` script in `package.json` to include the `run` command, preventing it from hanging in the CI environment.
 - **E2E Smoke Test Reliability:** Resolved a critical race condition in the E2E smoke test that caused consistent failures.
     - **Root Cause:** The mock Supabase client was not persisting the user session across page navigations, causing the user to appear logged out on the analytics page.
     - **Solution:** The mock client in `tests/e2e/helpers.ts` has been refactored to use `localStorage` for session state, accurately simulating the behavior of the real Supabase client and ensuring state persists across `page.goto()` calls.

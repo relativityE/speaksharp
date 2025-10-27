@@ -9,6 +9,7 @@ export class SessionPage {
   }
 
   get startButton() {
-    return this.page.getByRole('button', { name: /start/i });
+    // Corrected selector to be more specific and robust
+    return this.page.getByTestId('session-start-stop-button');
   }
 }
