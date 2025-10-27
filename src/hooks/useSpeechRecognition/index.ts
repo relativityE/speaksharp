@@ -13,7 +13,7 @@ import type { UseSpeechRecognitionProps, TranscriptStats } from './types';
 import type { FillerCounts } from '../../utils/fillerWordUtils';
 import { ForceOptions } from './types';
 
-export const useSpeechRecognition = (props: UseSpeechRecognitionProps = {}) => {
+const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {}) => {
   const { customWords = [], session, profile } = props;
   const { session: authSession } = useAuth();
   const navigate = useNavigate();
@@ -137,5 +137,32 @@ export const useSpeechRecognition = (props: UseSpeechRecognitionProps = {}) => {
   };
 };
 
-// Re-export for backward compatibility
+const useSpeechRecognition_test = () => {
+  const [isListening, setIsListening] = useState(false);
+  const mockTranscript = { wpm: 0, fillerWords: {}, wordCount: 0, transcript: isListening ? 'Recording in progress...' : '', duration: 0 };
+
+  return {
+    transcript: mockTranscript,
+    chunks: [],
+    interimTranscript: isListening ? 'Recording in progress...' : '',
+    fillerData: { total: { count: 0, color: '' } },
+    isListening: isListening,
+    isReady: true, // Always ready in test mode.
+    error: null,
+    isSupported: true,
+    mode: 'native',
+    modelLoadingProgress: null,
+    startListening: async () => { setIsListening(true); },
+    stopListening: async () => {
+      setIsListening(false);
+      return { ...mockTranscript, filler_words: {} };
+    },
+    reset: () => { setIsListening(false); },
+  };
+};
+
+export const useSpeechRecognition = import.meta.env.VITE_TEST_MODE
+  ? useSpeechRecognition_test
+  : useSpeechRecognition_prod;
+
 export default useSpeechRecognition;

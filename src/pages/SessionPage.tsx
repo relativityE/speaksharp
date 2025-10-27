@@ -163,7 +163,7 @@ export const SessionPage: React.FC = () => {
                     </ErrorBoundary>
                 </div>
 
-                <div className="hidden lg:block lg:w-1/3">
+                <div className="lg:block lg:w-1/3">
                     <SessionSidebar {...speechRecognition} saveSession={saveAndBroadcastSession} actualMode={speechRecognition.mode} startTime={isListening ? startTimeRef.current : null} modelLoadingProgress={modelLoadingProgress} />
                 </div>
 

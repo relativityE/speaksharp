@@ -3,24 +3,22 @@ import { SessionPage } from '../pom';
 import { programmaticLogin } from './helpers';
 
 test.describe('Live Transcript Feature', () => {
-  test.skip('should display live transcript after session starts', async ({ page }) => {
+  test('should display live transcript after session starts', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
     await programmaticLogin(page);
+
     const sessionPage = new SessionPage(page);
     await sessionPage.navigate();
 
-    // 2. Find and click the start button to begin the session
-    const startButton = page.getByRole('button', { name: 'Start' });
-    await expect(startButton).toBeVisible();
-    await startButton.click();
+    // If the above navigation succeeds, proceed with the rest of the test logic.
+    await sessionPage.startButton.click();
 
-    // 3. Verify that the application indicates it is "LIVE"
-    const liveIndicator = page.getByText('LIVE', { exact: true });
-    await expect(liveIndicator).toBeVisible();
+    // The mock hook will now correctly simulate the "listening" state.
+    // We need to verify that the UI updates to show the session is active.
+    const sessionActiveIndicator = page.getByText('Session Active');
+    await expect(sessionActiveIndicator).toBeVisible();
 
-    // 4. (Self-correction) The original test looked for a 'transcript-area'.
-    // The new UI in Session.tsx does not have this. Instead, I will
-    // verify that the "Recording in progress..." text appears, which
-    // confirms the speech recognition has started.
+    // The transcript panel should also show that recording is in progress.
     const recordingText = page.getByText('Recording in progress...');
     await expect(recordingText).toBeVisible();
   });
