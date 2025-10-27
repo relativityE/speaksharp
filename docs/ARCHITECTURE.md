@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-10-25
+**Last Reviewed:** 2025-10-26
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -106,8 +106,8 @@ The `./test-audit.sh` script is the cornerstone of our quality assurance process
     *   **Unit Tests:** Executes the full unit test suite and generates a coverage report.
     *   **E2E Test Timing & Sharding:** Times each E2E test individually and then partitions the suite into balanced shards (≤7 minutes each) based on those runtimes.
     *   **Sharded E2E Execution:** Runs the E2E tests shard by shard, forcing serial execution within each shard (`--workers=1`) to prevent resource contention and ensure stability. It generates a separate JSON report for each shard.
-    *   **Report Aggregation:** Merges the individual E2E shard reports into a single, final JSON report that can be consumed by other metric scripts.
-    *   **Documentation Update:** Automatically runs the necessary scripts (`./run-metrics.sh`, `./update-sqm-doc.sh`) to update the Software Quality Metrics in `docs/PRD.md`.
+    *   **Report Aggregation:** Uses a robust Node.js script (`scripts/merge-reports.mjs`) to merge the individual E2E shard reports into a single, final JSON report.
+    *   **Documentation Update:** Automatically runs a series of scripts (`./run-metrics.sh`, and the Node.js-based `scripts/update-prd-metrics.mjs`) to calculate final metrics and inject them into `docs/PRD.md`.
 *   **Behavior:** The script is designed to be strict (`set -euo pipefail`) and will exit with an error if any critical step fails, preventing the pipeline from proceeding with incomplete or failed results.
 
 ### CI/CD Pipeline: Parallel Execution
