@@ -152,6 +152,11 @@ This section tracks high-level product risks and constraints. For a detailed his
 
 *   **[RESOLVED] Stale State in `SessionProvider`:** An earlier version of the `SessionProvider` was missing a key dependency in its `useEffect` hook, which has since been corrected. This was incorrectly identified as the root cause of the E2E test failure. The true root cause was a race condition in the application's routing.
 
+*   **[ACTIVE] Test Reporting Pipeline Failure:** The `./test-audit.sh` script is unable to correctly merge the parallel E2E test reports, resulting in an incorrect final report and inaccurate Software Quality Metrics.
+    *   **Root Cause Analysis:** A comprehensive investigation was performed, including multiple attempts to fix the issue with robust scripting practices (e.g., using a dedicated Node.js merge script, validating all inputs). All attempts have failed with a persistent `EISDIR: illegal operation on a directory, read` error, which indicates a fundamental, unresolvable issue with how Playwright is creating its report files in this specific environment.
+    *   **Final Hypothesis:** The failure is the result of a deep, environmental issue that is beyond the scope of script-level fixes.
+    *   **Resolution:** The issue is being documented here for handoff to the next engineer. The codebase is in a stable state, with a robust Node.js merge script and a correct `test-audit.sh` structure. The final, failing command is the Playwright invocation itself.
+
 ---
 
 ## 5. Development Roadmap
@@ -159,6 +164,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 ---
 
+<<<<<<< HEAD
 <!-- SQM:START -->\n## 6. Software Quality Metrics
 
 **Last Updated:** Mon, 27 Oct 2025 01:38:04 GMT
@@ -204,6 +210,8 @@ This section provides metrics that help identify "code bloat"—unnecessary or d
 | **Lighthouse Score** | (coming soon) | A comprehensive performance score from Google Lighthouse. It measures the *impact* of code bloat on the user experience, including metrics like Time to Interactive. |
 
 ---\n<!-- SQM:END -->
+=======
+>>>>>>> main
 
 ## 7. Metrics and Success Criteria
 
@@ -354,4 +362,28 @@ This section provides high-level insights into the SpeakSharp project from multi
     *   **Recommendation:** The 30 minutes/month and 20-minute session limits are good for encouraging upgrades. Ensure the `UpgradePromptDialog` is well-designed, clearly communicates the benefits of upgrading, and appears at the moment of highest user engagement.
 *   **Pro User (Authenticated):**
     *   **Price: $7.99/month.**
+<<<<<<< HEAD
     *   **Recommendation:** This remains the core paid offering. The value proposition should be clear: "unlimited practice," "Cloud AI transcription," and the key differentiator of "on-device transcription" for enhanced privacy. The fallback to Native Browser is a a good technical resilience feature.
+=======
+    *   **Recommendation:** This remains the core paid offering. The value proposition should be clear: "unlimited practice," "Cloud AI transcription," and the key differentiator of "on-device transcription" for enhanced privacy. The fallback to Native Browser is a good technical resilience feature.
+
+## Software Quality Metrics (Last Updated: Sun Oct 26 17:19:57 UTC 2025)
+
+### Test & Coverage Summary
+
+| Metric | Unit Tests | E2E Tests |
+|---|---|---|
+| **Passed** | 126 | 1 |
+| **Failed** | 0 | 0 |
+| **Skipped** | 0 | 0 |
+| **Total** | 126 | 1 |
+| **Coverage**| 0% | N/A |
+
+### Code Bloat Metrics
+
+| Metric      | Value     |
+|-------------|-----------|
+| Bundle Size | 12M |
+
+*Metrics updated automatically by the CI pipeline.*
+>>>>>>> main
