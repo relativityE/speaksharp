@@ -115,6 +115,25 @@ report_stage() {
     else
         echo "⚠️ Metric generation scripts not found, skipping SQM update."
     fi
+
+    echo "--- Merging E2E Test Reports ---"
+    SHARD_REPORTS=($E2E_RESULTS_DIR/shard-*-report.json)
+
+    if [ ${#SHARD_REPORTS[@]} -eq 0 ]; then
+        echo "❌ No shard reports found."
+        exit 1
+    fi
+
+    if ! node scripts/merge-reports.mjs "$FINAL_MERGED_E2E_REPORT" ${SHARD_REPORTS[@]}; then
+        echo "❌ Failed to merge reports."
+        exit 1
+    fi
+    echo "✅ Reports merged successfully."
+
+    echo "--- Updating SQM Data in PRD.md ---"
+    ./run-metrics.sh
+    ./update-sqm-doc.sh
+    echo "✅ SQM metrics updated in docs/PRD.md"
 }
 
 # ================================
