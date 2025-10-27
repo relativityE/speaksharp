@@ -118,7 +118,6 @@ ___
    "lint": "eslint 'src/**/*.{js,jsx,ts,tsx}' 'tests/**/*.{js,jsx,ts,tsx}' --report-unused-disable-directives --max-warnings 0",
    "typecheck": "tsc --build --verbose",
    "test": "pnpm test:unit:full",
-   "test:ci": "./test-audit.sh all",
    "test:audit": "./test-audit.sh",
    "test:unit:full": "vitest run --coverage",
    "test:e2e": "playwright test --reporter=list",
@@ -147,7 +146,7 @@ ___
 
 1.  **Run Local Audit Script**
    ```bash
-   ./test-audit.sh all
+   ./test-audit.sh
    ```
    Must pass lint, typecheck, and all unit/E2E tests.
 

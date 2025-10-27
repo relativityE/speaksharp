@@ -88,6 +88,10 @@ This section is a prioritized list of technical debt items to be addressed.
   - **Problem:** Several test-related files and utilities are still JavaScript.
   - **Files to migrate:** `__mocks__/*.js`, `src/services/transcription/utils/audio-processor.worklet.js`.
 
+- **P3 (Medium): Implement Lighthouse Score for Performance Metrics**
+  - **Problem:** The "Code Bloat & Performance" section of the Software Quality Metrics report in `docs/PRD.md` includes a placeholder for a Lighthouse score, but the score is not being generated.
+  - **Required Action:** A new stage should be added to the `test-audit.sh` pipeline to run a Lighthouse audit against the production build. This will require starting a web server, executing the `lighthouse` command, and parsing the JSON output to extract the performance score. The `run-metrics.sh` and `update-prd-metrics.mjs` scripts will then need to be updated to incorporate this new data point.
+
 - **P3 (Low): Harden Custom Test Wrapper (`verifyOnlyStepTracker.ts`)**
   - **Problem:** The custom test wrapper, while useful for debugging, can be fragile and was a contributing factor to test hangs. It has been replaced with a more resilient version, but for critical smoke tests, it is recommended to use the `plainTest` and `plainExpect` exports to bypass the wrappers entirely.
   - **Required Action:** The wrapper should be audited for further hardening, or a decision should be made to remove it in favor of standard Playwright logging features to improve long-term maintainability.
