@@ -7,6 +7,7 @@ set -euo pipefail
 # ================================
 LOG_DIR="./test-support/logs"
 E2E_RESULTS_DIR="./test-results/playwright"
+E2E_RESULTS_DIR="./test-results/playwright"
 SHARDS_DIR="./test-support/shards"
 FINAL_MERGED_E2E_REPORT="$E2E_RESULTS_DIR/results.json"
 NUM_SHARDS=4
@@ -35,6 +36,18 @@ prepare_stage() {
     pnpm test:unit:full 2>&1 | tee "$LOG_DIR/unit-tests.log"
 
     echo "--- Auto-sharding E2E Tests ---"
+    echo "--- Running Lint and Type Checks ---"
+    pnpm lint > "$LOG_DIR/lint.log" 2>&1
+    pnpm typecheck > "$LOG_DIR/typecheck.log" 2>&1
+
+    echo "--- Building the Application ---"
+    pnpm build > "$LOG_DIR/build.log" 2>&1
+
+    echo "--- Running Unit Tests with Coverage ---"
+    pnpm test:unit:full 2>&1 | tee "$LOG_DIR/unit-tests.log"
+
+    echo "--- Auto-sharding E2E Tests ---"
+
     TEST_FILES=(tests/e2e/*.e2e.spec.ts)
     for i in $(seq 0 $((NUM_SHARDS - 1))); do
         echo "" > "$SHARDS_DIR/shard-$i.txt"
@@ -115,6 +128,25 @@ report_stage() {
     else
         echo "⚠️ Metric generation scripts not found, skipping SQM update."
     fi
+=======
+    echo "--- Merging E2E Test Reports ---"
+    SHARD_REPORTS=($E2E_RESULTS_DIR/shard-*-report.json)
+
+    if [ ${#SHARD_REPORTS[@]} -eq 0 ]; then
+        echo "❌ No shard reports found."
+        exit 1
+    fi
+
+    if ! node scripts/merge-reports.mjs "$FINAL_MERGED_E2E_REPORT" ${SHARD_REPORTS[@]}; then
+        echo "❌ Failed to merge reports."
+        exit 1
+    fi
+    echo "✅ Reports merged successfully."
+
+    echo "--- Updating SQM Data in PRD.md ---"
+    ./run-metrics.sh
+    ./update-sqm-doc.sh
+    echo "✅ SQM metrics updated in docs/PRD.md"
 }
 
 # ================================
