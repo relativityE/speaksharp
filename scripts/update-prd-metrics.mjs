@@ -19,8 +19,8 @@ try {
   const passingTests = unit_tests.passed + e2e_tests.passed;
   const failingTests = unit_tests.failed + e2e_tests.failed;
   const skippedTests = unit_tests.skipped + e2e_tests.skipped;
-  const unitTestsPassing = `${unit_tests.passed} / ${unit_tests.total}`;
-  const e2eTestsFailing = `${e2e_tests.failed} / ${e2eTotal}`;
+  const unitTestsPassing = unit_tests.passed;
+  const e2eTestsFailing = e2e_tests.failed;
 
   // --- New Vertical Table Generation ---
   const newSqmSection = `
@@ -42,8 +42,8 @@ try {
 | Passing tests           | ${passingTests}   |
 | Failing tests           | ${failingTests}   |
 | Disabled/skipped tests  | ${skippedTests}   |
-| Unit tests passing      | ${unitTestsPassing}   |
-| E2E tests failing       | ${e2eTestsFailing}   |
+| Passing unit tests      | ${unitTestsPassing}   |
+| Failing E2E tests       | ${e2eTestsFailing}   |
 | Total runtime           | N/A   |
 
 ---
