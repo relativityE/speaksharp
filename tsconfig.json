@@ -21,11 +21,7 @@
       "module": "CommonJS"
     }
   },
-  "include": ["src", "tests"],
-  "exclude": [
-    "playwright.config.ts",
-    "tailwind.config.ts",
-    "tests/global-teardown.ts"
-  ],
+  "include": ["src", "tests", "playwright.config.ts", "tailwind.config.ts"],
+  "exclude": ["dist", "node_modules", "tests/global-teardown.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

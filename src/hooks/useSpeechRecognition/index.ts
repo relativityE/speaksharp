@@ -13,7 +13,7 @@ import type { UseSpeechRecognitionProps, TranscriptStats } from './types';
 import type { FillerCounts } from '../../utils/fillerWordUtils';
 import { ForceOptions } from './types';
 
-const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {}) => {
+export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {}) => {
   const { customWords = [], session, profile } = props;
   const { session: authSession } = useAuth();
   const navigate = useNavigate();

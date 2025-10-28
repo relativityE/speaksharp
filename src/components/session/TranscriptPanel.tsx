@@ -84,7 +84,7 @@ const HighlightedTranscript: React.FC<HighlightedTranscriptProps> = ({ chunks, i
                     {index < chunks.length - 1 && ' '}
                 </React.Fragment>
             ))}
-            {interimTranscript && <span className="text-muted-foreground">{interimTranscript ? ` ${interimTranscript}` : ''}</span>}
+            {interimTranscript && <span data-testid="transcript-display" className="text-muted-foreground">{interimTranscript ? ` ${interimTranscript}` : ''}</span>}
         </p>
     );
 };

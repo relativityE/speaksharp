@@ -2,7 +2,8 @@ import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import React from 'react';
-import { useSpeechRecognition } from '../index';
+// Import the exported prod hook and alias it as useSpeechRecognition for the test suite
+import { useSpeechRecognition_prod as useSpeechRecognition } from '../index';
 import { useTranscriptState } from '../useTranscriptState';
 import { useFillerWords } from '../useFillerWords';
 import { useTranscriptionService } from '../useTranscriptionService';
