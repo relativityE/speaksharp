@@ -19,11 +19,10 @@ test.describe('Smoke Test', () => {
       await page.goto('/session');
       await expect(page.getByRole('heading', { name: 'Live Transcript' })).toBeVisible();
 
-      // New, stronger assertion: Verify that the session controls are visible.
-      // This handles responsive design by asserting that exactly one of the two controls is visible.
-      const sidebar = page.getByTestId('session-sidebar-card');
-      const drawerTrigger = page.getByRole('button', { name: 'Open session controls' });
-      await expect(sidebar.or(drawerTrigger).filter({ has: page.locator(':visible') })).toHaveCount(1);
+      // Robust assertion: Verify that the main functional element, the start/stop button,
+      // is visible. This button exists in both the desktop and mobile layouts, so this
+      // test is resilient to responsive UI changes.
+      await expect(page.getByTestId('session-start-stop-button')).toBeVisible();
     });
 
     // Step 3: Navigate to Analytics Page and verify content

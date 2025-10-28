@@ -1,6 +1,13 @@
 #!/bin/bash
 set -euo pipefail
 
+# New User Experience Improvement: Check for dependencies first.
+if [ ! -d "node_modules" ]; then
+    echo "🤔 node_modules not found. Running pnpm install..."
+    pnpm install
+    echo "✅ Dependencies installed."
+fi
+
 # ================================
 # Paths and configuration
 # ================================

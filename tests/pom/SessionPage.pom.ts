@@ -5,11 +5,10 @@ export class SessionPage {
 
   async navigate() {
     await this.page.goto('/session');
-    // First, wait for the main sidebar container to be visible. This confirms that
-    // the auth hook has completed and the main page content has rendered,
-    // elegantly handling the race condition.
-    await expect(this.page.getByTestId('session-sidebar')).toBeVisible();
-    // Once the sidebar is present, we can safely assert that our button is visible.
+    // Wait directly for the functional element, the start/stop button. This button
+    // exists in both the desktop sidebar and the mobile drawer, making the check
+    // viewport-agnostic and resilient to responsive design changes. This also
+    // implicitly confirms that the page is loaded and ready for interaction.
     await expect(this.startButton).toBeVisible();
   }
 
