@@ -163,14 +163,14 @@ export const SessionPage: React.FC = () => {
                     </ErrorBoundary>
                 </div>
 
-                <div className="lg:block lg:w-1/3">
+                <div className="hidden lg:block lg:w-1/3">
                     <SessionSidebar {...speechRecognition} saveSession={saveAndBroadcastSession} actualMode={speechRecognition.mode} startTime={isListening ? startTimeRef.current : null} modelLoadingProgress={modelLoadingProgress} />
                 </div>
 
                 <div className="block lg:hidden">
                     <Drawer open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
                         <DrawerTrigger asChild>
-                            <Button variant="outline" size="icon" className="fixed bottom-6 right-6 z-50 h-16 w-16 rounded-full shadow-lg flex items-center justify-center">
+                            <Button variant="outline" size="icon" className="fixed bottom-6 right-6 z-50 h-16 w-16 rounded-full shadow-lg flex items-center justify-center" data-testid="session-drawer-trigger">
                                 <SlidersHorizontal className="h-8 w-8" />
                                 <span className="sr-only">Open session controls</span>
                             </Button>

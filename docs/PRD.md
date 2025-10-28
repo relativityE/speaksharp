@@ -142,13 +142,10 @@ This section tracks high-level product risks and constraints. For a detailed his
 
 *   **[ACTIVE] `pnpm lint` Command Performance:** The `pnpm lint` command is known to be slow and is currently commented out in the local `test-audit.sh` script to ensure fast local feedback. However, it is still enforced in the CI pipeline.
 
-*   **[ACTIVE] E2E Test `live-transcript.e2e.spec.ts` is Unstable:** This test consistently fails in all environments, timing out while waiting for the "Start" button to become visible on the `/session` page.
-    *   **Root Cause Analysis:** A deep investigation was performed, which included the following steps:
-        1.  **Sentry SDK:** A fatal error caused by the Sentry SDK failing to load in the test environment was identified and fixed by conditionally disabling it in `src/main.tsx`.
-        2.  **Incorrect Locator:** The test was using a fragile `getByRole` locator. This was corrected to use a robust `data-testid` selector.
-        3.  **Viewport Size:** The test was running on a mobile viewport, which was causing the sidebar containing the "Start" button to be hidden. The test was updated to force a desktop viewport.
-    *   **Final Hypothesis:** Despite fixing multiple independent bugs, the test still fails with the same error: the "Start" button is rendered but remains hidden. This strongly suggests a deep, intermittent race condition or an environmental issue within the application's component lifecycle on the `/session` page.
-    *   **Resolution:** The test has been marked as `test.skip` to unblock the CI/CD pipeline. A comprehensive handoff report has been prepared for the next engineer, and the trace files from the final failed run are available for analysis.
+*   **[ACTIVE] E2E Test `live-transcript.e2e.spec.ts` is Failing:** This test is consistently failing due to a responsive UI layout bug.
+    *   **Root Cause:** The `SessionPage.tsx` component contains a CSS bug in its Tailwind classes that causes both the desktop sidebar and the mobile drawer trigger to be rendered simultaneously on a desktop viewport. The test correctly expects only one of these to be visible and fails when it finds both. While several fixes for the unit test suite and build configuration have been successfully implemented, multiple attempts to correct this specific CSS issue have failed, indicating a deeper problem with the responsive layout logic.
+    *   **Impact:** This failure currently blocks the `./test-audit.sh` script from passing, preventing a completely green build.
+    *   **Next Steps:** This issue is the final blocker. It requires a focused effort from a developer with expertise in Tailwind CSS and responsive layouts to correctly diagnose and fix the class conflict. The work is being submitted in its current state to preserve the other critical fixes, with this E2E failure being the single known issue.
 
 *   **[RESOLVED] Stale State in `SessionProvider`:** An earlier version of the `SessionProvider` was missing a key dependency in its `useEffect` hook, which has since been corrected. This was incorrectly identified as the root cause of the E2E test failure. The true root cause was a race condition in the application's routing.
 

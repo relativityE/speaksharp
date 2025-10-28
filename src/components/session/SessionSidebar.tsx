@@ -253,7 +253,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
 
                     <div className="flex flex-col items-center justify-center gap-6 py-2 flex-grow">
                         <DigitalTimer startTime={startTime} />
-                        <div className={`text-xl font-semibold ${isListening && isReady ? 'text-green-500' : 'text-muted-foreground'}`}>
+                        <div data-testid="session-status-indicator" className={`text-xl font-semibold ${isListening && isReady ? 'text-green-500' : 'text-muted-foreground'}`}>
                             {isConnecting ? 'Connecting...' : (isListening ? 'Session Active' : (isModelLoading ? 'Initializing...' : 'Ready'))}
                         </div>
                         <Button onClick={handleStartStop} size="lg" variant={isListening ? 'destructive' : 'default'} className="w-full h-16 text-xl font-bold rounded-lg" disabled={isConnecting || (isListening ? isEndingSession : isModelLoading)} data-testid="session-start-stop-button">

@@ -5,6 +5,8 @@ dist/
 *.log
 
 # Test & Build Artifacts
+playwright.config.js
+tailwind.config.js
 /test-support/
 /coverage/
 /test-results/

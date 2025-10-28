@@ -1,0 +1,1143 @@
+--- Running Pre-flight Validation ---
+✅ Pre-flight validation successful.
+--- Running Lint and Type Checks ---
+--- Building the Application ---
+--- Running Unit Tests with Coverage ---
+
+> speaksharp@0.0.0 test:unit:full /app
+> vitest --coverage
+
+ Vitest  "deps.inline" is deprecated. If you rely on vite-node directly, use "server.deps.inline" instead. Otherwise, consider using "deps.optimizer.web.include"
+
+ RUN  v3.2.4 /app
+      Coverage enabled with v8
+
+ ✓ src/components/session/__tests__/SessionSidebar.test.tsx > SessionSidebar > for a Free user > renders with "Native" as the default mode and disables advanced modes 197ms
+ ✓ src/components/session/__tests__/SessionSidebar.test.tsx > SessionSidebar > for a Free user > calls startListening with native mode 36ms
+ ✓ src/components/session/__tests__/SessionSidebar.test.tsx > SessionSidebar > for a Pro user > renders with all modes enabled and "Cloud AI" as default 74ms
+ ✓ src/components/session/__tests__/SessionSidebar.test.tsx > SessionSidebar > for a Pro user > calls startListening with cloud mode by default 21ms
+ ✓ src/components/session/__tests__/SessionSidebar.test.tsx > SessionSidebar > for a Pro user > can switch to and start in on-device mode 128ms
+ ✓ src/components/session/__tests__/SessionSidebar.test.tsx > SessionSidebar > for a Dev user > renders with all modes enabled, even on a free subscription 67ms
+ ✓ src/components/session/__tests__/SessionSidebar.test.tsx > SessionSidebar > for a Dev user > can switch to and start in any mode 220ms
+ ✓ src/components/session/__tests__/SessionSidebar.test.tsx > SessionSidebar > UI States > shows the model loading indicator when the model is loading 13ms
+ ✓ src/components/session/__tests__/SessionSidebar.test.tsx > SessionSidebar > UI States > shows the error display when an error is present 13ms
+ ✓ src/components/session/__tests__/SessionSidebar.test.tsx > SessionSidebar > UI States > disables controls and shows "Connecting..." when connecting 10ms
+ ✓ src/components/session/__tests__/SessionSidebar.test.tsx > SessionSidebar > UI States > displays the digital timer when a session has started 10ms
+ ✓ src/components/session/__tests__/SessionSidebar.test.tsx > SessionSidebar > Session Flow > calls stopListening and shows the end session dialog when stopping a session 70ms
+ ✓ src/hooks/__tests__/useSessionManager.test.ts > useSessionManager > saveSession > should call saveSessionToDb for authenticated users 24ms
+ ✓ src/hooks/__tests__/useSessionManager.test.ts > useSessionManager > saveSession > should return usageExceeded from saveSessionToDb 2ms
+ ✓ src/hooks/__tests__/useSessionManager.test.ts > useSessionManager > saveSession > should log an error if user is authenticated but profile is missing 4ms
+ ✓ src/hooks/__tests__/useSessionManager.test.ts > useSessionManager > deleteSession > should call deleteSessionFromDb for authenticated users 2ms
+ ✓ src/hooks/__tests__/useSessionManager.test.ts > useSessionManager > deleteSession > should handle errors during deletion 2ms
+ ✓ src/hooks/__tests__/useSessionManager.test.ts > useSessionManager > deleteSession > should do nothing for anonymous sessions but return true 2ms
+ ✓ src/hooks/__tests__/useSessionManager.test.ts > useSessionManager > Anonymous User Flow > saveSession should save to sessionStorage for anonymous users 2ms
+ ✓ src/hooks/__tests__/useSessionManager.test.ts > useSessionManager > exportSessions > should call exportData and trigger download for authenticated users 3ms
+ ✓ src/hooks/__tests__/useSessionManager.test.ts > useSessionManager > exportSessions > should handle export errors gracefully 2ms
+stderr | src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should initialize and return expected interface
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should initialize and return expected interface 26ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should call sub-hooks with correct parameters 7ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should handle stopListening with stats 3ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should call reset on all sub-hooks when startListening is called 3ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should call reset on all sub-hooks when reset is called 2ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should handle partial transcript updates from the service 2ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should handle final transcript updates from the service 2ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should return null from stopListening on failure 2ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should handle errors during startListening 3ms
+stdout | src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should get a token and open a websocket on startTranscription
+[CloudAssemblyAI] Starting transcription...
+[CloudAssemblyAI] Requesting AssemblyAI token...
+
+stdout | src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should get a token and open a websocket on startTranscription
+[CloudAssemblyAI] Token received.
+
+stdout | src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should get a token and open a websocket on startTranscription
+✅ [CloudAssemblyAI] WebSocket connected to AssemblyAI.
+
+stdout | src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should send audio data when the websocket is open
+[CloudAssemblyAI] Starting transcription...
+[CloudAssemblyAI] Requesting AssemblyAI token...
+
+stdout | src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should send audio data when the websocket is open
+[CloudAssemblyAI] Token received.
+
+stdout | src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should send audio data when the websocket is open
+✅ [CloudAssemblyAI] WebSocket connected to AssemblyAI.
+[CloudAssemblyAI] Sent first audio packet.
+
+stdout | src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should handle incoming partial transcript messages
+[CloudAssemblyAI] Starting transcription...
+[CloudAssemblyAI] Requesting AssemblyAI token...
+
+stdout | src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should handle incoming partial transcript messages
+[CloudAssemblyAI] Token received.
+
+stdout | src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should handle incoming partial transcript messages
+[CloudAssemblyAI] Received message: { transcript: [32m'hello'[39m, turn_is_formatted: [33mfalse[39m }
+
+stdout | src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should handle incoming final transcript messages
+[CloudAssemblyAI] Starting transcription...
+[CloudAssemblyAI] Requesting AssemblyAI token...
+
+stdout | src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should handle incoming final transcript messages
+[CloudAssemblyAI] Token received.
+
+stdout | src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should handle incoming final transcript messages
+[CloudAssemblyAI] Received message: {
+  transcript: [32m'hello world'[39m,
+  turn_is_formatted: [33mtrue[39m,
+  end_of_turn: [33mtrue[39m,
+  words: []
+}
+
+stdout | src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should close the websocket and unregister frame handler on stopTranscription
+[CloudAssemblyAI] Starting transcription...
+[CloudAssemblyAI] Requesting AssemblyAI token...
+
+stdout | src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should close the websocket and unregister frame handler on stopTranscription
+[CloudAssemblyAI] Token received.
+
+stdout | src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should close the websocket and unregister frame handler on stopTranscription
+✅ [CloudAssemblyAI] WebSocket connected to AssemblyAI.
+[CloudAssemblyAI] Stopping transcription...
+[CloudAssemblyAI] Mic frame handler removed.
+[CloudAssemblyAI] Sending termination message.
+
+ ✓ src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should get a token and open a websocket on startTranscription 13ms
+ ✓ src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should send audio data when the websocket is open 3ms
+ ✓ src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should handle incoming partial transcript messages 3ms
+ ✓ src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should handle incoming final transcript messages 2ms
+ ✓ src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should close the websocket and unregister frame handler on stopTranscription 2ms
+ ✓ src/components/session/__tests__/TranscriptPanel.test.tsx > TranscriptPanel > renders the transcript and highlights filler words correctly 50ms
+ ✓ src/components/session/__tests__/TranscriptPanel.test.tsx > TranscriptPanel > renders interim transcript correctly 6ms
+ ✓ src/components/session/__tests__/TranscriptPanel.test.tsx > TranscriptPanel > renders waiting message when listening but no text is available 3ms
+ ✓ src/components/session/__tests__/TranscriptPanel.test.tsx > TranscriptPanel > renders speaker labels when provided 4ms
+ ✓ src/components/session/__tests__/TranscriptPanel.test.tsx > TranscriptPanel > renders the initial state panel before any session activity 9ms
+ ✓ src/components/session/__tests__/TranscriptPanel.test.tsx > TranscriptPanel > renders the loading state panel when loading 13ms
+ ✓ src/components/session/__tests__/TranscriptPanel.test.tsx > TranscriptPanel > renders the error state panel when an error is provided 5ms
+ ✓ src/components/session/__tests__/TranscriptPanel.test.tsx > TranscriptPanel > renders the empty state panel after a session with no speech 8ms
+stderr | src/components/analytics/__tests__/AnalyticsDashboard.test.tsx > AnalyticsDashboard > renders the skeleton when loading
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/components/analytics/__tests__/AnalyticsDashboard.test.tsx > AnalyticsDashboard > renders the skeleton when loading 55ms
+ ✓ src/components/analytics/__tests__/AnalyticsDashboard.test.tsx > AnalyticsDashboard > renders the error display when there is an error 10ms
+ ✓ src/components/analytics/__tests__/AnalyticsDashboard.test.tsx > AnalyticsDashboard > renders the empty state when there is no session history 6ms
+ ✓ src/components/analytics/__tests__/AnalyticsDashboard.test.tsx > AnalyticsDashboard > renders the dashboard with data when session history is provided 46ms
+ ✓ src/components/analytics/__tests__/AnalyticsDashboard.test.tsx > AnalyticsDashboard > shows the upgrade prompt for non-pro users 20ms
+ ✓ src/components/analytics/__tests__/AnalyticsDashboard.test.tsx > AnalyticsDashboard > hides the upgrade prompt for pro users 25ms
+ ✓ src/lib/__tests__/pdfGenerator.test.ts > generateSessionPdf > should generate a PDF with correct content 10ms
+ ✓ src/lib/__tests__/pdfGenerator.test.ts > generateSessionPdf > handles sessions with no filler words 1ms
+ ✓ src/lib/__tests__/pdfGenerator.test.ts > generateSessionPdf > handles sessions with no transcript 1ms
+ ✓ src/services/transcription/__tests__/LocalWhisper.test.ts > LocalWhisper Transcription Mode > should initialize and load the model from the hub 8ms
+ ✓ src/services/transcription/__tests__/LocalWhisper.test.ts > LocalWhisper Transcription Mode > should fall back to local model if hub fails 2ms
+ ✓ src/services/transcription/__tests__/LocalWhisper.test.ts > LocalWhisper Transcription Mode > should throw an error if both hub and local models fail to load 3ms
+ ✓ src/services/transcription/__tests__/LocalWhisper.test.ts > LocalWhisper Transcription Mode > should call the pipeline with audio data on startTranscription 6ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/useTranscriptionService.test.tsx > useTranscriptionService > should initialize with correct default state 20ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/useTranscriptionService.test.tsx > useTranscriptionService > should start listening successfully 6ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/useTranscriptionService.test.tsx > useTranscriptionService > should stop listening successfully 5ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/useTranscriptionService.test.tsx > useTranscriptionService > should handle start listening errors 3ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/useTranscriptionService.test.tsx > useTranscriptionService > should cleanup on unmount 2ms
+ ✓ src/services/transcription/__tests__/NativeBrowser.test.ts > NativeBrowser Transcription Mode > should initialize and set up recognition properties 4ms
+ ✓ src/services/transcription/__tests__/NativeBrowser.test.ts > NativeBrowser Transcription Mode > should call start on the recognition object when startTranscription is called 1ms
+ ✓ src/services/transcription/__tests__/NativeBrowser.test.ts > NativeBrowser Transcription Mode > should call stop on the recognition object when stopTranscription is called 1ms
+ ✓ src/services/transcription/__tests__/NativeBrowser.test.ts > NativeBrowser Transcription Mode > should handle final transcript results correctly 3ms
+ ✓ src/services/transcription/__tests__/NativeBrowser.test.ts > NativeBrowser Transcription Mode > should handle interim transcript results correctly 1ms
+ ✓ src/contexts/__tests__/AuthContext.test.tsx > AuthContext > should provide session and profile when user is authenticated 37ms
+ ✓ src/contexts/__tests__/AuthContext.test.tsx > AuthContext > should provide null session and profile when user is not authenticated 21ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/useFillerWords.test.tsx > useFillerWords > should initialize with initial filler data 27ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/useFillerWords.test.tsx > useFillerWords > should update final filler data when chunks change 4ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/useFillerWords.test.tsx > useFillerWords > should debounce live filler word counting 4ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/useFillerWords.test.tsx > useFillerWords > should reset filler data 3ms
+ ✓ src/components/session/__tests__/AISuggestions.test.tsx > AISuggestions > renders the initial state with a disabled button when there is no transcript 57ms
+ ✓ src/components/session/__tests__/AISuggestions.test.tsx > AISuggestions > fetches and displays suggestions when the button is clicked 33ms
+ ✓ src/components/session/__tests__/AISuggestions.test.tsx > AISuggestions > displays an error message when fetching suggestions fails 18ms
+ ✓ src/components/session/__tests__/FillerWordAnalysis.test.tsx > FillerWordAnalysis > renders filler word cards sorted by count 63ms
+ ✓ src/components/session/__tests__/FillerWordAnalysis.test.tsx > FillerWordAnalysis > adds a new custom filler word 47ms
+ ✓ src/components/session/__tests__/FillerWordAnalysis.test.tsx > FillerWordAnalysis > does not add a duplicate custom filler word 18ms
+ ✓ src/components/session/__tests__/FillerWordAnalysis.test.tsx > FillerWordAnalysis > does not add a duplicate default filler word 15ms
+ ✓ src/contexts/__tests__/SessionContext.test.tsx > SessionProvider > fetches session history for a logged-in user 26ms
+ ✓ src/contexts/__tests__/SessionContext.test.tsx > SessionProvider > adds a session to the history 3ms
+ ✓ src/components/analytics/__tests__/AccuracyComparison.test.tsx > AccuracyComparison > should render loading state 53ms
+ ✓ src/components/analytics/__tests__/AccuracyComparison.test.tsx > AccuracyComparison > should render error state 5ms
+ ✓ src/components/analytics/__tests__/AccuracyComparison.test.tsx > AccuracyComparison > should render accuracy data 17ms
+ ✓ src/components/analytics/__tests__/AccuracyComparison.test.tsx > AccuracyComparison > should render empty state 3ms
+ ✓ src/components/__tests__/UpgradePromptDialog.test.tsx > UpgradePromptDialog > does not render the dialog when open is false 49ms
+ ✓ src/components/__tests__/UpgradePromptDialog.test.tsx > UpgradePromptDialog > renders the dialog when open is true 62ms
+ ✓ src/components/__tests__/UpgradePromptDialog.test.tsx > UpgradePromptDialog > calls onOpenChange with false when "Maybe Later" is clicked 30ms
+ ✓ src/components/__tests__/UpgradePromptDialog.test.tsx > UpgradePromptDialog > calls the upgrade function and redirects on "View Plans" click 23ms
+ ✓ src/components/analytics/__tests__/TopFillerWords.test.tsx > TopFillerWords > should render loading state 43ms
+ ✓ src/components/analytics/__tests__/TopFillerWords.test.tsx > TopFillerWords > should render error state 4ms
+ ✓ src/components/analytics/__tests__/TopFillerWords.test.tsx > TopFillerWords > should render top filler words 6ms
+ ✓ src/components/analytics/__tests__/TopFillerWords.test.tsx > TopFillerWords > should render empty state 4ms
+ ✓ src/hooks/__tests__/useAnalytics.test.ts > useAnalytics > should fetch and process analytics data correctly 48ms
+ ✓ src/lib/__tests__/analyticsUtils.test.ts > analyticsUtils > calculateOverallStats > should calculate overall stats correctly 27ms
+ ✓ src/lib/__tests__/analyticsUtils.test.ts > analyticsUtils > calculateFillerWordTrends > should calculate filler word trends correctly 1ms
+ ✓ src/lib/__tests__/dateUtils.test.ts > formatDate > should format a valid date string 26ms
+ ✓ src/lib/__tests__/dateUtils.test.ts > formatDate > should format a valid Date object 0ms
+ ✓ src/lib/__tests__/dateUtils.test.ts > formatDate > should return an empty string for a null input 0ms
+ ✓ src/lib/__tests__/dateUtils.test.ts > formatDate > should return an empty string for an undefined input 0ms
+ ✓ src/lib/__tests__/dateUtils.test.ts > formatDate > should return an empty string for an invalid date string 0ms
+ ✓ src/lib/__tests__/dateUtils.test.ts > formatDate > should return an empty string for an invalid Date object 0ms
+ ✓ src/lib/__tests__/dateUtils.test.ts > formatDateTime > should format a valid date-time string 1ms
+ ✓ src/lib/__tests__/dateUtils.test.ts > formatDateTime > should return an empty string for a null input 0ms
+ ✓ src/lib/__tests__/dateUtils.test.ts > formatDateTime > should return an empty string for an invalid date string 0ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/useTranscriptState.test.tsx > useTranscriptState > should initialize with empty state 21ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/useTranscriptState.test.tsx > useTranscriptState > should add a chunk with a speaker and update the transcript 4ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/useTranscriptState.test.tsx > useTranscriptState > should set the interim transcript 2ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/useTranscriptState.test.tsx > useTranscriptState > should reset the state 3ms
+ ✓ src/lib/__tests__/wer.test.ts > calculateWordErrorRate > should return 0 for identical strings 3ms
+ ✓ src/lib/__tests__/wer.test.ts > calculateWordErrorRate > should handle a single substitution 0ms
+ ✓ src/lib/__tests__/wer.test.ts > calculateWordErrorRate > should handle a single deletion 0ms
+ ✓ src/lib/__tests__/wer.test.ts > calculateWordErrorRate > should handle a single insertion 0ms
+ ✓ src/lib/__tests__/wer.test.ts > calculateWordErrorRate > should handle multiple errors 0ms
+ ✓ src/lib/__tests__/wer.test.ts > calculateWordErrorRate > should handle empty reference string 0ms
+ ✓ src/lib/__tests__/wer.test.ts > calculateWordErrorRate > should handle empty hypothesis string 0ms
+ ✓ src/lib/__tests__/wer.test.ts > calculateWordErrorRate > should handle both strings being empty 0ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/utils.test.ts > useSpeechRecognition utils > combineChunksToText > should combine chunks into single text 2ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/utils.test.ts > useSpeechRecognition utils > combineChunksToText > should return empty string for empty chunks 0ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/utils.test.ts > useSpeechRecognition utils > createFullTranscript > should combine chunks and interim text 0ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/utils.test.ts > useSpeechRecognition utils > createFullTranscript > should handle empty interim text 0ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/utils.test.ts > useSpeechRecognition utils > createChunk > should create chunk with text and unique id 0ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/utils.test.ts > useSpeechRecognition utils > generateChunkId > should generate unique ids 1ms
+ ✓ src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should initialize successfully 3ms
+ ✓ src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should return correct mode 0ms
+ ✓ src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should handle destroy gracefully 2ms
+
+ Test Files  25 passed (25)
+      Tests  126 passed (126)
+   Start at  06:59:13
+   Duration  31.97s (transform 808ms, setup 2.07s, collect 8.52s, tests 2.20s, environment 7.32s, prepare 2.65s)
+
+JSON report written to /app/unit-metrics.json
+ HTML  Report is generated
+       You can run npx vite preview --outDir html to see the test results.
+ % Coverage report from v8
+-------------------|---------|----------|---------|---------|-------------------
+File               | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s
+-------------------|---------|----------|---------|---------|-------------------
+All files          |   33.11 |    75.27 |   64.46 |   33.11 |
+ app               |       0 |       25 |      25 |       0 |
+  ...ght.config.js |       0 |        0 |       0 |       0 | 1-53
+  ...ght.config.ts |       0 |        0 |       0 |       0 | 1-45
+  ...ss.config.cjs |       0 |        0 |       0 |       0 | 1-6
+  ...ind.config.ts |       0 |      100 |     100 |       0 | 3-113
+ app/__mocks__     |       0 |        0 |       0 |       0 |
+  assemblyai.ts    |       0 |        0 |       0 |       0 | 1-13
+  ...etaEnvMock.ts |       0 |        0 |       0 |       0 | 1-5
+  sharp.ts         |       0 |        0 |       0 |       0 | 1-16
+  styleMock.ts     |       0 |        0 |       0 |       0 | 1
+  transformers.ts  |       0 |        0 |       0 |       0 | 1-3
+  workletMock.ts   |       0 |        0 |       0 |       0 | 1
+ app/html/assets   |       0 |        0 |       0 |       0 |
+  ...x-D_ryMEPs.js |       0 |        0 |       0 |       0 | 1-58
+ app/public        |       0 |        0 |       0 |       0 |
+  ...viceWorker.js |       0 |        0 |       0 |       0 | 1-349
+ app/scripts       |       0 |       20 |      20 |       0 |
+  doctor.js        |       0 |        0 |       0 |       0 | 1-36
+  dump-dom.cjs     |       0 |        0 |       0 |       0 | 1-249
+  dump-dom.js      |       0 |        0 |       0 |       0 | 1-36
+  ...t-auth-dom.js |       0 |        0 |       0 |       0 | 1-203
+  ...e-reports.mjs |       0 |        0 |       0 |       0 | 1-79
+  ...tall-check.ts |       0 |      100 |     100 |       0 | 2-14
+  ...creenshots.js |       0 |        0 |       0 |       0 | 1-26
+  ...t-homepage.js |       0 |        0 |       0 |       0 | 1-42
+  start-server.js  |       0 |        0 |       0 |       0 | 1-37
+  ...d-metrics.mjs |       0 |      100 |     100 |       0 | 2-95
+ app/src           |    7.34 |      100 |     100 |    7.34 |
+  App.tsx          |       0 |      100 |     100 |       0 | 2-32
+  config.ts        |     100 |      100 |     100 |     100 |
+  main.tsx         |       0 |      100 |     100 |       0 | 2-155
+ ...src/components |   40.04 |    69.04 |   72.22 |   40.04 |
+  ...Dashboard.tsx |   87.97 |       75 |    62.5 |   87.97 | 145-154,179-187
+  ...erWarning.tsx |       0 |      100 |     100 |       0 | 2-28
+  ...rBoundary.tsx |       0 |        0 |       0 |       0 | 1-59
+  ErrorDisplay.tsx |     100 |    66.66 |     100 |     100 | 14-21
+  Header.tsx       |       0 |      100 |     100 |       0 | 2-48
+  Navigation.tsx   |       0 |        0 |       0 |       0 | 1-104
+  ...ctedRoute.tsx |       0 |      100 |     100 |       0 | 2-25
+  ...ionStatus.tsx |       0 |      100 |     100 |       0 | 2-29
+  SideNav.tsx      |       0 |      100 |     100 |       0 | 2-57
+  ...mptDialog.tsx |   93.75 |       40 |     100 |   93.75 | 33-35
+ ...ents/analytics |    63.5 |      100 |     100 |    63.5 |
+  ...omparison.tsx |     100 |      100 |     100 |     100 |
+  ...WordTable.tsx |       0 |      100 |     100 |       0 | 2-64
+  ...llerWords.tsx |     100 |      100 |     100 |     100 |
+ ...onents/landing |       0 |      100 |     100 |       0 |
+  ...esSection.tsx |       0 |      100 |     100 |       0 | 2-73
+  HeroSection.tsx  |       0 |      100 |     100 |       0 | 2-35
+  ...ingFooter.tsx |       0 |      100 |     100 |       0 | 2-26
+  ...ingHeader.tsx |       0 |      100 |     100 |       0 | 2-26
+  ...lsSection.tsx |       0 |      100 |     100 |       0 | 2-58
+ ...onents/session |   91.45 |    86.84 |   91.66 |   91.45 |
+  ...ggestions.tsx |    95.5 |    83.33 |     100 |    95.5 | 46-47,55-56
+  ...dAnalysis.tsx |   98.83 |    84.21 |     100 |   98.83 | 79
+  ...onSidebar.tsx |   82.75 |     82.6 |   77.77 |   82.75 | ...66-180,183-194
+  ...efulPanel.tsx |     100 |       75 |     100 |     100 | 24
+  ...riptPanel.tsx |      97 |    97.61 |     100 |      97 | 114-116
+ .../components/ui |   51.28 |    96.42 |      90 |   51.28 |
+  alert-dialog.tsx |     100 |      100 |     100 |     100 |
+  alert.tsx        |     100 |      100 |     100 |     100 |
+  ...e-variants.ts |     100 |      100 |     100 |     100 |
+  badge.tsx        |   77.77 |      100 |     100 |   77.77 | 12-13
+  ...n-variants.ts |     100 |      100 |     100 |     100 |
+  button.tsx       |     100 |       50 |     100 |     100 | 15
+  card.tsx         |    82.6 |      100 |     100 |    82.6 | 65-70,85-90
+  checkbox.tsx     |       0 |      100 |     100 |       0 | 3-28
+  drawer.tsx       |       0 |      100 |     100 |       0 | 3-105
+  ...down-menu.tsx |   47.82 |      100 |       0 |   47.82 | ...63-168,172-181
+  input.tsx        |     100 |      100 |     100 |     100 |
+  label.tsx        |     100 |      100 |     100 |     100 |
+  progress.tsx     |     100 |      100 |     100 |     100 |
+  sheet.tsx        |       0 |      100 |     100 |       0 | 3-127
+  skeleton.tsx     |     100 |      100 |     100 |     100 |
+  sonner.tsx       |       0 |      100 |     100 |       0 | 3-30
+  switch.tsx       |       0 |      100 |     100 |       0 | 3-27
+  toast.tsx        |       0 |      100 |     100 |       0 | 2-44
+ app/src/config    |   66.66 |       25 |     100 |   66.66 |
+  env.ts           |   66.66 |       25 |     100 |   66.66 | 7-10
+ app/src/contexts  |   58.43 |    60.86 |   44.44 |   58.43 |
+  AuthContext.ts   |     100 |      100 |     100 |     100 |
+  AuthContext.tsx  |       0 |        0 |       0 |       0 | 1-13
+  AuthProvider.tsx |    51.8 |       80 |   33.33 |    51.8 | ...45,56-71,78-80
+  ...onContext.tsx |     100 |      100 |     100 |     100 |
+  ...nProvider.tsx |   72.88 |    55.55 |   66.66 |   72.88 | ...37,49-51,56-58
+  useAuth.ts       |   77.77 |       50 |     100 |   77.77 | 7-8
+  useSession.ts    |       0 |        0 |       0 |       0 | 1-10
+ app/src/hooks     |    83.7 |       80 |    87.5 |    83.7 |
+  useAnalytics.ts  |   92.85 |    81.48 |     100 |   92.85 | 56-57,60-62,94
+  ...serSupport.ts |       0 |        0 |       0 |       0 | 1-32
+  ...ionManager.ts |   97.26 |    82.35 |     100 |   97.26 | 68-69
+ ...echRecognition |   80.65 |    79.68 |      80 |   80.65 |
+  index.ts         |   66.21 |    78.94 |      40 |   66.21 | ...84,141-162,166
+  types.ts         |       0 |        0 |       0 |       0 |
+  ...illerWords.ts |   91.66 |    76.92 |     100 |   91.66 | 31-32,46-47
+  ...criptState.ts |     100 |      100 |     100 |     100 |
+  ...ionService.ts |      89 |    68.42 |     100 |      89 | 71,92-93,124-131
+  utils.ts         |     100 |      100 |     100 |     100 |
+ app/src/lib       |   28.62 |    77.41 |    62.5 |   28.62 |
+  ...yticsUtils.ts |     100 |       52 |     100 |     100 | 5-10,13,26-27
+  canvas.ts        |       0 |      100 |     100 |       0 | 5-23
+  dateUtils.ts     |     100 |      100 |     100 |     100 |
+  logger.ts        |   57.14 |        0 |     100 |   57.14 | 6-11
+  pdfGenerator.ts  |   95.45 |    83.33 |     100 |   95.45 | 66-67
+  processImage.ts  |     100 |      100 |     100 |     100 |
+  storage.ts       |    8.57 |      100 |       0 |    8.57 | ...,81-96,104-109
+  ...baseClient.ts |    9.09 |      100 |       0 |    9.09 | 6-45
+  theme.ts         |       0 |      100 |     100 |       0 | 3-360
+  utils.ts         |      24 |      100 |      50 |      24 | 20-44
+  wer.ts           |     100 |      100 |     100 |     100 |
+ app/src/mocks     |       0 |    66.66 |   66.66 |       0 |
+  browser.ts       |       0 |      100 |     100 |       0 | 2-6
+  handlers.ts      |       0 |        0 |       0 |       0 | 1-50
+  ...user-utils.ts |       0 |      100 |     100 |       0 | 4-57
+ app/src/pages     |       0 |       50 |      50 |       0 |
+  ...yticsPage.tsx |       0 |        0 |       0 |       0 | 1-93
+  AuthPage.tsx     |       0 |        0 |       0 |       0 | 1-169
+  ...eededPage.tsx |       0 |      100 |     100 |       0 | 3-19
+  HomePage.tsx     |       0 |      100 |     100 |       0 | 2-41
+  Index.tsx        |       0 |        0 |       0 |       0 | 1-245
+  MainPage.tsx     |       0 |      100 |     100 |       0 | 2-26
+  PricingPage.tsx  |       0 |      100 |     100 |       0 | 2-99
+  SessionPage.tsx  |       0 |        0 |       0 |       0 | 1-188
+ .../transcription |   45.71 |       50 |   71.42 |   45.71 |
+  ...ionService.ts |   45.71 |       50 |   71.42 |   45.71 | ...71-173,177-179
+ ...cription/modes |   75.87 |     61.7 |   64.28 |   75.87 |
+  ...AssemblyAI.ts |      75 |    56.25 |      60 |      75 | ...28-129,138-139
+  LocalWhisper.ts  |    92.3 |    73.33 |   85.71 |    92.3 | ...,70-72,116-117
+  NativeBrowser.ts |   61.61 |    53.33 |      50 |   61.61 | ...40-141,148-149
+  types.ts         |       0 |        0 |       0 |       0 |
+ ...cription/utils |       0 |    66.66 |      50 |       0 |
+  ...or.worklet.ts |       0 |      100 |     100 |       0 | 19-84
+  ...Utils.impl.ts |       0 |        0 |       0 |       0 | 1-96
+  audioUtils.ts    |       0 |      100 |       0 |       0 | 3-8
+  types.ts         |       0 |        0 |       0 |       0 |
+ app/src/types     |       0 |        0 |       0 |       0 |
+  analytics.ts     |       0 |        0 |       0 |       0 |
+  session.ts       |       0 |        0 |       0 |       0 |
+  user.ts          |       0 |        0 |       0 |       0 |
+ app/src/utils     |   26.66 |       50 |      20 |   26.66 |
+  ...rWordUtils.ts |   26.66 |       50 |      20 |   26.66 | ...9,72-87,90-114
+ ...ctions/_shared |       0 |        0 |       0 |       0 |
+  cors.ts          |       0 |        0 |       0 |       0 | 1-6
+ ...semblyai-token |       0 |        0 |       0 |       0 |
+  index.ts         |       0 |        0 |       0 |       0 | 1-57
+ ...ai-suggestions |       0 |        0 |       0 |       0 |
+  index.ts         |       0 |        0 |       0 |       0 | 1-136
+ ...tripe-checkout |       0 |        0 |       0 |       0 |
+  index.ts         |       0 |        0 |       0 |       0 | 1-35
+ ...stripe-webhook |       0 |        0 |       0 |       0 |
+  index.ts         |       0 |        0 |       0 |       0 | 1-44
+ ...ns/test-import |       0 |      100 |     100 |       0 |
+  index.ts         |       0 |      100 |     100 |       0 | 2-13
+-------------------|---------|----------|---------|---------|-------------------
+--- Auto-sharding E2E Tests ---
+✅ E2E tests sharded into 4 files.
+--- Running All Test Shards ---
+--- Running Test Stage for Shard 0 ---
+⏱ Running tests for shard 0
+
+Running 2 tests using 1 worker
+
+[1A[2K[1/2] [chromium] › tests/e2e/auth.e2e.spec.ts:5:3 › Authentication › should allow a logged-in user to access protected routes
+[1A[2K[chromium] › tests/e2e/auth.e2e.spec.ts:5:3 › Authentication › should allow a logged-in user to access protected routes
+[HealthCheck:Start] Beginning programmatic login.
+
+[1A[2K[HealthCheck:Navigate] Navigating to root "/".
+
+[1A[2K[HealthCheck:Navigate] ✅ Page loaded
+
+[1A[2K[HealthCheck:Navigate] ✅ Supabase client ready
+
+[1A[2K✅ App initialized
+
+[1A[2K✅ Mock profile set
+
+[1A[2K[HealthCheck:Inject] ✅ Session injected
+
+[1A[2K✅ Profile loaded
+
+[1A[2K[HealthCheck:End] ✅ Login complete
+
+[1A[2K[2/2] [chromium] › tests/e2e/smoke.e2e.spec.ts:5:3 › Smoke Test › should perform a full user journey: login, navigate, and log out @smoke
+[1A[2K[chromium] › tests/e2e/smoke.e2e.spec.ts:5:3 › Smoke Test › should perform a full user journey: login, navigate, and log out @smoke
+[HealthCheck:Start] Beginning programmatic login.
+
+[1A[2K[HealthCheck:Navigate] Navigating to root "/".
+
+[1A[2K[BROWSER CONSOLE] log: [HealthCheck:MockInject] Injecting mock Supabase client.
+
+[1A[2K[BROWSER CONSOLE] log: [HealthCheck:MockRead] No session in localStorage.
+
+[1A[2K[BROWSER CONSOLE] log: [MockClient] Supabase mock initialized inline
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] connecting...
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] connected.
+
+[1A[2K[BROWSER CONSOLE] info: %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] hot updated: /src/index.css
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] hot updated: /src/index.css
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] hot updated: /src/index.css
+
+[1A[2K[BROWSER CONSOLE] log: [E2E DIAGNOSTIC] ./App imported successfully: true
+
+[1A[2K[BROWSER CONSOLE] warning: [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[BROWSER CONSOLE] log: [getSupabaseClient] Using injected mock Supabase client.
+
+[1A[2K[BROWSER CONSOLE] warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+
+[1A[2K[BROWSER CONSOLE] warning: ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] hot updated: /src/index.css
+
+[1A[2K[BROWSER CONSOLE] warning: You may test your Stripe.js integration over HTTP. However, live Stripe.js integrations must use HTTPS.
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] hot updated: /src/index.css
+
+[1A[2K[BROWSER CONSOLE] log: [HealthCheck:MockInject] Injecting mock Supabase client.
+
+[1A[2K[BROWSER CONSOLE] log: [HealthCheck:MockRead] No session in localStorage.
+
+[1A[2K[BROWSER CONSOLE] log: [MockClient] Supabase mock initialized inline
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] hot updated: /src/index.css
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] hot updated: /src/index.css
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] hot updated: /src/index.css
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] hot updated: /src/index.css
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] hot updated: /src/index.css
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] hot updated: /src/index.css
+
+[1A[2K[HealthCheck:Navigate] ✅ Page loaded
+
+[1A[2K[HealthCheck:Navigate] ✅ Supabase client ready
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] hot updated: /src/index.css
+
+[1A[2K✅ App initialized
+
+[1A[2K✅ Mock profile set
+
+[1A[2K[BROWSER CONSOLE] log: [HealthCheck:Inject] Setting session...
+
+[1A[2K[BROWSER CONSOLE] log: [HealthCheck:MockWrite] Session saved to localStorage.
+
+[1A[2K[BROWSER CONSOLE] log: [HealthCheck:Inject] Session set result: {data: Object, error: null}
+
+[1A[2K[HealthCheck:Inject] ✅ Session injected
+
+[1A[2K✅ Profile loaded
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] hot updated: /src/index.css
+
+[1A[2K[HealthCheck:End] ✅ Login complete
+
+[1A[2K✅ Health-check completed successfully.
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] hot updated: /src/index.css
+
+[1A[2K[BROWSER CONSOLE] log: [HealthCheck:MockInject] Injecting mock Supabase client.
+
+[1A[2K[BROWSER CONSOLE] log: [HealthCheck:MockRead] Session found in localStorage.
+
+[1A[2K[BROWSER CONSOLE] log: [MockClient] Supabase mock initialized inline
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] connecting...
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] connected.
+
+[1A[2K[BROWSER CONSOLE] info: %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] hot updated: /src/index.css
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] hot updated: /src/index.css
+
+[1A[2K[BROWSER CONSOLE] log: [E2E DIAGNOSTIC] ./App imported successfully: true
+
+[1A[2K[BROWSER CONSOLE] warning: [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[BROWSER CONSOLE] warning: You may test your Stripe.js integration over HTTP. However, live Stripe.js integrations must use HTTPS.
+
+[1A[2K[BROWSER CONSOLE] log: [HealthCheck:MockInject] Injecting mock Supabase client.
+
+[1A[2K[BROWSER CONSOLE] log: [HealthCheck:MockRead] No session in localStorage.
+
+[1A[2K[BROWSER CONSOLE] log: [MockClient] Supabase mock initialized inline
+
+[1A[2K[BROWSER CONSOLE] log: [getSupabaseClient] Using injected mock Supabase client.
+
+[1A[2K[BROWSER CONSOLE] warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+
+[1A[2K[BROWSER CONSOLE] warning: ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] hot updated: /src/index.css
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] hot updated: /src/index.css
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] hot updated: /src/index.css
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] hot updated: /src/index.css
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] hot updated: /src/index.css
+
+[1A[2K[BROWSER CONSOLE] log: [HealthCheck:MockInject] Injecting mock Supabase client.
+
+[1A[2K[BROWSER CONSOLE] log: [HealthCheck:MockRead] Session found in localStorage.
+
+[1A[2K[BROWSER CONSOLE] log: [MockClient] Supabase mock initialized inline
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] connecting...
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] connected.
+
+[1A[2K[BROWSER CONSOLE] info: %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold
+
+[1A[2K[BROWSER CONSOLE] log: [E2E DIAGNOSTIC] ./App imported successfully: true
+
+[1A[2K[BROWSER CONSOLE] warning: [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[BROWSER CONSOLE] warning: You may test your Stripe.js integration over HTTP. However, live Stripe.js integrations must use HTTPS.
+
+[1A[2K[BROWSER CONSOLE] log: [getSupabaseClient] Using injected mock Supabase client.
+
+[1A[2K[BROWSER CONSOLE] warning: ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+
+[1A[2K[BROWSER CONSOLE] warning: ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+[1A[2K[BROWSER CONSOLE] log: [HealthCheck:MockInject] Injecting mock Supabase client.
+
+[1A[2K[BROWSER CONSOLE] log: [HealthCheck:MockRead] No session in localStorage.
+
+[1A[2K[BROWSER CONSOLE] log: [MockClient] Supabase mock initialized inline
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] hot updated: /src/index.css
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] hot updated: /src/index.css
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] hot updated: /src/index.css
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] hot updated: /src/index.css
+
+[1A[2K[BROWSER CONSOLE] debug: [vite] hot updated: /src/index.css
+
+[1A[2K  2 passed (9.0s)
+--- Running Test Stage for Shard 1 ---
+⏱ Running tests for shard 1
+
+Running 2 tests using 1 worker
+
+[1A[2K[1/2] [chromium] › tests/e2e/health-check.e2e.spec.ts:5:3 › Health Check › should successfully authenticate and display the logged-in state on the homepage
+[1A[2K[chromium] › tests/e2e/health-check.e2e.spec.ts:5:3 › Health Check › should successfully authenticate and display the logged-in state on the homepage
+[HealthCheck:Start] Beginning programmatic login.
+
+[1A[2K[HealthCheck:Navigate] Navigating to root "/".
+
+[1A[2K[HealthCheck:Navigate] ✅ Page loaded
+
+[1A[2K[HealthCheck:Navigate] ✅ Supabase client ready
+
+[1A[2K✅ App initialized
+
+[1A[2K✅ Mock profile set
+
+[1A[2K[HealthCheck:Inject] ✅ Session injected
+
+[1A[2K✅ Profile loaded
+
+[1A[2K[HealthCheck:End] ✅ Login complete
+
+[1A[2K[2/2] [chromium] › tests/e2e/users.e2e.spec.ts:5:3 › User Tier Flows › should not show the upgrade banner for a pro user
+[1A[2K[chromium] › tests/e2e/users.e2e.spec.ts:5:3 › User Tier Flows › should not show the upgrade banner for a pro user
+[HealthCheck:Start] Beginning programmatic login.
+
+[1A[2K[HealthCheck:Navigate] Navigating to root "/".
+
+[1A[2K[HealthCheck:Navigate] ✅ Page loaded
+
+[1A[2K[HealthCheck:Navigate] ✅ Supabase client ready
+
+[1A[2K✅ App initialized
+
+[1A[2K✅ Mock profile set
+
+[1A[2K[HealthCheck:Inject] ✅ Session injected
+
+[1A[2K✅ Profile loaded
+
+[1A[2K[HealthCheck:End] ✅ Login complete
+
+[1A[2K  2 passed (5.9s)
+--- Running Test Stage for Shard 2 ---
+⏱ Running tests for shard 2
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] [chromium] › tests/e2e/live-transcript.e2e.spec.ts:6:3 › Live Transcript Feature › should display live transcript after session starts
+[1A[2K[chromium] › tests/e2e/live-transcript.e2e.spec.ts:6:3 › Live Transcript Feature › should display live transcript after session starts
+[HealthCheck:Start] Beginning programmatic login.
+
+[1A[2K[HealthCheck:Navigate] Navigating to root "/".
+
+[1A[2K[HealthCheck:Navigate] ✅ Page loaded
+
+[1A[2K[HealthCheck:Navigate] ✅ Supabase client ready
+
+[1A[2K✅ App initialized
+
+[1A[2K✅ Mock profile set
+
+[1A[2K[HealthCheck:Inject] ✅ Session injected
+
+[1A[2K✅ Profile loaded
+
+[1A[2K[HealthCheck:End] ✅ Login complete
+
+[1A[2K[2/1] (retries) [chromium] › tests/e2e/live-transcript.e2e.spec.ts:6:3 › Live Transcript Feature › should display live transcript after session starts (retry #1)
+[1A[2K[HealthCheck:Start] Beginning programmatic login.
+
+[1A[2K[HealthCheck:Navigate] Navigating to root "/".
+
+[1A[2K[HealthCheck:Navigate] ✅ Page loaded
+
+[1A[2K[HealthCheck:Navigate] ✅ Supabase client ready
+
+[1A[2K✅ App initialized
+
+[1A[2K✅ Mock profile set
+
+[1A[2K[HealthCheck:Inject] ✅ Session injected
+
+[1A[2K✅ Profile loaded
+
+[1A[2K[HealthCheck:End] ✅ Login complete
+
+[1A[2K  1) [chromium] › tests/e2e/live-transcript.e2e.spec.ts:6:3 › Live Transcript Feature › should display live transcript after session starts
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: getByTestId('session-sidebar')
+    Expected: visible
+    Timeout: 30000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 30000ms[22m
+    [2m  - waiting for getByTestId('session-sidebar')[22m
+    [2m    30 × locator resolved to <div data-testid="session-sidebar" class="flex flex-col gap-6 h-full">…</div>[22m
+    [2m       - unexpected value "hidden"[22m
+
+
+       at ../pom/SessionPage.pom.ts:11
+
+       9 |     // the auth hook has completed and the main page content has rendered,
+      10 |     // elegantly handling the race condition.
+    > 11 |     await expect(this.page.getByTestId('session-sidebar')).toBeVisible();
+         |                                                            ^
+      12 |     // Once the sidebar is present, we can safely assert that our button is visible.
+      13 |     await expect(this.startButton).toBeVisible();
+      14 |   }
+        at SessionPage.navigate (/app/tests/pom/SessionPage.pom.ts:11:60)
+        at /app/tests/e2e/live-transcript.e2e.spec.ts:11:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/playwright/shard-2-results/live-transcript.e2e-Live-T-6cb39-script-after-session-starts-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/playwright/shard-2-results/live-transcript.e2e-Live-T-6cb39-script-after-session-starts-chromium/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/playwright/shard-2-results/live-transcript.e2e-Live-T-6cb39-script-after-session-starts-chromium/error-context.md
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: getByTestId('session-sidebar')
+    Expected: visible
+    Timeout: 30000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 30000ms[22m
+    [2m  - waiting for getByTestId('session-sidebar')[22m
+    [2m    31 × locator resolved to <div data-testid="session-sidebar" class="flex flex-col gap-6 h-full">…</div>[22m
+    [2m       - unexpected value "hidden"[22m
+
+
+       at ../pom/SessionPage.pom.ts:11
+
+       9 |     // the auth hook has completed and the main page content has rendered,
+      10 |     // elegantly handling the race condition.
+    > 11 |     await expect(this.page.getByTestId('session-sidebar')).toBeVisible();
+         |                                                            ^
+      12 |     // Once the sidebar is present, we can safely assert that our button is visible.
+      13 |     await expect(this.startButton).toBeVisible();
+      14 |   }
+        at SessionPage.navigate (/app/tests/pom/SessionPage.pom.ts:11:60)
+        at /app/tests/e2e/live-transcript.e2e.spec.ts:11:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/playwright/shard-2-results/live-transcript.e2e-Live-T-6cb39-script-after-session-starts-chromium-retry1/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/playwright/shard-2-results/live-transcript.e2e-Live-T-6cb39-script-after-session-starts-chromium-retry1/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/playwright/shard-2-results/live-transcript.e2e-Live-T-6cb39-script-after-session-starts-chromium-retry1/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/playwright/shard-2-results/live-transcript.e2e-Live-T-6cb39-script-after-session-starts-chromium-retry1/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/playwright/shard-2-results/live-transcript.e2e-Live-T-6cb39-script-after-session-starts-chromium-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[1A[2K  1 failed
+    [chromium] › tests/e2e/live-transcript.e2e.spec.ts:6:3 › Live Transcript Feature › should display live transcript after session starts
+❌ Test shard 2 failed.
+--- Running Test Stage for Shard 3 ---
+⏱ Running tests for shard 3
+
+Running 1 test using 1 worker
+
+[1A[2K[1/1] [chromium] › tests/e2e/navigation.e2e.spec.ts:5:3 › App Navigation › should allow navigation between pages from the main navigation
+[1A[2K[chromium] › tests/e2e/navigation.e2e.spec.ts:5:3 › App Navigation › should allow navigation between pages from the main navigation
+[HealthCheck:Start] Beginning programmatic login.
+
+[1A[2K[HealthCheck:Navigate] Navigating to root "/".
+
+[1A[2K[HealthCheck:Navigate] ✅ Page loaded
+
+[1A[2K[HealthCheck:Navigate] ✅ Supabase client ready
+
+[1A[2K✅ App initialized
+
+[1A[2K✅ Mock profile set
+
+[1A[2K[HealthCheck:Inject] ✅ Session injected
+
+[1A[2K✅ Profile loaded
+
+[1A[2K[HealthCheck:End] ✅ Login complete
+
+[1A[2K  1 passed (5.0s)
+--- Running Report Stage ---
+--- DIAGNOSTIC: Final state of test-results ---
+test-results/:
+total 12
+drwxrwxr-x 3 jules jules 4096 Oct 28 06:59 coverage
+-rw-rw-r-- 1 jules jules  272 Oct 28 06:47 metrics.json
+drwxrwxr-x 6 jules jules 4096 Oct 28 07:01 playwright
+
+test-results/coverage:
+total 116
+drwxrwxr-x 8 jules jules  4096 Oct 28 06:59 app
+-rw-rw-r-- 1 jules jules  5394 Oct 28 06:59 base.css
+-rw-rw-r-- 1 jules jules  2655 Oct 28 06:59 block-navigation.js
+-rw-rw-r-- 1 jules jules 33904 Oct 28 06:59 coverage-summary.json
+-rw-rw-r-- 1 jules jules   445 Oct 28 06:59 favicon.png
+-rw-rw-r-- 1 jules jules 24198 Oct 28 06:59 index.html
+-rw-rw-r-- 1 jules jules   676 Oct 28 06:59 prettify.css
+-rw-rw-r-- 1 jules jules 17590 Oct 28 06:59 prettify.js
+-rw-rw-r-- 1 jules jules   138 Oct 28 06:59 sort-arrow-sprite.png
+-rw-rw-r-- 1 jules jules  6731 Oct 28 06:59 sorter.js
+
+test-results/coverage/app:
+total 92
+drwxrwxr-x  2 jules jules  4096 Oct 28 06:59 __mocks__
+drwxrwxr-x  3 jules jules  4096 Oct 28 06:59 html
+-rw-rw-r--  1 jules jules  6389 Oct 28 06:59 index.html
+-rw-rw-r--  1 jules jules 12780 Oct 28 06:59 playwright.config.js.html
+-rw-rw-r--  1 jules jules 10882 Oct 28 06:59 playwright.config.ts.html
+-rw-rw-r--  1 jules jules  4098 Oct 28 06:59 postcss.config.cjs.html
+drwxrwxr-x  2 jules jules  4096 Oct 28 06:59 public
+drwxrwxr-x  2 jules jules  4096 Oct 28 06:59 scripts
+drwxrwxr-x 12 jules jules  4096 Oct 28 06:59 src
+drwxrwxr-x  3 jules jules  4096 Oct 28 06:59 supabase
+-rw-rw-r--  1 jules jules 23228 Oct 28 06:59 tailwind.config.ts.html
+
+test-results/coverage/app/__mocks__:
+total 40
+-rw-rw-r-- 1 jules jules 5421 Oct 28 06:59 assemblyai.ts.html
+-rw-rw-r-- 1 jules jules 4083 Oct 28 06:59 importMetaEnvMock.ts.html
+-rw-rw-r-- 1 jules jules 7629 Oct 28 06:59 index.html
+-rw-rw-r-- 1 jules jules 5879 Oct 28 06:59 sharp.ts.html
+-rw-rw-r-- 1 jules jules 3426 Oct 28 06:59 styleMock.ts.html
+-rw-rw-r-- 1 jules jules 3792 Oct 28 06:59 transformers.ts.html
+-rw-rw-r-- 1 jules jules 3446 Oct 28 06:59 workletMock.ts.html
+
+test-results/coverage/app/html:
+total 4
+drwxrwxr-x 2 jules jules 4096 Oct 28 06:59 assets
+
+test-results/coverage/app/html/assets:
+total 740
+-rw-rw-r-- 1 jules jules 746256 Oct 28 06:59 index-D_ryMEPs.js.html
+-rw-rw-r-- 1 jules jules   4453 Oct 28 06:59 index.html
+
+test-results/coverage/app/public:
+total 72
+-rw-rw-r-- 1 jules jules  4434 Oct 28 06:59 index.html
+-rw-rw-r-- 1 jules jules 62249 Oct 28 06:59 mockServiceWorker.js.html
+
+test-results/coverage/app/scripts:
+total 200
+-rw-rw-r-- 1 jules jules  9106 Oct 28 06:59 doctor.js.html
+-rw-rw-r-- 1 jules jules 48501 Oct 28 06:59 dump-dom.cjs.html
+-rw-rw-r-- 1 jules jules  9315 Oct 28 06:59 dump-dom.js.html
+-rw-rw-r-- 1 jules jules 10348 Oct 28 06:59 index.html
+-rw-rw-r-- 1 jules jules 38475 Oct 28 06:59 inspect-auth-dom.js.html
+-rw-rw-r-- 1 jules jules 16327 Oct 28 06:59 merge-reports.mjs.html
+-rw-rw-r-- 1 jules jules  5589 Oct 28 06:59 postinstall-check.ts.html
+-rw-rw-r-- 1 jules jules  7562 Oct 28 06:59 run-screenshots.js.html
+-rw-rw-r-- 1 jules jules 10541 Oct 28 06:59 screenshot-homepage.js.html
+-rw-rw-r-- 1 jules jules  9350 Oct 28 06:59 start-server.js.html
+-rw-rw-r-- 1 jules jules 19369 Oct 28 06:59 update-prd-metrics.mjs.html
+
+test-results/coverage/app/src:
+total 100
+-rw-rw-r-- 1 jules jules  8682 Oct 28 06:59 App.tsx.html
+drwxrwxr-x 6 jules jules  4096 Oct 28 06:59 components
+drwxrwxr-x 2 jules jules  4096 Oct 28 06:59 config
+-rw-rw-r-- 1 jules jules  4614 Oct 28 06:59 config.ts.html
+drwxrwxr-x 2 jules jules  4096 Oct 28 06:59 contexts
+drwxrwxr-x 3 jules jules  4096 Oct 28 06:59 hooks
+-rw-rw-r-- 1 jules jules  5727 Oct 28 06:59 index.html
+drwxrwxr-x 2 jules jules  4096 Oct 28 06:59 lib
+-rw-rw-r-- 1 jules jules 30516 Oct 28 06:59 main.tsx.html
+drwxrwxr-x 2 jules jules  4096 Oct 28 06:59 mocks
+drwxrwxr-x 2 jules jules  4096 Oct 28 06:59 pages
+drwxrwxr-x 3 jules jules  4096 Oct 28 06:59 services
+drwxrwxr-x 2 jules jules  4096 Oct 28 06:59 types
+drwxrwxr-x 2 jules jules  4096 Oct 28 06:59 utils
+
+test-results/coverage/app/src/components:
+total 188
+-rw-rw-r-- 1 jules jules 37289 Oct 28 06:59 AnalyticsDashboard.tsx.html
+-rw-rw-r-- 1 jules jules  7687 Oct 28 06:59 BrowserWarning.tsx.html
+-rw-rw-r-- 1 jules jules 12838 Oct 28 06:59 ErrorBoundary.tsx.html
+-rw-rw-r-- 1 jules jules  6312 Oct 28 06:59 ErrorDisplay.tsx.html
+-rw-rw-r-- 1 jules jules 12356 Oct 28 06:59 Header.tsx.html
+-rw-rw-r-- 1 jules jules 21424 Oct 28 06:59 Navigation.tsx.html
+-rw-rw-r-- 1 jules jules  6973 Oct 28 06:59 ProtectedRoute.tsx.html
+-rw-rw-r-- 1 jules jules  8295 Oct 28 06:59 SessionStatus.tsx.html
+-rw-rw-r-- 1 jules jules 13523 Oct 28 06:59 SideNav.tsx.html
+-rw-rw-r-- 1 jules jules 10285 Oct 28 06:59 UpgradePromptDialog.tsx.html
+drwxrwxr-x 2 jules jules  4096 Oct 28 06:59 analytics
+-rw-rw-r-- 1 jules jules 10578 Oct 28 06:59 index.html
+drwxrwxr-x 2 jules jules  4096 Oct 28 06:59 landing
+drwxrwxr-x 2 jules jules  4096 Oct 28 06:59 session
+drwxrwxr-x 2 jules jules  4096 Oct 28 06:59 ui
+
+test-results/coverage/app/src/components/analytics:
+total 48
+-rw-rw-r-- 1 jules jules 11131 Oct 28 06:59 AccuracyComparison.tsx.html
+-rw-rw-r-- 1 jules jules 15209 Oct 28 06:59 FillerWordTable.tsx.html
+-rw-rw-r-- 1 jules jules  9654 Oct 28 06:59 TopFillerWords.tsx.html
+-rw-rw-r-- 1 jules jules  5955 Oct 28 06:59 index.html
+
+test-results/coverage/app/src/components/landing:
+total 68
+-rw-rw-r-- 1 jules jules 16041 Oct 28 06:59 FeaturesSection.tsx.html
+-rw-rw-r-- 1 jules jules  9891 Oct 28 06:59 HeroSection.tsx.html
+-rw-rw-r-- 1 jules jules  7600 Oct 28 06:59 LandingFooter.tsx.html
+-rw-rw-r-- 1 jules jules  7821 Oct 28 06:59 LandingHeader.tsx.html
+-rw-rw-r-- 1 jules jules 13009 Oct 28 06:59 TestimonialsSection.tsx.html
+-rw-rw-r-- 1 jules jules  7207 Oct 28 06:59 index.html
+
+test-results/coverage/app/src/components/session:
+total 128
+-rw-rw-r-- 1 jules jules 18491 Oct 28 06:59 AISuggestions.tsx.html
+-rw-rw-r-- 1 jules jules 18774 Oct 28 06:59 FillerWordAnalysis.tsx.html
+-rw-rw-r-- 1 jules jules 45874 Oct 28 06:59 SessionSidebar.tsx.html
+-rw-rw-r-- 1 jules jules  7988 Oct 28 06:59 StatefulPanel.tsx.html
+-rw-rw-r-- 1 jules jules 23136 Oct 28 06:59 TranscriptPanel.tsx.html
+-rw-rw-r-- 1 jules jules  7400 Oct 28 06:59 index.html
+
+test-results/coverage/app/src/components/ui:
+total 260
+-rw-rw-r-- 1 jules jules 18516 Oct 28 06:59 alert-dialog.tsx.html
+-rw-rw-r-- 1 jules jules  8444 Oct 28 06:59 alert.tsx.html
+-rw-rw-r-- 1 jules jules  6133 Oct 28 06:59 badge-variants.ts.html
+-rw-rw-r-- 1 jules jules  5315 Oct 28 06:59 badge.tsx.html
+-rw-rw-r-- 1 jules jules  6796 Oct 28 06:59 button-variants.ts.html
+-rw-rw-r-- 1 jules jules  6311 Oct 28 06:59 button.tsx.html
+-rw-rw-r-- 1 jules jules 15160 Oct 28 06:59 card.tsx.html
+-rw-rw-r-- 1 jules jules  8212 Oct 28 06:59 checkbox.tsx.html
+-rw-rw-r-- 1 jules jules 21853 Oct 28 06:59 drawer.tsx.html
+-rw-rw-r-- 1 jules jules 33275 Oct 28 06:59 dropdown-menu.tsx.html
+-rw-rw-r-- 1 jules jules 15922 Oct 28 06:59 index.html
+-rw-rw-r-- 1 jules jules  6105 Oct 28 06:59 input.tsx.html
+-rw-rw-r-- 1 jules jules  6241 Oct 28 06:59 label.tsx.html
+-rw-rw-r-- 1 jules jules  6477 Oct 28 06:59 progress.tsx.html
+-rw-rw-r-- 1 jules jules 26236 Oct 28 06:59 sheet.tsx.html
+-rw-rw-r-- 1 jules jules  4895 Oct 28 06:59 skeleton.tsx.html
+-rw-rw-r-- 1 jules jules  8328 Oct 28 06:59 sonner.tsx.html
+-rw-rw-r-- 1 jules jules  8172 Oct 28 06:59 switch.tsx.html
+-rw-rw-r-- 1 jules jules 10479 Oct 28 06:59 toast.tsx.html
+
+test-results/coverage/app/src/config:
+total 16
+-rw-rw-r-- 1 jules jules 5394 Oct 28 06:59 env.ts.html
+-rw-rw-r-- 1 jules jules 4478 Oct 28 06:59 index.html
+
+test-results/coverage/app/src/contexts:
+total 88
+-rw-rw-r-- 1 jules jules  4814 Oct 28 06:59 AuthContext.ts.html
+-rw-rw-r-- 1 jules jules  4935 Oct 28 06:59 AuthContext.tsx.html
+-rw-rw-r-- 1 jules jules 18015 Oct 28 06:59 AuthProvider.tsx.html
+-rw-rw-r-- 1 jules jules  4809 Oct 28 06:59 SessionContext.tsx.html
+-rw-rw-r-- 1 jules jules 13009 Oct 28 06:59 SessionProvider.tsx.html
+-rw-rw-r-- 1 jules jules  8601 Oct 28 06:59 index.html
+-rw-rw-r-- 1 jules jules  4533 Oct 28 06:59 useAuth.ts.html
+-rw-rw-r-- 1 jules jules  5054 Oct 28 06:59 useSession.ts.html
+
+test-results/coverage/app/src/hooks:
+total 60
+-rw-rw-r-- 1 jules jules  5884 Oct 28 06:59 index.html
+-rw-rw-r-- 1 jules jules 16877 Oct 28 06:59 useAnalytics.ts.html
+-rw-rw-r-- 1 jules jules  8607 Oct 28 06:59 useBrowserSupport.ts.html
+-rw-rw-r-- 1 jules jules 15736 Oct 28 06:59 useSessionManager.ts.html
+drwxrwxr-x 2 jules jules  4096 Oct 28 06:59 useSpeechRecognition
+
+test-results/coverage/app/src/hooks/useSpeechRecognition:
+total 96
+-rw-rw-r-- 1 jules jules  8028 Oct 28 06:59 index.html
+-rw-rw-r-- 1 jules jules 27631 Oct 28 06:59 index.ts.html
+-rw-rw-r-- 1 jules jules  7057 Oct 28 06:59 types.ts.html
+-rw-rw-r-- 1 jules jules 11054 Oct 28 06:59 useFillerWords.ts.html
+-rw-rw-r-- 1 jules jules  7463 Oct 28 06:59 useTranscriptState.ts.html
+-rw-rw-r-- 1 jules jules 21035 Oct 28 06:59 useTranscriptionService.ts.html
+-rw-rw-r-- 1 jules jules  5141 Oct 28 06:59 utils.ts.html
+
+test-results/coverage/app/src/lib:
+total 196
+-rw-rw-r-- 1 jules jules  9360 Oct 28 06:59 analyticsUtils.ts.html
+-rw-rw-r-- 1 jules jules  6939 Oct 28 06:59 canvas.ts.html
+-rw-rw-r-- 1 jules jules  9309 Oct 28 06:59 dateUtils.ts.html
+-rw-rw-r-- 1 jules jules 11193 Oct 28 06:59 index.html
+-rw-rw-r-- 1 jules jules  5517 Oct 28 06:59 logger.ts.html
+-rw-rw-r-- 1 jules jules 12675 Oct 28 06:59 pdfGenerator.ts.html
+-rw-rw-r-- 1 jules jules  5712 Oct 28 06:59 processImage.ts.html
+-rw-rw-r-- 1 jules jules 20935 Oct 28 06:59 storage.ts.html
+-rw-rw-r-- 1 jules jules 11097 Oct 28 06:59 supabaseClient.ts.html
+-rw-rw-r-- 1 jules jules 63744 Oct 28 06:59 theme.ts.html
+-rw-rw-r-- 1 jules jules  9581 Oct 28 06:59 utils.ts.html
+-rw-rw-r-- 1 jules jules  7788 Oct 28 06:59 wer.ts.html
+
+test-results/coverage/app/src/mocks:
+total 44
+-rw-rw-r-- 1 jules jules  4917 Oct 28 06:59 browser.ts.html
+-rw-rw-r-- 1 jules jules 11727 Oct 28 06:59 handlers.ts.html
+-rw-rw-r-- 1 jules jules  5753 Oct 28 06:59 index.html
+-rw-rw-r-- 1 jules jules 12831 Oct 28 06:59 test-user-utils.ts.html
+
+test-results/coverage/app/src/pages:
+total 208
+-rw-rw-r-- 1 jules jules 20483 Oct 28 06:59 AnalyticsPage.tsx.html
+-rw-rw-r-- 1 jules jules 35644 Oct 28 06:59 AuthPage.tsx.html
+-rw-rw-r-- 1 jules jules  6236 Oct 28 06:59 ConfigurationNeededPage.tsx.html
+-rw-rw-r-- 1 jules jules 10145 Oct 28 06:59 HomePage.tsx.html
+-rw-rw-r-- 1 jules jules 49062 Oct 28 06:59 Index.tsx.html
+-rw-rw-r-- 1 jules jules  7661 Oct 28 06:59 MainPage.tsx.html
+-rw-rw-r-- 1 jules jules 20204 Oct 28 06:59 PricingPage.tsx.html
+-rw-rw-r-- 1 jules jules 37636 Oct 28 06:59 SessionPage.tsx.html
+-rw-rw-r-- 1 jules jules  9054 Oct 28 06:59 index.html
+
+test-results/coverage/app/src/services:
+total 4
+drwxrwxr-x 4 jules jules 4096 Oct 28 06:59 transcription
+
+test-results/coverage/app/src/services/transcription:
+total 52
+-rw-rw-r-- 1 jules jules 33160 Oct 28 06:59 TranscriptionService.ts.html
+-rw-rw-r-- 1 jules jules  4593 Oct 28 06:59 index.html
+drwxrwxr-x 2 jules jules  4096 Oct 28 06:59 modes
+drwxrwxr-x 2 jules jules  4096 Oct 28 06:59 utils
+
+test-results/coverage/app/src/services/transcription/modes:
+total 84
+-rw-rw-r-- 1 jules jules 22989 Oct 28 06:59 CloudAssemblyAI.ts.html
+-rw-rw-r-- 1 jules jules 18751 Oct 28 06:59 LocalWhisper.ts.html
+-rw-rw-r-- 1 jules jules 24230 Oct 28 06:59 NativeBrowser.ts.html
+-rw-rw-r-- 1 jules jules  6688 Oct 28 06:59 index.html
+-rw-rw-r-- 1 jules jules  6232 Oct 28 06:59 types.ts.html
+
+test-results/coverage/app/src/services/transcription/utils:
+total 60
+-rw-rw-r-- 1 jules jules 16323 Oct 28 06:59 audio-processor.worklet.ts.html
+-rw-rw-r-- 1 jules jules 19654 Oct 28 06:59 audioUtils.impl.ts.html
+-rw-rw-r-- 1 jules jules  4647 Oct 28 06:59 audioUtils.ts.html
+-rw-rw-r-- 1 jules jules  6539 Oct 28 06:59 index.html
+-rw-rw-r-- 1 jules jules  4771 Oct 28 06:59 types.ts.html
+
+test-results/coverage/app/src/types:
+total 24
+-rw-rw-r-- 1 jules jules 3796 Oct 28 06:59 analytics.ts.html
+-rw-rw-r-- 1 jules jules 5741 Oct 28 06:59 index.html
+-rw-rw-r-- 1 jules jules 5008 Oct 28 06:59 session.ts.html
+-rw-rw-r-- 1 jules jules 3871 Oct 28 06:59 user.ts.html
+
+test-results/coverage/app/src/utils:
+total 32
+-rw-rw-r-- 1 jules jules 21136 Oct 28 06:59 fillerWordUtils.ts.html
+-rw-rw-r-- 1 jules jules  4496 Oct 28 06:59 index.html
+
+test-results/coverage/app/supabase:
+total 4
+drwxrwxr-x 8 jules jules 4096 Oct 28 06:59 functions
+
+test-results/coverage/app/supabase/functions:
+total 24
+drwxrwxr-x 2 jules jules 4096 Oct 28 06:59 _shared
+drwxrwxr-x 2 jules jules 4096 Oct 28 06:59 assemblyai-token
+drwxrwxr-x 2 jules jules 4096 Oct 28 06:59 get-ai-suggestions
+drwxrwxr-x 2 jules jules 4096 Oct 28 06:59 stripe-checkout
+drwxrwxr-x 2 jules jules 4096 Oct 28 06:59 stripe-webhook
+drwxrwxr-x 2 jules jules 4096 Oct 28 06:59 test-import
+
+test-results/coverage/app/supabase/functions/_shared:
+total 16
+-rw-rw-r-- 1 jules jules 4463 Oct 28 06:59 cors.ts.html
+-rw-rw-r-- 1 jules jules 4471 Oct 28 06:59 index.html
+
+test-results/coverage/app/supabase/functions/assemblyai-token:
+total 24
+-rw-rw-r-- 1 jules jules  4498 Oct 28 06:59 index.html
+-rw-rw-r-- 1 jules jules 13038 Oct 28 06:59 index.ts.html
+
+test-results/coverage/app/supabase/functions/get-ai-suggestions:
+total 36
+-rw-rw-r-- 1 jules jules  4502 Oct 28 06:59 index.html
+-rw-rw-r-- 1 jules jules 26650 Oct 28 06:59 index.ts.html
+
+test-results/coverage/app/supabase/functions/stripe-checkout:
+total 20
+-rw-rw-r-- 1 jules jules 4496 Oct 28 06:59 index.html
+-rw-rw-r-- 1 jules jules 9286 Oct 28 06:59 index.ts.html
+
+test-results/coverage/app/supabase/functions/stripe-webhook:
+total 20
+-rw-rw-r-- 1 jules jules  4494 Oct 28 06:59 index.html
+-rw-rw-r-- 1 jules jules 10738 Oct 28 06:59 index.ts.html
+
+test-results/coverage/app/supabase/functions/test-import:
+total 16
+-rw-rw-r-- 1 jules jules 4504 Oct 28 06:59 index.html
+-rw-rw-r-- 1 jules jules 5419 Oct 28 06:59 index.ts.html
+
+test-results/playwright:
+total 16
+drwxrwxr-x 2 jules jules 4096 Oct 28 06:59 shard-0-results
+drwxrwxr-x 2 jules jules 4096 Oct 28 07:00 shard-1-results
+drwxrwxr-x 4 jules jules 4096 Oct 28 07:01 shard-2-results
+drwxrwxr-x 2 jules jules 4096 Oct 28 07:01 shard-3-results
+
+test-results/playwright/shard-0-results:
+total 24
+-rw-rw-r-- 1 jules jules 21740 Oct 28 06:59 report.json
+
+test-results/playwright/shard-1-results:
+total 8
+-rw-rw-r-- 1 jules jules 6964 Oct 28 07:00 report.json
+
+test-results/playwright/shard-2-results:
+total 24
+drwxrwxr-x 2 jules jules  4096 Oct 28 07:00 live-transcript.e2e-Live-T-6cb39-script-after-session-starts-chromium
+drwxrwxr-x 2 jules jules  4096 Oct 28 07:01 live-transcript.e2e-Live-T-6cb39-script-after-session-starts-chromium-retry1
+-rw-rw-r-- 1 jules jules 16157 Oct 28 07:01 report.json
+
+test-results/playwright/shard-2-results/live-transcript.e2e-Live-T-6cb39-script-after-session-starts-chromium:
+total 372
+-rw-rw-r-- 1 jules jules   3470 Oct 28 07:00 error-context.md
+-rw-rw-r-- 1 jules jules  44065 Oct 28 07:00 test-failed-1.png
+-rw-rw-r-- 1 jules jules 331478 Oct 28 07:00 video.webm
+
+test-results/playwright/shard-2-results/live-transcript.e2e-Live-T-6cb39-script-after-session-starts-chromium-retry1:
+total 1076
+-rw-rw-r-- 1 jules jules   3470 Oct 28 07:01 error-context.md
+-rw-rw-r-- 1 jules jules  44065 Oct 28 07:01 test-failed-1.png
+-rw-rw-r-- 1 jules jules 689763 Oct 28 07:01 trace.zip
+-rw-rw-r-- 1 jules jules 360307 Oct 28 07:01 video.webm
+
+test-results/playwright/shard-3-results:
+total 8
+-rw-rw-r-- 1 jules jules 4248 Oct 28 07:01 report.json
+--- Merging E2E Test Reports ---
+Found 4 reports to merge.
+Merging 4 shard reports...
+✅ Merged shard 0: ./test-results/playwright/shard-0-results/report.json
+✅ Merged shard 1: ./test-results/playwright/shard-1-results/report.json
+✅ Merged shard 2: ./test-results/playwright/shard-2-results/report.json
+✅ Merged shard 3: ./test-results/playwright/shard-3-results/report.json
+
+📊 Merged stats: { expected: 5, unexpected: 1, flaky: 0, skipped: 0 }
+📦 Total suites: 6
+✅ Merged report written to ./test-results/playwright/results.json
+--- Updating SQM Data in PRD.md ---
+--- Combining Metrics and Generating Summary ---
+✅ Final metrics file created at test-results/metrics.json
+--- TEST SUMMARY ---
+Unit Tests: 126/126 passed | Coverage: 33.11%
+E2E Tests: 5 passed, 1 failed, 0 skipped
+Initial Chunk Size: 15M
+--------------------
+[UpdateScript] Starting PRD metrics update.
+[UpdateScript] PRD.md updated successfully.
+✅ SQM metrics updated in docs/PRD.md
+✅ Full test audit completed successfully.

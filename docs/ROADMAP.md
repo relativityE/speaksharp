@@ -99,6 +99,11 @@ This section is a prioritized list of technical debt items to be addressed.
 - **P4 (Low): Improve Unit Test Discoverability**
   - **Problem:** The lack of easily discoverable, co-located unit tests makes the codebase harder to maintain.
 
+- **P2 (Medium): Review and Improve Test Quality and Effectiveness**
+  - **Problem:** Several tests in the suite are of low value, providing a false sense of security. They test mock implementations rather than the real application logic.
+  - **Example:** The `live-transcript.e2e.spec.ts` test asserts that a static "Recording in progress..." message appears, which comes from a test mock. It does not verify that actual transcript data is being processed and rendered, which is the feature's core objective.
+  - **Required Action:** A comprehensive audit of the unit and E2E test suites is needed. Low-value tests should be either removed or refactored to test the actual application logic, potentially by using network interception or more advanced mocking to simulate real data flow. Tests should also be updated to use robust locators like `data-testid` instead of brittle text-based selectors.
+
 ---
 ### Resolved Technical Debt
 
