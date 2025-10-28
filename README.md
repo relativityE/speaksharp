@@ -33,13 +33,25 @@ This project uses a unified testing strategy to ensure that local validation and
 
 ### The Local Audit Script: Your Primary Tool
 
-For all local testing and validation, use the `test-audit.sh` script. It is the **single source of truth** for ensuring code quality.
+For all local testing and validation, use the `./test-audit.sh` script. It is the **single source of truth** for ensuring code quality. The script is designed to be developer-friendly and robust.
 
-*   **Run the full local audit (lint, type-check, all tests):**
+**Automatic Dependency Installation:** If you run this script in a fresh checkout without having installed dependencies, it will automatically detect the missing `node_modules` directory and run `pnpm install` for you.
+
+**Usage:**
+
+*   **To run the complete CI pipeline locally (recommended before any commit):**
     ```bash
     ./test-audit.sh all
     ```
-    This command mirrors the exact checks that are run in the CI pipeline.
+    **Why?** This is the most important command. It guarantees that your changes meet all the quality gates (linting, type safety, unit tests, E2E tests) that the CI server will enforce. Running this locally prevents broken builds and failed pull requests.
+
+*   **To run specific stages for faster feedback during development:**
+    Sometimes you need a faster feedback loop. For that, you can run individual stages of the audit:
+    *   `./test-audit.sh lint`: Use this when you've made stylistic changes and want a quick check for code quality.
+    *   `./test-audit.sh typecheck`: Use this after refactoring or changing function signatures to ensure type safety across the project.
+    *   `./test-audit.sh unit`: Use this for rapid feedback when practicing Test-Driven Development (TDD) on a specific component.
+    *   `./test-audit.sh e2e`: Use this to validate a full user flow after making significant UI or application logic changes.
+    *   `./test-audit.sh metrics`: This stage is mostly for CI, but you can run it locally to regenerate the metrics in `docs/PRD.md` after a full test run.
 
 For a faster, lighter-weight check to simply validate that your environment is set up correctly, you can use the `preflight.sh` script.
 
