@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **CI/CD Stability:** Resolved a critical hang in the primary `./test-audit.sh` script. The script would hang indefinitely during the "Lint and Type Checks" stage due to silent linting errors. The issue was diagnosed by following the established debugging protocol (running `pnpm lint` and `pnpm typecheck` individually), and all underlying `no-explicit-any` errors were fixed, restoring the stability of the local and CI test pipeline.
 - **E2E Test Suite Stability:** Resolved critical failures in the E2E test suite by refactoring brittle, layout-dependent tests.
     - **Root Cause:** The `smoke.e2e.spec.ts` and `live-transcript.e2e.spec.ts` tests contained assertions that were tightly coupled to the responsive UI layout, causing them to fail on minor CSS changes.
     - **Solution:** Both tests were refactored to use a robust, functional testing strategy. The brittle assertions were replaced with checks for a core functional element (`session-start-stop-button`) that exists in all responsive layouts. This decouples the tests from the presentation layer and ensures they validate the feature's availability, not a specific UI implementation. This has resulted in a stable, green CI pipeline.

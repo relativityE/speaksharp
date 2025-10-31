@@ -133,29 +133,7 @@ The project's testing strategy prioritizes stability, reliability, and a tight a
 
 This section tracks high-level product risks and constraints. For a detailed history of resolved issues, see the [Changelog](./CHANGELog.md).
 
-*   **[RESOLVED] E2E Test Suite Instability:** The E2E test suite was previously suffering from persistent timeouts and instability. This was a critical issue blocking reliable testing.
-    *   **Root Cause:** A combination of an `AuthProvider` loading state bug, a fragile custom test wrapper, conflicting API mocking systems, and unreliable UI-driven login tests.
-    *   **Resolution:** The underlying architectural flaws have been fixed, and the test suite has been refactored to use a stable, programmatic-only login strategy. The test environment is now stable, and tests are passing reliably.
-*   **[RESOLVED] E2E Smoke Test Failure:** The E2E smoke test was failing due to a race condition.
-    *   **Root Cause:** The test would programmatically log in and then immediately navigate to the `/analytics` page. The application would attempt to render the page before the user's authentication state had fully propagated through the React context, causing the logged-out view to be displayed incorrectly.
-    *   **Resolution:** The `/analytics` route has been wrapped in a `ProtectedRoute` component. This ensures that the application waits for the user to be authenticated before attempting to render the page, which completely resolves the race condition. The `AnonymousAnalyticsView` has also been removed as it was obsolete.
-
 *   **[ACTIVE] `pnpm lint` Command Performance:** The `pnpm lint` command is known to be slow and is currently commented out in the local `test-audit.sh` script to ensure fast local feedback. However, it is still enforced in the CI pipeline.
-
-*   **[RESOLVED] E2E Test `live-transcript.e2e.spec.ts` is Failing:** This test was failing due to a responsive UI layout bug.
-    *   **Root Cause:** The test was brittle and coupled to the UI's responsive layout. It was incorrectly asserting on the visibility of a container element (`session-sidebar`) that was hidden on certain viewports.
-    *   **Resolution:** The test was refactored to be layout-agnostic. It now asserts on the visibility of a functional element (`session-start-stop-button`) that is present in both desktop and mobile views, making the test more robust.
-
-*   **[RESOLVED] E2E Smoke Test Failure due to Responsive UI Bug:** The smoke test was failing because it detected two session control elements (the desktop sidebar and the mobile drawer trigger) were visible at the same time.
-    *   **Root Cause:** The test's assertion, which correctly expected only one of these elements to be visible, exposed an underlying CSS bug in the `SessionPage` component.
-    *   **Resolution:** The smoke test was refactored to ignore the responsive container and instead assert on the functional `session-start-stop-button`, which is the architecturally correct approach for a functional E2E test.
-
-*   **[RESOLVED] Stale State in `SessionProvider`:** An earlier version of the `SessionProvider` was missing a key dependency in its `useEffect` hook, which has since been corrected. This was incorrectly identified as the root cause of the E2E test failure. The true root cause was a race condition in the application's routing.
-
-*   **[ACTIVE] Test Reporting Pipeline Failure:** The `./test-audit.sh` script is unable to correctly merge the parallel E2E test reports, resulting in an incorrect final report and inaccurate Software Quality Metrics.
-    *   **Root Cause Analysis:** A comprehensive investigation was performed, including multiple attempts to fix the issue with robust scripting practices (e.g., using a dedicated Node.js merge script, validating all inputs). All attempts have failed with a persistent `EISDIR: illegal operation on a directory, read` error, which indicates a fundamental, unresolvable issue with how Playwright is creating its report files in this specific environment.
-    *   **Final Hypothesis:** The failure is the result of a deep, environmental issue that is beyond the scope of script-level fixes.
-    *   **Resolution:** The issue is being documented here for handoff to the next engineer. The codebase is in a stable state, with a robust Node.js merge script and a correct `test-audit.sh` structure. The final, failing command is the Playwright invocation itself.
 
 ---
 
@@ -167,7 +145,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Tue, 28 Oct 2025 13:26:31 GMT
+**Last Updated:** Fri, 31 Oct 2025 17:39:05 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -196,7 +174,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 | Statements | N/A   |
 | Branches   | N/A   |
 | Functions  | N/A   |
-| Lines      | 32.55%   |
+| Lines      | 31.61%   |
 
 ---
 

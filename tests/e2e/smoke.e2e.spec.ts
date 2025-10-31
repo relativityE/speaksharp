@@ -44,7 +44,7 @@ test.describe('Smoke Test', () => {
 
     // Step 5: Verify successful logout
     await test.step('Verify Logout', async () => {
-      await expect(page.getByRole('link', { name: 'Sign In' })).toBeVisible({ timeout: 10000 });
+      await expect(page.getByTestId('nav-login-button')).toBeVisible({ timeout: 10000 });
       await expect(page.getByTestId('nav-sign-out-button')).not.toBeVisible();
     });
   });

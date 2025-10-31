@@ -1,7 +1,6 @@
 // src/main.tsx
 import { StrictMode } from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
 import './index.css';
 import logger from '@/lib/logger';
 import { AuthProvider } from './contexts/AuthProvider';
@@ -106,19 +105,17 @@ const renderApp = (initialSession: Session | null = null) => {
 
         root.render(
           <StrictMode>
-            <BrowserRouter>
-              <PostHogProvider client={posthog}>
-                <AuthProvider initialSession={sessionToUse}>
-                  <SessionProvider>
-                    <Elements stripe={stripePromise}>
-                      <Sentry.ErrorBoundary fallback={<div>An error has occurred. Please refresh the page.</div>}>
-                        <App />
-                      </Sentry.ErrorBoundary>
-                    </Elements>
-                  </SessionProvider>
-                </AuthProvider>
-              </PostHogProvider>
-            </BrowserRouter>
+            <PostHogProvider client={posthog}>
+              <AuthProvider initialSession={sessionToUse}>
+                <SessionProvider>
+                  <Elements stripe={stripePromise}>
+                    <Sentry.ErrorBoundary fallback={<div>An error has occurred. Please refresh the page.</div>}>
+                      <App />
+                    </Sentry.ErrorBoundary>
+                  </Elements>
+                </SessionProvider>
+              </AuthProvider>
+            </PostHogProvider>
           </StrictMode>
         );
       });

@@ -80,6 +80,31 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     }
   }, []);
 
+  useEffect(() => {
+    const handleSessionInject = async () => {
+      setLoading(true);
+      const supabase = getSupabaseClient();
+      const { data } = await supabase.auth.getSession();
+      setSessionState(data.session);
+      if (data.session?.user) {
+        const userProfile = await getProfileFromDb(data.session.user.id);
+        setProfile(userProfile);
+        (window as { __E2E_PROFILE_LOADED__?: boolean }).__E2E_PROFILE_LOADED__ = true;
+      }
+      if ((window as { authReadyResolve?: () => void }).authReadyResolve) {
+        (window as { authReadyResolve?: () => void }).authReadyResolve?.();
+      }
+      setLoading(false);
+    };
+
+    if ((window as { __E2E_MODE__?: boolean }).__E2E_MODE__) {
+      document.addEventListener('__E2E_SESSION_INJECTED__', handleSessionInject);
+      return () => {
+        document.removeEventListener('__E2E_SESSION_INJECTED__', handleSessionInject);
+      };
+    }
+  }, []);
+
   if (loading) {
     return (
       <div className="w-full h-screen flex justify-center items-center" data-testid="loading-skeleton-container">

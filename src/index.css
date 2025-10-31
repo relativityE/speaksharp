@@ -2,17 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here.
-All colors MUST be HSL.
-*/
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. All colors MUST be HSL. */
 
 @layer base {
   :root {
     /* SpeakSharp Brand Colors - Professional Communication Theme */
-    --background: 220 20% 15%; /* Lighter than card for two-tone effect */
+    --background: 220 20% 12%;
     --foreground: 220 15% 92%;
 
-    --card: 220 15% 10%; /* Darker for primary surfaces like nav */
+    --card: 220 15% 12%;
     --card-foreground: 220 15% 92%;
 
     --popover: 220 15% 12%;
@@ -121,9 +119,3 @@ All colors MUST be HSL.
   }
 }
 
-@layer base {
-  body {
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
-  }
-}

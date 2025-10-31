@@ -1,17 +1,11 @@
 import { Button } from "@/components/ui/button";
-import { Mic, BarChart3, Home, LogOut } from "lucide-react";
-import { useLocation, Link, useNavigate } from "react-router-dom";
+import { Mic, BarChart3, Home, User } from "lucide-react";
+import { useLocation, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/useAuth";
 
 const Navigation = () => {
+  const { user, signOut } = useAuth();
   const location = useLocation();
-  const navigate = useNavigate();
-  const { session, signOut } = useAuth();
-
-  const handleSignOut = async () => {
-    await signOut();
-    navigate("/", { replace: true });
-  };
 
   const navItems = [
     { path: "/", icon: Home, label: "Home" },
@@ -20,84 +14,55 @@ const Navigation = () => {
   ];
 
   return (
-    <>
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-sm border-b border-border shadow-card">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            {/* Logo */}
-            <Link to="/" className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-gradient-hero rounded-lg flex items-center justify-center">
-                <Mic className="h-5 w-5 text-white" />
-              </div>
-              <span className="text-xl font-bold text-foreground">SpeakSharp</span>
-            </Link>
-
-            {/* Navigation Items */}
-            {session && (
-              <div className="hidden md:flex items-center space-x-1">
-                {navItems.map((item) => {
-                  const isActive = location.pathname === item.path;
-                  return (
-                    <Button
-                      key={item.path}
-                      variant={isActive ? "default" : "ghost"}
-                      size="sm"
-                      asChild
-                    >
-                      <Link to={item.path} className="flex items-center space-x-2">
-                        <item.icon className="h-4 w-4" />
-                        <span>{item.label}</span>
-                      </Link>
-                    </Button>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* User Actions */}
-            <div className="flex items-center space-x-3">
-              {session ? (
-                <Button variant="ghost" size="sm" onClick={handleSignOut} data-testid="nav-sign-out-button">
-                  <LogOut className="h-4 w-4 mr-2" />
-                  Sign Out
-                </Button>
-              ) : (
-                <>
-                  <Button variant="outline" size="sm" asChild>
-                    <Link to="/auth">Sign In</Link>
-                  </Button>
-                  <Button variant="hero" size="sm" asChild>
-                    <Link to="/auth">Get Started</Link>
-                  </Button>
-                </>
-              )}
-            </div>
-          </div>
+    <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="container flex h-14 items-center">
+        <div className="mr-4 hidden md:flex">
+          <Link to="/" className="mr-6 flex items-center space-x-2">
+            <Mic className="h-6 w-6 text-primary" />
+            <span className="hidden font-bold sm:inline-block">SpeakSharp</span>
+          </Link>
+          <nav className="flex items-center space-x-6 text-sm font-medium">
+            {navItems.map((item) => {
+              const isActive = location.pathname === item.path;
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  className={`transition-colors hover:text-primary ${
+                    isActive ? "text-primary" : "text-muted-foreground"
+                  }`}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
         </div>
-      </nav>
-
-      {/* Mobile Navigation */}
-      {session && (
-      <div className="md:hidden flex justify-center space-x-1 px-4 pb-3">
-        {navItems.map((item) => {
-          const isActive = location.pathname === item.path;
-          return (
-            <Button
-              key={item.path}
-              variant={isActive ? "default" : "ghost"}
-              size="sm"
-              asChild
-            >
-              <Link to={item.path} className="flex items-center space-x-1">
-                <item.icon className="h-4 w-4" />
-                <span className="text-xs">{item.label}</span>
-              </Link>
+        {/* User Actions */}
+        <div className="flex flex-1 items-center justify-end space-x-2">
+          {user ? (
+            <Button variant="ghost" size="sm" onClick={signOut} data-testid="nav-sign-out-button">
+              <User className="h-4 w-4 mr-2" />
+              Sign Out
             </Button>
-          );
-        })}
+          ) : (
+            <>
+              <Button variant="ghost" size="sm" asChild>
+                <Link to="/auth" data-testid="nav-login-button">
+                  <User className="h-4 w-4 mr-2" />
+                  Login
+                </Link>
+              </Button>
+              <Button size="sm" asChild>
+                <Link to="/auth">
+                  Sign Up
+                </Link>
+              </Button>
+            </>
+          )}
         </div>
-      )}
-    </>
+      </div>
+    </header>
   );
 };
 
