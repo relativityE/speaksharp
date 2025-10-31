@@ -167,6 +167,63 @@ The E2E test environment is designed for stability and isolation. Several key ar
     *   **Problem:** E2E tests need a reference to the application's internal Supabase client to perform programmatic login.
     *   **Architecture:** The `supabaseClient.ts` module now attaches the client instance to the `window` object (`window.supabase`) when the application is not in a production environment. This provides a stable and predictable way for test helpers to access and interact with the client.
 
+7.  **Deterministic Test Handshake for Authentication:**
+    *   **Problem:** The core of the E2E test suite's instability was a race condition between the test runner injecting an authentication session and the React application's `AuthProvider` recognizing and rendering the UI for that state.
+    *   **Architecture:** A deterministic, event-driven handshake was implemented to eliminate this race condition. This is the canonical pattern for ensuring the application is fully authenticated and rendered before any test assertions are made.
+
+    ```ascii
+    ┌───────────────────────────────┐
+    │        Playwright Test        │
+    │ (e.g., smoke.e2e.spec.ts)     │
+    └──────────────┬────────────────┘
+                   │
+                   │ (1) Before each test, calls programmaticLogin()
+                   │
+                   ▼
+    ┌───────────────────────────────┐
+    │  programmaticLogin() Helper   │
+    │   (tests/e2e/helpers.ts)      │
+    └──────────────┬────────────────┘
+                   │
+                   │ (2) Sets mock session in localStorage
+                   │
+                   │ (3) Navigates to the application URL
+                   │
+                   │ (4) Dispatches custom DOM event:
+                   │     new CustomEvent('e2e-profile-loaded')
+                   │
+                   ▼
+    ┌───────────────────────────────┐
+    │     React AuthProvider        │
+    │  (src/contexts/AuthProvider)  │
+    └──────────────┬────────────────┘
+                   │
+                   │ (5) On mount, adds a listener for the
+                   │     'e2e-profile-loaded' event.
+                   │
+                   │ (6) Event listener triggers fetchUserProfile()
+                   │
+                   │ (7) User profile is loaded, state is updated,
+                   │     UI re-renders in authenticated state.
+                   │
+                   ▼
+    ┌───────────────────────────────┐
+    │        Playwright Test        │
+    │ (Waiting for stable element)  │
+    └──────────────┬────────────────┘
+                   │
+                   │ (8) The programmaticLogin() helper waits for a
+                   │     stable element (e.g., data-testid="nav-sign-out")
+                   │     to be visible before returning.
+                   │
+                   ▼
+    ┌───────────────────────────────┐
+    │       Application Ready       │
+    │  (Authenticated and stable)   │
+    └───────────────────────────────┘
+    ```
+    *   **Key Insight:** Every transition here is **deterministic**, **explicit**, and **observable**—no race conditions, no timeouts, no reliance on async guesswork. This architecture is antifragile, ensuring that future refactors won't silently break E2E readiness unless the event hook itself is deleted.
+
 1.  **Sequential MSW Initialization:**
     *   **Problem:** E2E tests would fail with race conditions because the React application could mount and trigger network requests *before* the Mock Service Worker (MSW) was ready to intercept them.
     *   **Solution:** The application's bootstrap logic in `src/main.tsx` has been made sequential for the test environment. It now strictly `await`s the asynchronous `msw.worker.start()` promise to complete **before** it calls `renderApp()`. This guarantees that the entire mock API layer is active before any React component mounts, eliminating the race condition. A `window.mswReady = true` flag is set after MSW is ready to signal this state to tests.
@@ -301,8 +358,3 @@ The STT accuracy comparison feature calculates the Word Error Rate (WER) of each
 ## 7. Known Issues
 
 *This section is for tracking active, unresolved issues. As issues are resolved, they should be moved to the [Changelog](./CHANGELOG.md).*
-
-*   **Unreliable Client-Side Navigation in Playwright:** There is a deep-seated, unresolved issue where client-side navigation within the Playwright test environment is unreliable.
-    *   **Symptom:** Tests that require navigation between pages (e.g., from `/session` to `/analytics`) often fail because the navigation does not complete. The test continues to execute on the old page, leading to `TimeoutError` when waiting for elements that only exist on the destination page.
-    *   **Investigation:** This issue persists even when using direct `page.goto("/path")` calls, which are the recommended workaround for `react-router-dom` `<Link>` component issues. Standard Playwright synchronization mechanisms like `waitForURL` and `waitForSelector` have also proven ineffective in consistently resolving this.
-    *   **Impact:** This is a high-priority issue that blocks the entire E2E smoke test from passing. A permanent solution is required and is being tracked as a P1 technical debt item in the [Roadmap](./ROADMAP.md).
