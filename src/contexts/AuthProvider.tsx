@@ -89,15 +89,15 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       if (data.session?.user) {
         const userProfile = await getProfileFromDb(data.session.user.id);
         setProfile(userProfile);
-        (window as any).__E2E_PROFILE_LOADED__ = true;
+        (window as { __E2E_PROFILE_LOADED__?: boolean }).__E2E_PROFILE_LOADED__ = true;
       }
-      if ((window as any).authReadyResolve) {
-        (window as any).authReadyResolve();
+      if ((window as { authReadyResolve?: () => void }).authReadyResolve) {
+        (window as { authReadyResolve?: () => void }).authReadyResolve?.();
       }
       setLoading(false);
     };
 
-    if ((window as any).__E2E_MODE__) {
+    if ((window as { __E2E_MODE__?: boolean }).__E2E_MODE__) {
       document.addEventListener('__E2E_SESSION_INJECTED__', handleSessionInject);
       return () => {
         document.removeEventListener('__E2E_SESSION_INJECTED__', handleSessionInject);

@@ -22,8 +22,8 @@ export async function programmaticLogin(page: Page) {
   await page.addInitScript(() => {
     (window as { TEST_MODE?: boolean }).TEST_MODE = true;
     (window as { __E2E_MODE__?: boolean }).__E2E_MODE__ = true;
-    (window as any).authReady = new Promise(resolve => {
-      (window as any).authReadyResolve = resolve;
+    (window as { authReady?: Promise<void> }).authReady = new Promise(resolve => {
+      (window as { authReadyResolve?: (value: void | PromiseLike<void>) => void }).authReadyResolve = resolve;
     });
 
     // Create inline mock Supabase client
@@ -278,7 +278,7 @@ from: (table: string) => {
     document.dispatchEvent(new CustomEvent('__E2E_SESSION_INJECTED__'));
   });
 
-  await page.waitForFunction(() => (window as any).authReady && (window as any).__E2E_PROFILE_LOADED__, { timeout: 15000 });
+  await page.waitForFunction(() => (window as { authReady?: Promise<void> }).authReady && (window as { __E2E_PROFILE_LOADED__?: boolean }).__E2E_PROFILE_LOADED__, { timeout: 15000 });
 
   // Wait for authenticated UI (sign-out button)
   await page.waitForSelector('[data-testid="nav-sign-out-button"]', {
