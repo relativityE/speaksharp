@@ -22,6 +22,9 @@ export async function programmaticLogin(page: Page) {
   await page.addInitScript(() => {
     (window as { TEST_MODE?: boolean }).TEST_MODE = true;
     (window as { __E2E_MODE__?: boolean }).__E2E_MODE__ = true;
+    (window as any).authReady = new Promise(resolve => {
+      (window as any).authReadyResolve = resolve;
+    });
 
     // Create inline mock Supabase client
     if (!(window as { __MOCK_SUPABASE_CLIENT_INITIALIZED__?: boolean }).__MOCK_SUPABASE_CLIENT_INITIALIZED__) {
@@ -271,11 +274,11 @@ from: (table: string) => {
   console.log('[HealthCheck:Inject] ✅ Session injected');
 
   // Wait for profile to load
-  await page.waitForFunction(
-    () => (window as { __E2E_PROFILE_LOADED__?: boolean }).__E2E_PROFILE_LOADED__ === true,
-    { timeout: 15000 }
-  );
-  console.log('✅ Profile loaded');
+  await page.evaluate(() => {
+    document.dispatchEvent(new CustomEvent('__E2E_SESSION_INJECTED__'));
+  });
+
+  await page.waitForFunction(() => (window as any).authReady && (window as any).__E2E_PROFILE_LOADED__, { timeout: 15000 });
 
   // Wait for authenticated UI (sign-out button)
   await page.waitForSelector('[data-testid="nav-sign-out-button"]', {
