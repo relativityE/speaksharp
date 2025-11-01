@@ -17,31 +17,17 @@ function generateFakeJWT() {
 }
 
 export async function programmaticLogin(page: Page) {
-  // FIX #1: Inject mock Supabase client inline (not from external file)
-  console.log('[HealthCheck:Start] Beginning programmatic login.');
   await page.addInitScript(() => {
-    (window as { TEST_MODE?: boolean }).TEST_MODE = true;
-    (window as { __E2E_MODE__?: boolean }).__E2E_MODE__ = true;
-    (window as { authReady?: Promise<void> }).authReady = new Promise(resolve => {
-      (window as { authReadyResolve?: (value: void | PromiseLike<void>) => void }).authReadyResolve = resolve;
-    });
-
     // Create inline mock Supabase client
     if (!(window as { __MOCK_SUPABASE_CLIENT_INITIALIZED__?: boolean }).__MOCK_SUPABASE_CLIENT_INITIALIZED__) {
       (window as { __MOCK_SUPABASE_CLIENT_INITIALIZED__?: boolean }).__MOCK_SUPABASE_CLIENT_INITIALIZED__ = true;
 
-      console.log('[HealthCheck:MockInject] Injecting mock Supabase client.');
       const MOCK_SESSION_KEY = 'sb-mock-session';
       let session: unknown = null;
       try {
         const storedSession = localStorage.getItem(MOCK_SESSION_KEY);
         if (storedSession) {
-          console.log('[HealthCheck:MockRead] Session found in localStorage.');
           session = JSON.parse(storedSession);
-        } else {
-          console.log(
-            '[HealthCheck:MockRead] No session in localStorage.',
-          );
         }
       } catch (e) {
         console.error('[MockClient] Failed to parse stored session:', e);
@@ -72,7 +58,6 @@ export async function programmaticLogin(page: Page) {
 
             try {
               localStorage.setItem(MOCK_SESSION_KEY, JSON.stringify(session));
-              console.log('[HealthCheck:MockWrite] Session saved to localStorage.');
             } catch (e) {
               console.error('[MockClient] Failed to save session to localStorage:', e);
             }
@@ -203,18 +188,10 @@ from: (table: string) => {
   };
 },
       };
-
-      console.log('[MockClient] Supabase mock initialized inline');
     }
   });
 
-  console.log('[HealthCheck:Navigate] Navigating to root "/".');
   await page.goto('/');
-  console.log('[HealthCheck:Navigate] ✅ Page loaded');
-
-  // Wait for supabase client to be available
-  await page.waitForFunction(() => (window as { supabase?: unknown }).supabase, { timeout: 10000 });
-  console.log('[HealthCheck:Navigate] ✅ Supabase client ready');
 
   // Wait for initial app mount (loading skeleton disappears)
   await page.waitForFunction(
@@ -224,22 +201,9 @@ from: (table: string) => {
     },
     { timeout: 15000 }
   );
-  console.log('✅ App initialized');
 
   const fakeAccessToken = generateFakeJWT();
   const now = Math.floor(Date.now() / 1000);
-
-  // Set mock profile BEFORE session
-  await page.evaluate(() => {
-    (window as { __E2E_MOCK_PROFILE__?: unknown }).__E2E_MOCK_PROFILE__ = {
-      id: 'test-user-123',
-      email: 'test@example.com',
-      subscription_status: 'pro',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-  });
-  console.log('✅ Mock profile set');
 
   // Set session and wait for it to complete
   await page.evaluate(
@@ -262,23 +226,20 @@ from: (table: string) => {
         },
       };
 
-      console.log('[HealthCheck:Inject] Setting session...');
       const mockSupabase = (window as { supabase?: { auth: { setSession: (session: unknown) => Promise<unknown> } } }).supabase;
       if (mockSupabase) {
-        const result = await mockSupabase.auth.setSession(fakeSession);
-        console.log('[HealthCheck:Inject] Session set result:', result);
+        await mockSupabase.auth.setSession(fakeSession);
       }
     },
     { token: fakeAccessToken, timestamp: now }
   );
-  console.log('[HealthCheck:Inject] ✅ Session injected');
 
-  // Wait for profile to load
+  // Wait for the custom event that signals the profile has been loaded.
   await page.evaluate(() => {
-    document.dispatchEvent(new CustomEvent('__E2E_SESSION_INJECTED__'));
+    return new Promise<void>(resolve => {
+      document.addEventListener('e2e-profile-loaded', () => resolve());
+    });
   });
-
-  await page.waitForFunction(() => (window as { authReady?: Promise<void> }).authReady && (window as { __E2E_PROFILE_LOADED__?: boolean }).__E2E_PROFILE_LOADED__, { timeout: 15000 });
 
   // Wait for authenticated UI (sign-out button)
   await page.waitForSelector('[data-testid="nav-sign-out-button"]', {
@@ -287,5 +248,4 @@ from: (table: string) => {
   });
 
   await expect(page.getByTestId('nav-sign-out-button')).toBeVisible();
-  console.log('[HealthCheck:End] ✅ Login complete');
 }
