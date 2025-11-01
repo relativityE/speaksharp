@@ -2,10 +2,10 @@
 import { StrictMode } from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import './index.css';
 import logger from '@/lib/logger';
 import { AuthProvider } from './contexts/AuthProvider';
-import { SessionProvider } from './contexts/SessionProvider';
 import posthog from 'posthog-js';
 import { PostHogProvider } from 'posthog-js/react';
 import { Elements } from '@stripe/react-stripe-js';
@@ -34,6 +34,7 @@ if (!rootElement) {
 }
 
 const root = ReactDOM.createRoot(rootElement);
+const queryClient = new QueryClient();
 
 const renderApp = (initialSession: Session | null = null) => {
   if (rootElement && !window._speakSharpRootInitialized) {
@@ -106,19 +107,19 @@ const renderApp = (initialSession: Session | null = null) => {
 
         root.render(
           <StrictMode>
-            <BrowserRouter>
-              <PostHogProvider client={posthog}>
-                <AuthProvider initialSession={sessionToUse}>
-                  <SessionProvider>
+            <QueryClientProvider client={queryClient}>
+              <BrowserRouter>
+                <PostHogProvider client={posthog}>
+                  <AuthProvider initialSession={sessionToUse}>
                     <Elements stripe={stripePromise}>
                       <Sentry.ErrorBoundary fallback={<div>An error has occurred. Please refresh the page.</div>}>
                         <App />
                       </Sentry.ErrorBoundary>
                     </Elements>
-                  </SessionProvider>
-                </AuthProvider>
-              </PostHogProvider>
-            </BrowserRouter>
+                  </AuthProvider>
+                </PostHogProvider>
+              </BrowserRouter>
+            </QueryClientProvider>
           </StrictMode>
         );
       });

@@ -1,6 +1,6 @@
 
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-10-26
+**Last Reviewed:** 2025-11-01
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -145,7 +145,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Fri, 31 Oct 2025 11:38:22 GMT
+**Last Updated:** Sat, 01 Nov 2025 12:25:14 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -155,13 +155,13 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 132 |
-| Unit tests              | 126   |
+| Total tests             | 130 |
+| Unit tests              | 124   |
 | E2E tests (Playwright)  | 6  |
-| Passing tests           | 132   |
+| Passing tests           | 130   |
 | Failing tests           | 0   |
 | Disabled/skipped tests  | 0   |
-| Passing unit tests      | 126   |
+| Passing unit tests      | 124   |
 | Failing E2E tests       | 0   |
 | Total runtime           | N/A   |
 
@@ -174,7 +174,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 | Statements | N/A   |
 | Branches   | N/A   |
 | Functions  | N/A   |
-| Lines      | 32.5%   |
+| Lines      | 32.09%   |
 
 ---
 

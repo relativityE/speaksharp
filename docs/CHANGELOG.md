@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-10-26
+**Last Reviewed:** 2025-11-01
 
 # Changelog
 
@@ -9,6 +9,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Changed
+- **Architectural Refactoring:** Decoupled application data state from global authentication state.
+    - **Problem:** The `SessionProvider` (managing practice history) was tightly coupled to the `AuthProvider` (managing user identity), creating a brittle, hard-to-maintain global state.
+    - **Solution:** The `SessionProvider` was removed entirely and replaced with a modern, decoupled data-fetching architecture using `@tanstack/react-query`. A new `usePracticeHistory` hook now fetches practice history on-demand, completely separating the concern of application data from global authentication state. This makes the architecture more scalable, maintainable, and aligned with industry best practices.
 
 ### Fixed
 - **CI/CD Stability:** Resolved a critical hang in the primary `./test-audit.sh` script. The script would hang indefinitely during the "Lint and Type Checks" stage due to silent linting errors. The issue was diagnosed by following the established debugging protocol (running `pnpm lint` and `pnpm typecheck` individually), and all underlying `no-explicit-any` errors were fixed, restoring the stability of the local and CI test pipeline.

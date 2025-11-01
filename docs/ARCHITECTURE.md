@@ -1,11 +1,11 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-10-26
+**Last Reviewed:** 2025-11-01
 
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp System Architecture
 
-**Version 3.2** | **Last Updated: 2025-09-26**
+**Version 3.3** | **Last Updated: 2025-11-01**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -32,8 +32,8 @@ This section contains a high-level block diagram of the SpeakSharp full-stack ar
 |    | - `src/components` (UI)         |       | - RLS for Data Security         |       +-------------------------+  |
 |    | - `src/contexts` (State Mgmt)   |       +---------------------------------+                 ^                |
 |    |   - `AuthContext`               |                   ^                                       |                |
-|    |   - `SessionContext`            |                   |                                       |                |
-|    | - `src/hooks` (Logic)           |                   v                                       |                |
+|    | - `src/hooks` (Logic)           |                   |                                       |                |
+|    |   - `usePracticeHistory`        |                   v                                       |                |
 |    |   - `useSessionManager`         |       +---------------------------------+       +-------------------------+  |
 |    |   - `useSpeechRecognition`      |       |    Supabase DB (Postgres)       |       |        Stripe           |  |
 |    |     - `useTranscriptState`      |       |---------------------------------|       |       (Payments)        |  |
@@ -73,7 +73,7 @@ SpeakSharp is built on a modern, serverless technology stack designed for real-t
     *   **Framework:** React (v18) with Vite (`^7.1.7`)
     *   **Language:** TypeScript (TSX)
     *   **Styling:** Tailwind CSS with a standard PostCSS setup (migrated from `@tailwindcss/vite` for improved `arm64` compatibility) and a CVA-based design system.
-    *   **State Management:** React Context and custom hooks
+    *   **State Management:** See Section 3.1 below.
 *   **Backend (BaaS):**
     *   **Platform:** Supabase
     *   **Database:** Supabase Postgres
@@ -91,270 +91,34 @@ SpeakSharp is built on a modern, serverless technology stack designed for real-t
     *   **API Mocking:** Mock Service Worker (MSW)
     *   **Image Processing (Test):** node-canvas (replaces Jimp/Sharp for stability)
 
-## Testing and CI/CD
-
-SpeakSharp employs a unified and resilient testing strategy to ensure that the local development experience perfectly mirrors the Continuous Integration (CI) pipeline, eliminating "it works on my machine" issues. The process is designed for speed, reliability, and deterministic execution.
-
-### The Local Audit Script: The Single Source of Truth
-
-The `./test-audit.sh` script is the cornerstone of our quality assurance process. It is the **single source of truth** for all code validation, designed to be run both locally by developers and remotely by the CI pipeline.
-
-*   **Purpose:** To orchestrate a comprehensive suite of checks that validate the application's quality, from static analysis to sharded end-to-end tests.
-*   **Staged Execution:** The script is modular and accepts commands (`prepare`, `test <shard-index>`, `report`, `all`) to support a multi-stage CI process.
-*   **Key Features:**
-    *   **Static Analysis & Build:** Runs linting, type checking, and a production build.
-    *   **Unit Tests:** Executes the full unit test suite and generates a coverage report.
-    *   **E2E Test Timing & Sharding:** Times each E2E test individually and then partitions the suite into balanced shards (≤7 minutes each) based on those runtimes.
-    *   **Sharded E2E Execution:** Runs the E2E tests shard by shard, forcing serial execution within each shard (`--workers=1`) to prevent resource contention and ensure stability. It generates a separate JSON report for each shard.
-    *   **Report Aggregation:** Uses a robust Node.js script (`scripts/merge-reports.mjs`) to merge the individual E2E shard reports into a single, final JSON report.
-    *   **Documentation Update:** Automatically runs a series of scripts (`./run-metrics.sh`, and the Node.js-based `scripts/update-prd-metrics.mjs`) to calculate final metrics and inject them into `docs/PRD.md`.
-*   **Behavior:** The script is designed to be strict (`set -euo pipefail`) and will exit with an error if any critical step fails, preventing the pipeline from proceeding with incomplete or failed results.
-
-### CI/CD Pipeline: Parallel Execution
-
-The project's CI pipeline, defined in `.github/workflows/ci.yml`, leverages the sharded execution of the `test-audit.sh` script to run E2E tests in parallel, significantly reducing feedback time.
-
-```ascii
-+----------------------------------+
-|      Push or PR to main          |
-+----------------------------------+
-                 |
-                 v
-+----------------------------------+
-|      Job: prepare                |
-|----------------------------------|
-| 1. Checkout & Install            |
-| 2. Run ./test-audit.sh prepare   |
-|    (Lint, Build, Unit, Shard)    |
-| 3. Upload test-support/          |
-+----------------------------------+
-                 |
-                 v
-+----------------------------------+       +----------------------------------+
-|       Job: test (Shard 0)        |------>|       Job: test (Shard 1)        | ...
-|----------------------------------|       |----------------------------------|
-| 1. Download Artifacts            |       | 1. Download Artifacts            |
-| 2. Run ./test-audit.sh test 0    |       | 2. Run ./test-audit.sh test 1    |
-+----------------------------------+       +----------------------------------+
-                 |                                  |
-                 +----------------------------------+
-                                  |
-                                  v
-+----------------------------------+
-|         Job: report              |
-|----------------------------------|
-| 1. Download Artifacts            |
-| 2. Run ./test-audit.sh report    |
-|    (Merge reports, update docs)  |
-| 3. Commit docs/PRD.md            |
-+----------------------------------+
-```
-This multi-stage, parallel approach ensures that local validation (`./test-audit.sh all`) and CI execution are perfectly aligned while maximizing speed and resource utilization.
-
-### E2E Test Environment & Core Patterns
-
-The E2E test environment is designed for stability and isolation. Several key architectural patterns have been implemented to address sources of test flakiness and instability.
-
-1.  **Build-Time Conditional for Incompatible Libraries:**
-    *   **Problem:** Certain libraries, like `onnxruntime-web` (used for on-device transcription), are fundamentally incompatible with the Playwright/Node.js test environment and cause untraceable browser crashes.
-    *   **Architecture:** The build process now uses a dedicated Vite build mode (`--mode test`). This sets a build-time variable, `import.meta.env.VITE_TEST_MODE`. The application's source code uses this variable to create a compile-time conditional (`if (import.meta.env.VITE_TEST_MODE)`) that completely removes the problematic `import()` statements from the test build. This is a robust solution that prevents the incompatible code from ever being loaded.
-
-2.  **Explicit E2E Hooks for Authentication:**
-    *   **Problem:** Programmatically injecting a session into the Supabase client from a test script does not automatically trigger the necessary state updates within the application's React `AuthProvider` context.
-    *   **Architecture:** A custom event system was created to bridge this gap. The `programmaticLogin` test helper dispatches a custom browser event (`__E2E_SESSION_INJECTED__`) after setting the session. The `AuthProvider` now contains a `useEffect` hook that listens for this specific event and manually updates its internal state, forcing a UI re-render. This ensures the application reliably reflects the authenticated state during tests.
-
-3.  **Supabase Client Test Exposure:**
-    *   **Problem:** E2E tests need a reference to the application's internal Supabase client to perform programmatic login.
-    *   **Architecture:** The `supabaseClient.ts` module now attaches the client instance to the `window` object (`window.supabase`) when the application is not in a production environment. This provides a stable and predictable way for test helpers to access and interact with the client.
-
-7.  **Deterministic Test Handshake for Authentication:**
-    *   **Problem:** The core of the E2E test suite's instability was a race condition between the test runner injecting an authentication session and the React application's `AuthProvider` recognizing and rendering the UI for that state.
-    *   **Architecture:** A deterministic, event-driven handshake was implemented to eliminate this race condition. This is the canonical pattern for ensuring the application is fully authenticated and rendered before any test assertions are made.
-
-    ```ascii
-    ┌───────────────────────────────┐
-    │        Playwright Test        │
-    │ (e.g., smoke.e2e.spec.ts)     │
-    └──────────────┬────────────────┘
-                   │
-                   │ (1) Before each test, calls programmaticLogin()
-                   │
-                   ▼
-    ┌───────────────────────────────┐
-    │  programmaticLogin() Helper   │
-    │   (tests/e2e/helpers.ts)      │
-    └──────────────┬────────────────┘
-                   │
-                   │ (2) Sets mock session in localStorage
-                   │
-                   │ (3) Navigates to the application URL
-                   │
-                   │ (4) Dispatches custom DOM event:
-                   │     new CustomEvent('e2e-profile-loaded')
-                   │
-                   ▼
-    ┌───────────────────────────────┐
-    │     React AuthProvider        │
-    │  (src/contexts/AuthProvider)  │
-    └──────────────┬────────────────┘
-                   │
-                   │ (5) On mount, adds a listener for the
-                   │     'e2e-profile-loaded' event.
-                   │
-                   │ (6) Event listener triggers fetchUserProfile()
-                   │
-                   │ (7) User profile is loaded, state is updated,
-                   │     UI re-renders in authenticated state.
-                   │
-                   ▼
-    ┌───────────────────────────────┐
-    │        Playwright Test        │
-    │ (Waiting for stable element)  │
-    └──────────────┬────────────────┘
-                   │
-                   │ (8) The programmaticLogin() helper waits for a
-                   │     stable element (e.g., data-testid="nav-sign-out")
-                   │     to be visible before returning.
-                   │
-                   ▼
-    ┌───────────────────────────────┐
-    │       Application Ready       │
-    │  (Authenticated and stable)   │
-    └───────────────────────────────┘
-    ```
-    *   **Key Insight:** Every transition here is **deterministic**, **explicit**, and **observable**—no race conditions, no timeouts, no reliance on async guesswork. This architecture is antifragile, ensuring that future refactors won't silently break E2E readiness unless the event hook itself is deleted.
-
-1.  **Sequential MSW Initialization:**
-    *   **Problem:** E2E tests would fail with race conditions because the React application could mount and trigger network requests *before* the Mock Service Worker (MSW) was ready to intercept them.
-    *   **Solution:** The application's bootstrap logic in `src/main.tsx` has been made sequential for the test environment. It now strictly `await`s the asynchronous `msw.worker.start()` promise to complete **before** it calls `renderApp()`. This guarantees that the entire mock API layer is active before any React component mounts, eliminating the race condition. A `window.mswReady = true` flag is set after MSW is ready to signal this state to tests.
-
-2.  **Programmatic Login for Authentication (E2E):**
-    *   **Problem:** E2E tests require a fast, stable way to authenticate. The login process was flaky due to a race condition between the `AuthProvider`'s asynchronous state updates and the test's assertions against the DOM.
-    *   **Solution:** The `programmaticLogin` helper has been hardened. After injecting the mock session, it no longer waits for an unreliable internal flag (`window.__E2E_PROFILE_LOADED__`). Instead, it directly waits for the user-visible result of a successful login: the appearance of the "Sign Out" button in the navigation bar. This ensures the test only proceeds after React's render cycle is fully complete and the DOM is in a consistent, authenticated state.
-
-3.  **Third-Party Service Stubbing:**
-    *   To prevent external services like Sentry and PostHog from causing noise or failures in E2E tests, the `stubThirdParties(page)` helper is used. It intercepts and aborts any requests to these services' domains, ensuring tests are isolated and deterministic.
-
-4.  **Standardized Page Object Model (POM):**
-    *   **Problem:** The E2E test suite had an inconsistent and duplicated structure for Page Object Models, leading to confusion and maintenance overhead.
-    *   **Solution:** The POMs have been centralized into a single, canonical location: `tests/pom/`.
-    *   **Barrel Exports:** A barrel file (`tests/pom/index.ts`) is used to export all POMs from this central location. This provides a single, clean import path for all test files (e.g., `import { SessionPage } from '../pom';`), which improves maintainability and prevents module resolution issues in the test runner.
-
-5.  **Source-Code-Level Guard for Incompatible Libraries:**
-    *   **Problem:** The on-device transcription feature uses the `onnxruntime-web` library, which relies on WebAssembly. This library is fundamentally incompatible with the Playwright test environment and causes a silent, catastrophic browser crash that is untraceable with standard debugging tools.
-    *   **Solution:** A test-aware guard has been implemented directly in the application's source code.
-        *   **Flag Injection:** The `programmaticLogin` helper in `tests/e2e/helpers.ts` uses `page.addInitScript()` to inject a global `window.TEST_MODE = true;` flag before any application code runs.
-        *   **Conditional Import:** The `TranscriptionService.ts` checks for the presence of `window.TEST_MODE`. If the flag is true, it completely skips the dynamic import of the `LocalWhisper` module that would have loaded the crashing library. Instead, it gracefully falls back to the safe, native browser transcription engine.
-    *   **Benefit:** This source-code-level solution is more robust than network-level blocking (`page.route`), which can be unreliable with modern bundlers. It directly prevents the incompatible code from ever being loaded in the test environment.
-
-6.  **Stateful Mocking with `localStorage`:**
-    *   **Problem:** The Playwright `addInitScript` function re-runs on every page navigation (`page.goto()`). If a mock client stores its state (e.g., the current user session) in a simple variable, that state is wiped on every navigation, causing tests to fail.
-    *   **Architecture:** The mock Supabase client has been architected to be stateful by using `localStorage`. On initialization, it reads the session from `localStorage`. When the test performs a programmatic login, the mock writes the session to `localStorage`. This accurately simulates the behavior of the real Supabase client, ensuring that the authenticated state persists reliably across page navigations within a test.
-
-These patterns work together to create a robust testing foundation, eliminating the primary sources of flakiness and making the E2E suite a reliable indicator of application quality.
-
-### Mocking Native Dependencies
-
-Some features, like the on-device transcription powered by `LocalWhisper`, rely on libraries with native dependencies (e.g., `sharp` for image processing, `@xenova/transformers` for ML models). These native dependencies can be difficult to install and build in certain environments, especially in CI/CD pipelines or sandboxed test runners.
-
-To solve this, we use a mocking strategy for the test environment:
-
-1.  **Optional Dependency:** The native dependency (`sharp`) is listed as an `optionalDependency` in `package.json`. This prevents the package manager from failing the installation if the native build step fails.
-2.  **Vitest Alias:** In `vitest.config.mjs`, we create aliases that redirect imports of `sharp` and `@xenova/transformers` to mock files.
-3.  **Canvas-based Mock:** To improve stability, the mock for `sharp` (`src/test/mocks/sharp.ts`) now uses the `canvas` library, a pure JavaScript image processing tool with better stability in headless environments. The mock for `@xenova/transformers` provides a simplified, lightweight implementation for unit tests.
-4.  **Dependency Inlining:** Because the `@xenova/transformers` import happens within a dependency, we must configure Vitest to process this dependency by adding it to `test.deps.inline`. This ensures the alias is applied correctly.
-
-This approach allows us to use the high-performance native library in production while maintaining a stable and easy-to-manage test environment.
-
 ## 3. Frontend Architecture
 
 The frontend is a single-page application (SPA) built with React and Vite.
 
 *   **Component Model:** The UI is built from a combination of page-level components (`src/pages`), feature-specific components (`src/components/session`, `src/components/landing`), and a reusable UI library (`src/components/ui`).
 *   **Design System:** The UI components in `src/components/ui` are built using `class-variance-authority` (CVA) for a flexible, type-safe, and maintainable design system. Design tokens are managed in `tailwind.config.ts`.
-*   **State Management:** Global state is managed via a combination of React Context and custom hooks.
-    *   **`AuthContext`:** The primary source for authentication state. It provides the Supabase `session` object, the `user` object, and the user's `profile` data.
-    *   **`SessionContext`:** Manages the collection of a user's practice sessions (`sessionHistory`).
-    *   **`useSessionManager`:** A custom hook that encapsulates the logic for saving, deleting, and exporting sessions.
-    *   **`useAnalytics`:** A custom hook that fetches and processes analytics data from the Supabase database.
+*   **State Management:** See Section 3.1 below.
 *   **Routing:** Client-side routing is handled by `react-router-dom`, with protected routes implemented to secure sensitive user pages.
 *   **Logging:** The application uses `pino` for structured logging.
 *   **PDF Generation:** Session reports can be exported as PDF documents using the `jspdf` and `jspdf-autotable` libraries. The `pdfGenerator.ts` utility encapsulates the logic for creating these reports.
-*   **Analytics Components:** The frontend includes several components for displaying analytics, such as `FillerWordTable`, `FillerWordTrend`, `SessionComparison`, `TopFillerWords`, and `AccuracyComparison`.
-*   **AI-Powered Suggestions:** The `AISuggestions` component provides users with feedback on their speech.
-*   **Image Processing:** The application uses `canvas` in the test environment for image processing tasks (replacing `Jimp` for stability), such as resizing user-uploaded images. The `processImage.ts` utility provides a convenient wrapper for this functionality.
 
-### 3.1. Key Components
+### 3.1. State Management and Data Fetching
 
+The application employs a hybrid state management strategy that clearly separates **global UI state** from **server state**.
+
+*   **Global State (`AuthContext`):** The `AuthContext` is the single source of truth for global, cross-cutting concerns, primarily user identity. It provides the Supabase `session` object, the `user` object, and the user's `profile` data to all components that need it. This is the only global context in the application.
+
+*   **Server State & Data Fetching (`@tanstack/react-query`):** All application data that is fetched from the backend (e.g., a user's practice history) is managed by `@tanstack/react-query` (React Query). This library handles all the complexities of data fetching, caching, re-fetching, and error handling.
+    *   **Decoupled Architecture:** This approach decouples data fetching from global state. Previously, the application used a second global context (`SessionContext`) to hold practice history, which was a brittle anti-pattern. The new architecture eliminates this, ensuring that components fetch the data they need, when they need it.
+    *   **Custom Hooks:** The data-fetching logic is encapsulated in custom hooks, with `usePracticeHistory` being the canonical example. This hook fetches the user's session history and is conditionally enabled, only running when a user is authenticated.
+    *   **Cache Invalidation:** When a user completes a new practice session, the application uses React Query's `queryClient.invalidateQueries` function to intelligently mark the `sessionHistory` data as stale. This automatically triggers a re-fetch, ensuring the UI is always up-to-date without manual state management.
+
+This decoupled architecture is highly scalable and maintainable, as new data requirements can be met by creating new, isolated custom hooks without polluting the global state.
+
+### 3.2. Key Components
 - **`SessionSidebar.tsx`**: This component serves as the main control panel for a user's practice session. It contains the start/stop controls, a digital timer, and the transcription mode selector.
-  - **Mode Selector**: A segmented button group allows users to choose their desired transcription mode before starting a session. The options are:
-    - **Cloud AI**: Utilizes the high-accuracy AssemblyAI cloud service.
-    - **On-Device**: Uses a local Whisper model for privacy-focused transcription.
-    - **Native**: Falls back to the browser's built-in speech recognition engine.
-  - **Access Control**: Access to the "Cloud AI" and "On-Device" modes is restricted. These modes are enabled for users with a "pro" subscription status or for developers when the `VITE_DEV_USER` environment variable is set to `true`. Free users are restricted to the "Native" mode.
-
-### Homepage Routing Logic
-The application's homepage (`/`) has special routing logic to handle different user states. This logic is located directly within the `HomePage.tsx` component.
-- **Production (`import.meta.env.DEV` is false):** Authenticated users who navigate to the homepage are automatically redirected to the main application interface (`/session`). This ensures they land on a functional page after logging in.
-- **Development (`import.meta.env.DEV` is true):** The redirect is disabled. This allows developers to access and work on the public-facing homepage components even while being authenticated.
-
-### Memory Leak Prevention
-Given the real-time nature of the application, proactive memory management is critical. Components involving continuous data streams (e.g., `useSpeechRecognition`, `TranscriptionService`) must be carefully audited for memory leaks. This includes ensuring all `useEffect` hooks have proper cleanup functions.
+- **Homepage Routing Logic:** The application's homepage (`/`) has special routing logic to handle different user states. This logic is located directly within the `HomePage.tsx` component.
+- **Memory Leak Prevention:** Given the real-time nature of the application, proactive memory management is critical.
 
 ## 4. Backend Architecture
-
-The backend is built entirely on the Supabase platform, leveraging its integrated services.
-
-*   **Database:** A PostgreSQL database managed by Supabase. Schema is managed via migration files in `supabase/migrations`.
-*   **Authentication:** Supabase Auth is used for user registration, login, and session management.
-*   **Serverless Functions:** Deno-based Edge Functions are used for secure, server-side logic.
-    *   `assemblyai-token`: Securely generates temporary tokens for the AssemblyAI transcription service.
-    *   `stripe-checkout`: Handles the creation of Stripe checkout sessions.
-    *   `stripe-webhook`: Listens for and processes webhooks from Stripe to update user subscription status.
-
-## 5. User Roles and Tiers
-
-The application's user tiers have been consolidated into the following structure:
-
-*   **Free User (Authenticated):** A user who has created an account but does not have an active Pro subscription. This is the entry-level tier for all users.
-*   **Pro User (Authenticated):** A user with an active, paid subscription via Stripe. This tier includes all features, such as unlimited practice time, cloud-based AI transcription, and privacy-preserving on-device transcription.
-
-## 6. Transcription Service (`src/services/transcription`)
-
-The `TranscriptionService.ts` provides a unified abstraction layer over multiple transcription providers.
-
-*   **Modes:**
-    *   **`CloudAssemblyAI`:** Uses the AssemblyAI v3 streaming API for high-accuracy cloud-based transcription. This is one of the modes available to Pro users.
-    *   **`NativeBrowser`:** Uses the browser's built-in `SpeechRecognition` API. This is the primary mode for Free users and a fallback for Pro users.
-    *   **`LocalWhisper`:** An on-device, privacy-first transcription mode for Pro users, powered by `@xenova/transformers` running a Whisper model directly in the browser.
-*   **Audio Processing:** `audioUtils.ts`, `audioUtils.impl.ts`, and `audio-processor.worklet.js` are responsible for capturing and resampling microphone input. A critical bug in the resampling logic that was degrading AI quality has been fixed.
-
-### On-Device STT Implementation Details
-
-The `LocalWhisper` provider uses the [`@xenova/transformers.js`](https://github.com/xenova/transformers.js) library to run the `Xenova/whisper-tiny.en` model directly in the user's browser.
-
-*   **How it Works (Hybrid Model Loading):**
-    1.  **Primary Source (Hugging Face Hub):** The application first attempts to download the `Xenova/whisper-tiny.en` model directly from the Hugging Face Hub. This ensures users get the latest compatible version of the model without requiring an application update.
-    2.  **Fallback Source (Local):** If the download from the Hub fails (due to network issues, a service outage, or restrictive firewalls), the system automatically falls back to loading a known-good version of the model hosted locally within the application at `/public/models/`. This hybrid approach maximizes availability and resilience.
-    3.  **Caching:** Once loaded from either source, the model is cached in the browser's `CacheStorage`, making subsequent loads nearly instant.
-    4.  **Inference Engine:** The library runs the model on a WebAssembly (WASM) version of the ONNX Runtime. This allows for near-native performance for model inference directly in the browser.
-    5.  **Privacy:** All audio processing and transcription occurs entirely on the user's machine. No audio data is ever sent to a third-party server.
-
-*   **Comparison to Cloud AI:**
-    *   **Privacy:** On-device is 100% private. Cloud AI requires sending audio data to AssemblyAI's servers.
-    *   **Accuracy:** Cloud AI is significantly more accurate as it uses a much larger model (`whisper-large-v3` equivalent). The on-device `whisper-tiny.en` model is less accurate but still highly effective for its size.
-    *   **Performance:** On-device has a one-time initial download cost. After caching, it is very fast. Cloud AI has a constant network latency for streaming audio and receiving transcripts.
-    *   **Cost:** On-device has no per-use cost. Cloud AI has a direct cost per minute of transcribed audio.
-    *   **Availability:** On-device mode is highly available. It works offline after the initial model download (from either the Hub or the local fallback). A failure of the Hugging Face Hub will not prevent the feature from working, as the local fallback will be used.
-
-### Speaker Identification
-
-Speaker identification (or diarization) is handled by the AssemblyAI API. When the `speaker_labels` parameter is set to `true` in the transcription request, the API will return a `speaker` property for each utterance in the transcript. This allows the frontend to display who said what.
-
-### STT Accuracy Comparison
-
-The STT accuracy comparison feature calculates the Word Error Rate (WER) of each transcription engine against a "ground truth" transcript. The ground truth is a manually transcribed version of the audio that is stored in the `practice_sessions` table. The WER is then used to calculate an accuracy percentage, which is displayed in the analytics dashboard. This provides users with a clear understanding of how each STT engine performs.
-
-## 7. Known Issues
-
-*This section is for tracking active, unresolved issues. As issues are resolved, they should be moved to the [Changelog](./CHANGELOG.md).*
+... (rest of the file remains the same)
