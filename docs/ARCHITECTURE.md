@@ -39,6 +39,7 @@ This section contains a high-level block diagram of the SpeakSharp full-stack ar
 |    |     - `useTranscriptState`      |       | - `users`, `sessions`           |<----->| (via webhooks)          |  |
 |    |     - `useFillerWords`          |       | - `transcripts`, `usage`        |       +-------------------------+  |
 |    |     - `useTranscriptionService` |       | - `ground_truth` in sessions    |                 ^                |
+|    | - `src/lib` (Utils)             |       +---------------------------------+                 |                |
 |    |   - `pdfGenerator`              |<----->| - `users`, `sessions`           |<----->| (via webhooks)          |  |
 |    +---------------------------------+       | - `transcripts`, `usage`        |       +-------------------------+  |
 |              |         |                      +---------------------------------+                 ^                |
