@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-10-26
+**Last Reviewed:** 2025-11-01
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -39,7 +39,6 @@ This section contains a high-level block diagram of the SpeakSharp full-stack ar
 |    |     - `useTranscriptState`      |       | - `users`, `sessions`           |<----->| (via webhooks)          |  |
 |    |     - `useFillerWords`          |       | - `transcripts`, `usage`        |       +-------------------------+  |
 |    |     - `useTranscriptionService` |       | - `ground_truth` in sessions    |                 ^                |
-|    |   - `useAnalytics`              |       | - `src/lib` (Utils)             |       +---------------------------------+                 |                |
 |    |   - `pdfGenerator`              |<----->| - `users`, `sessions`           |<----->| (via webhooks)          |  |
 |    +---------------------------------+       | - `transcripts`, `usage`        |       +-------------------------+  |
 |              |         |                      +---------------------------------+                 ^                |
@@ -275,6 +274,9 @@ The frontend is a single-page application (SPA) built with React and Vite.
 *   **Routing:** Client-side routing is handled by `react-router-dom`, with protected routes implemented to secure sensitive user pages.
 *   **Logging:** The application uses `pino` for structured logging.
 *   **PDF Generation:** Session reports can be exported as PDF documents using the `jspdf` and `jspdf-autotable` libraries. The `pdfGenerator.ts` utility encapsulates the logic for creating these reports.
+*   **Analytics Components:** The frontend includes several components for displaying analytics, such as `FillerWordTable`, `FillerWordTrend`, `SessionComparison`, `TopFillerWords`, and `AccuracyComparison`.
+*   **AI-Powered Suggestions:** The `AISuggestions` component provides users with feedback on their speech.
+*   **Image Processing:** The application uses `canvas` in the test environment for image processing tasks (replacing `Jimp` for stability), such as resizing user-uploaded images. The `processImage.ts` utility provides a convenient wrapper for this functionality.
 
 ### 3.1. State Management and Data Fetching
 
