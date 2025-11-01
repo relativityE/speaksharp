@@ -1,14 +1,14 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../contexts/useAuth';
-import { useSession } from '../contexts/useSession';
+import { usePracticeHistory } from '../hooks/usePracticeHistory';
 import { Button } from './ui/button';
 import { SideNav } from './SideNav';
 import { Home } from 'lucide-react';
 
 export const Header: React.FC = () => {
     const { user, signOut } = useAuth();
-    const { sessionHistory } = useSession();
+    const { data: sessionHistory } = usePracticeHistory();
 
     const getNavLinkClass = ({ isActive }: { isActive: boolean }) =>
         `flex items-center px-3 py-2 rounded-md text-base font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors ${

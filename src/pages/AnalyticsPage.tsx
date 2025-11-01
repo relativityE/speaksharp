@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { NavLink, useNavigate, useParams } from 'react-router-dom';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
-import { useSession } from '../contexts/useSession';
+import { usePracticeHistory } from '../hooks/usePracticeHistory';
 import { useAuth } from '../contexts/useAuth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -33,7 +33,7 @@ const UpgradeBanner: React.FC = () => {
 
 const AuthenticatedAnalyticsView: React.FC = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
-    const { sessionHistory, loading, error } = useSession();
+    const { data: sessionHistory = [], isLoading: loading, error } = usePracticeHistory();
     const { user, profile } = useAuth();
     const [singleSession, setSingleSession] = useState<PracticeSession | null>(null);
 

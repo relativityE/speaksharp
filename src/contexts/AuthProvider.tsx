@@ -105,6 +105,16 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     }
   }, []);
 
+  useEffect(() => {
+    if (import.meta.env.MODE === 'test' && profile) {
+      console.log('[E2E] Profile loaded successfully:', {
+        email: session?.user?.email,
+        id: profile?.id
+      });
+      document.dispatchEvent(new CustomEvent('e2e-profile-loaded'));
+    }
+  }, [profile, session]);
+
   if (loading) {
     return (
       <div className="w-full h-screen flex justify-center items-center" data-testid="loading-skeleton-container">

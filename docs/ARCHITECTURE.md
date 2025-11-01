@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-10-26
+**Last Reviewed:** 2025-11-01
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -32,15 +32,13 @@ This section contains a high-level block diagram of the SpeakSharp full-stack ar
 |    | - `src/components` (UI)         |       | - RLS for Data Security         |       +-------------------------+  |
 |    | - `src/contexts` (State Mgmt)   |       +---------------------------------+                 ^                |
 |    |   - `AuthContext`               |                   ^                                       |                |
-|    |   - `SessionContext`            |                   |                                       |                |
 |    | - `src/hooks` (Logic)           |                   v                                       |                |
-|    |   - `useSessionManager`         |       +---------------------------------+       +-------------------------+  |
-|    |   - `useSpeechRecognition`      |       |    Supabase DB (Postgres)       |       |        Stripe           |  |
-|    |     - `useTranscriptState`      |       |---------------------------------|       |       (Payments)        |  |
-|    |     - `useFillerWords`          |       | - `users`, `sessions`           |<----->| (via webhooks)          |  |
-|    |     - `useTranscriptionService` |       | - `transcripts`, `usage`        |       +-------------------------+  |
-|    |   - `useAnalytics`              |       | - `ground_truth` in sessions    |                 ^                |
-|    | - `src/lib` (Utils)             |       +---------------------------------+                 |                |
+|    |   - `usePracticeHistory`        |       +---------------------------------+       +-------------------------+  |
+|    |   - `useSessionManager`         |       |    Supabase DB (Postgres)       |       |        Stripe           |  |
+|    |   - `useSpeechRecognition`      |       |---------------------------------|       |       (Payments)        |  |
+|    |     - `useTranscriptState`      |       | - `users`, `sessions`           |<----->| (via webhooks)          |  |
+|    |     - `useFillerWords`          |       | - `transcripts`, `usage`        |       +-------------------------+  |
+|    |     - `useTranscriptionService` |       | - `ground_truth` in sessions    |                 ^                |
 |    |   - `pdfGenerator`              |<----->| - `users`, `sessions`           |<----->| (via webhooks)          |  |
 |    +---------------------------------+       | - `transcripts`, `usage`        |       +-------------------------+  |
 |              |         |                      +---------------------------------+                 ^                |
@@ -272,11 +270,7 @@ The frontend is a single-page application (SPA) built with React and Vite.
 
 *   **Component Model:** The UI is built from a combination of page-level components (`src/pages`), feature-specific components (`src/components/session`, `src/components/landing`), and a reusable UI library (`src/components/ui`).
 *   **Design System:** The UI components in `src/components/ui` are built using `class-variance-authority` (CVA) for a flexible, type-safe, and maintainable design system. Design tokens are managed in `tailwind.config.ts`.
-*   **State Management:** Global state is managed via a combination of React Context and custom hooks.
-    *   **`AuthContext`:** The primary source for authentication state. It provides the Supabase `session` object, the `user` object, and the user's `profile` data.
-    *   **`SessionContext`:** Manages the collection of a user's practice sessions (`sessionHistory`).
-    *   **`useSessionManager`:** A custom hook that encapsulates the logic for saving, deleting, and exporting sessions.
-    *   **`useAnalytics`:** A custom hook that fetches and processes analytics data from the Supabase database.
+*   **State Management:** See Section 3.1 below.
 *   **Routing:** Client-side routing is handled by `react-router-dom`, with protected routes implemented to secure sensitive user pages.
 *   **Logging:** The application uses `pino` for structured logging.
 *   **PDF Generation:** Session reports can be exported as PDF documents using the `jspdf` and `jspdf-autotable` libraries. The `pdfGenerator.ts` utility encapsulates the logic for creating these reports.
@@ -284,7 +278,20 @@ The frontend is a single-page application (SPA) built with React and Vite.
 *   **AI-Powered Suggestions:** The `AISuggestions` component provides users with feedback on their speech.
 *   **Image Processing:** The application uses `canvas` in the test environment for image processing tasks (replacing `Jimp` for stability), such as resizing user-uploaded images. The `processImage.ts` utility provides a convenient wrapper for this functionality.
 
-### 3.1. Key Components
+### 3.1. State Management and Data Fetching
+
+The application employs a hybrid state management strategy that clearly separates **global UI state** from **server state**.
+
+*   **Global State (`AuthContext`):** The `AuthContext` is the single source of truth for global, cross-cutting concerns, primarily user identity. It provides the Supabase `session` object, the `user` object, and the user's `profile` data to all components that need it. This is the only global context in the application.
+
+*   **Server State & Data Fetching (`@tanstack/react-query`):** All application data that is fetched from the backend (e.g., a user's practice history) is managed by `@tanstack/react-query` (React Query). This library handles all the complexities of data fetching, caching, re-fetching, and error handling.
+    *   **Decoupled Architecture:** This approach decouples data fetching from global state. Previously, the application used a second global context (`SessionContext`) to hold practice history, which was a brittle anti-pattern. The new architecture eliminates this, ensuring that components fetch the data they need, when they need it.
+    *   **Custom Hooks:** The data-fetching logic is encapsulated in custom hooks, with `usePracticeHistory` being the canonical example. This hook fetches the user's session history and is conditionally enabled, only running when a user is authenticated.
+    *   **Cache Invalidation:** When a user completes a new practice session, the application uses React Query's `queryClient.invalidateQueries` function to intelligently mark the `sessionHistory` data as stale. This automatically triggers a re-fetch, ensuring the UI is always up-to-date without manual state management.
+
+This decoupled architecture is highly scalable and maintainable, as new data requirements can be met by creating new, isolated custom hooks without polluting the global state.
+
+### 3.2. Key Components
 
 - **`SessionSidebar.tsx`**: This component serves as the main control panel for a user's practice session. It contains the start/stop controls, a digital timer, and the transcription mode selector.
   - **Mode Selector**: A segmented button group allows users to choose their desired transcription mode before starting a session. The options are:
