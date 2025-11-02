@@ -1,14 +1,30 @@
-import React, { useEffect, useState } from 'react';
+import React, { useMemo } from 'react';
 import { NavLink, useNavigate, useParams } from 'react-router-dom';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
-import { useSession } from '../contexts/useSession';
+import { usePracticeHistory } from '../hooks/usePracticeHistory';
 import { useAuth } from '../contexts/useAuth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Zap, Sparkles, BarChart } from 'lucide-react';
-import type { PracticeSession } from '@/types/session';
+import { Skeleton } from '@/components/ui/skeleton';
 
 // --- Sub-components ---
+
+const DashboardSkeleton: React.FC = () => (
+    <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 items-start">
+        <div className="lg:col-span-4">
+            <div className="mb-8">
+                <Skeleton className="h-8 w-1/2 mb-2" />
+                <Skeleton className="h-4 w-3/4" />
+            </div>
+            <Card>
+                <CardContent className="p-6">
+                    <Skeleton className="h-40 w-full" />
+                </CardContent>
+            </Card>
+        </div>
+    </div>
+);
 
 const UpgradeBanner: React.FC = () => {
     const navigate = useNavigate();
@@ -33,21 +49,22 @@ const UpgradeBanner: React.FC = () => {
 
 const AuthenticatedAnalyticsView: React.FC = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
-    const { sessionHistory, loading, error } = useSession();
+    const { data: sessionHistory = [], isLoading: loading, error } = usePracticeHistory();
     const { user, profile } = useAuth();
-    const [singleSession, setSingleSession] = useState<PracticeSession | null>(null);
+
+    const singleSession = useMemo(() => {
+        if (!sessionId || sessionHistory.length === 0) {
+            return null;
+        }
+        return sessionHistory.find(s => s.id === sessionId) || null;
+    }, [sessionId, sessionHistory]);
 
     const isPro = profile?.subscription_status === 'pro';
     const displaySessions = sessionId ? (singleSession ? [singleSession] : []) : sessionHistory;
 
-    useEffect(() => {
-        if (sessionId && sessionHistory.length > 0) {
-            const foundSession = sessionHistory.find(s => s.id === sessionId);
-            setSingleSession(foundSession || null);
-        } else {
-            setSingleSession(null);
-        }
-    }, [sessionId, sessionHistory]);
+    if (loading) {
+        return <DashboardSkeleton />;
+    }
 
     if (sessionId && !singleSession && !loading && !error) {
          return (

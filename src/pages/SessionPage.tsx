@@ -14,7 +14,7 @@ import ErrorBoundary from '../components/ErrorBoundary';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { UpgradePromptDialog } from '@/components/UpgradePromptDialog';
 import { useAuth } from '../contexts/useAuth';
-import { useSession } from '../contexts/useSession';
+import { useQueryClient } from '@tanstack/react-query';
 import logger from '@/lib/logger';
 import type { PracticeSession } from '@/types/session';
 
@@ -84,7 +84,7 @@ const LeftColumnContent: React.FC<LeftColumnContentProps> = ({ speechRecognition
 export const SessionPage: React.FC = () => {
     const { user, profile, session, loading } = useAuth();
     const { saveSession: saveSessionToBackend } = useSessionManager();
-    const { addSession } = useSession();
+    const queryClient = useQueryClient();
     const [customWords, setCustomWords] = useState<string[]>([]);
     const [usageLimitExceeded, setUsageLimitExceeded] = useState(false);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -138,7 +138,7 @@ export const SessionPage: React.FC = () => {
     const saveAndBroadcastSession = async (sessionData: Partial<PracticeSession>) => {
         const result = await saveSessionToBackend(sessionData);
         if (result.session) {
-            addSession(result.session);
+            queryClient.invalidateQueries({ queryKey: ['sessionHistory', user?.id] });
         }
         if (result.usageExceeded) {
             setUsageLimitExceeded(true);
