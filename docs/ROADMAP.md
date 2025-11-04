@@ -73,7 +73,6 @@ This section is a prioritized list of technical debt items to be addressed.
 - **P1 (High): Add Unit Test Coverage for Core Features**
   - **Problem:** A new mandate requires unit tests for all features. The following are missing coverage:
     - **Transcription Modes:** `LocalWhisper`, `NativeBrowser`.
-    - **Session & Analytics:** `SessionContext`.
 
 - **P2 (Medium): Add E2E Test for Analytics Empty State**
   - **Problem:** There is no E2E test coverage for the analytics page when a new user has no session history.
@@ -106,6 +105,10 @@ This section is a prioritized list of technical debt items to be addressed.
 
 ---
 ### Resolved Technical Debt
+
+- **[RESOLVED] Architectural Flaw: Decoupled Session State from Auth Context**
+  - **Problem:** The application's state management was architecturally flawed. The `SessionProvider` (managing practice history) was tightly coupled to the `AuthProvider` (managing user identity), creating a brittle, hard-to-maintain global state.
+  - **Solution:** The `SessionProvider` was removed entirely and replaced with a modern, decoupled data-fetching architecture using `@tanstack/react-query`. A new `usePracticeHistory` hook now fetches practice history on-demand, completely separating the concern of application data from global authentication state. This makes the architecture more scalable, maintainable, and aligned with industry best practices.
 
 - **[RESOLVED] E2E Smoke Test and Live Transcript Test Failures**
   - **Problem:** The smoke test and live transcript test were failing due to brittle assertions that were tightly coupled to the responsive UI layout. The test would check for the visibility of specific containers (like a desktop sidebar) which were not always present, causing the test to fail unnecessarily.

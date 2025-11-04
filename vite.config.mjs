@@ -18,6 +18,7 @@ export default defineConfig(({ mode }) => {
     port: 5173,
     host: true,
     watch: {
+      usePolling: true,
       ignored: [
         'test-results/',
         'coverage/',

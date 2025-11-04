@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-10-26
+**Last Reviewed:** 2025-11-01
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -32,14 +32,13 @@ This section contains a high-level block diagram of the SpeakSharp full-stack ar
 |    | - `src/components` (UI)         |       | - RLS for Data Security         |       +-------------------------+  |
 |    | - `src/contexts` (State Mgmt)   |       +---------------------------------+                 ^                |
 |    |   - `AuthContext`               |                   ^                                       |                |
-|    |   - `SessionContext`            |                   |                                       |                |
 |    | - `src/hooks` (Logic)           |                   v                                       |                |
-|    |   - `useSessionManager`         |       +---------------------------------+       +-------------------------+  |
-|    |   - `useSpeechRecognition`      |       |    Supabase DB (Postgres)       |       |        Stripe           |  |
-|    |     - `useTranscriptState`      |       |---------------------------------|       |       (Payments)        |  |
-|    |     - `useFillerWords`          |       | - `users`, `sessions`           |<----->| (via webhooks)          |  |
-|    |     - `useTranscriptionService` |       | - `transcripts`, `usage`        |       +-------------------------+  |
-|    |   - `useAnalytics`              |       | - `ground_truth` in sessions    |                 ^                |
+|    |   - `usePracticeHistory`        |       +---------------------------------+       +-------------------------+  |
+|    |   - `useSessionManager`         |       |    Supabase DB (Postgres)       |       |        Stripe           |  |
+|    |   - `useSpeechRecognition`      |       |---------------------------------|       |       (Payments)        |  |
+|    |     - `useTranscriptState`      |       | - `users`, `sessions`           |<----->| (via webhooks)          |  |
+|    |     - `useFillerWords`          |       | - `transcripts`, `usage`        |       +-------------------------+  |
+|    |     - `useTranscriptionService` |       | - `ground_truth` in sessions    |                 ^                |
 |    | - `src/lib` (Utils)             |       +---------------------------------+                 |                |
 |    |   - `pdfGenerator`              |<----->| - `users`, `sessions`           |<----->| (via webhooks)          |  |
 |    +---------------------------------+       | - `transcripts`, `usage`        |       +-------------------------+  |
@@ -167,6 +166,63 @@ The E2E test environment is designed for stability and isolation. Several key ar
     *   **Problem:** E2E tests need a reference to the application's internal Supabase client to perform programmatic login.
     *   **Architecture:** The `supabaseClient.ts` module now attaches the client instance to the `window` object (`window.supabase`) when the application is not in a production environment. This provides a stable and predictable way for test helpers to access and interact with the client.
 
+7.  **Deterministic Test Handshake for Authentication:**
+    *   **Problem:** The core of the E2E test suite's instability was a race condition between the test runner injecting an authentication session and the React application's `AuthProvider` recognizing and rendering the UI for that state.
+    *   **Architecture:** A deterministic, event-driven handshake was implemented to eliminate this race condition. This is the canonical pattern for ensuring the application is fully authenticated and rendered before any test assertions are made.
+
+    ```ascii
+    ┌───────────────────────────────┐
+    │        Playwright Test        │
+    │ (e.g., smoke.e2e.spec.ts)     │
+    └──────────────┬────────────────┘
+                   │
+                   │ (1) Before each test, calls programmaticLogin()
+                   │
+                   ▼
+    ┌───────────────────────────────┐
+    │  programmaticLogin() Helper   │
+    │   (tests/e2e/helpers.ts)      │
+    └──────────────┬────────────────┘
+                   │
+                   │ (2) Sets mock session in localStorage
+                   │
+                   │ (3) Navigates to the application URL
+                   │
+                   │ (4) Dispatches custom DOM event:
+                   │     new CustomEvent('e2e-profile-loaded')
+                   │
+                   ▼
+    ┌───────────────────────────────┐
+    │     React AuthProvider        │
+    │  (src/contexts/AuthProvider)  │
+    └──────────────┬────────────────┘
+                   │
+                   │ (5) On mount, adds a listener for the
+                   │     'e2e-profile-loaded' event.
+                   │
+                   │ (6) Event listener triggers fetchUserProfile()
+                   │
+                   │ (7) User profile is loaded, state is updated,
+                   │     UI re-renders in authenticated state.
+                   │
+                   ▼
+    ┌───────────────────────────────┐
+    │        Playwright Test        │
+    │ (Waiting for stable element)  │
+    └──────────────┬────────────────┘
+                   │
+                   │ (8) The programmaticLogin() helper waits for a
+                   │     stable element (e.g., data-testid="nav-sign-out")
+                   │     to be visible before returning.
+                   │
+                   ▼
+    ┌───────────────────────────────┐
+    │       Application Ready       │
+    │  (Authenticated and stable)   │
+    └───────────────────────────────┘
+    ```
+    *   **Key Insight:** Every transition here is **deterministic**, **explicit**, and **observable**—no race conditions, no timeouts, no reliance on async guesswork. This architecture is antifragile, ensuring that future refactors won't silently break E2E readiness unless the event hook itself is deleted.
+
 1.  **Sequential MSW Initialization:**
     *   **Problem:** E2E tests would fail with race conditions because the React application could mount and trigger network requests *before* the Mock Service Worker (MSW) was ready to intercept them.
     *   **Solution:** The application's bootstrap logic in `src/main.tsx` has been made sequential for the test environment. It now strictly `await`s the asynchronous `msw.worker.start()` promise to complete **before** it calls `renderApp()`. This guarantees that the entire mock API layer is active before any React component mounts, eliminating the race condition. A `window.mswReady = true` flag is set after MSW is ready to signal this state to tests.
@@ -215,11 +271,7 @@ The frontend is a single-page application (SPA) built with React and Vite.
 
 *   **Component Model:** The UI is built from a combination of page-level components (`src/pages`), feature-specific components (`src/components/session`, `src/components/landing`), and a reusable UI library (`src/components/ui`).
 *   **Design System:** The UI components in `src/components/ui` are built using `class-variance-authority` (CVA) for a flexible, type-safe, and maintainable design system. Design tokens are managed in `tailwind.config.ts`.
-*   **State Management:** Global state is managed via a combination of React Context and custom hooks.
-    *   **`AuthContext`:** The primary source for authentication state. It provides the Supabase `session` object, the `user` object, and the user's `profile` data.
-    *   **`SessionContext`:** Manages the collection of a user's practice sessions (`sessionHistory`).
-    *   **`useSessionManager`:** A custom hook that encapsulates the logic for saving, deleting, and exporting sessions.
-    *   **`useAnalytics`:** A custom hook that fetches and processes analytics data from the Supabase database.
+*   **State Management:** See Section 3.1 below.
 *   **Routing:** Client-side routing is handled by `react-router-dom`, with protected routes implemented to secure sensitive user pages.
 *   **Logging:** The application uses `pino` for structured logging.
 *   **PDF Generation:** Session reports can be exported as PDF documents using the `jspdf` and `jspdf-autotable` libraries. The `pdfGenerator.ts` utility encapsulates the logic for creating these reports.
@@ -227,7 +279,20 @@ The frontend is a single-page application (SPA) built with React and Vite.
 *   **AI-Powered Suggestions:** The `AISuggestions` component provides users with feedback on their speech.
 *   **Image Processing:** The application uses `canvas` in the test environment for image processing tasks (replacing `Jimp` for stability), such as resizing user-uploaded images. The `processImage.ts` utility provides a convenient wrapper for this functionality.
 
-### 3.1. Key Components
+### 3.1. State Management and Data Fetching
+
+The application employs a hybrid state management strategy that clearly separates **global UI state** from **server state**.
+
+*   **Global State (`AuthContext`):** The `AuthContext` is the single source of truth for global, cross-cutting concerns, primarily user identity. It provides the Supabase `session` object, the `user` object, and the user's `profile` data to all components that need it. This is the only global context in the application.
+
+*   **Server State & Data Fetching (`@tanstack/react-query`):** All application data that is fetched from the backend (e.g., a user's practice history) is managed by `@tanstack/react-query` (React Query). This library handles all the complexities of data fetching, caching, re-fetching, and error handling.
+    *   **Decoupled Architecture:** This approach decouples data fetching from global state. Previously, the application used a second global context (`SessionContext`) to hold practice history, which was a brittle anti-pattern. The new architecture eliminates this, ensuring that components fetch the data they need, when they need it.
+    *   **Custom Hooks:** The data-fetching logic is encapsulated in custom hooks, with `usePracticeHistory` being the canonical example. This hook fetches the user's session history and is conditionally enabled, only running when a user is authenticated.
+    *   **Cache Invalidation:** When a user completes a new practice session, the application uses React Query's `queryClient.invalidateQueries` function to intelligently mark the `sessionHistory` data as stale. This automatically triggers a re-fetch, ensuring the UI is always up-to-date without manual state management.
+
+This decoupled architecture is highly scalable and maintainable, as new data requirements can be met by creating new, isolated custom hooks without polluting the global state.
+
+### 3.2. Key Components
 
 - **`SessionSidebar.tsx`**: This component serves as the main control panel for a user's practice session. It contains the start/stop controls, a digital timer, and the transcription mode selector.
   - **Mode Selector**: A segmented button group allows users to choose their desired transcription mode before starting a session. The options are:
@@ -301,8 +366,3 @@ The STT accuracy comparison feature calculates the Word Error Rate (WER) of each
 ## 7. Known Issues
 
 *This section is for tracking active, unresolved issues. As issues are resolved, they should be moved to the [Changelog](./CHANGELOG.md).*
-
-*   **Unreliable Client-Side Navigation in Playwright:** There is a deep-seated, unresolved issue where client-side navigation within the Playwright test environment is unreliable.
-    *   **Symptom:** Tests that require navigation between pages (e.g., from `/session` to `/analytics`) often fail because the navigation does not complete. The test continues to execute on the old page, leading to `TimeoutError` when waiting for elements that only exist on the destination page.
-    *   **Investigation:** This issue persists even when using direct `page.goto("/path")` calls, which are the recommended workaround for `react-router-dom` `<Link>` component issues. Standard Playwright synchronization mechanisms like `waitForURL` and `waitForSelector` have also proven ineffective in consistently resolving this.
-    *   **Impact:** This is a high-priority issue that blocks the entire E2E smoke test from passing. A permanent solution is required and is being tracked as a P1 technical debt item in the [Roadmap](./ROADMAP.md).
