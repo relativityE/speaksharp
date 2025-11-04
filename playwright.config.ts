@@ -10,7 +10,7 @@ const BASE_URL = `http://localhost:${PORT}`;
 
 export default defineConfig({
   testDir: './tests/e2e',
-  outputDir: 'tests/test-results',
+  outputDir: './test-results/playwright',
   timeout: 120_000, // 2-minute global timeout for each test file
   expect: { timeout: 30_000 },
   workers: 1,
@@ -28,10 +28,13 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
   webServer: {
-    command: "pnpm run dev:test",
+    command: "pnpm vite --mode test",
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000, // 2 minutes
+    env: {
+      DOTENV_CONFIG_PATH: ".env.test",
+    },
   },
   projects: [
     {

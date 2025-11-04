@@ -22,7 +22,7 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary', 'html'],
-      reportsDirectory: 'tests/test-results/coverage',
+      reportsDirectory: './test-results/coverage',
       all: true,
     },
 

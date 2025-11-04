@@ -15,12 +15,12 @@ const getProfileFromDb = async (userId: string): Promise<UserProfile | null> => 
       .single();
 
     if (error) {
-      console.error('[AuthProvider] Error fetching profile:', error.message);
+      console.error('Error fetching profile:', error.message);
       return null;
     }
     return data;
   } catch (e) {
-    console.error('[AuthProvider] Error fetching profile:', e);
+    console.error('Error fetching profile:', e);
     return null;
   }
 };
@@ -36,8 +36,6 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
   const [loading, setLoading] = useState(!initialSession);
 
   useEffect(() => {
-    console.log('[AuthProvider] Initializing...');
-
     try {
       const supabase = getSupabaseClient();
       if (!supabase) {
@@ -46,44 +44,34 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
         return;
       }
 
-      // Get initial session
       supabase.auth.getSession().then(({ data: { session } }) => {
-        console.log('[AuthProvider] Initial session:', !!session);
         setSessionState(session);
         if (!session) {
           setLoading(false);
         }
       });
 
-      // Listen for auth changes (this handles test session injection too!)
       const { data: listener } = supabase.auth.onAuthStateChange(
-        async (event, newSession) => {
-          console.log('[AuthProvider] Auth state changed:', event, 'has session:', !!newSession);
+        async (_event, newSession) => {
           setSessionState(newSession);
-
           if (newSession?.user) {
-            console.log('[AuthProvider] Fetching profile for user:', newSession.user.id);
+            if ((window as { __E2E_MODE__?: boolean }).__E2E_MODE__) (window as { __E2E_PROFILE_LOADED__?: boolean }).__E2E_PROFILE_LOADED__ = false;
             const userProfile = await getProfileFromDb(newSession.user.id);
-            console.log('[AuthProvider] Profile fetched:', !!userProfile, userProfile?.email);
             setProfile(userProfile);
-
-            // ✅ CRITICAL: Dispatch event immediately after profile is set
-            if (import.meta.env.MODE === 'test' && userProfile) {
-              console.log('[AuthProvider] ✅ E2E: Dispatching profile-loaded event');
-              document.dispatchEvent(new CustomEvent('e2e-profile-loaded'));
+            if ((window as { __E2E_MODE__?: boolean }).__E2E_MODE__) {
+              (window as { __E2E_PROFILE_LOADED__?: boolean }).__E2E_PROFILE_LOADED__ = true;
             }
           } else {
-            console.log('[AuthProvider] No session, clearing profile');
             setProfile(null);
+            if ((window as { __E2E_MODE__?: boolean }).__E2E_MODE__) {
+              (window as { __E2E_PROFILE_LOADED__?: boolean }).__E2E_PROFILE_LOADED__ = true;
+            }
           }
-
           setLoading(false);
-          console.log('[AuthProvider] Auth state update complete');
         }
       );
 
       return () => {
-        console.log('[AuthProvider] Cleanup - unsubscribing from auth changes');
         listener?.subscription.unsubscribe();
       };
     } catch (error) {
@@ -92,12 +80,44 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     }
   }, []);
 
+  useEffect(() => {
+    const handleSessionInject = async () => {
+      setLoading(true);
+      const supabase = getSupabaseClient();
+      const { data } = await supabase.auth.getSession();
+      setSessionState(data.session);
+      if (data.session?.user) {
+        const userProfile = await getProfileFromDb(data.session.user.id);
+        setProfile(userProfile);
+        (window as { __E2E_PROFILE_LOADED__?: boolean }).__E2E_PROFILE_LOADED__ = true;
+      }
+      if ((window as { authReadyResolve?: () => void }).authReadyResolve) {
+        (window as { authReadyResolve?: () => void }).authReadyResolve?.();
+      }
+      setLoading(false);
+    };
+
+    if ((window as { __E2E_MODE__?: boolean }).__E2E_MODE__) {
+      document.addEventListener('__E2E_SESSION_INJECTED__', handleSessionInject);
+      return () => {
+        document.removeEventListener('__E2E_SESSION_INJECTED__', handleSessionInject);
+      };
+    }
+  }, []);
+
+  useEffect(() => {
+    if (import.meta.env.MODE === 'test' && profile) {
+      console.log('[E2E] Profile loaded successfully:', {
+        email: session?.user?.email,
+        id: profile?.id
+      });
+      document.dispatchEvent(new CustomEvent('e2e-profile-loaded'));
+    }
+  }, [profile, session]);
+
   if (loading) {
     return (
-      <div
-        className="w-full h-screen flex justify-center items-center"
-        data-testid="loading-skeleton-container"
-      >
+      <div className="w-full h-screen flex justify-center items-center" data-testid="loading-skeleton-container">
         <Skeleton className="h-24 w-24 rounded-full" data-testid="loading-skeleton" />
       </div>
     );

@@ -6,7 +6,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 
 export default tseslint.config(
-  { ignores: ['dist', 'node_modules', 'playwright-report/', 'tests/test-results/', 'html/', 'public/', 'supabase/', 'tests/global-teardown.js'] },
+  { ignores: ['dist', 'node_modules', 'playwright-report/', 'test-results/', 'html/', 'public/', 'supabase/', 'tests/global-teardown.js'] },
 
   // Base configs
   js.configs.recommended,

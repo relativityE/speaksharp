@@ -87,7 +87,7 @@ describe('SessionSidebar', () => {
   describe('for a Free user', () => {
     beforeEach(() => {
       mockAuthContextValue.user = { id: 'free-user', app_metadata: {}, user_metadata: {}, aud: '', created_at: '' };
-      mockAuthContextValue.profile = { id: 'free-user', email: 'test@example.com', subscription_status: 'free' };
+      mockAuthContextValue.profile = { id: 'free-user', subscription_status: 'free' };
     });
 
     it('renders with "Native" as the default mode and disables advanced modes', async () => {
@@ -124,7 +124,7 @@ describe('SessionSidebar', () => {
   describe('for a Pro user', () => {
     beforeEach(() => {
       mockAuthContextValue.user = { id: 'pro-user', app_metadata: {}, user_metadata: {}, aud: '', created_at: '' };
-      mockAuthContextValue.profile = { id: 'pro-user', email: 'test@example.com', subscription_status: 'pro' };
+      mockAuthContextValue.profile = { id: 'pro-user', subscription_status: 'pro' };
     });
 
     it('renders with all modes enabled and "Cloud AI" as default', async () => {
@@ -180,7 +180,7 @@ describe('SessionSidebar', () => {
     beforeEach(() => {
       // Dev user might be on a free tier, but the env var should override
       mockAuthContextValue.user = { id: 'dev-user', app_metadata: {}, user_metadata: {}, aud: '', created_at: '' };
-      mockAuthContextValue.profile = { id: 'dev-user', email: 'test@example.com', subscription_status: 'free' };
+      mockAuthContextValue.profile = { id: 'dev-user', subscription_status: 'free' };
       vi.stubEnv('VITE_DEV_USER', 'true');
     });
 
