@@ -84,7 +84,7 @@ describe('useSpeechRecognition', () => {
   it('should call sub-hooks with correct parameters', () => {
     renderHook(() => useSpeechRecognition({
       customWords: ['like', 'um'],
-            profile: { id: 'pro-user', subscription_status: 'pro' },
+            profile: { id: 'pro-user', email: 'test@example.com', subscription_status: 'pro' },
       session: null
     }), { wrapper });
 
@@ -92,7 +92,7 @@ describe('useSpeechRecognition', () => {
     expect(useFillerWords).toHaveBeenCalledExactlyOnceWith([], '', ['like', 'um']);
     expect(useTranscriptionService).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
-        profile: { id: 'pro-user', subscription_status: 'pro' },
+        profile: { id: 'pro-user', email: 'test@example.com', subscription_status: 'pro' },
         session: null,
         onTranscriptUpdate: expect.any(Function),
         onReady: expect.any(Function),

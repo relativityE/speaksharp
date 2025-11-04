@@ -9,7 +9,7 @@ playwright.config.js
 tailwind.config.js
 /test-support/
 /coverage/
-/test-results/
+/tests/test-results/
 /playwright-report/
 /unit-metrics.json
 /e2e-metrics.json

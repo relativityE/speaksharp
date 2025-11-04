@@ -2,7 +2,7 @@
 set -euo pipefail
 export HUSKY=0
 
-TEST_RESULTS_DIR="test-results"
+TEST_RESULTS_DIR="tests/test-results"
 METRICS_FILE="$TEST_RESULTS_DIR/metrics.json"
 mkdir -p "$TEST_RESULTS_DIR"
 

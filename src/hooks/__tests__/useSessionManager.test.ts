@@ -45,6 +45,7 @@ const mockUser: User = {
 
 const mockProfile: UserProfile = {
     id: 'profile-123',
+    email: 'test@example.com',
     subscription_status: 'free',
 };
 

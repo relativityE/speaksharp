@@ -39,19 +39,25 @@ For all local testing and validation, use the `./test-audit.sh` script. It is th
 
 **Usage:**
 
-*   **To run the complete CI pipeline locally (recommended before any commit):**
-    ```bash
-    ./test-audit.sh all
-    ```
-    **Why?** This is the most important command. It guarantees that your changes meet all the quality gates (linting, type safety, unit tests, E2E tests) that the CI server will enforce. Running this locally prevents broken builds and failed pull requests.
+The `test-audit.sh` script has been optimized for different stages of the development workflow. Use the following commands for a balance of speed and thoroughness.
 
-*   **To run specific stages for faster feedback during development:**
-    Sometimes you need a faster feedback loop. For that, you can run individual stages of the audit:
-    *   `./test-audit.sh lint`: Use this when you've made stylistic changes and want a quick check for code quality.
-    *   `./test-audit.sh typecheck`: Use this after refactoring or changing function signatures to ensure type safety across the project.
-    *   `./test-audit.sh unit`: Use this for rapid feedback when practicing Test-Driven Development (TDD) on a specific component.
-    *   `./test-audit.sh e2e`: Use this to validate a full user flow after making significant UI or application logic changes.
-    *   `./test-audit.sh metrics`: This stage is mostly for CI, but you can run it locally to regenerate the metrics in `docs/PRD.md` after a full test run.
+*   **For Quick, Iterative Development (Fast Feedback):**
+    ```bash
+    pnpm audit:fast
+    ```
+    This command is designed for speed. It runs a minimal set of checks to give you a quick signal while you are actively coding. It performs a quick preflight check, lints only your changed files, and runs unit tests and a single E2E health check. It intentionally skips slower steps like the full type-check and production build.
+
+*   **For Pre-Commit Confidence (Comprehensive Local Check):**
+    ```bash
+    pnpm audit:local
+    ```
+    This is the recommended command to run before you commit your code. It runs a full, optimized validation that is much more thorough than the `fast` command. It includes the preflight check, parallelized linting and unit tests, a full type-check, and the complete E2E suite. This provides a high degree of confidence that your changes are sound.
+
+*   **For Simulating the Full CI Pipeline (Pre-Push):**
+    ```bash
+    pnpm audit
+    ```
+    This command (`pnpm audit` is an alias for `./test-audit.sh all`) runs the exact same, comprehensive sequence that the CI server runs. It is the most thorough check and guarantees that your changes will pass the CI pipeline. It includes all steps from the `local` audit, plus the production build, E2E test sharding, and report generation. Run this before you push your branch to avoid broken builds.
 
 For a faster, lighter-weight check to simply validate that your environment is set up correctly, you can use the `preflight.sh` script.
 
@@ -81,3 +87,15 @@ If you need to run specific test suites during development, you can use the foll
 ### Continuous Integration (CI)
 
 The definitive quality gate is our CI pipeline, which runs in GitHub Actions on every push and pull request to the `main` branch. The workflow is defined in `.github/workflows/ci.yml` and is orchestrated by the same `./test-audit.sh` script used for local validation. This ensures perfect consistency between the developer environment and the CI environment.
+
+## Troubleshooting: Environment Recovery
+
+If you encounter persistent or unusual errors during testing—such as port conflicts, zombie Vite processes, or inconsistent test failures—your local development environment may have become unstable.
+
+We provide a script to safely reset the environment.
+
+*   **Run the environment stabilizer:**
+    ```bash
+    ./env-stabilizer.sh
+    ```
+    This script will gracefully kill any lingering Vite or Vitest processes, ensuring a clean slate for your next test run. It is a safe and effective first step for resolving mysterious test failures.

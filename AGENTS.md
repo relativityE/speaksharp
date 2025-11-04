@@ -115,6 +115,9 @@ ___
    "dev": "vite",
    "build": "vite build",
    "preview": "vite preview",
+   "audit": "./test-audit.sh all",
+   "audit:local": "./test-audit.sh local",
+   "audit:fast": "./test-audit.sh fast",
    "lint": "eslint 'src/**/*.{js,jsx,ts,tsx}' 'tests/**/*.{js,jsx,ts,tsx}' --report-unused-disable-directives --max-warnings 0",
    "typecheck": "tsc --build --verbose",
    "test": "pnpm test:unit:full",
@@ -146,9 +149,9 @@ ___
 
 1.  **Run Local Audit Script**
    ```bash
-   ./test-audit.sh
+   ./test-audit.sh local
    ```
-   Must pass lint, typecheck, and all unit/E2E tests.
+   Must pass lint, typecheck, and all unit/E2E tests. This is the comprehensive check for pre-commit validation.
 
 2.  **Documentation (SSOT)**
    *   Review and update the seven mandatory documents as per `docs/OUTLINE.md`: `README.md`, `AGENTS.md`, `docs/OUTLINE.md`, `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`.

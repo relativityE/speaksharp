@@ -252,6 +252,17 @@ The E2E test environment is designed for stability and isolation. Several key ar
 
 These patterns work together to create a robust testing foundation, eliminating the primary sources of flakiness and making the E2E suite a reliable indicator of application quality.
 
+### UI State Screenshot Capture
+
+To provide a clear visual record of the application's UI at any given time, a dedicated screenshot test has been implemented in `tests/e2e/capture-states.e2e.spec.ts`.
+
+*   **Purpose:** This test is not for validation but for **visual documentation**. It captures full-page screenshots of key application states (e.g., unauthenticated and authenticated landing pages) to serve as a baseline. This is particularly useful for tracking changes during a UI refresh or major refactor.
+*   **Naming Convention:** The screenshots are saved to `tests/test-results/screenshots/` with a `LANDING-PAGE-*.png` naming convention to clearly indicate their purpose.
+*   **Usage:** The test can be run at any time to regenerate the baseline screenshots with the following command:
+    ```bash
+    pnpm exec playwright test tests/e2e/capture-states.e2e.spec.ts
+    ```
+
 ### Mocking Native Dependencies
 
 Some features, like the on-device transcription powered by `LocalWhisper`, rely on libraries with native dependencies (e.g., `sharp` for image processing, `@xenova/transformers` for ML models). These native dependencies can be difficult to install and build in certain environments, especially in CI/CD pipelines or sandboxed test runners.

@@ -22,6 +22,7 @@ export function createMockUser(overrides: Partial<User> = {}): User {
 export function createMockUserProfile(overrides: Partial<UserProfile> = {}): UserProfile {
   return {
     id: TEST_USER_ID,
+    email: TEST_USER_EMAIL,
     subscription_status: 'pro',
     preferred_mode: 'cloud',
     ...overrides,

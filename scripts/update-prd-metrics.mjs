@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 
 const PRD_FILE = path.resolve(process.cwd(), 'docs/PRD.md');
-const METRICS_FILE = path.resolve(process.cwd(), 'test-results/metrics.json');
+const METRICS_FILE = path.resolve(process.cwd(), 'tests/test-results/metrics.json');
 
 console.log('[UpdateScript] Starting PRD metrics update.');
 
