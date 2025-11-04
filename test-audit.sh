@@ -113,11 +113,19 @@ report_stage() {
     echo "Found ${#REPORTS_TO_MERGE[@]} reports to merge."
     node scripts/merge-reports.mjs "$FINAL_MERGED_E2E_REPORT" "${REPORTS_TO_MERGE[@]}"
 
-    echo "--- Updating SQM Data in PRD.md ---"
-    if [ -f "./run-metrics.sh" ] && [ -f "./scripts/update-prd-metrics.mjs" ]; then
+    echo "--- Handling Software Quality Metrics ---"
+    # Always generate the metrics file, but conditionally decide what to do with it.
+    if [ -f "./run-metrics.sh" ]; then
         ./run-metrics.sh
-        node scripts/update-prd-metrics.mjs
-        echo "✅ SQM metrics updated in docs/PRD.md"
+
+        if [ -n "${CI:-}" ]; then
+            echo "CI environment detected. Updating PRD.md..."
+            node scripts/update-prd-metrics.mjs
+            echo "✅ SQM metrics updated in docs/PRD.md"
+        else
+            echo "Local environment detected. Printing metrics to console..."
+            node scripts/print-metrics.mjs
+        fi
     else
         echo "⚠️ Metric generation scripts not found, skipping SQM update."
     fi
