@@ -59,7 +59,7 @@ const Index = () => {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div className="space-y-8">
               <div className="space-y-4">
-                <Badge variant="outline" className="bg-orange-500/10 text-orange-500 border-orange-500/30 w-fit">
+                <Badge variant="secondary-outline" className="w-fit">
                   <Zap className="h-4 w-4 mr-2" />
                   AI-Powered Speaking Coach
                 </Badge>
