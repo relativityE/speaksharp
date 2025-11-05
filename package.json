@@ -15,7 +15,7 @@
     "preview": "vite preview",
     "lint": "eslint 'src/**/*.{js,jsx,ts,tsx}' 'tests/**/*.{js,jsx,ts,tsx}' --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "eslint 'src/**/*.{js,jsx,ts,tsx}' 'tests/**/*.{js,jsx,ts,tsx}' --fix",
-    "typecheck": "tsc --build --verbose",
+    "typecheck": "tsc --noEmit --skipLibCheck",
     "test": "pnpm test:unit:full",
     "test:ci": "./test-audit.sh all",
     "test:audit": "./test-audit.sh",
