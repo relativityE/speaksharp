@@ -133,8 +133,6 @@ The project's testing strategy prioritizes stability, reliability, and a tight a
 
 This section tracks high-level product risks and constraints. For a detailed history of resolved issues, see the [Changelog](./CHANGELog.md).
 
-*   **[ACTIVE] `pnpm lint` Command Performance:** The `pnpm lint` command is known to be slow and is currently commented out in the local `test-audit.sh` script to ensure fast local feedback. However, it is still enforced in the CI pipeline.
-
 ---
 
 ## 5. Development Roadmap
