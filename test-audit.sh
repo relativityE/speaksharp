@@ -134,13 +134,69 @@ report_stage() {
 # ================================
 # Main command dispatcher
 # ================================
-prepare_stage
+ACTION=${1:-all} # Default to 'all' if no argument is provided
 
-echo "--- Running All Test Shards ---"
-for i in $(seq 0 $((NUM_SHARDS - 1))); do
-    test_stage "$i"
-done
+case "$ACTION" in
+  prepare)
+    prepare_stage
+    ;;
+  test)
+    if [ -z "${2-}" ]; then
+      echo "ERROR: 'test' action requires a shard index as the second argument."
+      exit 1
+    fi
+    test_stage "$2"
+    ;;
+  report)
+    report_stage
+    ;;
+  lint)
+    echo "--- Running Lint Only ---"
+    pnpm lint > "$LOG_DIR/lint.log" 2>&1
+    ;;
+  typecheck)
+    echo "--- Running Type Check Only ---"
+    pnpm typecheck > "$LOG_DIR/typecheck.log" 2>&1
+    ;;
+  unit)
+    echo "--- Running Unit Tests with Coverage ---"
+    pnpm test:unit:full 2>&1 | tee "$LOG_DIR/unit-tests.log"
+    ;;
+  e2e)
+    echo "--- Running E2E Tests Only (all shards) ---"
+    # This is a convenience for local runs. It does not run prepare_stage.
+    # It just shards and runs the tests.
+    echo "--- Auto-sharding E2E Tests ---"
+    TEST_FILES=(tests/e2e/*.e2e.spec.ts)
+    for i in $(seq 0 $((NUM_SHARDS - 1))); do
+        echo "" > "$SHARDS_DIR/shard-$i.txt"
+    done
+    INDEX=0
+    for TEST_FILE in "${TEST_FILES[@]}"; do
+        SHARD_INDEX=$((INDEX % NUM_SHARDS))
+        echo "$TEST_FILE" >> "$SHARDS_DIR/shard-$SHARD_INDEX.txt"
+        INDEX=$((INDEX + 1))
+    done
+    echo "✅ E2E tests sharded into $NUM_SHARDS files."
 
-report_stage
+    for i in $(seq 0 $((NUM_SHARDS - 1))); do
+        test_stage "$i"
+    done
+    report_stage
+    ;;
+  all)
+    prepare_stage
+    echo "--- Running All Test Shards ---"
+    for i in $(seq 0 $((NUM_SHARDS - 1))); do
+        test_stage "$i"
+    done
+    report_stage
+    ;;
+  *)
+    echo "❌ Unknown command: $ACTION"
+    echo "Usage: $0 {prepare|test <shard_index>|report|lint|typecheck|unit|e2e|all}"
+    exit 1
+    ;;
+esac
 
-echo "✅ Full test audit completed successfully."
+echo "✅ Command '$ACTION' completed successfully."

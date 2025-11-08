@@ -50,7 +50,7 @@ export async function programmaticLogin(page: Page) {
             };
           },
 
-          setSession: async (sessionData: unknown) => {
+          setSession: async (sessionData: Record<string, unknown>) => {
             session = {
               ...(sessionData as Record<string, unknown>),
               expires_at: Math.floor(Date.now() / 1000) + 3600
@@ -147,7 +147,7 @@ from: (table: string) => {
           if (table === 'sessions') {
             return {
           order: (col: string, opts: { ascending: boolean }) => {
-                const sorted = [...mockSessions].sort((a, b) => {
+                const sorted = [...mockSessions].sort((a: { created_at: string }, b: { created_at: string }) => {
                   if (opts.ascending) {
                     return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
                   }
@@ -163,7 +163,7 @@ from: (table: string) => {
 
         order: (col: string, opts: { ascending: boolean }) => {
           if (table === 'sessions') {
-            const sorted = [...mockSessions].sort((a, b) => {
+            const sorted = [...mockSessions].sort((a: { created_at: string }, b: { created_at: string }) => {
               if (opts.ascending) {
                 return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
               }
@@ -207,7 +207,7 @@ from: (table: string) => {
 
   // Set session and wait for it to complete
   await page.evaluate(
-    async ({ token, timestamp }) => {
+    async ({ token, timestamp }: { token: string; timestamp: number; }) => {
       const fakeSession = {
         access_token: token,
         refresh_token: 'fake-refresh-token-for-e2e',
@@ -226,10 +226,7 @@ from: (table: string) => {
         },
       };
 
-      const mockSupabase = (window as { supabase?: { auth: { setSession: (session: unknown) => Promise<unknown> } } }).supabase;
-      if (mockSupabase) {
-        await mockSupabase.auth.setSession(fakeSession);
-      }
+      await (window as { supabase?: { auth: { setSession: (s: unknown) => Promise<unknown> } } }).supabase?.auth.setSession(fakeSession);
     },
     { token: fakeAccessToken, timestamp: now }
   );

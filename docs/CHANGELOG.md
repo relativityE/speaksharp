@@ -10,6 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **E2E Test for Analytics Page:** Added a new foundational E2E test (`analytics.e2e.spec.ts`) that verifies the analytics page loads correctly for an authenticated user.
+- **E2E Test Architecture Documentation:** Added a new section to `docs/ARCHITECTURE.md` detailing the fixture-based E2E testing strategy, the `programmaticLogin` helper, the role of the mock JWT, and known testing limitations.
+- **Technical Debt Documentation:** Added an entry to `docs/ROADMAP.md` to formally track the inability to E2E test the live transcript generation as technical debt.
+
+### Fixed
+- **`test-audit.sh` Workflow Mismatch:** The `test-audit.sh` script was refactored to correctly parse command-line arguments (e.g., `lint`, `test`, `e2e`), aligning its behavior with the documentation and CI pipeline. This restores the intended developer workflow for running specific test stages locally.
+- **`saveSession` Race Condition:** Fixed a critical race condition in the `saveSession` function (`src/lib/storage.ts`) by replacing the non-atomic, two-step database operations with a single, atomic RPC call (`create_session_and_update_usage`).
+- **E2E Test Suite Stability and Architecture:** Performed a major refactoring of the E2E test suite to improve stability, reliability, and maintainability.
+    - **Fixture-Based Architecture:** The test suite now uses a canonical fixture-based architecture. Mock data has been centralized in `tests/e2e/fixtures/mockData.ts`, and the `programmaticLogin` helper has been refactored to be a lean consumer of this data.
+    - **Authentication Race Condition:** Resolved a critical race condition in the `programmaticLogin` helper by ensuring the event listener for the profile loaded event is attached *before* the session is injected, creating a deterministic authentication flow.
+    - **`AuthProvider` Simplification:** The `AuthProvider` component was simplified by removing redundant and now-obsolete E2E-specific logic.
+
 ### Changed
 - **Architectural Refactoring:** Decoupled application data state from global authentication state.
     - **Problem:** The `SessionProvider` (managing practice history) was tightly coupled to the `AuthProvider` (managing user identity), creating a brittle, hard-to-maintain global state.
