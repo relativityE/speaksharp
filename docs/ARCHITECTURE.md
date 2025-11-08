@@ -252,6 +252,27 @@ The E2E test environment is designed for stability and isolation. Several key ar
 
 These patterns work together to create a robust testing foundation, eliminating the primary sources of flakiness and making the E2E suite a reliable indicator of application quality.
 
+### E2E Test Architecture: Fixtures and Programmatic Login
+
+To ensure E2E tests are fast, reliable, and deterministic, the test suite uses a sophisticated fixture-based architecture for handling authentication and mock data.
+
+*   **Separation of Concerns:** The test helpers follow a strict separation of concerns:
+    *   `tests/e2e/fixtures/mockData.ts`: This file is the single source of truth for all mock data (users, profiles, sessions, etc.). It exports typed constants, making data management clean and maintainable.
+    *   `tests/e2e/helpers.ts`: This file contains the logic for test setup, primarily the `programmaticLogin` function. It is responsible for injecting mocks and data into the browser context.
+
+*   **`programmaticLogin` Workflow:** This is the canonical function for authenticating a user in an E2E test. It executes the following sequence:
+    1.  **Inject Mock Supabase Client:** Before any application code runs, `page.addInitScript()` injects a complete mock of the Supabase client into the `window` object. This mock is pre-populated with the data imported from `mockData.ts`. This ensures the application boots up with a predictable and consistent data environment.
+    2.  **Generate a Fake JWT:** The helper generates a structurally valid but cryptographically fake JWT. This is crucial because the application's frontend code may decode the JWT to read user claims (like `sub`, `email`, `role`). A simple string token would cause these decoding operations to fail. The fake JWT ensures the frontend behaves as it would with a real session.
+    3.  **Atomic Session Injection and Event Handshake:** In a single `page.evaluate()` call, the helper performs two critical actions to prevent race conditions:
+        *   It first sets up a `Promise` that listens for a custom `e2e-profile-loaded` DOM event.
+        *   It then calls the mock Supabase client's `setSession` method, passing in the fake JWT.
+    4.  **Application Response:** The application's `AuthProvider` receives the session, fetches the user's profile from the mock client, and, upon success, fires the `e2e-profile-loaded` event.
+    5.  **Resolution:** The `Promise` in the test resolves, and `programmaticLogin` completes, now certain that the application is fully authenticated and rendered.
+
+*   **Known Limitations - Mocking `TranscriptionService`:**
+    *   **Problem:** The `TranscriptionService`, which manages real-time audio processing, has proven difficult to mock reliably at the E2E level. Both `page.evaluate` and `page.route` strategies have been unsuccessful, indicating a deep architectural coupling or a test environment limitation.
+    *   **Current State:** The `live-transcript.e2e.spec.ts` test is therefore superficial and only verifies that the UI enters a "recording" state. This has been documented as technical debt in `docs/ROADMAP.md`.
+
 ### Mocking Native Dependencies
 
 Some features, like the on-device transcription powered by `LocalWhisper`, rely on libraries with native dependencies (e.g., `sharp` for image processing, `@xenova/transformers` for ML models). These native dependencies can be difficult to install and build in certain environments, especially in CI/CD pipelines or sandboxed test runners.

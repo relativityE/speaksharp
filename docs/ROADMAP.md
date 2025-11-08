@@ -98,6 +98,10 @@ This section is a prioritized list of technical debt items to be addressed.
 - **P4 (Low): Improve Unit Test Discoverability**
   - **Problem:** The lack of easily discoverable, co-located unit tests makes the codebase harder to maintain.
 
+- **P2 (Medium): Inability to E2E Test Live Transcript Generation**
+  - **Problem:** The `live-transcript.e2e.spec.ts` test is superficial. It only verifies that the UI enters a "recording" state, but does not verify that a transcript is actually generated and displayed. Attempts to mock the browser's `SpeechRecognition` API via `page.evaluate` and network interception via `page.route` have both failed, indicating a deep architectural issue or test environment limitation that prevents effective mocking of the `TranscriptionService`.
+  - **Required Action:** A deeper investigation is required to find a viable strategy for E2E testing the live transcript generation. This may involve significant refactoring of the `TranscriptionService` to make it more amenable to testing, or exploring alternative mocking libraries or techniques. Until then, this core feature lacks meaningful E2E test coverage.
+
 - **P2 (Medium): Review and Improve Test Quality and Effectiveness**
   - **Problem:** Several tests in the suite were brittle or of low value, providing a false sense of security.
   - **Example:** The `live-transcript.e2e.spec.ts` and `smoke.e2e.spec.ts` tests were previously coupled to the UI's responsive layout, making them fail on minor CSS changes.

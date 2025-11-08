@@ -30,6 +30,7 @@ export const getSessionHistory = async (userId: string): Promise<PracticeSession
 
 /**
  * Saves a new session to the database and checks usage limits for free users.
+ * This function is now architected to be atomic by using a single RPC call.
  * @param {object} sessionData - The session data to save.
  * @param {object} profile - The user's profile.
  * @returns {Promise<{session: object|null, usageExceeded: boolean}>} A promise that resolves to an object containing the saved session and a flag for usage limit.
@@ -40,36 +41,29 @@ export const saveSession = async (sessionData: Partial<PracticeSession> & { user
     logger.error('Save Session: Session data and user ID are required.');
     return { session: null, usageExceeded: false };
   }
-  const { data, error }: { data: PracticeSession | null, error: PostgrestError | null } = await supabase
-    .from('sessions')
-    .insert([sessionData])
-    .select()
-    .single();
+
+  // ARCHITECTURAL FIX:
+  // The previous implementation had a race condition where a user could save multiple
+  // sessions before the usage check was performed. This has been fixed by delegating
+  // the entire operation to a single, atomic RPC function in the database.
+  // This function is responsible for both creating the session and updating/checking usage.
+  const { data, error } = await supabase.rpc('create_session_and_update_usage', {
+    p_session_data: sessionData,
+    p_is_free_user: profile.subscription_status === 'free',
+  });
 
   if (error) {
-    logger.error({ error }, 'Error saving session:');
+    logger.error({ error }, 'Error during atomic session save and usage update:');
     return { session: null, usageExceeded: false };
   }
 
-  // After saving, check usage for free tier users
-  if (profile.subscription_status === 'free') {
-    const { data: usageData, error: rpcError } = await supabase.rpc('update_user_usage', {
-      p_user_id: profile.id,
-      p_duration_seconds: sessionData.duration || 0,
-    });
-
-    if (rpcError) {
-      logger.error({ error: rpcError }, 'Error updating user usage:');
-      // Proceed even if RPC fails, not a critical failure
-    }
-
-    // The RPC function returns `true` if the limit is exceeded
-    if (usageData === true) {
-      return { session: data, usageExceeded: true };
-    }
-  }
-
-  return { session: data, usageExceeded: false };
+  // The RPC is expected to return an object with the shape:
+  // { new_session: PracticeSession, usage_exceeded: boolean }
+  // We adapt this to the client-side expected return type.
+  return {
+    session: data.new_session || null,
+    usageExceeded: data.usage_exceeded || false,
+  };
 };
 
 /**
