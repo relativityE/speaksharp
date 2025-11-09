@@ -17,67 +17,51 @@ To get started with SpeakSharp, you'll need to have Node.js (version 22.12.0 or 
     ```bash
     cd speaksharp
     ```
-3.  **Run the Pre-flight Check (Mandatory First Step):**
-    This script prepares your environment by installing dependencies, installing browser binaries, and running a smoke test to ensure stability.
+3.  **Install Dependencies (Canonical Method):**
+    This is the required command to install dependencies. It uses a frozen lockfile to ensure that the exact versions of all packages are installed, creating a consistent and reproducible environment that matches CI.
     ```bash
-    ./scripts/preflight.sh
+    pnpm setup
     ```
 4.  **Run the development server:**
     ```bash
     pnpm dev
     ```
 
-## Testing and CI/CD
+## Running the Full Test & Audit Suite
 
-This project uses a unified testing strategy to ensure that local validation and the CI pipeline are perfectly aligned.
+This project uses a unified testing strategy to ensure that local validation and the CI pipeline are perfectly aligned. The `./test-audit.sh` script is the **single source of truth** for all testing, and it is wrapped by a series of `pnpm` scripts for ease of use.
 
-### The Local Audit Script: Your Primary Tool
+### Primary Local Audit Command
 
-For all local testing and validation, use the `./test-audit.sh` script. It is the **single source of truth** for ensuring code quality. The script is designed to be developer-friendly and robust.
+To run the complete CI pipeline locally (recommended before any commit), use the following command:
 
-**Automatic Dependency Installation:** If you run this script in a fresh checkout without having installed dependencies, it will automatically detect the missing `node_modules` directory and run `pnpm install` for you.
+```bash
+pnpm run audit:full
+```
 
-**Usage:**
+**Why?** This is the most important command. It guarantees that your changes meet all the quality gates (linting, type safety, unit tests, E2E tests) that the CI server will enforce. Running this locally prevents broken builds and failed pull requests. **Note:** This command may time out in some environments. If it does, use the staged execution below.
 
-*   **To run the complete CI pipeline locally (recommended before any commit):**
+### Staged Execution (Mirroring CI)
+
+To mirror the CI pipeline's staged execution and avoid timeouts, run the commands in the following order:
+
+1.  **Prepare the environment:**
+    This command lints, type-checks, builds the application, and runs all unit tests.
     ```bash
-    ./test-audit.sh all
+    pnpm run audit:prepare
     ```
-    **Why?** This is the most important command. It guarantees that your changes meet all the quality gates (linting, type safety, unit tests, E2E tests) that the CI server will enforce. Running this locally prevents broken builds and failed pull requests.
-
-*   **To run specific stages for faster feedback during development:**
-    Sometimes you need a faster feedback loop. For that, you can run individual stages of the audit:
-    *   `./test-audit.sh lint`: Use this when you've made stylistic changes and want a quick check for code quality.
-    *   `./test-audit.sh typecheck`: Use this after refactoring or changing function signatures to ensure type safety across the project.
-    *   `./test-audit.sh unit`: Use this for rapid feedback when practicing Test-Driven Development (TDD) on a specific component.
-    *   `./test-audit.sh e2e`: Use this to validate a full user flow after making significant UI or application logic changes.
-    *   `./test-audit.sh metrics`: This stage is mostly for CI, but you can run it locally to regenerate the metrics in `docs/PRD.md` after a full test run.
-
-For a faster, lighter-weight check to simply validate that your environment is set up correctly, you can use the `preflight.sh` script.
-
-*   **Run the pre-flight environment check:**
+2.  **Run the E2E tests:**
+    The `prepare` stage splits the E2E tests into groups called "shards". You can run them all sequentially with one command, or run a specific shard.
+    *   To run all E2E shards:
+        ```bash
+        pnpm run audit:e2e -- --all
+        ```
+    *   To run a specific shard (e.g., shard 0):
+        ```bash
+        pnpm run audit:e2e -- --shard=0
+        ```
+3.  **Generate the final report:**
+    This command is primarily for CI use, but you can run it locally to merge the E2E test reports and update the metrics in `docs/PRD.md`.
     ```bash
-    ./scripts/preflight.sh
+    pnpm run audit:report
     ```
-    This script is designed to be a quick pass/fail test to ensure your dependencies, browser binaries, and basic application startup are all working before you begin development or run the full test suite.
-
-If you need to run specific test suites during development, you can use the following `package.json` scripts:
-
-*   **Run all unit tests with coverage:**
-    ```bash
-    pnpm test:unit:full
-    ```
-
-*   **Run all end-to-end tests:**
-    ```bash
-    pnpm test:e2e
-    ```
-
-*   **Run only the smoke tests:**
-    ```bash
-    pnpm test:e2e:smoke
-    ```
-
-### Continuous Integration (CI)
-
-The definitive quality gate is our CI pipeline, which runs in GitHub Actions on every push and pull request to the `main` branch. The workflow is defined in `.github/workflows/ci.yml` and is orchestrated by the same `./test-audit.sh` script used for local validation. This ensures perfect consistency between the developer environment and the CI environment.

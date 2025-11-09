@@ -32,7 +32,6 @@ export default defineConfig(({ mode }) => {
     outDir: 'dist',
     rollupOptions: {
       output: {
-        manualChunks: undefined,
       }
     },
     treeshake: {

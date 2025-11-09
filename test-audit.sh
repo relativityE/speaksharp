@@ -41,10 +41,22 @@ prepare_stage() {
     pnpm test:unit:full 2>&1 | tee "$LOG_DIR/unit-tests.log"
 
     echo "--- Auto-sharding E2E Tests ---"
-    TEST_FILES=(tests/e2e/*.e2e.spec.ts)
+    # Use find for robust test discovery
+    mapfile -t TEST_FILES < <(find tests/e2e -name '*.e2e.spec.ts' | sort)
+
+    if [ ${#TEST_FILES[@]} -eq 0 ]; then
+        echo "⚠️ No E2E test files found. Skipping sharding."
+        # Create empty shard files to prevent downstream errors
+        for i in $(seq 0 $((NUM_SHARDS - 1))); do
+            touch "$SHARDS_DIR/shard-$i.txt"
+        done
+        return
+    fi
+
     for i in $(seq 0 $((NUM_SHARDS - 1))); do
         echo "" > "$SHARDS_DIR/shard-$i.txt"
     done
+
     INDEX=0
     for TEST_FILE in "${TEST_FILES[@]}"; do
         SHARD_INDEX=$((INDEX % NUM_SHARDS))
@@ -57,9 +69,9 @@ prepare_stage() {
 # ================================
 # STAGE 2: E2E Test
 # ================================
-test_stage() {
+run_e2e_stage() {
     SHARD_INDEX=$1
-    echo "--- Running Test Stage for Shard $SHARD_INDEX ---"
+    echo "--- Running E2E Test Stage for Shard $SHARD_INDEX ---"
 
     SHARD_FILE="$SHARDS_DIR/shard-$SHARD_INDEX.txt"
     if [ ! -s "$SHARD_FILE" ]; then
@@ -140,12 +152,38 @@ case "$ACTION" in
   prepare)
     prepare_stage
     ;;
-  test)
-    if [ -z "${2-}" ]; then
-      echo "ERROR: 'test' action requires a shard index as the second argument."
-      exit 1
+  run-e2e)
+    # New e2e runner with support for --shard flag
+    SHARD_INDEX=""
+    ALL_SHARDS=false
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --shard=*)
+                SHARD_INDEX="${1#*=}"
+                shift
+                ;;
+            --all)
+                ALL_SHARDS=true
+                shift
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    if [ "$ALL_SHARDS" = true ]; then
+        echo "--- Running all E2E shards sequentially ---"
+        for i in $(seq 0 $((NUM_SHARDS - 1))); do
+            run_e2e_stage "$i"
+        done
+    elif [ -n "$SHARD_INDEX" ]; then
+        run_e2e_stage "$SHARD_INDEX"
+    else
+        echo "ERROR: 'run-e2e' action requires either '--shard=<index>' or '--all'."
+        exit 1
     fi
-    test_stage "$2"
     ;;
   report)
     report_stage
@@ -162,39 +200,17 @@ case "$ACTION" in
     echo "--- Running Unit Tests with Coverage ---"
     pnpm test:unit:full 2>&1 | tee "$LOG_DIR/unit-tests.log"
     ;;
-  e2e)
-    echo "--- Running E2E Tests Only (all shards) ---"
-    # This is a convenience for local runs. It does not run prepare_stage.
-    # It just shards and runs the tests.
-    echo "--- Auto-sharding E2E Tests ---"
-    TEST_FILES=(tests/e2e/*.e2e.spec.ts)
-    for i in $(seq 0 $((NUM_SHARDS - 1))); do
-        echo "" > "$SHARDS_DIR/shard-$i.txt"
-    done
-    INDEX=0
-    for TEST_FILE in "${TEST_FILES[@]}"; do
-        SHARD_INDEX=$((INDEX % NUM_SHARDS))
-        echo "$TEST_FILE" >> "$SHARDS_DIR/shard-$SHARD_INDEX.txt"
-        INDEX=$((INDEX + 1))
-    done
-    echo "✅ E2E tests sharded into $NUM_SHARDS files."
-
-    for i in $(seq 0 $((NUM_SHARDS - 1))); do
-        test_stage "$i"
-    done
-    report_stage
-    ;;
   all)
     prepare_stage
     echo "--- Running All Test Shards ---"
     for i in $(seq 0 $((NUM_SHARDS - 1))); do
-        test_stage "$i"
+        run_e2e_stage "$i"
     done
     report_stage
     ;;
   *)
     echo "❌ Unknown command: $ACTION"
-    echo "Usage: $0 {prepare|test <shard_index>|report|lint|typecheck|unit|e2e|all}"
+    echo "Usage: $0 {prepare|run-e2e --shard=<index>|report|lint|typecheck|unit|all}"
     exit 1
     ;;
 esac

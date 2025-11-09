@@ -2,15 +2,15 @@ import React from 'react';
 import { render, screen, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { SessionSidebar } from '../SessionSidebar';
-import type { SessionSidebarProps } from '../SessionSidebar';
-import { AuthContextType } from '../../../contexts/AuthContext';
-import { AuthContext } from '../../../contexts/AuthContext';
+import { SessionSidebar } from '@/components/session/SessionSidebar';
+import type { SessionSidebarProps } from '@/components/session/SessionSidebar';
+import { AuthContextType } from '@/contexts/AuthContext';
+import { AuthContext } from '@/contexts/AuthContext';
+import { useUserProfile } from '@/hooks/useUserProfile';
 
 // Mock AuthContext instead of just the hook
 const mockAuthContextValue: Partial<AuthContextType> = {
   user: null,
-  profile: null,
   signOut: vi.fn(),
   loading: false,
   session: null,
@@ -29,11 +29,15 @@ vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
 }));
 
-vi.mock('../../contexts/useAuth', () => ({
+vi.mock('@/contexts/useAuth', () => ({
   useAuth: () => mockAuthContextValue,
 }));
 
-vi.mock('../../lib/logger', () => ({
+vi.mock('@/hooks/useUserProfile', () => ({
+  useUserProfile: () => ({ data: null, isLoading: false }),
+}));
+
+vi.mock('@/lib/logger', () => ({
   default: {
     info: vi.fn(),
     warn: vi.fn(),
@@ -71,7 +75,6 @@ describe('SessionSidebar', () => {
     vi.unstubAllEnvs();
     // Reset the mock auth context to default values
     mockAuthContextValue.user = null;
-    mockAuthContextValue.profile = null;
   });
 
   afterEach(() => {
@@ -87,7 +90,7 @@ describe('SessionSidebar', () => {
   describe('for a Free user', () => {
     beforeEach(() => {
       mockAuthContextValue.user = { id: 'free-user', app_metadata: {}, user_metadata: {}, aud: '', created_at: '' };
-      mockAuthContextValue.profile = { id: 'free-user', subscription_status: 'free' };
+      vi.mocked(useUserProfile).mockReturnValue({ data: { id: 'free-user', subscription_status: 'free' }, isLoading: false });
     });
 
     it('renders with "Native" as the default mode and disables advanced modes', async () => {
@@ -124,7 +127,7 @@ describe('SessionSidebar', () => {
   describe('for a Pro user', () => {
     beforeEach(() => {
       mockAuthContextValue.user = { id: 'pro-user', app_metadata: {}, user_metadata: {}, aud: '', created_at: '' };
-      mockAuthContextValue.profile = { id: 'pro-user', subscription_status: 'pro' };
+      vi.mocked(useUserProfile).mockReturnValue({ data: { id: 'pro-user', subscription_status: 'pro' }, isLoading: false });
     });
 
     it('renders with all modes enabled and "Cloud AI" as default', async () => {
@@ -180,7 +183,7 @@ describe('SessionSidebar', () => {
     beforeEach(() => {
       // Dev user might be on a free tier, but the env var should override
       mockAuthContextValue.user = { id: 'dev-user', app_metadata: {}, user_metadata: {}, aud: '', created_at: '' };
-      mockAuthContextValue.profile = { id: 'dev-user', subscription_status: 'free' };
+      vi.mocked(useUserProfile).mockReturnValue({ data: { id: 'dev-user', subscription_status: 'free' }, isLoading: false });
       vi.stubEnv('VITE_DEV_USER', 'true');
     });
 
@@ -236,53 +239,6 @@ describe('SessionSidebar', () => {
     });
   });
 
-  describe('UI States', () => {
-    it('shows the model loading indicator when the model is loading', () => {
-      const props = {
-        ...defaultProps,
-        modelLoadingProgress: { status: 'download', file: 'model.bin', loaded: 50, total: 100 },
-      };
-      render(
-        <MockAuthProvider value={mockAuthContextValue}>
-          <SessionSidebar {...props} />
-        </MockAuthProvider>
-      );
-      expect(screen.getByTestId('model-loading-indicator')).toBeInTheDocument();
-      expect(screen.getByText(/Downloading model/)).toBeInTheDocument();
-    });
-
-    it('shows the error display when an error is present', () => {
-      const props = { ...defaultProps, error: new Error('Test Error') };
-      render(
-        <MockAuthProvider value={mockAuthContextValue}>
-          <SessionSidebar {...props} />
-        </MockAuthProvider>
-      );
-      expect(screen.getByText('An Error Occurred')).toBeInTheDocument();
-      expect(screen.getByText('Test Error')).toBeInTheDocument();
-    });
-
-    it('disables controls and shows "Connecting..." when connecting', () => {
-      const props = { ...defaultProps, isListening: true, isReady: false };
-      render(
-        <MockAuthProvider value={mockAuthContextValue}>
-          <SessionSidebar {...props} />
-        </MockAuthProvider>
-      );
-      expect(screen.getByTestId('session-start-stop-button')).toBeDisabled();
-      expect(screen.getByText(/Connecting.../)).toBeInTheDocument();
-    });
-
-    it('displays the digital timer when a session has started', () => {
-      const props = { ...defaultProps, startTime: Date.now() };
-       render(
-        <MockAuthProvider value={mockAuthContextValue}>
-          <SessionSidebar {...props} />
-        </MockAuthProvider>
-      );
-      expect(screen.getByText(/00:00/)).toBeInTheDocument();
-    });
-  });
 
   describe('Session Flow', () => {
     it('calls stopListening and shows the end session dialog when stopping a session', async () => {

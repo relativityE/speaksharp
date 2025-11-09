@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../contexts/useAuth';
-import logger from '../../lib/logger';
+import { useAuth } from '@/contexts/useAuth';
+import { useUserProfile } from '@/hooks/useUserProfile';
+import logger from '@/lib/logger';
 import { Mic, Square, Loader2, Zap, Cloud, Computer } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -116,7 +117,8 @@ const ModelLoadingIndicator: React.FC<ModelLoadingIndicatorProps> = ({ progress 
 
 export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isReady, error, startListening, stopListening, reset, actualMode, saveSession, startTime, modelLoadingProgress }) => {
     const navigate = useNavigate();
-    const { user, profile } = useAuth();
+    const { user } = useAuth();
+    const { data: profile } = useUserProfile();
     const [isEndingSession, setIsEndingSession] = useState(false);
 
     const isDevUser = import.meta.env.VITE_DEV_USER === 'true';
@@ -256,7 +258,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                         <div data-testid="session-status-indicator" className={`text-xl font-semibold ${isListening && isReady ? 'text-green-500' : 'text-muted-foreground'}`}>
                             {isConnecting ? 'Connecting...' : (isListening ? 'Session Active' : (isModelLoading ? 'Initializing...' : 'Ready'))}
                         </div>
-                        <Button onClick={handleStartStop} size="lg" variant={isListening ? 'destructive' : 'default'} className="w-full h-16 text-xl font-bold rounded-lg" disabled={isConnecting || (isListening ? isEndingSession : isModelLoading)} data-testid="session-start-stop-button">
+                        <Button onClick={handleStartStop} size="lg" variant={isListening ? 'destructive' : 'default'} disabled={isConnecting || (isListening ? isEndingSession : isModelLoading)} data-testid="session-start-stop-button">
                             {isListening ? <><Square className="w-4 h-4 mr-2" /> Stop Session</> : (isModelLoading || isConnecting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {isConnecting ? 'Connecting...' : 'Initializing...'}</> : <><Mic className="w-4 h-4 mr-2" /> Start Session</>)}
                         </Button>
                     </div>

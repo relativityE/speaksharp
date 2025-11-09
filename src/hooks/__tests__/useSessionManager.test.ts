@@ -5,7 +5,6 @@ import * as useAuth from '../../contexts/useAuth';
 import * as storage from '../../lib/storage';
 import logger from '../../lib/logger';
 import type { User, Session } from '@supabase/supabase-js';
-import type { UserProfile } from '../../types/user';
 import type { PracticeSession } from '../../types/session';
 import { AuthContextType } from '../../contexts/AuthContext';
 
@@ -43,14 +42,8 @@ const mockUser: User = {
   created_at: new Date().toISOString(),
 };
 
-const mockProfile: UserProfile = {
-    id: 'profile-123',
-    subscription_status: 'free',
-};
-
 const mockAuthContextValue: AuthContextType = {
     user: mockUser,
-    profile: mockProfile,
     session: {} as Session,
     loading: false,
     signOut: vi.fn(() => Promise.resolve({ error: null })),
@@ -81,8 +74,7 @@ describe('useSessionManager', () => {
       });
 
       expect(mockStorage.saveSession).toHaveBeenCalledExactlyOnceWith(
-        { ...sessionData, user_id: mockUser.id },
-        mockProfile
+        { ...sessionData, user_id: mockUser.id }
       );
     });
 
@@ -98,24 +90,6 @@ describe('useSessionManager', () => {
                 expect(savedSession.usageExceeded).toBe(true);
             }
         });
-    });
-
-    it('should log an error if user is authenticated but profile is missing', async () => {
-      mockUseAuth.mockReturnValue({ ...mockAuthContextValue, profile: null });
-      const { result } = renderHook(() => useSessionManager());
-
-      await act(async () => {
-        const savedSession = await result.current.saveSession({ duration: 100 });
-        expect(savedSession).not.toBeNull();
-        if (savedSession) {
-          expect(savedSession.session).toBeNull();
-        }
-      });
-
-      expect(mockLogger.error).toHaveBeenCalledExactlyOnceWith(
-        expect.objectContaining({ err: new Error("Cannot save session: user profile not available.") }),
-        "Error in useSessionManager -> saveSession:"
-      );
     });
   });
 
