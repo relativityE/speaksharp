@@ -48,7 +48,7 @@ test.describe('Screenshot Capture', () => {
         fullPage: true
       });
       console.log(`✅ Screenshot saved: ${screenshotPath3}`);
-    } catch (_e) {
+    } catch {
       console.log('⚠️ Analytics page not accessible, skipping');
     }
 
