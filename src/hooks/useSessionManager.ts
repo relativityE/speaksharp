@@ -12,7 +12,7 @@ interface UseSessionManager {
 // This hook is now "headless" and only contains the logic for actions.
 // The state itself is managed in SessionContext.
 export const useSessionManager = (): UseSessionManager => {
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
 
   const saveSession = async (sessionData: Partial<PracticeSession>): Promise<{ session: PracticeSession | null; usageExceeded: boolean }> => {
     try {
@@ -32,11 +32,7 @@ export const useSessionManager = (): UseSessionManager => {
       }
 
       // Handle real users
-      if (!profile) {
-        throw new Error("Cannot save session: user profile not available.");
-      }
-
-      const { session: newSession, usageExceeded } = await saveSessionToDb({ ...sessionData, user_id: user.id }, profile);
+      const { session: newSession, usageExceeded } = await saveSessionToDb({ ...sessionData, user_id: user.id });
 
       if (newSession) {
         return { session: newSession, usageExceeded: usageExceeded || false };

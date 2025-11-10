@@ -3,6 +3,7 @@ import { NavLink, useNavigate, useParams } from 'react-router-dom';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
 import { usePracticeHistory } from '../hooks/usePracticeHistory';
 import { useAuth } from '../contexts/useAuth';
+import { useUserProfile } from '@/hooks/useUserProfile';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Zap, Sparkles, BarChart } from 'lucide-react';
@@ -34,7 +35,8 @@ const UpgradeBanner: React.FC = () => {
 const AuthenticatedAnalyticsView: React.FC = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
     const { data: sessionHistory = [], isLoading: loading, error } = usePracticeHistory();
-    const { user, profile } = useAuth();
+    const { user } = useAuth();
+    const { data: profile } = useUserProfile();
     const [singleSession, setSingleSession] = useState<PracticeSession | null>(null);
 
     const isPro = profile?.subscription_status === 'pro';

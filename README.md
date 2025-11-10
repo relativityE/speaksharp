@@ -26,7 +26,7 @@ To get started with SpeakSharp, you'll need to have Node.js (version 22.12.0 or 
     pnpm dev
     ```
 
-## Testing and CI/CD
+## Running the Full Test & Audit Suite
 
 This project uses a new, unified testing strategy centered around a single, robust script (`test-audit.sh`) that is accessed via simple `pnpm` commands. This ensures that local validation and the CI pipeline are perfectly aligned.
 
