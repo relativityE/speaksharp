@@ -103,8 +103,10 @@ describe('AuthContext', () => {
 
     // Assert
     await waitFor(() => {
-      expect(screen.getByTestId('session-email')).toHaveTextContent('No session');
-      expect(screen.getByTestId('profile-status')).toHaveTextContent('No profile');
+      expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
     });
+
+    expect(screen.getByTestId('session-email')).toHaveTextContent('No session');
+    expect(screen.getByTestId('profile-status')).toHaveTextContent('No profile');
   });
 });

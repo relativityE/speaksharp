@@ -1,29 +1,9 @@
 import React, { useState, useEffect, ReactNode } from 'react';
 import { getSupabaseClient } from '../lib/supabaseClient';
 import { Session } from '@supabase/supabase-js';
-import { UserProfile } from '../types/user';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AuthContext, AuthContextType } from './AuthContext';
-
-const getProfileFromDb = async (userId: string): Promise<UserProfile | null> => {
-  const supabase = getSupabaseClient();
-  try {
-    const { data, error } = await supabase
-      .from('user_profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
-
-    if (error) {
-      console.error('Error fetching profile:', error.message);
-      return null;
-    }
-    return data;
-  } catch (e) {
-    console.error('Error fetching profile:', e);
-    return null;
-  }
-};
+import { useMemo, useCallback } from 'react';
 
 interface AuthProviderProps {
   children: ReactNode;
@@ -32,7 +12,6 @@ interface AuthProviderProps {
 
 export function AuthProvider({ children, initialSession = null }: AuthProviderProps) {
   const [session, setSessionState] = useState<Session | null>(initialSession);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(!initialSession);
 
   useEffect(() => {
@@ -43,42 +22,39 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       return;
     }
 
-    // Immediately get the session and update loading state
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSessionState(session);
-      if (!session) {
-        setLoading(false);
-      }
-    });
-
-    // Listen for auth state changes
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      async (_event, newSession) => {
+    // The onAuthStateChange listener provides the single source of truth for auth events.
+    // It fires immediately on registration, so we don't need a separate getSession call.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, newSession) => {
         setSessionState(newSession);
-        if (newSession?.user) {
-          const userProfile = await getProfileFromDb(newSession.user.id);
-          setProfile(userProfile);
-        } else {
-          setProfile(null);
-        }
         setLoading(false);
       }
     );
 
     return () => {
-      listener?.subscription.unsubscribe();
+      subscription?.unsubscribe();
     };
   }, []);
 
+  // Dispatch a custom event when the session is loaded, for E2E testing.
   useEffect(() => {
-    if (import.meta.env.MODE === 'test' && profile) {
-      console.log('[E2E] Profile loaded successfully:', {
-        email: session?.user?.email,
-        id: profile?.id
-      });
+    if (import.meta.env.MODE === 'test' && session) {
       document.dispatchEvent(new CustomEvent('e2e-profile-loaded'));
     }
-  }, [profile, session]);
+  }, [session]);
+
+  const signOut = useCallback(() => {
+    getSupabaseClient().auth.signOut();
+  }, []);
+
+  const value = useMemo((): AuthContextType => ({
+    session,
+    user: session?.user ?? null,
+    profile: null, // Profile is now fetched via useUserProfile
+    loading,
+    signOut,
+    setSession: setSessionState,
+  }), [session, loading, signOut]);
 
   if (loading) {
     return (
@@ -87,15 +63,6 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       </div>
     );
   }
-
-  const value: AuthContextType = {
-    session,
-    user: session?.user ?? null,
-    profile,
-    loading,
-    signOut: () => getSupabaseClient().auth.signOut(),
-    setSession: setSessionState,
-  };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
