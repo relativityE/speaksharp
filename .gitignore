@@ -9,6 +9,7 @@ playwright.config.js
 tailwind.config.js
 /test-support/
 /coverage/
+/screenshots/
 /test-results/
 /playwright-report/
 /unit-metrics.json

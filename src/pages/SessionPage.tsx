@@ -14,6 +14,7 @@ import ErrorBoundary from '../components/ErrorBoundary';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { UpgradePromptDialog } from '@/components/UpgradePromptDialog';
 import { useAuth } from '../contexts/useAuth';
+import { useUserProfile } from '@/hooks/useUserProfile';
 import { useQueryClient } from '@tanstack/react-query';
 import logger from '@/lib/logger';
 import type { PracticeSession } from '@/types/session';
@@ -82,7 +83,8 @@ const LeftColumnContent: React.FC<LeftColumnContentProps> = ({ speechRecognition
 // --- Main Component ---
 
 export const SessionPage: React.FC = () => {
-    const { user, profile, session, loading } = useAuth();
+    const { user, session, loading: authLoading } = useAuth();
+    const { data: profile, isLoading: profileLoading } = useUserProfile();
     const { saveSession: saveSessionToBackend } = useSessionManager();
     const queryClient = useQueryClient();
     const [customWords, setCustomWords] = useState<string[]>([]);
@@ -93,7 +95,7 @@ export const SessionPage: React.FC = () => {
     const speechRecognition = useSpeechRecognition({ customWords, session, profile });
     const { isListening, modelLoadingProgress } = speechRecognition;
 
-    logger.info({ profile, loading, usageLimitExceeded }, 'SessionPage render state');
+    logger.info({ profile, loading: authLoading || profileLoading, usageLimitExceeded }, 'SessionPage render state');
 
     useEffect(() => {
         posthog.capture('session_page_viewed');
@@ -127,7 +129,7 @@ export const SessionPage: React.FC = () => {
         }
     }, [isListening, user, profile, speechRecognition]);
 
-    if (loading) {
+    if (authLoading || profileLoading) {
         return (
             <div className="container mx-auto px-component-px py-10 flex justify-center items-center">
                 <Loader className="h-8 w-8 animate-spin" />

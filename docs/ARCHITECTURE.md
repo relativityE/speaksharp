@@ -252,6 +252,23 @@ The E2E test environment is designed for stability and isolation. Several key ar
 
 These patterns work together to create a robust testing foundation, eliminating the primary sources of flakiness and making the E2E suite a reliable indicator of application quality.
 
+### Visual State Capture for Documentation
+
+To aid in documentation and provide a quick visual reference of the application's key states, a dedicated E2E test file is used for capturing screenshots.
+
+-   **File:** `tests/e2e/capture-states.e2e.spec.ts`
+-   **Purpose:** This test is not for functional verification but for generating consistent, high-quality screenshots of the application's primary UI states (e.g., unauthenticated homepage, authenticated homepage, analytics page).
+-   **Output:** The screenshots are saved to the `/screenshots` directory in the project root, which is explicitly ignored by `.gitignore`.
+-   **Usage:** To regenerate the screenshots, run the test directly:
+    ```bash
+    pnpm exec playwright test tests/e2e/capture-states.e2e.spec.ts
+    ```
+This provides a simple, repeatable process for updating visual documentation as the application evolves.
+
+### Known Architectural Limitations
+
+- **`audio-processor.worklet.js` Migration:** This file is intentionally left as JavaScript and excluded from the TypeScript migration. It is a Web Audio Worklet, a specialized script that runs in a high-performance audio thread. Migrating it to TypeScript is a high-risk task that requires a custom build process and deep expertise in the Web Audio API. A failed migration would not cause a crash but could silently corrupt audio data, dramatically reducing AI transcription accuracy. The risk of silently breaking the application's core feature outweighs the benefit of type safety for this isolated file.
+
 ### E2E Test Architecture: Fixtures and Programmatic Login
 
 To ensure E2E tests are fast, reliable, and deterministic, the test suite uses a sophisticated fixture-based architecture for handling authentication and mock data.

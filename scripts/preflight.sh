@@ -17,17 +17,9 @@ echo "    ✅ Clean environment ensured."
 export NODE_ENV=test
 export DOTENV_CONFIG_PATH=.env.test
 
-# 3️⃣ Install Dependencies
-echo "  - Installing dependencies..."
-echo "    🔄 Performing clean install to ensure no stale modules..."
-rm -rf node_modules
-pnpm store prune
-pnpm install --frozen-lockfile
-echo "    ✅ Dependencies ready."
-
-# 4️⃣ Ensure Playwright Browsers Installed
+# 3️⃣ Ensure Playwright Browsers Installed
 echo "  - Checking Playwright browsers..."
-pnpm exec playwright install --with-deps
+pnpm run playwright:install
 echo "    ✅ Playwright browsers ready."
 
 # 5️⃣ Build the App (optional for CI smoke)
