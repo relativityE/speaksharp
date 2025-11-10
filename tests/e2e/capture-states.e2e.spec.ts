@@ -1,59 +1,59 @@
 // tests/e2e/capture-states.e2e.spec.ts
 import { test, expect } from '@playwright/test';
 import { programmaticLogin } from './helpers';
-import path from 'path';
 import fs from 'fs';
+import path from 'path';
 
-test.describe('Screenshot Capture', () => {
-  test('capture UI states for verification', async ({ page }) => {
-    const screenshotDir = path.join(process.cwd(), 'screenshots');
+test.describe('Capture UI States', () => {
+  const screenshotsDir = path.join(process.cwd(), 'verification-screenshots');
 
-    // Ensure directory exists
-    if (!fs.existsSync(screenshotDir)) {
-      fs.mkdirSync(screenshotDir, { recursive: true });
+  test.beforeAll(() => {
+    // Ensure screenshots directory exists
+    if (!fs.existsSync(screenshotsDir)) {
+      fs.mkdirSync(screenshotsDir, { recursive: true });
     }
+  });
 
+  test('capture loading and authenticated states', async ({ page }) => {
     // 1. Capture unauthenticated homepage
-    console.log('[Screenshot] Navigating to homepage...');
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
-
-    const screenshotPath1 = path.join(screenshotDir, 'unauthenticated-home.png');
+    await page.waitForLoadState('domcontentloaded');
     await page.screenshot({
-      path: screenshotPath1,
+      path: path.join(screenshotsDir, 'state-01-unauthenticated.png'),
       fullPage: true
     });
-    console.log(`✅ Screenshot saved: ${screenshotPath1}`);
+    console.log('✅ Captured: Unauthenticated homepage');
 
-    // 2. Perform login
-    console.log('[Screenshot] Performing login...');
-    await programmaticLogin(page);
-
-    // 3. Capture authenticated homepage
-    const screenshotPath2 = path.join(screenshotDir, 'authenticated-home.png');
-    await page.screenshot({
-      path: screenshotPath2,
-      fullPage: true
-    });
-    console.log(`✅ Screenshot saved: ${screenshotPath2}`);
-
-    // 4. Capture analytics page (if it exists)
-    try {
-      await page.goto('/analytics');
-      await page.waitForLoadState('networkidle');
-
-      const screenshotPath3 = path.join(screenshotDir, 'analytics-page.png');
+    // 2. Try to capture loading skeleton (might be fast!)
+    const loadingSkeleton = page.locator('[data-testid="loading-skeleton"]');
+    const skeletonCount = await loadingSkeleton.count();
+    if (skeletonCount > 0) {
       await page.screenshot({
-        path: screenshotPath3,
+        path: path.join(screenshotsDir, 'state-02-loading-skeleton.png'),
         fullPage: true
       });
-      console.log(`✅ Screenshot saved: ${screenshotPath3}`);
-    } catch {
-      console.log('⚠️ Analytics page not accessible, skipping');
+      console.log('✅ Captured: Loading skeleton');
+    } else {
+      console.log('⚠️  Loading skeleton not visible (loaded too fast)');
     }
 
-    // Verify files were created
-    expect(fs.existsSync(screenshotPath1)).toBe(true);
-    expect(fs.existsSync(screenshotPath2)).toBe(true);
+    // 3. Perform login
+    await programmaticLogin(page);
+
+    // 4. Capture authenticated homepage
+    await page.screenshot({
+      path: path.join(screenshotsDir, 'state-03-authenticated-home.png'),
+      fullPage: true
+    });
+    console.log('✅ Captured: Authenticated homepage');
+
+    // 5. Navigate to Analytics page and capture
+    await page.goto('/analytics');
+    await expect(page.getByTestId('dashboard-heading')).toBeVisible({ timeout: 15000 });
+    await page.screenshot({
+      path: path.join(screenshotsDir, 'state-04-analytics-page.png'),
+      fullPage: true
+    });
+    console.log('✅ Captured: Analytics page');
   });
 });

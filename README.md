@@ -17,8 +17,7 @@ To get started with SpeakSharp, you'll need to have Node.js (version 22.12.0 or 
     ```bash
     cd speaksharp
     ```
-3.  **Install Dependencies (Canonical Method):**
-    This is the required command to install dependencies. It uses a frozen lockfile to ensure that the exact versions of all packages are installed, creating a consistent and reproducible environment that matches CI.
+3.  **Install all dependencies and browser binaries:**
     ```bash
     pnpm setup
     ```
@@ -29,39 +28,48 @@ To get started with SpeakSharp, you'll need to have Node.js (version 22.12.0 or 
 
 ## Running the Full Test & Audit Suite
 
-This project uses a unified testing strategy to ensure that local validation and the CI pipeline are perfectly aligned. The `./test-audit.sh` script is the **single source of truth** for all testing, and it is wrapped by a series of `pnpm` scripts for ease of use.
+This project uses a new, unified testing strategy centered around a single, robust script (`test-audit.sh`) that is accessed via simple `pnpm` commands. This ensures that local validation and the CI pipeline are perfectly aligned.
 
-### Primary Local Audit Command
+### The Canonical Audit Commands
 
-To run the complete CI pipeline locally (recommended before any commit), use the following command:
+For all local testing and validation, use the following `pnpm` scripts. They are the **single source of truth** for ensuring code quality.
 
-```bash
-pnpm run audit:full
-```
-
-**Why?** This is the most important command. It guarantees that your changes meet all the quality gates (linting, type safety, unit tests, E2E tests) that the CI server will enforce. Running this locally prevents broken builds and failed pull requests. **Note:** This command may time out in some environments. If it does, use the staged execution below.
-
-### Staged Execution (Mirroring CI)
-
-To mirror the CI pipeline's staged execution and avoid timeouts, run the commands in the following order:
-
-1.  **Prepare the environment:**
-    This command lints, type-checks, builds the application, and runs all unit tests.
+*   **Run the complete CI pipeline locally (recommended before any commit):**
     ```bash
-    pnpm run audit:prepare
+    pnpm audit
     ```
-2.  **Run the E2E tests:**
-    The `prepare` stage splits the E2E tests into groups called "shards". You can run them all sequentially with one command, or run a specific shard.
-    *   To run all E2E shards:
-        ```bash
-        pnpm run audit:e2e -- --all
-        ```
-    *   To run a specific shard (e.g., shard 0):
-        ```bash
-        pnpm run audit:e2e -- --shard=0
-        ```
-3.  **Generate the final report:**
-    This command is primarily for CI use, but you can run it locally to merge the E2E test reports and update the metrics in `docs/PRD.md`.
+    **Why?** This is the most important command. It mirrors the CI server exactly and guarantees that your changes meet all quality gates: preflight checks, linting, type safety, unit tests, a production-like build, and the full end-to-end (E2E) test suite. Running this locally prevents broken builds.
+
+*   **Run a fast, local-only audit (no E2E tests):**
     ```bash
-    pnpm run audit:report
+    pnpm audit:fast
     ```
+    **Why?** This is your go-to command during development. It runs all the same checks as the full audit but skips the time-consuming E2E tests, providing a much faster feedback loop.
+
+*   **Run a quick "health check" of the application:**
+    ```bash
+    pnpm audit:health
+    ```
+    **Why?** Use this for a quick sanity check. It runs the entire audit pipeline but only executes the single, critical "smoke test" in the E2E stage, ensuring the application is not fundamentally broken.
+
+*   **Run only the unit tests:**
+    ```bash
+    pnpm test
+    ```
+    **Why?** The fastest possible feedback loop, useful when practicing Test-Driven Development (TDD) on a specific component.
+
+*   **Capture visual snapshots of the application:**
+    ```bash
+    pnpm test:screenshots
+    ```
+    **Why?** Use this to generate a set of screenshots of key application states (e.g., logged out, logged in, analytics page). This is useful for visual regression testing and for quickly verifying the look and feel of the application.
+
+### Software Quality Metrics (SQM)
+
+The test runner automatically generates a Software Quality Metrics report.
+*   When run locally (`pnpm audit:fast` or `pnpm audit:health`), a summary is printed to your console.
+*   When run in CI (`pnpm audit`), the full report is automatically updated in `docs/PRD.md`.
+
+### Continuous Integration (CI)
+
+The definitive quality gate is our CI pipeline, which runs in GitHub Actions. The workflow is defined in `.github/workflows/ci.yml` and is orchestrated by the `pnpm audit` command, ensuring perfect consistency between the developer environment and the CI environment.
