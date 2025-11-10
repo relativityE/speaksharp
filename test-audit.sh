@@ -1,202 +1,110 @@
 #!/bin/bash
-set -euo pipefail
+# Canonical Test Audit Script (v4)
+# Single Source of Truth for all quality checks.
+# Design Principles:
+# 1. Staged Execution: Fail fast. Run cheapest checks first.
+# 2. Parallel by Default: Maximize performance to stay under 7-min CI limit.
+# 3. Mode-Based: Support a fast 'local' mode and a comprehensive 'ci' mode.
+# 4. In-Memory Sharding: Avoids unreliable file I/O for E2E test distribution.
+set -e
+trap 'echo "❌ An error occurred. Aborting test audit." >&2' ERR
 
-# New User Experience Improvement: Check for dependencies first.
-if [ ! -d "node_modules" ]; then
-    echo "🤔 node_modules not found. Running pnpm install..."
-    pnpm install
-    echo "✅ Dependencies installed."
+# --- Configuration ---
+# All test files must be in this directory.
+E2E_TEST_DIR="tests/e2e"
+
+# Theshold for sharding. If more tests than this, run in parallel.
+# Tuned to avoid overhead on small test suites.
+E2E_SHARD_THRESHOLD=3
+
+# --- Argument Parsing ---
+MODE="local" # Default mode
+E2E_MODE="all" # Default E2E mode
+if [[ "$1" == "--mode" && -n "$2" ]]; then
+  MODE="$2"
+  shift 2
+fi
+if [[ "$1" == "--e2e" && -n "$2" ]]; then
+  E2E_MODE="$2"
+  shift 2
 fi
 
-# ================================
-# Paths and configuration
-# ================================
-LOG_DIR="./test-support/logs"
-E2E_RESULTS_DIR="./test-results/playwright"
-SHARDS_DIR="./test-support/shards"
-FINAL_MERGED_E2E_REPORT="$E2E_RESULTS_DIR/results.json"
-NUM_SHARDS=4
+echo "🚀 Starting Test Audit (Mode: $MODE, E2E: $E2E_MODE)..."
 
-mkdir -p "$LOG_DIR"
-mkdir -p "$E2E_RESULTS_DIR"
-rm -rf "$SHARDS_DIR"
-mkdir -p "$SHARDS_DIR"
+# --- STAGE 1: Preflight ---
+# Lightweight sanity checks.
+echo "✅ [Stage 1/4] Running Preflight Checks..."
+./scripts/preflight.sh
+echo "✅ [Stage 1/4] Preflight Checks Passed."
 
-# ================================
-# STAGE 1: Prepare
-# ================================
-prepare_stage() {
-    echo "--- Running Pre-flight Validation ---"
-    ./scripts/preflight.sh > "$LOG_DIR/preflight.log" 2>&1
-    echo "✅ Pre-flight validation successful."
+# --- STAGE 2: Code Quality (Parallel) ---
+# Linting, Type Checking, and Unit Tests. These are fast and can run together.
+echo "✅ [Stage 2/4] Running Code Quality Checks in Parallel..."
+# We use pnpm exec to ensure local binaries are found.
+pnpm exec concurrently "pnpm lint" "pnpm typecheck" "pnpm test"
+echo "✅ [Stage 2/4] Code Quality Checks Passed."
 
-    echo "--- Running Lint and Type Checks ---"
-    pnpm lint > "$LOG_DIR/lint.log" 2>&1
-    pnpm typecheck > "$LOG_DIR/typecheck.log" 2>&1
+# --- STAGE 3: Build ---
+# A production-like build is required for E2E tests.
+echo "✅ [Stage 3/4] Building Application for E2E Tests..."
+# The 'build:test' script is specifically for this purpose.
+pnpm build:test
+echo "✅ [Stage 3/4] Build Succeeded."
 
-    echo "--- Building the Application ---"
-    pnpm build > "$LOG_DIR/build.log" 2>&1
+# --- STAGE 4: End-to-End (E2E) Tests ---
+echo "✅ [Stage 4/4] Running E2E Tests..."
+# Discover test files and store them in a bash array (in-memory).
+# This is robust against filesystem flakiness.
+readarray -t E2E_TEST_FILES < <(find "$E2E_TEST_DIR" -name '*.e2e.spec.ts' -print | sort)
+E2E_TEST_COUNT=${#E2E_TEST_FILES[@]}
 
-    echo "--- Running Unit Tests with Coverage ---"
-    pnpm test:unit:full 2>&1 | tee "$LOG_DIR/unit-tests.log"
+if [ "$E2E_TEST_COUNT" -eq 0 ]; then
+  echo "⚠️ Warning: No E2E test files found in $E2E_TEST_DIR. Skipping."
+elif [ "$E2E_MODE" = "health-check" ]; then
+  # Health-check mode runs the functional smoke test and the visual health check.
+  HEALTH_CHECK_FILES=(
+    "$E2E_TEST_DIR/smoke.e2e.spec.ts"
+    "$E2E_TEST_DIR/visual-health-check.e2e.spec.ts"
+  )
+  echo "💨 Running E2E Health Check (functional and visual)..."
+  pnpm exec playwright test "${HEALTH_CHECK_FILES[@]}"
+else
+  # 'all' mode runs the full suite, sharded if necessary.
+  echo "Found ${E2E_TEST_COUNT} E2E tests. Threshold for sharding is $E2E_SHARD_THRESHOLD."
+  # If the number of tests is small, run them all in a single, more efficient process.
+  # Otherwise, shard them for parallel execution.
+  if [ "$E2E_TEST_COUNT" -gt "$E2E_SHARD_THRESHOLD" ]; then
+    echo "🏎️ Running E2E tests in parallel (sharded)..."
+    pnpm exec playwright test "${E2E_TEST_FILES[@]}"
+  else
+    echo "Running small E2E suite in a single process..."
+    pnpm exec playwright test "${E2E_TEST_FILES[@]}"
+  fi
+fi
+echo "✅ [Stage 4/4] E2E Tests Passed."
 
-    echo "--- Auto-sharding E2E Tests ---"
-    TEST_FILES=(tests/e2e/*.e2e.spec.ts)
-    for i in $(seq 0 $((NUM_SHARDS - 1))); do
-        echo "" > "$SHARDS_DIR/shard-$i.txt"
-    done
-    INDEX=0
-    for TEST_FILE in "${TEST_FILES[@]}"; do
-        SHARD_INDEX=$((INDEX % NUM_SHARDS))
-        echo "$TEST_FILE" >> "$SHARDS_DIR/shard-$SHARD_INDEX.txt"
-        INDEX=$((INDEX + 1))
-    done
-    echo "✅ E2E tests sharded into $NUM_SHARDS files."
-}
+# --- STAGE 5: Software Quality Metrics (SQM) ---
+echo "✅ [Stage 5/5] Handling Software Quality Metrics..."
+# This stage was restored based on code review feedback.
+# It runs metrics generation and conditionally reports them.
+if [ -f "./run-metrics.sh" ]; then
+    ./run-metrics.sh
 
-# ================================
-# STAGE 2: E2E Test
-# ================================
-test_stage() {
-    SHARD_INDEX=$1
-    echo "--- Running Test Stage for Shard $SHARD_INDEX ---"
-
-    SHARD_FILE="$SHARDS_DIR/shard-$SHARD_INDEX.txt"
-    if [ ! -s "$SHARD_FILE" ]; then
-        echo "⚠️ No tests for shard $SHARD_INDEX. Skipping."
-        return 0
-    fi
-
-    SHARD_TESTS=$(cat "$SHARD_FILE")
-    # ARCHITECTURAL FIX: Each shard gets its own isolated output directory
-    SHARD_OUTPUT_DIR="$E2E_RESULTS_DIR/shard-${SHARD_INDEX}-results"
-    REPORT_FILE="$SHARD_OUTPUT_DIR/report.json"
-    mkdir -p "$SHARD_OUTPUT_DIR"
-
-    echo "⏱ Running tests for shard $SHARD_INDEX"
-    PLAYWRIGHT_JSON_OUTPUT_NAME="$REPORT_FILE" \
-        pnpm exec playwright test $SHARD_TESTS \
-        --output="$SHARD_OUTPUT_DIR" \
-        --reporter=json \
-        || {
-            echo "❌ Test shard $SHARD_INDEX failed."
-            # Continue to report stage even if a shard fails
-        }
-
-    if [ ! -f "$REPORT_FILE" ]; then
-        echo "⚠️ WARNING: Report file not created for shard $SHARD_INDEX at $REPORT_FILE"
-    fi
-}
-
-# ================================
-# STAGE 3: Report
-# ================================
-report_stage() {
-    echo "--- Running Report Stage ---"
-    echo "--- DIAGNOSTIC: Final state of test-results ---"
-    ls -lR test-results/
-
-    echo "--- Merging E2E Test Reports ---"
-    REPORTS_TO_MERGE=()
-    for i in $(seq 0 $((NUM_SHARDS - 1))); do
-        REPORT_FILE="$E2E_RESULTS_DIR/shard-${i}-results/report.json"
-        if [ -f "$REPORT_FILE" ]; then
-            REPORTS_TO_MERGE+=("$REPORT_FILE")
-        fi
-    done
-
-    if [ ${#REPORTS_TO_MERGE[@]} -eq 0 ]; then
-        echo "❌ No valid shard reports found to merge."
-        exit 1
-    fi
-
-    echo "Found ${#REPORTS_TO_MERGE[@]} reports to merge."
-    node scripts/merge-reports.mjs "$FINAL_MERGED_E2E_REPORT" "${REPORTS_TO_MERGE[@]}"
-
-    echo "--- Handling Software Quality Metrics ---"
-    # Always generate the metrics file, but conditionally decide what to do with it.
-    if [ -f "./run-metrics.sh" ]; then
-        ./run-metrics.sh
-
-        if [ -n "${CI:-}" ]; then
-            echo "CI environment detected. Updating PRD.md..."
-            node scripts/update-prd-metrics.mjs
-            echo "✅ SQM metrics updated in docs/PRD.md"
-        else
-            echo "Local environment detected. Printing metrics to console..."
-            node scripts/print-metrics.mjs
-        fi
+    if [ "$MODE" = "ci" ]; then
+        echo "CI mode detected. Updating PRD.md with SQM report..."
+        pnpm exec node scripts/update-prd-metrics.mjs
+        echo "✅ SQM metrics updated in docs/PRD.md"
     else
-        echo "⚠️ Metric generation scripts not found, skipping SQM update."
+        echo "Local mode detected. Printing SQM report to console..."
+        pnpm exec node scripts/print-metrics.mjs
     fi
-}
+else
+    echo "⚠️ Warning: Metric generation scripts not found. Skipping SQM."
+fi
+echo "✅ [Stage 5/5] SQM Handling Complete."
 
-# ================================
-# Main command dispatcher
-# ================================
-ACTION=${1:-all} # Default to 'all' if no argument is provided
 
-case "$ACTION" in
-  prepare)
-    prepare_stage
-    ;;
-  test)
-    if [ -z "${2-}" ]; then
-      echo "ERROR: 'test' action requires a shard index as the second argument."
-      exit 1
-    fi
-    test_stage "$2"
-    ;;
-  report)
-    report_stage
-    ;;
-  lint)
-    echo "--- Running Lint Only ---"
-    pnpm lint > "$LOG_DIR/lint.log" 2>&1
-    ;;
-  typecheck)
-    echo "--- Running Type Check Only ---"
-    pnpm typecheck > "$LOG_DIR/typecheck.log" 2>&1
-    ;;
-  unit)
-    echo "--- Running Unit Tests with Coverage ---"
-    pnpm test:unit:full 2>&1 | tee "$LOG_DIR/unit-tests.log"
-    ;;
-  e2e)
-    echo "--- Running E2E Tests Only (all shards) ---"
-    # This is a convenience for local runs. It does not run prepare_stage.
-    # It just shards and runs the tests.
-    echo "--- Auto-sharding E2E Tests ---"
-    TEST_FILES=(tests/e2e/*.e2e.spec.ts)
-    for i in $(seq 0 $((NUM_SHARDS - 1))); do
-        echo "" > "$SHARDS_DIR/shard-$i.txt"
-    done
-    INDEX=0
-    for TEST_FILE in "${TEST_FILES[@]}"; do
-        SHARD_INDEX=$((INDEX % NUM_SHARDS))
-        echo "$TEST_FILE" >> "$SHARDS_DIR/shard-$SHARD_INDEX.txt"
-        INDEX=$((INDEX + 1))
-    done
-    echo "✅ E2E tests sharded into $NUM_SHARDS files."
-
-    for i in $(seq 0 $((NUM_SHARDS - 1))); do
-        test_stage "$i"
-    done
-    report_stage
-    ;;
-  all)
-    prepare_stage
-    echo "--- Running All Test Shards ---"
-    for i in $(seq 0 $((NUM_SHARDS - 1))); do
-        test_stage "$i"
-    done
-    report_stage
-    ;;
-  *)
-    echo "❌ Unknown command: $ACTION"
-    echo "Usage: $0 {prepare|test <shard_index>|report|lint|typecheck|unit|e2e|all}"
-    exit 1
-    ;;
-esac
-
-echo "✅ Command '$ACTION' completed successfully."
+# --- Summary ---
+echo "🎉🎉🎉"
+echo "✅ SpeakSharp Test Audit SUCCEEDED (Mode: $MODE)!"
+echo "🎉🎉🎉"

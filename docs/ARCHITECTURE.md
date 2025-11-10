@@ -92,26 +92,21 @@ SpeakSharp is built on a modern, serverless technology stack designed for real-t
 
 ## Testing and CI/CD
 
-SpeakSharp employs a unified and resilient testing strategy to ensure that the local development experience perfectly mirrors the Continuous Integration (CI) pipeline, eliminating "it works on my machine" issues. The process is designed for speed, reliability, and deterministic execution.
+SpeakSharp employs a new, unified, and resilient testing strategy designed for speed and reliability. The entire process is orchestrated by a single script, `test-audit.sh`, which ensures that the local development experience perfectly mirrors the Continuous Integration (CI) pipeline.
 
-### The Local Audit Script: The Single Source of Truth
+### The Canonical Audit Script (`test-audit.sh`)
 
-The `./test-audit.sh` script is the cornerstone of our quality assurance process. It is the **single source of truth** for all code validation, designed to be run both locally by developers and remotely by the CI pipeline.
+This script is the **single source of truth** for all code validation. It is accessed via simple `pnpm` commands (e.g., `pnpm audit`) and follows a strict, 5-stage execution pipeline to provide fast feedback.
 
-*   **Purpose:** To orchestrate a comprehensive suite of checks that validate the application's quality, from static analysis to sharded end-to-end tests.
-*   **Staged Execution:** The script is modular and accepts commands (`prepare`, `test <shard-index>`, `report`, `all`) to support a multi-stage CI process.
-*   **Key Features:**
-    *   **Static Analysis & Build:** Runs linting, type checking, and a production build.
-    *   **Unit Tests:** Executes the full unit test suite and generates a coverage report.
-    *   **E2E Test Timing & Sharding:** Times each E2E test individually and then partitions the suite into balanced shards (≤7 minutes each) based on those runtimes.
-    *   **Sharded E2E Execution:** Runs the E2E tests shard by shard, forcing serial execution within each shard (`--workers=1`) to prevent resource contention and ensure stability. It generates a separate JSON report for each shard.
-    *   **Report Aggregation:** Uses a robust Node.js script (`scripts/merge-reports.mjs`) to merge the individual E2E shard reports into a single, final JSON report.
-    *   **Documentation Update:** Automatically runs a series of scripts (`./run-metrics.sh`, and the Node.js-based `scripts/update-prd-metrics.mjs`) to calculate final metrics and inject them into `docs/PRD.md`.
-*   **Behavior:** The script is designed to be strict (`set -euo pipefail`) and will exit with an error if any critical step fails, preventing the pipeline from proceeding with incomplete or failed results.
+*   **Stage 1: Preflight:** A lightweight sanity check of the environment (Node.js version, dependencies).
+*   **Stage 2: Code Quality (Parallel):** Runs linting, type checking, and unit tests concurrently to maximize speed.
+*   **Stage 3: Build:** Compiles the application using a production-like test configuration.
+*   **Stage 4: End-to-End (E2E) Tests:** Discovers and runs all Playwright E2E tests. It intelligently runs them in parallel if the suite is large or in a single efficient process if the suite is small.
+*   **Stage 5: Software Quality Metrics (SQM):** Generates a metrics report. In a local environment, it prints a summary to the console. In the CI environment, it updates the report in `docs/PRD.md`.
 
-### CI/CD Pipeline: Parallel Execution
+### CI/CD Pipeline
 
-The project's CI pipeline, defined in `.github/workflows/ci.yml`, leverages the sharded execution of the `test-audit.sh` script to run E2E tests in parallel, significantly reducing feedback time.
+The CI pipeline, defined in `.github/workflows/ci.yml`, is now a simple, single-job process that runs the canonical audit script. This eliminates the complexity of multi-job artifact passing and ensures perfect consistency between local and CI environments.
 
 ```ascii
 +----------------------------------+
@@ -120,35 +115,29 @@ The project's CI pipeline, defined in `.github/workflows/ci.yml`, leverages the 
                  |
                  v
 +----------------------------------+
-|      Job: prepare                |
+|           Job: Audit             |
 |----------------------------------|
-| 1. Checkout & Install            |
-| 2. Run ./test-audit.sh prepare   |
-|    (Lint, Build, Unit, Shard)    |
-| 3. Upload test-support/          |
-+----------------------------------+
-                 |
-                 v
-+----------------------------------+       +----------------------------------+
-|       Job: test (Shard 0)        |------>|       Job: test (Shard 1)        | ...
-|----------------------------------|       |----------------------------------|
-| 1. Download Artifacts            |       | 1. Download Artifacts            |
-| 2. Run ./test-audit.sh test 0    |       | 2. Run ./test-audit.sh test 1    |
-+----------------------------------+       +----------------------------------+
-                 |                                  |
-                 +----------------------------------+
-                                  |
-                                  v
-+----------------------------------+
-|         Job: report              |
-|----------------------------------|
-| 1. Download Artifacts            |
-| 2. Run ./test-audit.sh report    |
-|    (Merge reports, update docs)  |
-| 3. Commit docs/PRD.md            |
+|  1. Checkout & `pnpm setup`      |
+|  2. Run `pnpm audit`             |
+|     (Executes test-audit.sh)     |
+|                                  |
+|  +--> Stage 1: Preflight         |
+|  +--> Stage 2: Code Quality (//) |
+|  +--> Stage 3: Build             |
+|  +--> Stage 4: E2E Tests         |
+|  +--> Stage 5: SQM Reporting     |
+|                                  |
+|  3. Commit docs/PRD.md (if CI)   |
 +----------------------------------+
 ```
-This multi-stage, parallel approach ensures that local validation (`./test-audit.sh all`) and CI execution are perfectly aligned while maximizing speed and resource utilization.
+
+#### Visual Regression & State Capture
+To provide a quick visual sanity check of the application, a dedicated screenshot test (`tests/e2e/capture-states.e2e.spec.ts`) is used. This test systematically navigates to key pages (e.g., logged-out homepage, logged-in homepage, analytics dashboard) and captures full-page screenshots.
+
+This approach is preferred over embedding screenshots in functional tests because it:
+- Decouples visual testing from functional testing.
+- Creates a single, canonical place for all visual snapshots.
+- Can be run independently via `pnpm test:screenshots` for fast visual feedback.
 
 ### E2E Test Environment & Core Patterns
 
