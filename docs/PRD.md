@@ -125,7 +125,7 @@ The project's testing strategy prioritizes stability, reliability, and a tight a
     *   **Programmatic Login Only:** All E2E tests that require an authenticated state **must** use the `programmaticLogin` helper. This method directly injects a session into `localStorage`, bypassing the UI for sign-up and login. This approach is significantly faster and more reliable than attempting to simulate user input in the auth form.
     *   **No UI-Driven Auth Tests:** Tests that attempt to validate the sign-up or login forms via UI interaction have been removed. The stability and speed gained by using programmatic login are considered a higher priority than testing the auth form itself in the E2E suite.
 *   **API Mocking (MSW):** All external services and backend APIs are mocked using Mock Service Worker (MSW). This ensures that tests are deterministic and can run without a live network connection.
-*   **Single Source of Truth (`./test-audit.sh`):** A single orchestration script is used to run all checks (lint, type-check, tests) both locally and in CI, guaranteeing consistency.
+*   **Single Source of Truth (`pnpm test:all`):** A single command, `pnpm test:all`, is the user-facing entry point for all validation. It runs an underlying orchestration script (`test-audit.sh`) that executes all checks (lint, type-check, tests) in a parallelized, multi-stage process both locally and in CI, guaranteeing consistency and speed.
 
 ---
 

@@ -7,6 +7,7 @@ import type { SessionSidebarProps } from '@/components/session/SessionSidebar';
 import { AuthContextType } from '@/contexts/AuthContext';
 import { AuthContext } from '@/contexts/AuthContext';
 import { useUserProfile } from '@/hooks/useUserProfile';
+import { makeQuerySuccess } from '../test-utils/queryMocks';
 
 // Mock AuthContext instead of just the hook
 const mockAuthContextValue: Partial<AuthContextType> = {
@@ -33,9 +34,7 @@ vi.mock('@/contexts/useAuth', () => ({
   useAuth: () => mockAuthContextValue,
 }));
 
-vi.mock('@/hooks/useUserProfile', () => ({
-  useUserProfile: () => ({ data: null, isLoading: false }),
-}));
+vi.mock('@/hooks/useUserProfile');
 
 vi.mock('@/lib/logger', () => ({
   default: {
@@ -90,7 +89,7 @@ describe('SessionSidebar', () => {
   describe('for a Free user', () => {
     beforeEach(() => {
       mockAuthContextValue.user = { id: 'free-user', app_metadata: {}, user_metadata: {}, aud: '', created_at: '' };
-      vi.mocked(useUserProfile).mockReturnValue({ data: { id: 'free-user', subscription_status: 'free' }, isLoading: false });
+      vi.mocked(useUserProfile).mockReturnValue(makeQuerySuccess({ id: 'free-user', subscription_status: 'free' }));
     });
 
     it('renders with "Native" as the default mode and disables advanced modes', async () => {
@@ -127,7 +126,7 @@ describe('SessionSidebar', () => {
   describe('for a Pro user', () => {
     beforeEach(() => {
       mockAuthContextValue.user = { id: 'pro-user', app_metadata: {}, user_metadata: {}, aud: '', created_at: '' };
-      vi.mocked(useUserProfile).mockReturnValue({ data: { id: 'pro-user', subscription_status: 'pro' }, isLoading: false });
+      vi.mocked(useUserProfile).mockReturnValue(makeQuerySuccess({ id: 'pro-user', subscription_status: 'pro' }));
     });
 
     it('renders with all modes enabled and "Cloud AI" as default', async () => {
@@ -183,7 +182,7 @@ describe('SessionSidebar', () => {
     beforeEach(() => {
       // Dev user might be on a free tier, but the env var should override
       mockAuthContextValue.user = { id: 'dev-user', app_metadata: {}, user_metadata: {}, aud: '', created_at: '' };
-      vi.mocked(useUserProfile).mockReturnValue({ data: { id: 'dev-user', subscription_status: 'free' }, isLoading: false });
+      vi.mocked(useUserProfile).mockReturnValue(makeQuerySuccess({ id: 'dev-user', subscription_status: 'free' }));
       vi.stubEnv('VITE_DEV_USER', 'true');
     });
 
