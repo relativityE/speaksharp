@@ -9,8 +9,9 @@ test.describe('Boot sanity check', () => {
       console.log(`[BROWSER ${msg.type()}] ${msg.text()}`);
     });
 
-    // navigate to root and wait for initial load (networkidle is a good default)
-    await page.goto('/', { waitUntil: 'networkidle' });
+    // navigate to root and wait for the main app container to be visible
+    await page.goto('/');
+    await expect(page.getByTestId('app-main')).toBeVisible({ timeout: 15000 });
 
     // basic check: HTML element is present and visible
     const html = page.locator('html');
