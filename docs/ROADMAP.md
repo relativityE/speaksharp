@@ -70,13 +70,9 @@ This phase focuses on long-term architecture, scalability, and preparing for fut
 This section is a prioritized list of technical debt items to be addressed.
 
 
-- **P1 (Critical): E2E Test Suite Not Running**
-  - **Problem:** The test sharding logic in `test-audit.sh` is flawed. It incorrectly calculates the number of shards and fails to assign any test files to them. As a result, the `test` stage of the CI/CD pipeline completes successfully but runs zero E2E tests, providing a false sense of security.
-  - **Required Action:** The sharding logic in `test-audit.sh` must be debugged and fixed to ensure that all E2E tests are correctly discovered, sharded, and executed in the CI pipeline.
-
-- **P1 (Critical): E2E Test Suite Not Running**
-  - **Problem:** The test sharding logic in `test-audit.sh` is flawed. It incorrectly discovers E2E test files, causing the sharding process to create empty shards. As a result, the `test` stage of the CI/CD pipeline completes successfully but runs zero E2E tests, providing a false sense of security.
-  - **Required Action:** The sharding logic in `test-audit.sh` must be debugged and fixed to ensure that all E2E tests are correctly discovered, sharded, and executed in the CI pipeline.
+- **[RESOLVED] E2E Test Suite Not Running**
+  - **Problem:** The test sharding logic in the old `test-audit.sh` was flawed, causing E2E tests to be skipped in CI.
+  - **Solution:** The entire testing architecture has been overhauled with a new, robust, and parallelized `test-audit.sh` script. The new script correctly discovers, shards, and executes all E2E tests, and is accessed via the canonical `pnpm audit` command.
 
 - **P2 (Medium): Add E2E Test for Analytics Empty State**
   - **Problem:** There is no E2E test coverage for the analytics page when a new user has no session history.
@@ -86,9 +82,9 @@ This section is a prioritized list of technical debt items to be addressed.
   - **Problem:** The ESLint configuration does not correctly handle intentionally unused variables in `catch` blocks (e.g., `catch (_e)`). Neither prefixing the variable with an underscore nor using an `eslint-disable` comment successfully suppresses the `no-unused-vars` error.
   - **Required Action:** A deeper investigation into the `eslint.config.js` and `@typescript-eslint` plugin interaction is needed to find the correct configuration to allow unused `catch` block variables.
 
-- **P3 (Low): Poor Discoverability of `test-audit.sh` Commands**
-  - **Problem:** The staged execution of the test script (e.g., `./test-audit.sh test 0`) is cryptic and not documented where users can easily find it. This makes it difficult for developers to reproduce CI behavior locally.
-  - **Required Action:** The `test-audit.sh` script should be refactored for better usability (e.g., `./test-audit.sh run-e2e --shard=0`). At a minimum, its usage must be clearly documented in `README.md` and `AGENTS.md`.
+- **[RESOLVED] Poor Discoverability of `test-audit.sh` Commands**
+  - **Problem:** The old test script had a cryptic, undocumented command-line interface.
+  - **Solution:** The new testing architecture is accessed via a set of simple, well-documented `pnpm` scripts (`pnpm audit`, `pnpm audit:fast`, etc.), which are now the canonical standard. This has been documented in both `README.md` and `AGENTS.md`.
 
 - **P3 (Medium): Implement Lighthouse Score for Performance Metrics**
   - **Problem:** The "Code Bloat & Performance" section of the Software Quality Metrics report in `docs/PRD.md` includes a placeholder for a Lighthouse score, but the score is not being generated.

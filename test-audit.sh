@@ -6,7 +6,7 @@
 # 2. Parallel by Default: Maximize performance to stay under 7-min CI limit.
 # 3. Mode-Based: Support a fast 'local' mode and a comprehensive 'ci' mode.
 # 4. In-Memory Sharding: Avoids unreliable file I/O for E2E test distribution.
-set -e
+set -ex
 trap 'echo "❌ An error occurred. Aborting test audit." >&2' ERR
 
 # --- Configuration ---
@@ -55,30 +55,36 @@ echo "✅ [Stage 3/4] Build Succeeded."
 echo "✅ [Stage 4/4] Running E2E Tests..."
 # Discover test files and store them in a bash array (in-memory).
 # This is robust against filesystem flakiness.
-readarray -t E2E_TEST_FILES < <(find "$E2E_TEST_DIR" -name '*.e2e.spec.ts' -print | sort)
+readarray -t E2E_TEST_FILES < <(find "$E2E_TEST_DIR" -name '*.spec.ts' -print | sort)
 E2E_TEST_COUNT=${#E2E_TEST_FILES[@]}
 
 if [ "$E2E_TEST_COUNT" -eq 0 ]; then
-  echo "⚠️ Warning: No E2E test files found in $E2E_TEST_DIR. Skipping."
-elif [ "$E2E_MODE" = "health-check" ]; then
-  # Health-check mode runs the functional smoke test and the visual health check.
-  HEALTH_CHECK_FILES=(
-    "$E2E_TEST_DIR/smoke.e2e.spec.ts"
-    "$E2E_TEST_DIR/visual-health-check.e2e.spec.ts"
-  )
-  echo "💨 Running E2E Health Check (functional and visual)..."
-  pnpm exec playwright test "${HEALTH_CHECK_FILES[@]}"
+  echo "⚠️ Warning: No E2E test files found in $E2E_TEST_DIR with pattern *.spec.ts. Skipping."
 else
-  # 'all' mode runs the full suite, sharded if necessary.
-  echo "Found ${E2E_TEST_COUNT} E2E tests. Threshold for sharding is $E2E_SHARD_THRESHOLD."
-  # If the number of tests is small, run them all in a single, more efficient process.
-  # Otherwise, shard them for parallel execution.
-  if [ "$E2E_TEST_COUNT" -gt "$E2E_SHARD_THRESHOLD" ]; then
-    echo "🏎️ Running E2E tests in parallel (sharded)..."
-    pnpm exec playwright test "${E2E_TEST_FILES[@]}"
+  echo "📋 Found ${E2E_TEST_COUNT} E2E test files:"
+  printf '   - %s\n' "${E2E_TEST_FILES[@]}"
+
+  if [ "$E2E_MODE" = "health-check" ]; then
+    # Health-check mode runs the functional smoke test and the visual health check.
+    # Note: These files must exist and be found by the glob above.
+    HEALTH_CHECK_FILES=(
+      "$E2E_TEST_DIR/smoke.e2e.spec.ts"
+      "$E2E_TEST_DIR/visual-health-check.e2e.spec.ts"
+    )
+    echo "💨 Running E2E Health Check (functional and visual)..."
+    pnpm exec playwright test "${HEALTH_CHECK_FILES[@]}"
   else
-    echo "Running small E2E suite in a single process..."
-    pnpm exec playwright test "${E2E_TEST_FILES[@]}"
+    # 'all' mode runs the full suite, sharded if necessary.
+    echo "Found ${E2E_TEST_COUNT} E2E tests. Threshold for sharding is $E2E_SHARD_THRESHOLD."
+    # If the number of tests is small, run them all in a single, more efficient process.
+    # Otherwise, shard them for parallel execution.
+    if [ "$E2E_TEST_COUNT" -gt "$E2E_SHARD_THRESHOLD" ]; then
+      echo "🏎️ Running E2E tests in parallel (sharded)..."
+      pnpm exec playwright test "${E2E_TEST_FILES[@]}"
+    else
+      echo "Running small E2E suite in a single process..."
+      pnpm exec playwright test "${E2E_TEST_FILES[@]}"
+    fi
   fi
 fi
 echo "✅ [Stage 4/4] E2E Tests Passed."

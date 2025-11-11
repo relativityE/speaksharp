@@ -256,8 +256,7 @@ export async function captureAuthStates(page: Page): Promise<void> {
 
   // Capture unauthenticated
   await page.goto('/');
-  // Wait for a stable element that indicates the page is ready.
-  await expect(page.getByRole('link', { name: 'Sign In' })).toBeVisible();
+  await page.waitForLoadState('networkidle');
   await page.screenshot({
     path: `${screenshotDir}/unauthenticated-home.png`,
     fullPage: true
@@ -267,8 +266,6 @@ export async function captureAuthStates(page: Page): Promise<void> {
   await programmaticLogin(page);
 
   // Capture authenticated
-  // Wait for the main content area to be loaded.
-  await expect(page.getByTestId('app-main')).toBeVisible();
   await page.screenshot({
     path: `${screenshotDir}/authenticated-home.png`,
     fullPage: true

@@ -2,6 +2,7 @@ import { useAuth } from '../contexts/useAuth';
 import logger from '../lib/logger';
 import { saveSession as saveSessionToDb, deleteSession as deleteSessionFromDb, exportData } from '../lib/storage';
 import type { PracticeSession } from '../types/session';
+import { useUserProfile } from './useUserProfile';
 
 interface UseSessionManager {
   saveSession: (sessionData: Partial<PracticeSession>) => Promise<{ session: PracticeSession | null; usageExceeded: boolean }>;
@@ -13,6 +14,7 @@ interface UseSessionManager {
 // The state itself is managed in SessionContext.
 export const useSessionManager = (): UseSessionManager => {
   const { user } = useAuth();
+  const { data: profile } = useUserProfile();
 
   const saveSession = async (sessionData: Partial<PracticeSession>): Promise<{ session: PracticeSession | null; usageExceeded: boolean }> => {
     try {
@@ -31,8 +33,12 @@ export const useSessionManager = (): UseSessionManager => {
         return { session: tempSession, usageExceeded: false };
       }
 
+      if (!profile) {
+        throw new Error("Cannot save session: user profile is not available.");
+      }
+
       // Handle real users
-      const { session: newSession, usageExceeded } = await saveSessionToDb({ ...sessionData, user_id: user.id });
+      const { session: newSession, usageExceeded } = await saveSessionToDb({ ...sessionData, user_id: user.id }, profile);
 
       if (newSession) {
         return { session: newSession, usageExceeded: usageExceeded || false };
