@@ -64,30 +64,32 @@ else
   echo "📋 Found ${E2E_TEST_COUNT} E2E test files:"
   printf '   - %s\n' "${E2E_TEST_FILES[@]}"
 
+  # Health-check mode runs tests tagged with @health-check.
   if [ "$E2E_MODE" = "health-check" ]; then
-    # Health-check mode runs the functional smoke test and the visual health check.
-    # Note: These files must exist and be found by the glob above.
-    HEALTH_CHECK_FILES=(
-      "$E2E_TEST_DIR/smoke.e2e.spec.ts"
-      "$E2E_TEST_DIR/visual-health-check.e2e.spec.ts"
-    )
-    echo "💨 Running E2E Health Check (functional and visual)..."
-    pnpm exec playwright test "${HEALTH_CHECK_FILES[@]}"
+    echo "💨 Running E2E Health Check (@health-check)..."
+    pnpm exec playwright test --reporter=list --grep "@health-check" || {
+      echo "❌ E2E Health Check failed" >&2
+      exit 1
+    }
   else
     # 'all' mode runs the full suite, sharded if necessary.
     echo "Found ${E2E_TEST_COUNT} E2E tests. Threshold for sharding is $E2E_SHARD_THRESHOLD."
-    # If the number of tests is small, run them all in a single, more efficient process.
-    # Otherwise, shard them for parallel execution.
     if [ "$E2E_TEST_COUNT" -gt "$E2E_SHARD_THRESHOLD" ]; then
       echo "🏎️ Running E2E tests in parallel (sharded)..."
-      pnpm exec playwright test "${E2E_TEST_FILES[@]}"
+      pnpm exec playwright test --reporter=list "${E2E_TEST_FILES[@]}" || {
+        echo "❌ E2E full suite failed" >&2
+        exit 1
+      }
     else
       echo "Running small E2E suite in a single process..."
-      pnpm exec playwright test "${E2E_TEST_FILES[@]}"
+      pnpm exec playwright test --reporter=list "${E2E_TEST_FILES[@]}" || {
+        echo "❌ E2E small suite failed" >&2
+        exit 1
+      }
     fi
   fi
+  echo "✅ [Stage 4/4] E2E Tests Passed."
 fi
-echo "✅ [Stage 4/4] E2E Tests Passed."
 
 # --- STAGE 5: Software Quality Metrics (SQM) ---
 echo "✅ [Stage 5/5] Handling Software Quality Metrics..."
