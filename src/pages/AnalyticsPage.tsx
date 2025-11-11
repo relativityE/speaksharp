@@ -75,7 +75,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
                 </div>
                 <AnalyticsDashboard
                     sessionHistory={displaySessions}
-                    profile={profile}
+                    profile={profile || null}
                     loading={loading}
                     error={error}
                 />
