@@ -89,7 +89,6 @@ All colors MUST be HSL.
   }
 
   body {
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
+    @apply bg-background text-foreground;
   }
 }
