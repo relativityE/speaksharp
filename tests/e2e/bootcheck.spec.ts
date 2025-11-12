@@ -1,4 +1,4 @@
-// tests/e2e/00_bootcheck.spec.ts
+// tests/e2e/bootcheck.spec.ts
 import { test, expect } from '@playwright/test';
 
 test.describe('Boot sanity check', () => {
@@ -9,8 +9,9 @@ test.describe('Boot sanity check', () => {
       console.log(`[BROWSER ${msg.type()}] ${msg.text()}`);
     });
 
-    // navigate to root and wait for initial load (networkidle is a good default)
-    await page.goto('/', { waitUntil: 'networkidle' });
+    // navigate to root and wait for the main app container to be visible
+    await page.goto('/');
+    await expect(page.getByTestId('app-main')).toBeVisible({ timeout: 15000 });
 
     // basic check: HTML element is present and visible
     const html = page.locator('html');

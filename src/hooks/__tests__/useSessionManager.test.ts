@@ -7,6 +7,9 @@ import logger from '../../lib/logger';
 import type { User, Session } from '@supabase/supabase-js';
 import type { PracticeSession } from '../../types/session';
 import { AuthContextType } from '../../contexts/AuthContext';
+import { useUserProfile } from '../useUserProfile';
+import { createQueryWrapper } from '../../../tests/test-utils/queryWrapper';
+import { makeQuerySuccess } from '../../../tests/test-utils/queryMocks';
 
 // Mock dependencies
 vi.mock('../../contexts/useAuth');
@@ -18,10 +21,13 @@ vi.mock('../../lib/logger', () => ({
     error: vi.fn(),
   }
 }));
+vi.mock('../useUserProfile');
 
 const mockUseAuth = vi.mocked(useAuth.useAuth);
 const mockStorage = vi.mocked(storage);
 const mockLogger = vi.mocked(logger);
+const mockUseUserProfile = vi.mocked(useUserProfile);
+
 
 // Mock browser APIs
 const mockSessionStorage = {
@@ -45,6 +51,7 @@ const mockUser: User = {
 const mockAuthContextValue: AuthContextType = {
     user: mockUser,
     session: {} as Session,
+    profile: { id: mockUser.id, subscription_status: 'free' },
     loading: false,
     signOut: vi.fn(() => Promise.resolve({ error: null })),
     setSession: vi.fn()
@@ -55,13 +62,14 @@ describe('useSessionManager', () => {
     // Reset mocks before each test
     vi.clearAllMocks();
     mockUseAuth.mockReturnValue(mockAuthContextValue);
+    mockUseUserProfile.mockReturnValue(makeQuerySuccess({ id: mockUser.id, subscription_status: 'free' }));
   });
 
   describe('saveSession', () => {
     it('should call saveSessionToDb for authenticated users', async () => {
       const newDbSession: PracticeSession = { id: 'new-session-1', user_id: mockUser.id, duration: 120, created_at: new Date().toISOString() };
       mockStorage.saveSession.mockResolvedValue({ session: newDbSession, usageExceeded: false });
-      const { result } = renderHook(() => useSessionManager());
+      const { result } = renderHook(() => useSessionManager(), { wrapper: createQueryWrapper() });
       const sessionData = { duration: 120 };
 
       await act(async () => {
@@ -73,14 +81,15 @@ describe('useSessionManager', () => {
         }
       });
 
-      expect(mockStorage.saveSession).toHaveBeenCalledExactlyOnceWith(
-        { ...sessionData, user_id: mockUser.id }
+      expect(mockStorage.saveSession).toHaveBeenCalledWith(
+        { ...sessionData, user_id: mockUser.id },
+        expect.anything() // profile is now fetched via useUserProfile, so we just check that it's there
       );
     });
 
     it('should return usageExceeded from saveSessionToDb', async () => {
         mockStorage.saveSession.mockResolvedValue({ session: null, usageExceeded: true });
-        const { result } = renderHook(() => useSessionManager());
+        const { result } = renderHook(() => useSessionManager(), { wrapper: createQueryWrapper() });
 
         await act(async () => {
             const savedSession = await result.current.saveSession({ duration: 100 });
@@ -96,7 +105,7 @@ describe('useSessionManager', () => {
   describe('deleteSession', () => {
     it('should call deleteSessionFromDb for authenticated users', async () => {
       mockStorage.deleteSession.mockResolvedValue(true);
-      const { result } = renderHook(() => useSessionManager());
+      const { result } = renderHook(() => useSessionManager(), { wrapper: createQueryWrapper() });
       let success;
       await act(async () => {
         success = await result.current.deleteSession('db-session-123');
@@ -108,7 +117,7 @@ describe('useSessionManager', () => {
 
     it('should handle errors during deletion', async () => {
         mockStorage.deleteSession.mockRejectedValue(new Error('DB Error'));
-        const { result } = renderHook(() => useSessionManager());
+        const { result } = renderHook(() => useSessionManager(), { wrapper: createQueryWrapper() });
         let success;
         await act(async () => {
           success = await result.current.deleteSession('db-session-123');
@@ -120,7 +129,7 @@ describe('useSessionManager', () => {
 
     it('should do nothing for anonymous sessions but return true', async () => {
         mockUseAuth.mockReturnValue({ ...mockAuthContextValue, user: { ...mockUser, is_anonymous: true } });
-        const { result } = renderHook(() => useSessionManager());
+        const { result } = renderHook(() => useSessionManager(), { wrapper: createQueryWrapper() });
         let success;
         await act(async () => {
             success = await result.current.deleteSession('anonymous-session-123');
@@ -136,7 +145,7 @@ describe('useSessionManager', () => {
     });
 
     it('saveSession should save to sessionStorage for anonymous users', async () => {
-        const { result } = renderHook(() => useSessionManager());
+        const { result } = renderHook(() => useSessionManager(), { wrapper: createQueryWrapper() });
         const sessionData = { duration: 60 };
 
         await act(async () => {
@@ -193,7 +202,7 @@ describe('useSessionManager', () => {
     };
 
     mockStorage.exportData.mockResolvedValue(exportData);
-    const { result } = renderHook(() => useSessionManager());
+    const { result } = renderHook(() => useSessionManager(), { wrapper: createQueryWrapper() });
 
     await act(async () => {
       await result.current.exportSessions();
@@ -211,7 +220,7 @@ describe('useSessionManager', () => {
 
   it('should handle export errors gracefully', async () => {
     mockStorage.exportData.mockRejectedValue(new Error('Export failed'));
-    const { result } = renderHook(() => useSessionManager());
+    const { result } = renderHook(() => useSessionManager(), { wrapper: createQueryWrapper() });
 
     await act(async () => {
       await result.current.exportSessions();

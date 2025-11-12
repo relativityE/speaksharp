@@ -16,7 +16,10 @@ export default defineConfig({
   workers: 1,
   fullyParallel: false,
   retries: 1,
-  reporter: 'list', // A single, simple reporter. The CLI will add others.
+  reporter: [
+    ['list'],
+    ['json', { outputFile: 'test-results/playwright/results.json' }]
+  ],
   use: {
     baseURL: BASE_URL,
     headless: true,

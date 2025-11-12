@@ -27,6 +27,10 @@ debug*
 html/assets/index-*
 *.gz
 
+# Playwright Trace Artifacts
+resources/
+*trace*
+
 # OS / Editor Files
 .DS_Store
 *.swp

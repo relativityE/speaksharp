@@ -106,7 +106,13 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         transcript.interimTranscript,
         duration
       );
-      return { ...stats, filler_words: fillerWords.finalFillerData };
+      return {
+        ...stats,
+        total_words: stats.total_words,
+        filler_words: fillerWords.finalFillerData,
+        accuracy: stats.accuracy,
+        transcript: stats.transcript,
+      };
     }
     return null;
   }, [service, transcript, fillerWords, duration]);
