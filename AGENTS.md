@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-11-01
+**Last Reviewed:** 2025-11-12
 
 # Agent Instructions for SpeakSharp Repository
 
@@ -17,17 +17,13 @@ To address persistent environment instability, a new automated pre-flight check 
 ./scripts/preflight.sh
 ```
 
-This script will:
-1.  Terminate any lingering processes.
-2.  Install all dependencies (`pnpm install`).
-3.  Install all required browser binaries (`pnpm exec playwright install --with-deps`).
-4.  Run a smoke test to verify the environment is stable.
+This script performs a fast, minimal sanity check of your environment to ensure Node.js, pnpm, and all dependencies are correctly installed.
 
-Do not proceed until this script completes successfully.
+Do not proceed until this script completes successfully. If it fails, follow the instructions in the `README.md` to stabilize your environment.
 
 ### 2. The Local Audit Script (Single Source of Truth for Testing)
 
-The primary runner for all local validation is `./test-audit.sh`. This script is the SSOT for running lint, type-checking, and all tests.
+The primary runner for all local validation is `./test-audit.sh`, which is accessed via `pnpm` scripts. This script is the SSOT for running lint, type-checking, and all tests.
 
 *   **Always use this script for validation.** Do not invent your own runners or call `pnpm test` or `pnpm lint` directly for final validation.
 *   The audit script automatically runs the `preflight.sh` check, ensuring a stable environment for the test run.
@@ -109,19 +105,16 @@ ___
 2.  ✅ **Codebase Context** – Inspect `/src`, `/tests`, `/docs` before acting.
 3.  ❌ **No Code Reversals Without Consent** – Never undo user work.
 4.  ⏱️ **Timeout Constraint** – Every command must complete within 7 minutes.
-5.  ✅ **Approved Scripts** – Use the following `package.json` scripts when necessary for targeted tasks (but use `./test-audit.sh` for full validation):
+5.  ✅ **Approved Scripts** – Use the following `package.json` scripts for validation and development. The `test:all` scripts are the canonical way to run tests.
 
    ```json
-   "dev": "vite",
-   "build": "vite build",
-   "preview": "vite preview",
-   "lint": "eslint 'src/**/*.{js,jsx,ts,tsx}' 'tests/**/*.{js,jsx,ts,tsx}' --report-unused-disable-directives --max-warnings 0",
-   "typecheck": "tsc --build --verbose",
-   "test": "pnpm test:unit:full",
-   "test:audit": "./test-audit.sh",
-   "test:unit:full": "vitest run --coverage",
-   "test:e2e": "playwright test --reporter=list",
-   "test:e2e:smoke": "playwright test --grep @smoke"
+    "test:all": "./test-audit.sh",
+    "test:all:fast": "SKIP_FULL_E2E=true ./test-audit.sh",
+    "test:all:health": "pnpm lint && pnpm typecheck && pnpm test:unit && pnpm test:e2e:health",
+    "test": "vitest --coverage",
+    "test:unit": "vitest --coverage",
+    "dev": "vite",
+    "build": "pnpm build:prod",
    ```
 6. ✅ **Foreground Logging** – All E2E tasks must run in the foreground with live logs (`tee`) for traceability.
 

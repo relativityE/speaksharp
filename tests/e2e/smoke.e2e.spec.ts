@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { healthCheck } from './shared';
+import { programmaticLogin } from './helpers';
 
 test.describe('Smoke Test', () => {
   test('should perform a full user journey: login, navigate, and log out @smoke', async ({ page }) => {
@@ -9,9 +9,9 @@ test.describe('Smoke Test', () => {
     });
 
     // Step 1: Programmatic login
-    await test.step('Health Check (Login)', async () => {
-      await healthCheck(page);
-      console.log('✅ Health-check completed successfully.');
+    await test.step('Programmatic Login', async () => {
+      await programmaticLogin(page);
+      console.log('✅ Login completed successfully.');
     });
 
     // Step 2: Navigate to Session Page and verify content

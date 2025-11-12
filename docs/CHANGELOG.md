@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-11-01
+**Last Reviewed:** 2025-11-12
 
 # Changelog
 
@@ -10,13 +10,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **CI/CD and Testing Pipeline Overhaul:** Re-architected the entire testing and CI/CD pipeline for speed, stability, and developer experience.
+    - Implemented a new, canonical `test-audit.sh` script that uses aggressive parallelization to run all quality checks (lint, type-check, unit tests) and E2E tests in well under the 7-minute CI timeout.
+    - Simplified the `package.json` scripts to provide a clean, user-facing interface (`pnpm audit`, `pnpm audit:fast`, `pnpm audit:health`).
+    - Refactored the E2E health-check and screenshot tests into a new, decoupled architecture.
+    - Updated all documentation (`README.md`, `AGENTS.md`, `docs/ARCHITECTURE.md`, etc.) to reflect the new, canonical testing strategy and prevent documentation drift.
+
 ### Added
 - **E2E Test for Analytics Page:** Added a new foundational E2E test (`analytics.e2e.spec.ts`) that verifies the analytics page loads correctly for an authenticated user.
 - **E2E Test Architecture Documentation:** Added a new section to `docs/ARCHITECTURE.md` detailing the fixture-based E2E testing strategy, the `programmaticLogin` helper, the role of the mock JWT, and known testing limitations.
 - **Technical Debt Documentation:** Added an entry to `docs/ROADMAP.md` to formally track the inability to E2E test the live transcript generation as technical debt.
 
 ### Fixed
-- **`test-audit.sh` Workflow Mismatch:** The `test-audit.sh` script was refactored to correctly parse command-line arguments (e.g., `lint`, `test`, `e2e`), aligning its behavior with the documentation and CI pipeline. This restores the intended developer workflow for running specific test stages locally.
+- **`test-audit.sh` Workflow Mismatch:** The old `test-audit.sh` script was refactored to correctly parse command-line arguments (e.g., `lint`, `test`, `e2e`), aligning its behavior with the documentation and CI pipeline. This restores the intended developer workflow for running specific test stages locally.
 - **`saveSession` Race Condition:** Fixed a critical race condition in the `saveSession` function (`src/lib/storage.ts`) by replacing the non-atomic, two-step database operations with a single, atomic RPC call (`create_session_and_update_usage`).
 - **E2E Test Suite Stability and Architecture:** Performed a major refactoring of the E2E test suite to improve stability, reliability, and maintainability.
     - **Fixture-Based Architecture:** The test suite now uses a canonical fixture-based architecture. Mock data has been centralized in `tests/e2e/fixtures/mockData.ts`, and the `programmaticLogin` helper has been refactored to be a lean consumer of this data.
@@ -29,13 +36,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - **Solution:** The `SessionProvider` was removed entirely and replaced with a modern, decoupled data-fetching architecture using `@tanstack/react-query`. A new `usePracticeHistory` hook now fetches practice history on-demand, completely separating the concern of application data from global authentication state. This makes the architecture more scalable, maintainable, and aligned with industry best practices.
 
 ### Fixed
-- **CI/CD Stability:** Resolved a critical hang in the primary `./test-audit.sh` script. The script would hang indefinitely during the "Lint and Type Checks" stage due to silent linting errors. The issue was diagnosed by following the established debugging protocol (running `pnpm lint` and `pnpm typecheck` individually), and all underlying `no-explicit-any` errors were fixed, restoring the stability of the local and CI test pipeline.
+- **CI/CD Stability:** Resolved a critical hang in the primary `pnpm audit` script. The script would hang indefinitely during the "Lint and Type Checks" stage due to silent linting errors. The issue was diagnosed by following the established debugging protocol (running `pnpm lint` and `pnpm typecheck` individually), and all underlying `no-explicit-any` errors were fixed, restoring the stability of the local and CI test pipeline.
 - **E2E Test Suite Stability:** Resolved critical failures in the E2E test suite by refactoring brittle, layout-dependent tests.
     - **Root Cause:** The `smoke.e2e.spec.ts` and `live-transcript.e2e.spec.ts` tests contained assertions that were tightly coupled to the responsive UI layout, causing them to fail on minor CSS changes.
     - **Solution:** Both tests were refactored to use a robust, functional testing strategy. The brittle assertions were replaced with checks for a core functional element (`session-start-stop-button`) that exists in all responsive layouts. This decouples the tests from the presentation layer and ensures they validate the feature's availability, not a specific UI implementation. This has resulted in a stable, green CI pipeline.
 
 - **SQM Pipeline Stability and Accuracy:** Overhauled the Software Quality Metrics pipeline to resolve critical bugs and ensure stable, accurate reporting.
-    - **E2E Test Sharding:** Re-implemented a robust sharding mechanism in `test-audit.sh` to prevent CI timeouts and ensure all tests run reliably.
+    - **E2E Test Sharding:** Re-implemented a robust sharding mechanism in the `pnpm audit` script to prevent CI timeouts and ensure all tests run reliably.
     - **Report Aggregation:** Replaced a fragile `jq`-based report merging script with a dedicated Node.js script (`scripts/merge-reports.mjs`) for reliable aggregation of sharded test results.
     - **Documentation Corruption:** Fixed a critical bug in the `scripts/update-prd-metrics.mjs` script that was corrupting `docs/PRD.md` by writing incorrect newline characters.
     - **CI Unit Test Execution:** Corrected the `test:unit:full` script in `package.json` to include the `run` command, preventing it from hanging in the CI environment.
@@ -57,18 +64,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **STT Accuracy Comparison:** Re-implemented the "STT Accuracy Comparison" feature to compare against a ground truth.
 
 ### Changed
-- **CI/CD and Testing Pipeline Overhaul:**
-  - Implemented a resilient, sharded E2E testing framework managed by a new `test-audit.sh` script.
-  - The script now times each E2E test individually with a 4-minute timeout to prevent hangs.
-  - E2E tests are now dynamically auto-sharded into groups with a maximum runtime of 7 minutes, enabling parallel execution in CI.
-  - The CI pipeline has been updated to leverage this sharding, running test shards in parallel to significantly reduce build times.
-  - This new process ensures that local and CI test execution are perfectly aligned.
 - **Test Environment Overhaul:**
   - **Environment Separation:** The Vite development server now runs in standard `development` mode by default, isolating it from the `test` environment. Test-specific logic (like MSW) is now conditionally loaded only when `VITE_TEST_MODE` is true.
   - **Test Isolation:**
     - **E2E:** Fixed fatal JavaScript errors by conditionally disabling third-party SDKs (Sentry, PostHog) during E2E tests.
     - **Unit:** Resolved state leakage in `AuthContext` tests by clearing `localStorage` and adding specific mocks to ensure each test runs in a clean, isolated environment.
-  - **CI/CD Alignment:** The local audit script (`test-audit.sh`) now runs the full E2E suite, aligning it with the CI pipeline to prevent discrepancies.
+  - **CI/CD Alignment:** The local audit script (`pnpm audit`) now runs the full E2E suite, aligning it with the CI pipeline to prevent discrepancies.
   - **Code Reorganization:** Moved all test-related files from `src/test` to a top-level `tests` directory for better separation of concerns.
 - **E2E Test Suite Refactoring:** Refactored the entire E2E test suite to use the new automated, ephemeral logging fixture, improving consistency and maintainability while removing manual logging code.
 - **CI/CD:** Simplified the CI pipeline in `.github/workflows/ci.yml` to a single, consolidated job for improved maintainability and clarity.

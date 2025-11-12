@@ -246,3 +246,31 @@ from: (table: string) => {
 
   await expect(page.getByTestId('nav-sign-out-button')).toBeVisible();
 }
+
+/**
+ * Captures screenshots of authenticated and unauthenticated states
+ * Used for visual documentation
+ */
+export async function captureAuthStates(page: Page): Promise<void> {
+  const screenshotDir = 'screenshots';
+
+  // Capture unauthenticated
+  await page.goto('/');
+  // Wait for a stable element that indicates the page is ready.
+  await expect(page.getByRole('link', { name: 'Sign In' })).toBeVisible();
+  await page.screenshot({
+    path: `${screenshotDir}/unauthenticated-home.png`,
+    fullPage: true
+  });
+
+  // Perform login
+  await programmaticLogin(page);
+
+  // Capture authenticated
+  // Wait for the main content area to be loaded.
+  await expect(page.getByTestId('app-main')).toBeVisible();
+  await page.screenshot({
+    path: `${screenshotDir}/authenticated-home.png`,
+    fullPage: true
+  });
+}

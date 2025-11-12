@@ -106,6 +106,8 @@ export const useTranscriptionService = (options: TranscriptionServiceOptions) =>
   };
 };
 
+import { toast } from 'sonner';
+
 // Error handling extracted from original hook
 function handleTranscriptionError(
   err: unknown,
@@ -113,24 +115,25 @@ function handleTranscriptionError(
   setIsSupported: (supported: boolean) => void,
   setIsListening: (listening: boolean) => void
 ) {
-  let friendlyError: Error;
+  let friendlyMessage: string;
   const originalError = err instanceof Error ? err : new Error(String(err));
   const message = originalError.message.toLowerCase();
 
   if (message.includes('permission denied')) {
-    friendlyError = new Error('Microphone permission denied. Please enable microphone access in your browser settings.');
+    friendlyMessage = 'Microphone permission denied. Please enable microphone access in your browser settings.';
     setIsSupported(false);
   } else if (message.includes('assemblyai token')) {
-    friendlyError = new Error('Could not connect to the cloud transcription service. Please check your internet connection and try again.');
+    friendlyMessage = 'Could not connect to the cloud transcription service. Please check your internet connection and try again.';
   } else if (message.includes('failed to load model')) {
-    friendlyError = new Error('Failed to load the on-device model. Please check your internet connection or try a different transcription mode.');
+    friendlyMessage = 'Failed to load the on-device model. Please check your internet connection or try a different transcription mode.';
   } else if (message.includes('not initialized')) {
-    friendlyError = new Error('The transcription service could not be started. Please try refreshing the page.');
+    friendlyMessage = 'The transcription service could not be started. Please try refreshing the page.';
   } else {
-    friendlyError = new Error('An unexpected error occurred. Please try again.');
+    friendlyMessage = 'An unexpected error occurred. Please try again.';
   }
 
   logger.error({ err: originalError }, 'An error occurred during speech recognition setup');
-  setError(friendlyError);
+  toast.error(friendlyMessage);
+  setError(new Error(friendlyMessage));
   setIsListening(false);
 }

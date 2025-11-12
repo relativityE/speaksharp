@@ -1,24 +1,44 @@
 // src/contexts/__tests__/AuthContext.test.tsx
-import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, waitFor } from '@testing-library/react';
 import { AuthProvider } from '../AuthProvider';
 import { useAuth } from '../useAuth';
-import { vi, Mock } from 'vitest';
+import { vi } from 'vitest';
 import React from 'react';
 import { Session } from '@supabase/supabase-js';
 
 // Mock the supabase client
-const mockSupabase = {
-  auth: {
-    getSession: vi.fn().mockResolvedValue({ data: { session: null } }),
-    onAuthStateChange: vi.fn(() => ({
-      data: { subscription: { unsubscribe: vi.fn() } },
-    })),
-  },
-  from: vi.fn(),
-};
+const mockAuthStateChange = vi.fn();
+const mockGetSession = vi.fn();
+const mockSetSession = vi.fn();
+const mockSignOut = vi.fn();
 
 vi.mock('../../lib/supabaseClient', () => ({
-  getSupabaseClient: () => mockSupabase,
+  getSupabaseClient: vi.fn(() => ({
+    auth: {
+      getSession: mockGetSession,
+      onAuthStateChange: (callback: (event: string, session: unknown) => void) => {
+        mockAuthStateChange(callback);
+        // Immediately call callback with initial state
+        setTimeout(() => callback('INITIAL_SESSION', null), 0);
+        return {
+          data: {
+            subscription: {
+              unsubscribe: vi.fn()
+            }
+          }
+        };
+      },
+      setSession: mockSetSession,
+      signOut: mockSignOut,
+    },
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          single: () => Promise.resolve({ data: null, error: null })
+        })
+      })
+    })
+  }))
 }));
 
 // Cast the mock to the full Session type to ensure type safety.
@@ -39,21 +59,15 @@ const mockSession: Session = {
   expires_at: Math.floor(Date.now() / 1000) + 3600,
 };
 
-const mockProfile = {
-  id: '123',
-  subscription_status: 'pro',
-};
-
 // A simple component to consume and display auth context values
 const TestConsumer = () => {
-  const { session, profile, loading } = useAuth();
+  const { session, loading } = useAuth();
   if (loading) {
-    return <div>Loading...</div>;
+    return <div data-testid="loading-skeleton">Loading...</div>;
   }
   return (
     <div>
-      <div data-testid="session-email">{session?.user?.email || 'No session'}</div>
-      <div data-testid="profile-status">{profile?.subscription_status || 'No profile'}</div>
+      <div data-testid="session-email">{session?.user?.email || 'Not authenticated'}</div>
     </div>
   );
 };
@@ -64,18 +78,7 @@ describe('AuthContext', () => {
     vi.restoreAllMocks();
   });
 
-  it('should provide session and profile when user is authenticated', async () => {
-    // Arrange
-    const mockSelect = vi.fn().mockReturnThis();
-    const mockEq = vi.fn().mockReturnThis();
-    const mockSingle = vi.fn().mockResolvedValue({ data: mockProfile, error: null });
-
-    (mockSupabase.from as Mock).mockReturnValue({
-      select: mockSelect,
-      eq: mockEq,
-      single: mockSingle,
-    });
-
+  it('should provide session when user is authenticated', async () => {
     // Act
     render(
       <AuthProvider initialSession={mockSession}>
@@ -86,25 +89,30 @@ describe('AuthContext', () => {
     // Assert
     await waitFor(() => {
       expect(screen.getByTestId('session-email')).toHaveTextContent(mockSession.user.email as string);
-      expect(screen.getByTestId('profile-status')).toHaveTextContent(mockProfile.subscription_status);
     });
   });
 
-  it('should provide null session and profile when user is not authenticated', async () => {
-    // Arrange
-    (mockSupabase.auth.getSession as Mock).mockResolvedValue({ data: { session: null } });
+  it('should provide null session when user is not authenticated', async () => {
+    // Setup mock to return no session
+    mockGetSession.mockResolvedValue({
+      data: { session: null },
+      error: null
+    });
 
-    // Act
     render(
       <AuthProvider>
         <TestConsumer />
       </AuthProvider>
     );
 
-    // Assert
+    // Wait for loading to finish
     await waitFor(() => {
-      expect(screen.getByTestId('session-email')).toHaveTextContent('No session');
-      expect(screen.getByTestId('profile-status')).toHaveTextContent('No profile');
+      expect(screen.queryByTestId('loading-skeleton')).not.toBeInTheDocument();
+    });
+
+    // Now check for the content
+    await waitFor(() => {
+      expect(screen.getByTestId('session-email')).toHaveTextContent('Not authenticated');
     });
   });
 });

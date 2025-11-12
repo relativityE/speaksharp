@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-11-01
+**Last Reviewed:** 2025-11-12
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -92,21 +92,19 @@ SpeakSharp is built on a modern, serverless technology stack designed for real-t
 
 ## Testing and CI/CD
 
-SpeakSharp employs a new, unified, and resilient testing strategy designed for speed and reliability. The entire process is orchestrated by a single script, `test-audit.sh`, which ensures that the local development experience perfectly mirrors the Continuous Integration (CI) pipeline.
+SpeakSharp employs a unified and resilient testing strategy designed for speed and reliability. The entire process is orchestrated by a single script, `test-audit.sh`, which ensures that the local development experience perfectly mirrors the Continuous Integration (CI) pipeline.
 
 ### The Canonical Audit Script (`test-audit.sh`)
 
-This script is the **single source of truth** for all code validation. It is accessed via simple `pnpm` commands (e.g., `pnpm audit`) and follows a strict, 5-stage execution pipeline to provide fast feedback.
+This script is the **single source of truth** for all code validation. It is accessed via simple `pnpm` commands (e.g., `pnpm audit`) and is optimized for a 7-minute CI timeout by using aggressive parallelization.
 
-*   **Stage 1: Preflight:** A lightweight sanity check of the environment (Node.js version, dependencies).
-*   **Stage 2: Code Quality (Parallel):** Runs linting, type checking, and unit tests concurrently to maximize speed.
-*   **Stage 3: Build:** Compiles the application using a production-like test configuration.
-*   **Stage 4: End-to-End (E2E) Tests:** Discovers and runs all Playwright E2E tests. It intelligently runs them in parallel if the suite is large or in a single efficient process if the suite is small.
-*   **Stage 5: Software Quality Metrics (SQM):** Generates a metrics report. In a local environment, it prints a summary to the console. In the CI environment, it updates the report in `docs/PRD.md`.
+*   **Stage 1: Parallel Quality Checks:** Runs linting, type checking, and unit tests concurrently to maximize speed.
+*   **Stage 2: Build:** Compiles the application using a production-like test configuration.
+*   **Stage 3: Parallel E2E Tests:** Runs the entire E2E suite in parallel shards to ensure completion well under the CI timeout.
 
 ### CI/CD Pipeline
 
-The CI pipeline, defined in `.github/workflows/ci.yml`, is now a simple, single-job process that runs the canonical audit script. This eliminates the complexity of multi-job artifact passing and ensures perfect consistency between local and CI environments.
+The CI pipeline, defined in `.github/workflows/ci.yml`, is a simple, single-job process that runs the canonical audit script. This ensures perfect consistency between local and CI environments.
 
 ```ascii
 +----------------------------------+
@@ -117,27 +115,95 @@ The CI pipeline, defined in `.github/workflows/ci.yml`, is now a simple, single-
 +----------------------------------+
 |           Job: Audit             |
 |----------------------------------|
-|  1. Checkout & `pnpm setup`      |
-|  2. Run `pnpm audit`             |
+|  1. Checkout & `pnpm run setup`  |
+|  2. Run `pnpm test:all`          |
 |     (Executes test-audit.sh)     |
 |                                  |
-|  +--> Stage 1: Preflight         |
-|  +--> Stage 2: Code Quality (//) |
-|  +--> Stage 3: Build             |
-|  +--> Stage 4: E2E Tests         |
-|  +--> Stage 5: SQM Reporting     |
+|  +--> Stage 1: Quality (Parallel) |
+|  |    - Lint                     |
+|  |    - Type Check               |
+|  |    - Unit Tests               |
+|  +--> Stage 2: Build             |
+|  +--> Stage 3: E2E (Parallel)    |
 |                                  |
 |  3. Commit docs/PRD.md (if CI)   |
 +----------------------------------+
 ```
 
-#### Visual Regression & State Capture
-To provide a quick visual sanity check of the application, a dedicated screenshot test (`tests/e2e/capture-states.e2e.spec.ts`) is used. This test systematically navigates to key pages (e.g., logged-out homepage, logged-in homepage, analytics dashboard) and captures full-page screenshots.
+### Application Environments (Production, Development, and Test)
 
-This approach is preferred over embedding screenshots in functional tests because it:
-- Decouples visual testing from functional testing.
-- Creates a single, canonical place for all visual snapshots.
-- Can be run independently via `pnpm test:screenshots` for fast visual feedback.
+Understanding the environment separation is crucial for both development and testing. Based on my analysis of the project's configuration and documentation, here is a breakdown of the three key environments and how the dev server relates to them.
+
+The Three Core Environments
+Think of the environments as three different contexts in which the application runs, each with its own purpose, configuration, and data.
+
+1. Production Environment (production)
+Purpose: This is the live, public-facing version of your application that real users interact with. It's optimized for performance, stability, and security.
+Key Characteristics:
+Optimized Code: The code is minified, bundled, and tree-shaken to be as small and fast as possible.
+Real Data: It connects to the production Supabase database and live third-party services like Stripe and AssemblyAI using production API keys.
+Security: Debugging features are disabled, and security is paramount.
+How it's Launched: The production environment isn't "launched" with a dev server. Instead, a static build of the frontend is created using pnpm build. This build is then deployed to and served by a hosting provider (like Vercel or Netlify). The backend is the live Supabase instance.
+2. Local Development Environment (development)
+Purpose: This is your primary day-to-day workspace for building and debugging new features on your own machine.
+Key Characteristics:
+Hot Module Replacement (HMR): Code changes appear instantly in the browser without a full page reload, maximizing developer productivity.
+Developer-Friendly Tooling: Includes source maps for easier debugging and verbose error messages in the console.
+Flexible Data: It typically connects to a development or local Supabase instance, but can be configured (via .env.local files) to connect to production if needed (though this is generally discouraged). Developer-specific flags like VITE_DEV_USER can be enabled here.
+How it's Launched: This environment is launched using the pnpm dev command. This command runs vite, which starts the Vite development server. By default, Vite runs in development mode, which enables all the features mentioned above.
+3. Test Environment (test)
+Purpose: This is a specialized, automated environment designed exclusively for running tests (especially End-to-End tests with Playwright). Its goal is to create a consistent, isolated, and controllable simulation of the application.
+Key Characteristics:
+Mocked Backend: It does not connect to a real Supabase database. Instead, it uses Mock Service Worker (MSW) to intercept all API calls and provide predictable, fake data. This ensures tests are fast and reliable.
+Compile-Time Modifications: This is the most critical distinction. When the server is launched in test mode, a special build-time flag, import.meta.env.VITE_TEST_MODE, is set to true. The application's source code uses this flag to conditionally exclude certain libraries (like the onnxruntime-web for on-device transcription) that are known to crash the Playwright test runner.
+Headless Operation: This environment is designed to be run by an automated tool (Playwright), not a human.
+How it's Launched: The test environment's dev server is not launched by you directly with pnpm dev. Instead, it is launched automatically by the test runner (Playwright) when you run a command like pnpm test:e2e. The Playwright configuration file (playwright.config.ts) is configured to start the Vite server using a specific command: vite --mode test. This --mode test flag is what tells Vite to apply the special test configuration.
+Summary: How the Dev Server Relates to Environments
+Environment	How Dev Server is Started	Vite Mode	Key Feature
+Production	Not applicable (uses a static build from pnpm build)	production	Optimized for users
+Local	Manually, with pnpm dev	development	Optimized for developers (HMR)
+Test	Automatically, by Playwright during tests	test	Optimized for automation (Mocking, Code Exclusion)
+In short, the command you use to launch the dev server (pnpm dev vs. the test runner's internal command) is what determines which environment-specific configuration is applied, resulting in three very different application behaviors tailored to the task at hand.
+
+
+You should NOT have to pass .env.test on the command line.
+
+The system is designed to handle this automatically, and forcing it with a command like dotenv -e .env.test is a symptom that the underlying configuration is wrong (which it was, and which we have now fixed).
+
+Here is the correct, intended workflow based on the project's architecture with Vite:
+
+For Local Development (your workflow):
+
+You run pnpm dev.
+This starts vite in its default development mode.
+Vite automatically looks for and loads environment variables from .env.development.local, .env.development, and falls back to .env.local. Your use of .env.local is perfectly standard here.
+For the Test Environment (the automated workflow):
+
+The E2E tests are run (e.g., via ./test-audit.sh).
+The test runner, Playwright, is configured in playwright.config.ts to launch the web server.
+Crucially, that configuration tells Playwright to use the command vite --mode test.
+This --mode test flag is the key. It instructs Vite to automatically look for and load environment variables ONLY from .env.test (and .env.test.local).
+So, the framework itself ensures the correct .env file is used based on the mode it's running in. The fix I implemented to the package.json was essential to restore this intended behavior, ensuring pnpm dev uses development mode and leaves the test mode to be used exclusively by the testing framework.
+
+### Decoupled Health-Check and Visual State Capture
+
+Our E2E testing strategy separates the concern of functional validation from visual documentation. This is achieved through two distinct, specialized tests:
+
+*   **`tests/e2e/health-check.e2e.spec.ts` (Functional Validation):** This is the primary health check for the application. It is a lean, focused test that performs one critical task: it verifies that a user can successfully authenticate using the `programmaticLogin` helper. Its purpose is to provide a fast, reliable signal that the core authentication flow is working. It makes no assertions about the visual state of the UI beyond what is necessary to confirm a successful login.
+
+*   **`tests/e2e/capture-states.e2e.spec.ts` (Visual Documentation):** This test is not for functional validation but is a dedicated tool for generating visual artifacts. It uses the `programmaticLogin` helper to get the application into various states (e.g., authenticated, unauthenticated) and captures screenshots of the UI.
+
+This decoupled architecture is a key to a stable test suite. It ensures that a purely visual change to the UI (e.g., a CSS refactor) will not break the critical, functional health check.
+
+### Unit & Integration Testing for React Query
+
+Testing components that use React Query requires a specific setup to ensure tests are isolated and deterministic. Our project uses a combination of two key utilities to achieve this.
+
+*   **`createQueryWrapper` (`tests/test-utils/queryWrapper.tsx`):** This is a higher-order function that provides a fresh, isolated `QueryClient` for each test. This is the most critical piece of the puzzle, as it prevents the React Query cache from bleeding between tests, which would otherwise lead to unpredictable and flaky results. It is used to wrap the component under test in React Testing Library's `render` function.
+
+*   **`makeQuerySuccess` (`tests/test-utils/queryMocks.ts`):** This is a factory function that creates a standardized, successful mock result object for a React Query hook. When testing a component that uses a custom hook like `usePracticeHistory`, this utility makes it easy to create a properly typed success object (`status: 'success'`, `isLoading: false`, etc.) to provide as the mock return value.
+
+Together, these utilities form the canonical pattern for testing any component that relies on React Query, ensuring that our unit and integration tests are fast, reliable, and easy to maintain.
 
 ### E2E Test Environment & Core Patterns
 
@@ -160,57 +226,50 @@ The E2E test environment is designed for stability and isolation. Several key ar
     *   **Architecture:** A deterministic, event-driven handshake was implemented to eliminate this race condition. This is the canonical pattern for ensuring the application is fully authenticated and rendered before any test assertions are made.
 
     ```ascii
-    ┌───────────────────────────────┐
-    │        Playwright Test        │
-    │ (e.g., smoke.e2e.spec.ts)     │
-    └──────────────┬────────────────┘
-                   │
-                   │ (1) Before each test, calls programmaticLogin()
-                   │
-                   ▼
-    ┌───────────────────────────────┐
-    │  programmaticLogin() Helper   │
-    │   (tests/e2e/helpers.ts)      │
-    └──────────────┬────────────────┘
-                   │
-                   │ (2) Sets mock session in localStorage
-                   │
-                   │ (3) Navigates to the application URL
-                   │
-                   │ (4) Dispatches custom DOM event:
-                   │     new CustomEvent('e2e-profile-loaded')
-                   │
-                   ▼
-    ┌───────────────────────────────┐
-    │     React AuthProvider        │
-    │  (src/contexts/AuthProvider)  │
-    └──────────────┬────────────────┘
-                   │
-                   │ (5) On mount, adds a listener for the
-                   │     'e2e-profile-loaded' event.
-                   │
-                   │ (6) Event listener triggers fetchUserProfile()
-                   │
-                   │ (7) User profile is loaded, state is updated,
-                   │     UI re-renders in authenticated state.
-                   │
-                   ▼
-    ┌───────────────────────────────┐
-    │        Playwright Test        │
-    │ (Waiting for stable element)  │
-    └──────────────┬────────────────┘
-                   │
-                   │ (8) The programmaticLogin() helper waits for a
-                   │     stable element (e.g., data-testid="nav-sign-out")
-                   │     to be visible before returning.
-                   │
-                   ▼
-    ┌───────────────────────────────┐
-    │       Application Ready       │
-    │  (Authenticated and stable)   │
-    └───────────────────────────────┘
+    +---------------------------------+
+    |        Playwright Test          |
+    |  (e.g., health-check.spec.ts)   |
+    +--------------- | ---------------+
+                    |
+    (1) Calls programmaticLogin(page)
+                    |
+    +--------------- V ---------------+
+    |   programmaticLogin() Helper    |
+    |     (tests/e2e/helpers.ts)      |
+    +--------------- | ---------------+
+                    |
+    (2) Injects mock Supabase client via addInitScript()
+    (3) Navigates to application URL ('/')
+    (4) Injects mock session via page.evaluate()
+                    |
+    +--------------- V ---------------+
+    |      React AuthProvider         |
+    |   (src/contexts/AuthProvider)   |
+    +--------------- | ---------------+
+                    |
+    (5) Receives 'SIGNED_IN' event from mock client.
+    (6) Fetches user profile from mock client.
+    (7) After profile is set, dispatches custom
+        DOM event: 'e2e-profile-loaded'
+                    |
+    +--------------- V ---------------+
+    |   programmaticLogin() Helper    |
+    |      (Still in control)         |
+    +--------------- | ---------------+
+                    |
+    (8) Is waiting for the 'e2e-profile-loaded' event.
+    (9) After event, waits for a stable UI element
+        (e.g., [data-testid="nav-sign-out-button"])
+        to become visible.
+                    |
+    (10) Returns control to the test.
+                    |
+    +--------------- V ---------------+
+    |        Playwright Test          |
+    |         (Resumes)               |
+    +---------------------------------+
     ```
-    *   **Key Insight:** Every transition here is **deterministic**, **explicit**, and **observable**—no race conditions, no timeouts, no reliance on async guesswork. This architecture is antifragile, ensuring that future refactors won't silently break E2E readiness unless the event hook itself is deleted.
+    *   **Key Insight:** This architecture is deterministic and eliminates race conditions. The test does not proceed until it receives a definitive signal (`e2e-profile-loaded`) directly from the application, confirming that the `AuthProvider` has fully initialized, the user profile has been fetched, and the UI is ready. This creates a stable and reliable foundation for all authenticated E2E tests.
 
 1.  **Sequential MSW Initialization:**
     *   **Problem:** E2E tests would fail with race conditions because the React application could mount and trigger network requests *before* the Mock Service Worker (MSW) was ready to intercept them.
@@ -310,7 +369,7 @@ The frontend is a single-page application (SPA) built with React and Vite.
 
 The application employs a hybrid state management strategy that clearly separates **global UI state** from **server state**.
 
-*   **Global State (`AuthContext`):** The `AuthContext` is the single source of truth for global, cross-cutting concerns, primarily user identity. It provides the Supabase `session` object, the `user` object, and the user's `profile` data to all components that need it. This is the only global context in the application.
+*   **Global State (`AuthContext`):** The `AuthContext` is the single source of truth for global, cross-cutting concerns, primarily user identity and session state. It provides the Supabase `session` object and the `user` object to all components that need it. This is the only global context in the application. Profile data is explicitly decoupled and fetched via the `useUserProfile` hook.
 
 *   **Server State & Data Fetching (`@tanstack/react-query`):** All application data that is fetched from the backend (e.g., a user's practice history) is managed by `@tanstack/react-query` (React Query). This library handles all the complexities of data fetching, caching, re-fetching, and error handling.
     *   **Decoupled Architecture:** This approach decouples data fetching from global state. Previously, the application used a second global context (`SessionContext`) to hold practice history, which was a brittle anti-pattern. The new architecture eliminates this, ensuring that components fetch the data they need, when they need it.
