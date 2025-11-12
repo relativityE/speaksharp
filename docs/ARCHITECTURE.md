@@ -185,11 +185,25 @@ Crucially, that configuration tells Playwright to use the command vite --mode te
 This --mode test flag is the key. It instructs Vite to automatically look for and load environment variables ONLY from .env.test (and .env.test.local).
 So, the framework itself ensures the correct .env file is used based on the mode it's running in. The fix I implemented to the package.json was essential to restore this intended behavior, ensuring pnpm dev uses development mode and leaves the test mode to be used exclusively by the testing framework.
 
-### Visual Regression & State Capture
-Visual validation is a core part of the testing strategy, and it is handled by a dedicated E2E test.
+### Decoupled Health-Check and Visual State Capture
 
-*   **`tests/e2e/capture-states.e2e.spec.ts`**: This test is the single source of truth for capturing screenshots of the application in various states (e.g., logged out, logged in). It is designed to be simple and robust, focusing on capturing the state without making brittle assertions about specific content.
-*   **`tests/e2e/01_health-check.e2e.spec.ts`**: This is the primary health check for the application. It performs basic readiness checks (e.g., ensuring the app loads) and then delegates to the `capture-states` test to perform the auth flow validation and capture the visual proof. This creates a clean, decoupled architecture where the health check is responsible for *what* to validate, and the capture-states test is responsible for *how* to validate it visually.
+Our E2E testing strategy separates the concern of functional validation from visual documentation. This is achieved through two distinct, specialized tests:
+
+*   **`tests/e2e/health-check.e2e.spec.ts` (Functional Validation):** This is the primary health check for the application. It is a lean, focused test that performs one critical task: it verifies that a user can successfully authenticate using the `programmaticLogin` helper. Its purpose is to provide a fast, reliable signal that the core authentication flow is working. It makes no assertions about the visual state of the UI beyond what is necessary to confirm a successful login.
+
+*   **`tests/e2e/capture-states.e2e.spec.ts` (Visual Documentation):** This test is not for functional validation but is a dedicated tool for generating visual artifacts. It uses the `programmaticLogin` helper to get the application into various states (e.g., authenticated, unauthenticated) and captures screenshots of the UI.
+
+This decoupled architecture is a key to a stable test suite. It ensures that a purely visual change to the UI (e.g., a CSS refactor) will not break the critical, functional health check.
+
+### Unit & Integration Testing for React Query
+
+Testing components that use React Query requires a specific setup to ensure tests are isolated and deterministic. Our project uses a combination of two key utilities to achieve this.
+
+*   **`createQueryWrapper` (`tests/test-utils/queryWrapper.tsx`):** This is a higher-order function that provides a fresh, isolated `QueryClient` for each test. This is the most critical piece of the puzzle, as it prevents the React Query cache from bleeding between tests, which would otherwise lead to unpredictable and flaky results. It is used to wrap the component under test in React Testing Library's `render` function.
+
+*   **`makeQuerySuccess` (`tests/test-utils/queryMocks.ts`):** This is a factory function that creates a standardized, successful mock result object for a React Query hook. When testing a component that uses a custom hook like `usePracticeHistory`, this utility makes it easy to create a properly typed success object (`status: 'success'`, `isLoading: false`, etc.) to provide as the mock return value.
+
+Together, these utilities form the canonical pattern for testing any component that relies on React Query, ensuring that our unit and integration tests are fast, reliable, and easy to maintain.
 
 ### E2E Test Environment & Core Patterns
 
@@ -212,57 +226,50 @@ The E2E test environment is designed for stability and isolation. Several key ar
     *   **Architecture:** A deterministic, event-driven handshake was implemented to eliminate this race condition. This is the canonical pattern for ensuring the application is fully authenticated and rendered before any test assertions are made.
 
     ```ascii
-    ┌───────────────────────────────┐
-    │        Playwright Test        │
-    │ (e.g., smoke.e2e.spec.ts)     │
-    └──────────────┬────────────────┘
-                   │
-                   │ (1) Before each test, calls programmaticLogin()
-                   │
-                   ▼
-    ┌───────────────────────────────┐
-    │  programmaticLogin() Helper   │
-    │   (tests/e2e/helpers.ts)      │
-    └──────────────┬────────────────┘
-                   │
-                   │ (2) Sets mock session in localStorage
-                   │
-                   │ (3) Navigates to the application URL
-                   │
-                   │ (4) Dispatches custom DOM event:
-                   │     new CustomEvent('e2e-profile-loaded')
-                   │
-                   ▼
-    ┌───────────────────────────────┐
-    │     React AuthProvider        │
-    │  (src/contexts/AuthProvider)  │
-    └──────────────┬────────────────┘
-                   │
-                   │ (5) On mount, adds a listener for the
-                   │     'e2e-profile-loaded' event.
-                   │
-                   │ (6) Event listener triggers fetchUserProfile()
-                   │
-                   │ (7) User profile is loaded, state is updated,
-                   │     UI re-renders in authenticated state.
-                   │
-                   ▼
-    ┌───────────────────────────────┐
-    │        Playwright Test        │
-    │ (Waiting for stable element)  │
-    └──────────────┬────────────────┘
-                   │
-                   │ (8) The programmaticLogin() helper waits for a
-                   │     stable element (e.g., data-testid="nav-sign-out")
-                   │     to be visible before returning.
-                   │
-                   ▼
-    ┌───────────────────────────────┐
-    │       Application Ready       │
-    │  (Authenticated and stable)   │
-    └───────────────────────────────┘
+    +---------------------------------+
+    |        Playwright Test          |
+    |  (e.g., health-check.spec.ts)   |
+    +--------------- | ---------------+
+                    |
+    (1) Calls programmaticLogin(page)
+                    |
+    +--------------- V ---------------+
+    |   programmaticLogin() Helper    |
+    |     (tests/e2e/helpers.ts)      |
+    +--------------- | ---------------+
+                    |
+    (2) Injects mock Supabase client via addInitScript()
+    (3) Navigates to application URL ('/')
+    (4) Injects mock session via page.evaluate()
+                    |
+    +--------------- V ---------------+
+    |      React AuthProvider         |
+    |   (src/contexts/AuthProvider)   |
+    +--------------- | ---------------+
+                    |
+    (5) Receives 'SIGNED_IN' event from mock client.
+    (6) Fetches user profile from mock client.
+    (7) After profile is set, dispatches custom
+        DOM event: 'e2e-profile-loaded'
+                    |
+    +--------------- V ---------------+
+    |   programmaticLogin() Helper    |
+    |      (Still in control)         |
+    +--------------- | ---------------+
+                    |
+    (8) Is waiting for the 'e2e-profile-loaded' event.
+    (9) After event, waits for a stable UI element
+        (e.g., [data-testid="nav-sign-out-button"])
+        to become visible.
+                    |
+    (10) Returns control to the test.
+                    |
+    +--------------- V ---------------+
+    |        Playwright Test          |
+    |         (Resumes)               |
+    +---------------------------------+
     ```
-    *   **Key Insight:** Every transition here is **deterministic**, **explicit**, and **observable**—no race conditions, no timeouts, no reliance on async guesswork. This architecture is antifragile, ensuring that future refactors won't silently break E2E readiness unless the event hook itself is deleted.
+    *   **Key Insight:** This architecture is deterministic and eliminates race conditions. The test does not proceed until it receives a definitive signal (`e2e-profile-loaded`) directly from the application, confirming that the `AuthProvider` has fully initialized, the user profile has been fetched, and the UI is ready. This creates a stable and reliable foundation for all authenticated E2E tests.
 
 1.  **Sequential MSW Initialization:**
     *   **Problem:** E2E tests would fail with race conditions because the React application could mount and trigger network requests *before* the Mock Service Worker (MSW) was ready to intercept them.
