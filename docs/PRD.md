@@ -145,7 +145,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Tue, 04 Nov 2025 11:02:33 GMT
+**Last Updated:** Tue, 11 Nov 2025 17:48:21 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -155,13 +155,13 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 130 |
-| Unit tests              | 124   |
-| E2E tests (Playwright)  | 6  |
-| Passing tests           | 130   |
+| Total tests             | 127 |
+| Unit tests              | 118   |
+| E2E tests (Playwright)  | 9  |
+| Passing tests           | 127   |
 | Failing tests           | 0   |
 | Disabled/skipped tests  | 0   |
-| Passing unit tests      | 124   |
+| Passing unit tests      | 118   |
 | Failing E2E tests       | 0   |
 | Total runtime           | N/A   |
 
@@ -174,7 +174,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 | Statements | N/A   |
 | Branches   | N/A   |
 | Functions  | N/A   |
-| Lines      | 32.09%   |
+| Lines      | 27.84%   |
 
 ---
 
@@ -184,7 +184,7 @@ This section provides metrics that help identify "code bloat"—unnecessary or d
 
 | Metric | Value | Description |
 |---|---|---|
-| **Initial Chunk Size** | 15M | The size of the largest initial JavaScript bundle. This is a direct measure of the amount of code a user has to download and parse on their first visit. Large values here are a strong indicator of code bloat. |
+| **Initial Chunk Size** | 12M | The size of the largest initial JavaScript bundle. This is a direct measure of the amount of code a user has to download and parse on their first visit. Large values here are a strong indicator of code bloat. |
 | **Lighthouse Score** | (coming soon) | A comprehensive performance score from Google Lighthouse. It measures the *impact* of code bloat on the user experience, including metrics like Time to Interactive. |
 
 ---
