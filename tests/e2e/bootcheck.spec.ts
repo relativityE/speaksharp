@@ -1,4 +1,4 @@
-// tests/e2e/00_bootcheck.spec.ts
+// tests/e2e/bootcheck.spec.ts
 import { test, expect } from '@playwright/test';
 
 test.describe('Boot sanity check', () => {
