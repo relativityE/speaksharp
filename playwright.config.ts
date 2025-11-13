@@ -33,7 +33,7 @@ export default defineConfig({
   webServer: {
     command: "pnpm vite --mode test",
     url: BASE_URL,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     timeout: 120 * 1000, // 2 minutes
     env: {
       DOTENV_CONFIG_PATH: ".env.test",

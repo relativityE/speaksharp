@@ -42,11 +42,17 @@ interface SessionHistoryItemProps {
 
 // --- Sub-components ---
 
+import analyticsVisual from '@/assets/analytics-visual.jpg';
+
 const EmptyState: React.FC = () => {
     const navigate = useNavigate();
     return (
         <Card className="flex flex-col items-center justify-center p-12 text-center border-dashed" data-testid="analytics-dashboard-empty-state">
-            <Sparkles className="w-12 h-12 text-yellow-400 mb-4" />
+            <img
+                src={analyticsVisual}
+                alt="Illustration of analytics charts and graphs"
+                className="w-1/2 mb-8 rounded-lg shadow-md"
+            />
             <h2 className="text-xl font-bold text-foreground">Your Dashboard Awaits!</h2>
             <p className="max-w-md mx-auto my-4 text-base text-muted-foreground">
                 Record your next session to unlock your progress trends and full analytics!

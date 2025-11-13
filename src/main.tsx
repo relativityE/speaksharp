@@ -44,7 +44,7 @@ const renderApp = (initialSession: Session | null = null) => {
       import('./App').then(({ default: App }) => {
         console.log('[E2E DIAGNOSTIC] ./App imported successfully:', !!App);
         // 🛑 Skip ALL analytics in E2E mode
-        if (!window.__E2E_MODE__ && !import.meta.env.VITE_TEST_MODE) {
+        if (import.meta.env.VITE_TEST_MODE !== 'true') {
           if (import.meta.env.VITE_SENTRY_DSN) {
             try {
               Sentry.init({
