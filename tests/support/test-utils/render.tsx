@@ -1,7 +1,7 @@
 import React, { ReactElement, ReactNode } from 'react';
 import { render, RenderOptions } from '@testing-library/react';
 import { Location } from 'react-router-dom';
-import { AuthContextType } from '@/contexts/AuthContext';
+import { AuthContextType } from '@/contexts/AuthProvider';
 import { AllTheProviders } from './components';
 
 interface CustomRenderOptions extends Omit<RenderOptions, 'wrapper'> {

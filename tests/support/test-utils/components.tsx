@@ -1,7 +1,7 @@
 import React, { ReactNode } from 'react';
 import { MemoryRouter, Routes, Route, Location } from 'react-router-dom';
 import { vi } from 'vitest';
-import { AuthContext, AuthContextType } from '@/contexts/AuthContext';
+import { AuthContext, AuthContextType } from '@/contexts/AuthProvider';
 import { Toaster } from '@/components/ui/sonner';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -28,7 +28,7 @@ export const AllTheProviders = ({ children, authMock, route = '/', path }: AllTh
     user: null,
     profile: null,
     loading: false,
-    signOut: vi.fn().mockResolvedValue({ error: null }),
+    signOut: vi.fn().mockResolvedValue(undefined),
     setSession: vi.fn(),
   };
 

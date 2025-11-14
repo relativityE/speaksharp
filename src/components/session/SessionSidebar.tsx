@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/contexts/useAuth';
+import { useAuthProvider } from '@/contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import logger from '@/lib/logger';
 import { Mic, Square, Loader2, Zap, Cloud, Computer } from 'lucide-react';
@@ -117,7 +117,7 @@ const ModelLoadingIndicator: React.FC<ModelLoadingIndicatorProps> = ({ progress 
 
 export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isReady, error, startListening, stopListening, reset, actualMode, saveSession, startTime, modelLoadingProgress }) => {
     const navigate = useNavigate();
-    const { user } = useAuth();
+    const { user } = useAuthProvider();
     const { data: profile } = useUserProfile();
     const [isEndingSession, setIsEndingSession] = useState(false);
 

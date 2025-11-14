@@ -1,48 +1,44 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../config/env';
+// src/lib/supabaseClient.ts
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 
-let supabaseInstance: SupabaseClient | null = null;
-
-function getSupabaseClient(): SupabaseClient {
-  // 1. Check if the instance already exists
-  if (supabaseInstance) {
-    return supabaseInstance;
+declare global {
+  // allow tests to inject a mock client on window
+  interface Window {
+    __INJECTED_SUPABASE__?: SupabaseClient;
+    supabase?: SupabaseClient;
   }
-
-  // 2. Check for an injected E2E mock client first
-  if (typeof window !== 'undefined' && 'supabase' in window) {
-    console.log('[getSupabaseClient] Using injected mock Supabase client.');
-    supabaseInstance = (window as { supabase: SupabaseClient }).supabase || null;
-    if (supabaseInstance) {
-      return supabaseInstance;
-    }
-  }
-
-  // 3. Create a real client if no mock is found
-  if (SUPABASE_URL && SUPABASE_ANON_KEY) {
-    console.log('[getSupabaseClient] Creating new real Supabase client.');
-    supabaseInstance = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: {
-        autoRefreshToken: true,
-        // FIX: Disable session persistence in test mode to improve isolation
-        persistSession: import.meta.env.MODE !== 'test',
-        detectSessionInUrl: true,
-      },
-    });
-
-    // In non-production environments, expose the client for debugging.
-    if (import.meta.env.MODE !== 'production') {
-       console.warn(
-        '⚠️ Supabase client exposed on window object for debugging/testing. This should not be present in production.',
-      );
-      (window as { supabase?: SupabaseClient }).supabase = supabaseInstance;
-    }
-
-    return supabaseInstance;
-  }
-
-  throw new Error("Supabase URL or Anon Key is missing, and no mock client was injected.");
 }
 
-// Export the getter function for cases where lazy initialization is critical
-export { getSupabaseClient };
+let cachedClient: SupabaseClient | null = null;
+
+export function getSupabaseClient(): SupabaseClient {
+  // Prefer a test-injected client to avoid real network calls in E2E
+  if (typeof window !== 'undefined') {
+    const injected = window.__INJECTED_SUPABASE__ ?? window.supabase;
+    if (injected) {
+      return injected;
+    }
+  }
+
+  if (cachedClient) {
+    return cachedClient;
+  }
+
+  const url = import.meta.env.VITE_SUPABASE_URL;
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+  if (!url || !anonKey) {
+    throw new Error('Missing Supabase environment variables (VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY)');
+  }
+
+  cachedClient = createClient(url as string, anonKey as string, {
+    auth: {
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: true,
+    },
+  });
+
+  return cachedClient;
+}

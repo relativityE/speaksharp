@@ -4,8 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SessionSidebar } from '@/components/session/SessionSidebar';
 import type { SessionSidebarProps } from '@/components/session/SessionSidebar';
-import { AuthContextType } from '@/contexts/AuthContext';
-import { AuthContext } from '@/contexts/AuthContext';
+import { AuthContextType } from '@/contexts/AuthProvider';
+import { AuthContext } from '@/contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { makeQuerySuccess } from '../test-utils/queryMocks';
 
@@ -30,8 +30,8 @@ vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
 }));
 
-vi.mock('@/contexts/useAuth', () => ({
-  useAuth: () => mockAuthContextValue,
+vi.mock('@/contexts/AuthProvider', () => ({
+  useAuthProvider: () => mockAuthContextValue,
 }));
 
 vi.mock('@/hooks/useUserProfile');

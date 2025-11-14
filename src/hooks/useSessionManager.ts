@@ -1,4 +1,4 @@
-import { useAuth } from '../contexts/useAuth';
+import { useAuthProvider } from '../contexts/AuthProvider';
 import logger from '../lib/logger';
 import { saveSession as saveSessionToDb, deleteSession as deleteSessionFromDb, exportData } from '../lib/storage';
 import type { PracticeSession } from '../types/session';
@@ -13,7 +13,7 @@ interface UseSessionManager {
 // This hook is now "headless" and only contains the logic for actions.
 // The state itself is managed in SessionContext.
 export const useSessionManager = (): UseSessionManager => {
-  const { user } = useAuth();
+  const { user } = useAuthProvider();
   const { data: profile } = useUserProfile();
 
   const saveSession = async (sessionData: Partial<PracticeSession>): Promise<{ session: PracticeSession | null; usageExceeded: boolean }> => {

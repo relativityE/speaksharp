@@ -1,12 +1,12 @@
 import { Button } from "@/components/ui/button";
 import { Mic, BarChart3, Home, LogOut } from "lucide-react";
 import { useLocation, Link, useNavigate } from "react-router-dom";
-import { useAuth } from "@/contexts/useAuth";
+import { useAuthProvider } from "@/contexts/AuthProvider";
 
 const Navigation = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { session, signOut } = useAuth();
+  const { session, signOut } = useAuthProvider();
 
   const handleSignOut = async () => {
     await signOut();
@@ -19,9 +19,34 @@ const Navigation = () => {
     { path: "/analytics", icon: BarChart3, label: "Analytics" },
   ];
 
+  const MobileNav = () => (
+    <div className="md:hidden fixed bottom-0 left-0 right-0 bg-card/95 border-t border-border shadow-card z-50 p-2">
+        <div className="flex justify-around items-center">
+            {navItems.map((item) => {
+                const isActive = location.pathname === item.path;
+                return (
+                    <Button
+                        key={item.path}
+                        variant={isActive ? "secondary" : "ghost"}
+                        size="sm"
+                        asChild
+                        className="flex flex-col h-16"
+                    >
+                        <Link to={item.path}>
+                            <item.icon className="h-5 w-5 mb-1" />
+                            <span className="text-xs">{item.label}</span>
+                        </Link>
+                    </Button>
+                );
+            })}
+        </div>
+    </div>
+  );
+
+
   return (
     <>
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-sm border-b border-border shadow-card">
+      <nav className="fixed top-0 left-0 right-0 bg-card/95 backdrop-blur-sm border-b border-border shadow-card z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             {/* Logo */}
@@ -77,26 +102,7 @@ const Navigation = () => {
       </nav>
 
       {/* Mobile Navigation */}
-      {session && (
-      <div className="md:hidden flex justify-center space-x-1 px-4 pb-3">
-        {navItems.map((item) => {
-          const isActive = location.pathname === item.path;
-          return (
-            <Button
-              key={item.path}
-              variant={isActive ? "default" : "ghost"}
-              size="sm"
-              asChild
-            >
-              <Link to={item.path} className="flex items-center space-x-1">
-                <item.icon className="h-4 w-4" />
-                <span className="text-xs">{item.label}</span>
-              </Link>
-            </Button>
-          );
-        })}
-        </div>
-      )}
+      {session && <MobileNav />}
     </>
   );
 };

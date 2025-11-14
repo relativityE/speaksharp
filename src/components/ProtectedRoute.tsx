@@ -1,13 +1,13 @@
 import React, { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../contexts/useAuth';
+import { useAuthProvider } from '../contexts/AuthProvider';
 
 interface ProtectedRouteProps {
   children: ReactNode;
 }
 
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
-  const { user, loading } = useAuth();
+  const { user, loading } = useAuthProvider();
   const location = useLocation();
 
   if (loading) {

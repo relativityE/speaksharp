@@ -1,6 +1,6 @@
 import React, { useState, FormEvent, ChangeEvent } from 'react';
 import { getSupabaseClient } from '@/lib/supabaseClient';
-import { useAuth } from '@/contexts/useAuth';
+import { useAuthProvider } from '@/contexts/AuthProvider';
 import { Navigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,7 +29,7 @@ const mapError = (message: string) => {
 };
 
 export default function AuthPage() {
-  const { session, loading, setSession } = useAuth();
+  const { session, loading, setSession } = useAuthProvider();
 
   const [view, setView] = useState<AuthView>('sign_in');
   const [email, setEmail] = useState('');
