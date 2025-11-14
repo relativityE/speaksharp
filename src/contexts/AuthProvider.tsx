@@ -1,9 +1,22 @@
-import React, { useState, useEffect, ReactNode, useMemo, useCallback } from 'react';
+/* eslint-disable react-refresh/only-export-components */
+import React, { useState, useEffect, ReactNode, useMemo, useCallback, useContext, createContext } from 'react';
 import { getSupabaseClient } from '../lib/supabaseClient';
-import { Session } from '@supabase/supabase-js';
+import { Session, User } from '@supabase/supabase-js';
 import { Skeleton } from '@/components/ui/skeleton';
-import { AuthContext, AuthContextType } from './AuthContext';
 import { UserProfile } from '@/types/user';
+
+// Define the context value type right inside the provider file
+export interface AuthContextType {
+  session: Session | null;
+  user: User | null;
+  profile: UserProfile | null;
+  loading: boolean;
+  signOut: () => Promise<void>;
+  setSession: (s: Session | null) => void;
+}
+
+// Create the context here
+export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 interface AuthProviderProps {
   children: ReactNode;
@@ -19,20 +32,22 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
 
   useEffect(() => {
     if (!supabase) {
-      throw new Error('Supabase client is not available. The application cannot initialize.');
+      // In a real app, you might want to throw an error or handle this state gracefully
+      console.error('Supabase client is not available.');
+      setLoading(false);
+      return;
     }
 
-    // Set initial session if provided.
     if (initialSession) {
       setSessionState(initialSession);
       setLoading(false);
     }
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, newSession) => {
+      (_event, newSession) => {
         setSessionState(newSession);
         if (!newSession) {
-          setProfile(null); // Clear profile on logout.
+          setProfile(null);
         }
         setLoading(false);
       }
@@ -43,7 +58,6 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     };
   }, [initialSession, supabase]);
 
-  // Fetch the user profile when the session is available.
   useEffect(() => {
     if (session?.user?.id) {
       const fetchProfile = async () => {
@@ -70,13 +84,13 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     }
   }, [session, supabase]);
 
-  // Dispatch the E2E event *after* the profile is loaded.
   useEffect(() => {
+    console.log('[E2E DIAGNOSTIC] Profile changed:', profile);
     if (import.meta.env.MODE === 'test' && profile) {
+      console.log('[E2E DIAGNOSTIC] Dispatching e2e-profile-loaded event.');
       document.dispatchEvent(new CustomEvent('e2e-profile-loaded', { detail: profile }));
     }
   }, [profile]);
-
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
@@ -93,7 +107,6 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     setSession: setSessionState,
   }), [session, profile, loading, signOut]);
 
-  // Show a loading skeleton while the session and profile are being fetched.
   if (loading) {
     return (
       <div className="w-full h-screen flex justify-center items-center" data-testid="auth-provider-loading">
@@ -104,3 +117,12 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
+
+// Export the custom hook from the same file
+export const useAuthProvider = (): AuthContextType => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuthProvider must be used within an AuthProvider');
+  }
+  return context;
+};

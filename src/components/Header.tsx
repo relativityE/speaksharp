@@ -1,13 +1,13 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { useAuth } from '../contexts/useAuth';
+import { useAuthProvider } from '../contexts/AuthProvider';
 import { usePracticeHistory } from '../hooks/usePracticeHistory';
 import { Button } from './ui/button';
 import { SideNav } from './SideNav';
 import { Home } from 'lucide-react';
 
 export const Header: React.FC = () => {
-    const { user, signOut } = useAuth();
+    const { user, signOut } = useAuthProvider();
     const { data: sessionHistory } = usePracticeHistory();
 
     const getNavLinkClass = ({ isActive }: { isActive: boolean }) =>

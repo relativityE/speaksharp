@@ -1,12 +1,12 @@
 import React from 'react';
-import { useAuth } from '../contexts/useAuth';
+import { useAuthProvider } from '../contexts/AuthProvider';
 import { MainPage } from './MainPage';
 import { SessionPage } from './SessionPage';
 import { LandingHeader } from '@/components/landing/LandingHeader';
 import { Skeleton } from '@/components/ui/skeleton';
 
 export const HomePage: React.FC = () => {
-  const { user, loading } = useAuth();
+  const { user, loading } = useAuthProvider();
 
   if (loading) {
     return (
