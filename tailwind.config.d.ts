@@ -4,7 +4,7 @@ declare const _default: {
     prefix: string;
     theme: {
         container: {
-            center: boolean;
+            center: true;
             padding: string;
             screens: {
                 "2xl": string;
@@ -107,6 +107,8 @@ declare const _default: {
             };
         };
     };
-    plugins: any[];
+    plugins: {
+        handler: () => void;
+    }[];
 };
 export default _default;
