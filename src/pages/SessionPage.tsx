@@ -13,7 +13,7 @@ import { SlidersHorizontal, AlertTriangle, Loader } from 'lucide-react';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { UpgradePromptDialog } from '@/components/UpgradePromptDialog';
-import { useAuth } from '../contexts/useAuth';
+import { useAuthProvider } from '../contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { useQueryClient } from '@tanstack/react-query';
 import logger from '@/lib/logger';
@@ -83,7 +83,7 @@ const LeftColumnContent: React.FC<LeftColumnContentProps> = ({ speechRecognition
 // --- Main Component ---
 
 export const SessionPage: React.FC = () => {
-    const { user, session, loading: authLoading } = useAuth();
+    const { user, session, loading: authLoading } = useAuthProvider();
     const { data: profile, isLoading: profileLoading } = useUserProfile();
     const { saveSession: saveSessionToBackend } = useSessionManager();
     const queryClient = useQueryClient();

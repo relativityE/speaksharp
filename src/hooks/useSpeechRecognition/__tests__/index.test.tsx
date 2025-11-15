@@ -12,8 +12,8 @@ vi.mock('../useTranscriptState');
 vi.mock('../useFillerWords');
 vi.mock('../useTranscriptionService');
 
-vi.mock('../../../contexts/useAuth', () => ({
-  useAuth: vi.fn(() => ({ session: null }))
+vi.mock('../../../contexts/AuthProvider', () => ({
+  useAuthProvider: vi.fn(() => ({ session: null }))
 }));
 
 vi.mock('../../../utils/fillerWordUtils', () => ({
