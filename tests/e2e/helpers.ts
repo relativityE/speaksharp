@@ -7,99 +7,8 @@
  * `if (process.env.E2E_VERBOSE) console.log(...)`
  */
 import type { Page } from '@playwright/test';
-import type { Session, SupabaseClient } from '@supabase/supabase-js';
+import type { Session } from '@supabase/supabase-js';
 import { MOCK_USER, MOCK_USER_PROFILE, MOCK_SESSION_KEY } from './fixtures/mockData';
-
-// --- BEGIN NEW MOCK SUPABASE CLIENT ---
-
-type SubscriptionCallback = (event: string, session: Session | null) => void;
-
-/**
- * A fully deterministic, stateful, in-memory mock of the Supabase client.
- * Designed specifically for E2E testing to eliminate race conditions.
- */
-class MockSupabaseClient {
-  private session: Session | null = null;
-  private listeners: Set<SubscriptionCallback> = new Set();
-
-  constructor() {
-    console.log('[E2E MOCK] MockSupabaseClient instantiated.');
-    // Attempt to load session from localStorage to simulate persistence
-    const storedSession = window.localStorage.getItem(MOCK_SESSION_KEY);
-    if (storedSession) {
-      this.session = JSON.parse(storedSession);
-      console.log('[E2E MOCK] Restored session from localStorage.');
-    }
-  }
-
-  /**
-   * The core of the authentication mock.
-   * Dispatches session changes SYNCHRONOUSLY to all listeners.
-   */
-  auth = {
-    onAuthStateChange: (callback: SubscriptionCallback) => {
-      console.log('[E2E MOCK AUTH] A new listener has subscribed.');
-      this.listeners.add(callback);
-
-      // --- THE CRITICAL FIX ---
-      // Immediately and synchronously call the callback with the current session state.
-      // This eliminates the race condition where the app would mount before the session was ready.
-      console.log('[E2E MOCK AUTH] Synchronously dispatching INITIAL_SESSION event.');
-      callback('INITIAL_SESSION', this.session);
-
-      return {
-        data: {
-          subscription: {
-            unsubscribe: () => {
-              console.log('[E2E MOCK AUTH] A listener has unsubscribed.');
-              this.listeners.delete(callback);
-            },
-          },
-        },
-      };
-    },
-
-    setSession: (session: Session) => {
-      console.log('[E2E MOCK AUTH] setSession called.');
-      this.session = session;
-      window.localStorage.setItem(MOCK_SESSION_KEY, JSON.stringify(session));
-      console.log('[E2E MOCK AUTH] Synchronously dispatching SIGNED_IN event to all listeners.');
-      this.listeners.forEach((listener) => listener('SIGNED_IN', this.session));
-    },
-  };
-
-  /**
-   * A mock implementation of the Supabase query builder.
-   * It is specifically tailored to handle the profile fetch from AuthProvider.
-   */
-  from = (tableName: string) => {
-    console.log(`[E2E MOCK DB] from('${tableName}') called.`);
-    const mockQueryBuilder = {
-      select: (query: string) => {
-        console.log(`[E2E MOCK DB] select('${query}') called.`);
-        return {
-          eq: (column: string, value: any) => {
-            console.log(`[E2E MOCK DB] eq('${column}', '${value}') called.`);
-            return {
-              single: () => {
-                console.log('[E2E MOCK DB] single() called.');
-                if (tableName === 'user_profiles' && column === 'id' && value === MOCK_USER.id) {
-                  console.log('[E2E MOCK DB] Matched profile query. Returning mock profile.');
-                  return Promise.resolve({ data: MOCK_USER_PROFILE, error: null });
-                }
-                console.warn(`[E2E MOCK DB] Unhandled query in mock: ${tableName}.${column} = ${value}`);
-                return Promise.resolve({ data: null, error: new Error('Mock DB query not handled') });
-              },
-            };
-          },
-        };
-      },
-    };
-    return mockQueryBuilder;
-  };
-}
-
-// --- END NEW MOCK SUPABASE CLIENT ---
 
 
 /**
@@ -145,7 +54,7 @@ export async function programmaticLogin(page: Page): Promise<void> {
         console.log(`[E2E MOCK DB] from('${tableName}') called.`);
         return {
           select: () => ({
-            eq: (column, value) => ({
+            eq: (column: string, value: string) => ({
               single: () => {
                 console.log(`[E2E MOCK DB] single() called for ${tableName}.${column}='${value}'`);
                 if (tableName === 'user_profiles' && column === 'id' && value === mockData.MOCK_USER.id) {
