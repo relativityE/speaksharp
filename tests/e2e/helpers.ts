@@ -1,276 +1,223 @@
-import { Page, expect } from '@playwright/test';
+// tests/e2e/helpers.ts
+/**
+ * NOTE: This file contains extensive console logging (`[E2E MOCK]`, `[E2E PAGE]`, etc.).
+ * These logs were essential for debugging a series of complex, interdependent race
+ * conditions and should be preserved. For a quieter test run, they can be conditionally
+ * disabled by wrapping them in a check against an environment variable, e.g.:
+ * `if (process.env.E2E_VERBOSE) console.log(...)`
+ */
+import type { Page } from '@playwright/test';
+import type { Session, SupabaseClient } from '@supabase/supabase-js';
+import { MOCK_USER, MOCK_USER_PROFILE, MOCK_SESSION_KEY } from './fixtures/mockData';
 
-function generateFakeJWT() {
-  const now = Math.floor(Date.now() / 1000);
-  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
-  const payload = Buffer.from(JSON.stringify({
-    sub: "test-user-123",
-    email: "test@example.com",
-    aud: "authenticated",
-    role: "authenticated",
-    exp: now + 3600,
-    iat: now,
-    session_id: "test-session-123",
-  })).toString("base64url");
-  const signature = "fake-signature-for-e2e-testing";
-  return `${header}.${payload}.${signature}`;
-}
+// --- BEGIN NEW MOCK SUPABASE CLIENT ---
 
-export async function programmaticLogin(page: Page) {
-  await page.addInitScript(() => {
-    // Create inline mock Supabase client
-    if (!(window as { __MOCK_SUPABASE_CLIENT_INITIALIZED__?: boolean }).__MOCK_SUPABASE_CLIENT_INITIALIZED__) {
-      (window as { __MOCK_SUPABASE_CLIENT_INITIALIZED__?: boolean }).__MOCK_SUPABASE_CLIENT_INITIALIZED__ = true;
-
-      const MOCK_SESSION_KEY = 'sb-mock-session';
-      let session: unknown = null;
-      try {
-        const storedSession = localStorage.getItem(MOCK_SESSION_KEY);
-        if (storedSession) {
-          session = JSON.parse(storedSession);
-        }
-      } catch (e) {
-        console.error('[MockClient] Failed to parse stored session:', e);
-        localStorage.removeItem(MOCK_SESSION_KEY);
-      }
-
-      const listeners = new Set<(event: string, session: unknown | null) => void>();
-
-      (window as { supabase?: unknown }).supabase = {
-        auth: {
-          onAuthStateChange: (callback: (event: string, session: unknown | null) => void) => {
-            listeners.add(callback);
-            setTimeout(() => callback('INITIAL_SESSION', session), 0);
-            return {
-              data: {
-                subscription: {
-                  unsubscribe: () => listeners.delete(callback)
-                }
-              },
-            };
-          },
-
-          setSession: async (sessionData: Record<string, unknown>) => {
-            session = {
-              ...(sessionData as Record<string, unknown>),
-              expires_at: Math.floor(Date.now() / 1000) + 3600
-            };
-
-            try {
-              localStorage.setItem(MOCK_SESSION_KEY, JSON.stringify(session));
-            } catch (e) {
-              console.error('[MockClient] Failed to save session to localStorage:', e);
-            }
-
-            listeners.forEach(listener => {
-              try {
-                listener('SIGNED_IN', session);
-              } catch (e) {
-                console.error('[MockAuth] Listener error:', e);
-              }
-            });
-
-            return { data: { session, user: (session as { user: unknown }).user }, error: null };
-          },
-
-          signOut: async () => {
-            session = null;
-            localStorage.removeItem(MOCK_SESSION_KEY);
-            listeners.forEach(listener => listener('SIGNED_OUT', null));
-            return { error: null };
-          },
-
-          getSession: async () => {
-            return { data: { session }, error: null };
-          },
-        },
-
-from: (table: string) => {
-  const mockUserProfile = {
-    id: 'test-user-123',
-    email: 'test@example.com',
-    subscription_status: 'pro',
-    preferred_mode: 'cloud',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
-
-  const mockSessions = [
-    {
-      id: 'session-1',
-      user_id: 'test-user-123',
-      created_at: new Date(Date.now() - 86400000).toISOString(),
-      duration: 300,
-      word_count: 750,
-      filler_word_count: 15,
-      average_pace: 150,
-      clarity_score: 85,
-      confidence_score: 78,
-    },
-    {
-      id: 'session-2',
-      user_id: 'test-user-123',
-      created_at: new Date(Date.now() - 172800000).toISOString(),
-      duration: 420,
-      word_count: 1050,
-      filler_word_count: 12,
-      average_pace: 150,
-      clarity_score: 88,
-      confidence_score: 82,
-    },
-    {
-      id: 'session-3',
-      user_id: 'test-user-123',
-      created_at: new Date(Date.now() - 259200000).toISOString(),
-      duration: 360,
-      word_count: 900,
-      filler_word_count: 10,
-      average_pace: 150,
-      clarity_score: 90,
-      confidence_score: 85,
-    },
-  ];
-
-  return {
-    select: () => {
-      return {
-        eq: (column: string, value: unknown) => {
-          if (table === 'user_profiles' && column === 'id' && value === mockUserProfile.id) {
-            return {
-              single: () => Promise.resolve({
-                data: mockUserProfile,
-                error: null
-              }),
-            };
-          }
-
-          if (table === 'sessions') {
-            return {
-          order: (col: string, opts: { ascending: boolean }) => {
-                const sorted = [...mockSessions].sort((a: { created_at: string }, b: { created_at: string }) => {
-                  if (opts.ascending) {
-                    return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-                  }
-                  return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-                });
-                return Promise.resolve({ data: sorted, error: null });
-              },
-            };
-          }
-
-          return Promise.resolve({ data: [], error: null });
-        },
-
-        order: (col: string, opts: { ascending: boolean }) => {
-          if (table === 'sessions') {
-            const sorted = [...mockSessions].sort((a: { created_at: string }, b: { created_at: string }) => {
-              if (opts.ascending) {
-                return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-              }
-              return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-            });
-            return Promise.resolve({ data: sorted, error: null });
-          }
-          return Promise.resolve({ data: [], error: null });
-        },
-
-        single: () => {
-          if (table === 'user_profiles') {
-            return Promise.resolve({
-              data: mockUserProfile,
-              error: null
-            });
-          }
-          return Promise.resolve({ data: null, error: null });
-        },
-      };
-    },
-  };
-},
-      };
-    }
-  });
-
-  await page.goto('/');
-
-  // Wait for initial app mount (loading skeleton disappears)
-  await page.waitForFunction(
-    () => {
-      const loadingSkeleton = document.querySelector('[data-testid="loading-skeleton"]');
-      return !loadingSkeleton;
-    },
-    { timeout: 15000 }
-  );
-
-  const fakeAccessToken = generateFakeJWT();
-  const now = Math.floor(Date.now() / 1000);
-
-  // Set session and wait for it to complete
-  await page.evaluate(
-    async ({ token, timestamp }: { token: string; timestamp: number; }) => {
-      const fakeSession = {
-        access_token: token,
-        refresh_token: 'fake-refresh-token-for-e2e',
-        token_type: 'bearer',
-        expires_in: 3600,
-        expires_at: timestamp + 3600,
-        user: {
-          id: 'test-user-123',
-          email: 'test@example.com',
-          aud: 'authenticated',
-          role: 'authenticated',
-          app_metadata: { provider: 'email', providers: ['email'] },
-          user_metadata: { name: 'Test User' },
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-      };
-
-      await (window as { supabase?: { auth: { setSession: (s: unknown) => Promise<unknown> } } }).supabase?.auth.setSession(fakeSession);
-    },
-    { token: fakeAccessToken, timestamp: now }
-  );
-
-  // Wait for the custom event that signals the profile has been loaded.
-  await page.evaluate(() => {
-    return new Promise<void>(resolve => {
-      document.addEventListener('e2e-profile-loaded', () => resolve());
-    });
-  });
-
-  // Wait for authenticated UI (sign-out button)
-  await page.waitForSelector('[data-testid="nav-sign-out-button"]', {
-    timeout: 15000,
-    state: 'visible'
-  });
-
-  await expect(page.getByTestId('nav-sign-out-button')).toBeVisible();
-}
+type SubscriptionCallback = (event: string, session: Session | null) => void;
 
 /**
- * Captures screenshots of authenticated and unauthenticated states
- * Used for visual documentation
+ * A fully deterministic, stateful, in-memory mock of the Supabase client.
+ * Designed specifically for E2E testing to eliminate race conditions.
  */
-export async function captureAuthStates(page: Page): Promise<void> {
-  const screenshotDir = 'screenshots';
+class MockSupabaseClient {
+  private session: Session | null = null;
+  private listeners: Set<SubscriptionCallback> = new Set();
 
-  // Capture unauthenticated
+  constructor() {
+    console.log('[E2E MOCK] MockSupabaseClient instantiated.');
+    // Attempt to load session from localStorage to simulate persistence
+    const storedSession = window.localStorage.getItem(MOCK_SESSION_KEY);
+    if (storedSession) {
+      this.session = JSON.parse(storedSession);
+      console.log('[E2E MOCK] Restored session from localStorage.');
+    }
+  }
+
+  /**
+   * The core of the authentication mock.
+   * Dispatches session changes SYNCHRONOUSLY to all listeners.
+   */
+  auth = {
+    onAuthStateChange: (callback: SubscriptionCallback) => {
+      console.log('[E2E MOCK AUTH] A new listener has subscribed.');
+      this.listeners.add(callback);
+
+      // --- THE CRITICAL FIX ---
+      // Immediately and synchronously call the callback with the current session state.
+      // This eliminates the race condition where the app would mount before the session was ready.
+      console.log('[E2E MOCK AUTH] Synchronously dispatching INITIAL_SESSION event.');
+      callback('INITIAL_SESSION', this.session);
+
+      return {
+        data: {
+          subscription: {
+            unsubscribe: () => {
+              console.log('[E2E MOCK AUTH] A listener has unsubscribed.');
+              this.listeners.delete(callback);
+            },
+          },
+        },
+      };
+    },
+
+    setSession: (session: Session) => {
+      console.log('[E2E MOCK AUTH] setSession called.');
+      this.session = session;
+      window.localStorage.setItem(MOCK_SESSION_KEY, JSON.stringify(session));
+      console.log('[E2E MOCK AUTH] Synchronously dispatching SIGNED_IN event to all listeners.');
+      this.listeners.forEach((listener) => listener('SIGNED_IN', this.session));
+    },
+  };
+
+  /**
+   * A mock implementation of the Supabase query builder.
+   * It is specifically tailored to handle the profile fetch from AuthProvider.
+   */
+  from = (tableName: string) => {
+    console.log(`[E2E MOCK DB] from('${tableName}') called.`);
+    const mockQueryBuilder = {
+      select: (query: string) => {
+        console.log(`[E2E MOCK DB] select('${query}') called.`);
+        return {
+          eq: (column: string, value: any) => {
+            console.log(`[E2E MOCK DB] eq('${column}', '${value}') called.`);
+            return {
+              single: () => {
+                console.log('[E2E MOCK DB] single() called.');
+                if (tableName === 'user_profiles' && column === 'id' && value === MOCK_USER.id) {
+                  console.log('[E2E MOCK DB] Matched profile query. Returning mock profile.');
+                  return Promise.resolve({ data: MOCK_USER_PROFILE, error: null });
+                }
+                console.warn(`[E2E MOCK DB] Unhandled query in mock: ${tableName}.${column} = ${value}`);
+                return Promise.resolve({ data: null, error: new Error('Mock DB query not handled') });
+              },
+            };
+          },
+        };
+      },
+    };
+    return mockQueryBuilder;
+  };
+}
+
+// --- END NEW MOCK SUPABASE CLIENT ---
+
+
+/**
+ * Programmatic login helper (ARCHITECTURAL FIX):
+ * - Injects a pure JS mock of the Supabase client via addInitScript.
+ * - Passes mock data into the script context to avoid hardcoding.
+ * - Navigates to the page, which now boots with the mock.
+ * - Triggers the mock's auth flow.
+ * - Waits for the deterministic handshake event from the app.
+ */
+export async function programmaticLogin(page: Page): Promise<void> {
+  // 1. Inject a pure JavaScript mock of the Supabase client.
+  // This script runs BEFORE any app code. It must not contain any TypeScript syntax.
+  await page.addInitScript((mockData) => {
+    const listeners = new Set();
+    let session = null;
+    const storedSession = window.localStorage.getItem(mockData.MOCK_SESSION_KEY);
+    if (storedSession) {
+      session = JSON.parse(storedSession);
+    }
+
+    const mockSupabase = {
+      auth: {
+        onAuthStateChange: (callback) => {
+          console.log('[E2E MOCK AUTH] A new listener has subscribed.');
+          listeners.add(callback);
+          // CRITICAL: Synchronously notify the listener of the initial state
+          console.log('[E2E MOCK AUTH] Synchronously dispatching INITIAL_SESSION event.');
+          callback('INITIAL_SESSION', session);
+          return {
+            data: { subscription: { unsubscribe: () => listeners.delete(callback) } },
+          };
+        },
+        setSession: (newSession) => {
+          console.log('[E2E MOCK AUTH] setSession called.');
+          session = newSession;
+          window.localStorage.setItem(mockData.MOCK_SESSION_KEY, JSON.stringify(session));
+          console.log('[E2E MOCK AUTH] Synchronously dispatching SIGNED_IN event.');
+          listeners.forEach(listener => listener('SIGNED_IN', session));
+        },
+      },
+      from: (tableName) => {
+        console.log(`[E2E MOCK DB] from('${tableName}') called.`);
+        return {
+          select: () => ({
+            eq: (column, value) => ({
+              single: () => {
+                console.log(`[E2E MOCK DB] single() called for ${tableName}.${column}='${value}'`);
+                if (tableName === 'user_profiles' && column === 'id' && value === mockData.MOCK_USER.id) {
+                  console.log('[E2E MOCK DB] Matched profile query. Returning mock profile.');
+                  return Promise.resolve({ data: mockData.MOCK_USER_PROFILE, error: null });
+                }
+                return Promise.resolve({ data: null, error: { message: 'Not found' } });
+              },
+            }),
+          }),
+        };
+      },
+    };
+    // @ts-expect-error - attaching to window for test purposes
+    window.supabase = mockSupabase;
+  }, { MOCK_USER, MOCK_USER_PROFILE, MOCK_SESSION_KEY }); // Pass mock data into the browser context
+
+  // 2. Navigate to the app. It will now boot up using our injected mock client.
   await page.goto('/');
-  // Wait for a stable element that indicates the page is ready.
-  await expect(page.getByRole('link', { name: 'Sign In' })).toBeVisible();
-  await page.screenshot({
-    path: `${screenshotDir}/unauthenticated-home.png`,
-    fullPage: true
-  });
 
-  // Perform login
-  await programmaticLogin(page);
+  // 3. Create a fake session object that is consistent with the mock data.
+  const now = Math.floor(Date.now() / 1000);
+  const fakeSession = {
+    access_token: 'mock-access-token',
+    refresh_token: 'mock-refresh-token',
+    token_type: 'bearer',
+    expires_in: 3600,
+    expires_at: now + 3600,
+    user: {
+      id: MOCK_USER.id, // CRITICAL: This ID must match the one in MOCK_USER_PROFILE
+      email: MOCK_USER.email,
+      aud: 'authenticated',
+      role: 'authenticated',
+      app_metadata: {},
+      user_metadata: {},
+      created_at: '',
+      updated_at: '',
+    },
+  };
 
-  // Capture authenticated
-  // Wait for the main content area to be loaded.
-  await expect(page.getByTestId('app-main')).toBeVisible();
-  await page.screenshot({
-    path: `${screenshotDir}/authenticated-home.png`,
-    fullPage: true
-  });
+  // 4. Set up the event listener BEFORE triggering the action that will cause the event.
+  const profileLoadedPromise = page.evaluate(() =>
+    new Promise<void>((resolve) => {
+      console.log('[E2E PAGE] Attaching listener for e2e-profile-loaded event...');
+      document.addEventListener('e2e-profile-loaded', () => {
+        console.log('[E2E PAGE] Received e2e-profile-loaded. Test can proceed.');
+        resolve();
+      });
+    })
+  );
+
+  // 5. Now, trigger the auth flow inside the app by calling the mock's setSession.
+  await page.evaluate((session) => {
+    console.log('[E2E PAGE] Triggering setSession on mock client.');
+    // @ts-expect-error - window.supabase is our mock
+    window.supabase.auth.setSession(session);
+  }, fakeSession as unknown as Session);
+
+  // 6. Wait for the promise to resolve.
+  await profileLoadedPromise;
+}
+
+export async function capturePage(page: Page, filename: string, authState: 'unauth' | 'auth' = 'unauth'): Promise<void> {
+  // Wait for a stable, user-visible element that indicates the UI is settled.
+  const selector = authState === 'unauth'
+    ? 'a:has-text("Sign In")'
+    : '[data-testid="nav-sign-out-button"]';
+  await page.waitForSelector(selector, { state: 'visible', timeout: 20000 });
+
+  // Optional: A small delay to ensure CSS animations have finished, though waitForSelector should be sufficient.
+  await page.waitForTimeout(250);
+
+  await page.screenshot({ path: `screenshots/${filename}`, fullPage: true });
+  console.log(`[E2E CAPTURE] Screenshot saved to screenshots/${filename}`);
 }

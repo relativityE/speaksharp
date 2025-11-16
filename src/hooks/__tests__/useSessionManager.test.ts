@@ -1,18 +1,18 @@
 import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useSessionManager } from '../useSessionManager';
-import * as useAuth from '../../contexts/useAuth';
+import * as AuthProvider from '../../contexts/AuthProvider';
 import * as storage from '../../lib/storage';
 import logger from '../../lib/logger';
 import type { User, Session } from '@supabase/supabase-js';
 import type { PracticeSession } from '../../types/session';
-import { AuthContextType } from '../../contexts/AuthContext';
+import { AuthContextType } from '../../contexts/AuthProvider';
 import { useUserProfile } from '../useUserProfile';
 import { createQueryWrapper } from '../../../tests/test-utils/queryWrapper';
 import { makeQuerySuccess } from '../../../tests/test-utils/queryMocks';
 
 // Mock dependencies
-vi.mock('../../contexts/useAuth');
+vi.mock('../../contexts/AuthProvider');
 vi.mock('../../lib/storage');
 vi.mock('../../lib/logger', () => ({
   default: {
@@ -23,7 +23,7 @@ vi.mock('../../lib/logger', () => ({
 }));
 vi.mock('../useUserProfile');
 
-const mockUseAuth = vi.mocked(useAuth.useAuth);
+const mockUseAuthProvider = vi.mocked(AuthProvider.useAuthProvider);
 const mockStorage = vi.mocked(storage);
 const mockLogger = vi.mocked(logger);
 const mockUseUserProfile = vi.mocked(useUserProfile);
@@ -53,7 +53,7 @@ const mockAuthContextValue: AuthContextType = {
     session: {} as Session,
     profile: { id: mockUser.id, subscription_status: 'free' },
     loading: false,
-    signOut: vi.fn(() => Promise.resolve({ error: null })),
+    signOut: vi.fn(() => Promise.resolve()),
     setSession: vi.fn()
 };
 
@@ -61,7 +61,7 @@ describe('useSessionManager', () => {
   beforeEach(() => {
     // Reset mocks before each test
     vi.clearAllMocks();
-    mockUseAuth.mockReturnValue(mockAuthContextValue);
+    mockUseAuthProvider.mockReturnValue(mockAuthContextValue);
     mockUseUserProfile.mockReturnValue(makeQuerySuccess({ id: mockUser.id, subscription_status: 'free' }));
   });
 
@@ -128,7 +128,7 @@ describe('useSessionManager', () => {
       });
 
     it('should do nothing for anonymous sessions but return true', async () => {
-        mockUseAuth.mockReturnValue({ ...mockAuthContextValue, user: { ...mockUser, is_anonymous: true } });
+        mockUseAuthProvider.mockReturnValue({ ...mockAuthContextValue, user: { ...mockUser, is_anonymous: true } });
         const { result } = renderHook(() => useSessionManager(), { wrapper: createQueryWrapper() });
         let success;
         await act(async () => {
@@ -141,7 +141,7 @@ describe('useSessionManager', () => {
 
   describe('Anonymous User Flow', () => {
     beforeEach(() => {
-        mockUseAuth.mockReturnValue({ ...mockAuthContextValue, user: { ...mockUser, is_anonymous: true } });
+        mockUseAuthProvider.mockReturnValue({ ...mockAuthContextValue, user: { ...mockUser, is_anonymous: true } });
     });
 
     it('saveSession should save to sessionStorage for anonymous users', async () => {

@@ -9,10 +9,10 @@ All colors MUST be HSL.
 @layer base {
   :root {
     /* SpeakSharp Brand Colors - Professional Communication Theme */
-    --background: 220 20% 12%;
+    --background: 220 20% 15%;
     --foreground: 220 15% 92%;
 
-    --card: 220 15% 12%;
+    --card: 220 15% 10%;
     --card-foreground: 220 15% 92%;
 
     --popover: 220 15% 12%;
@@ -89,6 +89,7 @@ All colors MUST be HSL.
   }
 
   body {
-    @apply bg-background text-foreground;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
   }
 }

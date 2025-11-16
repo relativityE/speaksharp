@@ -1,20 +1,13 @@
-/**
- * Mock data for E2E tests
- * All test data is centralized here for easy maintenance
- */
-
+// tests/e2e/fixtures/mockData.ts
 export const MOCK_USER = {
   id: 'test-user-123',
   email: 'test@example.com',
   aud: 'authenticated',
   role: 'authenticated',
-  app_metadata: {
-    provider: 'email',
-    providers: ['email']
-  },
-  user_metadata: {
-    name: 'Test User'
-  },
+  app_metadata: { provider: 'email', providers: ['email'] },
+  user_metadata: { name: 'Test User' },
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
 } as const;
 
 export const MOCK_USER_PROFILE = {
@@ -60,6 +53,12 @@ export const MOCK_SESSIONS = [
     clarity_score: 90,
     confidence_score: 85,
   },
+] as const;
+
+export const MOCK_TRANSCRIPTS = [
+  'Welcome everyone to the session.',
+  'This is a test of live transcript streaming.',
+  'We are simulating multiple lines arriving over time.',
 ] as const;
 
 export const MOCK_JWT_PAYLOAD = {

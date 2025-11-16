@@ -1,5 +1,5 @@
 import { useMemo, useCallback, useState, useRef, useEffect } from 'react';
-import { useAuth } from '../../contexts/useAuth';
+import { useAuthProvider } from '../../contexts/AuthProvider';
 import { useNavigate } from 'react-router-dom';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { calculateTranscriptStats } from '../../utils/fillerWordUtils';
@@ -15,7 +15,7 @@ import { ForceOptions } from './types';
 
 export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {}) => {
   const { customWords = [], session, profile } = props;
-  const { session: authSession } = useAuth();
+  const { session: authSession } = useAuthProvider();
   const navigate = useNavigate();
 
   const [duration, setDuration] = useState(0);

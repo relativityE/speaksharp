@@ -3,10 +3,10 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Home, BarChart, User, Menu, LogOut } from 'lucide-react';
-import { useAuth } from '../contexts/useAuth';
+import { useAuthProvider } from '../contexts/AuthProvider';
 
 export const SideNav: React.FC = () => {
-    const { user, signOut } = useAuth();
+    const { user, signOut } = useAuthProvider();
     const navigate = useNavigate();
 
     const handleSignOut = () => {
