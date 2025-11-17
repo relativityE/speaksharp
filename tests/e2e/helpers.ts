@@ -1,3 +1,4 @@
+// @ts-nocheck
 // tests/e2e/helpers.ts
 /**
  * NOTE: This file contains extensive console logging (`[E2E MOCK]`, `[E2E PAGE]`, etc.).
@@ -21,7 +22,7 @@ import { MOCK_USER, MOCK_USER_PROFILE, MOCK_SESSION_KEY } from './fixtures/mockD
 export async function programmaticLogin(page: Page): Promise<void> {
   // 1. Inject a pure JavaScript mock of the Supabase client.
   // This script runs BEFORE any app code. It must not contain any TypeScript syntax.
-  await page.addInitScript((mockData: any) => {
+  await page.addInitScript((mockData) => {
     const listeners = new Set();
     let session = null;
     const storedSession = window.localStorage.getItem(mockData.MOCK_SESSION_KEY);
@@ -31,7 +32,6 @@ export async function programmaticLogin(page: Page): Promise<void> {
 
     const mockSupabase = {
       auth: {
-        // @ts-expect-error - JSDoc types are not being picked up in this context
         onAuthStateChange: (callback) => {
           console.log('[E2E MOCK AUTH] A new listener has subscribed.');
           listeners.add(callback);
@@ -42,22 +42,18 @@ export async function programmaticLogin(page: Page): Promise<void> {
             data: { subscription: { unsubscribe: () => listeners.delete(callback) } },
           };
         },
-        // @ts-expect-error - JSDoc types are not being picked up in this context
         setSession: (newSession) => {
           console.log('[E2E MOCK AUTH] setSession called.');
           session = newSession;
           window.localStorage.setItem(mockData.MOCK_SESSION_KEY, JSON.stringify(session));
           console.log('[E2E MOCK AUTH] Synchronously dispatching SIGNED_IN event.');
-          // @ts-expect-error - JSDoc types are not being picked up in this context
           listeners.forEach((listener) => listener('SIGNED_IN', session));
         },
       },
-      // @ts-expect-error - JSDoc types are not being picked up in this context
       from: (tableName) => {
         console.log(`[E2E MOCK DB] from('${tableName}') called.`);
         return {
           select: () => ({
-            // @ts-expect-error - JSDoc types are not being picked up in this context
             eq: (column, value) => ({
               single: () => {
                 console.log(`[E2E MOCK DB] single() called for ${tableName}.${column}='${value}'`);
@@ -72,7 +68,6 @@ export async function programmaticLogin(page: Page): Promise<void> {
         };
       },
     };
-    // @ts-expect-error - attaching to window for test purposes
     window.supabase = mockSupabase;
   }, { MOCK_USER, MOCK_USER_PROFILE, MOCK_SESSION_KEY }); // Pass mock data into the browser context
 
@@ -113,7 +108,6 @@ export async function programmaticLogin(page: Page): Promise<void> {
   // 5. Now, trigger the auth flow inside the app by calling the mock's setSession.
   await page.evaluate((session) => {
     console.log('[E2E PAGE] Triggering setSession on mock client.');
-    // @ts-expect-error - window.supabase is our mock
     window.supabase.auth.setSession(session);
   }, fakeSession as unknown as Session);
 
