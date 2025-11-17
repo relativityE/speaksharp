@@ -1,4 +1,3 @@
-// @ts-nocheck
 // tests/e2e/helpers.ts
 /**
  * NOTE: This file contains extensive console logging (`[E2E MOCK]`, `[E2E PAGE]`, etc.).
@@ -22,10 +21,8 @@ import { MOCK_USER, MOCK_USER_PROFILE, MOCK_SESSION_KEY } from './fixtures/mockD
 export async function programmaticLogin(page: Page): Promise<void> {
   // 1. Inject a pure JavaScript mock of the Supabase client.
   // This script runs BEFORE any app code. It must not contain any TypeScript syntax.
-  await page.addInitScript((mockData) => {
-    // @ts-expect-error - JSDoc types are not being picked up in this context
+  await page.addInitScript((mockData: any) => {
     const listeners = new Set();
-    // @ts-expect-error - JSDoc types are not being picked up in this context
     let session = null;
     const storedSession = window.localStorage.getItem(mockData.MOCK_SESSION_KEY);
     if (storedSession) {
