@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-11-12
+**Last Reviewed:** 2025-11-18
 
 # SpeakSharp
 
@@ -57,19 +57,13 @@ For all local testing and validation, use the following `pnpm` scripts. They are
     ```bash
     pnpm test:all
     ```
-    **Why?** This is the most important command. It mirrors the CI server exactly and guarantees that your changes meet all quality gates: linting, type safety, unit tests, a production-like build, and the full end-to-end (E2E) test suite.
+    **Why?** This is the canonical command for a full local quality check. It runs the same sequence as the CI `prepare` stage (Preflight, Lint, Typecheck, Unit Tests, Build) and then runs the **entire** End-to-End (E2E) test suite. It is the best way to guarantee your changes will pass CI.
 
-*   **Run a fast, local-only test run (skips full E2E):**
+*   **Run a fast "health check" of the application:**
     ```bash
     pnpm test:all:fast
     ```
-    **Why?** This is your go-to command during development. It runs all the same checks as the full test run but skips the time-consuming full E2E suite, providing a much faster feedback loop.
-
-*   **Run a quick "health check" of the application:**
-    ```bash
-    pnpm test:all:health
-    ```
-    **Why?** Use this for a quick sanity check. It runs a minimal set of checks to ensure the application is not fundamentally broken.
+    **Why?** This is your go-to command during active development. It runs the full suite of pre-flight and quality checks but only executes the small, critical E2E "health check" suite instead of the full E2E suite. This provides a much faster feedback loop.
 
 *   **Run only the unit tests:**
     ```bash
