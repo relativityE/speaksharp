@@ -1,5 +1,5 @@
 #!/bin/bash
-# Canonical Test Audit Script (v8)
+# Canonical Test Audit Script (v9)
 # Single Source of Truth for all quality checks.
 # Supports staged execution for CI and a full local run.
 set -euo pipefail
@@ -75,12 +75,12 @@ run_e2e_tests_shard() {
 
     # Playwright uses 1-based indexing for shards, CI matrix is 0-based.
     local PLAYWRIGHT_SHARD_ID=$((SHARD_INDEX + 1))
-    echo "✅ [4/5] Running E2E Test Shard ${PLAYWRIGHT_SHARD_ID} of ${SHARD_COUNT}..."
+    echo "✅ [4/4] Running E2E Test Shard ${PLAYWRIGHT_SHARD_ID} of ${SHARD_COUNT}..."
     pnpm exec playwright test --shard="${PLAYWRIGHT_SHARD_ID}/${SHARD_COUNT}" || {
         echo "❌ E2E Test Shard ${PLAYWRIGHT_SHARD_ID} failed." >&2
         exit 1
     }
-    echo "✅ [4/5] E2E Test Shard ${PLAYWRIGHT_SHARD_ID} Passed."
+    echo "✅ [4/4] E2E Test Shard ${PLAYWRIGHT_SHARD_ID} Passed."
 }
 
 run_e2e_tests_all() {
@@ -102,12 +102,9 @@ run_e2e_health_check() {
     echo "✅ [4/5] E2E Health Check Passed."
 }
 
-run_report() {
+run_sqm_report_ci() {
     echo "✅ [5/5] Generating Final Report and Updating Docs..."
     ensure_artifacts_dir
-    # This stage assumes test result artifacts from all shards have been downloaded.
-    # The CI workflow must handle artifact upload/download.
-    # We will run the metrics scripts which should consume the results.
     if [ -f "./run-metrics.sh" ]; then
         # In CI, we want to update the PRD.md file
         ./run-metrics.sh
@@ -117,6 +114,18 @@ run_report() {
     fi
     echo "✅ [5/5] Reporting complete."
 }
+
+run_sqm_report_local() {
+    echo "✅ [5/5] Generating and Printing SQM Report..."
+    if [ -f "./run-metrics.sh" ]; then
+        # In local mode, we print the summary to the console
+        ./run-metrics.sh --json-output
+    else
+        echo "⚠️ Warning: Metric generation scripts not found. Skipping SQM report."
+    fi
+    echo "✅ [5/5] SQM Report Generation Complete."
+}
+
 
 # --- Main Execution Logic ---
 STAGE=${1:-"local"} # Default to 'local' for interactive developer runs
@@ -140,7 +149,7 @@ case $STAGE in
         echo "🎉 Test stage SUCCEEDED for shard $2."
         ;;
     report)
-        run_report
+        run_sqm_report_ci
         echo "🎉 Report stage SUCCEEDED."
         ;;
     health-check)
@@ -148,6 +157,7 @@ case $STAGE in
         run_quality_checks
         run_build
         run_e2e_health_check
+        run_sqm_report_local
         echo "🎉 Health-Check SUCCEEDED."
         ;;
     local)
@@ -155,7 +165,7 @@ case $STAGE in
         run_quality_checks
         run_build
         run_e2e_tests_all
-        echo "✅ Skipping SQM report generation in local mode."
+        run_sqm_report_local
         echo "🎉🎉🎉"
         echo "✅ SpeakSharp Local Test Audit SUCCEEDED!"
         echo "🎉🎉🎉"

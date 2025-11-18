@@ -74,9 +74,9 @@ For all local testing and validation, use the following `pnpm` scripts. They are
 ### Software Quality Metrics (SQM)
 
 The test runner automatically generates a Software Quality Metrics report.
-*   When run locally (`pnpm audit:fast` or `pnpm audit:health`), a summary is printed to your console.
-*   When run in CI (`pnpm audit`), the full report is automatically updated in `docs/PRD.md`.
+*   When run locally (e.g., `pnpm test:all` or `pnpm test:health-check`), a summary is printed to your console.
+*   When run in CI, the full report is automatically generated and committed to `docs/PRD.md`.
 
 ### Continuous Integration (CI)
 
-The definitive quality gate is our CI pipeline, which runs in GitHub Actions. The workflow is defined in `.github/workflows/ci.yml` and is orchestrated by the `pnpm audit` command, ensuring perfect consistency between the developer environment and the CI environment.
+The definitive quality gate is our CI pipeline, which runs in GitHub Actions. The workflow is defined in `.github/workflows/ci.yml` and is orchestrated by the `test-audit.sh` script. This ensures perfect consistency between the developer environment and the CI environment.
