@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-11-18
+**Last Reviewed:** 2025-11-12
 
 # SpeakSharp
 
@@ -57,13 +57,19 @@ For all local testing and validation, use the following `pnpm` scripts. They are
     ```bash
     pnpm test:all
     ```
-    **Why?** This is the canonical command for a full local quality check. It runs the same sequence as the CI `prepare` stage (Preflight, Lint, Typecheck, Unit Tests, Build) and then runs the **entire** End-to-End (E2E) test suite. It is the best way to guarantee your changes will pass CI.
+    **Why?** This is the most important command. It mirrors the CI server exactly and guarantees that your changes meet all quality gates: linting, type safety, unit tests, a production-like build, and the full end-to-end (E2E) test suite.
 
-*   **Run a fast "health check" of the application:**
+*   **Run a fast, local-only test run (skips full E2E):**
     ```bash
-    pnpm test:health-check
+    pnpm test:all:fast
     ```
-    **Why?** This is your go-to command during active development. It runs the full suite of pre-flight and quality checks but only executes the small, critical E2E "health check" suite instead of the full E2E suite. This provides a much faster feedback loop.
+    **Why?** This is your go-to command during development. It runs all the same checks as the full test run but skips the time-consuming full E2E suite, providing a much faster feedback loop.
+
+*   **Run a quick "health check" of the application:**
+    ```bash
+    pnpm test:all:health
+    ```
+    **Why?** Use this for a quick sanity check. It runs a minimal set of checks to ensure the application is not fundamentally broken.
 
 *   **Run only the unit tests:**
     ```bash
@@ -74,9 +80,9 @@ For all local testing and validation, use the following `pnpm` scripts. They are
 ### Software Quality Metrics (SQM)
 
 The test runner automatically generates a Software Quality Metrics report.
-*   When run locally (e.g., `pnpm test:all` or `pnpm test:health-check`), a summary is printed to your console.
-*   When run in CI, the full report is automatically generated and committed to `docs/PRD.md`.
+*   When run locally (`pnpm audit:fast` or `pnpm audit:health`), a summary is printed to your console.
+*   When run in CI (`pnpm audit`), the full report is automatically updated in `docs/PRD.md`.
 
 ### Continuous Integration (CI)
 
-The definitive quality gate is our CI pipeline, which runs in GitHub Actions. The workflow is defined in `.github/workflows/ci.yml` and is orchestrated by the `test-audit.sh` script. This ensures perfect consistency between the developer environment and the CI environment.
+The definitive quality gate is our CI pipeline, which runs in GitHub Actions. The workflow is defined in `.github/workflows/ci.yml` and is orchestrated by the `pnpm audit` command, ensuring perfect consistency between the developer environment and the CI environment.

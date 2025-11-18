@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-11-18
+**Last Reviewed:** 2025-11-12
 
 # Agent Instructions for SpeakSharp Repository
 
@@ -108,8 +108,9 @@ ___
 5.  ✅ **Approved Scripts** – Use the following `package.json` scripts for validation and development. The `test:all` scripts are the canonical way to run tests.
 
    ```json
-    "test:all": "./test-audit.sh local",
-    "test:health-check": "./test-audit.sh health-check",
+    "test:all": "./test-audit.sh",
+    "test:all:fast": "SKIP_FULL_E2E=true ./test-audit.sh",
+    "test:all:health": "pnpm lint && pnpm typecheck && pnpm test:unit && pnpm test:e2e:health",
     "test": "vitest --coverage",
     "test:unit": "vitest --coverage",
     "dev": "vite",
@@ -138,9 +139,9 @@ ___
 
 1.  **Run Local Audit Script**
    ```bash
-   pnpm test:all
+   ./test-audit.sh
    ```
-   Must pass lint, typecheck, all unit tests, and the full E2E suite.
+   Must pass lint, typecheck, and all unit/E2E tests.
 
 2.  **Documentation (SSOT)**
    *   Review and update the seven mandatory documents as per `docs/OUTLINE.md`: `README.md`, `AGENTS.md`, `docs/OUTLINE.md`, `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`.

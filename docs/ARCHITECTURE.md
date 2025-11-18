@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-11-18
+**Last Reviewed:** 2025-11-12
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -97,12 +97,14 @@ SpeakSharp employs a unified and resilient testing strategy designed for speed a
 ### The Canonical Audit Script (`test-audit.sh`)
 
 This script is the **single source of truth** for all code validation. It is accessed via simple `pnpm` commands (e.g., `pnpm audit`) and is optimized for a 7-minute CI timeout by using aggressive parallelization.
-*   **Stage-Based Execution:** The script is designed to be called with different stages (`prepare`, `test`, `report`) that map directly to the jobs in the CI pipeline. This allows for a sophisticated, multi-stage workflow.
-*   **Local-First Mode:** When run without arguments (as with `pnpm test:all`), it executes a `local` stage that runs all checks sequentially, providing a comprehensive local validation experience.
+
+*   **Stage 1: Parallel Quality Checks:** Runs linting, type checking, and unit tests concurrently to maximize speed.
+*   **Stage 2: Build:** Compiles the application using a production-like test configuration.
+*   **Stage 3: Parallel E2E Tests:** Runs the entire E2E suite in parallel shards to ensure completion well under the CI timeout.
 
 ### CI/CD Pipeline
 
-The CI pipeline, defined in `.github/workflows/ci.yml`, is a multi-stage, parallelized workflow designed for fast feedback and efficient use of resources.
+The CI pipeline, defined in `.github/workflows/ci.yml`, is a simple, single-job process that runs the canonical audit script. This ensures perfect consistency between local and CI environments.
 
 ```ascii
 +----------------------------------+
@@ -111,41 +113,20 @@ The CI pipeline, defined in `.github/workflows/ci.yml`, is a multi-stage, parall
                  |
                  v
 +----------------------------------+
-|           Job: prepare           |
+|           Job: Audit             |
 |----------------------------------|
-|  1. Checkout & Setup             |
-|  2. Run `./test-audit.sh prepare`|
-|     - Preflight                  |
-|     - Quality Checks (Parallel)  |
-|     - Build                      |
-|     - E2E Test Sharding          |
-|  3. Upload Artifacts (Shards)    |
-+----------------------------------+
-                 |
-                 v
-+----------------------------------+
-|       Job: test (Matrix)         |
-|----------------------------------|
-|  Runs in N parallel jobs         |
-|  (e.g., 4 shards)                |
-|----------------------------------|
-|  For each shard (0 to N-1):      |
-|  1. Checkout & Setup             |
-|  2. Download Artifacts           |
-|  3. Run `./test-audit.sh test N` |
-|     (Runs one E2E shard)         |
-+----------------------------------+
-                 |
-                 v
-+----------------------------------+
-|           Job: report            |
-|----------------------------------|
-|  Runs only if all test jobs pass |
-|----------------------------------|
-|  1. Download All Artifacts       |
-|  2. Run `./test-audit.sh report`  |
-|     (Generates SQM report)       |
-|  3. Commit docs/PRD.md           |
+|  1. Checkout & `pnpm run setup`  |
+|  2. Run `pnpm test:all`          |
+|     (Executes test-audit.sh)     |
+|                                  |
+|  +--> Stage 1: Quality (Parallel) |
+|  |    - Lint                     |
+|  |    - Type Check               |
+|  |    - Unit Tests               |
+|  +--> Stage 2: Build             |
+|  +--> Stage 3: E2E (Parallel)    |
+|                                  |
+|  3. Commit docs/PRD.md (if CI)   |
 +----------------------------------+
 ```
 
