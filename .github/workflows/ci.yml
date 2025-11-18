@@ -97,7 +97,7 @@ jobs:
         run: |
           mkdir -p test-results/playwright
           find artifacts -name 'playwright-report-*' -type d -exec cp -r {}/. test-results/playwright \;
-          pnpm exec playwright merge-reports --reporter json:./test-results/playwright/results.json,list ./test-results/playwright
+          pnpm exec playwright merge-reports ./test-results/playwright --reporter list,json --reporter-options outputFile=./test-results/playwright/results.json
       - name: Consolidate Final Artifacts
         run: |
           mkdir -p test-results/coverage
