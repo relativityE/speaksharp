@@ -13,8 +13,7 @@ jobs:
       matrix: ${{ steps.shard.outputs.matrix }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
-
+        uses: actions/checkout@vv4
       - name: Setup Node.js and pnpm
         uses: actions/setup-node@v4
         with:
@@ -22,25 +21,25 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: 10
-
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
-
       - name: Run Prepare Stage (Lint, Typecheck, Build, Unit, Shard)
         id: shard
         run: |
           ./test-audit.sh prepare
-
           # Count shards and prepare JSON array for matrix
           COUNT=$(jq '.shard_count' ./test-support/e2e-shards.json)
-          INDICES=$(seq 0 $((COUNT-1)) | jq -R . | jq -s .)
+          INDICES=$(seq 0 $((COUNT-1)) | jq -R . | jq -s . | jq -c .)
           echo "matrix=$INDICES" >> $GITHUB_OUTPUT
-
-      - name: Upload Artifacts
+      - name: Upload All Prepare-Stage Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: test-artifacts
-          path: ./test-support/
+          name: all-artifacts
+          path: |
+            dist
+            test-results/coverage
+            test-support
+            unit-metrics.json
 
   test:
     needs: prepare
@@ -49,11 +48,9 @@ jobs:
       fail-fast: false
       matrix:
         shard-index: ${{ fromJson(needs.prepare.outputs.matrix) }}
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-
       - name: Setup Node.js and pnpm
         uses: actions/setup-node@v4
         with:
@@ -61,37 +58,54 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: 10
-
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Download Artifacts
+      - name: Download Prepare-Stage Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: test-artifacts
-          path: ./test-support/
-
+          name: all-artifacts
+          path: .
       - name: Run E2E Test Shard
         run: ./test-audit.sh test ${{ matrix.shard-index }}
+      - name: Upload E2E Shard Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.shard-index }}
+          path: test-results/playwright
 
   report:
     needs: [prepare, test]
-    # Always run the report stage to see partial results, even if tests fail
-    if: always()
+    if: always() # Always run the report stage to see partial results
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-
-      - name: Download Artifacts
+      - name: Setup Node.js and pnpm
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Download All Workflow Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: test-artifacts
-          path: ./test-support/
-
+          path: artifacts # Download all artifacts into a single directory
+      - name: Merge E2E Shard Reports
+        run: |
+          mkdir -p test-results/playwright
+          find artifacts -name 'playwright-report-*' -type d -exec cp -r {}/. test-results/playwright \;
+          pnpm exec playwright merge-reports --reporter json:./test-results/playwright/results.json,list ./test-results/playwright
+      - name: Consolidate Final Artifacts
+        run: |
+          mkdir -p test-results/coverage
+          cp artifacts/all-artifacts/unit-metrics.json .
+          cp -r artifacts/all-artifacts/test-results/coverage/. test-results/coverage
+          cp -r artifacts/all-artifacts/dist .
       - name: Generate Final Report and Update Docs
         run: ./test-audit.sh report
-
       - name: Commit documentation changes
         if: success() # Only commit if the entire workflow was successful
         uses: stefanzweifel/git-auto-commit-action@v5
