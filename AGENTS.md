@@ -109,7 +109,7 @@ ___
 
    ```json
     "test:all": "./test-audit.sh local",
-    "test:all:fast": "./test-audit.sh health-check",
+    "test:health-check": "./test-audit.sh health-check",
     "test": "vitest --coverage",
     "test:unit": "vitest --coverage",
     "dev": "vite",

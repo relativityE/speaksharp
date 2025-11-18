@@ -61,7 +61,7 @@ For all local testing and validation, use the following `pnpm` scripts. They are
 
 *   **Run a fast "health check" of the application:**
     ```bash
-    pnpm test:all:fast
+    pnpm test:health-check
     ```
     **Why?** This is your go-to command during active development. It runs the full suite of pre-flight and quality checks but only executes the small, critical E2E "health check" suite instead of the full E2E suite. This provides a much faster feedback loop.
 

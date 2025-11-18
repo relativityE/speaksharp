@@ -18,7 +18,7 @@
     "test": "vitest --coverage",
     "test:unit": "vitest --coverage",
     "test:all": "./test-audit.sh local",
-    "test:all:fast": "./test-audit.sh health-check",
+    "test:health-check": "./test-audit.sh health-check",
     "test:e2e:install-browsers": "playwright install",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:debug": "cross-env DEBUG=pw:api DOTENV_CONFIG_PATH=.env.test playwright test --headed --trace on --project=chromium",
