@@ -36,8 +36,14 @@ jobs:
           INDICES=$(seq 0 $((COUNT-1)) | jq -R . | jq -s . | jq -c .)
           echo "matrix=$INDICES" >> $GITHUB_OUTPUT
 
+      - name: "DIAGNOSTIC: List files after prepare"
+        run: ls -lR
+
       - name: Archive Unit Test Metrics
         run: mv unit-metrics.json ./test-support/unit-metrics.json
+
+      - name: "DIAGNOSTIC: List files after archiving"
+        run: ls -lR
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -92,8 +98,14 @@ jobs:
           name: test-artifacts
           path: ./test-support/
 
+      - name: "DIAGNOSTIC: List files after artifact download"
+        run: ls -lR
+
       - name: Restore Unit Test Metrics
         run: mv ./test-support/unit-metrics.json unit-metrics.json
+
+      - name: "DIAGNOSTIC: List files after restoring metrics"
+        run: ls -lR
 
       - name: Generate Final Report and Update Docs
         run: ./test-audit.sh report
