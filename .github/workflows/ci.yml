@@ -13,7 +13,7 @@ jobs:
       matrix: ${{ steps.shard.outputs.matrix }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@vv4
+        uses: actions/checkout@v4
       - name: Setup Node.js and pnpm
         uses: actions/setup-node@v4
         with:
