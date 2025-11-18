@@ -33,7 +33,7 @@ jobs:
 
           # Count shards and prepare JSON array for matrix
           COUNT=$(jq '.shard_count' ./test-support/e2e-shards.json)
-          INDICES=$(seq 0 $((COUNT-1)) | jq -R . | jq -s .)
+          INDICES=$(seq 0 $((COUNT-1)) | jq -R . | jq -s . | jq -c .)
           echo "matrix=$INDICES" >> $GITHUB_OUTPUT
 
       - name: Upload Artifacts
