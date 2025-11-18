@@ -31,7 +31,7 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
   webServer: {
-    command: "pnpm vite --mode test",
+    command: "vite --mode test",
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000, // 2 minutes

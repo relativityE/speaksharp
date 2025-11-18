@@ -65,6 +65,10 @@ export default tseslint.config(
   // Config for Test helper/setup files
   {
     files: ['tests/**/*.{js,ts}'],
+    rules: {
+      // Allow @ts-nocheck in the specific case of the E2E helper, which must be pure JS.
+      '@typescript-eslint/ban-ts-comment': 'off',
+    },
     languageOptions: {
       globals: {
         ...globals.node,

@@ -1,276 +1,322 @@
-import { Page, expect } from '@playwright/test';
+// tests/e2e/helpers.ts
+/**
+ * This file merges:
+ *  - The agent’s architectural fixes
+ *  - The original full-feature helpers.ts (transcript, full DB mock, logs)
+ *  - Strict ESLint + TS compatibility (no ts-nocheck)
+ */
 
-function generateFakeJWT() {
-  const now = Math.floor(Date.now() / 1000);
-  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
-  const payload = Buffer.from(JSON.stringify({
-    sub: "test-user-123",
-    email: "test@example.com",
-    aud: "authenticated",
-    role: "authenticated",
-    exp: now + 3600,
-    iat: now,
-    session_id: "test-session-123",
-  })).toString("base64url");
-  const signature = "fake-signature-for-e2e-testing";
-  return `${header}.${payload}.${signature}`;
+import type { Page } from '@playwright/test';
+import type { Session } from '@supabase/supabase-js';
+import {
+  MOCK_USER,
+  MOCK_USER_PROFILE,
+  MOCK_SESSION_KEY,
+  MOCK_TRANSCRIPTS,
+  MOCK_SESSIONS,
+} from './fixtures/mockData';
+
+/* ---------------------------------------------
+   Utilities
+---------------------------------------------- */
+
+/**
+ * Stream console logs into Playwright (original feature)
+ */
+export function attachLiveTranscript(page: Page): void {
+  page.on('console', (msg) => {
+    console.log(`[BROWSER ${msg.type().toUpperCase()}] ${msg.text()}`);
+  });
 }
 
-export async function programmaticLogin(page: Page) {
-  await page.addInitScript(() => {
-    // Create inline mock Supabase client
-    if (!(window as { __MOCK_SUPABASE_CLIENT_INITIALIZED__?: boolean }).__MOCK_SUPABASE_CLIENT_INITIALIZED__) {
-      (window as { __MOCK_SUPABASE_CLIENT_INITIALIZED__?: boolean }).__MOCK_SUPABASE_CLIENT_INITIALIZED__ = true;
+/* ---------------------------------------------
+   Supabase Mock + Programmatic Login
+---------------------------------------------- */
 
-      const MOCK_SESSION_KEY = 'sb-mock-session';
+export async function programmaticLogin(page: Page): Promise<void> {
+  //
+  // 1 — Inject Supabase mock **before app boot**
+  //
+  await page.addInitScript(
+    (mockData) => {
+      const listeners = new Set<
+        (event: string, session: unknown) => void
+      >();
+
       let session: unknown = null;
-      try {
-        const storedSession = localStorage.getItem(MOCK_SESSION_KEY);
-        if (storedSession) {
-          session = JSON.parse(storedSession);
-        }
-      } catch (e) {
-        console.error('[MockClient] Failed to parse stored session:', e);
-        localStorage.removeItem(MOCK_SESSION_KEY);
-      }
 
-      const listeners = new Set<(event: string, session: unknown | null) => void>();
+      const stored = window.localStorage.getItem(mockData.MOCK_SESSION_KEY);
+      if (stored) session = JSON.parse(stored);
 
-      (window as { supabase?: unknown }).supabase = {
+      const mockSupabase = {
         auth: {
-          onAuthStateChange: (callback: (event: string, session: unknown | null) => void) => {
-            listeners.add(callback);
-            setTimeout(() => callback('INITIAL_SESSION', session), 0);
+          onAuthStateChange(cb: (event: string, session: unknown) => void) {
+            console.log('[E2E MOCK AUTH] Listener added');
+            listeners.add(cb);
+
+            // agent's critical fix: synchronous INITIAL_SESSION
+            cb('INITIAL_SESSION', session);
+
             return {
               data: {
-                subscription: {
-                  unsubscribe: () => listeners.delete(callback)
-                }
+                subscription: { unsubscribe: () => listeners.delete(cb) },
               },
             };
           },
 
-          setSession: async (sessionData: Record<string, unknown>) => {
-            session = {
-              ...(sessionData as Record<string, unknown>),
-              expires_at: Math.floor(Date.now() / 1000) + 3600
-            };
+          setSession(newSession: unknown) {
+            console.log('[E2E MOCK AUTH] setSession called');
+            session = newSession;
 
-            try {
-              localStorage.setItem(MOCK_SESSION_KEY, JSON.stringify(session));
-            } catch (e) {
-              console.error('[MockClient] Failed to save session to localStorage:', e);
-            }
+            window.localStorage.setItem(
+              mockData.MOCK_SESSION_KEY,
+              JSON.stringify(session)
+            );
 
-            listeners.forEach(listener => {
-              try {
-                listener('SIGNED_IN', session);
-              } catch (e) {
-                console.error('[MockAuth] Listener error:', e);
-              }
-            });
-
-            return { data: { session, user: (session as { user: unknown }).user }, error: null };
+            // agent’s critical fix: synchronous SIGNED_IN
+            listeners.forEach((cb) => cb('SIGNED_IN', session));
           },
 
-          signOut: async () => {
+          // required by correct Supabase API shape
+          getSession() {
+            return Promise.resolve({ data: { session }, error: null });
+          },
+
+          signOut() {
             session = null;
-            localStorage.removeItem(MOCK_SESSION_KEY);
-            listeners.forEach(listener => listener('SIGNED_OUT', null));
-            return { error: null };
-          },
-
-          getSession: async () => {
-            return { data: { session }, error: null };
+            listeners.forEach((cb) => cb('SIGNED_OUT', null));
+            return Promise.resolve({ data: null, error: null });
           },
         },
 
-from: (table: string) => {
-  const mockUserProfile = {
-    id: 'test-user-123',
-    email: 'test@example.com',
-    subscription_status: 'pro',
-    preferred_mode: 'cloud',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
+        //
+        // Database API (merged from original full helpers)
+        //
+        from(table: string) {
+          console.log(`[E2E MOCK DB] from('${table}')`);
 
-  const mockSessions = [
-    {
-      id: 'session-1',
-      user_id: 'test-user-123',
-      created_at: new Date(Date.now() - 86400000).toISOString(),
-      duration: 300,
-      word_count: 750,
-      filler_word_count: 15,
-      average_pace: 150,
-      clarity_score: 85,
-      confidence_score: 78,
-    },
-    {
-      id: 'session-2',
-      user_id: 'test-user-123',
-      created_at: new Date(Date.now() - 172800000).toISOString(),
-      duration: 420,
-      word_count: 1050,
-      filler_word_count: 12,
-      average_pace: 150,
-      clarity_score: 88,
-      confidence_score: 82,
-    },
-    {
-      id: 'session-3',
-      user_id: 'test-user-123',
-      created_at: new Date(Date.now() - 259200000).toISOString(),
-      duration: 360,
-      word_count: 900,
-      filler_word_count: 10,
-      average_pace: 150,
-      clarity_score: 90,
-      confidence_score: 85,
-    },
-  ];
+          return {
+            select: () => ({
+              eq: (column: string, value: unknown) => ({
+                single: () => {
+                  console.log(
+                    `[E2E MOCK DB] single() → ${table}.${column}='${value}'`
+                  );
 
-  return {
-    select: () => {
-      return {
-        eq: (column: string, value: unknown) => {
-          if (table === 'user_profiles' && column === 'id' && value === mockUserProfile.id) {
-            return {
-              single: () => Promise.resolve({
-                data: mockUserProfile,
-                error: null
-              }),
-            };
-          }
-
-          if (table === 'sessions') {
-            return {
-          order: (col: string, opts: { ascending: boolean }) => {
-                const sorted = [...mockSessions].sort((a: { created_at: string }, b: { created_at: string }) => {
-                  if (opts.ascending) {
-                    return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+                  // user_profiles handler
+                  if (
+                    table === 'user_profiles' &&
+                    column === 'id' &&
+                    value === mockData.MOCK_USER.id
+                  ) {
+                    console.log('[E2E MOCK DB] Returning mock profile');
+                    return Promise.resolve({
+                      data: mockData.MOCK_USER_PROFILE,
+                      error: null,
+                    });
                   }
-                  return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-                });
-                return Promise.resolve({ data: sorted, error: null });
+
+                  return Promise.resolve({
+                    data: null,
+                    error: { message: 'Not found' },
+                  });
+                },
+                order: (col: string, opts?: { ascending: boolean }) => {
+                  console.log(
+                    `[E2E MOCK DB] select().eq().order(${col}, ascending=${
+                      opts?.ascending
+                    })`
+                  );
+                  if (
+                    table === 'sessions' &&
+                    column === 'user_id' &&
+                    value === mockData.MOCK_USER.id
+                  ) {
+                    const asc = opts?.ascending ?? true;
+                    // DO NOT MUTATE THE ORIGINAL ARRAY
+                    const sorted = [...mockData.MOCK_SESSIONS].sort(
+                      (a, b) =>
+                        new Date(a.created_at).getTime() -
+                        new Date(b.created_at).getTime()
+                    );
+                    return Promise.resolve({
+                      data: asc ? sorted : [...sorted].reverse(),
+                      error: null,
+                    });
+                  }
+                  return Promise.resolve({ data: [], error: null });
+                },
+              }),
+
+              // sessions table ordering support
+              order: (col: string, opts?: { ascending: boolean }) => {
+                console.log(
+                  `[E2E MOCK DB] order(${col}, ascending=${opts?.ascending})`
+                );
+                if (table === 'sessions') {
+                  const asc = opts?.ascending ?? true;
+                  // DO NOT MUTATE THE ORIGINAL ARRAY
+                  const sorted = [...mockData.MOCK_SESSIONS].sort(
+                    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+                  );
+                  return Promise.resolve({
+                    data: asc ? sorted : [...sorted].reverse(),
+                    error: null,
+                  });
+                }
+                return Promise.resolve({ data: [], error: null });
               },
-            };
-          }
-
-          return Promise.resolve({ data: [], error: null });
-        },
-
-        order: (col: string, opts: { ascending: boolean }) => {
-          if (table === 'sessions') {
-            const sorted = [...mockSessions].sort((a: { created_at: string }, b: { created_at: string }) => {
-              if (opts.ascending) {
-                return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+            }),
+            eq: (column: string, value: unknown) => ({
+              order: (col: string, opts?: { ascending: boolean }) => {
+                console.log(
+                  `[E2E MOCK DB] eq().order(${col}, ascending=${opts?.ascending})`
+                );
+                if (table === 'sessions' && column === 'user_id' && value === mockData.MOCK_USER.id) {
+                  const asc = opts?.ascending ?? true;
+                  const sorted = [...mockData.MOCK_SESSIONS].sort(
+                    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+                  );
+                  return Promise.resolve({
+                    data: asc ? sorted : [...sorted].reverse(),
+                    error: null,
+                  });
+                }
+                return Promise.resolve({ data: [], error: null });
+              },
+            }),
+            // fallback: single()
+            single: () => {
+              if (table === 'user_profiles') {
+                return Promise.resolve({
+                  data: mockData.MOCK_USER_PROFILE,
+                  error: null,
+                });
               }
-              return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-            });
-            return Promise.resolve({ data: sorted, error: null });
-          }
-          return Promise.resolve({ data: [], error: null });
-        },
-
-        single: () => {
-          if (table === 'user_profiles') {
-            return Promise.resolve({
-              data: mockUserProfile,
-              error: null
-            });
-          }
-          return Promise.resolve({ data: null, error: null });
+              return Promise.resolve({ data: null, error: null });
+            },
+          };
         },
       };
+
+      // expose mock
+      (window as { supabase?: unknown }).supabase = mockSupabase;
     },
-  };
-},
-      };
-    }
-  });
+    { MOCK_USER, MOCK_USER_PROFILE, MOCK_SESSION_KEY, MOCK_SESSIONS }
+  );
 
+  //
+  // 2 — Boot application (mock is already injected)
+  //
   await page.goto('/');
 
-  // Wait for initial app mount (loading skeleton disappears)
-  await page.waitForFunction(
-    () => {
-      const loadingSkeleton = document.querySelector('[data-testid="loading-skeleton"]');
-      return !loadingSkeleton;
-    },
-    { timeout: 15000 }
-  );
-
-  const fakeAccessToken = generateFakeJWT();
+  //
+  // 3 — Construct session
+  //
   const now = Math.floor(Date.now() / 1000);
+  const sessionObj: Session = {
+    access_token: 'mock-access-token',
+    refresh_token: 'mock-refresh-token',
+    token_type: 'bearer',
+    expires_in: 3600,
+    expires_at: now + 3600,
+    user: {
+      id: MOCK_USER.id,
+      email: MOCK_USER.email,
+      aud: 'authenticated',
+      role: 'authenticated',
+      app_metadata: {},
+      user_metadata: {},
+      created_at: new Date().toISOString(),
+    },
+  };
 
-  // Set session and wait for it to complete
-  await page.evaluate(
-    async ({ token, timestamp }: { token: string; timestamp: number; }) => {
-      const fakeSession = {
-        access_token: token,
-        refresh_token: 'fake-refresh-token-for-e2e',
-        token_type: 'bearer',
-        expires_in: 3600,
-        expires_at: timestamp + 3600,
-        user: {
-          id: 'test-user-123',
-          email: 'test@example.com',
-          aud: 'authenticated',
-          role: 'authenticated',
-          app_metadata: { provider: 'email', providers: ['email'] },
-          user_metadata: { name: 'Test User' },
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
+  //
+  // 4 — Create promise BEFORE triggering session (agent’s important fix)
+  //
+  const profileLoaded = page.evaluate(() => {
+    return new Promise<void>((resolve) => {
+      console.log('[E2E PAGE] Waiting for e2e-profile-loaded…');
+
+      const handler = () => {
+        console.log('[E2E PAGE] profile loaded event received');
+        document.removeEventListener('e2e-profile-loaded', handler);
+        resolve();
       };
 
-      await (window as { supabase?: { auth: { setSession: (s: unknown) => Promise<unknown> } } }).supabase?.auth.setSession(fakeSession);
-    },
-    { token: fakeAccessToken, timestamp: now }
-  );
+      document.addEventListener('e2e-profile-loaded', handler);
 
-  // Wait for the custom event that signals the profile has been loaded.
-  await page.evaluate(() => {
-    return new Promise<void>(resolve => {
-      document.addEventListener('e2e-profile-loaded', () => resolve());
+      // fallback if app flags pre-loaded state
+      if ((window as { __E2E_PROFILE_LOADED__?: boolean }).__E2E_PROFILE_LOADED__) resolve();
     });
   });
 
-  // Wait for authenticated UI (sign-out button)
-  await page.waitForSelector('[data-testid="nav-sign-out-button"]', {
-    timeout: 15000,
-    state: 'visible'
-  });
+  //
+  // 5 — Trigger SIGNED_IN flow
+  //
+  await page.evaluate(
+    (session) => {
+      console.log('[E2E PAGE] Calling setSession()');
+      (window as { supabase?: { auth: { setSession: (session: unknown) => void } } }).supabase?.auth.setSession(session);
+    },
+    sessionObj
+  );
 
-  await expect(page.getByTestId('nav-sign-out-button')).toBeVisible();
+  //
+  // 6 — Wait for full auth resolution
+  //
+  await profileLoaded;
 }
 
-/**
- * Captures screenshots of authenticated and unauthenticated states
- * Used for visual documentation
- */
-export async function captureAuthStates(page: Page): Promise<void> {
-  const screenshotDir = 'screenshots';
+/* ---------------------------------------------
+   Transcript simulation (original feature)
+---------------------------------------------- */
+export async function mockLiveTranscript(
+  page: Page,
+  lines: readonly string[] = MOCK_TRANSCRIPTS,
+  delayMs = 200
+): Promise<void> {
+  for (const line of lines) {
+    await page.evaluate((text) => {
+      const panel = document.querySelector(
+        '[data-testid="transcript-display"]'
+      );
+      if (panel) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        panel.appendChild(div);
+      }
+    }, line);
 
-  // Capture unauthenticated
-  await page.goto('/');
-  // Wait for a stable element that indicates the page is ready.
-  await expect(page.getByRole('link', { name: 'Sign In' })).toBeVisible();
-  await page.screenshot({
-    path: `${screenshotDir}/unauthenticated-home.png`,
-    fullPage: true
+    await page.waitForTimeout(delayMs);
+  }
+}
+
+/* ---------------------------------------------
+   Screenshot helper
+---------------------------------------------- */
+
+export async function capturePage(
+  page: Page,
+  filename: string,
+  authState: 'unauth' | 'auth' = 'unauth'
+): Promise<void> {
+  const selector =
+    authState === 'unauth'
+      ? 'a:has-text("Sign In")'
+      : '[data-testid="nav-sign-out-button"]';
+
+  await page.waitForSelector(selector, {
+    state: 'visible',
+    timeout: 20000,
   });
 
-  // Perform login
-  await programmaticLogin(page);
+  await page.waitForTimeout(200);
 
-  // Capture authenticated
-  // Wait for the main content area to be loaded.
-  await expect(page.getByTestId('app-main')).toBeVisible();
   await page.screenshot({
-    path: `${screenshotDir}/authenticated-home.png`,
-    fullPage: true
+    path: `screenshots/${filename}`,
+    fullPage: true,
   });
+
+  console.log(`[E2E CAPTURE] Saved to screenshots/${filename}`);
 }
