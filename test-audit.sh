@@ -75,10 +75,21 @@ run_e2e_tests_shard() {
     fi
 
     local PLAYWRIGHT_SHARD_ID=$((SHARD_INDEX + 1))
-    echo "✅ [4/4] Running E2E Test Shard ${PLAYWRIGHT_SHARD_ID} of ${SHARD_COUNT}..."
-    pnpm exec playwright test --shard="${PLAYWRIGHT_SHARD_ID}/${SHARD_COUNT}"
-    echo "ℹ️ Shard ${PLAYWRIGHT_SHARD_ID} completed with exit code $?"
-    echo "✅ [4/4] E2E Test Shard ${PLAYWRIGHT_SHARD_ID} Passed."
+    local REPORT_DIR="test-results/playwright/shard-${SHARD_INDEX}"
+    mkdir -p "$REPORT_DIR"
+
+    echo "✅ Running E2E Test Shard ${PLAYWRIGHT_SHARD_ID}/${SHARD_COUNT}..."
+
+    # Run Playwright shard with JSON reporter pointing to shard folder
+    pnpm exec playwright test \
+        --shard="${PLAYWRIGHT_SHARD_ID}/${SHARD_COUNT}" \
+        --reporter=json,"${REPORT_DIR}/report.json" \
+        || {
+            echo "❌ E2E Test Shard ${PLAYWRIGHT_SHARD_ID} failed." >&2
+            exit 1
+        }
+
+    echo "✅ E2E Test Shard ${PLAYWRIGHT_SHARD_ID} Passed."
 }
 
 run_e2e_tests_all() {
