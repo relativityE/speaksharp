@@ -12,13 +12,12 @@ jobs:
     outputs:
       matrix: ${{ steps.shard.outputs.matrix }}
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js and pnpm
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: 22
+
       - uses: pnpm/action-setup@v4
         with:
           version: 10
@@ -26,21 +25,24 @@ jobs:
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run Prepare Stage (Lint, Typecheck, Build, Unit, Shard)
+      - name: Run Prepare Stage
         id: shard
         run: |
           ./test-audit.sh prepare
 
-          # Count shards and prepare JSON array for matrix
           COUNT=$(jq '.shard_count' ./test-support/e2e-shards.json)
-          INDICES=$(seq 0 $((COUNT-1)) | jq -R . | jq -s .)
+          INDICES=$(seq 0 $((COUNT-1)) | jq -R . | jq -s . | jq -c .)
           echo "matrix=$INDICES" >> $GITHUB_OUTPUT
 
-      - name: Upload Artifacts
+      - name: Upload Prepare Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: test-artifacts
-          path: ./test-support/
+          name: prepare-artifacts
+          path: |
+            dist
+            test-support
+            unit-metrics.json
+            test-results/coverage
 
   test:
     needs: prepare
@@ -51,13 +53,12 @@ jobs:
         shard-index: ${{ fromJson(needs.prepare.outputs.matrix) }}
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js and pnpm
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: 22
+
       - uses: pnpm/action-setup@v4
         with:
           version: 10
@@ -65,35 +66,67 @@ jobs:
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Download Artifacts
+      - name: Download Prepare Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: test-artifacts
-          path: ./test-support/
+          name: prepare-artifacts
+          path: .
 
       - name: Run E2E Test Shard
-        run: ./test-audit.sh test ${{ matrix.shard-index }}
+        run: |
+          mkdir -p shard-report-${{ matrix.shard-index }}
+          pnpm exec playwright test \
+            --shard=$((matrix.shard-index + 1))/${{ fromJson(needs.prepare.outputs.matrix) | length }} \
+            --reporter=json,shard-report-${{ matrix.shard-index }}
+
+      - name: Upload Shard Report Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shard-report-${{ matrix.shard-index }}
+          path: shard-report-${{ matrix.shard-index }}
 
   report:
     needs: [prepare, test]
-    # Always run the report stage to see partial results, even if tests fail
     if: always()
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
 
-      - name: Download Artifacts
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download All Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: test-artifacts
-          path: ./test-support/
+          path: artifacts
 
-      - name: Generate Final Report and Update Docs
+      - name: Merge All Playwright Shard Reports
+        run: |
+          mkdir -p merged
+
+          # Copy all shard-report-* dirs into merged/
+          find artifacts -type d -maxdepth 2 -name "shard-report-*" \
+            -exec cp -r {}/* merged/ \;
+
+          echo "📄 Reports detected:"
+          ls -R merged || true
+
+          pnpm exec playwright merge-reports merged
+
+      - name: Run Final Report Stage
         run: ./test-audit.sh report
 
       - name: Commit documentation changes
-        if: success() # Only commit if the entire workflow was successful
+        if: success()
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "docs(sqm): Update test audit metrics"
