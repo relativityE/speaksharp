@@ -1,5 +1,5 @@
 #!/bin/bash
-# Canonical Test Audit Script (v9)
+# Canonical Test Audit Script (v10)
 # Single Source of Truth for all quality checks.
 # Supports staged execution for CI and a full local run.
 set -euo pipefail
@@ -8,8 +8,6 @@ trap 'echo "❌ An error occurred. Aborting test audit." >&2' ERR
 # --- Configuration ---
 E2E_TEST_DIR="tests/e2e"
 ARTIFACTS_DIR="./test-support"
-# Define the number of parallel shards for CI.
-# This should be tuned based on test suite size and CI runner specs.
 CI_SHARD_COUNT=4
 
 # --- Helper Functions ---
@@ -27,44 +25,41 @@ run_preflight() {
 
 run_quality_checks() {
     echo "✅ [2/5] Running Code Quality Checks in Parallel..."
-    echo "🔍 Linting, typechecking, and unit tests running in parallel..."
     pnpm exec concurrently "pnpm lint" "pnpm typecheck" "pnpm test" || {
         echo "❌ Code Quality Checks failed." >&2
         exit 1
     }
-    echo "📘 Lint complete. 📘 Typecheck complete. 📘 Unit tests complete."
+    echo "ℹ️ Lint/Typecheck/Test completed successfully."
     echo "✅ [2/5] Code Quality Checks Passed."
 }
 
 run_build() {
     echo "✅ [3/5] Building Application for E2E Tests..."
-    echo "🏗️ Starting Vite test-mode build..."
     pnpm build:test || {
         echo "❌ Build failed." >&2
         exit 1
     }
-    echo "🏁 Build finished successfully. Artifacts generated in dist/."
+    echo "ℹ️ Build output located in ./dist"
     echo "✅ [3/5] Build Succeeded."
 }
 
 run_e2e_sharding() {
     echo "✅ [4/5] Preparing E2E Test Shards..."
     ensure_artifacts_dir
-    echo "🧮 Computing shard count based on E2E test files..."
     readarray -t E2E_TEST_FILES < <(find "$E2E_TEST_DIR" -name '*.spec.ts' -print | sort)
     local E2E_TEST_COUNT=${#E2E_TEST_FILES[@]}
 
     local SHARD_COUNT=0
     if [ "$E2E_TEST_COUNT" -gt 0 ]; then
         SHARD_COUNT=$CI_SHARD_COUNT
-        # Don't create more shards than there are test files
         if [ "$E2E_TEST_COUNT" -lt "$CI_SHARD_COUNT" ]; then
             SHARD_COUNT=$E2E_TEST_COUNT
         fi
     fi
 
     echo "{\"shard_count\": ${SHARD_COUNT}}" > "$ARTIFACTS_DIR/e2e-shards.json"
-    echo "📦 Created shard configuration: $(cat "$ARTIFACTS_DIR/e2e-shards.json")"
+    echo "ℹ️ Shard file written to $ARTIFACTS_DIR/e2e-shards.json"
+    cat "$ARTIFACTS_DIR/e2e-shards.json"
     echo "📋 Found ${E2E_TEST_COUNT} E2E tests. Prepared ${SHARD_COUNT} shards for CI."
     echo "✅ [4/5] E2E sharding complete."
 }
@@ -79,15 +74,10 @@ run_e2e_tests_shard() {
         return
     fi
 
-    # Playwright uses 1-based indexing for shards, CI matrix is 0-based.
     local PLAYWRIGHT_SHARD_ID=$((SHARD_INDEX + 1))
     echo "✅ [4/4] Running E2E Test Shard ${PLAYWRIGHT_SHARD_ID} of ${SHARD_COUNT}..."
-    echo "🎬 Executing Playwright shard $PLAYWRIGHT_SHARD_ID of $SHARD_COUNT..."
-    pnpm exec playwright test --shard="${PLAYWRIGHT_SHARD_ID}/${SHARD_COUNT}" || {
-        echo "❌ E2E Test Shard ${PLAYWRIGHT_SHARD_ID} failed." >&2
-        exit 1
-    }
-    echo "🎉 Shard $PLAYWRIGHT_SHARD_ID completed successfully. Reports saved to test-results/playwright"
+    pnpm exec playwright test --shard="${PLAYWRIGHT_SHARD_ID}/${SHARD_COUNT}"
+    echo "ℹ️ Shard ${PLAYWRIGHT_SHARD_ID} completed with exit code $?"
     echo "✅ [4/4] E2E Test Shard ${PLAYWRIGHT_SHARD_ID} Passed."
 }
 
@@ -102,7 +92,6 @@ run_e2e_tests_all() {
 
 run_e2e_health_check() {
     echo "✅ [4/5] Running E2E Health Check..."
-    # The health check command is defined in package.json
     pnpm test:e2e:health || {
         echo "❌ E2E Health Check failed." >&2
         exit 1
@@ -112,9 +101,9 @@ run_e2e_health_check() {
 
 run_sqm_report_ci() {
     echo "✅ [5/5] Generating Final Report and Updating Docs..."
+    echo "ℹ️ Merging metrics + updating PRD…"
     ensure_artifacts_dir
     if [ -f "./run-metrics.sh" ]; then
-        # In CI, we want to update the PRD.md file
         ./run-metrics.sh
         pnpm exec node scripts/update-prd-metrics.mjs
     else
@@ -126,7 +115,6 @@ run_sqm_report_ci() {
 run_sqm_report_local() {
     echo "✅ [5/5] Generating and Printing SQM Report..."
     if [ -f "./run-metrics.sh" ]; then
-        # In local mode, we print the summary to the console
         ./run-metrics.sh --json-output
     else
         echo "⚠️ Warning: Metric generation scripts not found. Skipping SQM report."
@@ -136,10 +124,9 @@ run_sqm_report_local() {
 
 
 # --- Main Execution Logic ---
-STAGE=${1:-"local"} # Default to 'local' for interactive developer runs
+STAGE=${1:-"local"}
 
 echo "🚀 Starting Test Audit (Stage: $STAGE)..."
-
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "📊 SpeakSharp Test Audit Pipeline"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
