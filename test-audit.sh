@@ -27,25 +27,30 @@ run_preflight() {
 
 run_quality_checks() {
     echo "✅ [2/5] Running Code Quality Checks in Parallel..."
+    echo "🔍 Linting, typechecking, and unit tests running in parallel..."
     pnpm exec concurrently "pnpm lint" "pnpm typecheck" "pnpm test" || {
         echo "❌ Code Quality Checks failed." >&2
         exit 1
     }
+    echo "📘 Lint complete. 📘 Typecheck complete. 📘 Unit tests complete."
     echo "✅ [2/5] Code Quality Checks Passed."
 }
 
 run_build() {
     echo "✅ [3/5] Building Application for E2E Tests..."
+    echo "🏗️ Starting Vite test-mode build..."
     pnpm build:test || {
         echo "❌ Build failed." >&2
         exit 1
     }
+    echo "🏁 Build finished successfully. Artifacts generated in dist/."
     echo "✅ [3/5] Build Succeeded."
 }
 
 run_e2e_sharding() {
     echo "✅ [4/5] Preparing E2E Test Shards..."
     ensure_artifacts_dir
+    echo "🧮 Computing shard count based on E2E test files..."
     readarray -t E2E_TEST_FILES < <(find "$E2E_TEST_DIR" -name '*.spec.ts' -print | sort)
     local E2E_TEST_COUNT=${#E2E_TEST_FILES[@]}
 
@@ -59,6 +64,7 @@ run_e2e_sharding() {
     fi
 
     echo "{\"shard_count\": ${SHARD_COUNT}}" > "$ARTIFACTS_DIR/e2e-shards.json"
+    echo "📦 Created shard configuration: $(cat "$ARTIFACTS_DIR/e2e-shards.json")"
     echo "📋 Found ${E2E_TEST_COUNT} E2E tests. Prepared ${SHARD_COUNT} shards for CI."
     echo "✅ [4/5] E2E sharding complete."
 }
@@ -76,10 +82,12 @@ run_e2e_tests_shard() {
     # Playwright uses 1-based indexing for shards, CI matrix is 0-based.
     local PLAYWRIGHT_SHARD_ID=$((SHARD_INDEX + 1))
     echo "✅ [4/4] Running E2E Test Shard ${PLAYWRIGHT_SHARD_ID} of ${SHARD_COUNT}..."
+    echo "🎬 Executing Playwright shard $PLAYWRIGHT_SHARD_ID of $SHARD_COUNT..."
     pnpm exec playwright test --shard="${PLAYWRIGHT_SHARD_ID}/${SHARD_COUNT}" || {
         echo "❌ E2E Test Shard ${PLAYWRIGHT_SHARD_ID} failed." >&2
         exit 1
     }
+    echo "🎉 Shard $PLAYWRIGHT_SHARD_ID completed successfully. Reports saved to test-results/playwright"
     echo "✅ [4/4] E2E Test Shard ${PLAYWRIGHT_SHARD_ID} Passed."
 }
 
@@ -131,6 +139,10 @@ run_sqm_report_local() {
 STAGE=${1:-"local"} # Default to 'local' for interactive developer runs
 
 echo "🚀 Starting Test Audit (Stage: $STAGE)..."
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "📊 SpeakSharp Test Audit Pipeline"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 case $STAGE in
     prepare)
