@@ -24,7 +24,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Run Prepare Stage (Lint, Typecheck, Build, Unit, Shard)
+      - name: Prepare Stage (lint/typecheck/build/shard)
         id: shard
         run: |
           ./test-audit.sh prepare
@@ -32,15 +32,14 @@ jobs:
           INDICES=$(seq 0 $((COUNT-1)) | jq -R . | jq -s . | jq -c .)
           echo "matrix=$INDICES" >> $GITHUB_OUTPUT
 
-      - name: Upload Prepare Artifacts
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: prepare
+          name: prepare-artifacts
           path: |
             dist
-            test-results/coverage
             test-support
             unit-metrics.json
+            test-results/coverage
 
   test:
     needs: prepare
@@ -49,80 +48,65 @@ jobs:
       fail-fast: false
       matrix:
         shard-index: ${{ fromJson(needs.prepare.outputs.matrix) }}
+
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-
       - uses: pnpm/action-setup@v4
         with:
           version: 10
-
       - run: pnpm install --frozen-lockfile
 
       - uses: actions/download-artifact@v4
         with:
-          name: prepare
-          path: prepare-artifacts
+          name: prepare-artifacts
+          path: .
 
-      - name: Run E2E Test Shard
-        run: ./test-audit.sh test ${{ matrix.shard-index }}
-      - name: Upload E2E Shard Report
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report-${{ matrix.shard-index }}
-          path: test-results/playwright
+      # 🔥 ensure file exists (fixes your jq error)
+      - name: Verify shard file
+        run: |
+          test -f ./test-support/e2e-shards.json || (echo "❌ Missing shard file" && exit 1)
 
-      - name: Upload Shard Report
-        uses: actions/upload-artifact@v4
+      # 🔥 Run shard + output dedicated Playwright report
+      - name: Run E2E Shard
+        run: |
+          mkdir -p shard-report
+          ./test-audit.sh test ${{ matrix.shard-index }}
+          pnpm exec playwright show-trace || true
+          cp -r test-results/playwright shard-report/
+
+      - uses: actions/upload-artifact@v4
         with:
-          name: report-${{ matrix.shard-index }}
-          path: test-results/playwright
+          name: shard-${{ matrix.shard-index }}
+          path: shard-report
 
   report:
     needs: [prepare, test]
     if: always()
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-
       - uses: pnpm/action-setup@v4
         with:
           version: 10
-
       - run: pnpm install --frozen-lockfile
 
-      - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: Merge E2E Reports
+      - name: Merge all Playwright reports
         run: |
-          mkdir -p merged-report
-          find artifacts -type d -name 'playwright' -exec cp -r {} merged-report/ \;
-          pnpm exec playwright merge-reports merged-report
+          mkdir -p merged
+          find artifacts -name 'shard-*' -type d -exec cp -r {}/. merged/ \;
+          echo "📄 Reports found:"
+          ls -R merged
+          pnpm exec playwright merge-reports merged
 
-      - name: Restore Prepare Artifacts
-        run: |
-          cp artifacts/prepare/unit-metrics.json .
-          mkdir -p test-results/coverage
-          cp -r artifacts/prepare/test-results/coverage/. test-results/coverage
-          cp -r artifacts/prepare/dist .
-
-      - name: Generate Final Report
+      - name: Generate Final Documentation
         run: ./test-audit.sh report
-      - name: Commit documentation changes
-        if: success()
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "docs(sqm): Update test audit metrics"
-          branch: ${{ github.head_ref || github.ref_name }}
-          file_pattern: 'docs/PRD.md'
