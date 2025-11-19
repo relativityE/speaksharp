@@ -24,15 +24,17 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Prepare Stage (lint/typecheck/build/shard)
+      - name: Run Prepare Stage
         id: shard
         run: |
           ./test-audit.sh prepare
+
           COUNT=$(jq '.shard_count' ./test-support/e2e-shards.json)
           INDICES=$(seq 0 $((COUNT-1)) | jq -R . | jq -s . | jq -c .)
           echo "matrix=$INDICES" >> $GITHUB_OUTPUT
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload Prepare Artifacts
+        uses: actions/upload-artifact@v4
         with:
           name: prepare-artifacts
           path: |
@@ -51,62 +53,82 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+
       - uses: pnpm/action-setup@v4
         with:
           version: 10
       - run: pnpm install --frozen-lockfile
 
-      - uses: actions/download-artifact@v4
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download Prepare Artifacts
+        uses: actions/download-artifact@v4
         with:
           name: prepare-artifacts
           path: .
 
-      # 🔥 ensure file exists (fixes your jq error)
-      - name: Verify shard file
+      - name: Run E2E Test Shard
         run: |
-          test -f ./test-support/e2e-shards.json || (echo "❌ Missing shard file" && exit 1)
+          mkdir -p shard-report-${{ matrix.shard-index }}
+          pnpm exec playwright test \
+            --shard=$((matrix.shard-index + 1))/${{ fromJson(needs.prepare.outputs.matrix) | length }} \
+            --reporter=json,shard-report-${{ matrix.shard-index }}
 
-      # 🔥 Run shard + output dedicated Playwright report
-      - name: Run E2E Shard
-        run: |
-          mkdir -p shard-report
-          ./test-audit.sh test ${{ matrix.shard-index }}
-          pnpm exec playwright show-trace || true
-          cp -r test-results/playwright shard-report/
-
-      - uses: actions/upload-artifact@v4
+      - name: Upload Shard Report Artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: shard-${{ matrix.shard-index }}
-          path: shard-report
+          name: shard-report-${{ matrix.shard-index }}
+          path: shard-report-${{ matrix.shard-index }}
 
   report:
     needs: [prepare, test]
     if: always()
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+
       - uses: pnpm/action-setup@v4
         with:
           version: 10
-      - run: pnpm install --frozen-lockfile
 
-      - uses: actions/download-artifact@v4
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: Merge all Playwright reports
+      - name: Merge All Playwright Shard Reports
         run: |
           mkdir -p merged
-          find artifacts -name 'shard-*' -type d -exec cp -r {}/. merged/ \;
-          echo "📄 Reports found:"
-          ls -R merged
+
+          # Copy all shard-report-* dirs into merged/
+          find artifacts -type d -maxdepth 2 -name "shard-report-*" \
+            -exec cp -r {}/* merged/ \;
+
+          echo "📄 Reports detected:"
+          ls -R merged || true
+
           pnpm exec playwright merge-reports merged
 
-      - name: Generate Final Documentation
+      - name: Run Final Report Stage
         run: ./test-audit.sh report
+
+      - name: Commit documentation changes
+        if: success()
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "docs(sqm): Update test audit metrics"
+          branch: ${{ github.head_ref || github.ref_name }}
+          file_pattern: 'docs/PRD.md'
