@@ -1,5 +1,8 @@
 name: "CI - Test Audit"
 
+permissions:
+  contents: write
+
 on:
   push:
     branches: [main]
@@ -11,6 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.shard.outputs.matrix }}
+      shard-count: ${{ steps.shard.outputs.shard-count }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -42,6 +46,7 @@ jobs:
         run: |
           ./test-audit.sh prepare
           COUNT=$(jq '.shard_count' ./test-support/e2e-shards.json)
+          echo "shard-count=$COUNT" >> $GITHUB_OUTPUT
           if [ "$COUNT" -eq 0 ]; then
             INDICES="[]"
           else
@@ -100,7 +105,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: shard-report-${{ matrix.shard-index }}
-          path: shard-report-${{ matrix.shard-index }}
+          path: test-results/playwright/shard-${{ matrix.shard-index }}
           retention-days: 30
 
   report:
@@ -149,7 +154,9 @@ jobs:
 
           # Only merge if we have reports
           if [ "$(ls -A merged-reports 2>/dev/null)" ]; then
-            pnpm exec playwright merge-reports --reporter html merged-reports
+            # We need both the json for SQM and the html for human-readable results
+            pnpm exec playwright merge-reports --reporter json,html merged-reports
+            # The merge command saves the json to `merged-report.json` by default
           else
             echo "⚠️ No E2E reports to merge (tests may have been skipped)"
           fi
@@ -169,6 +176,7 @@ jobs:
         if: success() && github.event_name == 'push'
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           commit_message: "docs(sqm): Update test audit metrics"
           branch: ${{ github.head_ref || github.ref_name }}
           file_pattern: 'docs/PRD.md'

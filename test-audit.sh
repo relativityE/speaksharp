@@ -80,10 +80,10 @@ run_e2e_tests_shard() {
 
     echo "✅ Running E2E Test Shard ${PLAYWRIGHT_SHARD_ID}/${SHARD_COUNT}..."
 
-    # Run Playwright shard with JSON reporter pointing to shard folder
+    # Run Playwright shard, redirecting the json reporter output to the correct file
     pnpm exec playwright test \
         --shard="${PLAYWRIGHT_SHARD_ID}/${SHARD_COUNT}" \
-        --reporter="json,${REPORT_DIR}/results.json" \
+        --reporter=json > "${REPORT_DIR}/results.json" \
         || {
             echo "❌ E2E Test Shard ${PLAYWRIGHT_SHARD_ID} failed." >&2
             exit 1
