@@ -1,5 +1,8 @@
 name: "CI - Test Audit"
 
+permissions:
+  contents: write
+
 on:
   push:
     branches: [main]
@@ -11,6 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.shard.outputs.matrix }}
+      shard-count: ${{ steps.shard.outputs.shard-count }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -19,6 +23,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+
       - uses: pnpm/action-setup@v4
         with:
           version: 10
@@ -26,30 +31,47 @@ jobs:
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run Prepare Stage (Lint, Typecheck, Build, Unit, Shard)
+      - name: Install Playwright Browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Ensure e2e-shards.json exists
+        run: |
+          mkdir -p test-support
+          if [ ! -f test-support/e2e-shards.json ]; then
+            echo '{"shard_count": 0}' > test-support/e2e-shards.json
+          fi
+
+      - name: Run Prepare Stage
         id: shard
         run: |
           ./test-audit.sh prepare
-
-          # Count shards and prepare JSON array for matrix
           COUNT=$(jq '.shard_count' ./test-support/e2e-shards.json)
-          INDICES=$(seq 0 $((COUNT-1)) | jq -R . | jq -s .)
+          echo "shard-count=$COUNT" >> $GITHUB_OUTPUT
+          if [ "$COUNT" -eq 0 ]; then
+            INDICES="[]"
+          else
+            INDICES=$(seq 0 $((COUNT-1)) | jq -R . | jq -s . | jq -c .)
+          fi
           echo "matrix=$INDICES" >> $GITHUB_OUTPUT
 
-      - name: Upload Artifacts
+      - name: Upload Prepare Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: test-artifacts
-          path: ./test-support/
+          name: all-artifacts
+          path: |
+            dist
+            test-results/coverage
+            test-support
+            unit-metrics.json
 
   test:
     needs: prepare
+    if: needs.prepare.outputs.matrix != '[]'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         shard-index: ${{ fromJson(needs.prepare.outputs.matrix) }}
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -58,6 +80,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+
       - uses: pnpm/action-setup@v4
         with:
           version: 10
@@ -65,37 +88,95 @@ jobs:
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Download Artifacts
+      - name: Install Playwright Browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Download Prepare Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: test-artifacts
-          path: ./test-support/
+          name: all-artifacts
+          path: .
 
       - name: Run E2E Test Shard
         run: ./test-audit.sh test ${{ matrix.shard-index }}
 
+      - name: Upload Shard Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shard-report-${{ matrix.shard-index }}
+          path: test-results/playwright/shard-${{ matrix.shard-index }}
+          retention-days: 30
+
   report:
     needs: [prepare, test]
-    # Always run the report stage to see partial results, even if tests fail
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Download Artifacts
+      - name: Setup Node.js and pnpm
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download All Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: test-artifacts
-          path: ./test-support/
+          path: artifacts
 
-      - name: Generate Final Report and Update Docs
+      - name: Restore Build Artifacts
+        run: |
+          cp -r artifacts/all-artifacts/dist .
+          cp -r artifacts/all-artifacts/test-results .
+          cp artifacts/all-artifacts/unit-metrics.json .
+
+      - name: Merge E2E Reports
+        run: |
+          mkdir -p merged-reports
+          # Copy all shard JSON reports
+          find artifacts -type f -name 'results.json' | while read report; do
+            shard_name=$(basename $(dirname "$report"))
+            cp "$report" "merged-reports/${shard_name}.json"
+          done
+
+          # List what we found
+          echo "📄 Shard reports found:"
+          ls -la merged-reports/
+
+          # Only merge if we have reports
+          if [ "$(ls -A merged-reports 2>/dev/null)" ]; then
+            # We need both the json for SQM and the html for human-readable results
+            pnpm exec playwright merge-reports --reporter json,html merged-reports
+            # The merge command saves the json to `merged-report.json` by default
+          else
+            echo "⚠️ No E2E reports to merge (tests may have been skipped)"
+          fi
+
+      - name: Generate Final Report
         run: ./test-audit.sh report
 
-      - name: Commit documentation changes
-        if: success() # Only commit if the entire workflow was successful
+      - name: Upload HTML Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 30
+
+      - name: Commit Documentation Updates
+        if: success() && github.event_name == 'push'
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           commit_message: "docs(sqm): Update test audit metrics"
           branch: ${{ github.head_ref || github.ref_name }}
           file_pattern: 'docs/PRD.md'

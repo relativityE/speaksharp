@@ -16,10 +16,7 @@ export default defineConfig({
   workers: 1,
   fullyParallel: false,
   retries: 1,
-  reporter: [
-    ['list'],
-    ['json', { outputFile: 'test-results/playwright/results.json' }]
-  ],
+  reporter: process.env.CI ? 'blob' : [['html'], ['json', { outputFile: 'test-results/playwright/results.json' }]],
   use: {
     baseURL: BASE_URL,
     headless: true,
