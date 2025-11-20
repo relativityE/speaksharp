@@ -20,7 +20,6 @@ import { useAuthProvider } from '../contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { useCustomVocabulary } from '@/hooks/useCustomVocabulary';
 import { useQueryClient } from '@tanstack/react-query';
-import logger from '@/lib/logger';
 import type { PracticeSession } from '@/types/session';
 
 // --- Prop and Type Interfaces ---

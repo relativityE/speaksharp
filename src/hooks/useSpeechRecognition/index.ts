@@ -69,6 +69,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     navigate,
     getAssemblyAIToken,
     customVocabulary,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- transcript methods are stable, but object reference changes frequently
   }), [profile, session, navigate, getAssemblyAIToken, customVocabulary]);
 
   const service = useTranscriptionService(serviceOptions);
