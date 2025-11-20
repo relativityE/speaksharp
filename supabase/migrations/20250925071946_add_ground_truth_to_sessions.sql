@@ -1,1 +1,1 @@
-alter table "public"."practice_sessions" add column "ground_truth" text;
+alter table "public"."sessions" add column "ground_truth" text;

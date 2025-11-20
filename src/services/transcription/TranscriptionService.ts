@@ -117,9 +117,13 @@ export default class TranscriptionService {
 
     if (this.forceNative) {
       logger.info('[TranscriptionService] Dev Toggle: Forcing Native Browser mode.');
+      logger.info('[TranscriptionService] Creating NativeBrowser instance (forceNative)...');
       this.instance = new NativeBrowser(providerConfig);
+      logger.info('[TranscriptionService] Initializing NativeBrowser (forceNative)...');
       await this.instance.init();
+      logger.info('[TranscriptionService] Starting NativeBrowser transcription (forceNative)...');
       await this.instance.startTranscription(this.mic);
+      logger.info('[TranscriptionService] NativeBrowser started successfully (forceNative).');
       this.mode = 'native';
       return;
     }
@@ -144,11 +148,17 @@ export default class TranscriptionService {
     const useCloud = this.forceCloud || isPro;
     if (useCloud) {
       logger.info('[TranscriptionService] Attempting to use Cloud (AssemblyAI) mode for Pro user.');
+      logger.info('[TranscriptionService] Fetching AssemblyAI token...');
       const token = await this.getAssemblyAIToken();
+      logger.info({ tokenReceived: !!token }, '[TranscriptionService] Token fetch complete.');
       if (token) {
+        logger.info('[TranscriptionService] Creating CloudAssemblyAI instance...');
         this.instance = new CloudAssemblyAI(providerConfig);
+        logger.info('[TranscriptionService] Initializing CloudAssemblyAI...');
         await this.instance.init();
+        logger.info('[TranscriptionService] Starting CloudAssemblyAI transcription...');
         await this.instance.startTranscription(this.mic);
+        logger.info('[TranscriptionService] CloudAssemblyAI transcription started successfully.');
         this.mode = 'cloud';
         return;
       } else {
@@ -161,9 +171,13 @@ export default class TranscriptionService {
     }
 
     logger.info('[TranscriptionService] Starting Native Browser mode as default or fallback.');
+    logger.info('[TranscriptionService] Creating NativeBrowser instance...');
     this.instance = new NativeBrowser(providerConfig);
+    logger.info('[TranscriptionService] Initializing NativeBrowser...');
     await this.instance.init();
+    logger.info('[TranscriptionService] Starting NativeBrowser transcription...');
     await this.instance.startTranscription(this.mic);
+    logger.info('[TranscriptionService] NativeBrowser transcription started successfully.');
     this.mode = 'native';
   }
 

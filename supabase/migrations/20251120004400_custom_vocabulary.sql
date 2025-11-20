@@ -2,9 +2,9 @@
 
 -- Create custom_vocabulary table
 create table custom_vocabulary (
-  id uuid default uuid_generate_v4() primary key,
+  id uuid default gen_random_uuid() primary key,
   user_id uuid references auth.users(id) on delete cascade not null,
-  word text not null check (length(word) \u003e 0 and length(word) \u003c= 50),
+  word text not null check (length(word) > 0 and length(word) <= 50),
   created_at timestamp with time zone default now(),
   unique(user_id, word)
 );
