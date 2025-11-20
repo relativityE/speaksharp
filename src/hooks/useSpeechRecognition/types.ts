@@ -15,6 +15,7 @@ export interface WordConfidence {
 
 export interface UseSpeechRecognitionProps {
   customWords?: string[];
+  customVocabulary?: string[];
   session?: SupabaseSession | null;
   profile?: UserProfile | null;
 }

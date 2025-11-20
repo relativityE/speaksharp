@@ -14,6 +14,7 @@ export interface TranscriptionModeOptions {
   session?: Session | null;
   navigate?: NavigateFunction;
   getAssemblyAIToken?: () => Promise<string | null>;
+  customVocabulary?: string[];
 }
 
 export interface ITranscriptionMode {

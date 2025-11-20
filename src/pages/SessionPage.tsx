@@ -8,6 +8,7 @@ import FillerWordAnalysis from '../components/session/FillerWordAnalysis';
 import AISuggestions from '../components/session/AISuggestions';
 import { SessionSidebar } from '../components/session/SessionSidebar';
 import { SpeakingTips } from '../components/session/SpeakingTips';
+import { CustomVocabularyManager } from '../components/session/CustomVocabularyManager';
 import { Button } from '@/components/ui/button';
 import { Drawer, DrawerContent, DrawerTrigger } from '@/components/ui/drawer';
 import { SlidersHorizontal, AlertTriangle, Loader } from 'lucide-react';
@@ -16,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { UpgradePromptDialog } from '@/components/UpgradePromptDialog';
 import { useAuthProvider } from '../contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
+import { useCustomVocabulary } from '@/hooks/useCustomVocabulary';
 import { useQueryClient } from '@tanstack/react-query';
 import logger from '@/lib/logger';
 import type { PracticeSession } from '@/types/session';
@@ -89,11 +91,17 @@ export const SessionPage: React.FC = () => {
     const { saveSession: saveSessionToBackend } = useSessionManager();
     const queryClient = useQueryClient();
     const [customWords, setCustomWords] = useState<string[]>([]);
+    const { vocabularyWords } = useCustomVocabulary();
     const [usageLimitExceeded, setUsageLimitExceeded] = useState(false);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
     const startTimeRef = useRef<number | null>(null);
 
-    const speechRecognition = useSpeechRecognition({ customWords, session, profile });
+    const speechRecognition = useSpeechRecognition({
+        customWords,
+        customVocabulary: vocabularyWords,
+        session,
+        profile
+    });
     const { isListening, modelLoadingProgress } = speechRecognition;
 
     logger.info({ profile, loading: authLoading || profileLoading, usageLimitExceeded }, 'SessionPage render state');
@@ -169,6 +177,7 @@ export const SessionPage: React.FC = () => {
 
                     <div className="max-lg:hidden lg:w-1/3 flex flex-col gap-component-gap">
                         <SessionSidebar {...speechRecognition} saveSession={saveAndBroadcastSession} actualMode={speechRecognition.mode} startTime={isListening ? startTimeRef.current : null} modelLoadingProgress={modelLoadingProgress} />
+                        <CustomVocabularyManager />
                         <SpeakingTips />
                     </div>
 

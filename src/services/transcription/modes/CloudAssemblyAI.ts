@@ -20,18 +20,20 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
   private onTranscriptUpdate: (update: { transcript: Transcript; words?: AssemblyAIWord[] }) => void;
   private onReady: () => void;
   private _getAssemblyAIToken: () => Promise<string | null>;
+  private customVocabulary: string[];
   private socket: WebSocket | null = null;
   private mic: MicStream | null = null;
   private frameHandler: (frame: Float32Array) => void;
   private firstPacketSent: boolean = false;
 
-  constructor({ onTranscriptUpdate, onReady, getAssemblyAIToken }: TranscriptionModeOptions) {
+  constructor({ onTranscriptUpdate, onReady, getAssemblyAIToken, customVocabulary = [] }: TranscriptionModeOptions) {
     if (!onTranscriptUpdate || !onReady || !getAssemblyAIToken) {
       throw new Error("Missing required options for CloudAssemblyAI");
     }
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onReady = onReady;
     this._getAssemblyAIToken = getAssemblyAIToken;
+    this.customVocabulary = customVocabulary;
     this.frameHandler = this._handleAudioFrame.bind(this);
   }
 
@@ -51,7 +53,12 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
         throw new Error("Failed to retrieve AssemblyAI token.");
       }
 
-      const url = `wss://streaming.assemblyai.com/v3/ws?sample_rate=${mic.sampleRate}&token=${token}&format_turns=true&speaker_labels=true`;
+      // Build WebSocket URL with optional boost_param for custom vocabulary
+      let url = `wss://streaming.assemblyai.com/v3/ws?sample_rate=${mic.sampleRate}&token=${token}&format_turns=true&speaker_labels=true`;
+      if (this.customVocabulary.length > 0) {
+        const boostParam = this.customVocabulary.join(',');
+        url += `&boost_param=${encodeURIComponent(boostParam)}`;
+      }
       this.socket = new WebSocket(url);
 
       this.socket.onopen = () => {
