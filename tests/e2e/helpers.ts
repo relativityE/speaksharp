@@ -33,12 +33,16 @@ export function attachLiveTranscript(page: Page): void {
    Supabase Mock + Programmatic Login
 ---------------------------------------------- */
 
-export async function programmaticLogin(page: Page): Promise<void> {
+export async function programmaticLogin(
+  page: Page,
+  overrides?: { sessions?: typeof MOCK_SESSIONS | [] }
+): Promise<void> {
   //
   // 1 — Inject Supabase mock **before app boot**
   //
   await page.addInitScript(
-    (mockData) => {
+    (args) => {
+      const { mockData, sessionOverrides } = args;
       const listeners = new Set<
         (event: string, session: unknown) => void
       >();
@@ -47,6 +51,9 @@ export async function programmaticLogin(page: Page): Promise<void> {
 
       const stored = window.localStorage.getItem(mockData.MOCK_SESSION_KEY);
       if (stored) session = JSON.parse(stored);
+
+      // Use overrides if provided, otherwise default to MOCK_SESSIONS
+      const sessionsToUse = sessionOverrides || mockData.MOCK_SESSIONS;
 
       const mockSupabase = {
         auth: {
@@ -123,8 +130,7 @@ export async function programmaticLogin(page: Page): Promise<void> {
                 },
                 order: (col: string, opts?: { ascending: boolean }) => {
                   console.log(
-                    `[E2E MOCK DB] select().eq().order(${col}, ascending=${
-                      opts?.ascending
+                    `[E2E MOCK DB] select().eq().order(${col}, ascending=${opts?.ascending
                     })`
                   );
                   if (
@@ -134,10 +140,8 @@ export async function programmaticLogin(page: Page): Promise<void> {
                   ) {
                     const asc = opts?.ascending ?? true;
                     // DO NOT MUTATE THE ORIGINAL ARRAY
-                    const sorted = [...mockData.MOCK_SESSIONS].sort(
-                      (a, b) =>
-                        new Date(a.created_at).getTime() -
-                        new Date(b.created_at).getTime()
+                    const sorted = [...sessionsToUse].sort(
+                      (a: { created_at: string }, b: { created_at: string }) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
                     );
                     return Promise.resolve({
                       data: asc ? sorted : [...sorted].reverse(),
@@ -156,8 +160,8 @@ export async function programmaticLogin(page: Page): Promise<void> {
                 if (table === 'sessions') {
                   const asc = opts?.ascending ?? true;
                   // DO NOT MUTATE THE ORIGINAL ARRAY
-                  const sorted = [...mockData.MOCK_SESSIONS].sort(
-                    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+                  const sorted = [...sessionsToUse].sort(
+                    (a: { created_at: string }, b: { created_at: string }) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
                   );
                   return Promise.resolve({
                     data: asc ? sorted : [...sorted].reverse(),
@@ -174,8 +178,8 @@ export async function programmaticLogin(page: Page): Promise<void> {
                 );
                 if (table === 'sessions' && column === 'user_id' && value === mockData.MOCK_USER.id) {
                   const asc = opts?.ascending ?? true;
-                  const sorted = [...mockData.MOCK_SESSIONS].sort(
-                    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+                  const sorted = [...sessionsToUse].sort(
+                    (a: { created_at: string }, b: { created_at: string }) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
                   );
                   return Promise.resolve({
                     data: asc ? sorted : [...sorted].reverse(),
@@ -202,7 +206,10 @@ export async function programmaticLogin(page: Page): Promise<void> {
       // expose mock
       (window as { supabase?: unknown }).supabase = mockSupabase;
     },
-    { MOCK_USER, MOCK_USER_PROFILE, MOCK_SESSION_KEY, MOCK_SESSIONS }
+    {
+      mockData: { MOCK_USER, MOCK_USER_PROFILE, MOCK_SESSION_KEY, MOCK_SESSIONS },
+      sessionOverrides: overrides?.sessions
+    }
   );
 
   //

@@ -425,7 +425,22 @@ The backend is built entirely on the Supabase platform, leveraging its integrate
     *   `stripe-checkout`: Handles the creation of Stripe checkout sessions.
     *   `stripe-webhook`: Listens for and processes webhooks from Stripe to update user subscription status.
 
-## 5. User Roles and Tiers
+## 5. Feature Architecture
+
+### 5.1 Custom Vocabulary
+*   **Purpose:** Allows Pro users to add domain-specific terms to improve transcription accuracy.
+*   **Data Model:** `custom_vocabulary` table in Supabase (linked to `users`).
+*   **Logic:** `useCustomVocabulary` hook manages CRUD operations via React Query.
+*   **Integration:** The `TranscriptionService` fetches the vocabulary and passes it to the AssemblyAI API via the `boost_param` and `word_boost` parameters during session initialization.
+
+### 5.2 Vocal Variety & Pause Detection
+*   **Purpose:** Analyzes speaking dynamics to provide feedback on pacing and pauses.
+*   **Logic:**
+    *   `PauseDetector` class: Analyzes audio frames for silence gaps > 500ms (configurable).
+    *   `useVocalAnalysis` hook: Integrates the detector with the real-time audio stream.
+*   **Configuration:** Thresholds are centralized in `src/config.ts`.
+
+## 6. User Roles and Tiers
 
 The application's user tiers have been consolidated into the following structure:
 

@@ -22,8 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **E2E Test Architecture Documentation:** Added a new section to `docs/ARCHITECTURE.md` detailing the fixture-based E2E testing strategy, the `programmaticLogin` helper, the role of the mock JWT, and known testing limitations.
 - **Technical Debt Documentation:** Added an entry to `docs/ROADMAP.md` to formally track the inability to E2E test the live transcript generation as technical debt.
 - **Goal Setting:** Implemented weekly/daily targets for practice consistency in the Analytics Dashboard.
+- **Custom Vocabulary:** Added `CustomVocabularyManager` and integration with AssemblyAI `boost_param`.
+- **Pause Detection:** Added `PauseDetector` class and `useVocalAnalysis` hook (foundation).
+- **E2E Testing:** Added `analytics-empty-state.e2e.spec.ts` to verify new user experience.
 
-### Fixed
+### Changed
+- **Configuration:** Centralized hardcoded values (session limits, audio settings) into `src/config.ts`.
+- **Console Logs:** Removed debug `console.log` statements from production code.
+- **Test Helpers:** Refactored `programmaticLogin` to support session overrides for better test isolation.
 - **`test-audit.sh` Workflow Mismatch:** The old `test-audit.sh` script was refactored to correctly parse command-line arguments (e.g., `lint`, `test`, `e2e`), aligning its behavior with the documentation and CI pipeline. This restores the intended developer workflow for running specific test stages locally.
 - **`saveSession` Race Condition:** Fixed a critical race condition in the `saveSession` function (`src/lib/storage.ts`) by replacing the non-atomic, two-step database operations with a single, atomic RPC call (`create_session_and_update_usage`).
 - **E2E Test Suite Stability and Architecture:** Performed a major refactoring of the E2E test suite to improve stability, reliability, and maintainability.

@@ -31,13 +31,13 @@ This phase is about confirming the core feature set works as expected and polish
 
 ### 🎯 Must-Have
 - ✅ **Implement Speaking Pace Analysis:** Add real-time feedback on words per minute to the core analytics.
-- 🔴 **Implement Custom Vocabulary:** Allow Pro users to add custom words (jargon, names) to improve transcription accuracy.
-- 🔴 **Implement Vocal Variety / Pause Detection:** Add a new Pro-tier feature to analyze vocal variety or pause duration.
+- ✅ **Implement Custom Vocabulary:** Allow Pro users to add custom words (jargon, names) to improve transcription accuracy.
+- ✅ **Implement Vocal Variety / Pause Detection:** Add a new Pro-tier feature to analyze vocal variety or pause duration.
 - ✅ **User-Friendly Error Handling:** Implement specific, user-facing error messages for common issues.
 - ✅ **Clarity Score Visualization:** Detailed breakdown of speech clarity.
 - ✅ **Goal Setting:** Weekly/Daily targets for practice consistency.
 - 🔴 **Deploy & confirm live transcript UI works:** Ensure text appears within 2 seconds of speech in a live environment.
-- 🔴 **Remove all temporary console.logs:** Clean up the codebase for production.
+- ✅ **Remove all temporary console.logs:** Clean up the codebase for production.
 
 ### 🚧 Should-Have (Tech Debt)
 - 🟡 **Implement new SpeakSharp Design System:**
@@ -45,7 +45,7 @@ This phase is about confirming the core feature set works as expected and polish
   - 🔴 4. Final Verification & Test
 - ✅ **Refactor `useSpeechRecognition` hook:** Improve maintainability and fix memory leaks.
 - 🟡 **Add Robust UX States:** Some states exist, but are inconsistently applied.
-- 🔴 **Centralize configuration:** Move hardcoded values (e.g., session limits) to a config file.
+- ✅ **Centralize configuration:** Move hardcoded values (e.g., session limits) to a config file.
 - 🔴 **Improve Accessibility:** Use an ARIA live region for the transcript so screen readers can announce new lines.
 - 🔴 **Add Deno unit tests for the token endpoint.**
 - 🔴 **Add a soak test:** Create a test that runs for 1-minute with continuous audio to check for memory leaks or hangs.
@@ -79,8 +79,9 @@ This section is a prioritized list of technical debt items to be addressed.
   - **Problem:** The test sharding logic in the old `test-audit.sh` was flawed, causing E2E tests to be skipped in CI.
   - **Solution:** The entire testing architecture has been overhauled with a new, robust, and parallelized `test-audit.sh` script. The new script correctly discovers, shards, and executes all E2E tests, and is accessed via the canonical `pnpm audit` command.
 
-- **P2 (Medium): Add E2E Test for Analytics Empty State**
-  - **Problem:** There is no E2E test coverage for the analytics page when a new user has no session history.
+- [x] **Create E2E test for Analytics Empty State** (P2)
+  - *Context:* Verify the "zero data" state for new users.
+  - *Status:* ✅ Implemented `analytics-empty-state.e2e.spec.ts` and fixed mock data injection.
   - **Required Action:** Create a new E2E test that programmatically logs in a user, navigates to the `/analytics` page, and asserts that the correct "empty state" UI is displayed. This will ensure the new user experience is not broken by future changes.
 
 - **P3 (Low): ESLint `no-unused-vars` Anomaly in `catch` Blocks**
