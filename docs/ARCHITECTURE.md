@@ -481,9 +481,62 @@ The `LocalWhisper` provider uses the [`@xenova/transformers.js`](https://github.
 Speaker identification (or diarization) is handled by the AssemblyAI API. When the `speaker_labels` parameter is set to `true` in the transcription request, the API will return a `speaker` property for each utterance in the transcript. This allows the frontend to display who said what.
 
 ### STT Accuracy Comparison
-
 The STT accuracy comparison feature calculates the Word Error Rate (WER) of each transcription engine against a "ground truth" transcript. The ground truth is a manually transcribed version of the audio that is stored in the `practice_sessions` table. The WER is then used to calculate an accuracy percentage, which is displayed in the analytics dashboard. This provides users with a clear understanding of how each STT engine performs.
 
 ## 7. Known Issues
 
+### Database Setup Issues (Resolved 2025-11-20)
+
+**Issue**: Missing Row Level Security (RLS) policies and user profile auto-creation trigger  
+**Impact**: Users couldn't access their own data after signup, causing 403 "permission denied" errors  
+**Resolution**:
+- Added RLS policies for `user_profiles`, `custom_vocabulary`, and `sessions` tables
+- Created `handle_new_user()` trigger function to auto-create user profiles on signup  
+**SQL Applied**:
+```sql
+-- Grant schema permissions
+GRANT USAGE ON SCHEMA public TO authenticated;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated;
+
+-- RLS policies
+CREATE POLICY "Users can manage own profile" ON user_profiles FOR ALL USING (auth.uid() = id);
+CREATE POLICY "Users can manage own vocabulary" ON custom_vocabulary FOR ALL USING (auth.uid() = user_id);
+CREATE POLICY "Users can manage own sessions" ON sessions FOR ALL USING (auth.uid() = user_id);
+
+-- Auto-create user profile trigger
+CREATE OR REPLACE FUNCTION public.handle_new_user() RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.user_profiles (id, subscription_status)
+  VALUES (NEW.id, 'free');
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+```
+
+### Transcription Service UI State Sync Issue (Active)
+
+**Issue**: Speech recognition works but UI doesn't reflect session status  
+**Symptoms**:
+- UI shows "Connecting..." instead of "Session Active" even after `recognition.start()` succeeds
+- Transcripts are generated (verified via console logs showing `onresult` callbacks) but don't appear in UI
+- `onReady` callback is invoked but doesn't update `isReady` React state
+
+**Root Cause**: The `onReady` callback in `useSpeechRecognition/index.ts` (line 62) is an empty function that doesn't update any state:
+```typescript
+onReady: () => { },  // <-- This doesn't set isReady to true
+```
+
+**Workaround**: Use Native Browser mode and check browser console logs to verify transcription is working
+
+**Planned Fix**: Update `onReady` to properly set `isReady` state in the transcription service hook
+
+**Diagnostic Logging Added**: 
+- Added comprehensive logging to `TranscriptionService.startTranscription()` to trace execution flow
+- Added logging to `NativeBrowser.init()`, `startTranscription()`, and `onresult` callback
+- Enhanced error logging for microphone permission and speech recognition errors
 *This section is for tracking active, unresolved issues. As issues are resolved, they should be moved to the [Changelog](./CHANGELOG.md).*
