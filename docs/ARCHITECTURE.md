@@ -518,7 +518,7 @@ CREATE TRIGGER on_auth_user_created
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 ```
 
-### Transcription Service UI State Sync Issue (Active)
+### Transcription Service UI State Sync Issue (Resolved 2025-11-20)
 
 **Issue**: Speech recognition works but UI doesn't reflect session status  
 **Symptoms**:
@@ -531,12 +531,21 @@ CREATE TRIGGER on_auth_user_created
 onReady: () => { },  // <-- This doesn't set isReady to true
 ```
 
-**Workaround**: Use Native Browser mode and check browser console logs to verify transcription is working
-
-**Planned Fix**: Update `onReady` to properly set `isReady` state in the transcription service hook
+**Resolution**: Wrapped the `onReady` callback in `useTranscriptionService.ts` to set `isReady` state when transcription modes invoke it:
+```typescript
+const wrappedOptions = {
+  ...optionsRef.current,
+  onReady: () => {
+    setIsReady(true);
+    optionsRef.current.onReady();
+  },
+};
+```
 
 **Diagnostic Logging Added**: 
 - Added comprehensive logging to `TranscriptionService.startTranscription()` to trace execution flow
 - Added logging to `NativeBrowser.init()`, `startTranscription()`, and `onresult` callback
 - Enhanced error logging for microphone permission and speech recognition errors
+
 *This section is for tracking active, unresolved issues. As issues are resolved, they should be moved to the [Changelog](./CHANGELOG.md).*
+
