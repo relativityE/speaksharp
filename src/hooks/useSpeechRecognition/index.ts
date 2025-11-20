@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { useTranscriptState } from './useTranscriptState';
 import { useFillerWords } from './useFillerWords';
 import { useTranscriptionService } from './useTranscriptionService';
+import { useVocalAnalysis } from '../useVocalAnalysis';
 import type { UseSpeechRecognitionProps, TranscriptStats } from './types';
 import type { FillerCounts } from '../../utils/fillerWordUtils';
 import { ForceOptions } from './types';
@@ -23,6 +24,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
 
   const transcript = useTranscriptState();
   const fillerWords = useFillerWords(transcript.finalChunks, transcript.interimTranscript, customWords);
+  const vocalAnalysis = useVocalAnalysis(false); // We'll enable this when we have mic access
 
   const getAssemblyAIToken = useCallback(async (): Promise<string | null> => {
     try {
@@ -140,7 +142,8 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     modelLoadingProgress: null,
     startListening,
     stopListening,
-    reset
+    reset,
+    pauseMetrics: vocalAnalysis.pauseMetrics,
   };
 };
 
@@ -159,6 +162,7 @@ const useSpeechRecognition_test = () => {
     isSupported: true,
     mode: 'native',
     modelLoadingProgress: null,
+    pauseMetrics: { totalPauses: 0, averagePauseDuration: 0, longestPause: 0, pausesPerMinute: 0 },
     startListening: async () => { setIsListening(true); },
     stopListening: async () => {
       setIsListening(false);

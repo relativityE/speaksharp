@@ -9,6 +9,7 @@ import AISuggestions from '../components/session/AISuggestions';
 import { SessionSidebar } from '../components/session/SessionSidebar';
 import { SpeakingTips } from '../components/session/SpeakingTips';
 import { CustomVocabularyManager } from '../components/session/CustomVocabularyManager';
+import { PauseMetricsDisplay } from '../components/session/PauseMetricsDisplay';
 import { Button } from '@/components/ui/button';
 import { Drawer, DrawerContent, DrawerTrigger } from '@/components/ui/drawer';
 import { SlidersHorizontal, AlertTriangle, Loader } from 'lucide-react';
@@ -178,6 +179,12 @@ export const SessionPage: React.FC = () => {
                     <div className="max-lg:hidden lg:w-1/3 flex flex-col gap-component-gap">
                         <SessionSidebar {...speechRecognition} saveSession={saveAndBroadcastSession} actualMode={speechRecognition.mode} startTime={isListening ? startTimeRef.current : null} modelLoadingProgress={modelLoadingProgress} />
                         <CustomVocabularyManager />
+                        {speechRecognition.pauseMetrics && (
+                            <PauseMetricsDisplay
+                                metrics={speechRecognition.pauseMetrics}
+                                isListening={isListening}
+                            />
+                        )}
                         <SpeakingTips />
                     </div>
 
