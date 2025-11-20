@@ -1,5 +1,7 @@
-import { ITranscriptionMode, TranscriptionModeOptions, Transcript } from './types';
-import { MicStream } from '../utils/types';
+import type { ITranscriptionMode, TranscriptionModeOptions } from './types';
+import type { MicStream } from '../utils/types';
+import { createMicStream } from '../utils/audioUtils';
+import logger from '../../../lib/logger';
 
 // Type definitions for AssemblyAI WebSocket messages
 interface AssemblyAIWord {
@@ -62,17 +64,21 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
       this.socket = new WebSocket(url);
 
       this.socket.onopen = () => {
+        logger.info('[CloudAssemblyAI] WebSocket connected - calling onReady() and starting audio frame handler');
         this.onReady();
         this.mic?.onFrame(this.frameHandler);
       };
 
       this.socket.onmessage = (event: MessageEvent<string>) => {
         const data: AssemblyAIMessage = JSON.parse(event.data);
+        logger.info({ data }, '[CloudAssemblyAI] WebSocket message received');
 
         if (data.transcript) {
           if (data.turn_is_formatted && data.end_of_turn) {
+            logger.info({ transcript: data.transcript }, '[CloudAssemblyAI] Final transcript');
             this.onTranscriptUpdate({ transcript: { final: data.transcript }, words: data.words || [] });
           } else {
+            logger.info({ transcript: data.transcript }, '[CloudAssemblyAI] Partial transcript');
             this.onTranscriptUpdate({ transcript: { partial: data.transcript } });
           }
         }
@@ -108,6 +114,7 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
 
     if (!this.firstPacketSent) {
       this.firstPacketSent = true;
+      logger.info({ audioFrameLength: float32Array.length }, '[CloudAssemblyAI] First audio packet sent to WebSocket');
     }
   }
 
