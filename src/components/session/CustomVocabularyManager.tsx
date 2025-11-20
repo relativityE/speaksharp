@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Plus, X, Crown } from 'lucide-react';
 import { useCustomVocabulary } from '@/hooks/useCustomVocabulary';
 import { useUserProfile } from '@/hooks/useUserProfile';
+import { VOCABULARY_LIMITS } from '@/config';
 
 export const CustomVocabularyManager: React.FC = () => {
     const [newWord, setNewWord] = useState('');
@@ -51,7 +52,7 @@ export const CustomVocabularyManager: React.FC = () => {
                 <CardTitle className="flex items-center gap-2">
                     Custom Vocabulary
                     <span className="text-sm font-normal text-muted-foreground">
-                        ({vocabulary.length}/100)
+                        ({vocabulary.length}/{VOCABULARY_LIMITS.MAX_WORDS_PER_USER})
                     </span>
                 </CardTitle>
                 <CardDescription>
@@ -66,13 +67,13 @@ export const CustomVocabularyManager: React.FC = () => {
                         value={newWord}
                         onChange={(e) => setNewWord(e.target.value)}
                         placeholder="e.g., SpeakSharp, AI-powered"
-                        disabled={isAdding || vocabulary.length >= 100}
+                        disabled={isAdding || vocabulary.length >= VOCABULARY_LIMITS.MAX_WORDS_PER_USER}
                         className="flex-1"
                     />
                     <Button
                         type="submit"
                         size="icon"
-                        disabled={!newWord.trim() || isAdding || vocabulary.length >= 100}
+                        disabled={!newWord.trim() || isAdding || vocabulary.length >= VOCABULARY_LIMITS.MAX_WORDS_PER_USER}
                     >
                         <Plus className="h-4 w-4" />
                     </Button>

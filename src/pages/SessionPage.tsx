@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { useSessionManager } from '../hooks/useSessionManager';
 import posthog from 'posthog-js';
-import { FILLER_WORD_KEYS } from '../config';
+import { FILLER_WORD_KEYS, SESSION_LIMITS } from '../config';
 import { TranscriptPanel } from '../components/session/TranscriptPanel';
 import FillerWordAnalysis from '../components/session/FillerWordAnalysis';
 import AISuggestions from '../components/session/AISuggestions';
@@ -121,10 +121,10 @@ export const SessionPage: React.FC = () => {
         if (!isListening) return;
 
         const sessionLimit = !user
-            ? 120
+            ? SESSION_LIMITS.ANONYMOUS
             : profile?.subscription_status !== 'pro'
-                ? 1800
-                : null;
+                ? SESSION_LIMITS.FREE
+                : SESSION_LIMITS.PRO;
 
         if (sessionLimit && startTimeRef.current) {
             const checkUsage = () => {

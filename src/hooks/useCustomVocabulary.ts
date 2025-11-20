@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { useAuthProvider } from '@/contexts/AuthProvider';
+import { VOCABULARY_LIMITS } from '@/config';
 
 interface CustomWord {
     id: string;
@@ -40,7 +41,9 @@ export const useCustomVocabulary = () => {
             // Validate word
             const trimmed = word.trim().toLowerCase();
             if (!trimmed) throw new Error('Word cannot be empty');
-            if (trimmed.length > 50) throw new Error('Word must be 50 characters or less');
+            if (trimmed.length > VOCABULARY_LIMITS.MAX_WORD_LENGTH) {
+                throw new Error(`Word must be ${VOCABULARY_LIMITS.MAX_WORD_LENGTH} characters or less`);
+            }
             if (!/^[a-z0-9\-']+$/i.test(trimmed)) {
                 throw new Error('Word can only contain letters, numbers, hyphens, and apostrophes');
             }
@@ -51,8 +54,8 @@ export const useCustomVocabulary = () => {
             }
 
             // Check word limit
-            if (vocabulary.length >= 100) {
-                throw new Error('Maximum 100 custom words allowed');
+            if (vocabulary.length >= VOCABULARY_LIMITS.MAX_WORDS_PER_USER) {
+                throw new Error(`Maximum ${VOCABULARY_LIMITS.MAX_WORDS_PER_USER} custom words allowed`);
             }
 
             const { data, error } = await supabase
