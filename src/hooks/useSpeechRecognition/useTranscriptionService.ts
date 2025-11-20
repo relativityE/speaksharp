@@ -39,8 +39,18 @@ export const useTranscriptionService = (options: TranscriptionServiceOptions) =>
         setIsReady(false);
         setIsSupported(true);
 
-        const service = new TranscriptionService({
+        // Wrap the onReady callback to set our internal isReady state
+        const wrappedOptions = {
           ...optionsRef.current,
+          onReady: () => {
+            setIsReady(true);
+            // Also call the user-provided onReady callback
+            optionsRef.current.onReady();
+          },
+        };
+
+        const service = new TranscriptionService({
+          ...wrappedOptions,
           ...forceOptionsRef.current,
         });
         serviceRef.current = service as unknown as ITranscriptionService;

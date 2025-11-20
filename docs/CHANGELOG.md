@@ -25,6 +25,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Custom Vocabulary:** Added `CustomVocabularyManager` and integration with AssemblyAI `boost_param`.
 - **Pause Detection:** Added `PauseDetector` class and `useVocalAnalysis` hook (foundation).
 - **E2E Testing:** Added `analytics-empty-state.e2e.spec.ts` to verify new user experience.
+- **Database Setup (2025-11-20):**
+  - Added Row Level Security (RLS) policies for `user_profiles`, `custom_vocabulary`, and `sessions` tables to allow authenticated users to manage their own data
+  - Created `handle_new_user()` trigger function to automatically create user profiles on signup  
+  - Granted necessary schema permissions to `authenticated` role
+- **Diagnostic Logging (2025-11-20):** Added comprehensive logging throughout the transcription service stack:
+  - `TranscriptionService.startTranscription()`: Logs for each major step (token fetching, service initialization, mode selection)
+  - `NativeBrowser`: Logs for initialization, handler configuration, and transcript callbacks (`onresult`, `onerror`)
+  - `CloudAssemblyAI`: Logs for token fetching and WebSocket connection
+  - Enhanced error logging for microphone permission denied and other speech recognition errors
 
 ### Changed
 - **Configuration:** Centralized hardcoded values (session limits, audio settings) into `src/config.ts`.
@@ -47,6 +56,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **E2E Test Suite Stability:** Resolved critical failures in the E2E test suite by refactoring brittle, layout-dependent tests.
     - **Root Cause:** The `smoke.e2e.spec.ts` and `live-transcript.e2e.spec.ts` tests contained assertions that were tightly coupled to the responsive UI layout, causing them to fail on minor CSS changes.
     - **Solution:** Both tests were refactored to use a robust, functional testing strategy. The brittle assertions were replaced with checks for a core functional element (`session-start-stop-button`) that exists in all responsive layouts. This decouples the tests from the presentation layer and ensures they validate the feature's availability, not a specific UI implementation. This has resulted in a stable, green CI pipeline.
+- **Transcription UI State Sync (2025-11-20):** Fixed UI not updating when transcription service started successfully
+    - **Problem:** UI showed "Connecting..." indefinitely even though speech recognition was working (verified via console logs showing transcript callbacks)
+    - **Root Cause:** `useTranscriptionService` had an `isReady` state that was never set to `true` because the `onReady` callback from transcription modes wasn't wired to update it
+    - **Solution:** Wrapped the `onReady` callback in `useTranscriptionService.ts` to set `isReady` state when `NativeBrowser` or `CloudAssemblyAI` invoke it
+    - **Impact:** UI now properly shows "Session Active" and transcripts should display when user speaks
 
 - **SQM Pipeline Stability and Accuracy:** Overhauled the Software Quality Metrics pipeline to resolve critical bugs and ensure stable, accurate reporting.
     - **E2E Test Sharding:** Re-implemented a robust sharding mechanism in the `pnpm audit` script to prevent CI timeouts and ensure all tests run reliably.

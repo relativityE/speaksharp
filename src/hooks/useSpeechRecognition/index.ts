@@ -59,7 +59,10 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         transcript.setInterimTranscript('');
       }
     },
-    onReady: () => { },
+    onReady: () => {
+      // This callback is invoked by NativeBrowser and CloudAssemblyAI when they start successfully
+      logger.info('[useSpeechRecognition] onReady callback invoked - transcription service is ready');
+    },
     onModelLoadProgress: () => { },
     profile: profile ?? null,
     session: session ?? null,
