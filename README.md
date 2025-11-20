@@ -26,6 +26,23 @@ To get started with SpeakSharp, you'll need to have Node.js (version 22.12.0 or 
     pnpm dev
     ```
 
+## Asset Organization
+
+This project uses a hybrid approach for managing image assets:
+
+### Public Assets (`public/assets/`)
+- **Static files** that don't require build-time processing (e.g., `speaksharp-logo.png`)
+- Referenced directly in code as `/assets/filename.ext`
+- Served as-is by Vite
+
+### Source Assets (`src/assets/`)
+- **Build-optimized assets** that go through Vite's import pipeline
+- JPEG images (`analytics-visual.jpg`, `hero-speaker.jpg`) are **symlinked** from `public/assets/`
+  - Actual files: `public/assets/*.jpg`
+  - Symlinks: `src/assets/*.jpg` → `../public/assets/*.jpg`
+- This allows components to use standard ES imports while keeping the source files in one location
+- SVG assets (`react.svg`) are stored directly in `src/assets/`
+
 ### Stabilizing the Environment by Enforcing the Lockfile
 
 **This is a critical step to prevent "works on my machine" issues.**

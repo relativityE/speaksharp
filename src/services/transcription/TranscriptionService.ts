@@ -24,6 +24,7 @@ export interface TranscriptionServiceOptions {
   session: Session | null;
   navigate: NavigateFunction;
   getAssemblyAIToken: () => Promise<string | null>;
+  customVocabulary?: string[];
   forceCloud?: boolean;
   forceOnDevice?: boolean;
   forceNative?: boolean;
@@ -41,6 +42,7 @@ export default class TranscriptionService {
   private forceCloud: boolean;
   private forceOnDevice: boolean;
   private forceNative: boolean;
+  private customVocabulary: string[];
   private instance: ITranscriptionMode | null = null;
   private mic: MicStream | null = null;
 
@@ -52,6 +54,7 @@ export default class TranscriptionService {
     forceCloud = false,
     forceOnDevice = false,
     forceNative = false,
+    customVocabulary = [],
     session,
     navigate,
     getAssemblyAIToken,
@@ -64,6 +67,7 @@ export default class TranscriptionService {
     this.session = session;
     this.navigate = navigate;
     this.getAssemblyAIToken = getAssemblyAIToken;
+    this.customVocabulary = customVocabulary;
     this.forceCloud = forceCloud;
     this.forceOnDevice = forceOnDevice;
     this.forceNative = forceNative;
@@ -94,6 +98,7 @@ export default class TranscriptionService {
       session: this.session,
       navigate: this.navigate,
       getAssemblyAIToken: this.getAssemblyAIToken,
+      customVocabulary: this.customVocabulary,
     };
 
     // --- Provider Selection Logic ---
@@ -138,21 +143,21 @@ export default class TranscriptionService {
 
     const useCloud = this.forceCloud || isPro;
     if (useCloud) {
-        logger.info('[TranscriptionService] Attempting to use Cloud (AssemblyAI) mode for Pro user.');
-        const token = await this.getAssemblyAIToken();
-        if (token) {
-            this.instance = new CloudAssemblyAI(providerConfig);
-            await this.instance.init();
-            await this.instance.startTranscription(this.mic);
-            this.mode = 'cloud';
-            return;
-        } else {
-            logger.warn('[TranscriptionService] Failed to get AssemblyAI token for Pro user.');
-            if (this.forceCloud) {
-                throw new Error('Failed to get AssemblyAI token in forceCloud mode.');
-            }
-            logger.warn('[TranscriptionService] Proceeding with native fallback for Pro user.');
+      logger.info('[TranscriptionService] Attempting to use Cloud (AssemblyAI) mode for Pro user.');
+      const token = await this.getAssemblyAIToken();
+      if (token) {
+        this.instance = new CloudAssemblyAI(providerConfig);
+        await this.instance.init();
+        await this.instance.startTranscription(this.mic);
+        this.mode = 'cloud';
+        return;
+      } else {
+        logger.warn('[TranscriptionService] Failed to get AssemblyAI token for Pro user.');
+        if (this.forceCloud) {
+          throw new Error('Failed to get AssemblyAI token in forceCloud mode.');
         }
+        logger.warn('[TranscriptionService] Proceeding with native fallback for Pro user.');
+      }
     }
 
     logger.info('[TranscriptionService] Starting Native Browser mode as default or fallback.');

@@ -50,16 +50,13 @@ export default function AuthPage() {
 
       let authResult;
       if (view === 'sign_in') {
-        console.log('[AUTH] Attempting sign-in', { email });
         authResult = await supabase.auth.signInWithPassword({ email, password });
       } else if (view === 'sign_up') {
-        console.log('[AUTH] Attempting sign-up and immediate sign-in for E2E', { email });
         const { error: signUpError } = await supabase.auth.signUp({ email, password });
         if (signUpError) throw signUpError;
         // In an E2E test, immediately sign in to create a session
         authResult = await supabase.auth.signInWithPassword({ email, password });
       } else { // forgot_password
-        console.log('[AUTH] Attempting password reset', { email });
         const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
           redirectTo: `${window.location.origin}/`,
         });
@@ -74,7 +71,6 @@ export default function AuthPage() {
       }
 
       if (authResult.data.session) {
-        console.log('[AUTH] Session successfully established', authResult.data.session);
         setSession(authResult.data.session);
       } else if (view === 'sign_up') {
         setMessage('Success! Please check your email for a confirmation link.');
@@ -90,17 +86,14 @@ export default function AuthPage() {
   };
 
   if (loading) {
-    console.log('[AUTH] Loading auth state...');
     return null;
   }
 
   if (session) {
-    console.log('[AUTH] Session exists, redirecting...');
     return <Navigate to="/" replace />;
   }
 
   const handleViewChange = (newView: AuthView) => {
-    console.log('[AUTH] Switching view', { from: view, to: newView });
     setView(newView);
     setError(null);
     setMessage(null);
@@ -137,9 +130,9 @@ export default function AuthPage() {
                   <div className="flex items-center">
                     <Label htmlFor="password">Password</Label>
                     {view === 'sign_in' && (
-                       <Button variant="link" type="button" onClick={() => handleViewChange('forgot_password')} className="ml-auto inline-block text-xs underline text-muted-foreground hover:text-primary h-auto p-0" data-testid="forgot-password-button">
-                          Forgot Password?
-                       </Button>
+                      <Button variant="link" type="button" onClick={() => handleViewChange('forgot_password')} className="ml-auto inline-block text-xs underline text-muted-foreground hover:text-primary h-auto p-0" data-testid="forgot-password-button">
+                        Forgot Password?
+                      </Button>
                     )}
                   </div>
                   <Input data-testid="password-input" id="password" type="password" required value={password} onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)} />
@@ -159,7 +152,7 @@ export default function AuthPage() {
             {view === 'sign_up' && 'Already have an account?'}
             {view === 'forgot_password' && 'Remembered your password?'}
             <Button variant="link" type="button" onClick={() => handleViewChange(view === 'sign_in' || view === 'forgot_password' ? 'sign_up' : 'sign_in')} className="text-primary font-semibold" data-testid="mode-toggle">
-                {view === 'sign_in' || view === 'forgot_password' ? 'Sign Up' : 'Sign In'}
+              {view === 'sign_in' || view === 'forgot_password' ? 'Sign Up' : 'Sign In'}
             </Button>
           </div>
         </CardContent>

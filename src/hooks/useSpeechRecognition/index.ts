@@ -14,7 +14,7 @@ import type { FillerCounts } from '../../utils/fillerWordUtils';
 import { ForceOptions } from './types';
 
 export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {}) => {
-  const { customWords = [], session, profile } = props;
+  const { customWords = [], customVocabulary = [], session, profile } = props;
   const { session: authSession } = useAuthProvider();
   const navigate = useNavigate();
 
@@ -57,13 +57,14 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         transcript.setInterimTranscript('');
       }
     },
-    onReady: () => {},
-    onModelLoadProgress: () => {},
+    onReady: () => { },
+    onModelLoadProgress: () => { },
     profile: profile ?? null,
     session: session ?? null,
     navigate,
     getAssemblyAIToken,
-  }), [transcript, profile, session, navigate, getAssemblyAIToken]);
+    customVocabulary,
+  }), [transcript, profile, session, navigate, getAssemblyAIToken, customVocabulary]);
 
   const service = useTranscriptionService(serviceOptions);
 
