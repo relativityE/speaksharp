@@ -37,7 +37,6 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
 
   public async init(): Promise<void> {
     // Initialization logic is handled in startTranscription where the token is fetched.
-    console.log('[CloudAssemblyAI] Initialized.');
   }
 
   public async startTranscription(mic: MicStream): Promise<void> {
@@ -45,28 +44,23 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
       throw new Error("A valid MicStream object with an onFrame method is required.");
     }
     this.mic = mic;
-    console.log('[CloudAssemblyAI] Starting transcription...');
 
     try {
-      console.log('[CloudAssemblyAI] Requesting AssemblyAI token...');
       const token = await this._getAssemblyAIToken();
       if (!token) {
         throw new Error("Failed to retrieve AssemblyAI token.");
       }
-      console.log('[CloudAssemblyAI] Token received.');
 
       const url = `wss://streaming.assemblyai.com/v3/ws?sample_rate=${mic.sampleRate}&token=${token}&format_turns=true&speaker_labels=true`;
       this.socket = new WebSocket(url);
 
       this.socket.onopen = () => {
-        console.log('✅ [CloudAssemblyAI] WebSocket connected to AssemblyAI.');
         this.onReady();
         this.mic?.onFrame(this.frameHandler);
       };
 
       this.socket.onmessage = (event: MessageEvent<string>) => {
         const data: AssemblyAIMessage = JSON.parse(event.data);
-        console.log('[CloudAssemblyAI] Received message:', data);
 
         if (data.transcript) {
           if (data.turn_is_formatted && data.end_of_turn) {
@@ -82,8 +76,7 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
         this.stopTranscription();
       };
 
-      this.socket.onclose = (event) => {
-        console.log(`🔌 [CloudAssemblyAI] WebSocket closed: ${event.code} ${event.reason}`);
+      this.socket.onclose = () => {
         this.socket = null;
         this.mic?.offFrame(this.frameHandler);
       };
@@ -107,25 +100,19 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
     this.socket.send(int16Array.buffer);
 
     if (!this.firstPacketSent) {
-      console.log('[CloudAssemblyAI] Sent first audio packet.');
       this.firstPacketSent = true;
     }
   }
 
   public async stopTranscription(): Promise<string> {
-    console.log('[CloudAssemblyAI] Stopping transcription...');
     if (this.mic) {
       this.mic.offFrame(this.frameHandler);
-      console.log('[CloudAssemblyAI] Mic frame handler removed.');
       this.mic = null;
     }
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      console.log('[CloudAssemblyAI] Sending termination message.');
       // AssemblyAI v3 doesn't use a 'Terminate' message like v2.
       // Simply closing the socket is sufficient.
       this.socket.close(1000);
-    } else {
-      console.log('[CloudAssemblyAI] No active socket to stop.');
     }
     this.socket = null;
     this.firstPacketSent = false;

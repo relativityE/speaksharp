@@ -8,7 +8,6 @@ if (import.meta.env.MODE === 'test') {
   // For the test environment, we use the node-canvas library for server-side image processing.
   try {
     imageProcessor = await import('canvas');
-    console.log('[imageProcessor] Using "canvas" for test environment.');
   } catch (e) {
     console.error('[imageProcessor] Failed to load "canvas" module in test mode.', e);
     imageProcessor = null;
@@ -16,7 +15,6 @@ if (import.meta.env.MODE === 'test') {
 } else {
   // In the browser, we don't need a specific library as the browser provides the Canvas API.
   // We can set this to null or a mock object if needed.
-  console.log('[imageProcessor] Using browser native APIs (no-op for this module).');
   imageProcessor = null;
 }
 
