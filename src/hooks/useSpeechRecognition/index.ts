@@ -69,7 +69,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     navigate,
     getAssemblyAIToken,
     customVocabulary,
-  }), [transcript, profile, session, navigate, getAssemblyAIToken, customVocabulary]);
+  }), [profile, session, navigate, getAssemblyAIToken, customVocabulary]);
 
   const service = useTranscriptionService(serviceOptions);
 

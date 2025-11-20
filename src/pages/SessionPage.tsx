@@ -105,8 +105,6 @@ export const SessionPage: React.FC = () => {
     });
     const { isListening, modelLoadingProgress } = speechRecognition;
 
-    logger.info({ profile, loading: authLoading || profileLoading, usageLimitExceeded }, 'SessionPage render state');
-
     useEffect(() => {
         posthog.capture('session_page_viewed');
     }, []);
