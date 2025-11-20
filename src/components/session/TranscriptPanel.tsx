@@ -6,30 +6,30 @@ import type { FillerCounts } from '@/utils/fillerWordUtils';
 // --- Prop and Type Interfaces ---
 
 interface Chunk {
-  id: number;
-  text: string;
+    id: number;
+    text: string;
     speaker?: string;
 }
 
 interface ChunkProps {
-  chunk: string;
-  fillerData: FillerCounts;
+    chunk: string;
+    fillerData: FillerCounts;
 }
 
 interface HighlightedTranscriptProps {
-  chunks: Chunk[];
-  interimTranscript: string;
-  fillerData: FillerCounts;
+    chunks: Chunk[];
+    interimTranscript: string;
+    fillerData: FillerCounts;
 }
 
 interface TranscriptPanelProps {
-  chunks?: Chunk[];
-  interimTranscript?: string;
-  fillerData?: FillerCounts;
-  isLoading?: boolean;
-  isListening?: boolean;
-  isReady?: boolean;
-  error?: Error | null;
+    chunks?: Chunk[];
+    interimTranscript?: string;
+    fillerData?: FillerCounts;
+    isLoading?: boolean;
+    isListening?: boolean;
+    isReady?: boolean;
+    error?: Error | null;
 }
 
 // --- Sub-components ---
@@ -79,7 +79,7 @@ const HighlightedTranscript: React.FC<HighlightedTranscriptProps> = ({ chunks, i
         <p className="text-lg leading-relaxed text-foreground" data-testid="transcript-container">
             {chunks.map((chunk, index) => (
                 <React.Fragment key={chunk.id}>
-                {chunk.speaker && <strong className="mr-2 text-primary">{`Speaker ${chunk.speaker}:`}</strong>}
+                    {chunk.speaker && <strong className="mr-2 text-primary">{`Speaker ${chunk.speaker}:`}</strong>}
                     <MemoizedChunk chunk={chunk.text} fillerData={fillerData} />
                     {index < chunks.length - 1 && ' '}
                 </React.Fragment>

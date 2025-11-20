@@ -7,6 +7,7 @@ import { TranscriptPanel } from '../components/session/TranscriptPanel';
 import FillerWordAnalysis from '../components/session/FillerWordAnalysis';
 import AISuggestions from '../components/session/AISuggestions';
 import { SessionSidebar } from '../components/session/SessionSidebar';
+import { SpeakingTips } from '../components/session/SpeakingTips';
 import { Button } from '@/components/ui/button';
 import { Drawer, DrawerContent, DrawerTrigger } from '@/components/ui/drawer';
 import { SlidersHorizontal, AlertTriangle, Loader } from 'lucide-react';
@@ -36,7 +37,7 @@ const LeftColumnContent: React.FC<LeftColumnContentProps> = ({ speechRecognition
 
     if (!isSupported) {
         return (
-             <Card className="flex-grow">
+            <Card className="flex-grow">
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                         <AlertTriangle className="text-yellow-500" /> Browser Not Supported
@@ -149,40 +150,43 @@ export const SessionPage: React.FC = () => {
     };
 
     return (
-        <div className="container mx-auto px-component-px py-10">
-            <UpgradePromptDialog
-                open={usageLimitExceeded}
-                onOpenChange={setUsageLimitExceeded}
-            />
-            <div className="lg:flex lg:gap-component-gap relative lg:items-stretch">
-                <div className="lg:w-2/3 flex flex-col gap-component-gap">
-                    <ErrorBoundary>
-                        <LeftColumnContent
-                            speechRecognition={speechRecognition}
-                            customWords={customWords}
-                            setCustomWords={setCustomWords}
-                        />
-                    </ErrorBoundary>
-                </div>
+        <div className="min-h-screen bg-background">
+            <div className="container mx-auto px-component-px py-10">
+                <UpgradePromptDialog
+                    open={usageLimitExceeded}
+                    onOpenChange={setUsageLimitExceeded}
+                />
+                <div className="lg:flex lg:gap-component-gap relative lg:items-stretch">
+                    <div className="lg:w-2/3 flex flex-col gap-component-gap">
+                        <ErrorBoundary>
+                            <LeftColumnContent
+                                speechRecognition={speechRecognition}
+                                customWords={customWords}
+                                setCustomWords={setCustomWords}
+                            />
+                        </ErrorBoundary>
+                    </div>
 
-                <div className="max-lg:hidden lg:w-1/3">
-                    <SessionSidebar {...speechRecognition} saveSession={saveAndBroadcastSession} actualMode={speechRecognition.mode} startTime={isListening ? startTimeRef.current : null} modelLoadingProgress={modelLoadingProgress} />
-                </div>
+                    <div className="max-lg:hidden lg:w-1/3 flex flex-col gap-component-gap">
+                        <SessionSidebar {...speechRecognition} saveSession={saveAndBroadcastSession} actualMode={speechRecognition.mode} startTime={isListening ? startTimeRef.current : null} modelLoadingProgress={modelLoadingProgress} />
+                        <SpeakingTips />
+                    </div>
 
-                <div className="lg:hidden">
-                    <Drawer open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
-                        <DrawerTrigger asChild>
-                            <Button variant="outline" size="icon" className="fixed bottom-6 right-6 z-50 h-16 w-16 rounded-full shadow-lg flex items-center justify-center lg:hidden" data-testid="session-drawer-trigger">
-                                <SlidersHorizontal className="h-8 w-8" />
-                                <span className="sr-only">Open session controls</span>
-                            </Button>
-                        </DrawerTrigger>
-                        <DrawerContent>
-                            <div className="p-4 overflow-y-auto h-[80vh]">
-                                <SessionSidebar {...speechRecognition} saveSession={saveAndBroadcastSession} actualMode={speechRecognition.mode} startTime={isListening ? startTimeRef.current : null} modelLoadingProgress={modelLoadingProgress} />
-                            </div>
-                        </DrawerContent>
-                    </Drawer>
+                    <div className="lg:hidden">
+                        <Drawer open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
+                            <DrawerTrigger asChild>
+                                <Button variant="outline" size="icon" className="fixed bottom-6 right-6 z-50 h-16 w-16 rounded-full shadow-lg flex items-center justify-center lg:hidden" data-testid="session-drawer-trigger">
+                                    <SlidersHorizontal className="h-8 w-8" />
+                                    <span className="sr-only">Open session controls</span>
+                                </Button>
+                            </DrawerTrigger>
+                            <DrawerContent>
+                                <div className="p-4 overflow-y-auto h-[80vh]">
+                                    <SessionSidebar {...speechRecognition} saveSession={saveAndBroadcastSession} actualMode={speechRecognition.mode} startTime={isListening ? startTimeRef.current : null} modelLoadingProgress={modelLoadingProgress} />
+                                </div>
+                            </DrawerContent>
+                        </Drawer>
+                    </div>
                 </div>
             </div>
         </div>

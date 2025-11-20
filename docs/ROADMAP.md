@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-11-12
+**Last Reviewed:** 2025-11-20
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -10,6 +10,7 @@ This document outlines the forward-looking development plan for SpeakSharp. Comp
 
 Status Key: 🟡 In Progress | 🔴 Not Started
 ---
+
 ## Phase 1: Stabilize & Harden the MVP
 This phase focuses on fixing critical bugs, addressing code health, and ensuring the existing features are reliable and robust.
 
@@ -33,6 +34,8 @@ This phase is about confirming the core feature set works as expected and polish
 - 🔴 **Implement Custom Vocabulary:** Allow Pro users to add custom words (jargon, names) to improve transcription accuracy.
 - 🔴 **Implement Vocal Variety / Pause Detection:** Add a new Pro-tier feature to analyze vocal variety or pause duration.
 - ✅ **User-Friendly Error Handling:** Implement specific, user-facing error messages for common issues.
+- ✅ **Clarity Score Visualization:** Detailed breakdown of speech clarity.
+- ✅ **Goal Setting:** Weekly/Daily targets for practice consistency.
 - 🔴 **Deploy & confirm live transcript UI works:** Ensure text appears within 2 seconds of speech in a live environment.
 - 🔴 **Remove all temporary console.logs:** Clean up the codebase for production.
 
@@ -40,7 +43,9 @@ This phase is about confirming the core feature set works as expected and polish
 - 🟡 **Implement new SpeakSharp Design System:**
   - 🟡 3. Refactor UI Components & Test
   - 🔴 4. Final Verification & Test
+- ✅ **Refactor `useSpeechRecognition` hook:** Improve maintainability and fix memory leaks.
 - 🟡 **Add Robust UX States:** Some states exist, but are inconsistently applied.
+- 🔴 **Centralize configuration:** Move hardcoded values (e.g., session limits) to a config file.
 - 🔴 **Improve Accessibility:** Use an ARIA live region for the transcript so screen readers can announce new lines.
 - 🔴 **Add Deno unit tests for the token endpoint.**
 - 🔴 **Add a soak test:** Create a test that runs for 1-minute with continuous audio to check for memory leaks or hangs.

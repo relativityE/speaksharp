@@ -23,14 +23,14 @@ const TestimonialCard: React.FC<TestimonialCardProps> = ({ quote, author }) => (
 );
 
 const testimonials = [
-    {
-        quote: "TBD",
-        author: "TBD",
-    },
-    {
-        quote: "TBD",
-        author: "TBD",
-    }
+  {
+    quote: "SpeakSharp has completely transformed how I prepare for presentations. The real-time feedback is a game changer.",
+    author: "User 1",
+  },
+  {
+    quote: "I never realized how many filler words I used until I started using this app. Highly recommended!",
+    author: "User 2",
+  }
 ]
 
 export const TestimonialsSection = () => {
@@ -48,9 +48,9 @@ export const TestimonialsSection = () => {
           </div>
         </div>
         <div className="mx-auto grid max-w-5xl items-start gap-12 sm:grid-cols-2 lg:gap-16 mt-12">
-            {testimonials.map((testimonial, index) => (
-                <TestimonialCard key={index} {...testimonial} />
-            ))}
+          {testimonials.map((testimonial, index) => (
+            <TestimonialCard key={index} {...testimonial} />
+          ))}
         </div>
       </div>
     </section>

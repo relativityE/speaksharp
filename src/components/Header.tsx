@@ -4,15 +4,13 @@ import { useAuthProvider } from '../contexts/AuthProvider';
 import { usePracticeHistory } from '../hooks/usePracticeHistory';
 import { Button } from './ui/button';
 import { SideNav } from './SideNav';
-import { Home } from 'lucide-react';
 
 export const Header: React.FC = () => {
     const { user, signOut } = useAuthProvider();
     const { data: sessionHistory } = usePracticeHistory();
 
     const getNavLinkClass = ({ isActive }: { isActive: boolean }) =>
-        `flex items-center px-3 py-2 rounded-md text-base font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors ${
-        isActive ? "bg-secondary text-foreground" : ""
+        `flex items-center px-3 py-2 rounded-md text-base font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors ${isActive ? "bg-secondary text-foreground" : ""
         }`;
 
     const disabledLinkClasses = "opacity-50 pointer-events-none";
@@ -22,13 +20,14 @@ export const Header: React.FC = () => {
             <div className="container mx-auto flex h-16 items-center justify-between px-4">
                 <div className="flex items-center gap-4">
                     <SideNav />
-                    <NavLink to="/" className="p-2 hover:bg-secondary rounded-md">
-                        <Home className="h-6 w-6 text-primary" />
+                    <NavLink to="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+                        <img src="/assets/speaksharp-logo.png" alt="SpeakSharp Logo" className="h-8 w-8" />
+                        <span className="font-bold text-xl hidden sm:inline-block">SpeakSharp</span>
                     </NavLink>
                 </div>
                 <div className="flex items-center gap-4">
                     <nav className="hidden md:flex items-center gap-4">
-                        <NavLink to="/session" className={getNavLinkClass}>Session</NavLink>
+                        <NavLink to="/sessions" className={getNavLinkClass}>Session</NavLink>
                         <NavLink to="/pricing" className={getNavLinkClass}>Pricing</NavLink>
                         {sessionHistory && sessionHistory.length > 0 ? (
                             <NavLink to="/analytics" className={getNavLinkClass}>Analytics</NavLink>

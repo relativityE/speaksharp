@@ -12,6 +12,8 @@ import { formatDate, formatDateTime } from '../lib/dateUtils';
 import { FillerWordTable } from './analytics/FillerWordTable';
 import { TopFillerWords } from './analytics/TopFillerWords';
 import { AccuracyComparison } from './analytics/AccuracyComparison';
+import { WeeklyActivityChart } from './analytics/WeeklyActivityChart';
+import { GoalsSection } from './analytics/GoalsSection';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '../lib/logger';
 import type { PracticeSession } from '@/types/session';
@@ -20,24 +22,24 @@ import type { UserProfile } from '@/types/user';
 // --- Prop Interfaces ---
 
 interface AnalyticsDashboardProps {
-  sessionHistory: PracticeSession[];
-  profile: UserProfile | null;
-  loading: boolean;
-  error: Error | null;
+    sessionHistory: PracticeSession[];
+    profile: UserProfile | null;
+    loading: boolean;
+    error: Error | null;
 }
 
 interface StatCardProps {
-  icon: React.ReactNode;
-  label: string;
-  value: string | number;
-  unit?: string;
-  className?: string;
-  testId?: string;
+    icon: React.ReactNode;
+    label: string;
+    value: string | number;
+    unit?: string;
+    className?: string;
+    testId?: string;
 }
 
 interface SessionHistoryItemProps {
-  session: PracticeSession;
-  isPro: boolean;
+    session: PracticeSession;
+    isPro: boolean;
 }
 
 // --- Sub-components ---
@@ -51,7 +53,7 @@ const EmptyState: React.FC = () => {
             <p className="max-w-md mx-auto my-4 text-base text-muted-foreground">
                 Record your next session to unlock your progress trends and full analytics!
             </p>
-            <Button onClick={() => navigate('/session')} size="lg">
+            <Button onClick={() => navigate('/sessions')} size="lg">
                 Start a New Session →
             </Button>
         </Card>
@@ -143,8 +145,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ sessionH
 
     const handleUpgrade = async () => {
         try {
-      const supabase = getSupabaseClient();
-      if (!supabase) throw new Error("Supabase client not available");
+            const supabase = getSupabaseClient();
+            if (!supabase) throw new Error("Supabase client not available");
             const { data, error } = await supabase.functions.invoke('stripe-checkout');
             if (error) throw error;
             if (data.checkoutUrl) window.location.href = data.checkoutUrl;
@@ -166,11 +168,17 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ sessionH
                 <StatCard icon={<Gauge size={24} className="text-muted-foreground" />} label="Speaking Pace" value={overallStats.avgWpm} unit="WPM" testId="speaking-pace" />
                 <StatCard icon={<TrendingUp size={24} className="text-muted-foreground" />} label="Avg. Filler Words / Min" value={overallStats.avgFillerWordsPerMin} testId="avg-filler-words-min" />
                 <StatCard icon={<Clock size={24} className="text-muted-foreground" />} label="Total Practice Time" value={overallStats.totalPracticeTime} unit="mins" testId="total-practice-time" />
-                <StatCard icon={<Target size={24} className="text-muted-foreground" />} label="Avg. Accuracy" value={overallStats.avgAccuracy} unit="%" testId="avg-accuracy" />
+                <StatCard icon={<Target size={24} className="text-muted-foreground" />} label="Clarity Score" value={overallStats.avgAccuracy} unit="%" testId="avg-accuracy" />
             </div>
             <div className="grid grid-cols-1 gap-8 lg:grid-cols-5">
                 <div className="col-span-1 lg:col-span-5">
                     <AccuracyComparison />
+                </div>
+                <div className="col-span-1 lg:col-span-3">
+                    <WeeklyActivityChart />
+                </div>
+                <div className="col-span-1 lg:col-span-2">
+                    <GoalsSection />
                 </div>
                 <Card className="col-span-1 lg:col-span-3">
                     <CardHeader><CardTitle>Filler Word Trend</CardTitle></CardHeader>
@@ -181,7 +189,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ sessionH
                                     <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
                                     <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
                                     <YAxis stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
-                                    <Tooltip cursor={{ fill: 'hsla(var(--secondary))' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}/>
+                                    <Tooltip cursor={{ fill: 'hsla(var(--secondary))' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
                                     <Line type="monotone" dataKey="FW/min" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
                                 </LineChart>
                             </ResponsiveContainer>
@@ -198,8 +206,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ sessionH
             <Card>
                 <CardHeader><CardTitle>Session History</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
-                {sessionHistory.slice(0, 10).map((session) => (
-                    <SessionHistoryItem key={session.id} session={session} isPro={isPro} />
+                    {sessionHistory.slice(0, 10).map((session) => (
+                        <SessionHistoryItem key={session.id} session={session} isPro={isPro} />
                     ))}
                 </CardContent>
             </Card>

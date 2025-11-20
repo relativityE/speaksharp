@@ -22,27 +22,27 @@ const FeatureCard: React.FC<FeatureCardProps> = ({ icon, title, description, ico
 );
 
 const features = [
-    {
-        icon: <Zap className="size-8" />,
-        title: "Real-time Transcription",
-        description: "Get instant transcriptions of your speech as you talk, allowing you to review your words on the fly.",
-        iconBgColor: "bg-primary/10",
-        iconTextColor: "text-primary",
-    },
-    {
-        icon: <CheckCircle className="size-8" />,
-        title: "Filler Word Detection",
-        description: "Our core feature. We highlight filler words like 'um', 'ah', and 'like' so you can identify and eliminate them.",
-        iconBgColor: "bg-success/10",
-        iconTextColor: "text-success",
-    },
-    {
-        icon: <Shield className="size-8" />,
-        title: "Privacy Focused",
-        description: "Your speech is processed entirely in your browser. No audio data is ever sent to or stored on our servers.",
-        iconBgColor: "bg-accent/10",
-        iconTextColor: "text-accent",
-    }
+  {
+    icon: <Zap className="size-8" />,
+    title: "Real-time Transcription",
+    description: "Get instant transcriptions of your speech as you talk, allowing you to review your words on the fly.",
+    iconBgColor: "bg-primary/10",
+    iconTextColor: "text-primary",
+  },
+  {
+    icon: <CheckCircle className="size-8" />,
+    title: "Filler Word Detection",
+    description: "Our core feature. We highlight filler words like 'um', 'ah', and 'like' so you can identify and eliminate them.",
+    iconBgColor: "bg-success/10",
+    iconTextColor: "text-success",
+  },
+  {
+    icon: <Shield className="size-8" />,
+    title: "Privacy Focused",
+    description: "Your speech is processed entirely in your browser. No audio data is ever sent to or stored on our servers.",
+    iconBgColor: "bg-accent/10",
+    iconTextColor: "text-accent",
+  }
 ]
 
 export const FeaturesSection = () => {
@@ -66,6 +66,20 @@ export const FeaturesSection = () => {
           {features.map((feature, index) => (
             <FeatureCard key={index} {...feature} />
           ))}
+        </div>
+        <div className="mt-24 max-w-5xl mx-auto">
+          <div className="relative rounded-2xl overflow-hidden shadow-2xl border border-border/50 group">
+            <div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent z-10" />
+            <img
+              src="/assets/analytics-visual.jpg"
+              alt="Analytics Dashboard Preview"
+              className="w-full h-auto object-cover transform group-hover:scale-[1.02] transition-transform duration-700"
+            />
+            <div className="absolute bottom-0 left-0 right-0 p-8 z-20 text-center">
+              <h3 className="text-2xl font-bold text-white mb-2">Deep Insights</h3>
+              <p className="text-gray-200 max-w-2xl mx-auto">Visualize your progress with detailed analytics on pacing, filler words, and clarity.</p>
+            </div>
+          </div>
         </div>
       </div>
     </section>

@@ -52,7 +52,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     }, [sessionId, sessionHistory]);
 
     if (sessionId && !singleSession && !loading && !error) {
-         return (
+        return (
             <div className="text-center py-16">
                 <h2 className="text-2xl font-semibold mb-4">Session Not Found</h2>
                 <p className="text-muted-foreground mb-6">We couldn't find the session you're looking for.</p>
@@ -88,8 +88,10 @@ const AuthenticatedAnalyticsView: React.FC = () => {
 
 export const AnalyticsPage: React.FC = () => {
     return (
-        <div className="container mx-auto px-4 py-10">
-            <AuthenticatedAnalyticsView />
+        <div className="min-h-screen bg-background">
+            <div className="container mx-auto px-4 py-10">
+                <AuthenticatedAnalyticsView />
+            </div>
         </div>
     );
 };

@@ -16,7 +16,7 @@ test.describe('Smoke Test', () => {
 
     // Step 2: Navigate to Session Page and verify content
     await test.step('Navigate to Session Page', async () => {
-      await page.goto('/session');
+      await page.goto('/sessions');
       await expect(page.getByRole('heading', { name: 'Live Transcript' })).toBeVisible();
 
       // Robust assertion: Verify that the main functional element, the start/stop button,

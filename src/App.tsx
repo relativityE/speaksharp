@@ -17,7 +17,7 @@ const App: React.FC = () => {
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/auth" element={<AuthPage />} />
-          <Route path="/session" element={<SessionPage />} />
+          <Route path="/sessions" element={<SessionPage />} />
           <Route path="/analytics" element={
             <ProtectedRoute>
               <AnalyticsPage />

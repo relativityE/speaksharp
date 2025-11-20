@@ -6,7 +6,7 @@
 
 # SpeakSharp Product Requirements Document
 
-**Version 8.1** | **Last Updated:** 2025-09-25
+**Version 8.2** | **Last Updated:** 2025-11-20
 
 ## 1. Executive Summary
 
@@ -72,35 +72,35 @@ This section provides a granular breakdown of user-facing features, grouped by p
 
 #### 🎯 Must-Have
 
-| Feature | Description | Status | Unit Test |
-| :--- | :--- | :--- | :--- |
-| **Transcription** | The core service that converts speech to text. | ✅ Implemented | ✅ Yes |
-| **Cloud Server STT** | High-accuracy transcription via AssemblyAI. (Pro) | ✅ Implemented | ✅ Yes |
-| **On-Device STT** | Privacy-first transcription using a local Whisper model. (Pro) | ✅ Implemented | ✅ Yes |
-| **Fallback STT** | Standard transcription using the native browser API. (Free) | ✅ Implemented | ✅ Yes |
-| **UI Mode Selector** | Allows users to select their preferred transcription engine. | ✅ Implemented | ✅ Yes |
-| **Session History** | Users can view and analyze their past practice sessions. | ✅ Implemented | ✅ Yes |
-| **Filler Word Detection** | Detects and counts common filler words (um, uh, like, etc.). | ✅ Implemented | ✅ Yes |
-| **Speaking Pace (WPM)** | Provides real-time words-per-minute analysis. | ✅ Implemented | ✅ Yes |
-| **Custom Vocabulary** | Allows users to add custom words to improve accuracy. | 🔴 Not Started | 🔴 No |
-| **Speaker Identification**| Distinguishes between multiple speakers in a transcript. | ✅ Implemented | ✅ Yes |
+| Feature | Phase | Description | Status | Unit Test |
+| :--- | :--- | :--- | :--- | :--- |
+| **Transcription** | 1 | The core service that converts speech to text. | ✅ Implemented | ✅ Yes |
+| **Cloud Server STT** | 1 | High-accuracy transcription via AssemblyAI. (Pro) | ✅ Implemented | ✅ Yes |
+| **On-Device STT** | 1 | Privacy-first transcription using a local Whisper model. (Pro) | ✅ Implemented | ✅ Yes |
+| **Fallback STT** | 1 | Standard transcription using the native browser API. (Free) | ✅ Implemented | ✅ Yes |
+| **UI Mode Selector** | 1 | Allows users to select their preferred transcription engine. | ✅ Implemented | ✅ Yes |
+| **Session History** | 1 | Users can view and analyze their past practice sessions. | ✅ Implemented | ✅ Yes |
+| **Filler Word Detection** | 1 | Detects and counts common filler words (um, uh, like, etc.). | ✅ Implemented | ✅ Yes |
+| **Speaking Pace (WPM)** | 2 | Provides real-time words-per-minute analysis. | ✅ Implemented | ✅ Yes |
+| **Clarity Score** | 2 | Detailed breakdown of speech clarity. | ✅ Implemented | ✅ Yes |
+| **Goal Setting** | 2 | Weekly/Daily targets for practice consistency. | ✅ Implemented | ✅ Yes |
+| **User-Friendly Error Handling** | 2 | Specific, user-facing error messages. | ✅ Implemented | ✅ Yes |
+| **Custom Vocabulary** | 2 | Allows users to add custom words to improve accuracy. | 🔴 Not Started | 🔴 No |
+| **Vocal Variety / Pause Detection** | 2 | Analyzes vocal pitch, tone, and pause duration. | 🔴 Not Started | 🔴 No |
+| **Speaker Identification**| 1 | Distinguishes between multiple speakers in a transcript. | ✅ Implemented | ✅ Yes |
 
 #### 🚧 Should-Have
 
-| Feature | Description | Status | Unit Test |
-| :--- | :--- | :--- | :--- |
-| **AI Suggestions** | Provides AI-driven feedback on transcripts. | ✅ Implemented | ✅ Yes |
-| **Filler Word Trend** | Analyzes the trend of filler word usage across sessions. | ✅ Implemented | ✅ Yes |
-| **Session Comparison** | Compares stats from the 4 most recent sessions. | ✅ Implemented | ✅ Yes |
-| **PDF Export** | Allows users to download a PDF report of their session. | ✅ Implemented | ✅ Yes |
-| **STT Accuracy Comparison** | Rolling average comparison of STT engine accuracy against a ground truth. | ✅ Implemented | ✅ Yes |
-| **Top 2 Filler Words**| Maintains the top 2 highest filler words for the most recent 4 sessions. | ✅ Implemented | ✅ Yes |
+| Feature | Phase | Description | Status | Unit Test |
+| :--- | :--- | :--- | :--- | :--- |
+| **AI Suggestions** | 1 | Provides AI-driven feedback on transcripts. | ✅ Implemented | ✅ Yes |
+| **Filler Word Trend** | 1 | Analyzes the trend of filler word usage across sessions. | ✅ Implemented | ✅ Yes |
+| **Session Comparison** | 1 | Compares stats from the 4 most recent sessions. | ✅ Implemented | ✅ Yes |
+| **PDF Export** | 1 | Allows users to download a PDF report of their session. | ✅ Implemented | ✅ Yes |
+| **STT Accuracy Comparison** | 1 | Rolling average comparison of STT engine accuracy against a ground truth. | ✅ Implemented | ✅ Yes |
+| **Top 2 Filler Words**| 1 | Maintains the top 2 highest filler words for the most recent 4 sessions. | ✅ Implemented | ✅ Yes |
 
-#### 🌱 Could-Have
 
-| Feature | Description | Status | Unit Test |
-| :--- | :--- | :--- | :--- |
-| **Vocal Variety / Pause Detection** | Analyzes vocal pitch, tone, and pause duration. | 🔴 Not Started | 🔴 No |
 
 ### Differentiation
 *   **vs. Otter.ai:** Privacy-first (on-device option is a key roadmap item), focused on improvement, not just transcription.

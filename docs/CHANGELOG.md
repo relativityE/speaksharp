@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **E2E Test for Analytics Page:** Added a new foundational E2E test (`analytics.e2e.spec.ts`) that verifies the analytics page loads correctly for an authenticated user.
 - **E2E Test Architecture Documentation:** Added a new section to `docs/ARCHITECTURE.md` detailing the fixture-based E2E testing strategy, the `programmaticLogin` helper, the role of the mock JWT, and known testing limitations.
 - **Technical Debt Documentation:** Added an entry to `docs/ROADMAP.md` to formally track the inability to E2E test the live transcript generation as technical debt.
+- **Goal Setting:** Implemented weekly/daily targets for practice consistency in the Analytics Dashboard.
 
 ### Fixed
 - **`test-audit.sh` Workflow Mismatch:** The old `test-audit.sh` script was refactored to correctly parse command-line arguments (e.g., `lint`, `test`, `e2e`), aligning its behavior with the documentation and CI pipeline. This restores the intended developer workflow for running specific test stages locally.
@@ -97,6 +98,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Fragile Test Infrastructure:** Replaced the custom test wrapper (`verifyOnlyStepTracker.ts`) with a new, resilient version that includes action timeouts to prevent indefinite hangs.
   - **Conflicting Mocking Systems:** Removed a redundant Playwright-based mocking system from `sdkStubs.ts` to consolidate all API mocking within MSW, eliminating race conditions.
 
+### Fixed
+- **Session Page**: Resolved "Blank Page" issue by correcting routing mismatch (renamed `/session` to `/sessions` and back, ensuring consistency).
+- **Analytics Dashboard**: Fixed "Could not load accuracy data" errors by aligning E2E mock data structure with application requirements.
+
+### Changed
+- **Terminology**: Updated "Avg. Accuracy" to "Clarity Score" in Analytics Dashboard to match design specs.
+
 ### Removed
 - **Visual Regression Test:** Removed the `visual.e2e.spec.ts` file as its file-based screenshot comparison strategy is incompatible with the new artifact-free testing approach.
 - **Obsolete User Tiers:** A full audit for "anonymous" and "premium" references was conducted. All legacy code paths related to these user tiers have been removed, and the codebase now exclusively uses the "free" and "pro" user types.
@@ -104,7 +112,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Refactored
 - **`useSpeechRecognition` Hook:** The hook has been successfully refactored into smaller, more focused hooks (`useTranscriptionService`, `useFillerWords`, `useTranscriptState`). The underlying `useTranscriptionService` was further refactored to resolve a critical memory leak caused by improper instance management. The entire test suite is now passing, confirming the stability of the new implementation.
 
-## [0.1.0] - 2025-09-08
+## [0.1.0] - 2025-10-26
 
 ### Added
 - Initial release of SpeakSharp.

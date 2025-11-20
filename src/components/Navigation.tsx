@@ -15,31 +15,31 @@ const Navigation = () => {
 
   const navItems = [
     { path: "/", icon: Home, label: "Home" },
-    { path: "/session", icon: Mic, label: "Session" },
+    { path: "/sessions", icon: Mic, label: "Session" },
     { path: "/analytics", icon: BarChart3, label: "Analytics" },
   ];
 
   const MobileNav = () => (
     <div className="md:hidden fixed bottom-0 left-0 right-0 bg-card/95 border-t border-border shadow-card z-50 p-2">
-        <div className="flex justify-around items-center">
-            {navItems.map((item) => {
-                const isActive = location.pathname === item.path;
-                return (
-                    <Button
-                        key={item.path}
-                        variant={isActive ? "secondary" : "ghost"}
-                        size="sm"
-                        asChild
-                        className="flex flex-col h-16"
-                    >
-                        <Link to={item.path}>
-                            <item.icon className="h-5 w-5 mb-1" />
-                            <span className="text-xs">{item.label}</span>
-                        </Link>
-                    </Button>
-                );
-            })}
-        </div>
+      <div className="flex justify-around items-center">
+        {navItems.map((item) => {
+          const isActive = location.pathname === item.path;
+          return (
+            <Button
+              key={item.path}
+              variant={isActive ? "secondary" : "ghost"}
+              size="sm"
+              asChild
+              className="flex flex-col h-16"
+            >
+              <Link to={item.path}>
+                <item.icon className="h-5 w-5 mb-1" />
+                <span className="text-xs">{item.label}</span>
+              </Link>
+            </Button>
+          );
+        })}
+      </div>
     </div>
   );
 
