@@ -439,6 +439,7 @@ The backend is built entirely on the Supabase platform, leveraging its integrate
     *   `PauseDetector` class: Analyzes audio frames for silence gaps > 500ms (configurable).
     *   `useVocalAnalysis` hook: Integrates the detector with the real-time audio stream.
 *   **Configuration:** Thresholds are centralized in `src/config.ts`.
+*   **Centralized Configuration:** Key application constants (session limits, audio settings, vocabulary limits) are consolidated in `src/config.ts` to ensure consistency and maintainability across the codebase.
 
 ## 6. User Roles and Tiers
 
