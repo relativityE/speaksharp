@@ -1,4 +1,4 @@
-import type { ITranscriptionMode, TranscriptionModeOptions } from './types';
+import type { ITranscriptionMode, TranscriptionModeOptions, Transcript } from './types';
 import type { MicStream } from '../utils/types';
 import { createMicStream } from '../utils/audioUtils';
 import logger from '../../../lib/logger';
