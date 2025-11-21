@@ -67,10 +67,11 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
         const boostParam = this.customVocabulary.join(',');
         url += `&boost_param=${encodeURIComponent(boostParam)}`;
       }
+      logger.info({ url: url.replace(/token=[^&]+/, 'token=REDACTED') }, '[CloudAssemblyAI] Creating WebSocket connection');
       this.socket = new WebSocket(url);
 
       this.socket.onopen = () => {
-        logger.info('[CloudAssemblyAI] WebSocket connected - calling onReady() and starting audio frame handler');
+        logger.info({ readyState: this.socket?.readyState }, '[CloudAssemblyAI] WebSocket OPEN event - calling onReady() and starting audio frame handler');
         this.onReady();
         this.mic?.onFrame(this.frameHandler);
       };
@@ -96,11 +97,12 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
       };
 
       this.socket.onerror = (error) => {
-        console.error('❌ [CloudAssemblyAI] WebSocket error:', error);
+        logger.error({ error, readyState: this.socket?.readyState }, '❌ [CloudAssemblyAI] WebSocket ERROR event');
         this.stopTranscription();
       };
 
-      this.socket.onclose = () => {
+      this.socket.onclose = (event) => {
+        logger.info({ code: event.code, reason: event.reason, wasClean: event.wasClean }, '[CloudAssemblyAI] WebSocket CLOSE event');
         this.socket = null;
         this.mic?.offFrame(this.frameHandler);
       };
