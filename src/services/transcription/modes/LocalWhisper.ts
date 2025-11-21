@@ -1,26 +1,60 @@
 import logger from '../../../lib/logger';
-import { pipeline, AutomaticSpeechRecognitionPipeline } from '@xenova/transformers';
+import { SessionManager, AvailableModels, InferenceSession } from 'whisper-turbo';
 import { ITranscriptionMode, TranscriptionModeOptions } from './types';
 import { MicStream } from '../utils/types';
 import { TranscriptUpdate } from '../TranscriptionService';
 
-const HUB_MODEL = 'Xenova/whisper-tiny.en';
-const LOCAL_MODEL_PATH = '/models/whisper-tiny.en/';
+// Helper to convert Float32Array to WAV Uint8Array
+function floatToWav(samples: Float32Array, sampleRate: number = 16000): Uint8Array {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+
+  // RIFF chunk descriptor
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeString(view, 8, 'WAVE');
+
+  // fmt sub-chunk
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true); // Subchunk1Size (16 for PCM)
+  view.setUint16(20, 1, true); // AudioFormat (1 for PCM)
+  view.setUint16(22, 1, true); // NumChannels (1 for mono)
+  view.setUint32(24, sampleRate, true); // SampleRate
+  view.setUint32(28, sampleRate * 2, true); // ByteRate (SampleRate * NumChannels * BitsPerSample/8)
+  view.setUint16(32, 2, true); // BlockAlign (NumChannels * BitsPerSample/8)
+  view.setUint16(34, 16, true); // BitsPerSample
+
+  // data sub-chunk
+  writeString(view, 36, 'data');
+  view.setUint32(40, samples.length * 2, true);
+
+  // Write samples (convert Float32 to Int16)
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    offset += 2;
+  }
+
+  return new Uint8Array(buffer);
+}
+
+function writeString(view: DataView, offset: number, string: string) {
+  for (let i = 0; i < string.length; i++) {
+    view.setUint8(offset + i, string.charCodeAt(i));
+  }
+}
 
 type Status = 'idle' | 'loading' | 'transcribing' | 'stopped' | 'error';
-
-interface TranscriptionChunk {
-  timestamp: [number, number];
-  text: string;
-}
 
 export default class LocalWhisper implements ITranscriptionMode {
   private onTranscriptUpdate: (update: TranscriptUpdate) => void;
   private onModelLoadProgress?: (progress: number) => void;
   private status: Status;
   private transcript: string;
-  private pipe: AutomaticSpeechRecognitionPipeline | null;
+  private session: InferenceSession | null;
   private mic: MicStream | null = null;
+  private manager: SessionManager;
 
   constructor({ onTranscriptUpdate, onModelLoadProgress }: TranscriptionModeOptions) {
     if (!onTranscriptUpdate) {
@@ -30,8 +64,9 @@ export default class LocalWhisper implements ITranscriptionMode {
     this.onModelLoadProgress = onModelLoadProgress;
     this.status = 'idle';
     this.transcript = '';
-    this.pipe = null;
-    logger.info('[LocalWhisper] Initialized.');
+    this.session = null;
+    this.manager = new SessionManager();
+    logger.info('[LocalWhisper] Initialized (whisper-turbo backend).');
   }
 
   public async init(): Promise<void> {
@@ -39,48 +74,69 @@ export default class LocalWhisper implements ITranscriptionMode {
     this.status = 'loading';
 
     try {
-      logger.info(`[LocalWhisper] Attempting to load model from Hub: ${HUB_MODEL}`);
-      this.pipe = await pipeline('automatic-speech-recognition', HUB_MODEL, {
-        progress_callback: this.onModelLoadProgress,
-      });
-      this.status = 'idle';
-      logger.info(`[LocalWhisper] Model loaded successfully from Hub: ${HUB_MODEL}.`);
-    } catch (hubError: unknown) {
-      const errorMessage = hubError instanceof Error ? hubError.message : String(hubError);
-      logger.warn(`[LocalWhisper] Failed to load model from Hub. Falling back to local model. Error: ${errorMessage}`);
-      try {
-        logger.info(`[LocalWhisper] Attempting to load model from local path: ${LOCAL_MODEL_PATH}`);
-        this.pipe = await pipeline('automatic-speech-recognition', LOCAL_MODEL_PATH, {
-          progress_callback: this.onModelLoadProgress,
-        });
-        this.status = 'idle';
-        logger.info(`[LocalWhisper] Model loaded successfully from local path: ${LOCAL_MODEL_PATH}.`);
-      } catch (localError) {
-        logger.error({ err: localError }, '[LocalWhisper] CRITICAL: Failed to load model from both Hub and local path.');
-        this.status = 'error';
-        throw localError;
+      logger.info(`[LocalWhisper] Loading model: ${AvailableModels.WHISPER_TINY}`);
+
+      const result = await this.manager.loadModel(
+        AvailableModels.WHISPER_TINY,
+        () => {
+          logger.info('[LocalWhisper] Model loaded callback triggered.');
+        },
+        (progress: number) => {
+          if (this.onModelLoadProgress) {
+            this.onModelLoadProgress(progress);
+          }
+        }
+      );
+
+      if (result.isErr) {
+        throw result.error;
       }
+
+      this.session = result.value;
+      this.status = 'idle';
+      logger.info('[LocalWhisper] Model loaded successfully.');
+    } catch (error) {
+      logger.error({ err: error }, '[LocalWhisper] Failed to load model.');
+      this.status = 'error';
+      throw error;
     }
   }
 
   public async startTranscription(mic: MicStream): Promise<void> {
     this.mic = mic;
     logger.info('[LocalWhisper] startTranscription() called.');
-    if (this.status !== 'idle' || !this.pipe) {
+    if (this.status !== 'idle' || !this.session) {
       logger.error('[LocalWhisper] Not ready for transcription.');
       return;
     }
     this.status = 'transcribing';
 
+    // Record for 5 seconds (matching original LocalWhisper behavior)
     const audioData = await this.getAudioData(mic);
-    const result = await this.pipe(audioData, {
-      chunk_length_s: 30,
-      stride_length_s: 5,
-    }) as { text: string; chunks: TranscriptionChunk[] };
+    const wavData = floatToWav(audioData);
 
-    this.transcript = result.text;
-    this.onTranscriptUpdate({ transcript: { final: this.transcript }, chunks: result.chunks || [] });
-    this.status = 'stopped';
+    logger.info(`[LocalWhisper] Transcribing ${audioData.length} samples...`);
+
+    try {
+      // Perform transcription without callback to ensure we get the full result object
+      const result = await this.session.transcribe(wavData, false, {});
+
+      if (result.isErr) {
+        throw result.error;
+      }
+
+      // The result value contains the full text
+      const text = result.value.text || '';
+      this.transcript = text;
+
+      this.onTranscriptUpdate({ transcript: { final: this.transcript } });
+      logger.info({ textLength: this.transcript.length }, '[LocalWhisper] Transcription complete.');
+
+    } catch (err) {
+      logger.error({ err }, '[LocalWhisper] Transcription failed.');
+    } finally {
+      this.status = 'stopped';
+    }
   }
 
   private async getAudioData(mic: MicStream, duration: number = 5000): Promise<Float32Array> {

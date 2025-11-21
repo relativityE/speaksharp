@@ -1,62 +1,67 @@
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import LocalWhisper from '../LocalWhisper';
+import { MicStream } from '../../utils/types';
 
-// The mock implementation is defined directly inside the factory
-// to ensure it is available when vi.mock is hoisted.
-vi.mock('@xenova/transformers', () => ({
-  pipeline: vi.fn().mockImplementation(async (task, model, { progress_callback }) => {
-    if (progress_callback) {
-      progress_callback({ status: 'progress', progress: 50 });
-      progress_callback({ status: 'done' });
+// Mock the whisper-turbo library
+vi.mock('whisper-turbo', () => {
+  return {
+    SessionManager: vi.fn().mockImplementation(() => ({
+      loadModel: vi.fn().mockResolvedValue({
+        isErr: false,
+        value: {
+          transcribe: vi.fn().mockResolvedValue({
+            isErr: false,
+            value: { text: 'Test transcript' }
+          })
+        }
+      })
+    })),
+    AvailableModels: {
+      WHISPER_TINY: 'tiny'
     }
-    return vi.fn().mockResolvedValue({ text: 'mocked transcript' });
-  }),
-}));
+  };
+});
 
-describe('LocalWhisper Transcription Mode', () => {
+describe('LocalWhisper (whisper-turbo backend)', () => {
   let localWhisper: LocalWhisper;
+  const mockOnTranscriptUpdate = vi.fn();
+  const mockOnModelLoadProgress = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it('should initialize correctly by creating a pipeline', async () => {
-    const { pipeline } = await import('@xenova/transformers');
-    localWhisper = new LocalWhisper({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
-    await localWhisper.init();
-    expect(pipeline).toHaveBeenCalledWith(
-      'automatic-speech-recognition',
-      'Xenova/whisper-tiny.en',
-      expect.any(Object)
-    );
-  });
-
-  it('should call onModelLoadProgress during initialization', async () => {
-    const onModelLoadProgress = vi.fn();
     localWhisper = new LocalWhisper({
-      onTranscriptUpdate: vi.fn(),
-      onModelLoadProgress,
-      onReady: vi.fn(),
+      onTranscriptUpdate: mockOnTranscriptUpdate,
+      onModelLoadProgress: mockOnModelLoadProgress,
+      onReady: vi.fn()
     });
-    await localWhisper.init();
-    expect(onModelLoadProgress).toHaveBeenCalledWith({ status: 'progress', progress: 50 });
-    expect(onModelLoadProgress).toHaveBeenCalledWith({ status: 'done' });
   });
 
-  it('should fall back to local model if hub fails', async () => {
-    const { pipeline } = await import('@xenova/transformers');
-    const mockPipeline = pipeline as ReturnType<typeof vi.fn>;
+  it('initializes correctly', async () => {
+    await expect(localWhisper.init()).resolves.not.toThrow();
+  });
 
-    // Make the first call (hub) fail, and the second (local) succeed
-    mockPipeline
-      .mockRejectedValueOnce(new Error('Hub failed'))
-      .mockResolvedValue(vi.fn().mockResolvedValue({ text: 'local model transcript' }));
-
-    localWhisper = new LocalWhisper({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+  it('starts transcription and emits update', async () => {
     await localWhisper.init();
 
-    expect(mockPipeline).toHaveBeenCalledTimes(2);
-    expect(mockPipeline).toHaveBeenCalledWith('automatic-speech-recognition', 'Xenova/whisper-tiny.en', expect.any(Object));
-    expect(mockPipeline).toHaveBeenCalledWith('automatic-speech-recognition', '/models/whisper-tiny.en/', expect.any(Object));
+    const mockMic = {
+      onFrame: vi.fn((callback) => {
+        // Simulate some audio frames
+        callback(new Float32Array(16000)); // 1 second of silence
+      }),
+      offFrame: vi.fn()
+    } as unknown as MicStream;
+
+    // We need to mock setTimeout to speed up the 5s recording
+    vi.useFakeTimers();
+    const startPromise = localWhisper.startTranscription(mockMic);
+
+    vi.advanceTimersByTime(5000);
+    await startPromise;
+
+    expect(mockOnTranscriptUpdate).toHaveBeenCalledWith({
+      transcript: { final: 'Test transcript' }
+    });
+
+    vi.useRealTimers();
   });
 });

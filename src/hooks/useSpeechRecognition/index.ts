@@ -20,7 +20,9 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
   const navigate = useNavigate();
 
   const [duration, setDuration] = useState(0);
+  const [modelLoadingProgress, setModelLoadingProgress] = useState<number | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const toastIdRef = useRef<string | number | null>(null);
 
   const transcript = useTranscriptState();
   const fillerWords = useFillerWords(transcript.finalChunks, transcript.interimTranscript, customWords);
@@ -62,8 +64,36 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     onReady: () => {
       // This callback is invoked by NativeBrowser and CloudAssemblyAI when they start successfully
       logger.info('[useSpeechRecognition] onReady callback invoked - transcription service is ready');
+      // Dismiss loading toast if it exists
+      if (toastIdRef.current) {
+        toast.dismiss(toastIdRef.current);
+        toastIdRef.current = null;
+      }
+      setModelLoadingProgress(null);
     },
-    onModelLoadProgress: () => { },
+    onModelLoadProgress: (progress: number) => {
+      setModelLoadingProgress(progress);
+      const percentage = Math.round(progress * 100);
+
+      // Show or update toast
+      if (toastIdRef.current) {
+        toast.loading(`Downloading AI model... ${percentage}%`, { id: toastIdRef.current });
+      } else {
+        toastIdRef.current = toast.loading(`Downloading AI model... ${percentage}%`);
+      }
+
+      // Dismiss toast when complete
+      if (progress >= 1) {
+        setTimeout(() => {
+          if (toastIdRef.current) {
+            toast.dismiss(toastIdRef.current);
+            toast.success('Model loaded successfully!');
+            toastIdRef.current = null;
+          }
+          setModelLoadingProgress(null);
+        }, 500);
+      }
+    },
     profile: profile ?? null,
     session: session ?? null,
     navigate,
@@ -143,7 +173,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     error: service.error,
     isSupported: service.isSupported,
     mode: service.mode,
-    modelLoadingProgress: null,
+    modelLoadingProgress,
     startListening,
     stopListening,
     reset,

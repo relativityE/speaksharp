@@ -47,7 +47,7 @@ export default defineConfig({
       NODE_OPTIONS: '--max-old-space-size=2048'
     },
     deps: {
-      inline: ["@xenova/transformers"],
+      inline: ["@xenova/transformers", "whisper-turbo", "whisper-webgpu"],
     }
   },
   resolve: {
@@ -55,9 +55,13 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
       "sharp": path.resolve(__dirname, "./src/test/mocks/sharp.ts"),
       '@xenova/transformers': path.resolve(__dirname, './__mocks__/transformers.ts'),
+      'whisper-turbo': path.resolve(__dirname, './__mocks__/whisper-turbo.ts'),
     },
   },
   define: {
     TEST_MODE: JSON.stringify(process.env.VITE_TEST_MODE === 'true'),
+  },
+  optimizeDeps: {
+    exclude: ['whisper-turbo', 'whisper-webgpu']
   }
 });
