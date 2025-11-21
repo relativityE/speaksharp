@@ -36,6 +36,17 @@ vi.mock('@/components/analytics/FillerWordTable', () => ({
     FillerWordTable: () => <div data-testid="filler-word-table-mock" />,
 }));
 
+// Mock Recharts to avoid ResponsiveContainer width/height warnings
+vi.mock('recharts', async () => {
+    const OriginalModule = await vi.importActual('recharts');
+    return {
+        ...OriginalModule,
+        ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
+            <div style={{ width: 800, height: 300 }}>{children}</div>
+        ),
+    };
+});
+
 // Test Data
 const mockSession = {
     id: '1',

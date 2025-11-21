@@ -33,12 +33,7 @@ import { Label } from '@/components/ui/label';
 
 // --- Prop and State Interfaces ---
 
-interface ModelLoadProgress {
-    status: string;
-    file?: string;
-    loaded?: number;
-    total?: number;
-}
+
 
 export interface SessionSidebarProps {
     isListening: boolean;
