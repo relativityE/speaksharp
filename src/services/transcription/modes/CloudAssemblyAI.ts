@@ -12,7 +12,8 @@ interface AssemblyAIWord {
 
 interface AssemblyAIMessage {
   type: 'Begin' | 'Turn' | 'Termination';
-  text?: string;
+  transcript?: string;
+  turn_is_formatted?: boolean;
   words?: AssemblyAIWord[];
   session_id?: string;
   id?: string;
@@ -20,7 +21,6 @@ interface AssemblyAIMessage {
   audio_start?: number;
   audio_end?: number;
   confidence?: number;
-  end_of_turn?: boolean;
   created?: string;
 }
 
@@ -85,13 +85,13 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
           return;
         }
 
-        if (data.type === 'Turn' && data.text) {
-          if (data.end_of_turn) {
-            logger.info({ text: data.text }, '[CloudAssemblyAI] Final transcript');
-            this.onTranscriptUpdate({ transcript: { final: data.text }, words: data.words || [] });
+        if (data.type === 'Turn' && data.transcript) {
+          if (data.turn_is_formatted) {
+            logger.info({ transcript: data.transcript }, '[CloudAssemblyAI] Final transcript');
+            this.onTranscriptUpdate({ transcript: { final: data.transcript }, words: data.words || [] });
           } else {
-            logger.info({ text: data.text }, '[CloudAssemblyAI] Partial transcript');
-            this.onTranscriptUpdate({ transcript: { partial: data.text } });
+            logger.info({ transcript: data.transcript }, '[CloudAssemblyAI] Partial transcript');
+            this.onTranscriptUpdate({ transcript: { partial: data.transcript } });
           }
         }
       };
