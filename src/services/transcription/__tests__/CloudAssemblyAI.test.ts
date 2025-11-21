@@ -102,7 +102,10 @@ describe('CloudAssemblyAI', () => {
     expect(frameHandler).toBeInstanceOf(Function);
 
     // Call the handler to simulate receiving an audio frame
-    frameHandler(new Float32Array([0.1, 0.2, 0.3]));
+    // We need at least 800 samples (50ms) to trigger a send due to buffering
+    const samples = new Float32Array(800);
+    samples.fill(0.1);
+    frameHandler(samples);
 
     expect(mockSocketInstance.send).toHaveBeenCalled();
   });

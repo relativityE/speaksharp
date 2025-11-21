@@ -68,15 +68,6 @@ export const useTranscriptionService = (options: TranscriptionServiceOptions) =>
             handleTranscriptionError(err, setError, setIsSupported, setIsListening);
           }
         }
-      } else {
-        // isListening is false, cleanup the service
-        if (serviceRef.current) {
-          logger.info('[useTranscriptionService] Cleaning up service because isListening is false');
-          serviceRef.current.destroy().catch(err => {
-            logger.error({ err }, 'Error destroying transcription service');
-          });
-          serviceRef.current = null;
-        }
       }
     };
 
@@ -84,8 +75,13 @@ export const useTranscriptionService = (options: TranscriptionServiceOptions) =>
 
     return () => {
       isCancelled = true;
-      // Only destroy if isListening is false (actual cleanup, not StrictMode test)
-      // If isListening is still true, let the next effect handle cleanup
+      // Cleanup when isListening becomes false or on unmount.
+      if (serviceRef.current) {
+        serviceRef.current.destroy().catch(err => {
+          logger.error({ err }, 'Error destroying transcription service');
+        });
+        serviceRef.current = null;
+      }
     };
   }, [isListening]);
 

@@ -33,6 +33,8 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
   private mic: MicStream | null = null;
   private frameHandler: (frame: Float32Array) => void;
   private firstPacketSent: boolean = false;
+  private audioBuffer: Int16Array = new Int16Array(0);
+  private readonly MIN_SAMPLES = 800; // 50ms at 16kHz (AssemblyAI minimum)
 
   constructor({ onTranscriptUpdate, onReady, getAssemblyAIToken, customVocabulary = [] }: TranscriptionModeOptions) {
     if (!onTranscriptUpdate || !onReady || !getAssemblyAIToken) {
@@ -118,16 +120,34 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
       return;
     }
 
+    // Convert Float32 to Int16
     const int16Array = new Int16Array(float32Array.length);
     for (let i = 0; i < float32Array.length; i++) {
       int16Array[i] = Math.max(-32768, Math.min(32767, float32Array[i] * 32767));
     }
 
-    this.socket.send(int16Array.buffer);
+    // Buffer audio until we have at least MIN_SAMPLES (50ms)
+    // AssemblyAI requires 50-1000ms per packet
+    const newBuffer = new Int16Array(this.audioBuffer.length + int16Array.length);
+    newBuffer.set(this.audioBuffer);
+    newBuffer.set(int16Array, this.audioBuffer.length);
+    this.audioBuffer = newBuffer;
 
-    if (!this.firstPacketSent) {
-      this.firstPacketSent = true;
-      logger.info({ audioFrameLength: float32Array.length }, '[CloudAssemblyAI] First audio packet sent to WebSocket');
+    // Send when we have enough samples
+    if (this.audioBuffer.length >= this.MIN_SAMPLES) {
+      this.socket.send(this.audioBuffer.buffer);
+
+      if (!this.firstPacketSent) {
+        this.firstPacketSent = true;
+        const durationMs = (this.audioBuffer.length / 16000) * 1000;
+        logger.info({
+          samples: this.audioBuffer.length,
+          durationMs: durationMs.toFixed(2)
+        }, '[CloudAssemblyAI] First audio packet sent to WebSocket');
+      }
+
+      // Clear buffer after sending
+      this.audioBuffer = new Int16Array(0);
     }
   }
 
@@ -136,6 +156,13 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
       this.mic.offFrame(this.frameHandler);
       this.mic = null;
     }
+
+    // Send any remaining buffered audio before closing
+    if (this.audioBuffer.length > 0 && this.socket?.readyState === WebSocket.OPEN) {
+      this.socket.send(this.audioBuffer.buffer);
+      this.audioBuffer = new Int16Array(0);
+    }
+
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
       // AssemblyAI v3 doesn't use a 'Terminate' message like v2.
       // Simply closing the socket is sufficient.
