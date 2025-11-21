@@ -112,7 +112,7 @@ describe('CloudAssemblyAI', () => {
     cloudAI.startTranscription(micStream);
     await vi.advanceTimersByTimeAsync(0);
 
-    const messageEvent = { data: JSON.stringify({ transcript: 'hello', turn_is_formatted: false }) };
+    const messageEvent = { data: JSON.stringify({ message_type: 'PartialTranscript', text: 'hello' }) };
     mockSocketInstance.onmessage(messageEvent as MessageEvent);
 
     expect(onTranscriptUpdate).toHaveBeenCalledExactlyOnceWith({
@@ -125,7 +125,7 @@ describe('CloudAssemblyAI', () => {
     cloudAI.startTranscription(micStream);
     await vi.advanceTimersByTimeAsync(0);
 
-    const messageEvent = { data: JSON.stringify({ transcript: 'hello world', turn_is_formatted: true, end_of_turn: true, words: [] }) };
+    const messageEvent = { data: JSON.stringify({ message_type: 'FinalTranscript', text: 'hello world', words: [] }) };
     mockSocketInstance.onmessage(messageEvent as MessageEvent);
 
     expect(onTranscriptUpdate).toHaveBeenCalledExactlyOnceWith({
