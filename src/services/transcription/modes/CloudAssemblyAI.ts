@@ -11,10 +11,14 @@ interface AssemblyAIWord {
 }
 
 interface AssemblyAIMessage {
-  transcript: string;
-  turn_is_formatted?: boolean;
-  end_of_turn?: boolean;
+  message_type: 'SessionBegins' | 'PartialTranscript' | 'FinalTranscript' | 'SessionTerminated';
+  text?: string;
   words?: AssemblyAIWord[];
+  session_id?: string;
+  audio_start?: number;
+  audio_end?: number;
+  confidence?: number;
+  created?: string;
 }
 
 export default class CloudAssemblyAI implements ITranscriptionMode {
@@ -72,14 +76,17 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
         const data: AssemblyAIMessage = JSON.parse(event.data);
         logger.info({ data }, '[CloudAssemblyAI] WebSocket message received');
 
-        if (data.transcript) {
-          if (data.turn_is_formatted && data.end_of_turn) {
-            logger.info({ transcript: data.transcript }, '[CloudAssemblyAI] Final transcript');
-            this.onTranscriptUpdate({ transcript: { final: data.transcript }, words: data.words || [] });
-          } else {
-            logger.info({ transcript: data.transcript }, '[CloudAssemblyAI] Partial transcript');
-            this.onTranscriptUpdate({ transcript: { partial: data.transcript } });
-          }
+        if (data.message_type === 'SessionBegins') {
+          logger.info({ session_id: data.session_id }, '[CloudAssemblyAI] Session started');
+          return;
+        }
+
+        if (data.message_type === 'PartialTranscript' && data.text) {
+          logger.info({ text: data.text }, '[CloudAssemblyAI] Partial transcript');
+          this.onTranscriptUpdate({ transcript: { partial: data.text } });
+        } else if (data.message_type === 'FinalTranscript' && data.text) {
+          logger.info({ text: data.text }, '[CloudAssemblyAI] Final transcript');
+          this.onTranscriptUpdate({ transcript: { final: data.text }, words: data.words || [] });
         }
       };
 
