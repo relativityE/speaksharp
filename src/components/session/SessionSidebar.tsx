@@ -10,14 +10,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatDateTime } from '../../lib/dateUtils';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import {
     DropdownMenu,
@@ -50,7 +50,7 @@ export interface SessionSidebarProps {
     actualMode: string | null;
     saveSession: (session: Partial<PracticeSession>) => Promise<{ session: PracticeSession | null; usageExceeded: boolean }>;
     startTime: number | null;
-    modelLoadingProgress: ModelLoadProgress | null;
+    modelLoadingProgress: number | null;
 }
 
 interface DigitalTimerProps {
@@ -58,7 +58,7 @@ interface DigitalTimerProps {
 }
 
 interface ModelLoadingIndicatorProps {
-    progress: ModelLoadProgress | null;
+    progress: number | null;
 }
 
 // --- Sub-components ---
@@ -95,20 +95,14 @@ const DigitalTimerComponent: React.FC<DigitalTimerProps> = ({ startTime }) => {
 const DigitalTimer = React.memo(DigitalTimerComponent);
 
 const ModelLoadingIndicator: React.FC<ModelLoadingIndicatorProps> = ({ progress }) => {
-    if (!progress || progress.status === 'ready' || progress.status === 'error') {
+    if (progress === null) {
         return null;
     }
-    const loaded = progress.loaded ? (progress.loaded / 1024 / 1024).toFixed(2) : 0;
-    const total = progress.total ? (progress.total / 1024 / 1024).toFixed(2) : 0;
-    const progressPercent = progress.total && progress.loaded ? (progress.loaded / progress.total) * 100 : 0;
-    let statusText = 'Initializing...';
-    if (progress.status === 'download') {
-        statusText = `Downloading model: ${progress.file} (${loaded}MB / ${total}MB)`;
-    }
+    const percentage = Math.round(progress * 100);
     return (
         <div className="space-y-2 pt-2" data-testid="model-loading-indicator">
-            <p className="text-xs text-muted-foreground text-center">{statusText}</p>
-            {progress.status === 'download' && <Progress value={progressPercent} />}
+            <p className="text-xs text-muted-foreground text-center">Downloading model... {percentage}%</p>
+            <Progress value={percentage} />
         </div>
     );
 };
@@ -131,7 +125,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
     const [showEndSessionDialog, setShowEndSessionDialog] = useState(false);
     const [completedSessions, setCompletedSessions] = useState<PracticeSession[]>([]);
 
-    const isModelLoading = !!(modelLoadingProgress && modelLoadingProgress.status !== 'ready' && modelLoadingProgress.status !== 'error');
+    const isModelLoading = modelLoadingProgress !== null;
     const isConnecting = isListening && !isReady;
 
     const endSessionAndSave = async () => {
@@ -226,7 +220,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
         <div className="flex flex-col gap-6 h-full" data-testid="session-sidebar">
             <Card className="w-full flex flex-col flex-grow" data-testid="session-sidebar-card">
                 <CardHeader>
-                     <div className="flex justify-between items-center">
+                    <div className="flex justify-between items-center">
                         <CardTitle className="text-base">Session Controls</CardTitle>
                         <ModeIndicator />
                     </div>

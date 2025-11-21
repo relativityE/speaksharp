@@ -72,6 +72,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
       setModelLoadingProgress(null);
     },
     onModelLoadProgress: (progress: number) => {
+      logger.info({ progress }, '[useSpeechRecognition] onModelLoadProgress called');
       setModelLoadingProgress(progress);
       const percentage = Math.round(progress * 100);
 

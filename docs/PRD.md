@@ -76,7 +76,7 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | :--- | :--- | :--- | :--- | :--- |
 | **Transcription** | 1 | The core service that converts speech to text. | ✅ Implemented | ✅ Yes |
 | **Cloud Server STT** | 1 | High-accuracy transcription via AssemblyAI. (Pro) | ✅ Implemented | ✅ Yes |
-| **On-Device STT** | 1 | Privacy-first transcription using a local Whisper model. (Pro) | ✅ Implemented | ✅ Yes |
+| **On-Device STT** | 1 | Privacy-first transcription using `whisper-turbo` (local Whisper model). (Pro) | ✅ Implemented | ✅ Yes |
 | **Fallback STT** | 1 | Standard transcription using the native browser API. (Free) | ✅ Implemented | ✅ Yes |
 | **UI Mode Selector** | 1 | Allows users to select their preferred transcription engine. | ✅ Implemented | ✅ Yes |
 | **Session History** | 1 | Users can view and analyze their past practice sessions. | ✅ Implemented | ✅ Yes |

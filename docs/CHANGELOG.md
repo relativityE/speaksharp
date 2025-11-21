@@ -34,6 +34,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `NativeBrowser`: Logs for initialization, handler configuration, and transcript callbacks (`onresult`, `onerror`)
   - `CloudAssemblyAI`: Logs for token fetching and WebSocket connection
   - Enhanced error logging for microphone permission denied and other speech recognition errors
+- **On-Device Transcription Fixes (2025-11-21):**
+  - **"Connecting..." Hang:** Resolved a critical bug where the UI would get stuck in a "Connecting..." state because the `LocalWhisper` mode was failing to notify the application when it was ready. Added the missing `onReady()` callback invocation.
+  - **Missing Download Toast:** Fixed an issue where the model download toast notification was not appearing. Added an initial progress event (`0%`) to ensure immediate user feedback.
+  - **Startup Performance:** Optimized application startup time by converting the `LocalWhisper` module to a dynamic import. This prevents the heavy `whisper-turbo` and WebAssembly dependencies from loading during the initial application render, addressing the "blank screen" lag on refresh.
+  - **Type Safety:** Resolved a TypeScript error in `SessionSidebar` related to the `modelLoadingProgress` prop.
 
 ### Changed
 - **Configuration:** Centralized hardcoded values (session limits, audio settings) into `src/config.ts`.

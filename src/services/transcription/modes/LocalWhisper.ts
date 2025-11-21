@@ -50,18 +50,20 @@ type Status = 'idle' | 'loading' | 'transcribing' | 'stopped' | 'error';
 export default class LocalWhisper implements ITranscriptionMode {
   private onTranscriptUpdate: (update: TranscriptUpdate) => void;
   private onModelLoadProgress?: (progress: number) => void;
+  private onReady?: () => void;
   private status: Status;
   private transcript: string;
   private session: InferenceSession | null;
   private mic: MicStream | null = null;
   private manager: SessionManager;
 
-  constructor({ onTranscriptUpdate, onModelLoadProgress }: TranscriptionModeOptions) {
+  constructor({ onTranscriptUpdate, onModelLoadProgress, onReady }: TranscriptionModeOptions) {
     if (!onTranscriptUpdate) {
       throw new Error("onTranscriptUpdate callback is required for LocalWhisper.");
     }
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onModelLoadProgress = onModelLoadProgress;
+    this.onReady = onReady;
     this.status = 'idle';
     this.transcript = '';
     this.session = null;
@@ -75,6 +77,11 @@ export default class LocalWhisper implements ITranscriptionMode {
 
     try {
       logger.info(`[LocalWhisper] Loading model: ${AvailableModels.WHISPER_TINY}`);
+
+      // Trigger initial progress to ensure UI shows "Downloading..." immediately
+      if (this.onModelLoadProgress) {
+        this.onModelLoadProgress(0);
+      }
 
       const result = await this.manager.loadModel(
         AvailableModels.WHISPER_TINY,
@@ -95,6 +102,11 @@ export default class LocalWhisper implements ITranscriptionMode {
       this.session = result.value;
       this.status = 'idle';
       logger.info('[LocalWhisper] Model loaded successfully.');
+
+      // Notify that the service is ready
+      if (this.onReady) {
+        this.onReady();
+      }
     } catch (error) {
       logger.error({ err: error }, '[LocalWhisper] Failed to load model.');
       this.status = 'error';
