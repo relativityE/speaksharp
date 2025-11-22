@@ -41,5 +41,23 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
     },
+    {
+      name: 'soak',
+      testDir: './tests/soak',
+      timeout: 10 * 60 * 1000, // 10 minutes per test
+      retries: 0, // No retries for soak tests
+      use: {
+        ...devices['Desktop Chrome'],
+        permissions: ['microphone'],
+        // Enable precise memory reporting for Chrome
+        launchOptions: {
+          args: [
+            '--enable-precise-memory-info',
+            '--use-fake-ui-for-media-stream',
+            '--use-fake-device-for-media-stream',
+          ],
+        },
+      },
+    },
   ],
 });

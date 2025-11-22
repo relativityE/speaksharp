@@ -298,6 +298,61 @@ The E2E test environment is designed for stability and isolation. Several key ar
     *   **Problem:** E2E tests require a fast, stable way to authenticate. The login process was flaky due to a race condition between the `AuthProvider`'s asynchronous state updates and the test's assertions against the DOM.
     *   **Solution:** The `programmaticLogin` helper has been hardened. After injecting the mock session, it no longer waits for an unreliable internal flag (`window.__E2E_PROFILE_LOADED__`). Instead, it directly waits for the user-visible result of a successful login: the appearance of the "Sign Out" button in the navigation bar. This ensures the test only proceeds after React's render cycle is fully complete and the DOM is in a consistent, authenticated state.
 
+### Soak Testing
+
+Soak tests validate application behavior under sustained, concurrent load to identify resource contention, memory leaks, and API quota issues before production deployment.
+
+#### Architecture
+
+The soak test infrastructure consists of three main components:
+
+1. **`MetricsCollector`** (`tests/soak/metrics-collector.ts`)
+   - Tracks response times, memory usage, success/error counts
+   - Calculates statistical metrics (min, max, avg, median, p95, p99)
+   - Generates JSON reports and human-readable summaries
+
+2. **`UserSimulator`** (`tests/soak/user-simulator.ts`)
+   - Simulates realistic user journeys: login → session → analytics
+   - Configurable session duration and transcription mode
+   - Optimized for free tier constraints (Native Browser mode by default)
+
+3. **`soak-test.spec.ts`** (`tests/soak/soak-test.spec.ts`)
+   - Orchestrates concurrent user scenarios
+   - Runs 2 users for 5 minutes each (configurable)
+   - Saves metrics to `test-results/soak/`
+
+#### Configuration
+
+Soak tests have a dedicated Playwright project configuration in `playwright.config.ts`:
+
+```typescript
+{
+  name: 'soak',
+  testDir: './tests/soak',
+  timeout: 10 * 60 * 1000, // 10 minutes
+  retries: 0, // No retries for soak tests
+  use: {
+    launchOptions: {
+      args: ['--enable-precise-memory-info'], // For Chrome memory tracking
+    },
+  },
+}
+```
+
+Run soak tests with:
+```bash
+pnpm test:soak
+```
+
+#### Authentication Strategy
+
+**Real User Authentication**
+Soak tests use real user credentials to authenticate against the running development server. This ensures the entire authentication flow (including Supabase interactions) is validated under load.
+
+- **Test Users:** Pre-created users in the Supabase project (e.g., `test@test.com`, `soak-test-0@example.com`).
+- **Credentials:** Stored securely in the test configuration or environment variables.
+- **Permissions:** Headless browser is configured with microphone permissions and fake media streams to bypass hardware prompts.
+
 3.  **Third-Party Service Stubbing:**
     *   To prevent external services like Sentry and PostHog from causing noise or failures in E2E tests, the `stubThirdParties(page)` helper is used. It intercepts and aborts any requests to these services' domains, ensuring tests are isolated and deterministic.
 
