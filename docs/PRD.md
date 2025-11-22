@@ -133,7 +133,9 @@ The project's testing strategy prioritizes stability, reliability, and a tight a
 
 This section tracks high-level product risks and constraints. For a detailed history of resolved issues, see the [Changelog](./CHANGELog.md).
 
-- **E2E Test Metrics Reporting:** The Software Quality Metrics section occasionally shows "0 E2E tests" when the CI E2E test stage is skipped or when metrics are collected without running E2E tests. This is a reporting issue only - all 13 E2E tests exist in `tests/e2e/` and pass when run locally. A fix is in progress to improve metrics reporting accuracy.
+- **E2E Test Metrics Reporting:** The Software Quality Metrics section occasionally shows "0 E2E tests" when the CI E2E test stage is skipped or when metrics are collected without running E2E tests. This is a reporting issue only - all 13 E2E tests exist in `tests/e2e/` and pass when run locally. A fix is in progress to improve metrics reporting accuracy.\
+- **Live Transcript E2E Test Gap:** The `live-transcript.e2e.spec.ts` test currently uses a mock that returns a hardcoded string and does not verify the actual transcription pipeline. This is a known gap in the automated test suite.\
+- **Analytics Data Flow:** The E2E tests for the Analytics Dashboard mock the data at the component level, so the end-to-end data flow from the database to the UI is not fully verified by the current test suite.
 
 ---
 

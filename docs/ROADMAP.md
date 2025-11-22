@@ -45,7 +45,15 @@ This phase is about confirming the core feature set works as expected and polish
     - `packages/`: Shared libraries (if any)\
     - `scripts/`: Build, test, and maintenance scripts\
     - `docs/`: Documentation\
-    - `tests/`: E2E and integration tests
+    - `tests/`: E2E and integration tests\
+- 🔴 **Audit and Fix UX States:** Ensure all components correctly handle and display `isLoading`, `isError`, and empty states (e.g., Analytics Dashboard).\
+- 🔴 **Apply Supabase Migration:** Push `custom_vocabulary` migration to production to enable Pro features.\
+- 🔴 **Implement Lighthouse CI:** Add a stage to the CI pipeline to run a Lighthouse audit against the production build.\
+- 🔴 **Hide "TBD" Placeholders:** Remove or hide "TBD" sections (e.g., testimonials) for the Alpha launch.\
+- 🔴 **Harden Supabase Security:** Address critical security advisor warnings (OTP expiry, password protection, Postgres upgrade).\
+- 🔴 **Centralize Configuration:** Move hardcoded values to `src/config.ts`.\
+- 🔴 **Fix E2E Test Gap (Live Transcript):** Refactor `TranscriptionService` and E2E tests to verify live transcript generation.\
+- 🔴 **Implement WebSocket Reconnect Logic:** Add heartbeat and exponential backoff.
 
 ### 🚧 Should-Have (Tech Debt)
 - 🟡 **Implement new SpeakSharp Design System:**
@@ -118,7 +126,19 @@ This section is a prioritized list of technical debt items to be addressed.
 - **P2 (Medium): Review and Improve Test Quality and Effectiveness**
   - **Problem:** Several tests in the suite were brittle or of low value, providing a false sense of security.
   - **Example:** The `live-transcript.e2e.spec.ts` and `smoke.e2e.spec.ts` tests were previously coupled to the UI's responsive layout, making them fail on minor CSS changes.
-  - **Required Action:** This effort is in progress. The aforementioned tests have been refactored to use robust, functional `data-testid` selectors, making them resilient to layout changes. A comprehensive audit of the remaining unit and E2E test suites is still needed to identify other low-value tests.
+  - **Required Action:** This effort is in progress. The aforementioned tests have been refactored to use robust, functional `data-testid` selectors, making them resilient to layout changes. A comprehensive audit of the remaining unit and E2E test suites is still needed to identify other low-value tests.\
+\
+- **P3 (Low): Implement ARIA Live Region for Transcript**\
+  - **Problem:** Screen readers do not announce new transcript text.\
+  - **Required Action:** Add `aria-live="polite"` to the transcript container.\
+\
+- **P3 (Low): ESLint `no-unused-vars` in Catch Blocks**\
+  - **Problem:** Cannot suppress unused variables in catch blocks.\
+  - **Required Action:** Fix ESLint config.\
+\
+- **P3 (Medium): Implement Deno Unit Tests for Token Endpoint**\
+  - **Problem:** The `assemblyai-token` function lacks unit tests.\
+  - **Required Action:** Implement tests to ensure auth reliability.
 
 ---
 ### Resolved Technical Debt
