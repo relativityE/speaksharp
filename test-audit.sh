@@ -25,10 +25,10 @@ run_preflight() {
 
 run_quality_checks() {
     echo "✅ [2/5] Running Code Quality Checks in Parallel..."
-    pnpm exec concurrently "pnpm lint" "pnpm typecheck" "pnpm test" || {
+    if ! pnpm exec concurrently --kill-others-on-fail "pnpm lint" "pnpm typecheck" "pnpm test"; then
         echo "❌ Code Quality Checks failed." >&2
         exit 1
-    }
+    fi
     echo "ℹ️ Lint/Typecheck/Test completed successfully."
     echo "✅ [2/5] Code Quality Checks Passed."
 }
