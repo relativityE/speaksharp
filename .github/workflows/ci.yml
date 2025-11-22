@@ -142,6 +142,7 @@ jobs:
       - name: Merge E2E Reports
         run: |
           mkdir -p merged-reports
+          mkdir -p test-results/playwright
           # Copy all shard JSON reports
           find artifacts -type f -name 'results.json' | while read report; do
             shard_name=$(basename $(dirname "$report"))
@@ -157,6 +158,11 @@ jobs:
             # We need both the json for SQM and the html for human-readable results
             pnpm exec playwright merge-reports --reporter json,html merged-reports
             # The merge command saves the json to `merged-report.json` by default
+            # Copy it to the location expected by run-metrics.sh
+            if [ -f "merged-report.json" ]; then
+              cp merged-report.json test-results/playwright/results.json
+              echo "✅ Merged E2E report saved to test-results/playwright/results.json"
+            fi
           else
             echo "⚠️ No E2E reports to merge (tests may have been skipped)"
           fi
