@@ -37,3 +37,11 @@ export const AUDIO_CONFIG = {
   SAMPLE_RATE: 16000,            // Sample rate in Hz
   FRAME_SIZE: 1024,              // Audio frame size
 } as const;
+
+export const API_CONFIG = {
+  ASSEMBLYAI_TOKEN_ENDPOINT: 'assemblyai-token',
+} as const;
+
+export const SUBSCRIPTION_LIMITS = {
+  FREE_MONTHLY_MINUTES: 30,
+} as const;

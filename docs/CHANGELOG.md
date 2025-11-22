@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Alpha Polish (2025-11-22):**
+  - Hidden "TBD" testimonial placeholders on the landing page via `MainPage.tsx` to improve Alpha presentation
+  - Extended `src/config.ts` with API and subscription limit constants for better configuration management
+  - Verified all database migrations are applied, including `custom_vocabulary` (migration 20251120004400)
+
 ### Changed
 - **CI/CD and Testing Pipeline Overhaul:** Re-architected the entire testing and CI/CD pipeline for speed, stability, and developer experience.
     - Implemented a new, canonical `test-audit.sh` script that uses aggressive parallelization to run all quality checks (lint, type-check, unit tests) and E2E tests in well under the 7-minute CI timeout.

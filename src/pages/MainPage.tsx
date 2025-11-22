@@ -3,7 +3,7 @@ import { useBrowserSupport } from "@/hooks/useBrowserSupport";
 import { BrowserWarning } from "@/components/BrowserWarning";
 import { HeroSection } from "@/components/landing/HeroSection";
 import { FeaturesSection } from "@/components/landing/FeaturesSection";
-import { TestimonialsSection } from "@/components/landing/TestimonialsSection";
+// import { TestimonialsSection } from "@/components/landing/TestimonialsSection"; // TODO: Unhide when we have real testimonials
 import { LandingFooter } from "@/components/landing/LandingFooter";
 
 export function MainPage() {
@@ -18,7 +18,8 @@ export function MainPage() {
       <main className="flex-1 pt-16">
         <HeroSection />
         <FeaturesSection />
-        <TestimonialsSection />
+        {/* TODO: [Alpha Polish] Unhide when we have real testimonials. Currently contains "TBD" placeholders. */}\
+        {/* <TestimonialsSection /> */}
       </main>
       <LandingFooter />
     </div>

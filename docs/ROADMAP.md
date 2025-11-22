@@ -47,11 +47,11 @@ This phase is about confirming the core feature set works as expected and polish
     - `docs/`: Documentation\
     - `tests/`: E2E and integration tests\
 - 🔴 **Audit and Fix UX States:** Ensure all components correctly handle and display `isLoading`, `isError`, and empty states (e.g., Analytics Dashboard).\
-- 🔴 **Apply Supabase Migration:** Push `custom_vocabulary` migration to production to enable Pro features.\
+- ✅ **Apply Supabase Migration:** Push `custom_vocabulary` migration to production to enable Pro features.\
 - 🔴 **Implement Lighthouse CI:** Add a stage to the CI pipeline to run a Lighthouse audit against the production build.\
-- 🔴 **Hide "TBD" Placeholders:** Remove or hide "TBD" sections (e.g., testimonials) for the Alpha launch.\
+- ✅ **Hide "TBD" Placeholders:** Remove or hide "TBD" sections (e.g., testimonials) for the Alpha launch.\
 - 🔴 **Harden Supabase Security:** Address critical security advisor warnings (OTP expiry, password protection, Postgres upgrade).\
-- 🔴 **Centralize Configuration:** Move hardcoded values to `src/config.ts`.\
+- ✅ **Centralize Configuration:** Move hardcoded values to `src/config.ts`.\
 - 🔴 **Fix E2E Test Gap (Live Transcript):** Refactor `TranscriptionService` and E2E tests to verify live transcript generation.\
 - 🔴 **Implement WebSocket Reconnect Logic:** Add heartbeat and exponential backoff.
 
@@ -65,6 +65,7 @@ This phase is about confirming the core feature set works as expected and polish
 - 🔴 **Improve Accessibility:** Use an ARIA live region for the transcript so screen readers can announce new lines.
 - 🔴 **Add Deno unit tests for the token endpoint.**
 - 🔴 **Add a soak test:** Create a test that runs for 1-minute with continuous audio to check for memory leaks or hangs.
+- 🔴 **Add Real Testimonials:** Unhide and populate the `TestimonialsSection` on the landing page with genuine user feedback.
 
 ### Gating Check
 - 🔴 **Do a Gap Analysis of current implementation against the Current Phase requirements.**
