@@ -94,7 +94,7 @@ test.describe('Soak Test - Concurrent User Simulation', () => {
         console.log(`\n📊 Report saved to: ${reportPath}`);
     });
 
-    test('should handle concurrent users for 5 minutes', async ({ browser, context }) => {
+    test('should handle concurrent users for 5 minutes', async ({ browser }) => {
         const startTime = Date.now();
         console.log(`\n🚀 Starting soak test with ${SOAK_CONFIG.concurrentUsers} concurrent users...`);
         console.log(`📅 Start time: ${new Date(startTime).toISOString()}`);
@@ -102,7 +102,7 @@ test.describe('Soak Test - Concurrent User Simulation', () => {
 
         // Create multiple browser contexts (simulate separate users)
         const userContexts = await Promise.all(
-            Array.from({ length: SOAK_CONFIG.concurrentUsers }, (_, i) =>
+            Array.from({ length: SOAK_CONFIG.concurrentUsers }, () =>
                 browser.newContext({
                     viewport: { width: 1280, height: 720 },
                     // Unique storage state per user
@@ -123,7 +123,7 @@ test.describe('Soak Test - Concurrent User Simulation', () => {
 
         // Create simulators for each user
         const simulators = userPages.map(
-            (page) =>
+            () =>
                 new UserSimulator(metrics, {
                     sessionDuration: SOAK_CONFIG.sessionDuration,
                     useNativeMode: SOAK_CONFIG.useNativeMode,

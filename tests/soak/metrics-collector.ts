@@ -9,6 +9,16 @@ export interface MetricPoint {
     label?: string;
 }
 
+declare global {
+    interface Performance {
+        memory?: {
+            usedJSHeapSize: number;
+            totalJSHeapSize: number;
+            jsHeapSizeLimit: number;
+        };
+    }
+}
+
 /**
  * Aggregated statistics for a metric
  */
@@ -59,7 +69,7 @@ export class MetricsCollector {
     /**
      * Record a response time measurement
      */
-    recordResponseTime(timeMs: number, label?: string): void {
+    recordResponseTime(timeMs: number): void {
         this.responseTimeSamples.push(timeMs);
     }
 
@@ -83,7 +93,7 @@ export class MetricsCollector {
                 const usedMB = metrics.usedJSHeapSize / (1024 * 1024);
                 this.memoryUsageSamples.push(usedMB);
             }
-        } catch (error) {
+        } catch {
             // Silently fail if memory API is not available
         }
     }

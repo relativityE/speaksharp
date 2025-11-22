@@ -14,44 +14,50 @@ export default defineConfig(({ mode }) => {
     worker: {
       format: 'es'
     },
-  server: {
-    port: 5173,
-    host: true,
-    watch: {
-      usePolling: true,
-      ignored: [
-        'test-results/',
-        'coverage/',
-        '**/*.log',
-        'docs/PRD.md'
-      ]
-    }
-  },
-  build: {
-    sourcemap: true,
-    outDir: 'dist',
-    rollupOptions: {
-      output: {
+    server: {
+      port: 5173,
+      host: true,
+      watch: {
+        usePolling: true,
+        ignored: [
+          'test-results/',
+          'coverage/',
+          '**/*.log',
+          'docs/PRD.md'
+        ]
       }
     },
-    treeshake: {
-      moduleSideEffects: (id) => id.endsWith('testEnv.ts'),
-    }
-  },
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
+    build: {
+      sourcemap: true,
+      outDir: 'dist',
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+            'analytics-vendor': ['posthog-js', '@sentry/react'],
+            'ui-vendor': ['lucide-react', '@radix-ui/react-slot', '@radix-ui/react-dialog', 'sonner'],
+          }
+        }
+      },
+      treeshake: {
+        moduleSideEffects: (id) => id.endsWith('testEnv.ts'),
+      }
     },
-  },
-  define: {
-    'process.env': {},
-    'global': 'globalThis',
-    'import.meta.env.VITE_TEST_MODE': JSON.stringify(isTestMode),
-  },
-  optimizeDeps: {
-    exclude: [],
-  },
-  ssr: {
-    external: ['@xenova/transformers'],
-  },
-}});
+    resolve: {
+      alias: {
+        "@": path.resolve(__dirname, "./src"),
+      },
+    },
+    define: {
+      'process.env': {},
+      'global': 'globalThis',
+      'import.meta.env.VITE_TEST_MODE': JSON.stringify(isTestMode),
+    },
+    optimizeDeps: {
+      exclude: [],
+    },
+    ssr: {
+      external: ['@xenova/transformers'],
+    },
+  }
+});
