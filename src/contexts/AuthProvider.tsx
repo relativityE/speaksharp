@@ -38,11 +38,6 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       return;
     }
 
-    if (initialSession) {
-      setSessionState(initialSession);
-      setLoading(false);
-    }
-
     const fetchAndSetProfile = async (session: Session | null) => {
       if (session?.user?.id) {
         try {
@@ -58,7 +53,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
           } else if (data) {
             setProfile(data as UserProfile);
             // --- ARCHITECTURAL FIX: Dispatch event AFTER profile is confirmed set ---
-            if (import.meta.env.MODE === 'test') {
+            if (import.meta.env.MODE === 'test' || import.meta.env.VITE_TEST_MODE === 'true') {
               console.log(`[E2E DIAGNOSTIC] Profile found for ${data.id}, dispatching event.`);
               document.dispatchEvent(new CustomEvent('e2e-profile-loaded', { detail: data }));
             }
