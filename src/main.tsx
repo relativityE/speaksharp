@@ -7,32 +7,6 @@ import './index.css';
 import logger from '@/lib/logger';
 import { AuthProvider } from './contexts/AuthProvider';
 import posthog from 'posthog-js';
-
-// ... (imports)
-
-// ...
-
-// Defer PostHog initialization to avoid blocking main thread
-if (import.meta.env.VITE_POSTHOG_KEY && import.meta.env.VITE_POSTHOG_HOST) {
-  const posthogKey = import.meta.env.VITE_POSTHOG_KEY;
-  const posthogHost = import.meta.env.VITE_POSTHOG_HOST;
-  const isDev = import.meta.env.MODE === 'development';
-
-  setTimeout(() => {
-    try {
-      posthog.init(posthogKey, {
-        api_host: posthogHost,
-        capture_exceptions: true,
-        debug: isDev,
-        loaded: () => {
-          if (isDev) console.log('[PostHog] Loaded successfully');
-        }
-      });
-    } catch (error) {
-      logger.warn({ error }, "PostHog failed to initialize:");
-    }
-  }, 0);
-}
 import { PostHogProvider } from 'posthog-js/react';
 import { Elements } from '@stripe/react-stripe-js';
 import { Session } from '@supabase/supabase-js';

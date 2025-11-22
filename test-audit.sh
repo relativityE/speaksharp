@@ -46,7 +46,13 @@ run_build() {
 run_e2e_sharding() {
     echo "✅ [4/5] Preparing E2E Test Shards..."
     ensure_artifacts_dir
-    readarray -t E2E_TEST_FILES < <(find "$E2E_TEST_DIR" -name '*.spec.ts' -print | sort)
+    
+    # Use mapfile if available, otherwise fall back to read loop
+    local E2E_TEST_FILES=()
+    while IFS= read -r file; do
+        E2E_TEST_FILES+=("$file")
+    done < <(find "$E2E_TEST_DIR" -name '*.spec.ts' -print | sort)
+    
     local E2E_TEST_COUNT=${#E2E_TEST_FILES[@]}
 
     local SHARD_COUNT=0
