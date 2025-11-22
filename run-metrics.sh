@@ -34,8 +34,20 @@ if [ -f "$e2e_results_file" ]; then
     e2e_passed=$(jq '.stats.expected' "$e2e_results_file")
     e2e_failed=$(jq '.stats.unexpected' "$e2e_results_file")
     e2e_skipped=$(jq '.stats.skipped' "$e2e_results_file")
+    echo "✅ E2E results found: $e2e_passed passed, $e2e_failed failed, $e2e_skipped skipped"
 else
-    echo "⚠️ E2E results file not found at $e2e_results_file. Assuming 0 tests."
+    echo "⚠️ WARNING: E2E results file not found at $e2e_results_file"
+    echo "   This usually means E2E tests were not run in this pipeline execution."
+    echo "   E2E tests exist in tests/e2e/ but results are unavailable for metrics."
+    
+    # In CI, this should be an error if we expected E2E results
+    if [ "${CI:-false}" = "true" ]; then
+        echo "❌ ERROR: Running in CI but E2E results are missing!" >&2
+        echo "   This indicates a pipeline bug. E2E tests should have run and produced results." >&2
+        exit 1
+    fi
+    
+    echo "   Setting E2E metrics to 0 for this report only."
     e2e_passed=0
     e2e_failed=0
     e2e_skipped=0
