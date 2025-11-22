@@ -37,7 +37,15 @@ This phase is about confirming the core feature set works as expected and polish
 - ✅ **Clarity Score Visualization:** Detailed breakdown of speech clarity.
 - ✅ **Goal Setting:** Weekly/Daily targets for practice consistency.
 - 🔴 **Deploy & confirm live transcript UI works:** Ensure text appears within 2 seconds of speech in a live environment.
-- ✅ **Remove all temporary console.logs:** Clean up the codebase for production.
+- ✅ **Remove all temporary console.logs:** Clean up the codebase for production.\
+- 🔴 **Restructure Codebase:** Reorganize the project structure for better maintainability before alpha soft launch.\
+  - **Proposed Structure:**\
+    - `apps/` or `frontend/`: React application code\
+    - `backend/` or `supabase/`: Supabase functions, migrations, seed data\
+    - `packages/`: Shared libraries (if any)\
+    - `scripts/`: Build, test, and maintenance scripts\
+    - `docs/`: Documentation\
+    - `tests/`: E2E and integration tests
 
 ### 🚧 Should-Have (Tech Debt)
 - 🟡 **Implement new SpeakSharp Design System:**
