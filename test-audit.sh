@@ -87,7 +87,7 @@ run_e2e_tests_shard() {
     echo "✅ Running E2E Test Shard ${PLAYWRIGHT_SHARD_ID}/${SHARD_COUNT}..."
 
     # Run Playwright shard, redirecting the json reporter output to the correct file
-    pnpm exec playwright test \
+    pnpm exec playwright test $E2E_TEST_DIR \
         --shard="${PLAYWRIGHT_SHARD_ID}/${SHARD_COUNT}" \
         --reporter=json > "${REPORT_DIR}/results.json" \
         || {
@@ -100,7 +100,7 @@ run_e2e_tests_shard() {
 
 run_e2e_tests_all() {
     echo "✅ [4/5] Running ALL E2E Tests (local mode)..."
-    pnpm exec playwright test || {
+    pnpm exec playwright test $E2E_TEST_DIR || {
         echo "❌ E2E full suite failed." >&2
         exit 1
     }

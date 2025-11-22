@@ -122,8 +122,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Incorrect Test Selector:** Corrected the login helper function (`loginUser`) to use the proper "Sign In" link text instead of "Login".
   - **Fragile Test Infrastructure:** Replaced the custom test wrapper (`verifyOnlyStepTracker.ts`) with a new, resilient version that includes action timeouts to prevent indefinite hangs.
   - **Conflicting Mocking Systems:** Removed a redundant Playwright-based mocking system from `sdkStubs.ts` to consolidate all API mocking within MSW, eliminating race conditions.
-
-### Fixed
+- **E2E Test Reporting Bug:** Resolved a critical reporting bug where the CI pipeline incorrectly reported "0 E2E tests" in the PRD.
+    - **Root Cause:** A path mismatch between the `playwright merge-reports` output (`merged-report.json`) and the metrics script expectation (`test-results/playwright/results.json`).
+    - **Solution:** Updated the CI workflow to copy the merged report to the expected location and enhanced `run-metrics.sh` with CI-aware validation to prevent silent failures.
+- **E2E Sharding Configuration:** Fixed a configuration issue where the soak test was incorrectly included in the standard E2E test sharding, causing Shard 4 to fail due to timeouts.
+    - **Solution:** Updated `test-audit.sh` to explicitly target the `tests/e2e` directory for Playwright execution, ensuring only functional E2E tests are run in the CI gate.
 - **Session Page**: Resolved "Blank Page" issue by correcting routing mismatch (renamed `/session` to `/sessions` and back, ensuring consistency).
 - **Analytics Dashboard**: Fixed "Could not load accuracy data" errors by aligning E2E mock data structure with application requirements.
 
