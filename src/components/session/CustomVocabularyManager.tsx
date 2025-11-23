@@ -12,6 +12,7 @@ export const CustomVocabularyManager: React.FC = () => {
     const { data: profile } = useUserProfile();
     const {
         vocabulary,
+        isLoading,
         addWord,
         removeWord,
         isAdding,
@@ -86,8 +87,14 @@ export const CustomVocabularyManager: React.FC = () => {
                     </p>
                 )}
 
-                {/* Word List */}
-                {vocabulary.length > 0 ? (
+                {/* Loading State */}
+                {isLoading ? (
+                    <div className="space-y-2">
+                        <div className="h-10 bg-secondary/50 rounded-md animate-pulse" />
+                        <div className="h-10 bg-secondary/50 rounded-md animate-pulse" />
+                        <div className="h-10 bg-secondary/50 rounded-md animate-pulse" />
+                    </div>
+                ) : vocabulary.length > 0 ? (
                     <div className="space-y-2 max-h-60 overflow-y-auto">
                         {vocabulary.map((word) => (
                             <div
