@@ -3,6 +3,7 @@ import { CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { getSupabaseClient } from '@/lib/supabaseClient';
+import { SUBSCRIPTION_LIMITS } from '@/config';
 import logger from '@/lib/logger';
 
 interface Tier {
@@ -19,7 +20,7 @@ const tiers: Tier[] = [
     name: 'Free',
     price: '$0',
     priceDescription: 'For basic use',
-    features: ['Up to 30 mins of practice per month', 'Basic analytics', 'Save last 5 sessions'],
+    features: [`Up to ${SUBSCRIPTION_LIMITS.FREE_MONTHLY_MINUTES} mins of practice per month`, 'Basic analytics', 'Save last 5 sessions'],
     cta: 'Continue with Free',
   },
   {

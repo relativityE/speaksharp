@@ -10,6 +10,7 @@ import { useTranscriptState } from './useTranscriptState';
 import { useFillerWords } from './useFillerWords';
 import { useTranscriptionService } from './useTranscriptionService';
 import { useVocalAnalysis } from '../useVocalAnalysis';
+import { API_CONFIG } from '../../config';
 import type { UseSpeechRecognitionProps, TranscriptStats } from './types';
 import type { FillerCounts } from '../../utils/fillerWordUtils';
 import { ForceOptions } from './types';
@@ -39,7 +40,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         if (!data.session) throw new Error('Anonymous sign-in did not return a session.');
         userSession = data.session;
       }
-      const { data, error } = await supabase.functions.invoke('assemblyai-token', { body: {} });
+      const { data, error } = await supabase.functions.invoke(API_CONFIG.ASSEMBLYAI_TOKEN_ENDPOINT, { body: {} });
       if (error) throw new Error(`Failed to invoke token function: ${error.message}`);
       if (!data || !data.token) throw new Error("No valid AssemblyAI token returned.");
       return data.token;
