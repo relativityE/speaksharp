@@ -7,9 +7,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export default defineConfig(({ mode }) => {
-  // Load env file based on `mode` in the current working directory.
-  // Set the third parameter to '' to load all env regardless of the `VITE_` prefix.
-  const env = loadEnv(mode, process.cwd(), '');
+  // Load env file based on `mode` from the project root (parent of frontend/)
+  // __dirname is frontend/, so we need to go up one level to find .env files
+  const env = loadEnv(mode, path.resolve(__dirname, '..'), '');
   const isTestMode = mode === 'test' || env.VITE_TEST_MODE === 'true';
 
   return {
@@ -53,10 +53,17 @@ export default defineConfig(({ mode }) => {
       },
     },
     define: {
-      // Expose env vars on import.meta.env (Vite handles this automatically for VITE_* vars)
+      // Expose env vars on import.meta.env
       'process.env': {},
       'global': 'globalThis',
       'import.meta.env.VITE_TEST_MODE': JSON.stringify(isTestMode),
+      // Expose all VITE_* vars from loadEnv
+      ...Object.keys(env).reduce((prev, key) => {
+        if (key.startsWith('VITE_')) {
+          prev[`import.meta.env.${key}`] = JSON.stringify(env[key]);
+        }
+        return prev;
+      }, {}),
     },
     optimizeDeps: {
       exclude: [],
