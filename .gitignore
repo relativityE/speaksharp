@@ -42,3 +42,4 @@ resources/
 .env
 .env*.local
 .vite.pid
+merged-reports/

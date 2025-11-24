@@ -105,7 +105,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: shard-report-${{ matrix.shard-index }}
-          path: test-results/playwright/shard-${{ matrix.shard-index }}
+          path: test-results/shards/shard-${{ matrix.shard-index }}
           retention-days: 30
 
   lighthouse:
@@ -191,10 +191,11 @@ jobs:
         run: |
           mkdir -p merged-reports
           mkdir -p test-results/playwright
-          # Copy all shard JSON reports
-          find artifacts -type f -name 'results.json' | while read report; do
+          # Copy all shard blob reports
+          # Blobs are usually named report-*.zip
+          find artifacts -type f -name 'report-*.zip' | while read report; do
             shard_name=$(basename $(dirname "$report"))
-            cp "$report" "merged-reports/${shard_name}.json"
+            cp "$report" "merged-reports/${shard_name}.zip"
           done
 
           # List what we found
@@ -203,14 +204,12 @@ jobs:
 
           # Only merge if we have reports
           if [ "$(ls -A merged-reports 2>/dev/null)" ]; then
-            # We need both the json for SQM and the html for human-readable results
-            pnpm exec playwright merge-reports --reporter json,html merged-reports
-            # The merge command saves the json to `merged-report.json` by default
-            # Copy it to the location expected by run-metrics.sh
-            if [ -f "merged-report.json" ]; then
-              cp merged-report.json test-results/playwright/results.json
-              echo "✅ Merged E2E report saved to test-results/playwright/results.json"
-            fi
+            # Merge reports. 
+            # JSON to stdout -> captured to file
+            # HTML to playwright-report/ (default)
+            pnpm exec playwright merge-reports --reporter json,html merged-reports > test-results/playwright/results.json
+            
+            echo "✅ Merged E2E report saved to test-results/playwright/results.json"
           else
             echo "⚠️ No E2E reports to merge (tests may have been skipped)"
           fi

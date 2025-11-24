@@ -81,19 +81,34 @@ run_e2e_tests_shard() {
     fi
 
     local PLAYWRIGHT_SHARD_ID=$((SHARD_INDEX + 1))
-    local REPORT_DIR="test-results/playwright/shard-${SHARD_INDEX}"
+    # Use a separate directory for shards to avoid Playwright cleaning it up
+    local REPORT_DIR="test-results/shards/shard-${SHARD_INDEX}"
     mkdir -p "$REPORT_DIR"
 
     echo "✅ Running E2E Test Shard ${PLAYWRIGHT_SHARD_ID}/${SHARD_COUNT}..."
 
-    # Run Playwright shard, redirecting the json reporter output to the correct file
+    # Run Playwright shard
+    # We use set +e to capture the exit code so we can move artifacts even on failure
+    set +e
     pnpm exec playwright test $E2E_TEST_DIR \
-        --shard="${PLAYWRIGHT_SHARD_ID}/${SHARD_COUNT}" \
-        --reporter=json > "${REPORT_DIR}/results.json" \
-        || {
-            echo "❌ E2E Test Shard ${PLAYWRIGHT_SHARD_ID} failed." >&2
-            exit 1
-        }
+        --shard="${PLAYWRIGHT_SHARD_ID}/${SHARD_COUNT}"
+    EXIT_CODE=$?
+    set -e
+
+    # Move blob reports (if any) to the report dir
+    # Default blob report dir is blob-report
+    if [ -d "blob-report" ]; then
+        echo "📦 Moving blob reports to $REPORT_DIR"
+        # Ensure directory exists (it should, but just in case)
+        mkdir -p "$REPORT_DIR"
+        mv blob-report/* "$REPORT_DIR"
+        rmdir blob-report
+    fi
+
+    if [ $EXIT_CODE -ne 0 ]; then
+        echo "❌ E2E Test Shard ${PLAYWRIGHT_SHARD_ID} failed." >&2
+        exit $EXIT_CODE
+    fi
 
     echo "✅ E2E Test Shard ${PLAYWRIGHT_SHARD_ID} Passed."
 }
@@ -137,6 +152,57 @@ run_sqm_report_local() {
         echo "⚠️ Warning: Metric generation scripts not found. Skipping SQM report."
     fi
     echo "✅ [5/5] SQM Report Generation Complete."
+}
+
+run_ci_simulation() {
+    echo "🤖 Running Full CI Simulation..."
+    
+    # Clean up previous runs
+    rm -rf test-results merged-reports blob-report
+    
+    # 1. Prepare
+    run_preflight
+    run_quality_checks
+    run_build
+    run_e2e_sharding
+    
+    # 2. Run Shards
+    local SHARD_COUNT=$(jq '.shard_count' "$ARTIFACTS_DIR/e2e-shards.json")
+    echo "🔄 Running $SHARD_COUNT shards..."
+    
+    for ((i=0; i<SHARD_COUNT; i++)); do
+        # We need to set CI=true to force blob reporter if not already set
+        CI=true run_e2e_tests_shard "$i"
+    done
+    
+    # 3. Merge and Report
+    echo "🔄 Merging reports..."
+    mkdir -p merged-reports
+    mkdir -p test-results/playwright
+    
+    # Find all blob reports in test-results/shards/shard-*
+    # Note: In CI this is done by downloading artifacts. Here they are already in place.
+    echo "🔍 Listing test-results/shards:"
+    ls -R test-results/shards
+    
+    find test-results/shards -name 'report-*.zip' | while read report; do
+        shard_name=$(basename $(dirname "$report"))
+        echo "Copying $report to merged-reports/${shard_name}.zip"
+        cp "$report" "merged-reports/${shard_name}.zip"
+    done
+    
+    echo "🔍 Listing merged-reports:"
+    ls -la merged-reports/
+    
+    if [ "$(ls -A merged-reports 2>/dev/null)" ]; then
+        pnpm exec playwright merge-reports --reporter json,html merged-reports > test-results/playwright/results.json
+        echo "✅ Merged reports."
+    else
+        echo "⚠️ No reports to merge."
+    fi
+    
+    run_sqm_report_ci
+    echo "✅ CI Simulation Complete."
 }
 
 
@@ -184,6 +250,12 @@ case $STAGE in
         run_sqm_report_local
         echo "🎉🎉🎉"
         echo "✅ SpeakSharp Local Test Audit SUCCEEDED!"
+        echo "🎉🎉🎉"
+        ;;
+    ci-simulate)
+        run_ci_simulation
+        echo "🎉🎉🎉"
+        echo "✅ SpeakSharp CI Simulation SUCCEEDED!"
         echo "🎉🎉🎉"
         ;;
     *)
