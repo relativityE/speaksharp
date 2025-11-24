@@ -8,8 +8,8 @@ import type { User, Session } from '@supabase/supabase-js';
 import type { PracticeSession } from '../../types/session';
 import { AuthContextType } from '../../contexts/AuthProvider';
 import { useUserProfile } from '../useUserProfile';
-import { createQueryWrapper } from '../../../tests/test-utils/queryWrapper';
-import { makeQuerySuccess } from '../../../tests/test-utils/queryMocks';
+import { createQueryWrapper } from 'tests/test-utils/queryWrapper';
+import { makeQuerySuccess } from 'tests/test-utils/queryMocks';
 
 // Mock dependencies
 vi.mock('../../contexts/AuthProvider');
@@ -49,12 +49,12 @@ const mockUser: User = {
 };
 
 const mockAuthContextValue: AuthContextType = {
-    user: mockUser,
-    session: {} as Session,
-    profile: { id: mockUser.id, subscription_status: 'free' },
-    loading: false,
-    signOut: vi.fn(() => Promise.resolve()),
-    setSession: vi.fn()
+  user: mockUser,
+  session: {} as Session,
+  profile: { id: mockUser.id, subscription_status: 'free' },
+  loading: false,
+  signOut: vi.fn(() => Promise.resolve()),
+  setSession: vi.fn()
 };
 
 describe('useSessionManager', () => {
@@ -88,17 +88,17 @@ describe('useSessionManager', () => {
     });
 
     it('should return usageExceeded from saveSessionToDb', async () => {
-        mockStorage.saveSession.mockResolvedValue({ session: null, usageExceeded: true });
-        const { result } = renderHook(() => useSessionManager(), { wrapper: createQueryWrapper() });
+      mockStorage.saveSession.mockResolvedValue({ session: null, usageExceeded: true });
+      const { result } = renderHook(() => useSessionManager(), { wrapper: createQueryWrapper() });
 
-        await act(async () => {
-            const savedSession = await result.current.saveSession({ duration: 100 });
-            expect(savedSession).not.toBeNull();
-            if (savedSession) {
-                expect(savedSession.session).toBeNull();
-                expect(savedSession.usageExceeded).toBe(true);
-            }
-        });
+      await act(async () => {
+        const savedSession = await result.current.saveSession({ duration: 100 });
+        expect(savedSession).not.toBeNull();
+        if (savedSession) {
+          expect(savedSession.session).toBeNull();
+          expect(savedSession.usageExceeded).toBe(true);
+        }
+      });
     });
   });
 
@@ -116,122 +116,122 @@ describe('useSessionManager', () => {
     });
 
     it('should handle errors during deletion', async () => {
-        mockStorage.deleteSession.mockRejectedValue(new Error('DB Error'));
-        const { result } = renderHook(() => useSessionManager(), { wrapper: createQueryWrapper() });
-        let success;
-        await act(async () => {
-          success = await result.current.deleteSession('db-session-123');
-        });
-
-        expect(mockLogger.error).toHaveBeenCalled();
-        expect(success).toBe(false);
+      mockStorage.deleteSession.mockRejectedValue(new Error('DB Error'));
+      const { result } = renderHook(() => useSessionManager(), { wrapper: createQueryWrapper() });
+      let success;
+      await act(async () => {
+        success = await result.current.deleteSession('db-session-123');
       });
 
+      expect(mockLogger.error).toHaveBeenCalled();
+      expect(success).toBe(false);
+    });
+
     it('should do nothing for anonymous sessions but return true', async () => {
-        mockUseAuthProvider.mockReturnValue({ ...mockAuthContextValue, user: { ...mockUser, is_anonymous: true } });
-        const { result } = renderHook(() => useSessionManager(), { wrapper: createQueryWrapper() });
-        let success;
-        await act(async () => {
-            success = await result.current.deleteSession('anonymous-session-123');
-        });
-        expect(mockStorage.deleteSession).not.toHaveBeenCalled();
-        expect(success).toBe(true);
+      mockUseAuthProvider.mockReturnValue({ ...mockAuthContextValue, user: { ...mockUser, is_anonymous: true } });
+      const { result } = renderHook(() => useSessionManager(), { wrapper: createQueryWrapper() });
+      let success;
+      await act(async () => {
+        success = await result.current.deleteSession('anonymous-session-123');
+      });
+      expect(mockStorage.deleteSession).not.toHaveBeenCalled();
+      expect(success).toBe(true);
     });
   });
 
   describe('Anonymous User Flow', () => {
     beforeEach(() => {
-        mockUseAuthProvider.mockReturnValue({ ...mockAuthContextValue, user: { ...mockUser, is_anonymous: true } });
+      mockUseAuthProvider.mockReturnValue({ ...mockAuthContextValue, user: { ...mockUser, is_anonymous: true } });
     });
 
     it('saveSession should save to sessionStorage for anonymous users', async () => {
-        const { result } = renderHook(() => useSessionManager(), { wrapper: createQueryWrapper() });
-        const sessionData = { duration: 60 };
+      const { result } = renderHook(() => useSessionManager(), { wrapper: createQueryWrapper() });
+      const sessionData = { duration: 60 };
 
-        await act(async () => {
-            await result.current.saveSession(sessionData);
-        });
+      await act(async () => {
+        await result.current.saveSession(sessionData);
+      });
 
-        expect(mockSessionStorage.setItem).toHaveBeenCalledWith(
-            'anonymous-session',
-            expect.any(String)
-        );
-        expect(mockStorage.saveSession).not.toHaveBeenCalled();
+      expect(mockSessionStorage.setItem).toHaveBeenCalledWith(
+        'anonymous-session',
+        expect.any(String)
+      );
+      expect(mockStorage.saveSession).not.toHaveBeenCalled();
     });
   });
 
   describe('exportSessions', () => {
-  // Set up proper DOM mocks before each test
-  beforeEach(() => {
-    // Mock URL object methods
-    global.URL.createObjectURL = vi.fn(() => 'blob:mock-url');
-    global.URL.revokeObjectURL = vi.fn();
+    // Set up proper DOM mocks before each test
+    beforeEach(() => {
+      // Mock URL object methods
+      global.URL.createObjectURL = vi.fn(() => 'blob:mock-url');
+      global.URL.revokeObjectURL = vi.fn();
 
-    // Mock document.createElement to return a proper mock element, avoiding recursion
-    const originalCreateElement = document.createElement;
-    vi.spyOn(document, 'createElement').mockImplementation((tagName: string) => {
-      if (tagName === 'a') {
-        return {
-          click: vi.fn(),
-          download: '',
-          href: '',
-          style: {},
-        } as unknown as HTMLAnchorElement;
-      }
-      return originalCreateElement.call(document, tagName);
+      // Mock document.createElement to return a proper mock element, avoiding recursion
+      const originalCreateElement = document.createElement;
+      vi.spyOn(document, 'createElement').mockImplementation((tagName: string) => {
+        if (tagName === 'a') {
+          return {
+            click: vi.fn(),
+            download: '',
+            href: '',
+            style: {},
+          } as unknown as HTMLAnchorElement;
+        }
+        return originalCreateElement.call(document, tagName);
+      });
+
+      // Mock document.body methods
+      vi.spyOn(document.body, 'appendChild').mockImplementation((node: Node) => node);
+      vi.spyOn(document.body, 'removeChild').mockImplementation((node: Node) => node);
     });
 
-    // Mock document.body methods
-    vi.spyOn(document.body, 'appendChild').mockImplementation((node: Node) => node);
-    vi.spyOn(document.body, 'removeChild').mockImplementation((node: Node) => node);
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('should call exportData and trigger download for authenticated users', async () => {
-    const exportData = {
-      sessions: [{
-        id: 's1',
-        user_id: 'user-123',
-        created_at: 'now',
-        duration: 60
-      }],
-      transcripts: []
-    };
-
-    mockStorage.exportData.mockResolvedValue(exportData);
-    const { result } = renderHook(() => useSessionManager(), { wrapper: createQueryWrapper() });
-
-    await act(async () => {
-      await result.current.exportSessions();
+    afterEach(() => {
+      vi.restoreAllMocks();
     });
 
-    // Verify the export flow
-    expect(mockStorage.exportData).toHaveBeenCalledExactlyOnceWith(mockUser.id);
-    expect(global.URL.createObjectURL).toHaveBeenCalled();
+    it('should call exportData and trigger download for authenticated users', async () => {
+      const exportData = {
+        sessions: [{
+          id: 's1',
+          user_id: 'user-123',
+          created_at: 'now',
+          duration: 60
+        }],
+        transcripts: []
+      };
 
-    expect(document.createElement).toHaveBeenCalledWith('a');
-    expect(document.body.appendChild).toHaveBeenCalled();
-    expect(document.body.removeChild).toHaveBeenCalled();
-    expect(global.URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith('blob:mock-url');
-  });
+      mockStorage.exportData.mockResolvedValue(exportData);
+      const { result } = renderHook(() => useSessionManager(), { wrapper: createQueryWrapper() });
 
-  it('should handle export errors gracefully', async () => {
-    mockStorage.exportData.mockRejectedValue(new Error('Export failed'));
-    const { result } = renderHook(() => useSessionManager(), { wrapper: createQueryWrapper() });
+      await act(async () => {
+        await result.current.exportSessions();
+      });
 
-    await act(async () => {
-      await result.current.exportSessions();
+      // Verify the export flow
+      expect(mockStorage.exportData).toHaveBeenCalledExactlyOnceWith(mockUser.id);
+      expect(global.URL.createObjectURL).toHaveBeenCalled();
+
+      expect(document.createElement).toHaveBeenCalledWith('a');
+      expect(document.body.appendChild).toHaveBeenCalled();
+      expect(document.body.removeChild).toHaveBeenCalled();
+      expect(global.URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith('blob:mock-url');
     });
 
-    expect(mockLogger.error).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({
-        err: expect.any(Error)
-      }),
-      "Error exporting sessions:"
-    );
+    it('should handle export errors gracefully', async () => {
+      mockStorage.exportData.mockRejectedValue(new Error('Export failed'));
+      const { result } = renderHook(() => useSessionManager(), { wrapper: createQueryWrapper() });
+
+      await act(async () => {
+        await result.current.exportSessions();
+      });
+
+      expect(mockLogger.error).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          err: expect.any(Error)
+        }),
+        "Error exporting sessions:"
+      );
+    });
   });
-});
 });

@@ -14,7 +14,7 @@ export default defineConfig({
     environment: 'happy-dom',
     include: ['src/**/*.test.{js,jsx,ts,tsx}'],
     exclude: ['node_modules/', 'dist/', 'build/', 'tests/'],
-    setupFiles: 'tests/unit/setup.ts',
+    setupFiles: '../tests/unit/setup.ts',
     testTimeout: 30000, // Increased for cleanup
     hookTimeout: 10000,
     teardownTimeout: 10000, // Increased for cleanup
@@ -22,7 +22,7 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary', 'html'],
-      reportsDirectory: './test-results/coverage',
+      reportsDirectory: './coverage',
       all: true,
     },
 
@@ -53,9 +53,10 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      "tests": path.resolve(__dirname, "../tests"),
       "sharp": path.resolve(__dirname, "./src/test/mocks/sharp.ts"),
-      '@xenova/transformers': path.resolve(__dirname, './__mocks__/transformers.ts'),
-      'whisper-turbo': path.resolve(__dirname, './__mocks__/whisper-turbo.ts'),
+      '@xenova/transformers': path.resolve(__dirname, '../__mocks__/transformers.ts'),
+      'whisper-turbo': path.resolve(__dirname, '../__mocks__/whisper-turbo.ts'),
     },
   },
   define: {

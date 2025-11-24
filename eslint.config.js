@@ -14,7 +14,7 @@ export default tseslint.config(
 
   // General App Code
   {
-    files: ['src/**/*.{js,jsx,ts,tsx}'],
+    files: ['frontend/src/**/*.{js,jsx,ts,tsx}'],
     plugins: {
       'react-hooks': reactHooks,
       'react-refresh': reactRefresh,
@@ -97,7 +97,7 @@ export default tseslint.config(
   // Config for project-level config files
   {
     files: ['*.{js,cjs,mjs,ts}'],
-     languageOptions: {
+    languageOptions: {
       globals: {
         ...globals.node,
       },
