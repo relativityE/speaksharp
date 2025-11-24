@@ -1,7 +1,7 @@
 import { LandingHeader } from "@/components/landing/LandingHeader";
 import { HeroSection } from "@/components/landing/HeroSection";
 import { FeaturesSection } from "@/components/landing/FeaturesSection";
-import { TestimonialsSection } from "@/components/landing/TestimonialsSection";
+// import { TestimonialsSection } from "@/components/landing/TestimonialsSection";
 import { LandingFooter } from "@/components/landing/LandingFooter";
 
 const Index = () => {
@@ -11,7 +11,7 @@ const Index = () => {
       <main className="flex-1">
         <HeroSection />
         <FeaturesSection />
-        <TestimonialsSection />
+        {/* <TestimonialsSection /> */}
       </main>
       <LandingFooter />
     </div>

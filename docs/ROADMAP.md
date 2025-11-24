@@ -137,9 +137,18 @@ This section is a prioritized list of technical debt items to be addressed.
   - **Problem:** Cannot suppress unused variables in catch blocks.\
   - **Required Action:** Fix ESLint config.\
 \
-- **P3 (Medium): Implement Deno Unit Tests for Token Endpoint**\
-  - **Problem:** The `assemblyai-token` function lacks unit tests.\
+- **P3 (Medium): Implement Deno Unit Tests for Token Endpoint**
+  - **Problem:** The `assemblyai-token` function lacks unit tests.
   - **Required Action:** Implement tests to ensure auth reliability.
+
+- **P2 (Medium): Optimize Lighthouse Performance Score**
+  - **Problem:** Initial Lighthouse CI integration reveals a Performance score of ~0.62 and LCP of ~0.26, well below the target of 0.90.
+  - **Target Metrics:**
+    - Performance Score: > 0.90
+    - Largest Contentful Paint (LCP): < 2.5s (Score > 0.90)
+    - First Contentful Paint (FCP): < 1.8s (Score > 0.90)
+    - Cumulative Layout Shift (CLS): < 0.1
+  - **Required Action:** Investigate render-blocking resources, optimize image loading, and implement code splitting to improve core web vitals.
 
 ---
 ### Resolved Technical Debt
