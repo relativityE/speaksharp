@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Extended `src/config.ts` with API and subscription limit constants for better configuration management
   - Verified all database migrations are applied, including `custom_vocabulary` (migration 20251120004400)
   - Implemented Lighthouse CI integration with performance thresholds (Performance > 0.50, SEO > 0.80, Best Practices > 0.70)
+- **Codebase Restructure (2025-11-23):**
+  - Reorganized project into modular directory structure: `frontend/`, `backend/`, `scripts/`, `tests/`, `docs/`
+  - Moved all frontend code (`src/`, `public/`, configs) to `frontend/` directory
+  - Renamed `supabase/` to `backend/` for clarity
+  - Consolidated root scripts into `scripts/` directory
+  - Updated all configuration files (package.json, CI workflow, tsconfig, vitest, eslint) to reference new paths
+  - All 113 unit tests and 13 E2E tests passing with new structure
 
 
 ### Changed

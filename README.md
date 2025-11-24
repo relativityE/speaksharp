@@ -1,9 +1,39 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-11-18
+**Last Reviewed:** 2025-11-23
 
 # SpeakSharp
 
 SpeakSharp is an AI-powered speech coaching application that helps users improve their public speaking skills. It provides real-time feedback on filler words, speaking pace, and more.
+
+## Project Structure
+
+The codebase is organized into clearly separated directories:
+
+```
+speaksharp/
+├── frontend/          # React application
+│   ├── src/          # Application source code
+│   ├── public/       # Static assets
+│   └── *.config.*    # Frontend build configs (Vite, Vitest, etc.)
+├── backend/           # Supabase backend services
+│   ├── functions/    # Edge functions
+│   ├── migrations/   # Database migrations
+│   └── config.toml
+├── scripts/           # Build, test, and maintenance scripts
+│   ├── test-audit.sh
+│   ├── run-metrics.sh
+│   └── ...
+├── tests/             # All tests (E2E, unit, fixtures, POMs)
+│   ├── e2e/
+│   ├── unit/
+│   ├── fixtures/
+│   └── pom/
+├── docs/              # Documentation
+└── Root configs       # Workspace-level configuration
+    ├── package.json
+    ├── eslint.config.js
+    └── ...
+```
 
 ## Getting Started
 
@@ -30,22 +60,22 @@ To get started with SpeakSharp, you'll need to have Node.js (version 22.12.0 or 
 
 This project uses a hybrid approach for managing image assets:
 
-### Public Assets (`public/assets/`)
+### Public Assets (`frontend/public/assets/`)
 - **Static files** that don't require build-time processing (e.g., `speaksharp-logo.png`)
 - Referenced directly in code as `/assets/filename.ext`
 - Served as-is by Vite
 
-### Source Assets (`src/assets/`)
+### Source Assets (`frontend/src/assets/`)
 - **Build-optimized assets** that go through Vite's import pipeline
-- JPEG images (`analytics-visual.jpg`, `hero-speaker.jpg`) are **symlinked** from `public/assets/`
-  - Actual files: `public/assets/*.jpg`
-  - Symlinks: `src/assets/*.jpg` → `../public/assets/*.jpg`
+- JPEG images (`analytics-visual.jpg`, `hero-speaker.jpg`) are **symlinked** from `frontend/public/assets/`
+  - Actual files: `frontend/public/assets/*.jpg`
+  - Symlinks: `frontend/src/assets/*.jpg` → `../public/assets/*.jpg`
 - This allows components to use standard ES imports while keeping the source files in one location
-- SVG assets (`react.svg`) are stored directly in `src/assets/`
+- SVG assets (`react.svg`) are stored directly in `frontend/src/assets/`
 
 ### Stabilizing the Environment by Enforcing the Lockfile
 
-**This is a critical step to prevent "works on my machine" issues.**
+**This is a critical step to prevent \"works on my machine\" issues.**
 
 This project uses a strict `pnpm-lock.yaml` file to guarantee that every developer and every CI run uses the exact same dependency versions. If you encounter unexpected build, type-check, or linting errors in a fresh environment, it is likely due to dependency drift.
 
@@ -64,7 +94,7 @@ The `pnpm run setup` command executes `pnpm install --frozen-lockfile`, which is
 
 ## Running the Full Test & Audit Suite
 
-This project uses a unified testing strategy centered around a single, robust script (`test-audit.sh`) that is accessed via simple `pnpm` commands. This ensures that local validation and the CI pipeline are perfectly aligned.
+This project uses a unified testing strategy centered around a single, robust script (`scripts/test-audit.sh`) that is accessed via simple `pnpm` commands. This ensures that local validation and the CI pipeline are perfectly aligned.
 
 ### The Canonical Test Commands
 
@@ -76,11 +106,11 @@ For all local testing and validation, use the following `pnpm` scripts. They are
     ```
     **Why?** This is the canonical command for a full local quality check. It runs the same sequence as the CI `prepare` stage (Preflight, Lint, Typecheck, Unit Tests, Build) and then runs the **entire** End-to-End (E2E) test suite. It is the best way to guarantee your changes will pass CI.
 
-*   **Run a fast "health check" of the application:**
+*   **Run a fast \"health check\" of the application:**
     ```bash
     pnpm test:health-check
     ```
-    **Why?** This is your go-to command during active development. It runs the full suite of pre-flight and quality checks but only executes the small, critical E2E "health check" suite instead of the full E2E suite. This provides a much faster feedback loop.
+    **Why?** This is your go-to command during active development. It runs the full suite of pre-flight and quality checks but only executes the small, critical E2E \"health check\" suite instead of the full E2E suite. This provides a much faster feedback loop.
 
 *   **Run only the unit tests:**
     ```bash
@@ -96,4 +126,4 @@ The test runner automatically generates a Software Quality Metrics report.
 
 ### Continuous Integration (CI)
 
-The definitive quality gate is our CI pipeline, which runs in GitHub Actions. The workflow is defined in `.github/workflows/ci.yml` and is orchestrated by the `test-audit.sh` script. This ensures perfect consistency between the developer environment and the CI environment.
+The definitive quality gate is our CI pipeline, which runs in GitHub Actions. The workflow is defined in `.github/workflows/ci.yml` and is orchestrated by the `scripts/test-audit.sh` script. This ensures perfect consistency between the developer environment and the CI environment.
