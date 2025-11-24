@@ -8,17 +8,17 @@
   },
   "scripts": {
     "setup": "pnpm install --frozen-lockfile",
-    "dev": "vite",
-    "build": "vite build --mode production",
-    "build:test": "vite build --mode test",
-    "preview": "vite preview",
-    "lint": "eslint 'src/**/*.{js,jsx,ts,tsx}' 'tests/**/*.{js,jsx,ts,tsx}' --report-unused-disable-directives --max-warnings 0",
-    "lint:fix": "eslint 'src/**/*.{js,jsx,ts,tsx}' 'tests/**/*.{js,jsx,ts,tsx}' --fix",
-    "typecheck": "tsc --build --verbose",
-    "test": "vitest --coverage",
-    "test:unit": "vitest --coverage",
-    "test:all": "./test-audit.sh local",
-    "test:health-check": "./test-audit.sh health-check",
+    "dev": "cd frontend && vite",
+    "build": "cd frontend && vite build --mode production",
+    "build:test": "cd frontend && vite build --mode test",
+    "preview": "cd frontend && vite preview",
+    "lint": "cd frontend && eslint 'src/**/*.{js,jsx,ts,tsx}' '../tests/**/*.{js,jsx,ts,tsx}' --report-unused-disable-directives --max-warnings 0",
+    "lint:fix": "cd frontend && eslint 'src/**/*.{js,jsx,ts,tsx}' '../tests/**/*.{js,jsx,ts,tsx}' --fix",
+    "typecheck": "cd frontend && tsc --build --verbose",
+    "test": "cd frontend && vitest --coverage",
+    "test:unit": "cd frontend && vitest --coverage",
+    "test:all": "./scripts/test-audit.sh local",
+    "test:health-check": "./scripts/test-audit.sh health-check",
     "test:e2e:install-browsers": "playwright install",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:debug": "cross-env DEBUG=pw:api DOTENV_CONFIG_PATH=.env.test playwright test --headed --trace on --project=chromium",
@@ -114,7 +114,7 @@
     "wait-on": "^9.0.3"
   },
   "msw": {
-    "workerDirectory": "public"
+    "workerDirectory": "frontend/public"
   },
   "lint-staged": {
     "*.{js,jsx,ts,tsx}": [

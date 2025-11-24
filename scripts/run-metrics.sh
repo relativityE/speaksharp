@@ -20,7 +20,7 @@ unit_skipped=$(jq '.numPendingTests' "$unit_metrics_file")
 unit_total=$(jq '.numTotalTests' "$unit_metrics_file")
 
 # Coverage Metrics
-coverage_file="$TEST_RESULTS_DIR/coverage/coverage-summary.json"
+coverage_file="frontend/coverage/coverage-summary.json"
 if [ ! -f "$coverage_file" ]; then
     echo "⚠️ WARNING: Coverage summary not found at $coverage_file. Setting coverage to 0." >&2
     coverage_lines=0
@@ -54,7 +54,7 @@ else
 fi
 
 # Bundle Size Metrics
-bundle_size=$(du -sh dist | awk '{print $1}')
+bundle_size=$(du -sh frontend/dist | awk '{print $1}')
 
 # Create the final combined metrics file
 jq -n \

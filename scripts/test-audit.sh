@@ -39,7 +39,7 @@ run_build() {
         echo "❌ Build failed." >&2
         exit 1
     }
-    echo "ℹ️ Build output located in ./dist"
+    echo "ℹ️ Build output located in ./frontend/dist"
     echo "✅ [3/5] Build Succeeded."
 }
 
@@ -120,8 +120,8 @@ run_sqm_report_ci() {
     echo "✅ [5/5] Generating Final Report and Updating Docs..."
     echo "ℹ️ Merging metrics + updating PRD…"
     ensure_artifacts_dir
-    if [ -f "./run-metrics.sh" ]; then
-        ./run-metrics.sh
+    if [ -f "./scripts/run-metrics.sh" ]; then
+        ./scripts/run-metrics.sh
         pnpm exec node scripts/update-prd-metrics.mjs
     else
         echo "⚠️ Warning: Metric generation scripts not found. Skipping report."
@@ -131,8 +131,8 @@ run_sqm_report_ci() {
 
 run_sqm_report_local() {
     echo "✅ [5/5] Generating and Printing SQM Report..."
-    if [ -f "./run-metrics.sh" ]; then
-        ./run-metrics.sh --json-output
+    if [ -f "./scripts/run-metrics.sh" ]; then
+        ./scripts/run-metrics.sh --json-output
     else
         echo "⚠️ Warning: Metric generation scripts not found. Skipping SQM report."
     fi
