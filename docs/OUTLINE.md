@@ -30,7 +30,7 @@ This process ensures our documentation remains a reliable Single Source of Truth
 
 This section defines the canonical location for every type of documentation.
 
-*   **[`README.md`](./README.md)**
+*   **[`README.md`](../README.md)**
     *   **Content**: Entry point, quick start, repo structure, high-level links.
     *   **Best fit for**: Installation/setup guides, onboarding notes.
 

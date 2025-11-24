@@ -9,9 +9,58 @@
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
-## 1. System Overview
+## 1. Project Directory Structure
+
+SpeakSharp follows a modular, domain-driven directory structure that clearly separates concerns:
+
+```
+frontend/
+  ├── src/              # Application code
+  │   ├── components/   # React components (UI library, features)
+  │   ├── contexts/     # React Context providers (AuthContext)
+  │   ├── hooks/        # Custom React hooks (business logic)
+  │   ├── lib/          # Utilities (pdfGenerator, logger, storage)
+  │   ├── pages/        # Route-level page components
+  │   ├── services/     # External service integrations (transcription, analytics)
+  │   ├── types/        # TypeScript type definitions
+  │   └── utils/        # Helper functions (fillerWordUtils, etc)
+  ├── tests/            # Frontend test infrastructure
+  │   ├── unit/         # Unit tests (non-co-located)
+  │   ├── integration/  # Integration tests (components with providers)
+  │   ├── mocks/        # Test mocks (MSW handlers)
+  │   ├── support/      # Test support utilities
+  │   ├── test-utils/   # Shared test helpers (queryWrapper, queryMocks)
+  │   └── __mocks__/    # Module mocks (sharp, transformers, whisper)
+  ├── public/           # Static assets
+  └── [configs]         # vite.config.mjs, vitest.config.mjs, tsconfig.json, etc
+
+tests/                  # Project-level tests (cross-cutting)
+  ├── e2e/              # End-to-end Playwright tests
+  ├── soak/             # Performance/load tests (manual, not in CI)
+  └── pom/              # Page Object Models (shared by E2E)
+
+backend/                # Backend services
+  └── supabase/         # Supabase functions, migrations, seed data
+
+scripts/                # Build, test, and CI/CD automation scripts
+
+docs/                   # Project documentation
+  ├── ARCHITECTURE.md   # This file
+  ├── PRD.md            # Product requirements
+  ├── ROADMAP.md        # Development roadmap
+  └── CHANGELOG.md      # Change history
+```
+
+**Design Rationale:**
+- **Frontend isolation**: All frontend-specific code (source + tests) lives in `frontend/`
+- **Test co-location**: Unit tests can live alongside code (`src/**/*.test.ts`) or in `tests/unit/`
+- **E2E separation**: Cross-cutting E2E tests remain at project root since they test the full stack
+- **Clean imports**: Vitest config uses `./tests/**` (no brittle `../` paths)
+
+## 2. System Overview
 
 This section contains a high-level block diagram of the SpeakSharp full-stack architecture.
+
 
 ```ascii
 +----------------------------------------------------------------------------------------------------------------------+
@@ -28,18 +77,18 @@ This section contains a high-level block diagram of the SpeakSharp full-stack ar
 |    +---------------------------------+       +---------------------------------+       +-------------------------+  |
 |    |    User Interface (React)       |       |      Supabase Auth              |       |      AssemblyAI         |  |
 |    |---------------------------------|       |---------------------------------|       | (Streaming STT API)     |  |
-|    | - `src/pages` (Routing)         |<----->| - User/Session Management       |<----->| (via WebSockets)        |  |
-|    | - `src/components` (UI)         |       | - RLS for Data Security         |       +-------------------------+  |
-|    | - `src/contexts` (State Mgmt)   |       +---------------------------------+                 ^                |
+|    | - `frontend/src/pages`          |<----->| - User/Session Management       |<----->| (via WebSockets)        |  |
+|    | - `frontend/src/components`     |       | - RLS for Data Security         |       +-------------------------+  |
+|    | - `frontend/src/contexts`       |       +---------------------------------+                 ^                |
 |    |   - `AuthContext`               |                   ^                                       |                |
-|    | - `src/hooks` (Logic)           |                   v                                       |                |
+|    | - `frontend/src/hooks` (Logic)  |                   v                                       |                |
 |    |   - `usePracticeHistory`        |       +---------------------------------+       +-------------------------+  |
 |    |   - `useSessionManager`         |       |    Supabase DB (Postgres)       |       |        Stripe           |  |
 |    |   - `useSpeechRecognition`      |       |---------------------------------|       |       (Payments)        |  |
 |    |     - `useTranscriptState`      |       | - `users`, `sessions`           |<----->| (via webhooks)          |  |
 |    |     - `useFillerWords`          |       | - `transcripts`, `usage`        |       +-------------------------+  |
 |    |     - `useTranscriptionService` |       | - `ground_truth` in sessions    |                 ^                |
-|    | - `src/lib` (Utils)             |       +---------------------------------+                 |                |
+|    | - `frontend/src/lib` (Utils)    |       +---------------------------------+                 |                |
 |    |   - `pdfGenerator`              |<----->| - `users`, `sessions`           |<----->| (via webhooks)          |  |
 |    +---------------------------------+       | - `transcripts`, `usage`        |       +-------------------------+  |
 |              |         |                      +---------------------------------+                 ^                |
@@ -51,8 +100,8 @@ This section contains a high-level block diagram of the SpeakSharp full-stack ar
 |    +---------------------------------+       | - canvas (replaces sharp)       |                 ^                |
 |    | TranscriptionService            |       +---------------------------------+                 |                |
 |    |---------------------------------|                   ^                                       |                |
-|    | - `CloudAssemblyAI / LocalWhisper` (Pro)       |-------------------+                                       |
-|    | - `NativeBrowser` (Free/Fallback) |                 |                                       |                |
+|    | - `CloudAI / LocalWhisper` (Pro)|       |-------------------+                                       |                |
+|    | - `NativeBrowser` (Free)        |                 |                                       |                |
 |    +---------------------------------+       +---------------------------------+                 |                |
 |              |                                | Deno Edge Functions             |-----------------+                |
 |              v                                |---------------------------------|                                |
@@ -435,7 +484,7 @@ To solve this, we use a mocking strategy for the test environment:
 
 1.  **Optional Dependency:** The native dependency (`sharp`) is listed as an `optionalDependency` in `package.json`. This prevents the package manager from failing the installation if the native build step fails.
 2.  **Vitest Alias:** In `vitest.config.mjs`, we create aliases that redirect imports of `sharp` and `@xenova/transformers` to mock files.
-3.  **Canvas-based Mock:** To improve stability, the mock for `sharp` (`src/test/mocks/sharp.ts`) now uses the `canvas` library, a pure JavaScript image processing tool with better stability in headless environments. The mock for `@xenova/transformers` provides a simplified, lightweight implementation for unit tests.
+3.  **Canvas-based Mock:** To improve stability, the mock for `sharp` (`tests/support/mocks/sharp.ts`) now uses the `canvas` library, a pure JavaScript image processing tool with better stability in headless environments. The mock for `@xenova/transformers` provides a simplified, lightweight implementation for unit tests.
 4.  **Dependency Inlining:** Because the `@xenova/transformers` import happens within a dependency, we must configure Vitest to process this dependency by adding it to `test.deps.inline`. This ensures the alias is applied correctly.
 
 This approach allows us to use the high-performance native library in production while maintaining a stable and easy-to-manage test environment.
@@ -444,8 +493,8 @@ This approach allows us to use the high-performance native library in production
 
 The frontend is a single-page application (SPA) built with React and Vite.
 
-*   **Component Model:** The UI is built from a combination of page-level components (`src/pages`), feature-specific components (`src/components/session`, `src/components/landing`), and a reusable UI library (`src/components/ui`).
-*   **Design System:** The UI components in `src/components/ui` are built using `class-variance-authority` (CVA) for a flexible, type-safe, and maintainable design system. Design tokens are managed in `tailwind.config.ts`.
+*   **Component Model:** The UI is built from a combination of page-level components (`frontend/src/pages`), feature-specific components (`frontend/src/components/session`, `frontend/src/components/landing`), and a reusable UI library (`frontend/src/components/ui`).
+*   **Design System:** The UI components in `frontend/src/components/ui` are built using `class-variance-authority` (CVA) for a flexible, type-safe, and maintainable design system. Design tokens are managed in `frontend/tailwind.config.ts`.
 *   **State Management:** See Section 3.1 below.
 *   **Routing:** Client-side routing is handled by `react-router-dom`, with protected routes implemented to secure sensitive user pages.
 *   **Logging:** The application uses `pino` for structured logging.
@@ -508,8 +557,8 @@ The backend is built entirely on the Supabase platform, leveraging its integrate
 *   **Logic:**
     *   `PauseDetector` class: Analyzes audio frames for silence gaps > 500ms (configurable).
     *   `useVocalAnalysis` hook: Integrates the detector with the real-time audio stream.
-*   **Configuration:** Thresholds are centralized in `src/config.ts`.
-*   **Centralized Configuration:** Key application constants (session limits, audio settings, vocabulary limits) are consolidated in `src/config.ts` to ensure consistency and maintainability across the codebase.
+*   **Configuration:** Thresholds are centralized in `frontend/src/config.ts`.
+*   **Centralized Configuration:** Key application constants (session limits, audio settings, vocabulary limits) are consolidated in `frontend/src/config.ts` to ensure consistency and maintainability across the codebase.
 
 ## 6. User Roles and Tiers
 
@@ -518,7 +567,7 @@ The application's user tiers have been consolidated into the following structure
 *   **Free User (Authenticated):** A user who has created an account but does not have an active Pro subscription. This is the entry-level tier for all users.
 *   **Pro User (Authenticated):** A user with an active, paid subscription via Stripe. This tier includes all features, such as unlimited practice time, cloud-based AI transcription, and privacy-preserving on-device transcription.
 
-## 6. Transcription Service (`src/services/transcription`)
+## 6. Transcription Service (`frontend/src/services/transcription`)
 
 The `TranscriptionService.ts` provides a unified abstraction layer over multiple transcription providers.
 
@@ -596,12 +645,12 @@ CREATE TRIGGER on_auth_user_created
 - Transcripts are generated (verified via console logs showing `onresult` callbacks) but don't appear in UI
 - `onReady` callback is invoked but doesn't update `isReady` React state
 
-**Root Cause**: The `onReady` callback in `useSpeechRecognition/index.ts` (line 62) is an empty function that doesn't update any state:
+**Root Cause**: The `onReady` callback in `frontend/src/hooks/useSpeechRecognition/index.ts` (line 62) is an empty function that doesn't update any state:
 ```typescript
 onReady: () => { },  // <-- This doesn't set isReady to true
 ```
 
-**Resolution**: Wrapped the `onReady` callback in `useTranscriptionService.ts` to set `isReady` state when transcription modes invoke it:
+**Resolution**: Wrapped the `onReady` callback in `frontend/src/hooks/useTranscriptionService.ts` to set `isReady` state when transcription modes invoke it:
 ```typescript
 const wrappedOptions = {
   ...optionsRef.current,

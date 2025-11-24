@@ -23,18 +23,18 @@ Do not proceed until this script completes successfully. If it fails, follow the
 
 ### 2. The Local Audit Script (Single Source of Truth for Testing)
 
-The primary runner for all local validation is `./test-audit.sh`, which is accessed via `pnpm` scripts. This script is the SSOT for running lint, type-checking, and all tests.
+The primary runner for all local validation is `./scripts/test-audit.sh`, which is accessed via `pnpm` scripts. This script is the SSOT for running lint, type-checking, and all tests.
 
 *   **Always use this script for validation.** Do not invent your own runners or call `pnpm test` or `pnpm lint` directly for final validation.
 *   The audit script automatically runs the `preflight.sh` check, ensuring a stable environment for the test run.
 
-### 3. Selective Use of `env-stabilizer.sh`
+### 3. Selective Use of `scripts/env-stabilizer.sh`
 
-The `./env-stabilizer.sh` script is a powerful tool for recovering a broken environment, but it should be used selectively.
+The `./scripts/env-stabilizer.sh` script is a powerful tool for recovering a broken environment, but it should be used selectively.
 
 *   Run `preflight.sh` first.
-*   If instability persists (e.g., hanging tests, port conflicts), then run `./env-stabilizer.sh`.
-*   Escalate to the user **before using** `./vm-recovery.sh`.
+*   If instability persists (e.g., hanging tests, port conflicts), then run `./scripts/env-stabilizer.sh`.
+*   Escalate to the user **before using** `./scripts/vm-recovery.sh`.
 *   Always read `README.md` to understand setup, workflow, and scripts.
 
 ### 4. Handling Silent Crashes in E2E Tests
@@ -42,7 +42,7 @@ The `./env-stabilizer.sh` script is a powerful tool for recovering a broken envi
 The E2E test environment has a critical incompatibility with the `onnxruntime-web` library, which is used for on-device speech recognition. This library is loaded via a dynamic import.
 
 *   **Symptom:** When a test runs that triggers this import, the browser will crash instantly and silently, resulting in a blank screenshot and no console or network errors. This is a fatal, untraceable error.
-*   **Solution:** A source-code-level guard is in place. A `window.TEST_MODE = true` flag is injected by the test setup. The application code (`src/services/transcription/TranscriptionService.ts`) checks for this flag and conditionally skips the dynamic import of the module that causes the crash.
+*   **Solution:** A source-code-level guard is in place. A `window.TEST_MODE = true` flag is injected by the test setup. The application code (`frontend/src/services/transcription/TranscriptionService.ts`) checks for this flag and conditionally skips the dynamic import of the module that causes the crash.
 *   **Implication:** Do not remove this flag or the corresponding check in the application code. If you encounter a similar silent crash, investigate for other dynamic imports of heavy, WebAssembly-based libraries.
 
 ---
@@ -73,7 +73,7 @@ Reproduce minimal case — run the single failing test and capture artifacts:
 pnpm exec playwright test tests/e2e/that-test --workers=1 |& tee run.log
 Attach run.log, trace.zip, screenshot(s).
 Trace to code — open implicated files and cite filename:line-range and a short snippet (3–8 lines).
-Example: src/mocks/handlers.ts:35-40 with the snippet that returns [].
+Example: frontend/src/mocks/handlers.ts:35-40 with the snippet that returns [].
 Form 2 hypotheses (A and B). For each, state:
 What you expect to observe in logs/trace if true.
 One quick check that will falsify it (grep, console.log, DOM dump).
@@ -102,19 +102,19 @@ ___
 ## ⚡ Quick Reference – Non-Negotiable Rules
 
 1.  ✅ **Pre-flight Check** – Always start with `./scripts/preflight.sh`.
-2.  ✅ **Codebase Context** – Inspect `/src`, `/tests`, `/docs` before acting.
+2.  ✅ **Codebase Context** – Inspect `/frontend/src`, `/tests`, `/docs` before acting.
 3.  ❌ **No Code Reversals Without Consent** – Never undo user work.
 4.  ⏱️ **Timeout Constraint** – Every command must complete within 7 minutes.
 5.  ✅ **Approved Scripts** – Use the following `package.json` scripts for validation and development. The `test:all` scripts are the canonical way to run tests.
 
-   ```json
-    "test:all": "./test-audit.sh local",
-    "test:health-check": "./test-audit.sh health-check",
-    "test": "vitest --coverage",
-    "test:unit": "vitest --coverage",
-    "dev": "vite",
-    "build": "pnpm build:prod",
-   ```
+    ```json
+     "test:all": "./scripts/test-audit.sh local",
+     "test:health-check": "./scripts/test-audit.sh health-check",
+     "test": "cd frontend && vitest --coverage",
+     "test:unit": "cd frontend && vitest --coverage",
+     "dev": "cd frontend && vite",
+     "build": "cd frontend && vite build",
+    ```
 6. ✅ **Foreground Logging** – All E2E tasks must run in the foreground with live logs (`tee`) for traceability.
 
 ---
@@ -122,13 +122,13 @@ ___
 ## 🔍 Task Workflow
 
 1. **Contextual Review** – Read `/docs` and `README.md` before acting.
-2. **Stabilize Environment** – Run `./env-stabilizer.sh` only if instability signs appear.
+2. **Stabilize Environment** – Run `./scripts/env-stabilizer.sh` only if instability signs appear.
 3. **Grounding** – Review current workflows, scripts, and audit runners.
 4. **Codebase Deep Dive** – Inspect actual code, not assumptions.
 5. **Strategic Consultation** – Present root cause + 2–3 solution paths **before major changes**.
 6. **Implementation** – Follow coding standards, architecture principles, and scripts.
 7. **Validation** – Complete Pre-Check-In List (see below).
-8. **Submission** – Ask user **before running recovery scripts** (`./vm-recovery.sh`).
+8. **Submission** – Ask user **before running recovery scripts** (`./scripts/vm-recovery.sh`).
 
 ---
 
@@ -182,7 +182,7 @@ ___
 
 ## 🔐 Absolute Non-Negotiables
 
-*   ❌ Never run `./vm-recovery.sh` without asking first.
+*   ❌ Never run `./scripts/vm-recovery.sh` without asking first.
 *   ❌ Never exceed the 7-minute runtime per command.
 *   ❌ Never undo or destroy user work without consent.
 *   📄 Documentation first.

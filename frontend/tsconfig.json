@@ -20,11 +20,12 @@
         "src/*"
       ],
       "tests/*": [
-        "../tests/*"
+        "tests/*"
       ]
     },
     "types": [
-      "vitest/globals"
+      "vitest/globals",
+      "@testing-library/jest-dom"
     ]
   },
   "ts-node": {
@@ -34,7 +35,7 @@
   },
   "include": [
     "src",
-    "../tests",
+    "tests",
     "playwright.config.ts",
     "tailwind.config.ts"
   ],

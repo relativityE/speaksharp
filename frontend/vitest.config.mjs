@@ -12,9 +12,9 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'happy-dom',
-    include: ['src/**/*.test.{js,jsx,ts,tsx}'],
-    exclude: ['node_modules/', 'dist/', 'build/', 'tests/'],
-    setupFiles: '../tests/unit/setup.ts',
+    include: ['src/**/*.test.{js,jsx,ts,tsx}', 'tests/**/*.test.{js,jsx,ts,tsx}'],
+    exclude: ['node_modules/', 'dist/', 'build/'],
+    setupFiles: './tests/unit/setup.ts',
     testTimeout: 30000, // Increased for cleanup
     hookTimeout: 10000,
     teardownTimeout: 10000, // Increased for cleanup
@@ -53,10 +53,10 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
-      "tests": path.resolve(__dirname, "../tests"),
-      "sharp": path.resolve(__dirname, "./src/test/mocks/sharp.ts"),
-      '@xenova/transformers': path.resolve(__dirname, '../__mocks__/transformers.ts'),
-      'whisper-turbo': path.resolve(__dirname, '../__mocks__/whisper-turbo.ts'),
+      "tests": path.resolve(__dirname, "./tests"),
+      "sharp": path.resolve(__dirname, "./tests/support/mocks/sharp.ts"),
+      '@xenova/transformers': path.resolve(__dirname, './tests/__mocks__/transformers.ts'),
+      'whisper-turbo': path.resolve(__dirname, './tests/__mocks__/whisper-turbo.ts'),
     },
   },
   define: {

@@ -30,9 +30,13 @@ vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
 }));
 
-vi.mock('@/contexts/AuthProvider', () => ({
-  useAuthProvider: () => mockAuthContextValue,
-}));
+vi.mock('@/contexts/AuthProvider', async () => {
+  const actual = await vi.importActual('@/contexts/AuthProvider');
+  return {
+    ...(actual as object),
+    useAuthProvider: () => mockAuthContextValue,
+  };
+});
 
 vi.mock('@/hooks/useUserProfile');
 

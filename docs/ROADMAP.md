@@ -38,11 +38,10 @@ This phase is about confirming the core feature set works as expected and polish
 - ✅ **Goal Setting:** Weekly/Daily targets for practice consistency.
 - 🔴 **Deploy & confirm live transcript UI works:** Ensure text appears within 2 seconds of speech in a live environment.
 - ✅ **Remove all temporary console.logs:** Clean up the codebase for production.\
-- 🔴 **Restructure Codebase:** Reorganize the project structure for better maintainability before alpha soft launch.\
-  - **Proposed Structure:**\
-    - `apps/` or `frontend/`: React application code\
-    - `backend/` or `supabase/`: Supabase functions, migrations, seed data\
-    - `packages/`: Shared libraries (if any)\
+- ✅ **Restructure Codebase:** Reorganize the project structure for better maintainability before alpha soft launch.\
+  - **Implemented Structure:**\
+    - `frontend/`: React application code\
+    - `backend/`: Supabase functions, migrations, seed data\
     - `scripts/`: Build, test, and maintenance scripts\
     - `docs/`: Documentation\
     - `tests/`: E2E and integration tests\
@@ -94,7 +93,7 @@ This section is a prioritized list of technical debt items to be addressed.
 
 - **[RESOLVED] E2E Test Suite Not Running**
   - **Problem:** The test sharding logic in the old `test-audit.sh` was flawed, causing E2E tests to be skipped in CI.
-  - **Solution:** The entire testing architecture has been overhauled with a new, robust, and parallelized `test-audit.sh` script. The new script correctly discovers, shards, and executes all E2E tests, and is accessed via the canonical `pnpm audit` command.
+  - **Solution:** The entire testing architecture has been overhauled with a new, robust, and parallelized `scripts/test-audit.sh` script. The new script correctly discovers, shards, and executes all E2E tests, and is accessed via the canonical `pnpm audit` command.
 
 - [x] **Create E2E test for Analytics Empty State** (P2)
   - *Context:* Verify the "zero data" state for new users.
@@ -111,7 +110,7 @@ This section is a prioritized list of technical debt items to be addressed.
 
 - **P3 (Medium): Implement Lighthouse Score for Performance Metrics**
   - **Problem:** The "Code Bloat & Performance" section of the Software Quality Metrics report in `docs/PRD.md` includes a placeholder for a Lighthouse score, but the score is not being generated.
-  - **Required Action:** A new stage should be added to the `test-audit.sh` pipeline to run a Lighthouse audit against the production build. This will require starting a web server, executing the `lighthouse` command, and parsing the JSON output to extract the performance score. The `run-metrics.sh` and `update-prd-metrics.mjs` scripts will then need to be updated to incorporate this new data point.
+  - **Required Action:** A new stage should be added to the `scripts/test-audit.sh` pipeline to run a Lighthouse audit against the production build. This will require starting a web server, executing the `lighthouse` command, and parsing the JSON output to extract the performance score. The `scripts/run-metrics.sh` and `scripts/update-prd-metrics.mjs` scripts will then need to be updated to incorporate this new data point.
 
 - **P3 (Low): Harden Custom Test Wrapper (`verifyOnlyStepTracker.ts`)**
   - **Problem:** The custom test wrapper, while useful for debugging, can be fragile and was a contributing factor to test hangs. It has been replaced with a more resilient version, but for critical smoke tests, it is recommended to use the `plainTest` and `plainExpect` exports to bypass the wrappers entirely.
