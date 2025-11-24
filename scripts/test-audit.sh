@@ -23,6 +23,7 @@ run_preflight() {
     echo "✅ [1/5] Preflight Checks Passed."
 }
 
+run_quality_checks() {
     echo "✅ [2/5] Running Code Quality Checks in Parallel..."
     if ! pnpm exec concurrently --kill-others-on-fail "pnpm lint" "pnpm typecheck" "pnpm test"; then
         echo "❌ Code Quality Checks failed." >&2
@@ -94,6 +95,12 @@ run_e2e_tests_shard() {
     mkdir -p "$REPORT_DIR"
 
     echo "✅ Running E2E Test Shard ${PLAYWRIGHT_SHARD_ID}/${SHARD_COUNT}..."
+    
+    # Ensure build artifact exists (required for preview:test)
+    if [ ! -d "frontend/dist" ]; then
+        echo "📦 Building test artifact..."
+        pnpm run build:test
+    fi
 
     # Run Playwright shard
     # We use set +e to capture the exit code so we can move artifacts even on failure
