@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Hidden "TBD" testimonial placeholders on the landing page via `MainPage.tsx` to improve Alpha presentation
   - Extended `src/config.ts` with API and subscription limit constants for better configuration management
   - Verified all database migrations are applied, including `custom_vocabulary` (migration 20251120004400)
+  - Implemented Lighthouse CI integration with performance thresholds (Performance > 0.50, SEO > 0.80, Best Practices > 0.70)
+
 
 ### Changed
 - **CI/CD and Testing Pipeline Overhaul:** Re-architected the entire testing and CI/CD pipeline for speed, stability, and developer experience.
