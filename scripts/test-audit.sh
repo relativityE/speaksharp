@@ -23,12 +23,20 @@ run_preflight() {
     echo "✅ [1/5] Preflight Checks Passed."
 }
 
-run_quality_checks() {
     echo "✅ [2/5] Running Code Quality Checks in Parallel..."
     if ! pnpm exec concurrently --kill-others-on-fail "pnpm lint" "pnpm typecheck" "pnpm test"; then
         echo "❌ Code Quality Checks failed." >&2
         exit 1
     fi
+    
+    # Move metrics file to root for CI artifact upload
+    if [ -f "frontend/unit-metrics.json" ]; then
+        mv frontend/unit-metrics.json .
+        echo "ℹ️ Moved unit-metrics.json to root."
+    else
+        echo "⚠️ Warning: frontend/unit-metrics.json not found."
+    fi
+    
     echo "ℹ️ Lint/Typecheck/Test completed successfully."
     echo "✅ [2/5] Code Quality Checks Passed."
 }
@@ -216,6 +224,8 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 
 case $STAGE in
     prepare)
+        echo "🔐 Validating environment variables..."
+        node scripts/validate-env.mjs
         run_preflight
         run_quality_checks
         run_build
