@@ -24,6 +24,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated all configuration files (package.json, CI workflow, tsconfig, vitest, eslint) to reference new paths
   - All 113 unit tests and 13 E2E tests passing with new structure
 
+- **Phase 1: Environment Stabilization (2025-11-24):**
+  - **Build-Time Environment Variable Validation:**
+    - Created `env.required` listing all required environment variables
+    - Created `scripts/validate-env.mjs` to validate env vars before build
+    - Added `prebuild` and `prebuild:test` hooks to `package.json`
+    - Build now fails fast with clear errors if required env vars are missing
+    - Updated README.md with required env vars documentation
+    - Created `.env.example` template
+  
+  - **Fail-Fast CI Artifact Verification:**
+    - Created `scripts/verify-artifacts.sh` to check for required artifacts before consumption
+    - Added `--path` parameter to verify artifacts in different locations
+    - Integrated verification into CI pipeline (lighthouse and report jobs)
+    - Fixed `unit-metrics.json` location (moved from `frontend/` to root after tests)
+    - Eliminated "whack-a-mole" artifact errors with explicit verification
+  
+  - **Production-Like E2E Testing:**
+    - Added `preview:test` script to run Vite preview server on port 4173
+    - Updated `playwright.config.ts` to use `pnpm preview:test` instead of dev server
+    - E2E tests now run against built artifacts (eliminating HMR flakiness)
+    - Added build artifact check in `scripts/test-audit.sh` before running E2E shards
+    - Fixed `.env.test` VITE_PORT from 5173 to 4173
+  
+  - **Centralized Environment Loading:**
+    - Refactored `frontend/vite.config.mjs` to use Vite's `loadEnv` utility
+    - Fixed loadEnv path to correctly load `.env` files from project root
+    - Added env var exposure to `import.meta.env` via `define` block
+    - Ensured correct mode propagation (dev, test, production)
+  
+  - **Results:** 134 unit tests passing, 13 E2E tests passing across 4 shards (~5s each), full CI simulation verified
+
 
 ### Changed
 - **CI/CD and Testing Pipeline Overhaul:** Re-architected the entire testing and CI/CD pipeline for speed, stability, and developer experience.
