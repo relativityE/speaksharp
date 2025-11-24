@@ -136,11 +136,14 @@ jobs:
         with:
           path: artifacts
 
+      - name: Verify Artifacts
+        run: ./scripts/verify-artifacts.sh --path artifacts/all-artifacts build metrics
+
       - name: Restore Build Artifacts
         run: |
           cp -r artifacts/all-artifacts/frontend/dist .
           cp -r artifacts/all-artifacts/frontend/coverage ./frontend/coverage
-          [ -f artifacts/all-artifacts/unit-metrics.json ] && cp artifacts/all-artifacts/unit-metrics.json . || echo "No unit-metrics.json found"
+          cp artifacts/all-artifacts/unit-metrics.json .
           # test-results is only in shard artifacts, not all-artifacts
           [ -d artifacts/all-artifacts/test-results ] && cp -r artifacts/all-artifacts/test-results . || echo "No test-results in all-artifacts (expected)"
 
@@ -185,10 +188,13 @@ jobs:
         with:
           path: artifacts
 
+      - name: Verify Artifacts
+        run: ./scripts/verify-artifacts.sh --path artifacts/all-artifacts build metrics
+
       - name: Restore Build Artifacts
         run: |
           cp -r artifacts/all-artifacts/frontend/dist .
-          [ -f artifacts/all-artifacts/unit-metrics.json ] && cp artifacts/all-artifacts/unit-metrics.json . || echo "No unit-metrics.json found"
+          cp artifacts/all-artifacts/unit-metrics.json .
           # test-results is only in shard artifacts, not all-artifacts
           [ -d artifacts/all-artifacts/test-results ] && cp -r artifacts/all-artifacts/test-results . || echo "No test-results in all-artifacts (expected)"
 
