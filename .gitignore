@@ -8,10 +8,11 @@ dist/
 playwright.config.js
 tailwind.config.js
 /test-support/
-/coverage/
+coverage/
 /screenshots/
 /test-results/
 /playwright-report/
+blob-report/
 /unit-metrics.json
 /e2e-metrics.json
 /playwright/.cache/
