@@ -1,4 +1,10 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+
+// Mock IS_TEST_ENVIRONMENT to false so tests can run normally
+vi.mock('@/config/env', () => ({
+  IS_TEST_ENVIRONMENT: false,
+}));
+
 import NativeBrowser from '../NativeBrowser';
 
 // Mock the global SpeechRecognition object
