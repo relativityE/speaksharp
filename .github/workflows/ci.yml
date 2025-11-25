@@ -25,11 +25,11 @@ jobs:
         with:
           version: 10
 
-      - name: Validate Environment Variables
-        run: node scripts/validate-env.mjs
-
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Validate Environment Variables
+        run: node scripts/validate-env.mjs
 
       - name: Install Playwright Browsers
         run: pnpm exec playwright install --with-deps chromium
