@@ -100,10 +100,32 @@ declare const _default: {
                         height: string;
                     };
                 };
+                "pulse-ring": {
+                    "0%": {
+                        transform: string;
+                        opacity: string;
+                    };
+                    "100%": {
+                        transform: string;
+                        opacity: string;
+                    };
+                };
+                "fade-in-up": {
+                    "0%": {
+                        opacity: string;
+                        transform: string;
+                    };
+                    "100%": {
+                        opacity: string;
+                        transform: string;
+                    };
+                };
             };
             animation: {
                 "accordion-down": string;
                 "accordion-up": string;
+                "pulse-ring": string;
+                "fade-in-up": string;
             };
         };
     };

@@ -1,108 +1,28 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
-import { useSessionManager } from '../hooks/useSessionManager';
+
 import posthog from 'posthog-js';
-import { FILLER_WORD_KEYS, SESSION_LIMITS } from '../config';
-import { TranscriptPanel } from '../components/session/TranscriptPanel';
-import FillerWordAnalysis from '../components/session/FillerWordAnalysis';
-import AISuggestions from '../components/session/AISuggestions';
-import { SessionSidebar } from '../components/session/SessionSidebar';
-import { SpeakingTips } from '../components/session/SpeakingTips';
-import { CustomVocabularyManager } from '../components/session/CustomVocabularyManager';
-import { PauseMetricsDisplay } from '../components/session/PauseMetricsDisplay';
 import { Button } from '@/components/ui/button';
-import { Drawer, DrawerContent, DrawerTrigger } from '@/components/ui/drawer';
-import { SlidersHorizontal, AlertTriangle, Loader } from 'lucide-react';
-import ErrorBoundary from '../components/ErrorBoundary';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { UpgradePromptDialog } from '@/components/UpgradePromptDialog';
+import { Badge } from '@/components/ui/badge';
+import { Mic, Square, Play } from 'lucide-react';
 import { useAuthProvider } from '../contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
-import { useCustomVocabulary } from '@/hooks/useCustomVocabulary';
-import { useQueryClient } from '@tanstack/react-query';
-import type { PracticeSession } from '@/types/session';
-
-// --- Prop and Type Interfaces ---
-
-type SpeechRecognitionHook = ReturnType<typeof useSpeechRecognition>;
-
-interface LeftColumnContentProps {
-    speechRecognition: SpeechRecognitionHook;
-    customWords: string[];
-    setCustomWords: React.Dispatch<React.SetStateAction<string[]>>;
-}
-
-// --- Sub-components ---
-
-const LeftColumnContent: React.FC<LeftColumnContentProps> = ({ speechRecognition, customWords, setCustomWords }) => {
-    const { error, isSupported, isListening, isReady, transcript, fillerData } = speechRecognition;
-
-    if (!isSupported) {
-        return (
-            <Card className="flex-grow">
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <AlertTriangle className="text-yellow-500" /> Browser Not Supported
-                    </CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <p>Your browser does not support the selected speech recognition engine. Please try a different browser like Google Chrome.</p>
-                </CardContent>
-            </Card>
-        );
-    }
-
-    const isLoading = isListening && !isReady;
-
-    return (
-        <div className="flex flex-col gap-component-gap h-full">
-            <div className="flex-shrink-0">
-                <TranscriptPanel
-                    {...speechRecognition}
-                    isLoading={isLoading}
-                    isListening={isListening}
-                    isReady={isReady}
-                    error={error}
-                />
-            </div>
-            <div className="flex-grow flex flex-col">
-                <FillerWordAnalysis
-                    fillerData={fillerData}
-                    customWords={customWords}
-                    addCustomWord={(word) => setCustomWords(prev => [...prev, word])}
-                    defaultFillerWords={Object.values(FILLER_WORD_KEYS)}
-                    className="flex-grow"
-                />
-                {!isListening && transcript.transcript && (
-                    <div className="mt-8">
-                        <AISuggestions transcript={transcript.transcript} />
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-};
-
-// --- Main Component ---
 
 export const SessionPage: React.FC = () => {
-    const { user, session, loading: authLoading } = useAuthProvider();
-    const { data: profile, isLoading: profileLoading } = useUserProfile();
-    const { saveSession: saveSessionToBackend } = useSessionManager();
-    const queryClient = useQueryClient();
-    const [customWords, setCustomWords] = useState<string[]>([]);
-    const { vocabularyWords } = useCustomVocabulary();
-    const [usageLimitExceeded, setUsageLimitExceeded] = useState(false);
-    const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+    const { session } = useAuthProvider();
+    const { data: profile } = useUserProfile();
+    const [customWords] = useState<string[]>([]);
     const startTimeRef = useRef<number | null>(null);
 
     const speechRecognition = useSpeechRecognition({
         customWords,
-        customVocabulary: vocabularyWords,
+        customVocabulary: [],
         session,
         profile
     });
-    const { isListening, modelLoadingProgress } = speechRecognition;
+
+    const { isListening, isReady, transcript, fillerData, startListening, stopListening } = speechRecognition;
+    const [elapsedTime, setElapsedTime] = useState(0);
 
     useEffect(() => {
         posthog.capture('session_page_viewed');
@@ -111,97 +31,165 @@ export const SessionPage: React.FC = () => {
     useEffect(() => {
         if (isListening) {
             startTimeRef.current = Date.now();
+            const interval = setInterval(() => {
+                if (startTimeRef.current) {
+                    setElapsedTime(Math.floor((Date.now() - startTimeRef.current) / 1000));
+                }
+            }, 1000);
+            return () => clearInterval(interval);
+        } else {
+            setElapsedTime(0);
         }
     }, [isListening]);
 
-    useEffect(() => {
-        if (!isListening) return;
-
-        const sessionLimit = !user
-            ? SESSION_LIMITS.ANONYMOUS
-            : profile?.subscription_status !== 'pro'
-                ? SESSION_LIMITS.FREE
-                : SESSION_LIMITS.PRO;
-
-        if (sessionLimit && startTimeRef.current) {
-            const checkUsage = () => {
-                const elapsed = (Date.now() - (startTimeRef.current ?? 0)) / 1000;
-                if (elapsed >= sessionLimit) {
-                    speechRecognition.stopListening();
-                    setUsageLimitExceeded(true);
-                }
-            };
-            const interval = setInterval(checkUsage, 1000);
-            return () => clearInterval(interval);
+    const handleStartStop = async () => {
+        if (isListening) {
+            await stopListening();
+        } else {
+            await startListening({ forceNative: true });
         }
-    }, [isListening, user, profile, speechRecognition]);
-
-    if (authLoading || profileLoading) {
-        return (
-            <div className="container mx-auto px-component-px py-10 flex justify-center items-center">
-                <Loader className="h-8 w-8 animate-spin" />
-            </div>
-        );
-    }
-
-    const saveAndBroadcastSession = async (sessionData: Partial<PracticeSession>) => {
-        const result = await saveSessionToBackend(sessionData);
-        if (result.session) {
-            queryClient.invalidateQueries({ queryKey: ['sessionHistory', user?.id] });
-        }
-        if (result.usageExceeded) {
-            setUsageLimitExceeded(true);
-        }
-        return result;
     };
+
+    const minutes = Math.floor(elapsedTime / 60);
+    const seconds = elapsedTime % 60;
+    const formattedTime = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+
+    const fillerCount = Object.values(fillerData).reduce((sum, data) => sum + data.count, 0);
+    const wordCount = transcript.transcript.split(' ').filter(w => w.length > 0).length;
+    const wpm = elapsedTime > 0 ? Math.round((wordCount / elapsedTime) * 60) : 0;
+    const clarityScore = fillerCount > 0 && wordCount > 0 ? Math.max(0, Math.min(100, 100 - (fillerCount / wordCount * 500))) : 87;
 
     return (
         <div className="min-h-screen bg-background">
-            <div className="container mx-auto px-component-px py-10">
-                <UpgradePromptDialog
-                    open={usageLimitExceeded}
-                    onOpenChange={setUsageLimitExceeded}
-                />
-                <div className="lg:flex lg:gap-component-gap relative lg:items-stretch">
-                    <div className="lg:w-2/3 flex flex-col gap-component-gap">
-                        <ErrorBoundary>
-                            <LeftColumnContent
-                                speechRecognition={speechRecognition}
-                                customWords={customWords}
-                                setCustomWords={setCustomWords}
-                            />
-                        </ErrorBoundary>
+            {/* Page Header */}
+            <div className="text-center py-8 px-6">
+                <h1 className="text-4xl font-bold text-foreground mb-2">Practice Session</h1>
+                <p className="text-muted-foreground">Speak clearly and we'll analyze your speech patterns in real-time</p>
+            </div>
+
+            <div className="max-w-7xl mx-auto px-6 pb-12 space-y-6">
+                {/* Live Recording Card - Full Width */}
+                <div className="bg-card border-2 border-white rounded-lg shadow-[0_4px_20px_-2px_rgba(0,0,0,0.3)]">
+                    <div className="p-8">
+                        <div className="flex items-center justify-between mb-6">
+                            <h2 className="text-xl font-semibold text-foreground">Live Recording</h2>
+                            <Badge className={isReady ? "bg-orange-500/10 text-orange-500 border-orange-500/20" : "bg-muted/10 text-muted-foreground border-muted/20"}>
+                                {isReady ? 'READY' : 'LOADING'}
+                            </Badge>
+                        </div>
+
+                        <div className="flex flex-col items-center py-12 bg-background/30 rounded-lg border border-white/10">
+                            {/* Mic Icon Circle */}
+                            <div className={`w-24 h-24 rounded-full flex items-center justify-center mb-6 ${isListening ? 'bg-red-500/20' : 'bg-primary'}`}>
+                                <Mic className={`w-12 h-12 ${isListening ? 'text-red-500' : 'text-white'}`} strokeWidth={2} />
+                            </div>
+
+                            {/* Timer */}
+                            <div className="text-5xl font-mono font-bold text-foreground mb-2">{formattedTime}</div>
+                            <p className="text-muted-foreground mb-8">
+                                {isListening ? 'Recording in progress' : 'Click start to begin recording'}
+                            </p>
+
+                            {/* Control Button */}
+                            <Button
+                                onClick={handleStartStop}
+                                size="lg"
+                                variant={isListening ? 'destructive' : 'default'}
+                                className="w-48 h-14 text-lg font-semibold"
+                                disabled={!isReady && !isListening}
+                            >
+                                {isListening ? (
+                                    <><Square className="w-5 h-5 mr-2" /> Stop</>
+                                ) : (
+                                    <><Play className="w-5 h-5 mr-2" /> Start</>
+                                )}
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Metrics Grid - 2 Columns */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Clarity Score */}
+                    <div className="bg-card border-2 border-white rounded-lg p-8 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.3)]">
+                        <h3 className="text-lg font-semibold text-foreground mb-6">Clarity Score</h3>
+                        <div className="flex flex-col items-center">
+                            <div className="text-6xl font-bold text-primary mb-2">{Math.round(clarityScore)}%</div>
+                            <p className="text-sm text-muted-foreground">
+                                {clarityScore >= 80 ? 'Excellent clarity!' : clarityScore >= 60 ? 'Good clarity' : 'Keep practicing'}
+                            </p>
+                        </div>
                     </div>
 
-                    <div className="max-lg:hidden lg:w-1/3 flex flex-col gap-component-gap">
-                        <SessionSidebar {...speechRecognition} saveSession={saveAndBroadcastSession} actualMode={speechRecognition.mode} startTime={isListening ? startTimeRef.current : null} modelLoadingProgress={modelLoadingProgress} />
-                        <CustomVocabularyManager />
-                        {speechRecognition.pauseMetrics && (
-                            <PauseMetricsDisplay
-                                metrics={speechRecognition.pauseMetrics}
-                                isListening={isListening}
-                            />
-                        )}
-                        <SpeakingTips />
+                    {/* Speaking Rate */}
+                    <div className="bg-card border-2 border-white rounded-lg p-8 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.3)]">
+                        <h3 className="text-lg font-semibold text-foreground mb-6">Speaking Rate</h3>
+                        <div className="flex flex-col items-center">
+                            <div className="text-6xl font-bold text-primary mb-2">{wpm}</div>
+                            <p className="text-sm text-muted-foreground mb-3">words per minute</p>
+                            <Badge className="bg-orange-500/10 text-orange-500 border-orange-500/20">
+                                {wpm >= 120 && wpm <= 160 ? 'Optimal Range' : wpm > 160 ? 'Too Fast' : wpm < 60 ? '' : 'Too Slow'}
+                            </Badge>
+                        </div>
                     </div>
 
-                    <div className="lg:hidden">
-                        <Drawer open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
-                            <DrawerTrigger asChild>
-                                <Button variant="outline" size="icon" className="fixed bottom-6 right-6 z-50 h-16 w-16 rounded-full shadow-lg flex items-center justify-center lg:hidden" data-testid="session-drawer-trigger">
-                                    <SlidersHorizontal className="h-8 w-8" />
-                                    <span className="sr-only">Open session controls</span>
-                                </Button>
-                            </DrawerTrigger>
-                            <DrawerContent>
-                                <div className="p-4 overflow-y-auto h-[80vh]">
-                                    <SessionSidebar {...speechRecognition} saveSession={saveAndBroadcastSession} actualMode={speechRecognition.mode} startTime={isListening ? startTimeRef.current : null} modelLoadingProgress={modelLoadingProgress} />
-                                </div>
-                            </DrawerContent>
-                        </Drawer>
+                    {/* Filler Words */}
+                    <div className="bg-card border-2 border-white rounded-lg p-8 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.3)]">
+                        <div className="flex items-center gap-2 mb-6">
+                            <div className="w-2 h-2 rounded-full bg-orange-500"></div>
+                            <h3 className="text-lg font-semibold text-foreground">Filler Words</h3>
+                        </div>
+                        <div className="flex flex-col items-center mb-4">
+                            <div className="text-5xl font-bold text-orange-500 mb-2">{fillerCount}</div>
+                            <p className="text-sm text-muted-foreground">detected this session</p>
+                        </div>
+                        <div className="mt-4">
+                            <p className="text-xs text-muted-foreground mb-2">Recent:</p>
+                            <div className="flex flex-wrap gap-2">
+                                {Object.entries(fillerData).map(([word, data]) => (
+                                    data.count > 0 && (
+                                        <Badge key={word} variant="secondary" className="text-xs">
+                                            "{word}"
+                                        </Badge>
+                                    )
+                                ))}
+                                {fillerCount === 0 && (
+                                    <p className="text-xs text-muted-foreground italic">None detected yet</p>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Speaking Tips */}
+                    <div className="bg-card border-2 border-white rounded-lg p-8 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.3)]">
+                        <div className="flex items-center gap-2 mb-6">
+                            <div className="w-1 h-6 bg-primary rounded"></div>
+                            <h3 className="text-lg font-semibold text-foreground">Speaking Tips</h3>
+                        </div>
+                        <div className="space-y-4">
+                            <SpeakingTipCard
+                                title="Pace Yourself"
+                                description="Maintain 120-160 words per minute for optimal clarity"
+                            />
+                            <SpeakingTipCard
+                                title="Pause Instead"
+                                description="Use intentional pauses instead of filler words"
+                            />
+                            <SpeakingTipCard
+                                title="Practice Daily"
+                                description="Regular practice builds confident speaking habits"
+                            />
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
     );
 };
+
+const SpeakingTipCard: React.FC<{ title: string; description: string }> = ({ title, description }) => (
+    <div className="p-3 rounded-lg bg-card/80 border border-white/15 shadow-sm">
+        <h4 className="font-semibold text-foreground mb-1 text-sm">{title}</h4>
+        <p className="text-xs text-muted-foreground">{description}</p>
+    </div>
+);

@@ -5,7 +5,7 @@ import path from 'path';
 // Load environment variables from .env.test
 dotenv.config({ path: path.resolve(process.cwd(), '.env.test') });
 
-const PORT = process.env.VITE_PORT || '4173';
+const PORT = process.env.VITE_PORT || '5173';
 const BASE_URL = `http://localhost:${PORT}`;
 
 export default defineConfig({

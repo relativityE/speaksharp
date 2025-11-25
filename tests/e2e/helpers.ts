@@ -318,7 +318,11 @@ export async function capturePage(
     timeout: 20000,
   });
 
-  await page.waitForTimeout(200);
+  // Wait for DOM to be ready (networkidle can hang due to polling)
+  await page.waitForLoadState('domcontentloaded');
+
+  // Give extra time for CSS animations and layout rendering
+  await page.waitForTimeout(1000);
 
   await page.screenshot({
     path: `screenshots/${filename}`,

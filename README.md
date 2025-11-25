@@ -51,7 +51,20 @@ To get started with SpeakSharp, you'll need to have Node.js (version 22.12.0 or 
     ```bash
     pnpm run setup
     ```
-4.  **Run the development server:**
+4.  **Configure Environment Variables:**
+    
+    Create a `.env` file in the project root with these required variables:
+    
+    ```bash
+    VITE_SUPABASE_URL=https://your-project.supabase.co
+    VITE_SUPABASE_ANON_KEY=your-anon-key-here
+    VITE_STRIPE_PUBLISHABLE_KEY=pk_test_your-key-here
+    ```
+    
+    **The build will fail immediately if any required variables are missing.**  
+    See `env.required` for the complete list or copy `.env.example` to `.env` and fill in your values.
+
+5.  **Run the development server:**
     ```bash
     pnpm dev
     ```

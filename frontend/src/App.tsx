@@ -1,5 +1,5 @@
 import React, { Suspense } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Navigate, Routes, Route } from 'react-router-dom';
 import { Toaster } from '@/components/ui/sonner';
 import Navigation from './components/Navigation';
 import { ProtectedRoute } from './components/ProtectedRoute';
@@ -8,7 +8,8 @@ import { Loader2 } from 'lucide-react';
 // Lazy load pages for better performance
 const Index = React.lazy(() => import('./pages/Index'));
 const AnalyticsPage = React.lazy(() => import('./pages/AnalyticsPage').then(module => ({ default: module.AnalyticsPage })));
-const AuthPage = React.lazy(() => import('./pages/AuthPage'));
+const SignInPage = React.lazy(() => import('./pages/SignInPage'));
+const SignUpPage = React.lazy(() => import('./pages/SignUpPage'));
 const SessionPage = React.lazy(() => import('./pages/SessionPage').then(module => ({ default: module.SessionPage })));
 
 const PageLoader = () => (
@@ -26,8 +27,10 @@ const App: React.FC = () => {
         <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/" element={<Index />} />
-            <Route path="/auth" element={<AuthPage />} />
-            <Route path="/sessions" element={<SessionPage />} />
+            <Route path="/auth" element={<Navigate to="/auth/signin" replace />} />
+            <Route path="/auth/signin" element={<SignInPage />} />
+            <Route path="/auth/signup" element={<SignUpPage />} />
+            <Route path="/session" element={<SessionPage />} />
             <Route path="/analytics" element={
               <ProtectedRoute>
                 <AnalyticsPage />

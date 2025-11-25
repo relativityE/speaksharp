@@ -101,62 +101,149 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-background p-4">
-      <div className="text-center mb-8">
-        <h1 className="text-4xl font-bold text-primary">SpeakSharp</h1>
-      </div>
-      <Card className="w-full max-w-sm rounded-xl border shadow-sm">
-        <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold">
-            {view === 'sign_in' && 'Sign In'}
-            {view === 'sign_up' && 'Create an Account'}
-            {view === 'forgot_password' && 'Reset Password'}
-          </CardTitle>
-          <CardDescription>
-            {view === 'sign_in' && 'Enter your credentials to access your account.'}
-            {view === 'sign_up' && 'Enter your details to get started.'}
-            {view === 'forgot_password' && "Enter your email for a password reset link."}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} data-testid={view === 'forgot_password' ? 'reset-password-form' : 'auth-form'}>
-            <div className="grid gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="email">Email</Label>
-                <Input data-testid="email-input" id="email" type="email" placeholder="name@example.com" required value={email} onChange={(e: ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)} />
-              </div>
-              {view !== 'forgot_password' && (
-                <div className="grid gap-2">
-                  <div className="flex items-center">
-                    <Label htmlFor="password">Password</Label>
-                    {view === 'sign_in' && (
-                      <Button variant="link" type="button" onClick={() => handleViewChange('forgot_password')} className="ml-auto inline-block text-xs underline text-muted-foreground hover:text-primary h-auto p-0" data-testid="forgot-password-button">
-                        Forgot Password?
-                      </Button>
-                    )}
-                  </div>
-                  <Input data-testid="password-input" id="password" type="password" required value={password} onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)} />
+    <div className="flex flex-col items-center justify-center min-h-screen bg-background p-4 relative overflow-hidden">
+      {/* Background Elements */}
+      <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-background to-background z-0" />
+      <div className="absolute top-0 left-0 w-full h-full bg-[url('/grid-pattern.svg')] opacity-[0.03] z-0 pointer-events-none" />
+
+      <div className="relative z-10 w-full max-w-md space-y-8">
+        <div className="text-center space-y-2">
+          <h1 className="text-4xl font-extrabold tracking-tight text-foreground">SpeakSharp</h1>
+          <p className="text-muted-foreground text-lg">Master your communication skills.</p>
+        </div>
+
+        <Card className="border-border/50 shadow-xl bg-card/95 backdrop-blur-sm">
+          <CardHeader className="space-y-1 text-center pb-8">
+            <CardTitle className="text-2xl font-bold tracking-tight">
+              {view === 'sign_in' && 'Welcome back'}
+              {view === 'sign_up' && 'Create an account'}
+              {view === 'forgot_password' && 'Reset password'}
+            </CardTitle>
+            <CardDescription className="text-base">
+              {view === 'sign_in' && 'Enter your credentials to access your account'}
+              {view === 'sign_up' && 'Enter your email below to create your account'}
+              {view === 'forgot_password' && "Enter your email address and we'll send you a reset link"}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSubmit} data-testid={view === 'forgot_password' ? 'reset-password-form' : 'auth-form'} className="space-y-4">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    data-testid="email-input"
+                    id="email"
+                    type="email"
+                    placeholder="name@example.com"
+                    required
+                    value={email}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
+                    className="h-11"
+                  />
                 </div>
-              )}
-              {error && <p data-testid="auth-error-message" className="text-sm text-destructive font-semibold">{error}</p>}
-              {message && <p className="text-sm text-green-600 font-semibold bg-green-100 border border-green-200 rounded-md p-3 text-center">{message}</p>}
-              <div>
-                <Button data-testid={view === 'sign_up' ? 'sign-up-submit' : 'sign-in-submit'} type="submit" className="w-full text-base py-6" disabled={isSubmitting}>
-                  {isSubmitting ? (view === 'sign_in' ? 'Signing In...' : view === 'sign_up' ? 'Signing Up...' : 'Sending...') : (view === 'sign_in' ? 'Sign In' : view === 'sign_up' ? 'Sign Up' : 'Send Reset Link')}
+                {view !== 'forgot_password' && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="password">Password</Label>
+                      {view === 'sign_in' && (
+                        <Button
+                          variant="link"
+                          type="button"
+                          onClick={() => handleViewChange('forgot_password')}
+                          className="px-0 font-normal text-xs text-muted-foreground hover:text-primary h-auto"
+                          data-testid="forgot-password-button"
+                        >
+                          Forgot password?
+                        </Button>
+                      )}
+                    </div>
+                    <Input
+                      data-testid="password-input"
+                      id="password"
+                      type="password"
+                      required
+                      value={password}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
+                      className="h-11"
+                    />
+                  </div>
+                )}
+
+                {error && (
+                  <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm font-medium animate-in fade-in-50" data-testid="auth-error-message">
+                    {error}
+                  </div>
+                )}
+
+                {message && (
+                  <div className="p-3 rounded-md bg-green-500/10 text-green-600 text-sm font-medium animate-in fade-in-50 text-center">
+                    {message}
+                  </div>
+                )}
+
+                <Button
+                  data-testid={view === 'sign_up' ? 'sign-up-submit' : 'sign-in-submit'}
+                  type="submit"
+                  className="w-full h-11 text-base font-semibold shadow-lg shadow-primary/20 transition-all hover:shadow-primary/30"
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? (
+                    <span className="flex items-center gap-2">
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                      {view === 'sign_in' ? 'Signing in...' : view === 'sign_up' ? 'Creating account...' : 'Sending link...'}
+                    </span>
+                  ) : (
+                    view === 'sign_in' ? 'Sign In' : view === 'sign_up' ? 'Create Account' : 'Send Reset Link'
+                  )}
                 </Button>
               </div>
+            </form>
+
+            <div className="relative my-8">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-card px-2 text-muted-foreground">Or</span>
+              </div>
             </div>
-          </form>
-          <div className="mt-4 text-center text-sm">
-            {view === 'sign_in' && "Don't have an account?"}
-            {view === 'sign_up' && 'Already have an account?'}
-            {view === 'forgot_password' && 'Remembered your password?'}
-            <Button variant="link" type="button" onClick={() => handleViewChange(view === 'sign_in' || view === 'forgot_password' ? 'sign_up' : 'sign_in')} className="text-primary font-semibold" data-testid="mode-toggle">
-              {view === 'sign_in' || view === 'forgot_password' ? 'Sign Up' : 'Sign In'}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+
+            <div className="text-center space-y-4">
+              {view === 'sign_in' ? (
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">Don't have an account?</p>
+                  <Button
+                    variant="outline"
+                    type="button"
+                    onClick={() => handleViewChange('sign_up')}
+                    className="w-full h-11 font-semibold border-primary/20 hover:bg-primary/5 hover:text-primary hover:border-primary/50 transition-colors"
+                    data-testid="mode-toggle"
+                  >
+                    Create an account
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">Already have an account?</p>
+                  <Button
+                    variant="ghost"
+                    type="button"
+                    onClick={() => handleViewChange('sign_in')}
+                    className="w-full h-11 font-semibold hover:bg-secondary transition-colors"
+                    data-testid="mode-toggle"
+                  >
+                    Sign in to your account
+                  </Button>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <p className="text-center text-sm text-muted-foreground px-8">
+          By clicking continue, you agree to our <a href="#" className="underline underline-offset-4 hover:text-primary">Terms of Service</a> and <a href="#" className="underline underline-offset-4 hover:text-primary">Privacy Policy</a>.
+        </p>
+      </div>
     </div>
   );
 }
