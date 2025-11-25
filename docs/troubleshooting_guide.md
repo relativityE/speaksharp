@@ -10,6 +10,15 @@ This guide provides quick, actionable steps for developers and CI engineers when
   2. Copy `.env.example` to `.env` and fill in the missing values.
   3. Re‑run `pnpm install --frozen-lockfile` and then `pnpm dev`.
 
+### 1a. CI Build Fails with Missing Environment Variables (Despite .env.test Existing)
+- **Symptom**: CI fails during build stage with "Missing Required Environment Variables" even though `.env.test` exists and is properly configured.
+- **Cause**: The test orchestration script (`scripts/test-audit.sh`) is not loading `.env.test` before running build commands.
+- **Resolution**:
+  1. Verify `dotenv-cli` is in `package.json` dependencies.
+  2. Ensure build commands in `test-audit.sh` use: `pnpm exec dotenv -e .env.test -- pnpm build:test`
+  3. This pattern must be applied to any function that runs build or preview commands requiring environment variables.
+  4. **Root Cause**: Shell scripts don't automatically inherit `.env` files—they must be explicitly loaded using a tool like `dotenv-cli`.
+
 ## 2. Linting Errors – Unused Catch Variables
 - **Symptom**: ESLint reports `no-unused-vars` in a `catch (err)` block.
 - **Resolution**: The ESLint config now allows unused catch variables via:
@@ -56,6 +65,29 @@ This guide provides quick, actionable steps for developers and CI engineers when
   1. Ensure the `prepare` stage runs successfully (`./scripts/test-audit.sh prepare`).
   2. Verify the `artifacts` directory is uploaded (`actions/upload-artifact`).
   3. Check the `download-artifact` steps in downstream jobs.
+
+## 8. E2E Test Failures: Common Patterns
+
+### 8a. Strict Mode Violations (Multiple Elements Found)
+- **Symptom**: Test fails with "strict mode violation: selector resolved to 2 elements".
+- **Cause**: Selector matches multiple elements on the page (e.g., multiple "Sign In" links in header and footer).
+- **Resolution**: Use `.first()` to disambiguate: `page.getByRole('link', { name: 'Sign In' }).first()`
+
+### 8b. Missing testId Attributes
+- **Symptom**: Test fails with "element not found" for `getByTestId()`.
+- **Cause**: Component doesn't have the expected `data-testid` attribute.
+- **Resolution**: 
+  1. Add `testId?: string` to component's prop interface.
+  2. Apply to root element: `<div data-testid={testId}>`.
+  3. Pass from parent: `<Component testId="my-component" />`.
+
+### 8c. Route Mismatches
+- **Symptom**: Test navigates to a page but elements aren't found.
+- **Cause**: Test uses incorrect route (e.g., `/sessions` vs `/session`).
+- **Resolution**:
+  1. Check actual route definition in `frontend/src/components/Navigation.tsx` or app router.
+  2. Update test to use correct route.
+  3. Ensure POM (Page Object Model) files use same route.
 
 ---
 **When in doubt**, open an issue on the repository with the error logs and reference this guide. The engineering team will prioritize fixes based on severity.

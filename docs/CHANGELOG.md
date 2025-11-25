@@ -10,6 +10,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **CI/CD Pipeline Stabilization (2025-11-25):**
+  - **Critical: Environment Variable Loading:** Fixed `ERR_MODULE_NOT_FOUND` for `dotenv` by removing duplicate dependency entry. Updated `scripts/test-audit.sh` to use `dotenv-cli` for loading `.env.test` before build commands, resolving build-time environment validation failures.
+  - **E2E Test Stabilization:** Resolved multiple E2E test failures blocking CI:
+    - Added missing `testId` prop to `EmptyState` component for analytics tests
+    - Fixed strict mode violations in `capture-states`, `health-check`, and `smoke` tests by using `.first()` for ambiguous "Sign In" link selectors
+    - Corrected route mismatch (`/sessions` → `/session`) in `navigation` and `smoke` tests
+    - Updated `SessionPage.tsx` to include required `data-testid` attributes
+    - Fixed expected text assertions in `live-transcript` test
+  - **Lighthouse CI Integration:** Fixed incorrect artifact path in `.github/workflows/ci.yml` (`.lhci` → `.lighthouseci`), ensuring Lighthouse reports are properly uploaded and accessible in CI artifacts
+  - **Local/CI Alignment:** Updated `scripts/test-audit.sh` `ci-simulate` mode to strictly mirror GitHub CI workflow:
+    - Added `pnpm install --frozen-lockfile` check (caught and fixed outdated lockfile)
+    - Added `playwright install --with-deps chromium` step
+    - Added `run_lighthouse_ci` function to replicate Lighthouse stage locally
+  - **Results:** Full local simulation now passes all stages (env validation, frozen lockfile check, lint/typecheck, unit tests, build, E2E tests, Lighthouse CI)
+
 ### Added
 - **Alpha Polish (2025-11-22):**
   - Hidden "TBD" testimonial placeholders on the landing page via `MainPage.tsx` to improve Alpha presentation
