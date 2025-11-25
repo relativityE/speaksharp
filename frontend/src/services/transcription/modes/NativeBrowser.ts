@@ -1,4 +1,5 @@
 import logger from '../../../lib/logger';
+import { IS_TEST_ENVIRONMENT } from '@/config/env';
 import { ITranscriptionMode, TranscriptionModeOptions, Transcript } from './types';
 
 // A simplified interface for the SpeechRecognition event
@@ -55,7 +56,7 @@ export default class NativeBrowser implements ITranscriptionMode {
     this.isSupported = !!SpeechRecognition;
     logger.info({ isSupported: this.isSupported }, '[NativeBrowser] SpeechRecognition API supported');
 
-    if (window.__E2E_MODE__) {
+    if (IS_TEST_ENVIRONMENT) {
       logger.info('[E2E STUB] Bypassing NativeBrowser init for E2E test.');
       this.recognition = {
         interimResults: false,

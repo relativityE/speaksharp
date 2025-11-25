@@ -13,6 +13,7 @@ import { Session } from '@supabase/supabase-js';
 import * as Sentry from "@sentry/react";
 import ConfigurationNeededPage from "./pages/ConfigurationNeededPage";
 import App from './App';
+import { IS_TEST_ENVIRONMENT } from '@/config/env';
 
 const REQUIRED_ENV_VARS: string[] = [
   'VITE_SUPABASE_URL',
@@ -42,8 +43,8 @@ const renderApp = (initialSession: Session | null = null) => {
 
     if (areEnvVarsPresent()) {
       console.log('[E2E DIAGNOSTIC] ./App imported successfully:', !!App);
-      // 🛑 Skip ALL analytics in E2E mode
-      if (!window.__E2E_MODE__ && !import.meta.env.VITE_TEST_MODE) {
+      // 🛑 Skip ALL analytics in test mode
+      if (!IS_TEST_ENVIRONMENT) {
         if (import.meta.env.VITE_SENTRY_DSN) {
           try {
             Sentry.init({
@@ -148,8 +149,7 @@ const renderApp = (initialSession: Session | null = null) => {
 };
 
 const initialize = async () => {
-  if (import.meta.env.VITE_TEST_MODE === 'true') {
-    window.__E2E_MODE__ = true;
+  if (IS_TEST_ENVIRONMENT) {
 
     const startMsw = async () => {
       const { worker } = await import('./mocks/browser');

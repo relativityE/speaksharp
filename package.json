@@ -21,15 +21,14 @@
     "test": "cd frontend && vitest --coverage",
     "test:unit": "cd frontend && vitest --coverage",
     "test:all": "./scripts/test-audit.sh local",
-    "test:health-check": "playwright test tests/e2e/ui-state-capture.e2e.spec.ts tests/e2e/health-check.e2e.spec.ts",
     "check-in-validation": "./scripts/test-audit.sh ci-simulate",
     "test:e2e:install-browsers": "playwright install",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:debug": "cross-env DEBUG=pw:api DOTENV_CONFIG_PATH=.env.test playwright test --headed --trace on --project=chromium",
     "test:soak": "playwright test tests/soak --workers=1 --timeout=600000",
+    "test:health-check": "./scripts/test-audit.sh health-check",
     "prepare": "HUSKY=0 husky install",
-    "postinstall": "playwright install --with-deps",
-    "test:e2e:health": "playwright test tests/e2e/ui-state-capture.e2e.spec.ts tests/e2e/health-check.e2e.spec.ts"
+    "postinstall": "playwright install --with-deps"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.15",
