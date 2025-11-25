@@ -1,11 +1,11 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-11-18
+**Last Reviewed:** 2025-11-25
 
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp System Architecture
 
-**Version 3.2** | **Last Updated: 2025-09-26**
+**Version 3.3** | **Last Updated: 2025-11-25**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -167,8 +167,7 @@ The CI pipeline, defined in `.github/workflows/ci.yml`, is a multi-stage, parall
 |     - Preflight                  |
 |     - Quality Checks (Parallel)  |
 |     - Build                      |
-|     - E2E Test Sharding          |
-|  3. Upload Artifacts (Shards)    |
+|  3. Upload Artifacts (Build)     |
 +----------------------------------+
                  |
                  v
@@ -205,7 +204,7 @@ Both the local test runner and CI use the same `test-audit.sh` script, ensuring 
 | Aspect              | Local Test Runner (`pnpm test:all`)                                            | CI (GitHub Actions)                                                 |
 |---------------------|---------------------------------------------------------------------------------|---------------------------------------------------------------------|
 | **Execution**       | `./test-audit.sh local` - single process                                       | Split into stages: `prepare`, `test` (sharded), `report`           |
-| **E2E Tests**       | Runs all 13 tests serially                                                     | **Sharded across 4 workers** for parallel execution                |
+| **E2E Tests**       | Runs all 13 tests serially                                                     | **Sharded across 4 workers** using Playwright native `--shard` flag |
 | **Parallelization** | Quality checks (lint/typecheck/test) run in parallel via `concurrently`        | Each CI job runs independently in isolated environments             |
 | **Purpose**         | Pre-commit verification and local validation                                   | Gatekeeper for merging to main branch                               |
 | **Speed**           | ~2-3 minutes (serial E2E execution)                                            | ~1-2 minutes (parallel sharding reduces E2E time)                   |
