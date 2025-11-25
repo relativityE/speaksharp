@@ -4,7 +4,7 @@ export class SessionPage {
   constructor(private page: Page) { }
 
   async navigate() {
-    await this.page.goto('/sessions');
+    await this.page.goto('/session');
     // Wait directly for the functional element, the start/stop button. This button
     // exists in both the desktop sidebar and the mobile drawer, making the check
     // viewport-agnostic and resilient to responsive design changes. This also

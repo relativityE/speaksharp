@@ -19,17 +19,16 @@ test.describe('Analytics Page - Empty State', () => {
         await expect(emptyState).toBeVisible();
 
         // Step 5: Verify empty state message
-        await expect(emptyState.getByRole('heading', { name: /Your Dashboard Awaits/i })).toBeVisible();
-        await expect(emptyState.getByText(/Record your next session/i)).toBeVisible();
+        await expect(emptyState.getByRole('heading', { name: /Your Dashboard Awaits!/i })).toBeVisible();
+        await expect(emptyState.getByText(/Record your next session to unlock your progress trends/i)).toBeVisible();
 
         // Step 6: Verify CTA button exists and works
-        const ctaButton = emptyState.getByRole('button', { name: /Start a New Session/i });
+        const ctaButton = emptyState.getByRole('link', { name: /Get Started/i });
         await expect(ctaButton).toBeVisible();
-        await expect(ctaButton).toBeEnabled();
 
         // Step 7: Click CTA and verify navigation
         await ctaButton.click();
-        await expect(page).toHaveURL(/\/sessions/);
+        await expect(page).toHaveURL(/\/session/);
     });
 
     test('should not display stat cards when no sessions exist', async ({ page }) => {

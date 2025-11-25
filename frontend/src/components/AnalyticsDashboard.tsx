@@ -132,6 +132,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ sessionH
                     href: "/session"
                 }}
                 icon={<BarChart className="w-10 h-10 text-primary" />}
+                testId="analytics-dashboard-empty-state"
             />
         );
     }

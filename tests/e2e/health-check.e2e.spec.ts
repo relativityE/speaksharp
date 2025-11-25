@@ -7,7 +7,7 @@ test.describe('@health-check Health Check', () => {
     // UNAUTH
     await page.goto('/');
     await capturePage(page, 'healthcheck-homepage-unauth.png', 'unauth');
-    await expect(page.getByRole('link', { name: 'Sign In' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Sign In' }).first()).toBeVisible();
 
     // AUTH
     await programmaticLogin(page);

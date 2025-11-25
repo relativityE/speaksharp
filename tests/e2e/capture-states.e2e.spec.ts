@@ -14,7 +14,7 @@ test.describe('Screenshot Capture', () => {
   test('capture UI states', async ({ page }) => {
     // Capture unauthenticated
     await page.goto('/');
-    await expect(page.getByRole('link', { name: 'Sign In' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Sign In' }).first()).toBeVisible();
     await page.screenshot({
       path: path.join(screenshotDir, 'unauthenticated-home.png'),
       fullPage: true

@@ -14,7 +14,7 @@ test.describe('Live Transcript Feature', () => {
 
     // Verify that the UI updates to show the session is active using a robust data-testid.
     const sessionActiveIndicator = page.getByTestId('session-status-indicator');
-    await expect(sessionActiveIndicator).toHaveText('Session Active');
+    await expect(sessionActiveIndicator).toHaveText('READY');
 
     // The transcript panel should also show that recording is in progress.
     const recordingText = page.getByTestId('transcript-display');

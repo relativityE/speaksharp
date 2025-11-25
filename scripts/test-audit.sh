@@ -79,6 +79,15 @@ run_e2e_sharding() {
     echo "✅ [4/5] E2E sharding complete."
 }
 
+run_prepare_stage() {
+    echo "🔐 Validating environment variables..."
+    node scripts/validate-env.mjs
+    run_preflight
+    run_quality_checks
+    run_build
+    run_e2e_sharding
+}
+
 run_e2e_tests_shard() {
     local SHARD_INDEX=$1
     local SHARD_COUNT
@@ -146,6 +155,48 @@ run_e2e_health_check() {
     echo "✅ [4/5] E2E Health Check Passed."
 }
 
+run_lighthouse_ci() {
+    echo "✅ [6/5] Running Lighthouse CI..."
+    
+    # Ensure build exists
+    if [ ! -d "frontend/dist" ]; then
+        echo "📦 Building for Lighthouse..."
+        pnpm build:test
+    fi
+    
+    # Start preview server in background
+    echo "🚀 Starting preview server..."
+    # Use a specific port to avoid conflicts if needed, but default 4173 is standard
+    pnpm preview &
+    PREVIEW_PID=$!
+    
+    # Wait for server to be ready
+    echo "⏳ Waiting for preview server..."
+    if ! npx wait-on http://localhost:4173 --timeout 30000; then
+        echo "❌ Preview server failed to start." >&2
+        kill $PREVIEW_PID || true
+        exit 1
+    fi
+    
+    # Run Lighthouse
+    echo "🔦 Running lhci autorun..."
+    # Capture exit code to ensure cleanup
+    set +e
+    npx lhci autorun
+    EXIT_CODE=$?
+    set -e
+    
+    # Cleanup
+    kill $PREVIEW_PID || true
+    
+    if [ $EXIT_CODE -ne 0 ]; then
+        echo "❌ Lighthouse CI failed." >&2
+        exit $EXIT_CODE
+    fi
+    
+    echo "✅ [6/5] Lighthouse CI Passed."
+}
+
 run_sqm_report_ci() {
     echo "✅ [5/5] Generating Final Report and Updating Docs..."
     echo "ℹ️ Merging metrics + updating PRD…"
@@ -175,11 +226,16 @@ run_ci_simulation() {
     # Clean up previous runs
     rm -rf test-results merged-reports blob-report
     
-    # 1. Prepare
-    run_preflight
-    run_quality_checks
-    run_build
-    run_e2e_sharding
+    # 1. Setup (Match GitHub CI "prepare" job steps)
+    echo "🔧 CI Setup: Installing dependencies..."
+    pnpm install --frozen-lockfile
+    
+    echo "🔧 CI Setup: Installing Playwright browsers..."
+    pnpm exec playwright install --with-deps chromium
+
+    # 2. Run Prepare Stage
+    run_prepare_stage
+
     
     # 2. Run Shards
     local SHARD_COUNT=$(jq '.shard_count' "$ARTIFACTS_DIR/e2e-shards.json")
@@ -216,6 +272,9 @@ run_ci_simulation() {
         echo "⚠️ No reports to merge."
     fi
     
+    # 4. Lighthouse
+    run_lighthouse_ci
+    
     run_sqm_report_ci
     echo "✅ CI Simulation Complete."
 }
@@ -231,12 +290,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 
 case $STAGE in
     prepare)
-        echo "🔐 Validating environment variables..."
-        node scripts/validate-env.mjs
-        run_preflight
-        run_quality_checks
-        run_build
-        run_e2e_sharding
+        run_prepare_stage
         echo "🎉 Prepare stage SUCCEEDED."
         ;;
     test)

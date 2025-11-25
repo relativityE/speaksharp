@@ -73,7 +73,7 @@ export const SessionPage: React.FC = () => {
                     <div className="p-8">
                         <div className="flex items-center justify-between mb-6">
                             <h2 className="text-xl font-semibold text-foreground">Live Recording</h2>
-                            <Badge className={isReady ? "bg-orange-500/10 text-orange-500 border-orange-500/20" : "bg-muted/10 text-muted-foreground border-muted/20"}>
+                            <Badge className={isReady ? "bg-orange-500/10 text-orange-500 border-orange-500/20" : "bg-muted/10 text-muted-foreground border-muted/20"} data-testid="session-status-indicator">
                                 {isReady ? 'READY' : 'LOADING'}
                             </Badge>
                         </div>
@@ -86,8 +86,8 @@ export const SessionPage: React.FC = () => {
 
                             {/* Timer */}
                             <div className="text-5xl font-mono font-bold text-foreground mb-2">{formattedTime}</div>
-                            <p className="text-muted-foreground mb-8">
-                                {isListening ? 'Recording in progress' : 'Click start to begin recording'}
+                            <p className="text-muted-foreground mb-8" data-testid="transcript-display">
+                                {isListening ? 'Recording in progress...' : 'Click start to begin recording'}
                             </p>
 
                             {/* Control Button */}
@@ -97,6 +97,7 @@ export const SessionPage: React.FC = () => {
                                 variant={isListening ? 'destructive' : 'default'}
                                 className="w-48 h-14 text-lg font-semibold"
                                 disabled={!isReady && !isListening}
+                                data-testid="session-start-stop-button"
                             >
                                 {isListening ? (
                                     <><Square className="w-5 h-5 mr-2" /> Stop</>

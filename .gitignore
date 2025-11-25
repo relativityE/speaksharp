@@ -44,3 +44,4 @@ resources/
 .env*.local
 .vite.pid
 merged-reports/
+.lighthouseci/

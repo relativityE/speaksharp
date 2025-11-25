@@ -13,6 +13,7 @@ interface EmptyStateProps {
     };
     icon?: React.ReactNode;
     className?: string;
+    testId?: string;
 }
 
 export const EmptyState: React.FC<EmptyStateProps> = ({
@@ -21,9 +22,10 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
     action,
     icon,
     className,
+    testId,
 }) => {
     return (
-        <div className={cn("flex flex-col items-center justify-center text-center p-8 md:p-12 border-2 border-dashed rounded-xl bg-card/50", className)}>
+        <div className={cn("flex flex-col items-center justify-center text-center p-8 md:p-12 border-2 border-dashed rounded-xl bg-card/50", className)} data-testid={testId}>
             <div className="flex items-center justify-center w-20 h-20 rounded-full bg-primary/10 mb-6 animate-pulse-ring">
                 {icon || (
                     <svg
