@@ -44,7 +44,7 @@ run_quality_checks() {
 
 run_build() {
     echo "✅ [3/5] Building Application for E2E Tests..."
-    pnpm build:test || {
+    pnpm exec dotenv -e .env.test -- pnpm build:test || {
         echo "❌ Build failed." >&2
         exit 1
     }
