@@ -147,7 +147,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Tue, 25 Nov 2025 18:19:44 GMT
+**Last Updated:** Tue, 25 Nov 2025 20:18:50 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -157,10 +157,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 147 |
+| Total tests             | 137 |
 | Unit tests              | 134   |
-| E2E tests (Playwright)  | 13  |
-| Passing tests           | 147   |
+| E2E tests (Playwright)  | 3  |
+| Passing tests           | 137   |
 | Failing tests           | 0   |
 | Disabled/skipped tests  | 0   |
 | Passing unit tests      | 134   |
@@ -176,7 +176,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 | Statements | N/A   |
 | Branches   | N/A   |
 | Functions  | N/A   |
-| Lines      | 36.1%   |
+| Lines      | 35.99%   |
 
 ---
 
@@ -186,7 +186,7 @@ This section provides metrics that help identify "code bloat"—unnecessary or d
 
 | Metric | Value | Description |
 |---|---|---|
-| **Initial Chunk Size** | 13M | The size of the largest initial JavaScript bundle. This is a direct measure of the amount of code a user has to download and parse on their first visit. Large values here are a strong indicator of code bloat. |
+| **Initial Chunk Size** | 14M | The size of the largest initial JavaScript bundle. This is a direct measure of the amount of code a user has to download and parse on their first visit. Large values here are a strong indicator of code bloat. |
 | **Lighthouse Score** | (coming soon) | A comprehensive performance score from Google Lighthouse. It measures the *impact* of code bloat on the user experience, including metrics like Time to Interactive. |
 
 ---
