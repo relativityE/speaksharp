@@ -12,9 +12,6 @@ on:
 jobs:
   prepare:
     runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.shard.outputs.matrix }}
-      shard-count: ${{ steps.shard.outputs.shard-count }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -37,25 +34,8 @@ jobs:
       - name: Install Playwright Browsers
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Ensure e2e-shards.json exists
-        run: |
-          mkdir -p test-support
-          if [ ! -f test-support/e2e-shards.json ]; then
-            echo '{"shard_count": 0}' > test-support/e2e-shards.json
-          fi
-
       - name: Run Prepare Stage
-        id: shard
-        run: |
-          ./scripts/test-audit.sh prepare
-          COUNT=$(jq '.shard_count' ./test-support/e2e-shards.json)
-          echo "shard-count=$COUNT" >> $GITHUB_OUTPUT
-          if [ "$COUNT" -eq 0 ]; then
-            INDICES="[]"
-          else
-            INDICES=$(seq 0 $((COUNT-1)) | jq -R . | jq -s . | jq -c .)
-          fi
-          echo "matrix=$INDICES" >> $GITHUB_OUTPUT
+        run: ./scripts/test-audit.sh prepare
 
       - name: Upload Prepare Artifacts
         uses: actions/upload-artifact@v4
@@ -64,17 +44,15 @@ jobs:
           path: |
             frontend/dist
             frontend/coverage
-            test-support
             unit-metrics.json
 
   test:
     needs: prepare
-    if: needs.prepare.outputs.matrix != '[]'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard-index: ${{ fromJson(needs.prepare.outputs.matrix) }}
+        shard: [1, 2, 3, 4]
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -101,14 +79,14 @@ jobs:
           path: .
 
       - name: Run E2E Test Shard
-        run: ./scripts/test-audit.sh test ${{ matrix.shard-index }}
+        run: ./scripts/test-audit.sh test ${{ matrix.shard }}
 
       - name: Upload Shard Report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: shard-report-${{ matrix.shard-index }}
-          path: test-results/shards/shard-${{ matrix.shard-index }}
+          name: shard-report-${{ matrix.shard }}
+          path: blob-report
           retention-days: 30
 
   lighthouse:

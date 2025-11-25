@@ -217,15 +217,19 @@ These items were identified in a comprehensive system analysis and remain releva
   - **Estimated Time:** 5-8 hours
   - **MoSCoW:** Could Have
 
-- **P4 (Low): Use Native Playwright Sharding**
-  - **Problem:** `scripts/test-audit.sh` manually implements test sharding. Playwright has built-in `--shard` support which would be simpler and more reliable.
-  - **Current State:** Custom sharding works with blob report merging (4 shards).
-  - **Required Action:**
-    - Refactor CI to use `playwright test --shard=${{ matrix.shard }}/${{ matrix.total }}`
-    - Simplify `scripts/test-audit.sh` to remove custom sharding logic
-    - Verify blob report merging still works
-  - **Estimated Time:** 3-4 hours
-  - **MoSCoW:** Could Have
+- **✅ COMPLETED - P3 (Medium): Use Native Playwright Sharding**
+  - **Status:** COMPLETED (2025-11-25)
+  - **Problem:** `scripts/test-audit.sh` manually implemented test sharding. Playwright has built-in `--shard` support which is simpler and more reliable.
+  - **Solution Implemented:**
+    - Refactored CI workflow `.github/workflows/ci.yml` to use fixed matrix `[1, 2, 3, 4]` instead of dynamic shard calculation
+    - Updated CI to call Playwright with native `--shard` flag: `playwright test --shard=1/4`
+    - Removed `run_e2e_sharding()` function from `test-audit.sh` (no longer generates `e2e-shards.json`)
+    - Simplified `run_e2e_tests_shard()` to directly use native sharding
+    - Updated `ci-simulate` to use fixed 4-shard loop
+    - Removed `test-support` artifact dependency from CI
+  - **Impact:** Simpler, more maintainable CI configuration. Removed ~50 lines of custom sharding logic.
+  - **Verification:** Local test with `./scripts/test-audit.sh test 1` passed (4 tests in shard 1/4)
+  - **Commit:** Part of Nov 25 architectural cleanup sprint
 
 
 \

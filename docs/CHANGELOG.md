@@ -26,6 +26,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Added `run_lighthouse_ci` function to replicate Lighthouse stage locally
   - **Results:** Full local simulation now passes all stages (env validation, frozen lockfile check, lint/typecheck, unit tests, build, E2E tests, Lighthouse CI)
 
+- **Architectural Improvements (2025-11-25):**
+  - **CI/Local Test Script Alignment:** Unified `test:health-check` to call canonical `scripts/test-audit.sh`, eliminating dangerous divergence between local and CI validation. Removed redundant `test:e2e:health` script.
+  - **Environment Detection Standardization:** Replaced dual `window.__E2E_MODE__` and `VITE_TEST_MODE` checks with single `IS_TEST_ENVIRONMENT` from `config/env.ts`. Updated `main.tsx`, `NativeBrowser.ts`, and removed `__E2E_MODE__` from `ambient.d.ts`.
+  - **E2E Logic Extraction:** Created `lib/e2e-bridge.ts` module to isolate test-specific logic (MSW initialization, mock session injection) from production code. `main.tsx` now conditionally imports e2e-bridge only in test mode.
+  - **Deterministic Loading State:** Replaced non-deterministic `setTimeout(100)` with React `useEffect` + `requestAnimationFrame` in `App.tsx` and `ConfigurationNeededPage.tsx`. Loading state now properly synchronized with React lifecycle, eliminating race conditions in E2E tests.
+  - **CI Sharding Simplification:** Replaced custom sharding logic with Playwright's native `--shard` CLI option. CI workflow now uses fixed matrix `[1,2,3,4]` instead of dynamic calculation. Removed `run_e2e_sharding()` function and ~50 lines of custom code from `test-audit.sh`.
+
 ### Added
 - **Alpha Polish (2025-11-22):**
   - Hidden "TBD" testimonial placeholders on the landing page via `MainPage.tsx` to improve Alpha presentation
