@@ -48,6 +48,7 @@ jobs:
 
   test:
     needs: prepare
+    if: success()
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -91,6 +92,7 @@ jobs:
 
   lighthouse:
     needs: [prepare, test]
+    if: success()
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -142,6 +144,7 @@ jobs:
 
   report:
     needs: [prepare, test, lighthouse]
+    if: success()
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
