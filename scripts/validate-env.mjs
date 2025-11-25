@@ -8,6 +8,8 @@ const __dirname = dirname(__filename);
 
 // Load .env file
 dotenv.config({ path: join(__dirname, '..', '.env') });
+// Load .env.test file (fallback for CI/Test)
+dotenv.config({ path: join(__dirname, '..', '.env.test') });
 
 // Read required env vars from env.required
 const requiredFile = join(__dirname, '..', 'env.required');
