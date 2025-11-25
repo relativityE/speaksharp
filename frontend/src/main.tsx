@@ -37,7 +37,7 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 const queryClient = new QueryClient();
 
-const renderApp = (initialSession: Session | null = null) => {
+const renderApp = async (initialSession: Session | null = null) => {
   if (rootElement && !window._speakSharpRootInitialized) {
     window._speakSharpRootInitialized = true;
 
@@ -90,26 +90,12 @@ const renderApp = (initialSession: Session | null = null) => {
         loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY!)
       );
 
-      const sessionToUse = window.__E2E_MOCK_SESSION__ ? ({
-        user: {
-          id: 'mock-user-id',
-          email: 'test@example.com',
-          aud: 'authenticated',
-          role: 'authenticated',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          app_metadata: {
-            provider: 'email',
-            providers: ['email'],
-          },
-          user_metadata: { subscription_status: 'free' },
-        },
-        access_token: 'mock-token',
-        refresh_token: 'mock-refresh-token',
-        expires_in: 3600,
-        expires_at: Math.floor(Date.now() / 1000) + 3600,
-        token_type: 'bearer',
-      } as Session) : initialSession;
+      // Get initial session (mock if in E2E mode)
+      let sessionToUse = initialSession;
+      if (IS_TEST_ENVIRONMENT) {
+        const { getInitialSession } = await import('@/lib/e2e-bridge');
+        sessionToUse = getInitialSession(initialSession);
+      }
 
       root.render(
         <StrictMode>
@@ -128,42 +114,24 @@ const renderApp = (initialSession: Session | null = null) => {
           </QueryClientProvider>
         </StrictMode>
       );
-
-      // Hide the loading spinner after React renders
-      setTimeout(() => {
-        document.body.classList.add('app-loaded');
-      }, 100);
     } else {
       root.render(
         <StrictMode>
           <ConfigurationNeededPage />
         </StrictMode>
       );
-
-      // Hide loader for config page too
-      setTimeout(() => {
-        document.body.classList.add('app-loaded');
-      }, 100);
     }
   }
 };
 
 const initialize = async () => {
   if (IS_TEST_ENVIRONMENT) {
-
-    const startMsw = async () => {
-      const { worker } = await import('./mocks/browser');
-      await worker.start({ onUnhandledRequest: 'bypass' });
-      console.log('[MSW] Mock Service Worker is ready.');
-    };
-
-    window.mswReady = false;
-    await startMsw();
-    window.mswReady = true;
-    console.log('[E2E] MSW ready, now rendering app');
-    renderApp();
+    const { initializeE2EEnvironment } = await import('@/lib/e2e-bridge');
+    await initializeE2EEnvironment();
+    console.log('[E2E] Environment ready, now rendering app');
+    await renderApp();
   } else {
-    renderApp();
+    await renderApp();
   }
 };
 
