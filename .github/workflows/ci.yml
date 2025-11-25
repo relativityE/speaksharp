@@ -91,7 +91,6 @@ jobs:
 
   lighthouse:
     needs: [prepare, test]
-    if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -142,8 +141,7 @@ jobs:
           retention-days: 30
 
   report:
-    needs: [prepare, test]
-    if: always()
+    needs: [prepare, test, lighthouse]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
