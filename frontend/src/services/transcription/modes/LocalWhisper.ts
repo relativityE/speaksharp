@@ -56,6 +56,9 @@ export default class LocalWhisper implements ITranscriptionMode {
   private session: InferenceSession | null;
   private mic: MicStream | null = null;
   private manager: SessionManager;
+  private audioChunks: Float32Array[] = [];
+  private isProcessing: boolean = false;
+  private processingInterval: NodeJS.Timeout | null = null;
 
   constructor({ onTranscriptUpdate, onModelLoadProgress, onReady }: TranscriptionModeOptions) {
     if (!onTranscriptUpdate) {
@@ -122,61 +125,81 @@ export default class LocalWhisper implements ITranscriptionMode {
       return;
     }
     this.status = 'transcribing';
+    this.audioChunks = [];
+    this.transcript = '';
 
-    // Record for 5 seconds (matching original LocalWhisper behavior)
-    const audioData = await this.getAudioData(mic);
-    const wavData = floatToWav(audioData);
+    // Subscribe to microphone frames
+    mic.onFrame((frame: Float32Array) => {
+      // Copy the frame to avoid buffer detachment issues
+      this.audioChunks.push(frame.slice(0));
+    });
 
-    logger.info(`[LocalWhisper] Transcribing ${audioData.length} samples...`);
+    // Start processing loop (every 1 second)
+    this.processingInterval = setInterval(() => {
+      this.processAudio();
+    }, 1000);
+
+    logger.info('[LocalWhisper] Streaming started.');
+  }
+
+  private async processAudio(): Promise<void> {
+    if (this.isProcessing || !this.session || this.audioChunks.length === 0) {
+      return;
+    }
+
+    this.isProcessing = true;
 
     try {
-      // Perform transcription without callback to ensure we get the full result object
+      // Concatenate all chunks
+      const totalLength = this.audioChunks.reduce((sum, f) => sum + f.length, 0);
+      const concatenated = new Float32Array(totalLength);
+      let offset = 0;
+      for (const frame of this.audioChunks) {
+        concatenated.set(frame, offset);
+        offset += frame.length;
+      }
+
+      const wavData = floatToWav(concatenated);
+
+      // Perform transcription
       const result = await this.session.transcribe(wavData, false, {});
 
       if (result.isErr) {
         throw result.error;
       }
 
-      // The result value contains the full text
-      const text = result.value.text || '';
-      this.transcript = text;
-
-      this.onTranscriptUpdate({ transcript: { final: this.transcript } });
-      logger.info({ textLength: this.transcript.length }, '[LocalWhisper] Transcription complete.');
+      // Update transcript if changed
+      const newText = result.value.text || '';
+      if (newText !== this.transcript) {
+        this.transcript = newText;
+        this.onTranscriptUpdate({ transcript: { final: this.transcript } });
+      }
 
     } catch (err) {
-      logger.error({ err }, '[LocalWhisper] Transcription failed.');
+      logger.error({ err }, '[LocalWhisper] Transcription processing failed.');
     } finally {
-      this.status = 'stopped';
+      this.isProcessing = false;
     }
-  }
-
-  private async getAudioData(mic: MicStream, duration: number = 5000): Promise<Float32Array> {
-    return new Promise(resolve => {
-      const frames: Float32Array[] = [];
-      const frameHandler = (frame: Float32Array) => {
-        frames.push(frame.slice(0));
-      };
-      mic.onFrame(frameHandler);
-
-      setTimeout(() => {
-        mic.offFrame(frameHandler);
-        const totalLength = frames.reduce((sum, f) => sum + f.length, 0);
-        const concatenated = new Float32Array(totalLength);
-        let offset = 0;
-        for (const frame of frames) {
-          concatenated.set(frame, offset);
-          offset += frame.length;
-        }
-        resolve(concatenated);
-      }, duration);
-    });
   }
 
   public async stopTranscription(): Promise<string> {
     logger.info('[LocalWhisper] stopTranscription() called.');
+
+    if (this.processingInterval) {
+      clearInterval(this.processingInterval);
+      this.processingInterval = null;
+    }
+
+    if (this.mic) {
+      // We don't need to explicitly unsubscribe as mic.stop() usually handles it,
+      // but good practice to clear references.
+      this.mic = null;
+    }
+
+    // Process any remaining audio
+    await this.processAudio();
+
     this.status = 'stopped';
-    this.mic = null;
     return this.transcript;
   }
 
