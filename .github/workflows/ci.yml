@@ -131,7 +131,7 @@ jobs:
           pnpm preview &
           PREVIEW_PID=$!
           echo "Preview server PID: $PREVIEW_PID"
-          npx wait-on http://localhost:4173 --timeout 30000 || {
+          npx wait-on http://localhost:4173 --timeout 10000 || {
             echo "::error::Preview server failed to start"
             echo "Checking if preview process is running..."
             ps aux | grep vite || true
