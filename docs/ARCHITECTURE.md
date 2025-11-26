@@ -237,7 +237,7 @@ How it's Launched: This environment is launched using the pnpm dev command. This
 Purpose: This is a specialized, automated environment designed exclusively for running tests (especially End-to-End tests with Playwright). Its goal is to create a consistent, isolated, and controllable simulation of the application.
 Key Characteristics:
 Mocked Backend: It does not connect to a real Supabase database. Instead, it uses Mock Service Worker (MSW) to intercept all API calls and provide predictable, fake data. This ensures tests are fast and reliable.
-Compile-Time Modifications: This is the most critical distinction. When the server is launched in test mode, a special build-time flag, import.meta.env.VITE_TEST_MODE, is set to true. The application's source code uses this flag to conditionally exclude certain libraries (like the onnxruntime-web for on-device transcription) that are known to crash the Playwright test runner.
+Compile-Time Modifications: This is the most critical distinction. When the server is launched in test mode, a special build-time flag, import.meta.env.VITE_TEST_MODE, is set to true. The application's source code uses this flag to conditionally exclude certain heavy WASM-based libraries (used for on-device transcription) that are known to crash the Playwright test runner.
 Headless Operation: This environment is designed to be run by an automated tool (Playwright), not a human.
 How it's Launched: The test environment's dev server is not launched by you directly with pnpm dev. Instead, it is launched automatically by the test runner (Playwright) when you run a command like pnpm test:e2e. The Playwright configuration file (playwright.config.ts) is configured to start the Vite server using a specific command: vite --mode test. This --mode test flag is what tells Vite to apply the special test configuration.
 
@@ -303,7 +303,7 @@ Together, these utilities form the canonical pattern for testing any component t
 The E2E test environment is designed for stability and isolation. Several key architectural patterns have been implemented to address sources of test flakiness and instability.
 
 1.  **Build-Time Conditional for Incompatible Libraries:**
-    *   **Problem:** Certain libraries, like `onnxruntime-web` (used for on-device transcription), are fundamentally incompatible with the Playwright/Node.js test environment and cause untraceable browser crashes.
+    *   **Problem:** Certain heavy WASM-based speech recognition libraries (used for on-device transcription) are fundamentally incompatible with the Playwright/Node.js test environment and cause untraceable browser crashes.
     *   **Architecture:** The build process now uses a dedicated Vite build mode (`--mode test`). This sets a build-time variable, `import.meta.env.VITE_TEST_MODE`. The application's source code uses this variable to create a compile-time conditional (`if (import.meta.env.VITE_TEST_MODE)`) that completely removes the problematic `import()` statements from the test build. This is a robust solution that prevents the incompatible code from ever being loaded.
 
 2.  **Explicit E2E Hooks for Authentication:**
@@ -436,7 +436,7 @@ Soak tests use real user credentials to authenticate against the running develop
     *   **Barrel Exports:** A barrel file (`tests/pom/index.ts`) is used to export all POMs from this central location. This provides a single, clean import path for all test files (e.g., `import { SessionPage } from '../pom';`), which improves maintainability and prevents module resolution issues in the test runner.
 
 5.  **Source-Code-Level Guard for Incompatible Libraries:**
-    *   **Problem:** The on-device transcription feature uses the `onnxruntime-web` library, which relies on WebAssembly. This library is fundamentally incompatible with the Playwright test environment and causes a silent, catastrophic browser crash that is untraceable with standard debugging tools.
+    *   **Problem:** The on-device transcription feature uses heavy WASM-based speech recognition libraries which rely on WebAssembly. These libraries are fundamentally incompatible with the Playwright test environment and cause a silent, catastrophic browser crash that is untraceable with standard debugging tools.
     *   **Solution:** A test-aware guard has been implemented directly in the application's source code.
         *   **Flag Injection:** The `programmaticLogin` helper in `tests/e2e/helpers.ts` uses `page.addInitScript()` to inject a global `window.TEST_MODE = true;` flag before any application code runs.
         *   **Conditional Import:** The `TranscriptionService.ts` checks for the presence of `window.TEST_MODE`. If the flag is true, it completely skips the dynamic import of the `LocalWhisper` module that would have loaded the crashing library. Instead, it gracefully falls back to the safe, native browser transcription engine.
@@ -589,7 +589,7 @@ The `TranscriptionService.ts` provides a unified abstraction layer over multiple
 
 ### On-Device STT Implementation Details
  
- The `LocalWhisper` provider uses the [`whisper-turbo`](https://github.com/xenova/whisper-turbo) library (a high-performance wrapper around `onnxruntime-web`) to run the `whisper-tiny.en` model directly in the user's browser.
+ The `LocalWhisper` provider uses the [`whisper-turbo`](https://github.com/xenova/whisper-turbo) library to run the `whisper-tiny.en` model directly in the user's browser using WebAssembly.
  
  *   **How it Works:**
      1.  **Dynamic Loading:** The `LocalWhisper` module is dynamically imported via `import()` only when the user explicitly selects "On-Device" mode. This prevents the heavy WebAssembly (WASM) dependencies from loading during the initial application render, significantly improving startup performance.

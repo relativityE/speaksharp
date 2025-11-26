@@ -39,10 +39,10 @@ The `./scripts/env-stabilizer.sh` script is a powerful tool for recovering a bro
 
 ### 4. Handling Silent Crashes in E2E Tests
 
-The E2E test environment has a critical incompatibility with the `onnxruntime-web` library, which is used for on-device speech recognition. This library is loaded via a dynamic import.
+The E2E test environment has known incompatibilities with heavy WebAssembly-based speech recognition libraries used for on-device transcription. These libraries are loaded via dynamic imports.
 
-*   **Symptom:** When a test runs that triggers this import, the browser will crash instantly and silently, resulting in a blank screenshot and no console or network errors. This is a fatal, untraceable error.
-*   **Solution:** A source-code-level guard is in place. A `window.TEST_MODE = true` flag is injected by the test setup. The application code (`frontend/src/services/transcription/TranscriptionService.ts`) checks for this flag and conditionally skips the dynamic import of the module that causes the crash.
+*   **Symptom:** When a test triggers the import of these heavy WASM modules, the browser can crash instantly and silently, resulting in a blank screenshot with no console or network errors. This is a fatal, untraceable error.
+*   **Solution:** A source-code-level guard is in place. A `window.TEST_MODE = true` flag is injected by the test setup. The application code (`frontend/src/services/transcription/TranscriptionService.ts`) checks for this flag and conditionally skips the dynamic import of modules that cause crashes.
 *   **Implication:** Do not remove this flag or the corresponding check in the application code. If you encounter a similar silent crash, investigate for other dynamic imports of heavy, WebAssembly-based libraries.
 
 ---
@@ -198,7 +198,7 @@ ___
     *   *Remediation:* Move to event-based synchronization or full network-layer mocking via Playwright.
 *   **State Management:** Lack of global state management leads to implicit prop drilling in `App.tsx` and core components.
     *   *Remediation:* Adopt React Context for specific features or a lightweight store like Zustand.
-*   **Performance:** Heavy dependencies (`whisper-turbo`, `whisper-webgpu`) are loaded eagerly or without sufficient guards, causing crashes (see `onnxruntime-web` issue).
+*   **Performance:** Heavy dependencies (`whisper-turbo`, `whisper-webgpu`) are loaded eagerly or without sufficient guards, causing potential crashes with heavy WASM-based libraries.
     *   *Remediation:* Enforce dynamic imports and facade patterns for heavy AI libraries.
 
 ### 2. CI/CD & Workflow Risks

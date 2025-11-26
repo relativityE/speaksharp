@@ -184,7 +184,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - **Solution:** The mock client in `tests/e2e/helpers.ts` has been refactored to use `localStorage` for session state, accurately simulating the behavior of the real Supabase client and ensuring state persists across `page.goto()` calls.
     - **Improvement:** The smoke test's assertion for the `SessionPage` has been strengthened to verify an authenticated state, preventing it from passing by coincidence.
 - **Critical E2E Test Environment Instability:** Resolved a cascade of critical issues that were causing the E2E test suite to be completely unstable. This work provides a stable foundation for future test development.
-    - **Build-Time Crash:** Implemented a `test` build mode to conditionally exclude the `onnxruntime-web` library, which was causing silent, untraceable browser crashes.
+    - **Build-Time Crash:** Implemented a `test` build mode to conditionally exclude heavy WASM-based libraries, which were causing silent, untraceable browser crashes.
     - **Authentication Race Condition:** Re-architected the `programmaticLogin` helper and the `AuthProvider` to use a custom browser event (`__E2E_SESSION_INJECTED__`), which synchronizes the test script with the application's React state and ensures the UI reliably updates after login.
     - **API Mocking:** Corrected the MSW handler for session history to return mock data, allowing the analytics page to render correctly in tests.
 
@@ -214,9 +214,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Critical E2E Test Browser Crash:** Resolved a silent, catastrophic browser crash that was causing all authenticated E2E tests to fail with a blank screen.
-    - **Root Cause:** The dynamic import of the `onnxruntime-web` library (used for on-device transcription) was found to be incompatible with the Playwright test environment, causing the browser to crash without any logs.
+    - **Root Cause:** The dynamic import of heavy WASM-based speech recognition libraries (used for on-device transcription) was found to be incompatible with the Playwright test environment, causing the browser to crash without any logs.
     - **Solution:** Implemented a source-code-level guard. A `window.TEST_MODE` flag is now injected during E2E tests, and the application's `TranscriptionService` uses this flag to conditionally skip the dynamic import, ensuring stability.
-- **`live-transcript` E2E Test Failure:** Resolved a fatal JavaScript error in the `live-transcript.e2e.spec.ts` test caused by the `onnxruntime-web` library. The fix introduces a mock for the `useSpeechRecognition` hook that prevents the unstable module from being loaded in the test environment.
+- **`live-transcript` E2E Test Failure:** Resolved a fatal JavaScript error in the `live-transcript.e2e.spec.ts` test caused by heavy WASM speech recognition libraries. The fix introduces a mock for the `useSpeechRecognition` hook that prevents unstable modules from being loaded in the test environment.
 - **E2E Test Suite Stability:** Performed a comprehensive refactoring of the E2E test suite to improve stability and maintainability.
     - **Standardized Page Object Models (POMs):** Centralized all POMs into a single `tests/pom` directory with a barrel file (`index.ts`) for consistent imports.
     - **Updated Test Assertions:** Revised obsolete selectors and test logic across the entire E2E suite to align with the current application UI.
