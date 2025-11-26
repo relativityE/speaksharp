@@ -54,10 +54,13 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
 
   const serviceOptions = useMemo(() => ({
     onTranscriptUpdate: (data: { transcript: { partial?: string; final?: string }; speaker?: string }) => {
+      logger.info({ data }, '[useSpeechRecognition] onTranscriptUpdate received data');
       if (data.transcript?.partial && !data.transcript.partial.startsWith('Downloading model')) {
+        logger.info({ partial: data.transcript.partial }, '[useSpeechRecognition] Setting interim transcript');
         transcript.setInterimTranscript(data.transcript.partial);
       }
       if (data.transcript?.final) {
+        logger.info({ final: data.transcript.final }, '[useSpeechRecognition] Adding final chunk');
         transcript.addChunk(data.transcript.final, data.speaker);
         transcript.setInterimTranscript('');
       }
@@ -183,33 +186,6 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
   };
 };
 
-const useSpeechRecognition_test = () => {
-  const [isListening, setIsListening] = useState(false);
-  const mockTranscript = { wpm: 0, fillerWords: {}, wordCount: 0, transcript: isListening ? 'Recording in progress...' : '', duration: 0 };
-
-  return {
-    transcript: mockTranscript,
-    chunks: [],
-    interimTranscript: isListening ? 'Recording in progress...' : '',
-    fillerData: { total: { count: 0, color: '' } },
-    isListening: isListening,
-    isReady: true, // Always ready in test mode.
-    error: null,
-    isSupported: true,
-    mode: 'native',
-    modelLoadingProgress: null,
-    pauseMetrics: { totalPauses: 0, averagePauseDuration: 0, longestPause: 0, pausesPerMinute: 0 },
-    startListening: async () => { setIsListening(true); },
-    stopListening: async () => {
-      setIsListening(false);
-      return { ...mockTranscript, filler_words: {} };
-    },
-    reset: () => { setIsListening(false); },
-  };
-};
-
-export const useSpeechRecognition = import.meta.env.VITE_TEST_MODE
-  ? useSpeechRecognition_test
-  : useSpeechRecognition_prod;
+export const useSpeechRecognition = useSpeechRecognition_prod;
 
 export default useSpeechRecognition;

@@ -15,6 +15,7 @@ import { WeeklyActivityChart } from './analytics/WeeklyActivityChart';
 import { GoalsSection } from './analytics/GoalsSection';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '../lib/logger';
+import { toast } from 'sonner';
 import type { PracticeSession } from '@/types/session';
 import type { UserProfile } from '@/types/user';
 
@@ -150,6 +151,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ sessionH
             if (data.checkoutUrl) window.location.href = data.checkoutUrl;
         } catch (err: unknown) {
             logger.error({ err }, 'Error creating Stripe checkout session:');
+            toast.error('Unable to start upgrade process. Please try again or contact support.');
         }
     };
 
@@ -182,15 +184,17 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ sessionH
                     <CardHeader><CardTitle>Filler Word Trend</CardTitle></CardHeader>
                     <CardContent className="pl-2">
                         {overallStats.chartData.length > 1 ? (
-                            <ResponsiveContainer width="100%" height={300}>
-                                <LineChart data={overallStats.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                                    <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
-                                    <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
-                                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
-                                    <Tooltip cursor={{ fill: 'hsla(var(--secondary))' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
-                                    <Line type="monotone" dataKey="FW/min" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                                </LineChart>
-                            </ResponsiveContainer>
+                            <div className="h-[300px] w-full">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <LineChart data={overallStats.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                                        <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
+                                        <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
+                                        <YAxis stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
+                                        <Tooltip cursor={{ fill: 'hsla(var(--secondary))' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
+                                        <Line type="monotone" dataKey="FW/min" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                                    </LineChart>
+                                </ResponsiveContainer>
+                            </div>
                         ) : (
                             <div className="flex items-center justify-center h-[300px] text-center text-muted-foreground"><p>Complete at least two sessions to see your progress trend.</p></div>
                         )}

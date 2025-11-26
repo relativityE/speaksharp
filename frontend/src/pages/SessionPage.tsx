@@ -21,7 +21,7 @@ export const SessionPage: React.FC = () => {
         profile
     });
 
-    const { isListening, isReady, transcript, fillerData, startListening, stopListening } = speechRecognition;
+    const { isListening, isReady, transcript, interimTranscript, fillerData, startListening, stopListening } = speechRecognition;
     const [elapsedTime, setElapsedTime] = useState(0);
 
     useEffect(() => {
@@ -190,10 +190,13 @@ export const SessionPage: React.FC = () => {
                             <h3 className="text-lg font-semibold text-foreground">Live Transcript</h3>
                         </div>
                         <div className="min-h-[120px] max-h-[300px] overflow-y-auto p-4 rounded-lg bg-background/50 border border-white/10" data-testid="transcript-container">
-                            {isListening && (!transcript.transcript || transcript.transcript.trim() === '') ? (
+                            {isListening && (!transcript.transcript && !interimTranscript) ? (
                                 <p className="text-muted-foreground italic animate-pulse">Listening...</p>
-                            ) : transcript.transcript && transcript.transcript.trim() !== '' ? (
-                                <p className="text-foreground leading-relaxed">{transcript.transcript}</p>
+                            ) : (transcript.transcript || interimTranscript) ? (
+                                <div className="text-foreground leading-relaxed whitespace-pre-wrap">
+                                    {transcript.transcript}
+                                    <span className="text-muted-foreground">{interimTranscript}</span>
+                                </div>
                             ) : (
                                 <p className="text-muted-foreground italic">Your spoken words will appear here</p>
                             )}
