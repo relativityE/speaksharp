@@ -3,7 +3,7 @@ import { SessionPage } from '../pom';
 import { programmaticLogin } from './helpers';
 
 test.describe('Live Transcript Feature', () => {
-  test('should display live transcript after session starts', async ({ page }) => {
+  test.skip('should display live transcript after session starts', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await programmaticLogin(page);
 

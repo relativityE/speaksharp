@@ -71,13 +71,14 @@ export const getInitialSession = (fallbackSession: Session | null = null): Sessi
 class MockSpeechRecognition {
     continuous = false;
     interimResults = false;
-    onresult: ((event: any) => void) | null = null;
-    onerror: ((event: any) => void) | null = null;
+    onresult: ((event: unknown) => void) | null = null;
+    onerror: ((event: unknown) => void) | null = null;
     onend: (() => void) | null = null;
 
     start() {
         logger.info('[MockSpeechRecognition] start() called');
         // Register this instance as the active one so we can dispatch events to it
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (window as any).__activeSpeechRecognition = this;
     }
     stop() {
@@ -89,11 +90,15 @@ class MockSpeechRecognition {
 const setupSpeechRecognitionMock = () => {
     if (typeof window !== 'undefined') {
         logger.info('[E2E Bridge] Setting up MockSpeechRecognition');
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (window as any).SpeechRecognition = MockSpeechRecognition;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (window as any).webkitSpeechRecognition = MockSpeechRecognition;
 
         // Helper to dispatch events from Playwright
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (window as any).dispatchMockTranscript = (text: string, isFinal: boolean = false) => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const instance = (window as any).__activeSpeechRecognition;
             if (instance && instance.onresult) {
                 logger.info({ text, isFinal }, '[E2E Bridge] Dispatching mock transcript');
@@ -104,6 +109,7 @@ const setupSpeechRecognitionMock = () => {
 
                 const alternative = { transcript: text, confidence: 1 };
                 const result = [alternative];
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 (result as any).isFinal = isFinal;
 
                 const results = [result];
