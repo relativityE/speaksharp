@@ -1,5 +1,4 @@
 import logger from '../../../lib/logger';
-import { IS_TEST_ENVIRONMENT } from '@/config/env';
 import { ITranscriptionMode, TranscriptionModeOptions, Transcript } from './types';
 
 // A simplified interface for the SpeechRecognition event
@@ -56,19 +55,8 @@ export default class NativeBrowser implements ITranscriptionMode {
     this.isSupported = !!SpeechRecognition;
     logger.info({ isSupported: this.isSupported }, '[NativeBrowser] SpeechRecognition API supported');
 
-    if (IS_TEST_ENVIRONMENT) {
-      logger.info('[E2E STUB] Bypassing NativeBrowser init for E2E test.');
-      this.recognition = {
-        interimResults: false,
-        continuous: false,
-        start: () => { },
-        stop: () => { },
-        onresult: null,
-        onerror: null,
-        onend: null,
-      };
-      return;
-    }
+    // In test environment, we rely on the MockSpeechRecognition provided by e2e-bridge.ts
+    // or the unit test mocks. We no longer bypass initialization.
 
     if (!this.isSupported) {
       throw new Error('Native browser speech recognition not supported');

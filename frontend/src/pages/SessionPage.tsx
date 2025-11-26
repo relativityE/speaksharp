@@ -182,6 +182,23 @@ export const SessionPage: React.FC = () => {
                             />
                         </div>
                     </div>
+
+                    {/* Live Transcript Display */}
+                    <div className="bg-card border-2 border-white rounded-lg p-8 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.3)] md:col-span-2" data-testid="transcript-panel">
+                        <div className="flex items-center gap-2 mb-6">
+                            <div className="w-1 h-6 bg-primary rounded"></div>
+                            <h3 className="text-lg font-semibold text-foreground">Live Transcript</h3>
+                        </div>
+                        <div className="min-h-[120px] max-h-[300px] overflow-y-auto p-4 rounded-lg bg-background/50 border border-white/10" data-testid="transcript-container">
+                            {isListening && (!transcript.transcript || transcript.transcript.trim() === '') ? (
+                                <p className="text-muted-foreground italic animate-pulse">Listening...</p>
+                            ) : transcript.transcript && transcript.transcript.trim() !== '' ? (
+                                <p className="text-foreground leading-relaxed">{transcript.transcript}</p>
+                            ) : (
+                                <p className="text-muted-foreground italic">Your spoken words will appear here</p>
+                            )}
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

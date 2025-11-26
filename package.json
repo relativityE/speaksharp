@@ -135,5 +135,10 @@
     "*.{ts,tsx}": [
       "bash -c \"tsc --noEmit\""
     ]
+  },
+  "pnpm": {
+    "overrides": {
+      "glob": ">=10.5.0"
+    }
   }
 }

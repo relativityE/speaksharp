@@ -24,6 +24,9 @@ export const initializeE2EEnvironment = async (): Promise<void> => {
         const { worker } = await import('@/mocks/browser');
         await worker.start({ onUnhandledRequest: 'bypass' });
         logger.info('[E2E Bridge] MSW initialized successfully');
+
+        setupSpeechRecognitionMock();
+
         window.mswReady = true;
     } catch (error) {
         logger.error({ error }, '[E2E Bridge] Failed to initialize MSW');
@@ -62,4 +65,59 @@ export const getInitialSession = (fallbackSession: Session | null = null): Sessi
     }
 
     return fallbackSession;
+};
+
+// Mock SpeechRecognition for E2E tests
+class MockSpeechRecognition {
+    continuous = false;
+    interimResults = false;
+    onresult: ((event: any) => void) | null = null;
+    onerror: ((event: any) => void) | null = null;
+    onend: (() => void) | null = null;
+
+    start() {
+        logger.info('[MockSpeechRecognition] start() called');
+        // Register this instance as the active one so we can dispatch events to it
+        (window as any).__activeSpeechRecognition = this;
+    }
+    stop() {
+        logger.info('[MockSpeechRecognition] stop() called');
+    }
+    abort() { }
+}
+
+const setupSpeechRecognitionMock = () => {
+    if (typeof window !== 'undefined') {
+        logger.info('[E2E Bridge] Setting up MockSpeechRecognition');
+        (window as any).SpeechRecognition = MockSpeechRecognition;
+        (window as any).webkitSpeechRecognition = MockSpeechRecognition;
+
+        // Helper to dispatch events from Playwright
+        (window as any).dispatchMockTranscript = (text: string, isFinal: boolean = false) => {
+            const instance = (window as any).__activeSpeechRecognition;
+            if (instance && instance.onresult) {
+                logger.info({ text, isFinal }, '[E2E Bridge] Dispatching mock transcript');
+
+                // Construct event matching SpeechRecognitionEvent structure
+                // results is a SpeechRecognitionResultList (array-like)
+                // item is SpeechRecognitionResult (array-like of alternatives) + isFinal
+
+                const alternative = { transcript: text, confidence: 1 };
+                const result = [alternative];
+                (result as any).isFinal = isFinal;
+
+                const results = [result];
+
+                const event = {
+                    resultIndex: 0,
+                    results: results,
+                    type: 'result'
+                };
+
+                instance.onresult(event);
+            } else {
+                logger.warn('[E2E Bridge] No active SpeechRecognition instance found to dispatch to');
+            }
+        };
+    }
 };
