@@ -1,4 +1,4 @@
-import React, { Suspense } from 'react';
+import React, { Suspense, useEffect } from 'react';
 import { Navigate, Routes, Route } from 'react-router-dom';
 import { Toaster } from '@/components/ui/sonner';
 import Navigation from './components/Navigation';
@@ -19,6 +19,14 @@ const PageLoader = () => (
 );
 
 const App: React.FC = () => {
+  // Deterministically hide loading spinner once React component mounts
+  useEffect(() => {
+    // Use requestAnimationFrame to ensure this runs after the next paint
+    requestAnimationFrame(() => {
+      document.body.classList.add('app-loaded');
+    });
+  }, []);
+
   return (
     <div>
       <Toaster />

@@ -1,11 +1,11 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-11-18
+**Last Reviewed:** 2025-11-25
 
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp System Architecture
 
-**Version 3.2** | **Last Updated: 2025-09-26**
+**Version 3.3** | **Last Updated: 2025-11-25**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -167,8 +167,7 @@ The CI pipeline, defined in `.github/workflows/ci.yml`, is a multi-stage, parall
 |     - Preflight                  |
 |     - Quality Checks (Parallel)  |
 |     - Build                      |
-|     - E2E Test Sharding          |
-|  3. Upload Artifacts (Shards)    |
+|  3. Upload Artifacts (Build)     |
 +----------------------------------+
                  |
                  v
@@ -205,7 +204,7 @@ Both the local test runner and CI use the same `test-audit.sh` script, ensuring 
 | Aspect              | Local Test Runner (`pnpm test:all`)                                            | CI (GitHub Actions)                                                 |
 |---------------------|---------------------------------------------------------------------------------|---------------------------------------------------------------------|
 | **Execution**       | `./test-audit.sh local` - single process                                       | Split into stages: `prepare`, `test` (sharded), `report`           |
-| **E2E Tests**       | Runs all 13 tests serially                                                     | **Sharded across 4 workers** for parallel execution                |
+| **E2E Tests**       | Runs all 13 tests serially                                                     | **Sharded across 4 workers** using Playwright native `--shard` flag |
 | **Parallelization** | Quality checks (lint/typecheck/test) run in parallel via `concurrently`        | Each CI job runs independently in isolated environments             |
 | **Purpose**         | Pre-commit verification and local validation                                   | Gatekeeper for merging to main branch                               |
 | **Speed**           | ~2-3 minutes (serial E2E execution)                                            | ~1-2 minutes (parallel sharding reduces E2E time)                   |
@@ -241,6 +240,17 @@ Mocked Backend: It does not connect to a real Supabase database. Instead, it use
 Compile-Time Modifications: This is the most critical distinction. When the server is launched in test mode, a special build-time flag, import.meta.env.VITE_TEST_MODE, is set to true. The application's source code uses this flag to conditionally exclude certain libraries (like the onnxruntime-web for on-device transcription) that are known to crash the Playwright test runner.
 Headless Operation: This environment is designed to be run by an automated tool (Playwright), not a human.
 How it's Launched: The test environment's dev server is not launched by you directly with pnpm dev. Instead, it is launched automatically by the test runner (Playwright) when you run a command like pnpm test:e2e. The Playwright configuration file (playwright.config.ts) is configured to start the Vite server using a specific command: vite --mode test. This --mode test flag is what tells Vite to apply the special test configuration.
+
+### E2E Testing Infrastructure
+
+**Mock Service Worker (MSW)** intercepts all network requests to Supabase, providing deterministic test data. **E2E Bridge** (`frontend/src/lib/e2e-bridge.ts`) extends MSW with additional E2E-specific mocking:
+
+- **Mock SpeechRecognition API**: Polyfills browser `SpeechRecognition` and `webkitSpeechRecognition` with `MockSpeechRecognition` class
+- **dispatchMockTranscript()**: Helper function callable from Playwright tests via `page.evaluate()` to simulate transcription events
+- **Initialization**: Automatically loaded when `IS_TEST_ENVIRONMENT` is true in `main.tsx`
+
+**Known Limitation**: Live transcript E2E test currently skipped pending React state integration debugging. Infrastructure complete but mock events don't propagate to UI state (see `/artifacts/e2e_transcript_issue.md`).
+
 Summary: How the Dev Server Relates to Environments
 Environment	How Dev Server is Started	Vite Mode	Key Feature
 Production	Not applicable (uses a static build from pnpm build)	production	Optimized for users
