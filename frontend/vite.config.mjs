@@ -7,7 +7,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export default defineConfig(({ mode }) => {
-  // Load env file based on `mode` from the project root (parent of frontend/)
   // __dirname is frontend/, so we need to go up one level to find .env files
   const env = loadEnv(mode, path.resolve(__dirname, '..'), '');
   const isTestMode = mode === 'test' || env.VITE_TEST_MODE === 'true';
