@@ -2,47 +2,73 @@ import { test, expect } from '@playwright/test';
 import { programmaticLogin } from './helpers';
 
 test.describe('Smoke Test', () => {
-  test('should perform a full user journey: login, navigate, and log out @smoke', async ({ page }) => {
-    // DIAGNOSTIC: Forward all browser console logs to the Node.js console.
+  test('should perform comprehensive app health check and full user journey @smoke @health-check', async ({ page }) => {
+    // Forward browser console logs for diagnostics
     page.on('console', msg => {
       console.log(`[BROWSER CONSOLE] ${msg.type()}: ${msg.text()}`);
     });
 
-    // Step 1: Programmatic login
+    // Step 1: Verify app boots and renders DOM (from bootcheck)
+    await test.step('Boot Check - Verify DOM Renders', async () => {
+      await page.goto('/');
+
+      // Verify main app container loads
+      await expect(page.getByTestId('app-main')).toBeVisible({ timeout: 15000 });
+
+      // Verify HTML structure exists
+      const html = page.locator('html');
+      await expect(html).toBeVisible({ timeout: 15000 });
+
+      // Verify page title is set
+      const title = await page.title();
+      console.log(`[BOOTCHECK] Page title: ${title}`);
+      expect(title).toBeTruthy();
+    });
+
+    // Step 2: Verify unauthenticated state (from health-check)
+    await test.step('Verify Unauthenticated Homepage', async () => {
+      // Should show Sign In button when not authenticated
+      await expect(page.getByRole('link', { name: 'Sign In' }).first()).toBeVisible();
+
+      // Should NOT show sign-out button
+      await expect(page.getByTestId('nav-sign-out-button')).not.toBeVisible();
+    });
+
+    // Step 3: Programmatic login
     await test.step('Programmatic Login', async () => {
       await programmaticLogin(page);
       console.log('✅ Login completed successfully.');
+
+      // Verify auth state after login
+      await expect(page.getByTestId('nav-sign-out-button')).toBeVisible();
     });
 
-    // Step 2: Navigate to Session Page and verify content
+    // Step 4: Navigate to Session Page and verify content
     await test.step('Navigate to Session Page', async () => {
       await page.goto('/session');
-      await expect(page.getByRole('heading', { name: 'Live Recording' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Practice Session' })).toBeVisible();
 
-      // Robust assertion: Verify that the main functional element, the start/stop button,
-      // is visible. This button exists in both the desktop and mobile layouts, so this
-      // test is resilient to responsive UI changes.
+      // Verify the start/stop button (main functional element)
       await expect(page.getByTestId('session-start-stop-button')).toBeVisible();
     });
 
-    // Step 3: Navigate to Analytics Page and verify content
+    // Step 5: Navigate to Analytics Page and verify content
     await test.step('Navigate to Analytics Page', async () => {
       await page.goto('/analytics');
-      // Now that the SessionProvider is fixed, we can just wait for the data to load.
+
+      // Wait for data to load and verify dashboard elements
       await expect(page.getByTestId('speaking-pace')).toBeVisible({ timeout: 15000 });
       await expect(page.getByTestId('dashboard-heading')).toBeVisible();
     });
 
-    // Step 4: Log out
+    // Step 6: Log out
     await test.step('Logout', async () => {
-      // Clicking the sign-out button is a different kind of interaction (triggers an event)
-      // so I will leave this as a click.
       const signOutButton = page.getByTestId('nav-sign-out-button');
       await expect(signOutButton).toBeVisible();
       await signOutButton.click();
     });
 
-    // Step 5: Verify successful logout
+    // Step 7: Verify successful logout
     await test.step('Verify Logout', async () => {
       await expect(page.getByRole('link', { name: 'Sign In' }).first()).toBeVisible({ timeout: 10000 });
       await expect(page.getByTestId('nav-sign-out-button')).not.toBeVisible();

@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-11-25
+**Last Reviewed:** 2025-11-26
 
 # Agent Instructions for SpeakSharp Repository
 
@@ -138,17 +138,17 @@ ___
 *Complete before any commit or PR:*
 
 1.  **Run Local Audit Script**
-   ```bash
-   pnpm test:all
-   ```
-   Must pass lint, typecheck, all unit tests, and the full E2E suite.
+    ```bash
+    pnpm test:all
+    ```
+    Must pass lint, typecheck, all unit tests, and the full E2E suite.
 
 2.  **Documentation (SSOT)**
-   *   Review and update the seven mandatory documents as per `docs/OUTLINE.md`: `README.md`, `AGENTS.md`, `docs/OUTLINE.md`, `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`.
+    *   Review and update the seven mandatory documents as per `docs/OUTLINE.md`: `README.md`, `AGENTS.md`, `docs/OUTLINE.md`, `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`.
 
 3.  **Branch & Commit Hygiene**
-   *   Branches: `feature/...`, `fix/...`, `chore/...`.
-   *   Commit messages must clearly summarize the changes and their impact.
+    *   Branches: `feature/...`, `fix/...`, `chore/...`.
+    *   Commit messages must clearly summarize the changes and their impact.
 
 ---
 
@@ -188,3 +188,26 @@ ___
 *   ❌ Never undo or destroy user work without consent.
 *   📄 Documentation first.
 *   🧠 Think like a senior engineer — prioritize evidence-based, long-term stability.
+
+---
+
+## 🚩 Known Issues & Architectural Risks (Consolidated Analysis - Nov 2025)
+
+### 1. Architectural Fragility
+*   **E2E Test Environment:** `frontend/src/lib/e2e-bridge.ts` uses global flags (`window.mswReady`) for synchronization, creating race conditions.
+    *   *Remediation:* Move to event-based synchronization or full network-layer mocking via Playwright.
+*   **State Management:** Lack of global state management leads to implicit prop drilling in `App.tsx` and core components.
+    *   *Remediation:* Adopt React Context for specific features or a lightweight store like Zustand.
+*   **Performance:** Heavy dependencies (`whisper-turbo`, `whisper-webgpu`) are loaded eagerly or without sufficient guards, causing crashes (see `onnxruntime-web` issue).
+    *   *Remediation:* Enforce dynamic imports and facade patterns for heavy AI libraries.
+
+### 2. CI/CD & Workflow Risks
+*   **Brittle Scripts:** `scripts/test-audit.sh` is monolithic and hard to debug.
+*   **Missing Scripts:** `test-audit.sh` calls `pnpm test:e2e:health`, which is **missing** from `package.json`.
+*   **Env Vars:** Reliance on `dotenv-cli` and `.env.test` is fragile.
+    *   *Remediation:* Fix `package.json` scripts immediately. Consider migrating to `Nx` or `Turborepo`.
+
+### 3. Codebase Health
+*   **Outdated Dependencies:** `@playwright/test` and `@tanstack/react-query` are significantly outdated.
+*   **Testing Pyramid:** "Ice cream cone" anti-pattern. Heavy reliance on slow E2E tests; low unit test coverage (~36%) with no enforcement.
+    *   *Remediation:* Enforce coverage thresholds in `vitest.config.mjs` and prioritize unit tests for new logic.

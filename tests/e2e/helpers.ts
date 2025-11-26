@@ -1,19 +1,12 @@
 // tests/e2e/helpers.ts
 /**
- * This file merges:
- *  - The agent’s architectural fixes
- *  - The original full-feature helpers.ts (transcript, full DB mock, logs)
- *  - Strict ESLint + TS compatibility (no ts-nocheck)
+ * This file contains E2E test helper functions including programmaticLogin
+ * which uses MSW network mocking instead of window.supabase injection.
  */
 
 import type { Page } from '@playwright/test';
-import type { Session } from '@supabase/supabase-js';
 import {
-  MOCK_USER,
-  MOCK_USER_PROFILE,
-  MOCK_SESSION_KEY,
   MOCK_TRANSCRIPTS,
-  MOCK_SESSIONS,
 } from './fixtures/mockData';
 
 /* ---------------------------------------------
@@ -33,26 +26,41 @@ export function attachLiveTranscript(page: Page): void {
    Supabase Mock + Programmatic Login
 ---------------------------------------------- */
 
+/**
+ * Programmatic login using MSW network interception.
+ * Sets __E2E_MOCK_SESSION__ flag to trigger mock session injection.
+ */
 export async function programmaticLogin(
-  page: Page,
-  overrides?: { sessions?: typeof MOCK_SESSIONS | [] }
+  page: Page
 ): Promise<void> {
-  // Set flag to inject mock session via e2e-bridge.ts
+  console.log('[E2E DEBUG] Starting programmaticLogin');
+
+  // 1. Set flag before navigation (AuthProvider checks this)
+  console.log('[E2E DEBUG] Setting __E2E_MOCK_SESSION__ flag');
   await page.addInitScript(() => {
-    (window as any).__E2E_MOCK_SESSION__ = true;
+    (window as unknown as { __E2E_MOCK_SESSION__: boolean }).__E2E_MOCK_SESSION__ = true;
   });
 
-  // Navigate to homepage - this triggers MSW initialization
+  // 2. Navigate to app
+  console.log('[E2E DEBUG] Navigating to /');
   await page.goto('/');
 
-  // Wait for MSW to be ready
-  await page.waitForFunction(() => (window as any).mswReady === true, { timeout: 10000 });
+  // 3. Wait for MSW to be ready (required for network mocking)
+  console.log('[E2E DEBUG] Waiting for MSW ready signal');
+  await page.waitForFunction(() => (window as unknown as { mswReady: boolean }).mswReady === true, { timeout: 10000 });
+  console.log('[E2E DEBUG] MSW ready signal received');
 
-  // Wait for auth to settle by checking for authenticated navigation elements
+  // 4. Wait for app to initialize (app-main indicates auth is complete)
+  console.log('[E2E DEBUG] Waiting for app-main element');
   await page.waitForSelector('[data-testid="app-main"]', { timeout: 10000 });
+  console.log('[E2E DEBUG] App-main element found');
 
   console.log('[E2E] MSW ready, user authenticated via network mocking');
 }
+
+/* ---------------------------------------------
+ * Navigation Helpers
+ * --------------------------------------------- */
 
 /* ---------------------------------------------
    Transcript simulation (original feature)

@@ -21,7 +21,7 @@ export const SessionPage: React.FC = () => {
         profile
     });
 
-    const { isListening, isReady, transcript, interimTranscript, fillerData, startListening, stopListening } = speechRecognition;
+    const { isListening, isReady, transcript, fillerData, startListening, stopListening } = speechRecognition;
     const [elapsedTime, setElapsedTime] = useState(0);
 
     useEffect(() => {
