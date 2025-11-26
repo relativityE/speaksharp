@@ -48,6 +48,9 @@ export async function programmaticLogin(
   // Wait for MSW to be ready
   await page.waitForFunction(() => (window as any).mswReady === true, { timeout: 10000 });
 
+  // Wait for auth to settle by checking for authenticated navigation elements
+  await page.waitForSelector('[data-testid="app-main"]', { timeout: 10000 });
+
   console.log('[E2E] MSW ready, user authenticated via network mocking');
 }
 
