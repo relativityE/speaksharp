@@ -27,7 +27,7 @@ export const Header: React.FC = () => {
                 </div>
                 <div className="flex items-center gap-4">
                     <nav className="hidden md:flex items-center gap-4">
-                        <NavLink to="/sessions" className={getNavLinkClass}>Session</NavLink>
+                        <NavLink to="/session" className={getNavLinkClass}>Session</NavLink>
                         <NavLink to="/pricing" className={getNavLinkClass}>Pricing</NavLink>
                         {sessionHistory && sessionHistory.length > 0 ? (
                             <NavLink to="/analytics" className={getNavLinkClass}>Analytics</NavLink>

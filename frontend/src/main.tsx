@@ -13,6 +13,7 @@ import { Session } from '@supabase/supabase-js';
 import * as Sentry from "@sentry/react";
 import ConfigurationNeededPage from "./pages/ConfigurationNeededPage";
 import App from './App';
+import { IS_TEST_ENVIRONMENT } from '@/config/env';
 
 const REQUIRED_ENV_VARS: string[] = [
   'VITE_SUPABASE_URL',
@@ -36,14 +37,14 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 const queryClient = new QueryClient();
 
-const renderApp = (initialSession: Session | null = null) => {
+const renderApp = async (initialSession: Session | null = null) => {
   if (rootElement && !window._speakSharpRootInitialized) {
     window._speakSharpRootInitialized = true;
 
     if (areEnvVarsPresent()) {
       console.log('[E2E DIAGNOSTIC] ./App imported successfully:', !!App);
-      // 🛑 Skip ALL analytics in E2E mode
-      if (!window.__E2E_MODE__ && !import.meta.env.VITE_TEST_MODE) {
+      // 🛑 Skip ALL analytics in test mode
+      if (!IS_TEST_ENVIRONMENT) {
         if (import.meta.env.VITE_SENTRY_DSN) {
           try {
             Sentry.init({
@@ -89,26 +90,12 @@ const renderApp = (initialSession: Session | null = null) => {
         loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY!)
       );
 
-      const sessionToUse = window.__E2E_MOCK_SESSION__ ? ({
-        user: {
-          id: 'mock-user-id',
-          email: 'test@example.com',
-          aud: 'authenticated',
-          role: 'authenticated',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          app_metadata: {
-            provider: 'email',
-            providers: ['email'],
-          },
-          user_metadata: { subscription_status: 'free' },
-        },
-        access_token: 'mock-token',
-        refresh_token: 'mock-refresh-token',
-        expires_in: 3600,
-        expires_at: Math.floor(Date.now() / 1000) + 3600,
-        token_type: 'bearer',
-      } as Session) : initialSession;
+      // Get initial session (mock if in E2E mode)
+      let sessionToUse = initialSession;
+      if (IS_TEST_ENVIRONMENT) {
+        const { getInitialSession } = await import('@/lib/e2e-bridge');
+        sessionToUse = getInitialSession(initialSession);
+      }
 
       root.render(
         <StrictMode>
@@ -127,43 +114,24 @@ const renderApp = (initialSession: Session | null = null) => {
           </QueryClientProvider>
         </StrictMode>
       );
-
-      // Hide the loading spinner after React renders
-      setTimeout(() => {
-        document.body.classList.add('app-loaded');
-      }, 100);
     } else {
       root.render(
         <StrictMode>
           <ConfigurationNeededPage />
         </StrictMode>
       );
-
-      // Hide loader for config page too
-      setTimeout(() => {
-        document.body.classList.add('app-loaded');
-      }, 100);
     }
   }
 };
 
 const initialize = async () => {
-  if (import.meta.env.VITE_TEST_MODE === 'true') {
-    window.__E2E_MODE__ = true;
-
-    const startMsw = async () => {
-      const { worker } = await import('./mocks/browser');
-      await worker.start({ onUnhandledRequest: 'bypass' });
-      console.log('[MSW] Mock Service Worker is ready.');
-    };
-
-    window.mswReady = false;
-    await startMsw();
-    window.mswReady = true;
-    console.log('[E2E] MSW ready, now rendering app');
-    renderApp();
+  if (IS_TEST_ENVIRONMENT) {
+    const { initializeE2EEnvironment } = await import('@/lib/e2e-bridge');
+    await initializeE2EEnvironment();
+    console.log('[E2E] Environment ready, now rendering app');
+    await renderApp();
   } else {
-    renderApp();
+    await renderApp();
   }
 };
 

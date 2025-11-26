@@ -1,5 +1,12 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+// Mock IS_TEST_ENVIRONMENT to false so tests can run normally
+// This must be before the import to be hoisted
+vi.mock('@/config/env', () => ({
+  IS_TEST_ENVIRONMENT: false,
+}));
+
 import NativeBrowser from '../modes/NativeBrowser';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 // Mock the SpeechRecognition API
 const mockRecognition = {
@@ -27,17 +34,19 @@ describe('NativeBrowser Transcription Mode', () => {
   const onReady = vi.fn();
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    // Use resetAllMocks instead of clearAllMocks to preserve module mocks
+    vi.resetAllMocks();
+
     // Reset the mock before each test
     Object.assign(mockRecognition, {
-        start: vi.fn(),
-        stop: vi.fn(),
-        abort: vi.fn(),
-        onresult: null,
-        onerror: null,
-        onend: null,
-        continuous: false,
-        interimResults: false,
+      start: vi.fn(),
+      stop: vi.fn(),
+      abort: vi.fn(),
+      onresult: null,
+      onerror: null,
+      onend: null,
+      continuous: false,
+      interimResults: false,
     });
     SpeechRecognitionMock.mockClear();
 
@@ -82,8 +91,8 @@ describe('NativeBrowser Transcription Mode', () => {
 
     // Simulate the onresult event
     if (mockRecognition.onresult) {
-        // @ts-expect-error - Simulating event type
-        mockRecognition.onresult(event);
+      // @ts-expect-error - Simulating event type
+      mockRecognition.onresult(event);
     }
 
     expect(onTranscriptUpdate).toHaveBeenCalledExactlyOnceWith({
@@ -94,20 +103,20 @@ describe('NativeBrowser Transcription Mode', () => {
   it('should handle interim transcript results correctly', async () => {
     await nativeBrowser.init();
     const event = {
-        results: [[{ transcript: 'hello' }]],
-        resultIndex: 0,
-      };
-      // @ts-expect-error - Manually setting isFinal for test purposes
-      event.results[0].isFinal = false;
+      results: [[{ transcript: 'hello' }]],
+      resultIndex: 0,
+    };
+    // @ts-expect-error - Manually setting isFinal for test purposes
+    event.results[0].isFinal = false;
 
-      // Simulate the onresult event
-      if (mockRecognition.onresult) {
-          // @ts-expect-error - Simulating event type
-          mockRecognition.onresult(event);
-      }
+    // Simulate the onresult event
+    if (mockRecognition.onresult) {
+      // @ts-expect-error - Simulating event type
+      mockRecognition.onresult(event);
+    }
 
-      expect(onTranscriptUpdate).toHaveBeenCalledExactlyOnceWith({
-        transcript: { partial: 'hello' },
-      });
+    expect(onTranscriptUpdate).toHaveBeenCalledExactlyOnceWith({
+      transcript: { partial: 'hello' },
+    });
   });
 });

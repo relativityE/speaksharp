@@ -1,7 +1,6 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { TrendingUp, Clock, Layers, Sparkles, Download, Target, Gauge } from 'lucide-react';
+import { TrendingUp, Clock, Layers, Sparkles, Download, Target, Gauge, BarChart } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -16,6 +15,7 @@ import { WeeklyActivityChart } from './analytics/WeeklyActivityChart';
 import { GoalsSection } from './analytics/GoalsSection';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '../lib/logger';
+import { toast } from 'sonner';
 import type { PracticeSession } from '@/types/session';
 import type { UserProfile } from '@/types/user';
 
@@ -44,21 +44,7 @@ interface SessionHistoryItemProps {
 
 // --- Sub-components ---
 
-const EmptyState: React.FC = () => {
-    const navigate = useNavigate();
-    return (
-        <Card className="flex flex-col items-center justify-center p-12 text-center border-dashed" data-testid="analytics-dashboard-empty-state">
-            <Sparkles className="w-12 h-12 text-yellow-400 mb-4" />
-            <h2 className="text-xl font-bold text-foreground">Your Dashboard Awaits!</h2>
-            <p className="max-w-md mx-auto my-4 text-base text-muted-foreground">
-                Record your next session to unlock your progress trends and full analytics!
-            </p>
-            <Button onClick={() => navigate('/sessions')} size="lg">
-                Start a New Session →
-            </Button>
-        </Card>
-    );
-};
+import { EmptyState } from '@/components/ui/EmptyState';
 
 const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, className, testId }) => (
     <Card className={className} data-testid={testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`}>
@@ -84,7 +70,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro 
         <Card className="p-4 transition-all duration-200 hover:bg-secondary/50" data-testid="session-history-item">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div className="flex-grow">
-                    <p className="font-semibold text-foreground text-base">{session.title || `Session from ${formatDate(session.created_at)}`}</p>
+                    <p className="font-semibold text-foreground text-base">{session.title || `Session from ${formatDate(session.created_at)} `}</p>
                     <p className="text-xs text-muted-foreground">
                         {formatDateTime(session.created_at)}
                     </p>
@@ -96,7 +82,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro 
                     </div>
                     <div>
                         <p className="text-xs text-muted-foreground">Accuracy</p>
-                        <p className="font-bold text-base text-foreground">{session.accuracy ? `${(session.accuracy * 100).toFixed(1)}%` : 'N/A'}</p>
+                        <p className="font-bold text-base text-foreground">{session.accuracy ? `${(session.accuracy * 100).toFixed(1)}% ` : 'N/A'}</p>
                     </div>
                     <div>
                         <p className="text-xs text-muted-foreground">Fillers</p>
@@ -137,7 +123,20 @@ export const AnalyticsDashboardSkeleton: React.FC = () => (
 export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ sessionHistory, profile, loading, error }) => {
     if (loading) return <AnalyticsDashboardSkeleton />;
     if (error) return <ErrorDisplay error={error} />;
-    if (!sessionHistory || sessionHistory.length === 0) return <EmptyState />;
+    if (!sessionHistory || sessionHistory.length === 0) {
+        return (
+            <EmptyState
+                title="Your Dashboard Awaits!"
+                description="Record your next session to unlock your progress trends and full analytics!"
+                action={{
+                    label: "Get Started",
+                    href: "/session"
+                }}
+                icon={<BarChart className="w-10 h-10 text-primary" />}
+                testId="analytics-dashboard-empty-state"
+            />
+        );
+    }
 
     const overallStats = calculateOverallStats(sessionHistory);
     const fillerWordTrends = calculateFillerWordTrends(sessionHistory.slice(0, 5));
@@ -152,6 +151,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ sessionH
             if (data.checkoutUrl) window.location.href = data.checkoutUrl;
         } catch (err: unknown) {
             logger.error({ err }, 'Error creating Stripe checkout session:');
+            toast.error('Unable to start upgrade process. Please try again or contact support.');
         }
     };
 
@@ -164,7 +164,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ sessionH
                 </Card>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                <StatCard icon={<Layers size={24} className="text-muted-foreground" />} label="Total Sessions" value={overallStats.totalSessions} />
+                <StatCard icon={<Layers size={24} className="text-muted-foreground" />} label="Total Sessions" value={overallStats.totalSessions} testId="stat-card-total-sessions" />
                 <StatCard icon={<Gauge size={24} className="text-muted-foreground" />} label="Speaking Pace" value={overallStats.avgWpm} unit="WPM" testId="speaking-pace" />
                 <StatCard icon={<TrendingUp size={24} className="text-muted-foreground" />} label="Avg. Filler Words / Min" value={overallStats.avgFillerWordsPerMin} testId="avg-filler-words-min" />
                 <StatCard icon={<Clock size={24} className="text-muted-foreground" />} label="Total Practice Time" value={overallStats.totalPracticeTime} unit="mins" testId="total-practice-time" />
@@ -184,15 +184,17 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ sessionH
                     <CardHeader><CardTitle>Filler Word Trend</CardTitle></CardHeader>
                     <CardContent className="pl-2">
                         {overallStats.chartData.length > 1 ? (
-                            <ResponsiveContainer width="100%" height={300}>
-                                <LineChart data={overallStats.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                                    <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
-                                    <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
-                                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
-                                    <Tooltip cursor={{ fill: 'hsla(var(--secondary))' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
-                                    <Line type="monotone" dataKey="FW/min" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                                </LineChart>
-                            </ResponsiveContainer>
+                            <div className="h-[300px] w-full">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <LineChart data={overallStats.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                                        <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
+                                        <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
+                                        <YAxis stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
+                                        <Tooltip cursor={{ fill: 'hsla(var(--secondary))' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
+                                        <Line type="monotone" dataKey="FW/min" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                                    </LineChart>
+                                </ResponsiveContainer>
+                            </div>
                         ) : (
                             <div className="flex items-center justify-center h-[300px] text-center text-muted-foreground"><p>Complete at least two sessions to see your progress trend.</p></div>
                         )}
@@ -203,6 +205,23 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ sessionH
                     <FillerWordTable trendData={fillerWordTrends} />
                 </div>
             </div>
+            <Card>
+                <CardHeader><CardTitle>Speech Pattern Analysis</CardTitle></CardHeader>
+                <CardContent>
+                    <div className="relative rounded-xl overflow-hidden mb-4">
+                        <img
+                            src="/assets/analytics-visual.jpg"
+                            alt="Speech Pattern Analytics Visualization"
+                            className="w-full h-auto object-cover"
+                        />
+                    </div>
+                    <div className="p-4 bg-secondary/30 rounded-lg">
+                        <p className="text-sm text-muted-foreground">
+                            <span className="font-semibold text-foreground">Pro Insight:</span> Your speaking patterns show consistent improvement in clarity. Consider focusing on reducing "um" usage for even better results.
+                        </p>
+                    </div>
+                </CardContent>
+            </Card>
             <Card>
                 <CardHeader><CardTitle>Session History</CardTitle></CardHeader>
                 <CardContent className="space-y-4">

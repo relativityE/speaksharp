@@ -90,6 +90,13 @@ This phase focuses on long-term architecture, scalability, and preparing for fut
 
 This section is a prioritized list of technical debt items to be addressed.
 
+- **P1 (Critical): Refactor On-Device STT for True Streaming**
+  - **Problem:** The on-device STT (`LocalWhisper.ts`), a core Pro feature, is architecturally flawed. It uses 5-second batch processing, not real-time streaming, which will lead to a poor, unresponsive user experience. Additionally, it runs on the main thread, which will cause the UI to freeze during transcription.
+  - **Required Action:** The entire `LocalWhisper.ts` implementation must be refactored to use a true streaming architecture that provides real-time interim results. The entire process must also be moved into a Web Worker to ensure the UI remains responsive. The existing `CloudAssemblyAI.ts` implementation serves as a good architectural blueprint.
+
+- **P2 (High): Refactor Analytics Page to Eliminate Prop Drilling**
+  - **Problem:** The main analytics page (`AnalyticsPage.tsx`) suffers from prop drilling and inefficient data fetching. It fetches the entire session history even when only one session is needed and passes numerous props down through the component tree.
+  - **Required Action:** Refactor the analytics components to fetch their own data using `React Query` hooks. This will co-locate state and view, eliminate prop drilling, and allow for more efficient data fetching (e.g., creating a `usePracticeSession(id)` hook to fetch only a single session).
 
 - **[RESOLVED] E2E Test Suite Not Running**
   - **Problem:** The test sharding logic in the old `test-audit.sh` was flawed, causing E2E tests to be skipped in CI.
@@ -126,7 +133,124 @@ This section is a prioritized list of technical debt items to be addressed.
 - **P2 (Medium): Review and Improve Test Quality and Effectiveness**
   - **Problem:** Several tests in the suite were brittle or of low value, providing a false sense of security.
   - **Example:** The `live-transcript.e2e.spec.ts` and `smoke.e2e.spec.ts` tests were previously coupled to the UI's responsive layout, making them fail on minor CSS changes.
-  - **Required Action:** This effort is in progress. The aforementioned tests have been refactored to use robust, functional `data-testid` selectors, making them resilient to layout changes. A comprehensive audit of the remaining unit and E2E test suites is still needed to identify other low-value tests.\
+  - **Required Action:** This effort is in progress. The aforementioned tests have been refactored to use robust, functional `data-testid` selectors, making them resilient to layout changes. A comprehensive audit of the remaining unit and E2E test suites is still needed to identify other low-value tests.
+
+- **P1 (High): Refactor E2E Tests to Use Network-Level Mocking**
+  - **Problem:** The E2E test suite relies on a fragile, client-side mocking strategy (`window.supabase`) that is a maintenance burden and a source of potential test flakiness.
+  - **Required Action:** Prioritize the architectural migration away from client-side injection to a robust network-level mocking strategy using Mock Service Worker (MSW).
+
+- **P2 (Medium): Increase Unit Test Coverage**
+  - **Problem:** The codebase has a critically low unit test coverage of ~36%, which poses a significant risk of regressions.
+  - **Required Action:** Dedicate effort to writing unit tests for critical, untested code paths, starting with application logic in `hooks`, `lib`, and `services`.
+
+- **P3 (Low): Consolidate Redundant E2E Tests**
+  - **Problem:** The test suite contains several E2E tests (`bootcheck.spec.ts`, `health-check.e2e.spec.ts`, `smoke.e2e.spec.ts`) with overlapping responsibilities.
+  - **Required Action:** Review and merge these tests into a single, canonical smoke test to reduce test suite runtime and maintenance.
+
+### System Architecture Improvements (Post-Restructure Nov 2024)
+
+These items were identified in a comprehensive system analysis and remain relevant after the codebase restructuring.
+
+- **✅ COMPLETED - P1 (Critical): E2E Tests Run Against Production Build**
+  - **Status:** COMPLETED (2025-11-24)
+  - **Problem:** `playwright.config.ts` was using `pnpm run dev` which launches the Vite dev server with HMR, not a production-like build.
+  - **Solution Implemented:**
+    - Added `preview:test` script: `vite preview --mode test --port 4173`
+    - Updated `playwright.config.ts` webServer command to `pnpm preview:test`
+    - Updated PORT constant from 5173 to 4173
+    - Added build artifact check in `scripts/test-audit.sh`
+    - Fixed `.env.test` VITE_PORT from 5173 to 4173
+  - **Verification:** E2E tests passing in ~5 seconds per shard, preview server starts correctly
+  - **Commit:** `8f6ffb1`, `fa956ca`
+
+- **✅ COMPLETED - P1 (High): Build-Time Environment Variable Validation**
+  - **Status:** COMPLETED (2025-11-24)
+  - **Problem:** Required environment variables were checked at runtime, causing E2E test timeouts.
+  - **Solution Implemented:**
+    - Created `env.required` file listing all required variables
+    - Created `scripts/validate-env.mjs` validation script
+    - Added `prebuild` and `prebuild:test` hooks to `package.json`
+    - Integrated validation into `scripts/test-audit.sh` and CI workflow
+    - Updated README.md with env vars documentation
+    - Created `.env.example` template
+  - **Verification:** Build fails immediately with clear error if env vars missing
+  - **Commit:** Multiple commits in Phase 1
+
+- **✅ COMPLETED - P3 (Medium): Use Vite's loadEnv for Environment Variables**
+  - **Status:** COMPLETED (2025-11-24)
+  - **Problem:** `vite.config.mjs` used `process.env` directly, causing "works on my machine" issues.
+  - **Solution Implemented:**
+    - Imported and used Vite's `loadEnv(mode, path.resolve(__dirname, '..'), '')`
+    - Fixed loadEnv path to correctly load from project root (not `frontend/`)
+    - Added env var spreading to `define` block to expose vars to `import.meta.env`
+  - **Verification:** Build succeeds, env vars correctly loaded and exposed
+  - **Commit:** `dcd96c3`, `fa956ca`
+  - **MoSCoW:** Should Have
+
+- **P3 (Low): Simplify and Document package.json Scripts**
+  - **Problem:** The `package.json` scripts section contains multiple overlapping test commands creating ambiguity about which to use when:
+    - Multiple test entry points: `test`, `test:unit`, `test:all`, `test:health-check`, `check-in-validation`
+    - Multiple E2E commands: `test:e2e:ui`, `test:e2e:debug`, `test:e2e:health`, `test:health-check`
+    - Unclear when to use `test:all` vs `check-in-validation` vs direct `test`
+  - **Impact:** Developer confusion, inconsistent usage, harder onboarding.
+  - **Current State:**
+    ```json
+    "test": "cd frontend && vitest --coverage",
+    "test:unit": "cd frontend && vitest --coverage",  // Duplicate!
+    "test:all": "./scripts/test-audit.sh local",
+    "test:health-check": "playwright test ...",       // E2E subset
+    "check-in-validation": "./scripts/test-audit.sh ci-simulate",
+    "test:e2e:health": "playwright test ...",         // Duplicate!
+    ```
+  - **Note:** ✅ Redundant `tsc &&` build step already removed during restructuring
+  - **Required Action:**
+    - **Consolidate duplicates:**
+      - Remove `test:unit` (identical to `test`)
+      - Remove `test:e2e:health` (identical to `test:health-check`)
+    - **Add JSDoc-style comments** explaining each script's purpose
+    - **Create "Scripts Reference" section** in README.md with decision tree:
+      - "Want to run full CI simulation?" → `pnpm run check-in-validation`
+      - "Want quick feedback?" → `pnpm test` for unit, `pnpm run test:health-check` for E2E
+      - "Debugging E2E?" → `pnpm run test:e2e:ui` or `test:e2e:debug`
+    - **Document in AGENTS.md** which scripts are canonical for CI vs local dev
+  - **Estimated Time:** 1.5 hours
+  - **MoSCoW:** Should Have
+
+- **P4 (Low): Refactor Supabase Mock to Provider Pattern**
+  - **Problem:** `src/lib/supabaseClient.ts` uses global `window.supabase` object for test mocking. Lacks type safety, relies on mutable global state, could cause auth flakiness.
+  - **Current State:** `if ((window as any).supabase) { ... }`
+  - **Required Action:**
+    - Create `SupabaseProvider` context
+    - Create `MockSupabaseProvider` for tests
+    - Refactor all `getSupabaseClient()` calls to use context hook
+  - **Estimated Time:** 4-6 hours
+  - **MoSCoW:** Could Have
+
+- **P4 (Low): Replace programmaticLogin with MSW Network Mocking**
+  - **Problem:** `tests/e2e/helpers.ts` programmaticLogin is complex and fragile, using client-side injection via `addInitScript`. Works but architecturally weak.
+  - **Impact:** Test maintenance burden, potential for subtle auth bugs.
+  - **Required Action:**
+    - Set up Mock Service Worker (MSW)
+    - Create handlers for Supabase auth endpoints
+    - Replace `programmaticLogin` with network-level mocking
+  - **Estimated Time:** 5-8 hours
+  - **MoSCoW:** Could Have
+
+- **✅ COMPLETED - P3 (Medium): Use Native Playwright Sharding**
+  - **Status:** COMPLETED (2025-11-25)
+  - **Problem:** `scripts/test-audit.sh` manually implemented test sharding. Playwright has built-in `--shard` support which is simpler and more reliable.
+  - **Solution Implemented:**
+    - Refactored CI workflow `.github/workflows/ci.yml` to use fixed matrix `[1, 2, 3, 4]` instead of dynamic shard calculation
+    - Updated CI to call Playwright with native `--shard` flag: `playwright test --shard=1/4`
+    - Removed `run_e2e_sharding()` function from `test-audit.sh` (no longer generates `e2e-shards.json`)
+    - Simplified `run_e2e_tests_shard()` to directly use native sharding
+    - Updated `ci-simulate` to use fixed 4-shard loop
+    - Removed `test-support` artifact dependency from CI
+  - **Impact:** Simpler, more maintainable CI configuration. Removed ~50 lines of custom sharding logic.
+  - **Verification:** Local test with `./scripts/test-audit.sh test 1` passed (4 tests in shard 1/4)
+  - **Commit:** Part of Nov 25 architectural cleanup sprint
+
+
 \
 - **P3 (Low): Implement ARIA Live Region for Transcript**\
   - **Problem:** Screen readers do not announce new transcript text.\

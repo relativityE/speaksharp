@@ -165,7 +165,7 @@ export class UserSimulator {
         const toastLocator = page.getByText('No speech was detected. Session not saved');
 
         const sessionEndLocator = dialogLocator.or(emptyStateLocator).or(toastLocator);
-        await sessionEndLocator.first().waitFor();
+        await sessionEndLocator.first().waitFor({ timeout: 10000 });
 
         if (await dialogLocator.isVisible()) {
             const stayButton = page.getByRole('button', { name: 'Stay on Page' });

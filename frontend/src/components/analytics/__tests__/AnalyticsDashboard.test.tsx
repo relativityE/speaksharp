@@ -88,7 +88,7 @@ describe('AnalyticsDashboard', () => {
     it('renders the empty state when there is no session history', () => {
         renderWithRouter(<AnalyticsDashboard sessionHistory={[]} profile={mockProfile} loading={false} error={null} />);
         expect(screen.getByText('Your Dashboard Awaits!')).toBeInTheDocument();
-        expect(screen.getByText('Start a New Session →')).toBeInTheDocument();
+        expect(screen.getByText('Get Started')).toBeInTheDocument();
     });
 
     it('renders the dashboard with data when session history is provided', () => {

@@ -11,13 +11,19 @@ export const LandingHeader = () => {
       </Link>
       <nav className="ml-auto flex gap-4 sm:gap-6 items-center">
         <Link
-          to="/sessions"
+          to="/session"
           className="text-sm font-medium hover:underline underline-offset-4 text-foreground"
         >
           Practice
         </Link>
+        <Link
+          to="/auth/signin"
+          className="text-sm font-medium hover:underline underline-offset-4 text-foreground"
+        >
+          Sign In
+        </Link>
         <Button variant="default" size="sm" asChild>
-          <Link to="/sessions">Start a Session</Link>
+          <Link to="/auth/signup">Get Started</Link>
         </Button>
       </nav>
     </header>

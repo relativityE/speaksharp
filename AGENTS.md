@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-11-18
+**Last Reviewed:** 2025-11-25
 
 # Agent Instructions for SpeakSharp Repository
 
@@ -105,16 +105,17 @@ ___
 2.  ✅ **Codebase Context** – Inspect `/frontend/src`, `/tests`, `/docs` before acting.
 3.  ❌ **No Code Reversals Without Consent** – Never undo user work.
 4.  ⏱️ **Timeout Constraint** – Every command must complete within 7 minutes.
-5.  ✅ **Approved Scripts** – Use the following `package.json` scripts for validation and development. The `test:all` scripts are the canonical way to run tests.
+5.  ✅ **Approved Scripts** – Use the following `package.json` scripts for validation and development. The `test:all` and `test:health-check` scripts are canonical.
 
     ```json
      "test:all": "./scripts/test-audit.sh local",
      "test:health-check": "./scripts/test-audit.sh health-check",
+     "check-in-validation": "./scripts/test-audit.sh ci-simulate",
      "test": "cd frontend && vitest --coverage",
-     "test:unit": "cd frontend && vitest --coverage",
      "dev": "cd frontend && vite",
      "build": "cd frontend && vite build",
     ```
+    **Note:** As of Nov 25, `test:health-check` runs full CI validation (preflight, quality checks, build, E2E), not just E2E tests.
 6. ✅ **Foreground Logging** – All E2E tasks must run in the foreground with live logs (`tee`) for traceability.
 
 ---

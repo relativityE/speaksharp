@@ -11,9 +11,9 @@ test.describe('App Navigation', () => {
     await expect(page.getByRole('heading', { name: 'Your Dashboard' })).toBeVisible();
 
     // Navigate from Analytics to the Session page
-    await page.goto('/sessions');
-    await expect(page).toHaveURL('/sessions');
-    await expect(page.getByRole('heading', { name: 'Live Transcript' })).toBeVisible();
+    await page.goto('/session');
+    await expect(page).toHaveURL('/session');
+    await expect(page.getByRole('heading', { name: 'Live Recording' })).toBeVisible();
 
     // Navigate back to the Home page
     await page.goto('/');

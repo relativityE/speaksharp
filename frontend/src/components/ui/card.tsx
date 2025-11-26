@@ -3,7 +3,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const cardVariants = cva(
-  "bg-white rounded-2xl border border-gray-100 shadow-lg",
+  "bg-card rounded-lg border-2 border-white shadow-[0_4px_20px_-2px_rgba(0,0,0,0.3)]",
   {
     variants: {
       variant: {
@@ -21,7 +21,7 @@ const cardVariants = cva(
 
 export interface CardProps
   extends React.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof cardVariants> {}
+  VariantProps<typeof cardVariants> { }
 
 const Card = React.forwardRef<HTMLDivElement, CardProps>(
   ({ className, variant, ...props }, ref) => (

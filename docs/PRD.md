@@ -133,9 +133,15 @@ The project's testing strategy prioritizes stability, reliability, and a tight a
 
 This section tracks high-level product risks and constraints. For a detailed history of resolved issues, see the [Changelog](./CHANGELog.md).
 
-- **E2E Test Metrics Reporting:** The Software Quality Metrics section occasionally shows "0 E2E tests" when the CI E2E test stage is skipped or when metrics are collected without running E2E tests. This is a reporting issue only - all 13 E2E tests exist in `tests/e2e/` and pass when run locally. A fix is in progress to improve metrics reporting accuracy.\
-- **Live Transcript E2E Test Gap:** The `live-transcript.e2e.spec.ts` test currently uses a mock that returns a hardcoded string and does not verify the actual transcription pipeline. This is a known gap in the automated test suite.\
+- **E2E Test Metrics Reporting:** The Software Quality Metrics section occasionally shows "0 E2E tests" when the CI E2E test stage is skipped or when metrics are collected without running E2E tests. This is a reporting issue only - all 13 E2E tests exist in `tests/e2e/` and pass when run locally. A fix is in progress to improve metrics reporting accuracy.
 - **Analytics Data Flow:** The E2E tests for the Analytics Dashboard mock the data at the component level, so the end-to-end data flow from the database to the UI is not fully verified by the current test suite.
+- **Live Transcript E2E Test Disabled:** The E2E test for the core live transcription feature (`live-transcript.e2e.spec.ts`) has been architected to correctly validate the UI, but the test is currently disabled (`test.skip`). This means the application's most critical feature is not being automatically verified against regressions.
+- **On-Device STT User Experience:** The current implementation of the on-device STT mode uses batch processing (transcribing 5-second audio chunks at a time) rather than a true real-time stream. This will result in a delayed and unresponsive user experience that does not feel "live".
+- **Incomplete Theming:** The application is configured to support both light and dark themes, but only a dark theme is currently implemented. Users will not be able to switch to a light theme, which can be an accessibility issue and ignores user preference.
+- **Silent User-Facing Errors on Critical Paths:** The "Upgrade Now" button currently fails silently if the backend process encounters an error. The user is given no feedback, which can lead to confusion and lost revenue. This is a critical pre-launch blocker.
+- **Broken or Invisible UI Elements:** Console warnings from the E2E test suite (`width(-1) and height(-1) of chart should be greater than 0`) strongly indicate that core UI elements, such as the analytics charts, may not be rendering correctly for users. This is a critical pre-launch blocker.
+- **Poor Performance on Initial Load:** The application is not yet optimized for performance. The initial JavaScript bundle is over 1.2 MB, which will result in a slow loading experience for users on average internet connections. This is a high-priority issue to address before launch to ensure a positive first impression.
+- **Inconsistent or Broken Theming:** The application currently has missing assets (e.g., `grid-pattern.svg`), which results in an unpolished and incomplete look. This is a high-priority issue to address before launch.
 
 ---
 
@@ -147,7 +153,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Mon, 24 Nov 2025 07:29:19 GMT
+**Last Updated:** Wed, 26 Nov 2025 00:07:54 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -157,13 +163,13 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 126 |
-| Unit tests              | 113   |
-| E2E tests (Playwright)  | 13  |
-| Passing tests           | 126   |
+| Total tests             | 137 |
+| Unit tests              | 134   |
+| E2E tests (Playwright)  | 3  |
+| Passing tests           | 137   |
 | Failing tests           | 0   |
 | Disabled/skipped tests  | 0   |
-| Passing unit tests      | 113   |
+| Passing unit tests      | 134   |
 | Failing E2E tests       | 0   |
 | Total runtime           | N/A   |
 
@@ -176,7 +182,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 | Statements | N/A   |
 | Branches   | N/A   |
 | Functions  | N/A   |
-| Lines      | 38.17%   |
+| Lines      | 35.62%   |
 
 ---
 
@@ -186,7 +192,7 @@ This section provides metrics that help identify "code bloat"—unnecessary or d
 
 | Metric | Value | Description |
 |---|---|---|
-| **Initial Chunk Size** | 11M | The size of the largest initial JavaScript bundle. This is a direct measure of the amount of code a user has to download and parse on their first visit. Large values here are a strong indicator of code bloat. |
+| **Initial Chunk Size** | 14M | The size of the largest initial JavaScript bundle. This is a direct measure of the amount of code a user has to download and parse on their first visit. Large values here are a strong indicator of code bloat. |
 | **Lighthouse Score** | (coming soon) | A comprehensive performance score from Google Lighthouse. It measures the *impact* of code bloat on the user experience, including metrics like Time to Interactive. |
 
 ---

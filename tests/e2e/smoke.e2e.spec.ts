@@ -16,8 +16,8 @@ test.describe('Smoke Test', () => {
 
     // Step 2: Navigate to Session Page and verify content
     await test.step('Navigate to Session Page', async () => {
-      await page.goto('/sessions');
-      await expect(page.getByRole('heading', { name: 'Live Transcript' })).toBeVisible();
+      await page.goto('/session');
+      await expect(page.getByRole('heading', { name: 'Live Recording' })).toBeVisible();
 
       // Robust assertion: Verify that the main functional element, the start/stop button,
       // is visible. This button exists in both the desktop and mobile layouts, so this
@@ -44,7 +44,7 @@ test.describe('Smoke Test', () => {
 
     // Step 5: Verify successful logout
     await test.step('Verify Logout', async () => {
-      await expect(page.getByRole('link', { name: 'Sign In' })).toBeVisible({ timeout: 10000 });
+      await expect(page.getByRole('link', { name: 'Sign In' }).first()).toBeVisible({ timeout: 10000 });
       await expect(page.getByTestId('nav-sign-out-button')).not.toBeVisible();
     });
   });

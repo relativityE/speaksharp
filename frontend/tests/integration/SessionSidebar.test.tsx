@@ -118,7 +118,7 @@ describe('SessionSidebar', () => {
         </MockAuthProvider>
       );
 
-      await user.click(screen.getByText('Start Session'));
+      await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenCalledExactlyOnceWith({
         forceCloud: false,
         forceOnDevice: false,
@@ -155,7 +155,7 @@ describe('SessionSidebar', () => {
         </MockAuthProvider>
       );
 
-      await user.click(screen.getByText('Start Session'));
+      await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenCalledExactlyOnceWith({
         forceCloud: true,
         forceOnDevice: false,
@@ -173,7 +173,7 @@ describe('SessionSidebar', () => {
 
       await user.click(screen.getByRole('button', { name: 'Cloud AI' }));
       await user.click(await screen.findByRole('menuitemradio', { name: 'On-Device' }));
-      await user.click(screen.getByText('Start Session'));
+      await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenCalledExactlyOnceWith({
         forceCloud: false,
         forceOnDevice: true,
@@ -213,7 +213,7 @@ describe('SessionSidebar', () => {
       );
 
       // Starts in cloud by default
-      await user.click(screen.getByText('Start Session'));
+      await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenLastCalledWith({
         forceCloud: true,
         forceOnDevice: false,
@@ -223,7 +223,7 @@ describe('SessionSidebar', () => {
       // Switch to on-device
       await user.click(screen.getByRole('button', { name: 'Cloud AI' }));
       await user.click(await screen.findByRole('menuitemradio', { name: 'On-Device' }));
-      await user.click(screen.getByText('Start Session'));
+      await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenLastCalledWith({
         forceCloud: false,
         forceOnDevice: true,
@@ -233,7 +233,7 @@ describe('SessionSidebar', () => {
       // Switch to native
       await user.click(screen.getByRole('button', { name: 'On-Device' }));
       await user.click(await screen.findByRole('menuitemradio', { name: 'Native' }));
-      await user.click(screen.getByText('Start Session'));
+      await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenLastCalledWith({
         forceCloud: false,
         forceOnDevice: false,

@@ -16,7 +16,7 @@ export default defineConfig({
   workers: 1,
   fullyParallel: false,
   retries: 1,
-  reporter: process.env.CI ? 'blob' : [['html'], ['json', { outputFile: 'test-results/playwright/results.json' }]],
+  reporter: process.env.CI ? [['blob'], ['github']] : [['html'], ['json', { outputFile: 'test-results/playwright/results.json' }]],
   use: {
     baseURL: BASE_URL,
     headless: true,
@@ -28,7 +28,7 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
   webServer: {
-    command: "cd frontend && vite --mode test",
+    command: "pnpm preview:test",
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000, // 2 minutes

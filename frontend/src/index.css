@@ -8,46 +8,52 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    /* SpeakSharp Brand Colors - Professional Communication Theme */
-    --background: 220 20% 15%;
-    --foreground: 220 15% 92%;
+    /* SpeakSharp Brand Colors - Exact Mockup Specifications */
+    --background: 220 20% 12%;
+    /* Very dark blue-gray base */
+    --foreground: 210 40% 98%;
+    /* Crisp white text */
 
-    --card: 220 15% 10%;
-    --card-foreground: 220 15% 92%;
+    --card: 220 15% 16%;
+    /* Slightly lighter than background */
+    --card-foreground: 210 40% 98%;
 
-    --popover: 220 15% 12%;
-    --popover-foreground: 220 15% 92%;
+    --popover: 220 20% 12%;
+    --popover-foreground: 210 40% 98%;
 
-    /* Primary: Deep Professional Blue - Trust & Communication */
-    --primary: 215 85% 25%;
-    --primary-foreground: 0 0% 98%;
-    --primary-light: 215 75% 35%;
-    --primary-dark: 215 90% 20%;
+    /* Primary: Professional Blue - Trust & Communication */
+    --primary: 217 91% 60%;
+    /* Vibrant blue for CTAs */
+    --primary-foreground: 222 47% 11%;
+    --primary-light: 217 91% 70%;
+    --primary-dark: 217 91% 50%;
 
     /* Secondary: Warm Communication Orange - Energy & Speaking */
-    --secondary: 25 85% 60%;
-    --secondary-foreground: 0 0% 98%;
-    --secondary-light: 25 75% 70%;
-    --secondary-dark: 25 90% 50%;
+    --secondary: 27 96% 61%;
+    --secondary-foreground: 222 47% 11%;
+    --secondary-light: 27 96% 71%;
+    --secondary-dark: 27 96% 51%;
 
     /* Accent: Clarity Teal - Precision & AI Insights */
-    --accent: 185 75% 45%;
-    --accent-foreground: 0 0% 98%;
-    --accent-light: 185 65% 55%;
-    --accent-dark: 185 80% 35%;
+    --accent: 185 75% 55%;
+    --accent-foreground: 222 47% 11%;
+    --accent-light: 185 75% 65%;
+    --accent-dark: 185 75% 45%;
 
     /* Muted: Soft Professional Grays */
-    --muted: 215 15% 92%;
-    --muted-foreground: 215 20% 50%;
+    --muted: 220 15% 20%;
+    --muted-foreground: 215 15% 70%;
 
     --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 98%;
+    --destructive-foreground: 210 40% 98%;
 
-    --border: 215 20% 88%;
-    --input: 215 20% 88%;
-    --ring: 215 85% 25%;
+    --border: 215 20% 30%;
+    /* Medium-dark for visible boundaries */
+    --input: 220 15% 18%;
+    /* Input backgrounds */
+    --ring: 217 91% 60%;
 
-    --radius: 0.75rem;
+    --radius: 0.5rem;
 
     /* SpeakSharp Gradients */
     --gradient-primary: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-light)));
@@ -57,36 +63,28 @@ All colors MUST be HSL.
     --gradient-subtle: linear-gradient(180deg, hsl(var(--background)), hsl(var(--muted)));
 
     /* Professional Shadows */
-    --shadow-elegant: 0 10px 40px -10px hsl(var(--primary) / 0.15);
+    --shadow-elegant: 0 10px 40px -10px hsl(var(--primary) / 0.2);
     --shadow-focus: 0 0 0 3px hsl(var(--accent) / 0.3);
-    --shadow-card: 0 4px 20px -2px hsl(var(--primary) / 0.08);
+    --shadow-card: 0 4px 20px -2px rgba(0, 0, 0, 0.3);
 
     /* Smooth Transitions */
     --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     --transition-bounce: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
 
-    --sidebar-background: 0 0% 98%;
-
-    --sidebar-foreground: 240 5.3% 26.1%;
-
-    --sidebar-primary: 240 5.9% 10%;
-
-    --sidebar-primary-foreground: 0 0% 98%;
-
-    --sidebar-accent: 240 4.8% 95.9%;
-
-    --sidebar-accent-foreground: 240 5.9% 10%;
-
-    --sidebar-border: 220 13% 91%;
-
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-background: 220 15% 16%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary-foreground: 222 47% 11%;
+    --sidebar-accent: 215 20% 30%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 215 20% 30%;
+    --sidebar-ring: 217 91% 60%;
   }
 
 }
 
 @layer base {
-  * {
-  }
+  * {}
 
   body {
     background-color: hsl(var(--background));

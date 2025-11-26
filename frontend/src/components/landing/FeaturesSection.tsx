@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
-import { Zap, CheckCircle, Shield } from 'lucide-react';
+import { Mic, BarChart3, Target } from 'lucide-react';
 
 interface FeatureCardProps {
   icon: React.ReactNode;
@@ -12,7 +12,7 @@ interface FeatureCardProps {
 }
 
 const FeatureCard: React.FC<FeatureCardProps> = ({ icon, title, description, iconBgColor, iconTextColor }) => (
-  <Card>
+  <Card className="p-6 hover:shadow-lg transition-shadow">
     <div className={`w-16 h-16 rounded-xl flex items-center justify-center ${iconBgColor} ${iconTextColor}`}>
       {icon}
     </div>
@@ -23,25 +23,25 @@ const FeatureCard: React.FC<FeatureCardProps> = ({ icon, title, description, ico
 
 const features = [
   {
-    icon: <Zap className="size-8" />,
-    title: "Real-time Transcription",
-    description: "Get instant transcriptions of your speech as you talk, allowing you to review your words on the fly.",
+    icon: <Mic className="size-8" />,
+    title: "Real-time Analysis",
+    description: "Get instant feedback on your speech as you talk. See filler words, pace, and clarity in real-time.",
     iconBgColor: "bg-primary/10",
     iconTextColor: "text-primary",
   },
   {
-    icon: <CheckCircle className="size-8" />,
-    title: "Filler Word Detection",
-    description: "Our core feature. We highlight filler words like 'um', 'ah', and 'like' so you can identify and eliminate them.",
-    iconBgColor: "bg-success/10",
-    iconTextColor: "text-success",
+    icon: <BarChart3 className="size-8" />,
+    title: "Progress Tracking",
+    description: "Track your improvement over time with detailed analytics and insights into your speaking patterns.",
+    iconBgColor: "bg-orange-500/10",
+    iconTextColor: "text-orange-500",
   },
   {
-    icon: <Shield className="size-8" />,
-    title: "Privacy Focused",
-    description: "Your speech is processed entirely in your browser. No audio data is ever sent to or stored on our servers.",
-    iconBgColor: "bg-accent/10",
-    iconTextColor: "text-accent",
+    icon: <Target className="size-8" />,
+    title: "Goal Setting",
+    description: "Set personal goals for reducing filler words, improving pace, and building confident speaking habits.",
+    iconBgColor: "bg-green-500/10",
+    iconTextColor: "text-green-500",
   }
 ]
 
@@ -67,20 +67,7 @@ export const FeaturesSection = () => {
             <FeatureCard key={index} {...feature} />
           ))}
         </div>
-        <div className="mt-24 max-w-5xl mx-auto">
-          <div className="relative rounded-2xl overflow-hidden shadow-2xl border border-border/50 group">
-            <div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent z-10" />
-            <img
-              src="/assets/analytics-visual.jpg"
-              alt="Analytics Dashboard Preview"
-              className="w-full h-auto object-cover transform group-hover:scale-[1.02] transition-transform duration-700"
-            />
-            <div className="absolute bottom-0 left-0 right-0 p-8 z-20 text-center">
-              <h3 className="text-2xl font-bold text-white mb-2">Deep Insights</h3>
-              <p className="text-gray-200 max-w-2xl mx-auto">Visualize your progress with detailed analytics on pacing, filler words, and clarity.</p>
-            </div>
-          </div>
-        </div>
+
       </div>
     </section>
   );

@@ -20,7 +20,7 @@ export const SessionStatus: React.FC = () => {
                 <p className="mb-4 text-muted-foreground">
                     Start a new practice session to get real-time feedback.
                 </p>
-                <Button onClick={() => navigate('/sessions')} size="lg" className="w-full">
+                <Button onClick={() => navigate('/session')} size="lg" className="w-full">
                     Start New Session
                 </Button>
             </CardContent>

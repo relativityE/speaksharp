@@ -1,6 +1,7 @@
 // src/lib/supabaseClient.ts
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@supabase/supabase-js';
+import { createMockSupabase } from './mockSupabase';
 
 declare global {
   // allow tests to inject a mock client on window
@@ -23,6 +24,16 @@ export function getSupabaseClient(): SupabaseClient {
 
   const url = import.meta.env.VITE_SUPABASE_URL;
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+  // Check for mock mode or dummy credentials
+  const useMock = import.meta.env.VITE_USE_MOCK_AUTH === 'true' ||
+    (import.meta.env.DEV && url?.includes('example.supabase.co'));
+
+  if (useMock) {
+    console.log('⚠️ Using MOCK Supabase client for development');
+    // @ts-expect-error - Mock supabase client for testing
+    return (cachedClient = createMockSupabase());
+  }
 
   if (!url || !anonKey) {
     throw new Error('Missing Supabase environment variables (VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY)');

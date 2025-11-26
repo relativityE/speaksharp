@@ -15,7 +15,7 @@ const Navigation = () => {
 
   const navItems = [
     { path: "/", icon: Home, label: "Home" },
-    { path: "/sessions", icon: Mic, label: "Session" },
+    { path: "/session", icon: Mic, label: "Session" },
     { path: "/analytics", icon: BarChart3, label: "Analytics" },
   ];
 
