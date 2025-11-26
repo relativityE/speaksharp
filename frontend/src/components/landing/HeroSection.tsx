@@ -8,7 +8,7 @@ export const HeroSection = () => {
   return (
     <section className="relative w-full pt-32 md:pt-48 lg:pt-56 pb-20 md:pb-32 overflow-hidden">
       <div className="absolute inset-0 bg-gradient-to-br from-primary/20 via-background to-background z-0" />
-      <div className="absolute inset-0 bg-[url('/grid-pattern.svg')] opacity-10 z-0" />
+      <div className="absolute inset-0 bg-[url('/assets/grid-pattern.svg')] opacity-10 z-0" />
       <div className="container relative z-10 px-4 md:px-6 max-w-6xl mx-auto">
         <div className="flex flex-col items-center text-center space-y-12">
           {/* Header Section - Centered */}

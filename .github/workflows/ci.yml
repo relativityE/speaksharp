@@ -129,7 +129,19 @@ jobs:
       - name: Start Preview Server
         run: |
           pnpm preview &
-          npx wait-on http://localhost:4173
+          PREVIEW_PID=$!
+          echo "Preview server PID: $PREVIEW_PID"
+          npx wait-on http://localhost:4173 --timeout 30000 || {
+            echo "::error::Preview server failed to start"
+            echo "Checking if preview process is running..."
+            ps aux | grep vite || true
+            echo "Checking port 4173..."
+            lsof -i :4173 || true
+            echo "Recent preview logs:"
+            kill -0 $PREVIEW_PID && echo "Preview process is still running" || echo "Preview process has died"
+            exit 1
+          }
+          echo "Preview server started successfully"
 
       - name: Run Lighthouse CI
         run: npx lhci autorun

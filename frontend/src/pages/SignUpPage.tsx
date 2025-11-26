@@ -58,7 +58,7 @@ export default function SignUpPage() {
         <div className="flex flex-col items-center justify-center min-h-screen bg-background p-4 relative overflow-hidden">
             {/* Background Elements - Consistent with SignInPage */}
             <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-background to-background z-0" />
-            <div className="absolute top-0 left-0 w-full h-full bg-[url('/grid-pattern.svg')] opacity-[0.03] z-0 pointer-events-none" />
+            <div className="absolute top-0 left-0 w-full h-full bg-[url('/assets/grid-pattern.svg')] opacity-[0.03] z-0 pointer-events-none" />
 
             <div className="relative z-10 w-full max-w-md space-y-8">
                 <div className="text-center space-y-2">

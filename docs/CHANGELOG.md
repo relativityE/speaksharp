@@ -10,6 +10,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **CI/CD Pipeline Stabilization (2025-11-25):**
+  - **Critical: Environment Variable Loading:** Fixed `ERR_MODULE_NOT_FOUND` for `dotenv` by removing duplicate dependency entry. Updated `scripts/test-audit.sh` to use `dotenv-cli` for loading `.env.test` before build commands, resolving build-time environment validation failures.
+  - **E2E Test Stabilization:** Resolved multiple E2E test failures blocking CI:
+    - Added missing `testId` prop to `EmptyState` component for analytics tests
+    - Fixed strict mode violations in `capture-states`, `health-check`, and `smoke` tests by using `.first()` for ambiguous "Sign In" link selectors
+    - Corrected route mismatch (`/sessions` → `/session`) in `navigation` and `smoke` tests
+    - Updated `SessionPage.tsx` to include required `data-testid` attributes
+    - Fixed expected text assertions in `live-transcript` test
+  - **Lighthouse CI Integration:** Fixed incorrect artifact path in `.github/workflows/ci.yml` (`.lhci` → `.lighthouseci`), ensuring Lighthouse reports are properly uploaded and accessible in CI artifacts
+  - **Local/CI Alignment:** Updated `scripts/test-audit.sh` `ci-simulate` mode to strictly mirror GitHub CI workflow:
+    - Added `pnpm install --frozen-lockfile` check (caught and fixed outdated lockfile)
+    - Added `playwright install --with-deps chromium` step
+    - Added `run_lighthouse_ci` function to replicate Lighthouse stage locally
+  - **Results:** Full local simulation now passes all stages (env validation, frozen lockfile check, lint/typecheck, unit tests, build, E2E tests, Lighthouse CI)
+
+- **Architectural Improvements (2025-11-25):**
+  - **CI/Local Test Script Alignment:** Unified `test:health-check` to call canonical `scripts/test-audit.sh`, eliminating dangerous divergence between local and CI validation. Removed redundant `test:e2e:health` script.
+  - **Environment Detection Standardization:** Replaced dual `window.__E2E_MODE__` and `VITE_TEST_MODE` checks with single `IS_TEST_ENVIRONMENT` from `config/env.ts`. Updated `main.tsx`, `NativeBrowser.ts`, and removed `__E2E_MODE__` from `ambient.d.ts`.
+  - **E2E Logic Extraction:** Created `lib/e2e-bridge.ts` module to isolate test-specific logic (MSW initialization, mock session injection) from production code. `main.tsx` now conditionally imports e2e-bridge only in test mode.
+  - **Deterministic Loading State:** Replaced non-deterministic `setTimeout(100)` with React `useEffect` + `requestAnimationFrame` in `App.tsx` and `ConfigurationNeededPage.tsx`. Loading state now properly synchronized with React lifecycle, eliminating race conditions in E2E tests.
+  - **CI Sharding Simplification:** Replaced custom sharding logic with Playwright's native `--shard` CLI option. CI workflow now uses fixed matrix `[1,2,3,4]` instead of dynamic calculation. Removed `run_e2e_sharding()` function and ~50 lines of custom code from `test-audit.sh`.
+
 ### Added
 - **E2E Testing Infrastructure (2025-11-25):**
   - **MockSpeechRecognition API:** Added `MockSpeechRecognition` class to `frontend/src/lib/e2e-bridge.ts` to polyfill browser SpeechRecognition API for E2E tests
