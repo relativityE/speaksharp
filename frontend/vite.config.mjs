@@ -42,6 +42,8 @@ export default defineConfig(({ mode }) => {
           manualChunks: {
             'react-vendor': ['react', 'react-dom', 'react-router-dom'],
             'analytics-vendor': ['posthog-js', '@sentry/react'],
+            'charts-vendor': ['recharts'],
+            'pdf-vendor': ['html2canvas', 'jspdf'],
             'ui-vendor': ['lucide-react', '@radix-ui/react-slot', '@radix-ui/react-dialog', 'sonner'],
           }
         }
