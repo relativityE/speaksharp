@@ -90,6 +90,13 @@ This phase focuses on long-term architecture, scalability, and preparing for fut
 
 This section is a prioritized list of technical debt items to be addressed.
 
+- **P1 (Critical): Refactor On-Device STT for True Streaming**
+  - **Problem:** The on-device STT (`LocalWhisper.ts`), a core Pro feature, is architecturally flawed. It uses 5-second batch processing, not real-time streaming, which will lead to a poor, unresponsive user experience. Additionally, it runs on the main thread, which will cause the UI to freeze during transcription.
+  - **Required Action:** The entire `LocalWhisper.ts` implementation must be refactored to use a true streaming architecture that provides real-time interim results. The entire process must also be moved into a Web Worker to ensure the UI remains responsive. The existing `CloudAssemblyAI.ts` implementation serves as a good architectural blueprint.
+
+- **P2 (High): Refactor Analytics Page to Eliminate Prop Drilling**
+  - **Problem:** The main analytics page (`AnalyticsPage.tsx`) suffers from prop drilling and inefficient data fetching. It fetches the entire session history even when only one session is needed and passes numerous props down through the component tree.
+  - **Required Action:** Refactor the analytics components to fetch their own data using `React Query` hooks. This will co-locate state and view, eliminate prop drilling, and allow for more efficient data fetching (e.g., creating a `usePracticeSession(id)` hook to fetch only a single session).
 
 - **[RESOLVED] E2E Test Suite Not Running**
   - **Problem:** The test sharding logic in the old `test-audit.sh` was flawed, causing E2E tests to be skipped in CI.

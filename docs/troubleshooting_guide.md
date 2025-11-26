@@ -76,7 +76,7 @@ This guide provides quick, actionable steps for developers and CI engineers when
 ### 8b. Missing testId Attributes
 - **Symptom**: Test fails with "element not found" for `getByTestId()`.
 - **Cause**: Component doesn't have the expected `data-testid` attribute.
-- **Resolution**: 
+- **Resolution**:
   1. Add `testId?: string` to component's prop interface.
   2. Apply to root element: `<div data-testid={testId}>`.
   3. Pass from parent: `<Component testId="my-component" />`.

@@ -240,6 +240,17 @@ Mocked Backend: It does not connect to a real Supabase database. Instead, it use
 Compile-Time Modifications: This is the most critical distinction. When the server is launched in test mode, a special build-time flag, import.meta.env.VITE_TEST_MODE, is set to true. The application's source code uses this flag to conditionally exclude certain libraries (like the onnxruntime-web for on-device transcription) that are known to crash the Playwright test runner.
 Headless Operation: This environment is designed to be run by an automated tool (Playwright), not a human.
 How it's Launched: The test environment's dev server is not launched by you directly with pnpm dev. Instead, it is launched automatically by the test runner (Playwright) when you run a command like pnpm test:e2e. The Playwright configuration file (playwright.config.ts) is configured to start the Vite server using a specific command: vite --mode test. This --mode test flag is what tells Vite to apply the special test configuration.
+
+### E2E Testing Infrastructure
+
+**Mock Service Worker (MSW)** intercepts all network requests to Supabase, providing deterministic test data. **E2E Bridge** (`frontend/src/lib/e2e-bridge.ts`) extends MSW with additional E2E-specific mocking:
+
+- **Mock SpeechRecognition API**: Polyfills browser `SpeechRecognition` and `webkitSpeechRecognition` with `MockSpeechRecognition` class
+- **dispatchMockTranscript()**: Helper function callable from Playwright tests via `page.evaluate()` to simulate transcription events
+- **Initialization**: Automatically loaded when `IS_TEST_ENVIRONMENT` is true in `main.tsx`
+
+**Known Limitation**: Live transcript E2E test currently skipped pending React state integration debugging. Infrastructure complete but mock events don't propagate to UI state (see `/artifacts/e2e_transcript_issue.md`).
+
 Summary: How the Dev Server Relates to Environments
 Environment	How Dev Server is Started	Vite Mode	Key Feature
 Production	Not applicable (uses a static build from pnpm build)	production	Optimized for users

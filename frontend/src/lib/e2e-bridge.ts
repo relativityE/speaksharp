@@ -1,10 +1,10 @@
 // src/lib/e2e-bridge.ts
 /**
  * E2E Test Bridge Module
- * 
+ *
  * This module isolates all E2E-specific logic from the main application code.
  * It is only loaded when running in test mode (IS_TEST_ENVIRONMENT === true).
- * 
+ *
  * Purpose:
  * - Initializes Mock Service Worker (MSW) for network mocking
  * - Provides mock session injection for E2E tests
