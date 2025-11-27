@@ -74,20 +74,21 @@ export default class TranscriptionService {
   }
 
   public async init(): Promise<{ success: boolean }> {
-    logger.info('[TranscriptionService] Initializing mic stream...');
+    console.log('[TranscriptionService] Initializing mic stream...');
     try {
       this.mic = await createMicStream({ sampleRate: 16000, frameSize: 1024 });
-      logger.info('[TranscriptionService] Mic stream created.');
+      console.log('[TranscriptionService] Mic stream created.');
       return { success: true };
     } catch (error) {
-      logger.error({ error }, '[TranscriptionService] Failed to initialize mic.');
+      console.error('[TranscriptionService] Failed to initialize mic:', error);
       throw error;
     }
   }
 
   public async startTranscription(): Promise<void> {
-    logger.info('[TranscriptionService] Attempting to start transcription...');
+    console.log('[TranscriptionService] Attempting to start transcription...');
     if (!this.mic) {
+      console.error('[TranscriptionService] Microphone not initialized.');
       throw new Error("Microphone not initialized. Call init() first.");
     }
 

@@ -27,6 +27,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **`live-transcript.e2e.spec.ts`:** Unskipped test and updated to use `waitForE2EEvent('e2e:speech-recognition-ready')` for deterministic timing
   - **Impact:** Eliminates race conditions and provides deterministic, event-driven synchronization for E2E tests
 
+### Fixed
+- **Live Transcript E2E Test (2025-11-27):**
+  - **Problem:** Test was hanging indefinitely after navigation to SessionPage due to incorrect button disabled logic and missing audio API mocks
+  - **Root Cause:** Button disabled condition `!isReady && !isListening` prevented clicking before service initialization, and headless browser lacked microphone/AudioContext APIs
+  - **Solution:** 
+    - Fixed button disabled logic to `isListening && !isReady` in `SessionPage.tsx` (allows initial click, disables only during startup)
+    - Added microphone permissions and fake device launch args to `playwright.config.ts`
+    - Implemented comprehensive audio API mocks: `getUserMedia`, `AudioContext`, `AudioWorkletNode` in test `addInitScript`
+    - Used existing `e2e-bridge.ts` MockSpeechRecognition infrastructure with `dispatchMockTranscript()` for transcript simulation
+  - **Impact:** Full E2E coverage now working - Login → Session start → READY status → Mock transcript display (1.8s execution time)
+
 ### Changed
 - **Analytics Data Architecture Refactor (2025-11-26):**
   - **Eliminated Prop Drilling (Finding 3.2):** Refactored `useAnalytics` hook to be the single source of truth for analytics data

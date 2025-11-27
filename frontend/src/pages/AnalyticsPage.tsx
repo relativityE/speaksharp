@@ -35,11 +35,38 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
     const { sessionHistory, loading, error } = useAnalytics();
     const { user } = useAuthProvider();
-    const { data: profile } = useUserProfile();
+    const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
 
     console.log('[AnalyticsPage] Render. Loading:', loading, 'Error:', error, 'Sessions:', sessionHistory?.length, 'User:', user?.id);
 
     const isPro = profile?.subscription_status === 'pro';
+
+    // Show loading state while fetching data
+    if (loading || isProfileLoading) {
+        return (
+            <div className="flex items-center justify-center py-16">
+                <div className="text-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+                    <p className="text-muted-foreground">Loading analytics...</p>
+                </div>
+            </div>
+        );
+    }
+
+    // Show error state if either query failed
+    if (error || profileError) {
+        return (
+            <div className="text-center py-16">
+                <h2 className="text-2xl font-semibold mb-4 text-destructive">Error Loading Analytics</h2>
+                <p className="text-muted-foreground mb-6">
+                    {error?.message || profileError?.message || 'Something went wrong. Please try again.'}
+                </p>
+                <Button onClick={() => window.location.reload()}>
+                    Refresh Page
+                </Button>
+            </div>
+        );
+    }
 
     if (sessionId && sessionHistory.length === 0 && !loading && !error) {
         return (

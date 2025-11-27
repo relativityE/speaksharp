@@ -11,6 +11,10 @@ import { useUserProfile } from '@/hooks/useUserProfile';
 export const SessionPage: React.FC = () => {
     const { session } = useAuthProvider();
     const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
+
+    console.log('[DEBUG] SessionPage rendered. Session:', session?.user?.id);
+    console.log('[DEBUG] SessionPage profile state:', { isProfileLoading, profileError, profileId: profile?.id });
+
     const [customWords] = useState<string[]>([]);
     const startTimeRef = useRef<number | null>(null);
 
@@ -22,6 +26,7 @@ export const SessionPage: React.FC = () => {
     });
 
     const { isListening, isReady, transcript, fillerData, startListening, stopListening } = speechRecognition;
+    console.log('[DEBUG] SessionPage speechRecognition state:', { isListening, isReady });
     const [elapsedTime, setElapsedTime] = useState(0);
 
     useEffect(() => {
@@ -43,6 +48,7 @@ export const SessionPage: React.FC = () => {
     }, [isListening]);
 
     if (isProfileLoading) {
+        console.log('[DEBUG] SessionPage: Loading profile...');
         return (
             <div className="min-h-screen bg-background flex items-center justify-center">
                 <div className="flex flex-col items-center gap-4">
@@ -54,6 +60,7 @@ export const SessionPage: React.FC = () => {
     }
 
     if (profileError) {
+        console.log('[DEBUG] SessionPage: Profile error:', profileError);
         return (
             <div className="min-h-screen bg-background flex items-center justify-center">
                 <div className="text-center p-6 max-w-md">
@@ -81,6 +88,9 @@ export const SessionPage: React.FC = () => {
     const wordCount = transcript.transcript.split(' ').filter(w => w.length > 0).length;
     const wpm = elapsedTime > 0 ? Math.round((wordCount / elapsedTime) * 60) : 0;
     const clarityScore = fillerCount > 0 && wordCount > 0 ? Math.max(0, Math.min(100, 100 - (fillerCount / wordCount * 500))) : 87;
+
+    const isButtonDisabled = isListening && !isReady;
+    console.log('[DEBUG] Button render. Disabled:', isButtonDisabled, 'isListening:', isListening, 'isReady:', isReady);
 
     return (
         <div className="min-h-screen bg-background">
@@ -119,7 +129,7 @@ export const SessionPage: React.FC = () => {
                                 size="lg"
                                 variant={isListening ? 'destructive' : 'default'}
                                 className="w-48 h-14 text-lg font-semibold"
-                                disabled={!isReady && !isListening}
+                                disabled={isButtonDisabled}
                                 data-testid="session-start-stop-button"
                             >
                                 {isListening ? (
@@ -131,100 +141,101 @@ export const SessionPage: React.FC = () => {
                         </div>
                     </div>
                 </div>
+            </div>
 
-                {/* Metrics Grid - 2 Columns */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Clarity Score */}
-                    <div className="bg-card border-2 border-white rounded-lg p-8 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.3)]">
-                        <h3 className="text-lg font-semibold text-foreground mb-6">Clarity Score</h3>
-                        <div className="flex flex-col items-center">
-                            <div className="text-6xl font-bold text-primary mb-2">{Math.round(clarityScore)}%</div>
-                            <p className="text-sm text-muted-foreground">
-                                {clarityScore >= 80 ? 'Excellent clarity!' : clarityScore >= 60 ? 'Good clarity' : 'Keep practicing'}
-                            </p>
-                        </div>
+            {/* Metrics Grid - 2 Columns */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Clarity Score */}
+                <div className="bg-card border-2 border-white rounded-lg p-8 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.3)]">
+                    <h3 className="text-lg font-semibold text-foreground mb-6">Clarity Score</h3>
+                    <div className="flex flex-col items-center">
+                        <div className="text-6xl font-bold text-primary mb-2">{Math.round(clarityScore)}%</div>
+                        <p className="text-sm text-muted-foreground">
+                            {clarityScore >= 80 ? 'Excellent clarity!' : clarityScore >= 60 ? 'Good clarity' : 'Keep practicing'}
+                        </p>
                     </div>
+                </div>
 
-                    {/* Speaking Rate */}
-                    <div className="bg-card border-2 border-white rounded-lg p-8 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.3)]">
-                        <h3 className="text-lg font-semibold text-foreground mb-6">Speaking Rate</h3>
-                        <div className="flex flex-col items-center">
-                            <div className="text-6xl font-bold text-primary mb-2">{wpm}</div>
-                            <p className="text-sm text-muted-foreground mb-3">words per minute</p>
-                            <Badge className="bg-orange-500/10 text-orange-500 border-orange-500/20">
-                                {wpm >= 120 && wpm <= 160 ? 'Optimal Range' : wpm > 160 ? 'Too Fast' : wpm < 60 ? '' : 'Too Slow'}
-                            </Badge>
-                        </div>
+                {/* Speaking Rate */}
+                <div className="bg-card border-2 border-white rounded-lg p-8 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.3)]">
+                    <h3 className="text-lg font-semibold text-foreground mb-6">Speaking Rate</h3>
+                    <div className="flex flex-col items-center">
+                        <div className="text-6xl font-bold text-primary mb-2">{wpm}</div>
+                        <p className="text-sm text-muted-foreground mb-3">words per minute</p>
+                        <Badge className="bg-orange-500/10 text-orange-500 border-orange-500/20">
+                            {wpm >= 120 && wpm <= 160 ? 'Optimal Range' : wpm > 160 ? 'Too Fast' : wpm < 60 ? '' : 'Too Slow'}
+                        </Badge>
                     </div>
+                </div>
 
-                    {/* Filler Words */}
-                    <div className="bg-card border-2 border-white rounded-lg p-8 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.3)]">
-                        <div className="flex items-center gap-2 mb-6">
-                            <div className="w-2 h-2 rounded-full bg-orange-500"></div>
-                            <h3 className="text-lg font-semibold text-foreground">Filler Words</h3>
-                        </div>
-                        <div className="flex flex-col items-center mb-4">
-                            <div className="text-5xl font-bold text-orange-500 mb-2">{fillerCount}</div>
-                            <p className="text-sm text-muted-foreground">detected this session</p>
-                        </div>
-                        <div className="mt-4">
-                            <p className="text-xs text-muted-foreground mb-2">Recent:</p>
-                            <div className="flex flex-wrap gap-2">
-                                {Object.entries(fillerData).map(([word, data]) => (
-                                    data.count > 0 && (
-                                        <Badge key={word} variant="secondary" className="text-xs">
-                                            "{word}"
-                                        </Badge>
-                                    )
-                                ))}
-                                {fillerCount === 0 && (
-                                    <p className="text-xs text-muted-foreground italic">None detected yet</p>
-                                )}
-                            </div>
-                        </div>
+                {/* Filler Words */}
+                <div className="bg-card border-2 border-white rounded-lg p-8 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.3)]">
+                    <div className="flex items-center gap-2 mb-6">
+                        <div className="w-2 h-2 rounded-full bg-orange-500"></div>
+                        <h3 className="text-lg font-semibold text-foreground">Filler Words</h3>
                     </div>
-
-                    {/* Speaking Tips */}
-                    <div className="bg-card border-2 border-white rounded-lg p-8 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.3)]">
-                        <div className="flex items-center gap-2 mb-6">
-                            <div className="w-1 h-6 bg-primary rounded"></div>
-                            <h3 className="text-lg font-semibold text-foreground">Speaking Tips</h3>
-                        </div>
-                        <div className="space-y-4">
-                            <SpeakingTipCard
-                                title="Pace Yourself"
-                                description="Maintain 120-160 words per minute for optimal clarity"
-                            />
-                            <SpeakingTipCard
-                                title="Pause Instead"
-                                description="Use intentional pauses instead of filler words"
-                            />
-                            <SpeakingTipCard
-                                title="Practice Daily"
-                                description="Regular practice builds confident speaking habits"
-                            />
-                        </div>
+                    <div className="flex flex-col items-center mb-4">
+                        <div className="text-5xl font-bold text-orange-500 mb-2">{fillerCount}</div>
+                        <p className="text-sm text-muted-foreground">detected this session</p>
                     </div>
-
-                    {/* Live Transcript Display */}
-                    <div className="bg-card border-2 border-white rounded-lg p-8 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.3)] md:col-span-2" data-testid="transcript-panel">
-                        <div className="flex items-center gap-2 mb-6">
-                            <div className="w-1 h-6 bg-primary rounded"></div>
-                            <h3 className="text-lg font-semibold text-foreground">Live Transcript</h3>
-                        </div>
-                        <div className="min-h-[120px] max-h-[300px] overflow-y-auto p-4 rounded-lg bg-background/50 border border-white/10" data-testid="transcript-container">
-                            {isListening && (!transcript.transcript || transcript.transcript.trim() === '') ? (
-                                <p className="text-muted-foreground italic animate-pulse">Listening...</p>
-                            ) : transcript.transcript && transcript.transcript.trim() !== '' ? (
-                                <p className="text-foreground leading-relaxed">{transcript.transcript}</p>
-                            ) : (
-                                <p className="text-muted-foreground italic">Your spoken words will appear here</p>
+                    <div className="mt-4">
+                        <p className="text-xs text-muted-foreground mb-2">Recent:</p>
+                        <div className="flex flex-wrap gap-2">
+                            {Object.entries(fillerData).map(([word, data]) => (
+                                data.count > 0 && (
+                                    <Badge key={word} variant="secondary" className="text-xs">
+                                        "{word}"
+                                    </Badge>
+                                )
+                            ))}
+                            {fillerCount === 0 && (
+                                <p className="text-xs text-muted-foreground italic">None detected yet</p>
                             )}
                         </div>
                     </div>
                 </div>
+
+                {/* Speaking Tips */}
+                <div className="bg-card border-2 border-white rounded-lg p-8 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.3)]">
+                    <div className="flex items-center gap-2 mb-6">
+                        <div className="w-1 h-6 bg-primary rounded"></div>
+                        <h3 className="text-lg font-semibold text-foreground">Speaking Tips</h3>
+                    </div>
+                    <div className="space-y-4">
+                        <SpeakingTipCard
+                            title="Pace Yourself"
+                            description="Maintain 120-160 words per minute for optimal clarity"
+                        />
+                        <SpeakingTipCard
+                            title="Pause Instead"
+                            description="Use intentional pauses instead of filler words"
+                        />
+                        <SpeakingTipCard
+                            title="Practice Daily"
+                            description="Regular practice builds confident speaking habits"
+                        />
+                    </div>
+                </div>
+
+                {/* Live Transcript Display */}
+                <div className="bg-card border-2 border-white rounded-lg p-8 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.3)] md:col-span-2" data-testid="transcript-panel">
+                    <div className="flex items-center gap-2 mb-6">
+                        <div className="w-1 h-6 bg-primary rounded"></div>
+                        <h3 className="text-lg font-semibold text-foreground">Live Transcript</h3>
+                    </div>
+                    <div className="min-h-[120px] max-h-[300px] overflow-y-auto p-4 rounded-lg bg-background/50 border border-white/10" data-testid="transcript-container">
+                        {isListening && (!transcript.transcript || transcript.transcript.trim() === '') ? (
+                            <p className="text-muted-foreground italic animate-pulse">Listening...</p>
+                        ) : transcript.transcript && transcript.transcript.trim() !== '' ? (
+                            <p className="text-foreground leading-relaxed">{transcript.transcript}</p>
+                        ) : (
+                            <p className="text-muted-foreground italic">Your spoken words will appear here</p>
+                        )}
+                    </div>
+                </div>
             </div>
         </div>
+
     );
 };
 

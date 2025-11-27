@@ -50,10 +50,11 @@ export default class NativeBrowser implements ITranscriptionMode {
   }
 
   public async init(): Promise<void> {
-    logger.info('[NativeBrowser] Starting init...');
+    console.log('[NativeBrowser] Starting init...');
     const SpeechRecognition = (window.SpeechRecognition || window.webkitSpeechRecognition) as SpeechRecognitionStatic;
     this.isSupported = !!SpeechRecognition;
-    logger.info({ isSupported: this.isSupported }, '[NativeBrowser] SpeechRecognition API supported');
+    console.log('[NativeBrowser] SpeechRecognition API supported:', this.isSupported);
+    console.log('[NativeBrowser] SpeechRecognition constructor name:', SpeechRecognition.name); // Should be MockSpeechRecognition
 
     // In test environment, we rely on the MockSpeechRecognition provided by e2e-bridge.ts
     // or the unit test mocks. We no longer bypass initialization.
@@ -61,11 +62,11 @@ export default class NativeBrowser implements ITranscriptionMode {
     if (!this.isSupported) {
       throw new Error('Native browser speech recognition not supported');
     }
-    logger.info('[NativeBrowser] Creating SpeechRecognition instance...');
+    console.log('[NativeBrowser] Creating SpeechRecognition instance...');
     this.recognition = new SpeechRecognition();
     this.recognition.interimResults = true;
     this.recognition.continuous = true;
-    logger.info('[NativeBrowser] Configuring recognition handlers...');
+    console.log('[NativeBrowser] Configuring recognition handlers...');
 
     this.recognition.onresult = (event: SpeechRecognitionEvent) => {
       try {

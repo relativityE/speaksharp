@@ -45,13 +45,13 @@ This phase is about confirming the core feature set works as expected and polish
     - `scripts/`: Build, test, and maintenance scripts\
     - `docs/`: Documentation\
     - `tests/`: E2E and integration tests\
-- 🔴 **Audit and Fix UX States:** Ensure all components correctly handle and display `isLoading`, `isError`, and empty states (e.g., Analytics Dashboard).\
-- ✅ **Apply Supabase Migration:** Push `custom_vocabulary` migration to production to enable Pro features.\
-- 🔴 **Implement Lighthouse CI:** Add a stage to the CI pipeline to run a Lighthouse audit against the production build.\
+- ✅ **Audit and Fix UX States:** Standardized loading/error states across SessionPage, SignInPage, SignUpPage, WeeklyActivityChart, GoalsSection (2025-11-27)
+- ✅ **Apply Supabase Migration:** `custom_vocabulary` migration applied to production
+- ✅ **Implement Lighthouse CI:** Lighthouse stage added to CI pipeline with performance thresholds (2025-11-22)
 - ✅ **Hide "TBD" Placeholders:** Remove or hide "TBD" sections (e.g., testimonials) for the Alpha launch.\
 - 🔴 **Harden Supabase Security:** Address critical security advisor warnings (OTP expiry, password protection, Postgres upgrade).\
 - ✅ **Centralize Configuration:** Move hardcoded values to `src/config.ts`.\
-- 🔴 **Fix E2E Test Gap (Live Transcript):** Refactor `TranscriptionService` and E2E tests to verify live transcript generation.\
+- ✅ **Fix E2E Test Gap (Live Transcript):** Complete end-to-end coverage implemented (2025-11-27)
 - 🔴 **Implement WebSocket Reconnect Logic:** Add heartbeat and exponential backoff.
 
 ### 🚧 Should-Have (Tech Debt)
@@ -59,12 +59,15 @@ This phase is about confirming the core feature set works as expected and polish
   - 🟡 3. Refactor UI Components & Test
   - 🔴 4. Final Verification & Test
 - ✅ **Refactor `useSpeechRecognition` hook:** Improve maintainability and fix memory leaks.
-- 🟡 **Add Robust UX States:** Some states exist, but are inconsistently applied.
+- ✅ **Add Robust UX States:** Completed 2025-11-27 (SessionPage, SignInPage, SignUpPage, WeeklyActivityChart, GoalsSection)
 - ✅ **Centralize configuration:** Move hardcoded values (e.g., session limits) to a config file.
+- 🔴 **Harden E2E Architecture:** Complete event migration across all tests
+- 🔴 **Increase Unit Test Coverage:** Target: 36% → 70%
 - 🔴 **Improve Accessibility:** Use an ARIA live region for the transcript so screen readers can announce new lines.
 - 🔴 **Add Deno unit tests for the token endpoint.**
 - 🔴 **Add a soak test:** Create a test that runs for 1-minute with continuous audio to check for memory leaks or hangs.
 - 🔴 **Add Real Testimonials:** Unhide and populate the `TestimonialsSection` on the landing page with genuine user feedback.
+- 🔴 **Light Theme Implementation:** Add CSS or disable toggle
 
 ### Gating Check
 - 🔴 **Do a Gap Analysis of current implementation against the Current Phase requirements.**
@@ -94,20 +97,22 @@ This section is a prioritized list of technical debt items to be addressed.
   - **Problem:** The on-device STT (`LocalWhisper.ts`), a core Pro feature, is architecturally flawed. It uses 5-second batch processing, not real-time streaming, which will lead to a poor, unresponsive user experience. Additionally, it runs on the main thread, which will cause the UI to freeze during transcription.
   - **Required Action:** The entire `LocalWhisper.ts` implementation must be refactored to use a true streaming architecture that provides real-time interim results. The entire process must also be moved into a Web Worker to ensure the UI remains responsive. The existing `CloudAssemblyAI.ts` implementation serves as a good architectural blueprint.
 
+- **✅ COMPLETED (2025-11-27) - P2 (High): Complete Live Transcript E2E Test**
+  - **Status:** ✅ Test now passing with full end-to-end coverage
+  - **Problem:** `live-transcript.e2e.spec.ts` test was hanging after SessionPage navigation due to incorrect button disabled logic and missing audio API mocks in headless environment
+  - **Solution Implemented:**
+    - Fixed button disabled logic from `!isReady && !isListening` to `isListening && !isReady` in `SessionPage.tsx`
+    - Added microphone permissions and fake device launch args (`--use-fake-ui-for-media-stream`, `--use-fake-device-for-media-stream`) to `playwright.config.ts`
+    - Implemented comprehensive audio API mocks: `getUserMedia`, `AudioContext`, `AudioWorkletNode` via `page.addInitScript`
+    - Leveraged existing `e2e-bridge.ts` MockSpeechRecognition infrastructure with `dispatchMockTranscript()` for transcript simulation
+    - Added `waitForE2EEvent('e2e:speech-recognition-ready')` for deterministic synchronization
+  - **Test Coverage:** Login → Session start → READY status → Mock transcript display (passing in 1.8s)
+  - **Verification:** ✅ Full E2E flow working, CI pipeline unblocked
+
 - **✅ COMPLETED (2025-11-26) - P2 (High): Refactor Analytics Page to Eliminate Prop Drilling (Finding 3.2)**
   - **Status:** COMPLETED
   - **Problem:** The main analytics page (`AnalyticsPage.tsx`) suffered from prop drilling and inefficient data fetching. It fetched the entire session history even when only one session was needed and passed numerous props down through the component tree.
   - **Solution Implemented:**
-
-- **🟡 IN PROGRESS (2025-11-27) - P2 (High): Complete Live Transcript E2E Test**
-  - **Status:** Event-driven synchronization infrastructure complete, test needs SessionPage debugging
-  - **Problem:** `live-transcript.e2e.spec.ts` test hangs after successful login when navigating to SessionPage. Event infrastructure (`e2e:speech-recognition-ready`) is implemented but test execution stalls.
-  - **Completed:**
-    - Added `dispatchE2EEvent()` helper to `e2e-bridge.ts`
-    - Implemented `e2e:msw-ready`, `e2e:app-ready`, and `e2e:speech-recognition-ready` custom DOM events
-    - Updated `programmaticLogin()` to use event-based sync instead of polling
-    - Unskipped live-transcript test and added `waitForE2EEvent()` calls
-  - **Remaining:** Debug SessionPage behavior in E2E environment - test navigates successfully but hangs before reaching session start assertions
     - Refactored `useAnalytics` hook to consume `usePracticeHistory` (React Query) as single source of truth
     - Centralized all derived statistics calculation in `analyticsUtils.ts`
     - Removed prop drilling from `AnalyticsPage` and `AnalyticsDashboard` components
@@ -144,10 +149,6 @@ This section is a prioritized list of technical debt items to be addressed.
 
 - **P4 (Low): Improve Unit Test Discoverability**
   - **Problem:** The lack of easily discoverable, co-located unit tests makes the codebase harder to maintain.
-
-- **P2 (Medium): Inability to E2E Test Live Transcript Generation**
-  - **Problem:** The `live-transcript.e2e.spec.ts` test is superficial. It only verifies that the UI enters a "recording" state, but does not verify that a transcript is actually generated and displayed. Attempts to mock the browser's `SpeechRecognition` API via `page.evaluate` and network interception via `page.route` have both failed, indicating a deep architectural issue or test environment limitation that prevents effective mocking of the `TranscriptionService`.
-  - **Required Action:** A deeper investigation is required to find a viable strategy for E2E testing the live transcript generation. This may involve significant refactoring of the `TranscriptionService` to make it more amenable to testing, or exploring alternative mocking libraries or techniques. Until then, this core feature lacks meaningful E2E test coverage.
 
 - **P2 (Medium): Review and Improve Test Quality and Effectiveness**
   - **Problem:** Several tests in the suite were brittle or of low value, providing a false sense of security.
