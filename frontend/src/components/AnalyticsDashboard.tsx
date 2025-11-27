@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorDisplay } from './ErrorDisplay';
 import { generateSessionPdf } from '../lib/pdfGenerator';
-import { calculateOverallStats, calculateFillerWordTrends } from '../lib/analyticsUtils';
 import { formatDate, formatDateTime } from '../lib/dateUtils';
 import { FillerWordTable } from './analytics/FillerWordTable';
 import { TopFillerWords } from './analytics/TopFillerWords';
@@ -18,14 +17,13 @@ import logger from '../lib/logger';
 import { toast } from 'sonner';
 import type { PracticeSession } from '@/types/session';
 import type { UserProfile } from '@/types/user';
+import { useAnalytics } from '@/hooks/useAnalytics';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 // --- Prop Interfaces ---
 
 interface AnalyticsDashboardProps {
-    sessionHistory: PracticeSession[];
     profile: UserProfile | null;
-    loading: boolean;
-    error: Error | null;
 }
 
 interface StatCardProps {
@@ -43,8 +41,6 @@ interface SessionHistoryItemProps {
 }
 
 // --- Sub-components ---
-
-import { EmptyState } from '@/components/ui/EmptyState';
 
 const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, className, testId }) => (
     <Card className={className} data-testid={testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`}>
@@ -120,7 +116,9 @@ export const AnalyticsDashboardSkeleton: React.FC = () => (
 
 // --- Main Component ---
 
-export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ sessionHistory, profile, loading, error }) => {
+export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ profile }) => {
+    const { sessionHistory, overallStats, fillerWordTrends, loading, error } = useAnalytics();
+
     if (loading) return <AnalyticsDashboardSkeleton />;
     if (error) return <ErrorDisplay error={error} />;
     if (!sessionHistory || sessionHistory.length === 0) {
@@ -138,8 +136,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ sessionH
         );
     }
 
-    const overallStats = calculateOverallStats(sessionHistory);
-    const fillerWordTrends = calculateFillerWordTrends(sessionHistory.slice(0, 5));
     const isPro = profile?.subscription_status === 'pro';
 
     const handleUpgrade = async () => {
@@ -156,7 +152,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ sessionH
     };
 
     return (
-        <div className="space-y-8">
+        <div className="space-y-8" data-testid="analytics-dashboard">
             {!isPro && (
                 <Card className="bg-gradient-to-r from-primary/80 to-primary text-primary-foreground p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div className="flex items-center gap-4"><Sparkles className="h-8 w-8" /><div><h3 className="font-bold text-lg">Unlock Your Full Potential</h3><p className="text-sm opacity-90">Upgrade to Pro to get unlimited practice time, PDF exports, and more detailed analytics.</p></div></div>

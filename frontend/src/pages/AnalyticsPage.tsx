@@ -1,13 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { NavLink, useNavigate, useParams } from 'react-router-dom';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
-import { usePracticeHistory } from '../hooks/usePracticeHistory';
+import { useAnalytics } from '../hooks/useAnalytics';
 import { useAuthProvider } from '../contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Zap, Sparkles, BarChart } from 'lucide-react';
-import type { PracticeSession } from '@/types/session';
 
 // --- Sub-components ---
 
@@ -34,24 +33,13 @@ const UpgradeBanner: React.FC = () => {
 
 const AuthenticatedAnalyticsView: React.FC = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
-    const { data: sessionHistory = [], isLoading: loading, error } = usePracticeHistory();
+    const { sessionHistory, loading, error } = useAnalytics();
     const { user } = useAuthProvider();
     const { data: profile } = useUserProfile();
-    const [singleSession, setSingleSession] = useState<PracticeSession | null>(null);
 
     const isPro = profile?.subscription_status === 'pro';
-    const displaySessions = sessionId ? (singleSession ? [singleSession] : []) : sessionHistory;
 
-    useEffect(() => {
-        if (sessionId && sessionHistory.length > 0) {
-            const foundSession = sessionHistory.find(s => s.id === sessionId);
-            setSingleSession(foundSession || null);
-        } else {
-            setSingleSession(null);
-        }
-    }, [sessionId, sessionHistory]);
-
-    if (sessionId && !singleSession && !loading && !error) {
+    if (sessionId && sessionHistory.length === 0 && !loading && !error) {
         return (
             <div className="text-center py-16">
                 <h2 className="text-2xl font-semibold mb-4">Session Not Found</h2>
@@ -74,10 +62,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
                     </p>
                 </div>
                 <AnalyticsDashboard
-                    sessionHistory={displaySessions}
                     profile={profile || null}
-                    loading={loading}
-                    error={error}
                 />
             </div>
         </div>
