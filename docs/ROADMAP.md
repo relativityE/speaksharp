@@ -22,6 +22,19 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - 🔴 2. Enable leaked password protection.
   - 🔴 3. Upgrade the Postgres version.
 
+### ⚠️ Known Issues
+- **P1 - Live Transcript E2E Test Intermittent Timeout (2025-11-27)**
+  - **Problem:** `live-transcript.e2e.spec.ts` times out waiting for `e2e:speech-recognition-ready` event in some environments (CI/repeated runs)
+  - **Error:** `page.evaluate: Test timeout of 120000ms exceeded` at `waitForE2EEvent` (line 114)
+  - **Root Cause:** MockSpeechRecognition in `e2e-bridge.ts` may not be dispatching `e2e:speech-recognition-ready` event consistently across all execution contexts
+  - **Impact:** Test passes locally but may fail in CI/CD pipeline
+  - **Workaround:** Re-run tests; investigating event dispatch timing issue
+  
+- **P2 - Lighthouse Performance Score Below Target (2025-11-22)**
+  - **Problem:** Lighthouse CI reports Performance score of ~0.62 and LCP of ~0.26, below target of 0.90
+  - **Impact:** User experience may be suboptimal on slower connections/devices
+  - **Next Steps:** Performance optimization work scheduled for future sprint
+
 ### Gating Check
 - 🔴 **Do a Gap Analysis of current implementation against the Current Phase requirements.**
 
