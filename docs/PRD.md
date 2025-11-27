@@ -1,6 +1,6 @@
 
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-11-26
+**Last Reviewed:** 2025-11-27
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -133,9 +133,8 @@ The project's testing strategy prioritizes stability, reliability, and a tight a
 
 This section tracks high-level product risks and constraints. For a detailed history of resolved issues, see the [Changelog](./CHANGELOG.md).
 
-- **Live Transcript E2E Test Disabled:** The E2E test for the core live transcription feature (`live-transcript.e2e.spec.ts`) has been architected to correctly validate the UI, but the test is currently disabled (`test.skip`). This means the application's most critical feature is not being automatically verified against regressions.
+- **Live Transcript E2E Test:** Event-driven synchronization infrastructure complete (`dispatchE2EEvent`, custom events), but test hangs on SessionPage navigation. Core feature lacks automated verification until debugging completes.
 - **Incomplete Theming:** The application is configured to support both light and dark themes, but only a dark theme is currently implemented. Users will not be able to switch to a light theme, which can be an accessibility issue and ignores user preference.
-- **E2E Test Synchronization:** The E2E test infrastructure uses global boolean flags for synchronization, which could create race conditions. Migration to event-based synchronization is in the technical debt backlog (Finding 1.1).
 - **Unit Test Coverage:** Current test coverage is ~36%, below the industry best practice of 70%. Adding coverage enforcement and additional tests is tracked in the technical debt backlog (Finding 3.3).
 
 ---

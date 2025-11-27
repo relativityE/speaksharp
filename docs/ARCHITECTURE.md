@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-11-26
+**Last Reviewed:** 2025-11-27
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -244,13 +244,19 @@ How it's Launched: The test environment's dev server is not launched by you dire
 
 ### E2E Testing Infrastructure
 
-**Mock Service Worker (MSW)** intercepts all network requests to Supabase, providing deterministic test data. **E2E Bridge** (`frontend/src/lib/e2e-bridge.ts`) extends MSW with additional E2E-specific mocking:
+**Mock Service Worker (MSW)** intercepts all network requests to Supabase, providing deterministic test data. **E2E Bridge** (`frontend/src/lib/e2e-bridge.ts`) extends MSW with additional E2E-specific mocking and event-driven synchronization:
 
 - **Mock SpeechRecognition API**: Polyfills browser `SpeechRecognition` and `webkitSpeechRecognition` with `MockSpeechRecognition` class
 - **dispatchMockTranscript()**: Helper function callable from Playwright tests via `page.evaluate()` to simulate transcription events
+- **Event-Driven Synchronization (2025-11-27)**: Custom DOM events replace fragile polling/timeouts for robust test coordination:
+  - `dispatchE2EEvent(eventName, detail)`: Helper to dispatch custom events from app to tests
+  - `e2e:msw-ready`: Signals MSW initialization complete
+  - `e2e:app-ready`: Signals React app fully mounted
+  - `e2e:speech-recognition-ready`: Signals MockSpeechRecognition instance active
+  - `waitForE2EEvent(page, eventName)`: Test helper to await specific events
 - **Initialization**: Automatically loaded when `IS_TEST_ENVIRONMENT` is true in `main.tsx`
 
-**Known Limitation**: Live transcript E2E test currently skipped pending React state integration debugging. Infrastructure complete but mock events don't propagate to UI state (see `/artifacts/e2e_transcript_issue.md`).
+**Status**: Event infrastructure complete. Live transcript test requires SessionPage E2E debugging (documented in ROADMAP.md).
 
 Summary: How the Dev Server Relates to Environments
 Environment	How Dev Server is Started	Vite Mode	Key Feature
