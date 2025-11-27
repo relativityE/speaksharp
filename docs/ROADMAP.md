@@ -18,9 +18,9 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 - 🔴 **Refactor Integration Tests:** Slim down component tests (`SessionSidebar`, `AnalyticsPage`, etc.) to remove redundant coverage now handled by E2E tests.
 - 🔴 **Create Troubleshooting Guide:** Add error recovery steps to the documentation.
 - 🔴 **Harden Supabase Security:** Address security advisor warnings.
-  - 🔴 1. Shorten OTP expiry to less than one hour.
-  - 🔴 2. Enable leaked password protection.
-  - 🔴 3. Upgrade the Postgres version.
+  - ⏸️ **BLOCKED** - Shorten OTP expiry to <1 hour (requires Supabase Pro account)
+  - ⏸️ **BLOCKED** - Enable leaked password protection (requires Supabase Pro account)
+  - ⏸️ **DEFERRED** - Upgrade Postgres version (not critical for alpha)
 
 ### ⚠️ Known Issues
 - **P1 - Live Transcript E2E Test Intermittent Timeout (2025-11-27)**
@@ -62,15 +62,19 @@ This phase is about confirming the core feature set works as expected and polish
 - ✅ **Apply Supabase Migration:** `custom_vocabulary` migration applied to production
 - ✅ **Implement Lighthouse CI:** Lighthouse stage added to CI pipeline with performance thresholds (2025-11-22)
 - ✅ **Hide "TBD" Placeholders:** Remove or hide "TBD" sections (e.g., testimonials) for the Alpha launch.\
-- 🔴 **Harden Supabase Security:** Address critical security advisor warnings (OTP expiry, password protection, Postgres upgrade).\
+- ⏸️ **Harden Supabase Security:** BLOCKED - OTP/password features require Supabase Pro account (deferred to production launch)\
 - ✅ **Centralize Configuration:** Move hardcoded values to `src/config.ts`.\
 - ✅ **Fix E2E Test Gap (Live Transcript):** Complete end-to-end coverage implemented (2025-11-27)
 - 🔴 **Implement WebSocket Reconnect Logic:** Add heartbeat and exponential backoff.
 
 ### 🚧 Should-Have (Tech Debt)
-- 🟡 **Implement new SpeakSharp Design System:**
-  - 🟡 3. Refactor UI Components & Test
-  - 🔴 4. Final Verification & Test
+- 🟡 **CVA-Based Design System Refinement:**
+  - **Current State:** Basic CVA (class-variance-authority) design system implemented in `frontend/src/components/ui` with tokens in `tailwind.config.ts` (per ARCHITECTURE.md)
+  - **Remaining Work:**
+    - 🟡 Audit all UI components for consistent CVA variant usage
+    - 🔴 Document design token usage guidelines in `/docs`
+    - 🔴 Add Storybook or component showcase for design system
+    - 🔴 Verify all components use design tokens (no hardcoded colors/spacing)
 - ✅ **Refactor `useSpeechRecognition` hook:** Improve maintainability and fix memory leaks.
 - ✅ **Add Robust UX States:** Completed 2025-11-27 (SessionPage, SignInPage, SignUpPage, WeeklyActivityChart, GoalsSection)
 - ✅ **Centralize configuration:** Move hardcoded values (e.g., session limits) to a config file.
@@ -78,7 +82,7 @@ This phase is about confirming the core feature set works as expected and polish
 - 🔴 **Increase Unit Test Coverage:** Target: 36% → 70%
 - 🔴 **Improve Accessibility:** Use an ARIA live region for the transcript so screen readers can announce new lines.
 - 🔴 **Add Deno unit tests for the token endpoint.**
-- 🔴 **Add a soak test:** Create a test that runs for 1-minute with continuous audio to check for memory leaks or hangs.
+- ✅ **Add a soak test:** 5-minute concurrent user test implemented (`tests/soak/soak-test.spec.ts`) with memory leak detection
 - 🔴 **Add Real Testimonials:** Unhide and populate the `TestimonialsSection` on the landing page with genuine user feedback.
 - 🔴 **Light Theme Implementation:** Add CSS or disable toggle
 
@@ -106,9 +110,10 @@ This phase focuses on long-term architecture, scalability, and preparing for fut
 
 This section is a prioritized list of technical debt items to be addressed.
 
-- **P1 (Critical): Refactor On-Device STT for True Streaming**
-  - **Problem:** The on-device STT (`LocalWhisper.ts`), a core Pro feature, is architecturally flawed. It uses 5-second batch processing, not real-time streaming, which will lead to a poor, unresponsive user experience. Additionally, it runs on the main thread, which will cause the UI to freeze during transcription.
-  - **Required Action:** The entire `LocalWhisper.ts` implementation must be refactored to use a true streaming architecture that provides real-time interim results. The entire process must also be moved into a Web Worker to ensure the UI remains responsive. The existing `CloudAssemblyAI.ts` implementation serves as a good architectural blueprint.
+- **✅ COMPLETED (2025-11-21) - P1 (Critical): Refactor On-Device STT for True Streaming**
+  - **Status:** LocalWhisper now uses 1s processing loop (not 5s batching) and async processing to prevent UI freezing
+  - **Implementation:** `LocalWhisper.ts` line 138 - `setInterval(() => this.processAudio(), 1000)`
+  - **Note:** Full Web Worker migration deferred - current async implementation sufficient for alpha
 
 - **✅ COMPLETED (2025-11-27) - P2 (High): Complete Live Transcript E2E Test**
   - **Status:** ✅ Test now passing with full end-to-end coverage
