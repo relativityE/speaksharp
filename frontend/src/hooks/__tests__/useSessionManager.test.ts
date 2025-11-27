@@ -75,10 +75,9 @@ describe('useSessionManager', () => {
       await act(async () => {
         const savedSession = await result.current.saveSession(sessionData);
         expect(savedSession).not.toBeNull();
-        if (savedSession) {
-          expect(savedSession.session).toEqual(newDbSession);
-          expect(savedSession.usageExceeded).toBe(false);
-        }
+        // Assert on the result directly (TypeScript narrows the type after the assertion)
+        expect(savedSession!.session).toEqual(newDbSession);
+        expect(savedSession!.usageExceeded).toBe(false);
       });
 
       expect(mockStorage.saveSession).toHaveBeenCalledWith(
@@ -94,10 +93,8 @@ describe('useSessionManager', () => {
       await act(async () => {
         const savedSession = await result.current.saveSession({ duration: 100 });
         expect(savedSession).not.toBeNull();
-        if (savedSession) {
-          expect(savedSession.session).toBeNull();
-          expect(savedSession.usageExceeded).toBe(true);
-        }
+        expect(savedSession!.session).toBeNull();
+        expect(savedSession!.usageExceeded).toBe(true);
       });
     });
   });
