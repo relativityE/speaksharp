@@ -149,7 +149,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Wed, 26 Nov 2025 00:07:54 GMT
+**Last Updated:** Thu, 27 Nov 2025 02:25:43 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -160,12 +160,12 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 | Metric                  | Value |
 | ----------------------- | ----- |
 | Total tests             | 137 |
-| Unit tests              | 134   |
-| E2E tests (Playwright)  | 3  |
+| Unit tests              | 135   |
+| E2E tests (Playwright)  | 2  |
 | Passing tests           | 137   |
 | Failing tests           | 0   |
 | Disabled/skipped tests  | 0   |
-| Passing unit tests      | 134   |
+| Passing unit tests      | 135   |
 | Failing E2E tests       | 0   |
 | Total runtime           | N/A   |
 
@@ -178,7 +178,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 | Statements | N/A   |
 | Branches   | N/A   |
 | Functions  | N/A   |
-| Lines      | 35.62%   |
+| Lines      | 34.71%   |
 
 ---
 
@@ -188,7 +188,7 @@ This section provides metrics that help identify "code bloat"—unnecessary or d
 
 | Metric | Value | Description |
 |---|---|---|
-| **Initial Chunk Size** | 14M | The size of the largest initial JavaScript bundle. This is a direct measure of the amount of code a user has to download and parse on their first visit. Large values here are a strong indicator of code bloat. |
+| **Initial Chunk Size** | 15M | The size of the largest initial JavaScript bundle. This is a direct measure of the amount of code a user has to download and parse on their first visit. Large values here are a strong indicator of code bloat. |
 | **Lighthouse Score** | (coming soon) | A comprehensive performance score from Google Lighthouse. It measures the *impact* of code bloat on the user experience, including metrics like Time to Interactive. |
 
 ---

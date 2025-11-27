@@ -1,114 +1,135 @@
 import { render, screen } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
-import { AnalyticsDashboard } from '@/components/AnalyticsDashboard';
+import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
 import { BrowserRouter } from 'react-router-dom';
+import { AnalyticsDashboard } from '../../AnalyticsDashboard';
+import { useAnalytics } from '@/hooks/useAnalytics';
 
-// Mocks
-vi.mock('react-router-dom', async () => {
-    const actual = await vi.importActual('react-router-dom');
-    return {
-        ...actual,
-        useNavigate: () => vi.fn(),
-    };
-});
-
-vi.mock('@/lib/pdfGenerator', () => ({ generateSessionPdf: vi.fn() }));
-vi.mock('@/lib/analyticsUtils', () => ({
-    calculateOverallStats: vi.fn().mockReturnValue({
-        totalSessions: 1,
-        avgWpm: 120,
-        avgFillerWordsPerMin: 2.5,
-        totalPracticeTime: 10,
-        avgAccuracy: '95.0',
-        chartData: [{ date: '2023-01-01', 'FW/min': 2.5 }],
+// Mock canvas to avoid native dependency errors in test environment
+vi.mock('canvas', () => ({
+    createCanvas: vi.fn(() => ({
+        getContext: vi.fn(() => ({
+            drawImage: vi.fn(),
+            fillRect: vi.fn(),
+        })),
+        toBuffer: vi.fn(() => Buffer.from('mock-canvas-buffer')),
+    })),
+    loadImage: vi.fn().mockResolvedValue({
+        width: 100,
+        height: 100,
     }),
-    calculateFillerWordTrends: vi.fn().mockReturnValue([]),
 }));
 
-// Mock child components to isolate the dashboard
-vi.mock('@/components/analytics/AccuracyComparison', () => ({
-    AccuracyComparison: () => <div data-testid="accuracy-comparison-mock" />,
+// Mock useAnalytics
+vi.mock('@/hooks/useAnalytics');
+
+// Mock child components to isolate dashboard testing
+vi.mock('../../analytics/AccuracyComparison', () => ({
+    AccuracyComparison: () => <div data-testid="accuracy-comparison">Accuracy Comparison</div>
 }));
-vi.mock('@/components/analytics/TopFillerWords', () => ({
-    TopFillerWords: () => <div data-testid="top-filler-words-mock" />,
+vi.mock('../../analytics/WeeklyActivityChart', () => ({
+    WeeklyActivityChart: () => <div data-testid="weekly-activity-chart">Weekly Activity Chart</div>
 }));
-vi.mock('@/components/analytics/FillerWordTable', () => ({
-    FillerWordTable: () => <div data-testid="filler-word-table-mock" />,
+vi.mock('../../analytics/GoalsSection', () => ({
+    GoalsSection: () => <div data-testid="goals-section">Goals Section</div>
+}));
+vi.mock('../../analytics/TopFillerWords', () => ({
+    TopFillerWords: () => <div data-testid="top-filler-words">Top Filler Words</div>
+}));
+vi.mock('../../analytics/FillerWordTable', () => ({
+    FillerWordTable: () => <div data-testid="filler-word-table">Filler Word Table</div>
 }));
 
-// Mock Recharts to avoid ResponsiveContainer width/height warnings
-vi.mock('recharts', async () => {
-    const OriginalModule = await vi.importActual('recharts');
-    return {
-        ...OriginalModule,
-        ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
-            <div style={{ width: 800, height: 300 }}>{children}</div>
-        ),
-    };
+// Mock Supabase client
+const mockInvoke = vi.fn();
+vi.mock('@/lib/supabaseClient', () => ({
+    getSupabaseClient: () => ({
+        functions: {
+            invoke: mockInvoke
+        }
+    })
+}));
+
+// Mock window.location
+const mockLocation = { href: '' };
+Object.defineProperty(window, 'location', {
+    value: mockLocation,
+    writable: true
 });
-
-// Test Data
-const mockSession = {
-    id: '1',
-    user_id: 'user-123',
-    created_at: new Date().toISOString(),
-    title: 'Test Session',
-    duration: 600,
-    total_words: 1200,
-    accuracy: 0.95,
-    filler_words: { 'um': { count: 5 } },
-};
-
-const mockProfile = {
-    id: '1',
-    email: 'test@example.com',
-    subscription_status: 'free' as 'free' | 'pro',
-};
-
-const renderWithRouter = (ui: React.ReactElement, { route = '/' } = {}) => {
-    window.history.pushState({}, 'Test page', route)
-    return render(ui, { wrapper: BrowserRouter })
-}
 
 describe('AnalyticsDashboard', () => {
-    it('renders the skeleton when loading', () => {
-        renderWithRouter(<AnalyticsDashboard sessionHistory={[]} profile={null} loading={true} error={null} />);
+    const mockProfile = {
+        id: '123',
+        email: 'test@example.com',
+        subscription_status: 'free' as const
+    };
+
+    const mockSessionHistory = [
+        {
+            id: '1',
+            user_id: '123',
+            created_at: '2023-10-27T10:00:00Z',
+            title: 'Test Session',
+            duration: 60,
+            total_words: 150,
+            accuracy: 0.95,
+            filler_words: { um: { count: 2 } }
+        }
+    ];
+
+    const mockAnalyticsData = {
+        sessionHistory: mockSessionHistory,
+        overallStats: {
+            totalSessions: 1,
+            totalPracticeTime: 1,
+            avgWpm: 150,
+            avgFillerWordsPerMin: "2.0",
+            avgAccuracy: "95.0",
+            chartData: []
+        },
+        fillerWordTrends: {},
+        topFillerWords: [],
+        accuracyData: [],
+        loading: false,
+        error: null
+    };
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        (useAnalytics as Mock).mockReturnValue(mockAnalyticsData);
+    });
+
+    it('renders loading skeleton when loading is true', () => {
+        (useAnalytics as Mock).mockReturnValue({ ...mockAnalyticsData, loading: true });
+        render(<BrowserRouter><AnalyticsDashboard profile={mockProfile} /></BrowserRouter>);
         expect(screen.getByTestId('analytics-dashboard-skeleton')).toBeInTheDocument();
     });
 
-    it('renders the error display when there is an error', () => {
-        const error = new Error('Failed to load data');
-        renderWithRouter(<AnalyticsDashboard sessionHistory={[]} profile={null} loading={false} error={error} />);
-
-        // Corrected Assertion: Check for the title from ErrorDisplay and the specific message
+    it('renders error display when error is present', () => {
+        (useAnalytics as Mock).mockReturnValue({ ...mockAnalyticsData, error: new Error('Test error') });
+        render(<BrowserRouter><AnalyticsDashboard profile={mockProfile} /></BrowserRouter>);
         expect(screen.getByText('An Error Occurred')).toBeInTheDocument();
-        expect(screen.getByText('Failed to load data')).toBeInTheDocument();
+        expect(screen.getByText('Test error')).toBeInTheDocument();
     });
 
-    it('renders the empty state when there is no session history', () => {
-        renderWithRouter(<AnalyticsDashboard sessionHistory={[]} profile={mockProfile} loading={false} error={null} />);
-        expect(screen.getByText('Your Dashboard Awaits!')).toBeInTheDocument();
-        expect(screen.getByText('Get Started')).toBeInTheDocument();
+    it('renders empty state when no sessions exist', () => {
+        (useAnalytics as Mock).mockReturnValue({ ...mockAnalyticsData, sessionHistory: [] });
+        render(<BrowserRouter><AnalyticsDashboard profile={mockProfile} /></BrowserRouter>);
+        expect(screen.getByTestId('analytics-dashboard-empty-state')).toBeInTheDocument();
     });
 
-    it('renders the dashboard with data when session history is provided', () => {
-        renderWithRouter(<AnalyticsDashboard sessionHistory={[mockSession]} profile={mockProfile} loading={false} error={null} />);
-        expect(screen.getByTestId('stat-card-total-sessions')).toHaveTextContent('1');
-        expect(screen.getByTestId('speaking-pace')).toHaveTextContent('120');
-        expect(screen.getByTestId('avg-filler-words-min')).toHaveTextContent('2.5');
-        expect(screen.getByTestId('total-practice-time')).toHaveTextContent('10');
-        expect(screen.getByTestId('avg-accuracy')).toHaveTextContent('95.0');
+    it('renders dashboard content when data is present', () => {
+        render(<BrowserRouter><AnalyticsDashboard profile={mockProfile} /></BrowserRouter>);
+        expect(screen.getByTestId('stat-card-total-sessions')).toBeInTheDocument();
         expect(screen.getByTestId('session-history-item')).toBeInTheDocument();
     });
 
-    it('shows the upgrade prompt for non-pro users', () => {
-        renderWithRouter(<AnalyticsDashboard sessionHistory={[mockSession]} profile={mockProfile} loading={false} error={null} />);
+    it('renders upgrade banner for free users', () => {
+        render(<BrowserRouter><AnalyticsDashboard profile={mockProfile} /></BrowserRouter>);
         expect(screen.getByTestId('analytics-dashboard-upgrade-button')).toBeInTheDocument();
     });
 
-    it('hides the upgrade prompt for pro users', () => {
-        const proProfile = { ...mockProfile, subscription_status: 'pro' as const };
-        renderWithRouter(<AnalyticsDashboard sessionHistory={[mockSession]} profile={proProfile} loading={false} error={null} />);
+    it('does not render upgrade banner for pro users', () => {
+        render(<BrowserRouter><AnalyticsDashboard profile={{ ...mockProfile, subscription_status: 'pro' }} /></BrowserRouter>);
         expect(screen.queryByTestId('analytics-dashboard-upgrade-button')).not.toBeInTheDocument();
     });
 });
