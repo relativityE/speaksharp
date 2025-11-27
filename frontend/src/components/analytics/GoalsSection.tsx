@@ -3,7 +3,35 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Target, Trophy, Calendar } from 'lucide-react';
 
+import { useAnalytics } from '@/hooks/useAnalytics';
+import { Skeleton } from '@/components/ui/skeleton';
+
 export const GoalsSection: React.FC = () => {
+    const { loading, error } = useAnalytics(); // In a real app, this would fetch goals data
+
+    if (loading) {
+        return (
+            <Card>
+                <CardHeader><CardTitle className="flex items-center gap-2"><Target className="h-5 w-5 text-primary" />Current Goals</CardTitle></CardHeader>
+                <CardContent className="space-y-6">
+                    <div className="space-y-2"><Skeleton className="h-4 w-full" /><Skeleton className="h-2 w-full" /></div>
+                    <div className="space-y-2"><Skeleton className="h-4 w-full" /><Skeleton className="h-2 w-full" /></div>
+                </CardContent>
+            </Card>
+        );
+    }
+
+    if (error) {
+        return (
+            <Card>
+                <CardHeader><CardTitle className="flex items-center gap-2"><Target className="h-5 w-5 text-primary" />Current Goals</CardTitle></CardHeader>
+                <CardContent>
+                    <p className="text-destructive">Could not load goals.</p>
+                </CardContent>
+            </Card>
+        );
+    }
+
     return (
         <Card>
             <CardHeader>

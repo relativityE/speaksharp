@@ -12,7 +12,34 @@ const MOCK_DATA = [
     { day: 'Sun', sessions: 0 },
 ];
 
+import { useAnalytics } from '@/hooks/useAnalytics';
+import { Skeleton } from '@/components/ui/skeleton';
+
 export const WeeklyActivityChart: React.FC = () => {
+    const { loading, error } = useAnalytics(); // In a real app, this would fetch activity data
+
+    if (loading) {
+        return (
+            <Card className="h-full">
+                <CardHeader><CardTitle>Weekly Activity</CardTitle></CardHeader>
+                <CardContent>
+                    <Skeleton className="h-[250px] w-full" />
+                </CardContent>
+            </Card>
+        );
+    }
+
+    if (error) {
+        return (
+            <Card className="h-full">
+                <CardHeader><CardTitle>Weekly Activity</CardTitle></CardHeader>
+                <CardContent>
+                    <p className="text-destructive">Could not load activity data.</p>
+                </CardContent>
+            </Card>
+        );
+    }
+
     return (
         <Card className="h-full">
             <CardHeader>

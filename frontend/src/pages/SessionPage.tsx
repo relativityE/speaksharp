@@ -10,7 +10,7 @@ import { useUserProfile } from '@/hooks/useUserProfile';
 
 export const SessionPage: React.FC = () => {
     const { session } = useAuthProvider();
-    const { data: profile } = useUserProfile();
+    const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
     const [customWords] = useState<string[]>([]);
     const startTimeRef = useRef<number | null>(null);
 
@@ -41,6 +41,29 @@ export const SessionPage: React.FC = () => {
             setElapsedTime(0);
         }
     }, [isListening]);
+
+    if (isProfileLoading) {
+        return (
+            <div className="min-h-screen bg-background flex items-center justify-center">
+                <div className="flex flex-col items-center gap-4">
+                    <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+                    <p className="text-muted-foreground">Loading session...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (profileError) {
+        return (
+            <div className="min-h-screen bg-background flex items-center justify-center">
+                <div className="text-center p-6 max-w-md">
+                    <h2 className="text-xl font-bold text-destructive mb-2">Error Loading Profile</h2>
+                    <p className="text-muted-foreground mb-4">We couldn't load your profile settings. Please try refreshing the page.</p>
+                    <Button onClick={() => window.location.reload()}>Refresh Page</Button>
+                </div>
+            </div>
+        );
+    }
 
     const handleStartStop = async () => {
         if (isListening) {
