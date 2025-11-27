@@ -39,6 +39,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     }
 
     const fetchAndSetProfile = async (session: Session | null) => {
+      console.log('[AuthProvider] fetchAndSetProfile called with session:', session?.user?.id);
       if (session?.user?.id) {
         try {
           const { data, error } = await supabase
@@ -48,9 +49,10 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
             .single();
 
           if (error) {
-            console.error('Error fetching user profile:', error);
+            console.error('[AuthProvider] Error fetching user profile:', error);
             setProfile(null);
           } else if (data) {
+            console.log('[AuthProvider] Profile loaded:', data.id);
             setProfile(data as UserProfile);
             // --- ARCHITECTURAL FIX: Dispatch event AFTER profile is confirmed set ---
             if (import.meta.env.MODE === 'test' || import.meta.env.VITE_TEST_MODE === 'true') {
@@ -59,10 +61,11 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
             }
           }
         } catch (e) {
-          console.error('An unexpected error occurred while fetching the profile:', e);
+          console.error('[AuthProvider] An unexpected error occurred while fetching the profile:', e);
           setProfile(null);
         }
       } else {
+        console.log('[AuthProvider] No session user ID, clearing profile');
         setProfile(null);
       }
       setSessionState(session);

@@ -37,6 +37,8 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     const { user } = useAuthProvider();
     const { data: profile } = useUserProfile();
 
+    console.log('[AnalyticsPage] Render. Loading:', loading, 'Error:', error, 'Sessions:', sessionHistory?.length, 'User:', user?.id);
+
     const isPro = profile?.subscription_status === 'pro';
 
     if (sessionId && sessionHistory.length === 0 && !loading && !error) {

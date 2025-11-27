@@ -12,6 +12,8 @@ export const useAnalytics = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
     const { data: allSessions = [], isLoading, error } = usePracticeHistory();
 
+    console.log('[useAnalytics] Hook called. SessionId:', sessionId, 'IsLoading:', isLoading, 'Sessions found:', allSessions?.length);
+
     const sessionHistory = useMemo(() => {
         if (sessionId) {
             return allSessions.filter(s => s.id === sessionId);
