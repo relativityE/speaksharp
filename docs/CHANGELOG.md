@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-11-20
+**Last Reviewed:** 2025-11-26
 
 # Changelog
 
@@ -9,6 +9,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Changed
+- **Analytics Data Architecture Refactor (2025-11-26):**
+  - **Eliminated Prop Drilling (Finding 3.2):** Refactored `useAnalytics` hook to be the single source of truth for analytics data
+    - Now consumes `usePracticeHistory` (React Query) as its data source
+    - Centralized all derived statistics calculation in `analyticsUtils.ts`
+    - Removed prop drilling from `AnalyticsPage` and `AnalyticsDashboard` components
+    - Added support for session filtering via `useParams` for single-session views
+    - Updated all unit tests to match refactored hook signature
+  - **Impact:** Cleaner architecture, better  caching, easier testing, single source of truth
+
+
 
 ### Fixed
 - **CI/CD Pipeline Stabilization (2025-11-25):**

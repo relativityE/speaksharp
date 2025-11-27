@@ -1,11 +1,11 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-11-25
+**Last Reviewed:** 2025-11-26
 
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp System Architecture
 
-**Version 3.3** | **Last Updated: 2025-11-25**
+**Version 3.4** | **Last Updated: 2025-11-26**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -83,11 +83,12 @@ This section contains a high-level block diagram of the SpeakSharp full-stack ar
 |    |   - `AuthContext`               |                   ^                                       |                |
 |    | - `frontend/src/hooks` (Logic)  |                   v                                       |                |
 |    |   - `usePracticeHistory`        |       +---------------------------------+       +-------------------------+  |
-|    |   - `useSessionManager`         |       |    Supabase DB (Postgres)       |       |        Stripe           |  |
-|    |   - `useSpeechRecognition`      |       |---------------------------------|       |       (Payments)        |  |
-|    |     - `useTranscriptState`      |       | - `users`, `sessions`           |<----->| (via webhooks)          |  |
-|    |     - `useFillerWords`          |       | - `transcripts`, `usage`        |       +-------------------------+  |
-|    |     - `useTranscriptionService` |       | - `ground_truth` in sessions    |                 ^                |
+|    |   - `useAnalytics`              |       |    Supabase DB (Postgres)       |       |        Stripe           |  |
+|    |   - `useSessionManager`         |       |---------------------------------|       |       (Payments)        |  |
+|    |   - `useSpeechRecognition`      |       | - `users`, `sessions`           |<----->| (via webhooks)          |  |
+|    |     - `useTranscriptState`      |       | - `transcripts`, `usage`        |       +-------------------------+  |
+|    |     - `useFillerWords`          |       | - `ground_truth` in sessions    |                 ^                |
+|    |     - `useTranscriptionService` |       +---------------------------------+                 |                |
 |    | - `frontend/src/lib` (Utils)    |       +---------------------------------+                 |                |
 |    |   - `pdfGenerator`              |<----->| - `users`, `sessions`           |<----->| (via webhooks)          |  |
 |    +---------------------------------+       | - `transcripts`, `usage`        |       +-------------------------+  |
@@ -310,9 +311,16 @@ The E2E test environment is designed for stability and isolation. Several key ar
     *   **Problem:** Programmatically injecting a session into the Supabase client from a test script does not automatically trigger the necessary state updates within the application's React `AuthProvider` context.
     *   **Architecture:** A custom event system was created to bridge this gap. The `programmaticLogin` test helper dispatches a custom browser event (`__E2E_SESSION_INJECTED__`) after setting the session. The `AuthProvider` now contains a `useEffect` hook that listens for this specific event and manually updates its internal state, forcing a UI re-render. This ensures the application reliably reflects the authenticated state during tests.
 
-3.  **Supabase Client Test Exposure:**
-    *   **Problem:** E2E tests need a reference to the application's internal Supabase client to perform programmatic login.
-    *   **Architecture:** The `supabaseClient.ts` module now attaches the client instance to the `window` object (`window.supabase`) when the application is not in a production environment. This provides a stable and predictable way for test helpers to access and interact with the client.
+2.  **Network-Level API Mocking (MSW):**
+    *   **Problem:** E2E tests need to mock Supabase API requests without coupling to implementation details of the client library.
+    *   **Architecture:** The test suite uses Mock Service Worker (MSW) for network-level interception. MSW is initialized in `frontend/src/lib/e2e-bridge.ts` when `IS_TEST_ENVIRONMENT` is true. Mock handlers are defined in `frontend/src/mocks/handlers.ts` and cover all Supabase endpoints:
+        - `/auth/v1/user` - User authentication state
+        - `/auth/v1/token` - Token refresh
+        - `/rest/v1/user_profiles` - User profile data
+        - `/rest/v1/sessions` - Practice session history
+    *   **Benefits:** Network-level mocking is more robust than client-level mocking, as it works regardless of how the Supabase client is implemented internally. It also allows tests to verify the correct API requests are being made.
+    *   **Migration Note:** This replaced the legacy `window.supabase` mock injection pattern (commit `bb26de7`, November 2025).
+
 
 7.  **Deterministic Test Handshake for Authentication:**
     *   **Problem:** The core of the E2E test suite's instability was a race condition between the test runner injecting an authentication session and the React application's `AuthProvider` recognizing and rendering the UI for that state.
@@ -474,25 +482,18 @@ To ensure E2E tests are fast, reliable, and deterministic, the test suite uses a
     *   `tests/e2e/helpers.ts`: This file contains the logic for test setup, primarily the `programmaticLogin` function. It is responsible for injecting mocks and data into the browser context.
 
 *   **`programmaticLogin` Workflow:** This is the canonical function for authenticating a user in an E2E test. It executes the following sequence:
-    1.  **Inject Mock Supabase Client:** Before any application code runs, `page.addInitScript()` injects a complete mock of the Supabase client into the `window` object. This mock is pre-populated with the data imported from `mockData.ts`. This ensures the application boots up with a predictable and consistent data environment.
-    2.  **Generate a Fake JWT:** The helper generates a structurally valid but cryptographically fake JWT. This is crucial because the application's frontend code may decode the JWT to read user claims (like `sub`, `email`, `role`). A simple string token would cause these decoding operations to fail. The fake JWT ensures the frontend behaves as it would with a real session.
-    3.  **Atomic Session Injection and Event Handshake:** In a single `page.evaluate()` call, the helper performs two critical actions to prevent race conditions:
-        *   It first sets up a `Promise` that listens for a custom `e2e-profile-loaded` DOM event.
-        *   It then calls the mock Supabase client's `setSession` method, passing in the fake JWT.
-    4.  **Application Response:** The application's `AuthProvider` receives the session, fetches the user's profile from the mock client, and, upon success, fires the `e2e-profile-loaded` event.
-    5.  **Resolution:** The `Promise` in the test resolves, and `programmaticLogin` completes, now certain that the application is fully authenticated and rendered.
+    1.  **Wait for MSW Ready:** Before proceeding, the helper waits for the `window.mswReady` flag to ensure Mock Service Worker is active and ready to intercept API requests.
+    2.  **Inject Mock Session:** Uses `page.evaluate()` to inject a mock session object into `localStorage` under the Supabase auth key. This session contains a structurally valid (but cryptographically fake) JWT token.
+    3.  **Navigate to Application:** Navigates to the target page (e.g., `/analytics`).
+    4.  **Wait for Authentication:** Waits for a stable, user-visible indicator that the application has processed the session and rendered the authenticated state (e.g., the "Sign Out" button).
+    5.  **MSW Intercepts Requests:** As the application's `AuthProvider` initializes and queries the Supabase API for user profile data, MSW intercepts these requests and returns mock data defined in `frontend/src/mocks/handlers.ts`.
 
-*   **Known Limitations - Mocking `TranscriptionService`:**
-    *   **Problem:** The `TranscriptionService`, which manages real-time audio processing, has proven difficult to mock reliably at the E2E level. Both `page.evaluate` and `page.route` strategies have been unsuccessful, indicating a deep architectural coupling or a test environment limitation.
-    *   **Current State:** The `live-transcript.e2e.spec.ts` test is therefore superficial and only verifies that the UI enters a "recording" state. This has been documented as technical debt in `docs/ROADMAP.md`.
-
-### Mocking Native Dependencies
-
-Some features, like the on-device transcription powered by `LocalWhisper`, rely on libraries with native dependencies (e.g., `sharp` for image processing, `@xenova/transformers` for ML models). These native dependencies can be difficult to install and build in certain environments, especially in CI/CD pipelines or sandboxed test runners.
-
-To solve this, we use a mocking strategy for the test environment:
-
-1.  **Optional Dependency:** The native dependency (`sharp`) is listed as an `optionalDependency` in `package.json`. This prevents the package manager from failing the installation if the native build step fails.
+6.  **Stateful Mocking with MSW and `localStorage`:**
+    *   **Problem:** Tests need to mock backend state (user profiles, sessions) in a way that persists across page navigations and React re-renders.
+    *   **Architecture:** The combination of MSW and `localStorage` provides stateful mocking:
+        - **MSW Handlers:** Return consistent mock data for API requests (e.g., user profile, session history).
+        - **localStorage:** Stores the Supabase auth session, which persists across `page.goto()` calls, accurately simulating real browser behavior.
+    *   **Benefit:** This architecture eliminates race conditions and ensures tests are deterministic, as the mock state is established before the application boots and remains stable throughout the test.
 2.  **Vitest Alias:** In `vitest.config.mjs`, we create aliases that redirect imports of `sharp` and `@xenova/transformers` to mock files.
 3.  **Canvas-based Mock:** To improve stability, the mock for `sharp` (`tests/support/mocks/sharp.ts`) now uses the `canvas` library, a pure JavaScript image processing tool with better stability in headless environments. The mock for `@xenova/transformers` provides a simplified, lightweight implementation for unit tests.
 4.  **Dependency Inlining:** Because the `@xenova/transformers` import happens within a dependency, we must configure Vitest to process this dependency by adding it to `test.deps.inline`. This ensures the alias is applied correctly.
@@ -521,7 +522,13 @@ The application employs a hybrid state management strategy that clearly separate
 
 *   **Server State & Data Fetching (`@tanstack/react-query`):** All application data that is fetched from the backend (e.g., a user's practice history) is managed by `@tanstack/react-query` (React Query). This library handles all the complexities of data fetching, caching, re-fetching, and error handling.
     *   **Decoupled Architecture:** This approach decouples data fetching from global state. Previously, the application used a second global context (`SessionContext`) to hold practice history, which was a brittle anti-pattern. The new architecture eliminates this, ensuring that components fetch the data they need, when they need it.
-    *   **Custom Hooks:** The data-fetching logic is encapsulated in custom hooks, with `usePracticeHistory` being the canonical example. This hook fetches the user's session history and is conditionally enabled, only running when a user is authenticated.
+    *   **Custom Hooks:** The data-fetching logic is encapsulated in custom hooks:
+        - **`usePracticeHistory`:** The canonical data-fetching hook. Fetches the user's complete session history from Supabase and is conditionally enabled (only runs when authenticated).
+        - **`useAnalytics` (Refactored 2025-11-26):** Consumes `usePracticeHistory` as its data source and centrally calculates all derived analytics statistics. This eliminates prop drilling and provides a single source of truth for analytics data. Key features:
+            - Automatically filters sessions based on URL params (for single-session views)
+            - Centralizes statistics calculation using `analyticsUtils.ts`
+            - Returns `sessionHistory`, `overallStats`, `fillerWordTrends`, `topFillerWords`, `accuracyData`, `loading`, and `error`
+            - Components like `AnalyticsDashboard`, `TopFillerWords`, and `AccuracyComparison` consume this hook directly (commit `17be58c`)
     *   **Cache Invalidation:** When a user completes a new practice session, the application uses React Query's `queryClient.invalidateQueries` function to intelligently mark the `sessionHistory` data as stale. This automatically triggers a re-fetch, ensuring the UI is always up-to-date without manual state management.
 
 This decoupled architecture is highly scalable and maintainable, as new data requirements can be met by creating new, isolated custom hooks without polluting the global state.
@@ -595,8 +602,14 @@ The `TranscriptionService.ts` provides a unified abstraction layer over multiple
      1.  **Dynamic Loading:** The `LocalWhisper` module is dynamically imported via `import()` only when the user explicitly selects "On-Device" mode. This prevents the heavy WebAssembly (WASM) dependencies from loading during the initial application render, significantly improving startup performance.
      2.  **Model Loading:** The application downloads the quantized `whisper-tiny` model (~40MB). Progress is reported to the UI via a toast notification. On an average broadband connection, this takes 5-10 seconds.
      3.  **Caching:** Once downloaded, the model files are automatically cached in the browser's `CacheStorage` (specifically in the `transformers-cache` namespace). Subsequent loads are nearly instant as they are served directly from this local cache.
-     4.  **Inference Engine:** The library runs the model on a WebAssembly (WASM) version of the ONNX Runtime, utilizing WebGPU if available for hardware acceleration, or falling back to WASM/CPU.
-     5.  **Privacy:** All audio processing and transcription occurs entirely on the user's machine. No audio data is ever sent to a third-party server.
+     4.  **True Streaming Architecture (Refactored 2025-11-26):** LocalWhisper now uses continuous 1-second audio buffering instead of the legacy 5-second batch processing. This provides near-real-time transcript updates:
+         - Audio is continuously recorded into a circular buffer
+         - Every 1 second, the buffer is processed by Whisper
+         - A concurrency lock (`isProcessing`) ensures only one inference runs at a time
+         - Interim results are displayed immediately, creating a responsive "live" experience
+         - This architecture matches the responsiveness of cloud-based streaming (commit `76fae94`)
+     5.  **Inference Engine:** The library runs the model on a WebAssembly (WASM) version of the ONNX Runtime, utilizing WebGPU if available for hardware acceleration, or falling back to WASM/CPU.
+     6.  **Privacy:** All audio processing and transcription occurs entirely on the user's machine. No audio data is ever sent to a third-party server.
  
  *   **Comparison to Cloud AI:**
      *   **Privacy:** On-device is 100% private. Cloud AI requires sending audio data to AssemblyAI's servers.

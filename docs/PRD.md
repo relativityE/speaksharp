@@ -1,6 +1,6 @@
 
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-11-12
+**Last Reviewed:** 2025-11-26
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -131,13 +131,12 @@ The project's testing strategy prioritizes stability, reliability, and a tight a
 
 ## 4. Known Issues & Risks
 
-This section tracks high-level product risks and constraints. For a detailed history of resolved issues, see the [Changelog](./CHANGELog.md).
+This section tracks high-level product risks and constraints. For a detailed history of resolved issues, see the [Changelog](./CHANGELOG.md).
 
-- **E2E Test Metrics Reporting:** The Software Quality Metrics section occasionally shows "0 E2E tests" when the CI E2E test stage is skipped or when metrics are collected without running E2E tests. This is a reporting issue only - all 13 E2E tests exist in `tests/e2e/` and pass when run locally. A fix is in progress to improve metrics reporting accuracy.
-- **Analytics Data Flow:** The E2E tests for the Analytics Dashboard mock the data at the component level, so the end-to-end data flow from the database to the UI is not fully verified by the current test suite.
 - **Live Transcript E2E Test Disabled:** The E2E test for the core live transcription feature (`live-transcript.e2e.spec.ts`) has been architected to correctly validate the UI, but the test is currently disabled (`test.skip`). This means the application's most critical feature is not being automatically verified against regressions.
-- **On-Device STT User Experience:** The current implementation of the on-device STT mode uses batch processing (transcribing 5-second audio chunks at a time) rather than a true real-time stream. This will result in a delayed and unresponsive user experience that does not feel "live".
 - **Incomplete Theming:** The application is configured to support both light and dark themes, but only a dark theme is currently implemented. Users will not be able to switch to a light theme, which can be an accessibility issue and ignores user preference.
+- **E2E Test Synchronization:** The E2E test infrastructure uses global boolean flags for synchronization, which could create race conditions. Migration to event-based synchronization is in the technical debt backlog (Finding 1.1).
+- **Unit Test Coverage:** Current test coverage is ~36%, below the industry best practice of 70%. Adding coverage enforcement and additional tests is tracked in the technical debt backlog (Finding 3.3).
 
 ---
 
