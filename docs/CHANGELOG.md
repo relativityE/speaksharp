@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-11-26
+**Last Reviewed:** 2025-11-27
 
 # Changelog
 
@@ -9,6 +9,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Changed
+- **UX State Consistency Improvements (2025-11-27):**
+  - Standardized loading and error state handling across frontend components
+  - **`SessionPage.tsx`:** Fixed React Hook ordering violation by moving all hooks to top-level before conditional returns. Added loading spinner and error message with refresh button for user profile fetching.
+  - **`SignInPage.tsx` and `SignUpPage.tsx`:** Replaced `null` returns during auth loading with loading spinners to prevent white flashes.
+  - **`WeeklyActivityChart.tsx` and `GoalsSection.tsx`:** Added loading skeleton and error message displays for improved UX consistency.
+  - **Impact:** Eliminated blank screens and inconsistent loading states, providing better user feedback across the application.
+
+### Added
+- **Event-Driven E2E Test Synchronization (2025-11-27):**
+  - Implemented custom DOM events for robust E2E test synchronization, replacing fragile polling and timeouts
+  - **`e2e-bridge.ts`:** Added `dispatchE2EEvent()` helper function and event dispatching for `e2e:msw-ready`, `e2e:app-ready`, and `e2e:speech-recognition-ready`
+  - **`main.tsx`:** Dispatch `e2e:app-ready` event after application renders in test mode
+  - **`helpers.ts`:** Added `waitForE2EEvent()` helper and updated `programmaticLogin()` to use event-driven sync instead of polling `window.mswReady`
+  - **`live-transcript.e2e.spec.ts`:** Unskipped test and updated to use `waitForE2EEvent('e2e:speech-recognition-ready')` for deterministic timing
+  - **Impact:** Eliminates race conditions and provides deterministic, event-driven synchronization for E2E tests
 
 ### Changed
 - **Analytics Data Architecture Refactor (2025-11-26):**

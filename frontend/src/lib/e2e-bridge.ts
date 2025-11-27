@@ -28,10 +28,19 @@ export const initializeE2EEnvironment = async (): Promise<void> => {
         setupSpeechRecognitionMock();
 
         window.mswReady = true;
+        dispatchE2EEvent('e2e:msw-ready');
     } catch (error) {
         logger.error({ error }, '[E2E Bridge] Failed to initialize MSW');
         throw error;
     }
+};
+
+/**
+ * Dispatches a custom event for E2E test synchronization
+ */
+export const dispatchE2EEvent = (eventName: string, detail: unknown = {}) => {
+    logger.info({ eventName, detail }, '[E2E Bridge] Dispatching event');
+    window.dispatchEvent(new CustomEvent(eventName, { detail }));
 };
 
 /**
@@ -80,6 +89,7 @@ class MockSpeechRecognition {
         // Register this instance as the active one so we can dispatch events to it
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (window as any).__activeSpeechRecognition = this;
+        dispatchE2EEvent('e2e:speech-recognition-ready');
     }
     stop() {
         logger.info('[MockSpeechRecognition] stop() called');

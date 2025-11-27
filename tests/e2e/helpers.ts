@@ -22,6 +22,24 @@ export function attachLiveTranscript(page: Page): void {
   });
 }
 
+/**
+ * Waits for a custom event dispatched by the E2E bridge
+ */
+export async function waitForE2EEvent(page: Page, eventName: string): Promise<void> {
+  await page.evaluate((name) => {
+    return new Promise<void>((resolve) => {
+      // If the event has already fired, check fallback flag for mswReady
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (name === 'e2e:msw-ready' && (window as any).mswReady) {
+        resolve();
+        return;
+      }
+
+      window.addEventListener(name, () => resolve(), { once: true });
+    });
+  }, eventName);
+}
+
 /* ---------------------------------------------
    Supabase Mock + Programmatic Login
 ---------------------------------------------- */
@@ -47,7 +65,7 @@ export async function programmaticLogin(
 
   // 3. Wait for MSW to be ready (required for network mocking)
   console.log('[E2E DEBUG] Waiting for MSW ready signal');
-  await page.waitForFunction(() => (window as unknown as { mswReady: boolean }).mswReady === true, { timeout: 10000 });
+  await waitForE2EEvent(page, 'e2e:msw-ready');
   console.log('[E2E DEBUG] MSW ready signal received');
 
   // 4. Wait for app to initialize (app-main indicates auth is complete)

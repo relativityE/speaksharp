@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-11-26
+**Last Reviewed:** 2025-11-27
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -98,6 +98,16 @@ This section is a prioritized list of technical debt items to be addressed.
   - **Status:** COMPLETED
   - **Problem:** The main analytics page (`AnalyticsPage.tsx`) suffered from prop drilling and inefficient data fetching. It fetched the entire session history even when only one session was needed and passed numerous props down through the component tree.
   - **Solution Implemented:**
+
+- **🟡 IN PROGRESS (2025-11-27) - P2 (High): Complete Live Transcript E2E Test**
+  - **Status:** Event-driven synchronization infrastructure complete, test needs SessionPage debugging
+  - **Problem:** `live-transcript.e2e.spec.ts` test hangs after successful login when navigating to SessionPage. Event infrastructure (`e2e:speech-recognition-ready`) is implemented but test execution stalls.
+  - **Completed:**
+    - Added `dispatchE2EEvent()` helper to `e2e-bridge.ts`
+    - Implemented `e2e:msw-ready`, `e2e:app-ready`, and `e2e:speech-recognition-ready` custom DOM events
+    - Updated `programmaticLogin()` to use event-based sync instead of polling
+    - Unskipped live-transcript test and added `waitForE2EEvent()` calls
+  - **Remaining:** Debug SessionPage behavior in E2E environment - test navigates successfully but hangs before reaching session start assertions
     - Refactored `useAnalytics` hook to consume `usePracticeHistory` (React Query) as single source of truth
     - Centralized all derived statistics calculation in `analyticsUtils.ts`
     - Removed prop drilling from `AnalyticsPage` and `AnalyticsDashboard` components

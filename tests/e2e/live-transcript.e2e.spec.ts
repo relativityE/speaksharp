@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test';
 import { SessionPage } from '../pom';
-import { programmaticLogin } from './helpers';
+import { programmaticLogin, waitForE2EEvent } from './helpers';
 
 test.describe('Live Transcript Feature', () => {
-  test.skip('should display live transcript after session starts', async ({ page }) => {
+  test('should display live transcript after session starts', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await programmaticLogin(page);
 
@@ -21,8 +21,8 @@ test.describe('Live Transcript Feature', () => {
     await expect(transcriptContainer).toContainText('Listening...');
 
     // Give the transcription service time to fully initialize
-    // The MockSpeechRecognition instance is created asynchronously
-    await page.waitForTimeout(2000);
+    // Wait for the mock speech recognition to be ready via event
+    await waitForE2EEvent(page, 'e2e:speech-recognition-ready');
 
     // Simulate live transcription using the E2E bridge
     const dispatchResult = await page.evaluate(() => {

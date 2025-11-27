@@ -130,6 +130,10 @@ const initialize = async () => {
     await initializeE2EEnvironment();
     console.log('[E2E] Environment ready, now rendering app');
     await renderApp();
+
+    // Signal that the app is fully mounted and ready for interaction
+    const { dispatchE2EEvent } = await import('@/lib/e2e-bridge');
+    dispatchE2EEvent('e2e:app-ready');
   } else {
     await renderApp();
   }
