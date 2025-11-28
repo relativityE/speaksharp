@@ -308,15 +308,23 @@ Crucially, that configuration tells Playwright to use the command vite --mode te
 This --mode test flag is the key. It instructs Vite to automatically look for and load environment variables ONLY from .env.test (and .env.test.local).
 So, the framework itself ensures the correct .env file is used based on the mode it's running in. The fix I implemented to the package.json was essential to restore this intended behavior, ensuring pnpm dev uses development mode and leaves the test mode to be used exclusively by the testing framework.
 
-### Decoupled Health-Check and Visual State Capture
 
-Our E2E testing strategy separates the concern of functional validation from visual documentation. This is achieved through two distinct, specialized tests:
+### Smoke Test: Comprehensive Health Check
 
-*   **`tests/e2e/health-check.e2e.spec.ts` (Functional Validation):** This is the primary health check for the application. It is a lean, focused test that performs one critical task: it verifies that a user can successfully authenticate using the `programmaticLogin` helper. Its purpose is to provide a fast, reliable signal that the core authentication flow is working. It makes no assertions about the visual state of the UI beyond what is necessary to confirm a successful login.
+Our E2E testing strategy includes a **smoke test** (`tests/e2e/smoke.e2e.spec.ts`) that serves as the canonical health check for the application. This test verifies all critical user journeys in a single, comprehensive pass:
 
-*   **`tests/e2e/capture-states.e2e.spec.ts` (Visual Documentation):** This test is not for functional validation but is a dedicated tool for generating visual artifacts. It uses the `programmaticLogin` helper to get the application into various states (e.g., authenticated, unauthenticated) and captures screenshots of the UI.
+**Smoke Test Coverage:**
+1. **Boot Check:** Verifies the app boots and renders DOM
+2. **Unauthenticated Homepage:** Confirms public landing page loads correctly (Sign In button visible)
+3. **Authentication:** Tests programmatic login flow using MSW network mocking
+4. **Session Page (Authenticated):** Verifies practice session UI loads and start/stop button is functional
+5. **Analytics Page (Authenticated):** Confirms analytics dashboard renders with data visualization
+6. **Logout:** Tests sign-out flow and return to unauthenticated state
 
-This decoupled architecture is a key to a stable test suite. It ensures that a purely visual change to the UI (e.g., a CSS refactor) will not break the critical, functional health check.
+**Purpose:** This smoke test is run as part of `pnpm test:health-check` and provides a fast, reliable signal that core features (homepage, auth, session, analytics) are working after every commit.
+
+**Visual Documentation:** A separate test (`tests/e2e/capture-states.e2e.spec.ts`) handles screenshot generation for visual documentation. This decoupled architecture ensures that purely visual changes (e.g., CSS refactors) do not break the critical functional health check.
+
 
 ### Unit & Integration Testing for React Query
 

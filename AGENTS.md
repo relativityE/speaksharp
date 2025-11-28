@@ -113,9 +113,9 @@ ___
      "check-in-validation": "./scripts/test-audit.sh ci-simulate",
      "test": "cd frontend && vitest --coverage",
      "dev": "cd frontend && vite",
-     "build": "cd frontend && vite build",
+     "build": "cd frontend && vite build"
     ```
-    **Note:** As of Nov 25, `test:health-check` runs full CI validation (preflight, quality checks, build, E2E), not just E2E tests.
+    **Note:** `test:health-check` runs a comprehensive smoke test (homepage unauth/auth, session page, analytics page) via `scripts/test-audit.sh`, along with preflight, quality checks, and build verification.
 6. ✅ **Foreground Logging** – All E2E tasks must run in the foreground with live logs (`tee`) for traceability.
 
 ---
