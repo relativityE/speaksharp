@@ -109,6 +109,8 @@ This phase focuses on long-term architecture, scalability, and preparing for fut
 - 🔴 **Automate On-Device Model Updates:** Create a script (e.g., GitHub Action) to automatically check for and download new versions of the locally-hosted Whisper model to prevent it from becoming stale.
 - 🔴 **Add Platform Integrations (e.g., Zoom, Google Meet):** Allow SpeakSharp to connect to and analyze audio from third-party meeting platforms.
 - 🟡 **Set up Multi-Env CI/CD:** A basic implementation for DB migrations exists, but needs expansion.
+- 🔴 **Replace E2E Custom Event Synchronization:** Refactor `e2e-profile-loaded` custom events to use robust wait strategies (waiting for visible UI elements instead of custom DOM events). Current implementation works but creates tight coupling between app and tests.
+- 🔴 **Create Mock Data Factory Functions:** Build `createMockPracticeSession()` and similar factories to ensure all MSW handlers return complete, valid mock data with all required fields.
 
 ### Gating Check
 - 🔴 **Do a Gap Analysis of current implementation against the Current Phase requirements.**
