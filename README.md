@@ -137,6 +137,74 @@ The test runner automatically generates a Software Quality Metrics report.
 *   When run locally (e.g., `pnpm test:all` or `pnpm test:health-check`), a summary is printed to your console.
 *   When run in CI, the full report is automatically generated and committed to `docs/PRD.md`.
 
+## Scripts Reference
+
+This project provides multiple npm scripts for different use cases. Use this decision tree to find the right command:
+
+### Testing & Validation
+
+**🎯 Want to run the full CI simulation locally?**
+```bash
+pnpm run check-in-validation
+```
+- Runs frozen lockfile check, quality checks, build, E2E shards (1-4), Lighthouse CI
+- Mirrors GitHub CI workflow exactly
+- **Use before:** Major commits, PRs
+
+**🚀 Want quick validation during development?**
+```bash
+pnpm test:health-check
+```
+- Runs preflight, lint, typecheck, unit tests, build, smoke E2E test
+- Faster than full CI simulation
+- **Use for:** Quick feedback loops
+
+**⚡ Want the fastest local feedback (unit tests only)?**
+```bash
+pnpm test
+```
+- Runs Vitest with coverage
+- **Use for:** TDD, component development
+
+**🧪 Want to run the complete E2E suite?**
+```bash
+pnpm test:all
+```
+- Runs quality checks + full E2E suite (all test files)
+- **Use for:** Final validation before merge
+
+### E2E Debugging
+
+**🐛 Want to debug E2E tests interactively?**
+```bash
+pnpm run test:e2e:ui        # Playwright UI mode
+pnpm run test:e2e:debug     # Headed mode with trace
+```
+
+**🔦 Want to run Lighthouse audits?**
+```bash
+pnpm run lighthouse:ci
+```
+
+### Build & Preview
+
+**📦 Want to build for production?**
+```bash
+pnpm run build
+```
+
+**📦 Want to build for E2E testing?**
+```bash
+pnpm run build:test
+```
+
+**👀 Want to preview the production build?**
+```bash
+pnpm run preview
+pnpm run preview:test    # For test mode
+```
+
 ### Continuous Integration (CI)
 
 The definitive quality gate is our CI pipeline, which runs in GitHub Actions. The workflow is defined in `.github/workflows/ci.yml` and is orchestrated by the `scripts/test-audit.sh` script. This ensures perfect consistency between the developer environment and the CI environment.
+

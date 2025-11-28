@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Package.json Scripts Consolidation (2025-11-28):**
+  - Removed duplicate scripts: `test:unit` (identical to `test`) and `test:e2e:health` (identical to `test:health-check`)
+  - Added JSDoc-style comments to clarify script purposes
+  - Added comprehensive "Scripts Reference" section to README.md with decision tree for choosing the right command
+  - **Impact:** Clearer developer experience, reduced confusion, improved onboarding
+
 - **Design System Consistency Improvements (2025-11-28):**
   - **Badge Component:** Fixed typo in `badge-variants.ts` (`text-primary-fg` → `text-primary-foreground`) to align with Tailwind token conventions.
   - **Card Component:** Replaced hardcoded shadow value with design token (`shadow-card`) for better maintainability.
