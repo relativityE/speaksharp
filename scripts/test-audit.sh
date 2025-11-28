@@ -18,13 +18,13 @@ ensure_artifacts_dir() {
 # --- Stage Functions ---
 
 run_preflight() {
-    echo "✅ [1/5] Running Preflight Checks..."
+    echo "✅ [1/6] Running Preflight Checks..."
     ./scripts/preflight.sh
-    echo "✅ [1/5] Preflight Checks Passed."
+    echo "✅ [1/6] Preflight Checks Passed."
 }
 
 run_quality_checks() {
-    echo "✅ [2/5] Running Code Quality Checks in Parallel..."
+    echo "✅ [2/6] Running Code Quality Checks in Parallel..."
     if ! pnpm exec concurrently --kill-others-on-fail "pnpm lint" "pnpm typecheck" "pnpm test"; then
         echo "❌ Code Quality Checks failed." >&2
         exit 1
@@ -39,17 +39,17 @@ run_quality_checks() {
     fi
     
     echo "ℹ️ Lint/Typecheck/Test completed successfully."
-    echo "✅ [2/5] Code Quality Checks Passed."
+    echo "✅ [2/6] Code Quality Checks Passed."
 }
 
 run_build() {
-    echo "✅ [3/5] Building Application for E2E Tests..."
+    echo "✅ [3/6] Building Application for E2E Tests..."
     pnpm build:test || {
         echo "❌ Build failed." >&2
         exit 1
     }
     echo "ℹ️ Build output located in ./frontend/dist"
-    echo "✅ [3/5] Build Succeeded."
+    echo "✅ [3/6] Build Succeeded."
 }
 
 
@@ -82,25 +82,25 @@ run_e2e_tests_shard() {
 }
 
 run_e2e_tests_all() {
-    echo "✅ [4/5] Running ALL E2E Tests (local mode)..."
+    echo "✅ [4/6] Running ALL E2E Tests (local mode)..."
     pnpm exec playwright test $E2E_TEST_DIR || {
         echo "❌ E2E full suite failed." >&2
         exit 1
     }
-    echo "✅ [4/5] E2E Tests Passed."
+    echo "✅ [4/6] E2E Tests Passed."
 }
 
 run_e2e_health_check() {
-    echo "✅ [4/5] Running E2E Health Check..."
+    echo "✅ [4/6] Running E2E Health Check..."
     pnpm test:e2e:health || {
         echo "❌ E2E Health Check failed." >&2
         exit 1
     }
-    echo "✅ [4/5] E2E Health Check Passed."
+    echo "✅ [4/6] E2E Health Check Passed."
 }
 
 run_lighthouse_ci() {
-    echo "✅ [6/5] Running Lighthouse CI..."
+    echo "✅ [5/6] Running Lighthouse CI..."
     
     # Ensure build exists
     if [ ! -d "frontend/dist" ]; then
@@ -138,30 +138,30 @@ run_lighthouse_ci() {
         exit $EXIT_CODE
     fi
     
-    echo "✅ [6/5] Lighthouse CI Passed."
+    echo "✅ [5/6] Lighthouse CI Passed."
 }
 
 run_sqm_report_ci() {
-    echo "✅ [5/5] Generating Final Report and Updating Docs..."
+    echo "✅ [6/6] Generating Final Report and Updating Docs..."
     echo "ℹ️ Merging metrics + updating PRD…"
     ensure_artifacts_dir
     if [ -f "./scripts/run-metrics.sh" ]; then
         ./scripts/run-metrics.sh
-        pnpm exec node scripts/update-prd-metrics.mjs
+        node scripts/update-prd-metrics.mjs
     else
         echo "⚠️ Warning: Metric generation scripts not found. Skipping report."
     fi
-    echo "✅ [5/5] Reporting complete."
+    echo "✅ [6/6] Reporting complete."
 }
 
 run_sqm_report_local() {
-    echo "✅ [5/5] Generating and Printing SQM Report..."
+    echo "✅ [6/6] Generating and Printing SQM Report..."
     if [ -f "./scripts/run-metrics.sh" ]; then
         ./scripts/run-metrics.sh --json-output
     else
         echo "⚠️ Warning: Metric generation scripts not found. Skipping SQM report."
     fi
-    echo "✅ [5/5] SQM Report Generation Complete."
+    echo "✅ [6/6] SQM Report Generation Complete."
 }
 
 run_ci_simulation() {

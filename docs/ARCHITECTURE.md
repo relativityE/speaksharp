@@ -136,8 +136,31 @@ SpeakSharp is built on a modern, serverless technology stack designed for real-t
 *   **Testing:**
     *   **Unit/Integration:** Vitest (`^2.1.9`)
     *   **DOM Environment:** happy-dom (`^18.0.1`)
-    *   **E2E:** Playwright
-    *   **API Mocking:** Mock Service Worker (MSW)
+    *   **End-to-End Testing Architecture (The "Three Pillars"):**
+    To ensure stability and speed, our E2E tests rely on three distinct layers of abstraction:
+
+    1.  **Network Layer (MSW):**
+        *   **Role:** Intercepts all network requests (`fetch`, `XHR`) leaving the browser.
+        *   **File:** `frontend/src/mocks/handlers.ts`
+        *   **Responsibility:** Returns mock JSON responses for Supabase Auth and Database queries. Ensures tests run without a real backend.
+
+    2.  **Runtime Layer (E2E Bridge):**
+        *   **Role:** Injects mock implementations of *browser APIs* that don't exist or behave differently in a headless environment.
+        *   **File:** `frontend/src/lib/e2e-bridge.ts`
+        *   **Responsibility:**
+            *   Mocks `SpeechRecognition` (browser API) to prevent crashes.
+            *   Injects initial session state (`window.__E2E_MOCK_SESSION__`) for instant login.
+            *   Dispatches custom events (`e2e:app-ready`) for synchronization.
+
+    3.  **Orchestration Layer (Helpers):**
+        *   **Role:** The "Consumer" that Playwright tests actually call.
+        *   **File:** `tests/e2e/helpers.ts`
+        *   **Responsibility:**
+            *   `programmaticLogin()`: Tells the Bridge to inject a session, then waits for MSW to be ready.
+            *   `mockLiveTranscript()`: Tells the Bridge to simulate speech events.
+            *   `waitForE2EEvent()`: Listens for bridge events to avoid flaky `setTimeout`.
+
+*   **Single Source of Truth (`pnpm test:all`):** A single command, `pnpm test:all`, is the user-facing entry point for all validation. It runs an underlying orchestration script (`test-audit.sh`) that executes all checks (lint, type-check, tests) in a parallelized, multi-stage process both locally and in CI, guaranteeing consistency and speed.
     *   **Image Processing (Test):** node-canvas (replaces Jimp/Sharp for stability)
 
 ## Testing and CI/CD
