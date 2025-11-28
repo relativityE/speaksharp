@@ -91,12 +91,12 @@ run_e2e_tests_all() {
 }
 
 run_e2e_health_check() {
-    echo "✅ [4/6] Running E2E Health Check..."
+    echo "✅ [4/6] Running Smoke Test (Comprehensive Health Check)..."
     pnpm exec playwright test tests/e2e/smoke.e2e.spec.ts --project=chromium || {
-        echo "❌ E2E Health Check failed." >&2
+        echo "❌ Smoke Test failed." >&2
         exit 1
     }
-    echo "✅ [4/6] E2E Health Check Passed."
+    echo "✅ [4/6] Smoke Test Passed."
 }
 
 run_lighthouse_ci() {
