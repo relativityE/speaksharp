@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Design Token Usage Guidelines (2025-11-28):**
+  - Created comprehensive `docs/DESIGN_TOKENS.md` documenting all design tokens
+  - Includes color tokens (semantic, brand, feedback), gradients, shadows, animations
+  - CVA usage guidelines and best practices
+  - Migration guide for replacing hardcoded values with tokens
+  - **Impact:** Clear reference for consistent design system usage
+
 ### Changed
 - **Package.json Scripts Consolidation (2025-11-28):**
   - Removed duplicate script: `test:unit` (identical to `test`)

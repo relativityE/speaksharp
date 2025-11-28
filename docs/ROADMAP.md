@@ -73,9 +73,9 @@ This phase is about confirming the core feature set works as expected and polish
     - ✅ Audited all 20 UI components for consistent CVA variant usage
     - ✅ Fixed Badge typo, refactored Input to use CVA, replaced hardcoded Card shadow
     - ✅ Verified 8 stateful components properly use CVA, 12 utility components appropriately use static classes
+    - ✅ **Documented design token usage guidelines in `docs/DESIGN_TOKENS.md`**
   - **Remaining Work:**
-    - 🔴 Document design token usage guidelines in `/docs`
-    - 🔴 Add Storybook or component showcase for design system
+    - 🔴 Add lightweight custom component showcase (route + page)
 - ✅ **Refactor `useSpeechRecognition` hook:** Improve maintainability and fix memory leaks.
 - ✅ **Add Robust UX States:** Completed 2025-11-27 (SessionPage, SignInPage, SignUpPage, WeeklyActivityChart, GoalsSection)
 - ✅ **Centralize configuration:** Move hardcoded values (e.g., session limits) to a config file.
