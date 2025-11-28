@@ -2,9 +2,9 @@
   {
     "name": "minScore",
     "expected": 0.5,
-    "actual": 0.12,
+    "actual": 0.14,
     "values": [
-      0.12
+      0.14
     ],
     "operator": ">=",
     "passed": false,
@@ -43,6 +43,21 @@
     "url": "http://localhost:4173/",
     "auditTitle": "Eliminate render-blocking resources",
     "auditDocumentationLink": "https://developer.chrome.com/docs/lighthouse/performance/render-blocking-resources/"
+  },
+  {
+    "name": "minScore",
+    "expected": 0.5,
+    "actual": 0.49,
+    "values": [
+      0.49
+    ],
+    "operator": ">=",
+    "passed": false,
+    "auditId": "max-potential-fid",
+    "level": "warn",
+    "url": "http://localhost:4173/",
+    "auditTitle": "Max Potential First Input Delay",
+    "auditDocumentationLink": "https://developer.chrome.com/docs/lighthouse/performance/lighthouse-max-potential-fid/"
   },
   {
     "name": "minScore",

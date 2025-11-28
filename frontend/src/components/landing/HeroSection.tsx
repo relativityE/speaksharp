@@ -30,6 +30,10 @@ export const HeroSection = () => {
             <img
               src="/assets/hero-speaker.jpg"
               alt="Confident Speaker"
+              width="1280"
+              height="720"
+              fetchPriority="high"
+              loading="eager"
               className="relative rounded-2xl shadow-2xl border border-white/10 w-full object-cover aspect-[16/9] hover:scale-[1.02] transition-transform duration-500"
               onError={(e) => {
                 e.currentTarget.style.display = 'none';

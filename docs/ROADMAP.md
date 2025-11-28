@@ -214,6 +214,11 @@ These items were identified in a comprehensive system analysis and remain releva
   - **MoSCoW:** Should Have
 
 - **P3 (Low): Simplify and Document package.json Scripts**
+  - 🟡 **Refactor:** Consolidate duplicate `package.json` scripts.
+- 🟡 **Design System Consistency:**
+  - Fix `Badge` component typo (`text-primary-fg` -> `text-primary-foreground`).
+  - Refactor `Input` component to use `cva` for better variant support.
+  - Replace hardcoded shadow in `Card` component with `shadow-card` token.
   - **Problem:** The `package.json` scripts section contains multiple overlapping test commands creating ambiguity about which to use when:
     - Multiple test entry points: `test`, `test:unit`, `test:all`, `test:health-check`, `check-in-validation`
     - Multiple E2E commands: `test:e2e:ui`, `test:e2e:debug`, `test:e2e:health`, `test:health-check`

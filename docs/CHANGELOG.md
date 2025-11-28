@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Lighthouse Performance Optimization (2025-11-28):**
+  - **Image Optimization:** Added explicit `width`/`height`, `fetchpriority="high"`, and `loading="eager"` to Hero image (LCP element).
+  - **Code Splitting:** Split `whisper-turbo` into a separate `ml-vendor` chunk to reduce initial bundle size.
+  - **Lazy Loading:** Verified lazy loading for heavy routes (`Analytics`, `Session`).
+  - **CI Integration:** Added `lighthouse:ci` script to `package.json`.
+
+- **Design System Audit & Documentation (2025-11-28):**
+  - **Single Source of Truth:** Consolidated Design System documentation into `docs/ARCHITECTURE.md` (Section 3.3).
+  - **Audit Findings:** Identified specific tech debt (Badge typo, Input CVA, Card shadow) and added to `docs/ROADMAP.md`.
+  - **Cleanup:** Deleted unapproved `docs/DESIGN_SYSTEM.md` and `docs/design-system-audit.md`.
+
 - **UX State Consistency Improvements (2025-11-27):**
   - Standardized loading and error state handling across frontend components
   - **`SessionPage.tsx`:** Fixed React Hook ordering violation by moving all hooks to top-level before conditional returns. Added loading spinner and error message with refresh button for user profile fetching.

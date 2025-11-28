@@ -28,6 +28,7 @@
     "// Comprehensive validation (local + CI simulation)": "",
     "test:all": "./scripts/test-audit.sh local",
     "check-in-validation": "./scripts/test-audit.sh ci-simulate",
+    "lighthouse:ci": "lhci autorun",
     "// E2E testing (requires build)": "",
     "test:e2e:install-browsers": "playwright install",
     "test:e2e:ui": "playwright test --ui",

@@ -44,6 +44,7 @@ export default defineConfig(({ mode }) => {
             'charts-vendor': ['recharts'],
             'pdf-vendor': ['html2canvas', 'jspdf'],
             'ui-vendor': ['lucide-react', '@radix-ui/react-slot', '@radix-ui/react-dialog', 'sonner'],
+            'ml-vendor': ['whisper-turbo'],
           }
         }
       },
