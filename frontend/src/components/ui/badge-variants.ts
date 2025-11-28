@@ -5,7 +5,7 @@ export const badgeVariants = cva(
   {
     variants: {
       variant: {
-        primary: 'bg-primary text-primary-fg',
+        primary: 'bg-primary text-primary-foreground',
         secondary: 'bg-secondary text-secondary-fg',
         'secondary-outline': 'bg-secondary/10 text-secondary border-secondary/30 border',
         destructive: 'bg-danger text-danger-fg',

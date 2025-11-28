@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Design System Consistency Improvements (2025-11-28):**
+  - **Badge Component:** Fixed typo in `badge-variants.ts` (`text-primary-fg` → `text-primary-foreground`) to align with Tailwind token conventions.
+  - **Card Component:** Replaced hardcoded shadow value with design token (`shadow-card`) for better maintainability.
+  - **Input Component:** Refactored to use CVA pattern, adding `variant` and `size` props (default, ghost, sm, lg) for extensibility.
+  - **Component Audit:** Audited all 20 UI components. Confirmed 8 components properly use CVA (Button, Badge, Card, Input, Alert, Label, Toast, Sheet), while 12 utility components (EmptyState, Skeleton, etc.) appropriately use static classes.
+
 - **Lighthouse Performance Optimization (2025-11-28):**
   - **Image Optimization:** Added explicit `width`/`height`, `fetchpriority="high"`, and `loading="eager"` to Hero image (LCP element).
   - **Code Splitting:** Split `whisper-turbo` into a separate `ml-vendor` chunk to reduce initial bundle size.
