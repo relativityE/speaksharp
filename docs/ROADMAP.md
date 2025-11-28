@@ -68,13 +68,14 @@ This phase is about confirming the core feature set works as expected and polish
 - 🔴 **Implement WebSocket Reconnect Logic:** Add heartbeat and exponential backoff.
 
 ### 🚧 Should-Have (Tech Debt)
-- 🟡 **CVA-Based Design System Refinement:**
-  - **Current State:** Basic CVA (class-variance-authority) design system implemented in `frontend/src/components/ui` with tokens in `tailwind.config.ts` (per ARCHITECTURE.md)
+- **✅ COMPLETED - CVA-Based Design System Refinement (2025-11-28):**
+  - **Completed:**
+    - ✅ Audited all 20 UI components for consistent CVA variant usage
+    - ✅ Fixed Badge typo, refactored Input to use CVA, replaced hardcoded Card shadow
+    - ✅ Verified 8 stateful components properly use CVA, 12 utility components appropriately use static classes
   - **Remaining Work:**
-    - 🟡 Audit all UI components for consistent CVA variant usage
     - 🔴 Document design token usage guidelines in `/docs`
     - 🔴 Add Storybook or component showcase for design system
-    - 🔴 Verify all components use design tokens (no hardcoded colors/spacing)
 - ✅ **Refactor `useSpeechRecognition` hook:** Improve maintainability and fix memory leaks.
 - ✅ **Add Robust UX States:** Completed 2025-11-27 (SessionPage, SignInPage, SignUpPage, WeeklyActivityChart, GoalsSection)
 - ✅ **Centralize configuration:** Move hardcoded values (e.g., session limits) to a config file.
@@ -310,7 +311,16 @@ These items were identified in a comprehensive system analysis and remain releva
     - Largest Contentful Paint (LCP): < 2.5s (Score > 0.90)
     - First Contentful Paint (FCP): < 1.8s (Score > 0.90)
     - Cumulative Layout Shift (CLS): < 0.1
-  - **Required Action:** Investigate render-blocking resources, optimize image loading, and implement code splitting to improve core web vitals.
+  - **Phase 1 (Completed 2025-11-28):**
+    - ✅ Established baseline (~0.62)
+    - ✅ Optimized Hero image (LCP element) with explicit dimensions and priority
+    - ✅ Split whisper-turbo into separate ml-vendor chunk
+    - ✅ Verified lazy loading for heavy routes (Analytics, Session)
+  - **Phase 2 (Remaining):**
+    - 🔴 Audit and optimize font loading (preload critical fonts, font-display: swap)
+    - 🔴 Identify and defer/async render-blocking resources
+    - 🔴 Add Lighthouse score tracking to CI metrics (`scripts/run-metrics.sh`)
+    - 🔴 Achieve target score > 0.90
 
 ---
 ### Resolved Technical Debt
