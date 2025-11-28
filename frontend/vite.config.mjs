@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import { PORTS } from '../scripts/build.config.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -17,7 +19,7 @@ export default defineConfig(({ mode }) => {
       format: 'es'
     },
     server: {
-      port: 5173,
+      port: PORTS.DEV,
       host: true,
       watch: {
         usePolling: true,
@@ -30,7 +32,8 @@ export default defineConfig(({ mode }) => {
       }
     },
     preview: {
-      host: '127.0.0.1'
+      host: '127.0.0.1',
+      port: PORTS.PREVIEW
     },
     build: {
       target: 'esnext',

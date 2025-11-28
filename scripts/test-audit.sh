@@ -114,19 +114,25 @@ run_lighthouse_ci() {
     pnpm preview &
     PREVIEW_PID=$!
     
+    # Read port from config
+    PREVIEW_PORT=$(node -e 'import("./scripts/build.config.js").then(m => console.log(m.PORTS.PREVIEW))')
+    
     # Wait for server to be ready
-    echo "⏳ Waiting for preview server..."
-    if ! npx wait-on http://localhost:4173 --timeout 30000; then
+    echo "⏳ Waiting for preview server on port $PREVIEW_PORT..."
+    if ! npx wait-on http://localhost:$PREVIEW_PORT --timeout 30000; then
         echo "❌ Preview server failed to start." >&2
         kill $PREVIEW_PID || true
         exit 1
     fi
     
     # Run Lighthouse
+    echo "🔦 Generating Lighthouse Config..."
+    node scripts/generate-lhci-config.js
+    
     echo "🔦 Running lhci autorun..."
     # Capture exit code to ensure cleanup
     set +e
-    npx lhci autorun
+    npx lhci autorun --config=lighthouserc.json
     EXIT_CODE=$?
     set -e
     
@@ -134,7 +140,14 @@ run_lighthouse_ci() {
     kill $PREVIEW_PID || true
     
     if [ $EXIT_CODE -ne 0 ]; then
-        echo "❌ Lighthouse CI failed." >&2
+        echo "❌ Lighthouse CI failed (Scores below threshold)." >&2
+        # We still want to print the scores if possible
+    fi
+
+    # Parse and print scores
+    node scripts/process-lighthouse-report.js
+
+    if [ $EXIT_CODE -ne 0 ]; then
         exit $EXIT_CODE
     fi
     
