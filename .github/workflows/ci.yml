@@ -51,7 +51,7 @@ jobs:
     if: success()
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
+      fail-fast: true  # Stop all shards immediately on first failure
       matrix:
         shard: [1, 2, 3, 4]
     steps:
@@ -144,7 +144,9 @@ jobs:
           echo "Preview server started successfully"
 
       - name: Run Lighthouse CI
-        run: npx lhci autorun
+        run: |
+          node scripts/generate-lhci-config.js
+          npx lhci autorun --config=lighthouserc.json
 
       - name: Upload Lighthouse Report
         if: always()
