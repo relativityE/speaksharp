@@ -127,8 +127,8 @@ const renderApp = async (initialSession: Session | null = null) => {
 const initialize = async () => {
   if (IS_TEST_ENVIRONMENT) {
     const { initializeE2EEnvironment } = await import('@/lib/e2e-bridge');
-    await initializeE2EEnvironment();
-    console.log('[E2E] Environment ready, now rendering app');
+    initializeE2EEnvironment();
+    console.log('[E2E] Environment initialization started, now rendering app');
     await renderApp();
 
     // Signal that the app is fully mounted and ready for interaction

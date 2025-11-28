@@ -76,7 +76,7 @@ export const SessionPage: React.FC = () => {
         if (isListening) {
             await stopListening();
         } else {
-            await startListening({ forceNative: true });
+            await startListening();
         }
     };
 
