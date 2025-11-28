@@ -181,6 +181,12 @@ pnpm run test:e2e:ui        # Playwright UI mode
 pnpm run test:e2e:debug     # Headed mode with trace
 ```
 
+**⚠️ Internal Script (used by test-audit.sh):**
+```bash
+pnpm run test:e2e:health    # Smoke test only (no build/quality checks)
+```
+**Note:** Use `pnpm test:health-check` for the full health pipeline instead.
+
 **🔦 Want to run Lighthouse audits?**
 ```bash
 pnpm run lighthouse:ci
