@@ -215,10 +215,18 @@ These items were identified in a comprehensive system analysis and remain releva
 
 - **P3 (Low): Simplify and Document package.json Scripts**
   - 🟡 **Refactor:** Consolidate duplicate `package.json` scripts.
-- 🟡 **Design System Consistency:**
-  - Fix `Badge` component typo (`text-primary-fg` -> `text-primary-foreground`).
-  - Refactor `Input` component to use `cva` for better variant support.
-  - Replace hardcoded shadow in `Card` component with `shadow-card` token.
+  
+- **✅ COMPLETED - P3 (Medium): Design System Consistency**
+  - **Status:** COMPLETED (2025-11-28)
+  - **Problem:** Inconsistent use of design tokens and CVA patterns across UI components.
+  - **Solution Implemented:**
+    - Fixed `Badge` component typo (`text-primary-fg` → `text-primary-foreground`).
+    - Refactored `Input` component to use `cva` with variant (default, ghost) and size (sm, default, lg) props.
+    - Replaced hardcoded shadow in `Card` component with `shadow-card` token.
+    - Audited all 20 UI components: 8 properly use CVA, 12 utility components appropriately use static classes.
+  - **Verification:** All components now use design tokens correctly, CVA pattern consistent across stateful components.
+  - **Commit:** `f8980c5`
+  - **MoSCoW:** Should Have
   - **Problem:** The `package.json` scripts section contains multiple overlapping test commands creating ambiguity about which to use when:
     - Multiple test entry points: `test`, `test:unit`, `test:all`, `test:health-check`, `check-in-validation`
     - Multiple E2E commands: `test:e2e:ui`, `test:e2e:debug`, `test:e2e:health`, `test:health-check`
