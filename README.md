@@ -155,7 +155,8 @@ pnpm run check-in-validation
 ```bash
 pnpm test:health-check
 ```
-- Runs preflight, lint, typecheck, unit tests, build, smoke E2E test
+- Runs preflight, lint, typecheck, unit tests, build, **smoke E2E test**
+- **Smoke test verifies:** Homepage (unauth/auth), Session page, Analytics page
 - Faster than full CI simulation
 - **Use for:** Quick feedback loops
 
