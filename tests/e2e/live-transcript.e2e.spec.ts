@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { SessionPage } from '../pom';
 import { programmaticLogin, waitForE2EEvent, attachLiveTranscript } from './helpers';
 
-test.describe.skip('Live Transcript Feature', () => {
+test.describe('Live Transcript Feature', () => {
   test('should display live transcript after session starts', async ({ page }) => {
     // Mock browser APIs BEFORE navigation to ensure they are available when the app loads
     // Only need to mock getUserMedia and AudioContext - SpeechRecognition is handled by e2e-bridge.ts
