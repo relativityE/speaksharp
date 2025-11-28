@@ -214,8 +214,17 @@ These items were identified in a comprehensive system analysis and remain releva
   - **Commit:** `dcd96c3`, `fa956ca`
   - **MoSCoW:** Should Have
 
-- **P3 (Low): Simplify and Document package.json Scripts**
-  - 🟡 **Refactor:** Consolidate duplicate `package.json` scripts.
+- **✅ COMPLETED - P3 (Low): Simplify and Document package.json Scripts (2025-11-28)**
+  - **Status:** COMPLETED
+  - **Solution Implemented:**
+    - Removed duplicate script: `test:unit` (identical to `test`)
+    - Removed low-level `test:e2e:health`, now called directly in `test-audit.sh`
+    - Established `test:health-check` as the ONE canonical health check (comprehensive smoke test)
+    - Added JSDoc-style comments to all scripts
+    - Created "Scripts Reference" decision tree in README.md
+  - **Verification:** All scripts tested, lint passing, health-check verified
+  - **Commit:** `21c1407` (and follow-up fixes)
+  - **MoSCoW:** Should Have
   
 - **✅ COMPLETED - P3 (Medium): Design System Consistency**
   - **Status:** COMPLETED (2025-11-28)

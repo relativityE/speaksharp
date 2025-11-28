@@ -13,7 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Package.json Scripts Consolidation (2025-11-28):**
   - Removed duplicate script: `test:unit` (identical to `test`)
-  - Kept `test:e2e:health` (used internally by `test-audit.sh` health-check mode)
+  - Removed low-level `test:e2e:health` script (now called directly in `test-audit.sh`)
+  - Established `test:health-check` as the ONE canonical health check command
   - Added JSDoc-style comments to clarify script purposes
   - Added comprehensive "Scripts Reference" section to README.md with decision tree for choosing the right command
   - **Impact:** Clearer developer experience, reduced confusion, improved onboarding

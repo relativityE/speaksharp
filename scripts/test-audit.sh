@@ -92,7 +92,7 @@ run_e2e_tests_all() {
 
 run_e2e_health_check() {
     echo "✅ [4/6] Running E2E Health Check..."
-    pnpm test:e2e:health || {
+    pnpm exec playwright test tests/e2e/smoke.e2e.spec.ts --project=chromium || {
         echo "❌ E2E Health Check failed." >&2
         exit 1
     }

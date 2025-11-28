@@ -34,7 +34,6 @@
     "test:e2e:install-browsers": "playwright install",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:debug": "cross-env DEBUG=pw:api DOTENV_CONFIG_PATH=.env.test playwright test --headed --trace on --project=chromium",
-    "test:e2e:health": "playwright test tests/e2e/smoke.e2e.spec.ts --project=chromium",
     "// Soak test (5-min concurrent user simulation)": "",
     "test:soak": "playwright test tests/soak --workers=1 --timeout=600000",
     "// ============ Git Hooks ============": "",
