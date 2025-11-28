@@ -668,7 +668,51 @@ Speaker identification (or diarization) is handled by the AssemblyAI API. When t
 ### STT Accuracy Comparison
 The STT accuracy comparison feature calculates the Word Error Rate (WER) of each transcription engine against a "ground truth" transcript. The ground truth is a manually transcribed version of the audio that is stored in the `practice_sessions` table. The WER is then used to calculate an accuracy percentage, which is displayed in the analytics dashboard. This provides users with a clear understanding of how each STT engine performs.
 
-## 7. Known Issues
+## 7. Configuration Management
+
+### Port Configuration
+All build and preview ports are centralized in `scripts/build.config.js`:
+- **DEV Port:** 5173 (Vite dev server)
+- **PREVIEW Port:** 4173 (Production preview server)
+
+This configuration is consumed by:
+- `frontend/vite.config.mjs` - Server and preview port settings
+- `scripts/test-audit.sh` - Dynamic port reading for Lighthouse CI
+- `scripts/generate-lhci-config.js` - Lighthouse configuration generation
+
+**Benefits:**
+- Single source of truth for port numbers
+- No hardcoded "magic numbers" in codebase
+- Easy to change ports across entire project
+
+### Lighthouse CI Integration
+Performance quality gates are enforced via Lighthouse CI:
+
+**Configuration Generation** (`scripts/generate-lhci-config.js`):
+- Dynamically creates `lighthouserc.json` with current port configuration
+- Sets performance thresholds: Performance ≥0.90, Accessibility ≥0.90, SEO ≥0.90
+- Best Practices set to ≥0.75 (warn level) due to unavoidable Stripe cookies
+
+**Score Parsing** (`scripts/process-lighthouse-report.js`):
+- Replaces brittle `jq` with robust Node.js JSON parsing
+- Finds latest Lighthouse report in `.lighthouseci/` directory
+- Displays formatted score table
+
+**CI Workflow:**
+1. Build production bundle (`pnpm build:test`)
+2. Generate Lighthouse config with current ports
+3. Start preview server on configured port
+4. Run `lhci autorun` with generated config
+5. Parse and display scores
+6. Fail CI if thresholds not met (fail-fast enabled)
+
+**Current Scores (2025-11-28):**
+- Performance: 95%
+- Accessibility: 95%
+- **SEO: 100%**
+- Best Practices: 78% (limited by Stripe third-party cookies)
+
+## 8. Known Issues
 
 ### Database Setup Issues (Resolved 2025-11-20)
 

@@ -116,6 +116,12 @@ ___
      "build": "cd frontend && vite build"
     ```
     **Note:** `test:health-check` runs a comprehensive smoke test (homepage unauth/auth, session page, analytics page) via `scripts/test-audit.sh`, along with preflight, quality checks, and build verification.
+    
+    **New Configuration Scripts (2025-11-28):**
+    - `build.config.js` - Centralized port configuration (DEV: 5173, PREVIEW: 4173)
+    - `generate-lhci-config.js` - Dynamic Lighthouse CI config generation
+    - `process-lighthouse-report.js` - Robust JSON parsing (replaces `jq`)
+
 6. ✅ **Foreground Logging** – All E2E tasks must run in the foreground with live logs (`tee`) for traceability.
 
 ---
