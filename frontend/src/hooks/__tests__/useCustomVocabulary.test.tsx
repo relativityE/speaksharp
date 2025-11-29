@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { useCustomVocabulary } from '../useCustomVocabulary';
-import { useAuthProvider } from '../../contexts/AuthProvider';
+import { useAuthProvider, AuthContextType } from '../../contexts/AuthProvider';
 import { getSupabaseClient } from '../../lib/supabaseClient';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
@@ -37,8 +37,9 @@ describe('useCustomVocabulary', () => {
             loading: false,
             signOut: vi.fn(),
             setSession: vi.fn(),
+            profile: null,
         } as AuthContextType);
-        vi.mocked(getSupabaseClient).mockReturnValue(null);
+        vi.mocked(getSupabaseClient).mockReturnValue(null as any);
 
         const { result } = renderHook(() => useCustomVocabulary(), { wrapper });
 
@@ -81,6 +82,7 @@ describe('useCustomVocabulary', () => {
             loading: false,
             signOut: vi.fn(),
             setSession: vi.fn(),
+            profile: null,
         } as AuthContextType);
         vi.mocked(getSupabaseClient).mockReturnValue({} as any); // Mock client as needed
 
