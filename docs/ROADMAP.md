@@ -167,6 +167,15 @@ This section is a prioritized list of technical debt items to be addressed.
   - **Problem:** The old test script had a cryptic, undocumented command-line interface.
   - **Solution:** The new testing architecture is accessed via a set of simple, well-documented `pnpm` scripts (`pnpm audit`, `pnpm audit:fast`, etc.), which are now the canonical standard. This has been documented in both `README.md` and `AGENTS.md`.
 
+- **P3** - AuthPage Integration Test Failures
+  - Created `frontend/tests/integration/AuthPage.test.tsx` with 9 tests covering sign-in, sign-up, and password reset flows
+  - All 9 tests currently failing due to AuthProvider context mocking complexity
+  - Issue: AuthPage component tightly coupled to AuthProvider; form not rendering in test environment despite MockAuthProvider wrapper
+  - Root cause: Likely issue with context value propagation or missing dependencies in mock
+  - **Impact**: Unable to validate auth flows via integration tests; relying on E2E tests instead
+  - **Effort**: 2-3 hours to debug and fix context mocking issues
+  - **Recommendation**: Consider refactoring AuthPage to be less tightly coupled to context, or use E2E tests for auth flows
+
 - **P3 (Medium): Implement Lighthouse Score for Performance Metrics**
   - **Problem:** The "Code Bloat & Performance" section of the Software Quality Metrics report in `docs/PRD.md` includes a placeholder for a Lighthouse score, but the score is not being generated.
   - **Required Action:** A new stage should be added to the `scripts/test-audit.sh` pipeline to run a Lighthouse audit against the production build. This will require starting a web server, executing the `lighthouse` command, and parsing the JSON output to extract the performance score. The `scripts/run-metrics.sh` and `scripts/update-prd-metrics.mjs` scripts will then need to be updated to incorporate this new data point.
