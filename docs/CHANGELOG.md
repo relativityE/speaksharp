@@ -11,6 +11,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Error Handling Improvements (2025-11-29):**
+  - Fixed Supabase error handling in `AuthPage.tsx` and `AISuggestions.tsx`
+  - Error objects from Supabase have `message` property but aren't Error instances
+  - Added proper type checking for non-Error objects with message properties
+  - **Impact:** All integration tests now passing (212/212), proper error messages displayed to users
+
+- **Live Transcript E2E Test Fix (2025-11-29):**
+  - Made E2E environment initialization non-blocking in `main.tsx`
+  - Fixed race conditions by waiting for `speech-recognition-ready` event before test interactions
+  - Improved mock `SpeechRecognitionEvent` shape to match native browser API
+  - Added safe `getSpeechRecognition` wrapper in `NativeBrowser.ts`
+  - **Impact:** Live transcript E2E test now passes reliably
+
+### Changed
+- **Documentation Consolidation (2025-11-29):**
+  - Removed duplicate "Known Issues" section from `AGENTS.md` (enforcing Single Source of Truth)
+  - Added "State Management Complexity" risk to `docs/PRD.md` Known Issues
+  - Verified all AI Detective findings are captured in either PRD.md or ROADMAP.md
+  - **Impact:** Clear, non-duplicate documentation of technical debt and architectural risks
+
+### Added
 - **Port Configuration Refactoring (2025-11-28):**
   - Centralized all hardcoded port numbers to `scripts/build.config.js` (DEV: 5173, PREVIEW: 4173)
   - Created `scripts/generate-lhci-config.js` for dynamic Lighthouse configuration generation
