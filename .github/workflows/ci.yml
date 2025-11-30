@@ -13,26 +13,13 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js and pnpm
-        uses: actions/setup-node@v4
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
         with:
-          node-version: '22'
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - name: Install Dependencies
-        run: pnpm install --frozen-lockfile
+          install-playwright: 'true'
 
       - name: Validate Environment Variables
         run: node scripts/validate-env.mjs
-
-      - name: Install Playwright Browsers
-        run: pnpm exec playwright install --with-deps chromium
 
       - name: Run Prepare Stage
         run: ./scripts/test-audit.sh prepare
@@ -55,23 +42,10 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js and pnpm
-        uses: actions/setup-node@v4
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
         with:
-          node-version: '22'
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - name: Install Dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Install Playwright Browsers
-        run: pnpm exec playwright install --with-deps chromium
+          install-playwright: 'true'
 
       - name: Download Prepare Artifacts
         uses: actions/download-artifact@v4
@@ -95,20 +69,8 @@ jobs:
     if: success()
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js and pnpm
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - name: Install Dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
 
       - name: Download All Artifacts
         uses: actions/download-artifact@v4
@@ -161,20 +123,8 @@ jobs:
     if: success()
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js and pnpm
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - name: Install Dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
 
       - name: Download All Artifacts
         uses: actions/download-artifact@v4

@@ -79,13 +79,29 @@ This phase is about confirming the core feature set works as expected and polish
 - ✅ **Refactor `useSpeechRecognition` hook:** Improve maintainability and fix memory leaks.
 - ✅ **Add Robust UX States:** Completed 2025-11-27 (SessionPage, SignInPage, SignUpPage, WeeklyActivityChart, GoalsSection)
 - ✅ **Centralize configuration:** Move hardcoded values (e.g., session limits) to a config file.
+- **✅ COMPLETED (2025-11-29) - Fix E2E Race Conditions (Finding 3):**
+  - Replaced global flag polling with event-driven synchronization in `scripts/e2e-playbook.sh`
+  - Eliminates intermittent E2E test failures caused by race conditions
+- **✅ COMPLETED (2025-11-29) - Implement Global State Management (Finding 4):**
+  - Installed Zustand for centralized state management
+  - Created `frontend/src/stores/useSessionStore.ts` for session state
+  - Refactored `SessionPage.tsx` to use store instead of local useState
+  - Improves code maintainability and scalability
 - 🔴 **Harden E2E Architecture:** Complete event migration across all tests
-- 🔴 **Increase Unit Test Coverage:** Target: 36% → 70%
+- 🟡 **Increase Unit Test Coverage:** Target: 36% → 70% (Current: ~42%)
 - 🔴 **Improve Accessibility:** Use an ARIA live region for the transcript so screen readers can announce new lines.
 - 🔴 **Add Deno unit tests for the token endpoint.**
 - ✅ **Add a soak test:** 5-minute concurrent user test implemented (`tests/soak/soak-test.spec.ts`) with memory leak detection
 - 🔴 **Add Real Testimonials:** Unhide and populate the `TestimonialsSection` on the landing page with genuine user feedback.
+- 🔴 **Refactor Monolithic Test Script:** Break down `scripts/test-audit.sh` into smaller, maintainable scripts or migrate to a task runner (Finding 2).
+- 🔴 **Update Core Dependencies:** Upgrade React, Vite, Vitest, and Tailwind to latest stable versions (Finding 5).
 - 🔴 **Light Theme Implementation:** Add CSS or disable toggle
+- **✅ COMPLETED (2025-11-30) - P2 Tech Debt Findings:**
+  - **Finding 1.1:** Removed manual Vite chunking strategy
+  - **Finding 4.1:** Switched to sequential quality checks in `test-audit.sh`
+  - **Finding 4.2:** Fixed E2E smoke test race condition with two-stage assertion
+  - **Finding 5.1:** Deduplicated CI workflow setup with composite action
+  - **Finding 1.2:** Removed redundant `dotenv` dependency
 
 
 ### Gating Check
@@ -167,14 +183,13 @@ This section is a prioritized list of technical debt items to be addressed.
   - **Problem:** The old test script had a cryptic, undocumented command-line interface.
   - **Solution:** The new testing architecture is accessed via a set of simple, well-documented `pnpm` scripts (`pnpm audit`, `pnpm audit:fast`, etc.), which are now the canonical standard. This has been documented in both `README.md` and `AGENTS.md`.
 
-- **P3** - AuthPage Integration Test Failures
-  - Created `frontend/tests/integration/AuthPage.test.tsx` with 9 tests covering sign-in, sign-up, and password reset flows
-  - All 9 tests currently failing due to AuthProvider context mocking complexity
-  - Issue: AuthPage component tightly coupled to AuthProvider; form not rendering in test environment despite MockAuthProvider wrapper
-  - Root cause: Likely issue with context value propagation or missing dependencies in mock
-  - **Impact**: Unable to validate auth flows via integration tests; relying on E2E tests instead
-  - **Effort**: 2-3 hours to debug and fix context mocking issues
-  - **Recommendation**: Consider refactoring AuthPage to be less tightly coupled to context, or use E2E tests for auth flows
+- **✅ COMPLETED (2025-11-30) - AuthPage Integration Test Failures**
+  - **Status:** COMPLETED
+  - **Solution:**
+    - Added client-side password validation to `AuthPage.tsx`
+    - Updated error handling to support non-Error objects (Supabase errors)
+    - Fixed test selectors and expectations
+  - **Verification:** All 9/9 tests passing
 
 - **P3 (Medium): Implement Lighthouse Score for Performance Metrics**
   - **Problem:** The "Code Bloat & Performance" section of the Software Quality Metrics report in `docs/PRD.md` includes a placeholder for a Lighthouse score, but the score is not being generated.

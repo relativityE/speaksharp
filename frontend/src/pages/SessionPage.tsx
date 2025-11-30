@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
+import { useSessionStore } from '../stores/useSessionStore';
 
 import posthog from 'posthog-js';
 import { Button } from '@/components/ui/button';
@@ -11,6 +12,9 @@ import { useUserProfile } from '@/hooks/useUserProfile';
 export const SessionPage: React.FC = () => {
     const { session } = useAuthProvider();
     const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
+
+    // Use zustand store for session state
+    const { isListening, isReady, updateElapsedTime, elapsedTime } = useSessionStore();
 
     console.log('[DEBUG] SessionPage rendered. Session:', session?.user?.id);
     console.log('[DEBUG] SessionPage profile state:', { isProfileLoading, profileError, profileId: profile?.id });
@@ -25,9 +29,8 @@ export const SessionPage: React.FC = () => {
         profile
     });
 
-    const { isListening, isReady, transcript, fillerData, startListening, stopListening } = speechRecognition;
+    const { transcript, fillerData, startListening, stopListening } = speechRecognition;
     console.log('[DEBUG] SessionPage speechRecognition state:', { isListening, isReady });
-    const [elapsedTime, setElapsedTime] = useState(0);
 
     useEffect(() => {
         posthog.capture('session_page_viewed');
@@ -38,14 +41,14 @@ export const SessionPage: React.FC = () => {
             startTimeRef.current = Date.now();
             const interval = setInterval(() => {
                 if (startTimeRef.current) {
-                    setElapsedTime(Math.floor((Date.now() - startTimeRef.current) / 1000));
+                    updateElapsedTime(Math.floor((Date.now() - startTimeRef.current) / 1000));
                 }
             }, 1000);
             return () => clearInterval(interval);
         } else {
-            setElapsedTime(0);
+            updateElapsedTime(0);
         }
-    }, [isListening]);
+    }, [isListening, updateElapsedTime]);
 
     if (isProfileLoading) {
         console.log('[DEBUG] SessionPage: Loading profile...');

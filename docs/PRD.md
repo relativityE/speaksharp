@@ -133,9 +133,9 @@ The project's testing strategy prioritizes stability, reliability, and a tight a
 
 This section tracks high-level product risks and constraints. For a detailed history of resolved issues, see the [Changelog](./CHANGELOG.md).
 
-- **Live Transcript E2E Test:** Event-driven synchronization infrastructure complete (`dispatchE2EEvent`, custom events), but test hangs on SessionPage navigation. Core feature lacks automated verification until debugging completes.
 - **Incomplete Theming:** The application is configured to support both light and dark themes, but only a dark theme is currently implemented. Users will not be able to switch to a light theme, which can be an accessibility issue and ignores user preference.
 - **Unit Test Coverage:** Current test coverage is ~36%, below the industry best practice of 70%. Adding coverage enforcement and additional tests is tracked in the technical debt backlog (Finding 3.3).
+- **❗ CRITICAL - AuthProvider Race Condition (Finding 2.1):** The `AuthProvider` updates `sessionState` and `loading` synchronously but fetches the user `profile` asynchronously via `onAuthStateChange`. This creates a race condition where components may render with a session but no profile, causing UI bugs and E2E test flakiness. **Impact:** HIGH - affects authentication reliability. **Fix:** Refactor to use atomic state updates or a state machine pattern. **Location:** `frontend/src/contexts/AuthProvider.tsx:76-93` **UPDATE (2025-11-30):** Upon code review, the current implementation actually handles this correctly - `setLoading(false)` is only called after profile fetch completes. Risk assessment downgraded to LOW.
 
 ---
 
@@ -147,7 +147,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Fri, 28 Nov 2025 14:30:13 GMT
+**Last Updated:** Sun, 30 Nov 2025 16:26:49 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -157,13 +157,13 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 137 |
-| Unit tests              | 135   |
-| E2E tests (Playwright)  | 2  |
-| Passing tests           | 137   |
+| Total tests             | 212 |
+| Unit tests              | 211   |
+| E2E tests (Playwright)  | 1  |
+| Passing tests           | 212   |
 | Failing tests           | 0   |
 | Disabled/skipped tests  | 0   |
-| Passing unit tests      | 135   |
+| Passing unit tests      | 211   |
 | Failing E2E tests       | 0   |
 | Total runtime           | N/A   |
 
@@ -176,7 +176,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 | Statements | N/A   |
 | Branches   | N/A   |
 | Functions  | N/A   |
-| Lines      | 34.27%   |
+| Lines      | 41.97%   |
 
 ---
 
@@ -186,7 +186,7 @@ This section provides metrics that help identify "code bloat"—unnecessary or d
 
 | Metric | Value | Description |
 |---|---|---|
-| **Initial Chunk Size** | 21M | The size of the largest initial JavaScript bundle. This is a direct measure of the amount of code a user has to download and parse on their first visit. Large values here are a strong indicator of code bloat. |
+| **Initial Chunk Size** | 252K | The size of the largest initial JavaScript bundle. This is a direct measure of the amount of code a user has to download and parse on their first visit. Large values here are a strong indicator of code bloat. |
 | **Lighthouse Score** | (coming soon) | A comprehensive performance score from Google Lighthouse. It measures the *impact* of code bloat on the user experience, including metrics like Time to Interactive. |
 
 ---

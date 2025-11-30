@@ -45,3 +45,7 @@ resources/
 .vite.pid
 merged-reports/
 .lighthouseci/
+
+# Agent-generated artifacts
+ANALYSIS_REPORT.md
+test_output*.txt

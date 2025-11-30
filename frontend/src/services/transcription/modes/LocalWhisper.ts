@@ -150,7 +150,7 @@ export default class LocalWhisper implements ITranscriptionMode {
     this.isProcessing = true;
 
     try {
-      // Concatenate all chunks
+      // Concatenate all chunks accumulated since last processing
       const totalLength = this.audioChunks.reduce((sum, f) => sum + f.length, 0);
       const concatenated = new Float32Array(totalLength);
       let offset = 0;
@@ -161,19 +161,23 @@ export default class LocalWhisper implements ITranscriptionMode {
 
       const wavData = floatToWav(concatenated);
 
-      // Perform transcription
+      // Perform transcription on NEW audio only
       const result = await this.session.transcribe(wavData, false, {});
 
       if (result.isErr) {
         throw result.error;
       }
 
-      // Update transcript if changed
+      // Append new text to transcript (incremental)
       const newText = result.value.text || '';
-      if (newText !== this.transcript) {
-        this.transcript = newText;
+      if (newText.trim()) {
+        // Append with space if transcript already has content
+        this.transcript = this.transcript ? `${this.transcript} ${newText}` : newText;
         this.onTranscriptUpdate({ transcript: { final: this.transcript } });
       }
+
+      // CRITICAL FIX: Clear the buffer to prevent quadratic growth
+      this.audioChunks = [];
 
     } catch (err) {
       logger.error({ err }, '[LocalWhisper] Transcription processing failed.');

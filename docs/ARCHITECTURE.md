@@ -5,7 +5,7 @@
 
 # SpeakSharp System Architecture
 
-**Version 3.4** | **Last Updated: 2025-11-26**
+**Version 3.5** | **Last Updated: 2025-11-30**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -711,70 +711,4 @@ Performance quality gates are enforced via Lighthouse CI:
 - Accessibility: 95%
 - **SEO: 100%**
 - Best Practices: 78% (limited by Stripe third-party cookies)
-
-## 8. Known Issues
-
-### Database Setup Issues (Resolved 2025-11-20)
-
-**Issue**: Missing Row Level Security (RLS) policies and user profile auto-creation trigger  
-**Impact**: Users couldn't access their own data after signup, causing 403 "permission denied" errors  
-**Resolution**:
-- Added RLS policies for `user_profiles`, `custom_vocabulary`, and `sessions` tables
-- Created `handle_new_user()` trigger function to auto-create user profiles on signup  
-**SQL Applied**:
-```sql
--- Grant schema permissions
-GRANT USAGE ON SCHEMA public TO authenticated;
-GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated;
-
--- RLS policies
-CREATE POLICY "Users can manage own profile" ON user_profiles FOR ALL USING (auth.uid() = id);
-CREATE POLICY "Users can manage own vocabulary" ON custom_vocabulary FOR ALL USING (auth.uid() = user_id);
-CREATE POLICY "Users can manage own sessions" ON sessions FOR ALL USING (auth.uid() = user_id);
-
--- Auto-create user profile trigger
-CREATE OR REPLACE FUNCTION public.handle_new_user() RETURNS TRIGGER AS $$
-BEGIN
-  INSERT INTO public.user_profiles (id, subscription_status)
-  VALUES (NEW.id, 'free');
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
-```
-
-### Transcription Service UI State Sync Issue (Resolved 2025-11-20)
-
-**Issue**: Speech recognition works but UI doesn't reflect session status  
-**Symptoms**:
-- UI shows "Connecting..." instead of "Session Active" even after `recognition.start()` succeeds
-- Transcripts are generated (verified via console logs showing `onresult` callbacks) but don't appear in UI
-- `onReady` callback is invoked but doesn't update `isReady` React state
-
-**Root Cause**: The `onReady` callback in `frontend/src/hooks/useSpeechRecognition/index.ts` (line 62) is an empty function that doesn't update any state:
-```typescript
-onReady: () => { },  // <-- This doesn't set isReady to true
-```
-
-**Resolution**: Wrapped the `onReady` callback in `frontend/src/hooks/useTranscriptionService.ts` to set `isReady` state when transcription modes invoke it:
-```typescript
-const wrappedOptions = {
-  ...optionsRef.current,
-  onReady: () => {
-    setIsReady(true);
-    optionsRef.current.onReady();
-  },
-};
-```
-
-**Diagnostic Logging Added**: 
-- Added comprehensive logging to `TranscriptionService.startTranscription()` to trace execution flow
-- Added logging to `NativeBrowser.init()`, `startTranscription()`, and `onresult` callback
-- Enhanced error logging for microphone permission and speech recognition errors
-
-*This section is for tracking active, unresolved issues. As issues are resolved, they should be moved to the [Changelog](./CHANGELOG.md).*
 

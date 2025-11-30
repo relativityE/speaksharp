@@ -48,6 +48,12 @@ export default function AuthPage() {
       const supabase = getSupabaseClient();
       if (!supabase) throw new Error("Supabase client not available");
 
+      if (password.length < 6 && view !== 'forgot_password') {
+        setError(friendlyErrors['Password should be at least 6 characters']);
+        setIsSubmitting(false);
+        return;
+      }
+
       let authResult;
       if (view === 'sign_in') {
         authResult = await supabase.auth.signInWithPassword({ email, password });
@@ -79,7 +85,13 @@ export default function AuthPage() {
       }
     } catch (err: unknown) {
       console.error('[AUTH] Fatal error during auth', err);
-      setError(err instanceof Error ? mapError(err.message) : mapError('Unknown error'));
+      let errorMessage = 'Unknown error';
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      } else if (typeof err === 'object' && err !== null && 'message' in err) {
+        errorMessage = (err as { message: string }).message;
+      }
+      setError(mapError(errorMessage));
     } finally {
       setIsSubmitting(false);
     }

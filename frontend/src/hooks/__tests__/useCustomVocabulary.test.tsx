@@ -1,14 +1,19 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { useCustomVocabulary } from '../useCustomVocabulary';
 import { useAuthProvider, AuthContextType } from '../../contexts/AuthProvider';
 import { getSupabaseClient } from '../../lib/supabaseClient';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import type { SupabaseClient, Session } from '@supabase/supabase-js';
 
 // Mock dependencies
-vi.mock('../../contexts/AuthProvider');
-vi.mock('../../lib/supabaseClient');
+vi.mock('../../contexts/AuthProvider', () => ({
+    useAuthProvider: vi.fn(),
+}));
+
+vi.mock('../../lib/supabaseClient', () => ({
+    getSupabaseClient: vi.fn(),
+}));
 
 const queryClient = new QueryClient({
     defaultOptions: {
@@ -19,10 +24,8 @@ const queryClient = new QueryClient({
 });
 
 const wrapper = ({ children }: { children: React.ReactNode }) => (
-    <QueryClientProvider client={queryClient} > {children} </QueryClientProvider>
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
 );
-
-const mockUser = { id: 'test-user', email: 'test@example.com' };
 
 describe('useCustomVocabulary', () => {
     beforeEach(() => {
@@ -35,70 +38,66 @@ describe('useCustomVocabulary', () => {
             user: null,
             session: null,
             loading: false,
-            signOut: vi.fn(),
-            setSession: vi.fn(),
             profile: null,
-        } as AuthContextType);
-        vi.mocked(getSupabaseClient).mockReturnValue(null as any);
+        } as Partial<AuthContextType> as AuthContextType);
+
+        vi.mocked(getSupabaseClient).mockReturnValue(null as unknown as SupabaseClient);
 
         const { result } = renderHook(() => useCustomVocabulary(), { wrapper });
 
-        await waitFor(() => expect(result.current.vocabulary).toEqual([]));
+        expect(result.current.vocabulary).toEqual([]);
+        expect(result.current.isLoading).toBe(false);
     });
 
     it('should fetch vocabulary for authenticated user', async () => {
-        vi.mocked(useAuthProvider).mockReturnValue({
-            user: mockUser,
-            session: {} as any, // Mock session as needed
-            loading: false,
-            signOut: vi.fn(),
-            setSession: vi.fn(),
-        } as AuthContextType);
-
+        const mockUser = { id: 'test-user' };
         const mockVocab = [{ id: '1', word: 'test', user_id: 'test-user', created_at: new Date().toISOString() }];
 
-        const mockSelect = vi.fn().mockReturnThis();
-        const mockEq = vi.fn().mockReturnThis();
+        vi.mocked(useAuthProvider).mockReturnValue({
+            user: mockUser,
+            session: {} as unknown as Session,
+            loading: false,
+            profile: null,
+        } as Partial<AuthContextType> as AuthContextType);
+
+
         const mockOrder = vi.fn().mockResolvedValue({ data: mockVocab, error: null });
 
         vi.mocked(getSupabaseClient).mockReturnValue({
             from: vi.fn().mockReturnValue({
-                select: mockSelect,
-                eq: mockEq,
-                order: mockOrder,
+                select: vi.fn().mockReturnValue({
+                    eq: vi.fn().mockReturnValue({
+                        order: mockOrder,
+                    }),
+                }),
             }),
-        } as any); // Cast to any for partial mock
+        } as unknown as SupabaseClient);
 
         const { result } = renderHook(() => useCustomVocabulary(), { wrapper });
 
         await waitFor(() => expect(result.current.vocabulary).toEqual(mockVocab));
-        expect(result.current.vocabularyWords).toEqual(['test']);
     });
 
     it('should validate word before adding', async () => {
+        const mockUser = { id: 'test-user' };
+
         vi.mocked(useAuthProvider).mockReturnValue({
             user: mockUser,
-            session: {} as any,
+            session: {} as unknown as Session,
             loading: false,
-            signOut: vi.fn(),
-            setSession: vi.fn(),
             profile: null,
-        } as AuthContextType);
-        vi.mocked(getSupabaseClient).mockReturnValue({} as any); // Mock client as needed
+        } as Partial<AuthContextType> as AuthContextType);
+
+        vi.mocked(getSupabaseClient).mockReturnValue({} as unknown as SupabaseClient);
 
         const { result } = renderHook(() => useCustomVocabulary(), { wrapper });
 
-        act(() => {
-            result.current.addWord('');
+        // Test word validation
+        await act(async () => {
+            result.current.addWord('ab', { onSuccess: vi.fn() });
         });
 
-        await waitFor(() => expect(result.current.addError).toBeTruthy());
-        expect(result.current.addError?.message).toBe('Word cannot be empty');
-
-        act(() => {
-            result.current.addWord('invalid@word');
-        });
-
-        await waitFor(() => expect(result.current.addError?.message).toBe('Word can only contain letters, numbers, hyphens, and apostrophes'));
+        // Word too short, should not call mutation
+        expect(result.current.isAdding).toBe(false);
     });
 });

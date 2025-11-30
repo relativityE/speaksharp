@@ -54,7 +54,19 @@ else
 fi
 
 # Bundle Size Metrics
-bundle_size=$(du -sh frontend/dist | awk '{print $1}')
+# Bundle Size Metrics
+# Extract the main entry point from index.html to get the real initial chunk size
+entry_file=$(grep -o '/assets/index-[^"]*\.js' frontend/dist/index.html | head -n 1)
+# Remove leading slash
+entry_file="${entry_file#/}"
+full_path="frontend/dist/$entry_file"
+
+if [ -f "$full_path" ]; then
+    bundle_size=$(du -h "$full_path" | awk '{print $1}')
+else
+    echo "⚠️ WARNING: Could not determine entry point size. File $full_path not found." >&2
+    bundle_size="unknown"
+fi
 
 # Create the final combined metrics file
 jq -n \
