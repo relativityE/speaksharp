@@ -135,6 +135,8 @@ This section tracks high-level product risks and constraints. For a detailed his
 
 - **Incomplete Theming:** The application is configured to support both light and dark themes, but only a dark theme is currently implemented. Users will not be able to switch to a light theme, which can be an accessibility issue and ignores user preference.
 - **Unit Test Coverage:** Current test coverage is ~36%, below the industry best practice of 70%. Adding coverage enforcement and additional tests is tracked in the technical debt backlog (Finding 3.3).
+- **❗ CRITICAL - AuthProvider Race Condition (Finding 2.1):** The `AuthProvider` updates `sessionState` and `loading` synchronously but fetches the user `profile` asynchronously via `onAuthStateChange`. This creates a race condition where components may render with a session but no profile, causing UI bugs and E2E test flakiness. **Impact:** HIGH - affects authentication reliability. **Fix:** Refactor to use atomic state updates or a state machine pattern. **Location:** `frontend/src/contexts/AuthProvider.tsx:76-93`
+- **❗ CRITICAL - LocalWhisper Performance Bug (Finding 3.1):** The on-device transcription service (`LocalWhisper`) uses an inefficient batch processing model that re-processes the ENTIRE audio history on every tick (every 1 second). This causes quadratic CPU/memory growth during long sessions and will degrade performance severely. **Impact:** HIGH - flagship feature (on-device STT) unusable for sessions \u003e5 minutes. **Fix:** Implement true streaming by processing only new audio chunks and clearing the buffer after each cycle. **Location:** `frontend/src/services/transcription/modes/LocalWhisper.ts:166,179-185`
 
 ---
 

@@ -96,6 +96,11 @@ This phase is about confirming the core feature set works as expected and polish
 - 🔴 **Refactor Monolithic Test Script:** Break down `scripts/test-audit.sh` into smaller, maintainable scripts or migrate to a task runner (Finding 2).
 - 🔴 **Update Core Dependencies:** Upgrade React, Vite, Vitest, and Tailwind to latest stable versions (Finding 5).
 - 🔴 **Light Theme Implementation:** Add CSS or disable toggle
+- 🔴 **Remove Manual Vite Chunking Strategy (Finding 1.1):** Delete `manualChunks` in `vite.config.mjs` and rely on Vite's automatic code-splitting for better performance
+- 🔴 **Run Quality Checks Sequentially (Finding 4.1):** Remove `concurrently` from `test-audit.sh` quality checks to improve CI failure debuggability
+- 🔴 **Fix E2E Smoke Test Race Condition (Finding 4.2):** Add two-stage assertion in `smoke.e2e.spec.ts` to wait for loading state before asserting final content
+- 🔴 **Deduplicate CI Workflow Setup (Finding 5.1):** Refactor `.github/workflows/ci.yml` to use matrix strategy instead of repeating setup in all 4 jobs
+- 🔴 **Remove Redundant dotenv Dependency (Finding 1.2):** Remove `dotenv` from `dependencies` in `package.json` (should only be in `devDependencies`)
 
 
 ### Gating Check
