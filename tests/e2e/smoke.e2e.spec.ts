@@ -57,6 +57,8 @@ test.describe('Smoke Test', () => {
       await page.goto('/analytics');
 
       // Wait for data to load and verify dashboard elements
+      // Two-stage assertion: Wait for loading skeleton to disappear, then check for content
+      await expect(page.getByTestId('analytics-dashboard-skeleton')).toBeHidden({ timeout: 15000 });
       await expect(page.getByTestId('speaking-pace')).toBeVisible({ timeout: 15000 });
       await expect(page.getByTestId('dashboard-heading')).toBeVisible();
     });

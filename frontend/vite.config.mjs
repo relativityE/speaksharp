@@ -41,14 +41,7 @@ export default defineConfig(({ mode }) => {
       outDir: 'dist',
       rollupOptions: {
         output: {
-          manualChunks: {
-            'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-            'analytics-vendor': ['posthog-js', '@sentry/react'],
-            'charts-vendor': ['recharts'],
-            'pdf-vendor': ['html2canvas', 'jspdf'],
-            'ui-vendor': ['lucide-react', '@radix-ui/react-slot', '@radix-ui/react-dialog', 'sonner'],
-            'ml-vendor': ['whisper-turbo'],
-          }
+          // manualChunks removed to allow Vite's automatic splitting
         }
       },
       treeshake: {
