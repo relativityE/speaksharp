@@ -10,7 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **CRITICAL - CI Pipeline Composite Action (2025-11-30):**
+  - **Problem:** GitHub Actions composite action failed with "Can't find 'action.yml'" error
+  - **Root Cause:** Composite action included checkout step, but local actions require checkout to run first
+  - **Solution:** Removed checkout from composite action, added it to all 4 CI jobs before calling the action
+  - **Impact:** CI pipeline now functional, all jobs can access the repository before running setup
+  - **Files:** `.github/actions/setup-environment/action.yml`, `.github/workflows/ci.yml`
+
 ### Added
+- **Tech Debt Resolution (2025-11-30):**
+  - Removed manual Vite chunking to allow automatic code splitting (Finding 1.1)
+  - Switched to sequential quality checks for better debuggability (Finding 4.1)
+  - Fixed E2E smoke test race condition with two-stage assertion (Finding 4.2)
+  - Deduplicated CI workflow with composite action (Finding 5.1)
+  - Removed redundant `dotenv` dependency (Finding 1.2)
+  - Fixed metrics script to calculate initial chunk size correctly (252K vs 21M)
+
 - **CRITICAL FIX - LocalWhisper Performance (2025-11-30):**
   - **Problem:** On-device transcription re-processed entire audio history every second, causing quadratic O(n²) CPU/memory growth
   - **Solution:** Implemented buffer clearing after each processing cycle (`audioChunks = []`)

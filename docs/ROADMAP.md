@@ -102,6 +102,11 @@ This phase is about confirming the core feature set works as expected and polish
   - **Finding 4.2:** Fixed E2E smoke test race condition with two-stage assertion
   - **Finding 5.1:** Deduplicated CI workflow setup with composite action
   - **Finding 1.2:** Removed redundant `dotenv` dependency
+- **🔵 NEW - Jules V3 Report (2025-11-30):**
+  - **V3-F1:** Refactor `package.json` scripts to use `pnpm --filter` instead of `cd frontend &&` pattern
+  - **V3-F2:** CI workflow could be further optimized with single-job matrix strategy (accepted as "good enough")
+  - **V3-F3:** Refactor E2E synchronization to use DOM-based readiness instead of custom events
+  - **V3-F4:** HIGH PRIORITY - Audit PRD feature table for documentation drift (claims features marked as implemented aren't in UI)
 
 
 ### Gating Check
