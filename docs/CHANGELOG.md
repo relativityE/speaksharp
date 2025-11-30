@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Integration Test Stability (2025-11-30):**
+  - **AuthPage:** Resolved 9 failing integration tests by improving error handling for Supabase responses and adding client-side password validation.
+  - **AISuggestions:** Fixed 11 failing tests by robustly handling non-Error objects in `fetchSuggestions`.
+  - **Linting:** Fixed unused variable errors in `useCustomVocabulary.test.tsx`.
+  - **Impact:** All 213 unit/integration tests are now passing.
+
 - **Error Handling Improvements (2025-11-29):**
   - Fixed Supabase error handling in `AuthPage.tsx` and `AISuggestions.tsx`
   - Error objects from Supabase have `message` property but aren't Error instances
@@ -30,6 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added "State Management Complexity" risk to `docs/PRD.md` Known Issues
   - Verified all AI Detective findings are captured in either PRD.md or ROADMAP.md
   - **Impact:** Clear, non-duplicate documentation of technical debt and architectural risks
+
+- **Architectural Fragility Fixes (2025-11-29):**
+  - **Finding 3 - E2E Race Conditions:** Replaced global flag polling with event-driven synchronization in `scripts/e2e-playbook.sh`
+  - **Finding 4 - Global State Management:** Implemented Zustand store (`useSessionStore.ts`) for session state
+  - Refactored `SessionPage.tsx` to use centralized state management instead of local useState
+  - **Impact:** Eliminated E2E test flakiness, improved code maintainability and scalability
 
 ### Added
 - **Port Configuration Refactoring (2025-11-28):**

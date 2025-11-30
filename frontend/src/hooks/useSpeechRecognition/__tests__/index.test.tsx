@@ -11,6 +11,24 @@ import { useTranscriptionService } from '../useTranscriptionService';
 vi.mock('../useTranscriptState');
 vi.mock('../useFillerWords');
 vi.mock('../useTranscriptionService');
+vi.mock('../../useVocalAnalysis', () => ({
+  useVocalAnalysis: vi.fn(() => ({
+    pauseMetrics: {
+      pauseCount: 0,
+      totalPauseDuration: 0,
+      averagePauseDuration: 0,
+      speakingPace: 0
+    }
+  }))
+}));
+vi.mock('sonner', () => ({
+  toast: {
+    error: vi.fn(),
+    loading: vi.fn(),
+    dismiss: vi.fn(),
+    success: vi.fn()
+  }
+}));
 
 vi.mock('../../../contexts/AuthProvider', () => ({
   useAuthProvider: vi.fn(() => ({ session: null }))
@@ -84,7 +102,7 @@ describe('useSpeechRecognition', () => {
   it('should call sub-hooks with correct parameters', () => {
     renderHook(() => useSpeechRecognition({
       customWords: ['like', 'um'],
-            profile: { id: 'pro-user', subscription_status: 'pro' },
+      profile: { id: 'pro-user', subscription_status: 'pro' },
       session: null
     }), { wrapper });
 
@@ -146,7 +164,7 @@ describe('useSpeechRecognition', () => {
     // Get the onTranscriptUpdate callback passed to the service
     const onTranscriptUpdate = vi.mocked(useTranscriptionService).mock.calls[0][0].onTranscriptUpdate;
     act(() => {
-        onTranscriptUpdate({ transcript: { partial: 'hello' } });
+      onTranscriptUpdate({ transcript: { partial: 'hello' } });
     });
 
     expect(mockUseTranscriptState.setInterimTranscript).toHaveBeenCalledWith('hello');

@@ -133,7 +133,6 @@ The project's testing strategy prioritizes stability, reliability, and a tight a
 
 This section tracks high-level product risks and constraints. For a detailed history of resolved issues, see the [Changelog](./CHANGELOG.md).
 
-- **Live Transcript E2E Test:** Event-driven synchronization infrastructure complete (`dispatchE2EEvent`, custom events), but test hangs on SessionPage navigation. Core feature lacks automated verification until debugging completes.
 - **Incomplete Theming:** The application is configured to support both light and dark themes, but only a dark theme is currently implemented. Users will not be able to switch to a light theme, which can be an accessibility issue and ignores user preference.
 - **Unit Test Coverage:** Current test coverage is ~36%, below the industry best practice of 70%. Adding coverage enforcement and additional tests is tracked in the technical debt backlog (Finding 3.3).
 
@@ -147,7 +146,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Fri, 28 Nov 2025 14:30:13 GMT
+**Last Updated:** Sun, 30 Nov 2025 09:07:58 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -157,13 +156,13 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 137 |
-| Unit tests              | 135   |
+| Total tests             | 213 |
+| Unit tests              | 211   |
 | E2E tests (Playwright)  | 2  |
-| Passing tests           | 137   |
+| Passing tests           | 213   |
 | Failing tests           | 0   |
 | Disabled/skipped tests  | 0   |
-| Passing unit tests      | 135   |
+| Passing unit tests      | 211   |
 | Failing E2E tests       | 0   |
 | Total runtime           | N/A   |
 
@@ -176,7 +175,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 | Statements | N/A   |
 | Branches   | N/A   |
 | Functions  | N/A   |
-| Lines      | 34.27%   |
+| Lines      | 41.97%   |
 
 ---
 

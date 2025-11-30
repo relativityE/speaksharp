@@ -1,0 +1,171 @@
+
+> speaksharp@0.0.0 test /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
+> cd frontend && vitest --coverage src/hooks/useSpeechRecognition/__tests__/index.test.tsx --run --reporter\=verbose
+
+ Vitest  "deps.inline" is deprecated. If you rely on vite-node directly, use "server.deps.inline" instead. Otherwise, consider using "deps.optimizer.web.include"
+
+ RUN  v3.2.4 /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend
+      Coverage enabled with v8
+
+stderr | src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should initialize and return expected interface
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should initialize and return expected interface 10ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should call sub-hooks with correct parameters 2ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should handle stopListening with stats 1ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should call reset on all sub-hooks when startListening is called 1ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should call reset on all sub-hooks when reset is called 1ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should handle partial transcript updates from the service 1ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should handle final transcript updates from the service 1ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should return null from stopListening on failure 1ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should handle errors during startListening 1ms
+
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+   Start at  22:44:20
+   Duration  1.65s (transform 147ms, setup 52ms, collect 506ms, tests 18ms, environment 168ms, prepare 66ms)
+
+ % Coverage report from v8
+-------------------|---------|----------|---------|---------|-------------------
+File               | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s 
+-------------------|---------|----------|---------|---------|-------------------
+All files          |    3.23 |    59.16 |   43.28 |    3.23 |                   
+ frontend          |       0 |    33.33 |   33.33 |       0 |                   
+  ...ss.config.cjs |       0 |        0 |       0 |       0 | 1-6               
+  ...ind.config.js |       0 |        0 |       0 |       0 | 1-128             
+  ...ind.config.ts |       0 |      100 |     100 |       0 | 2-130             
+ ...nd/html/assets |       0 |        0 |       0 |       0 |                   
+  ...x-D_ryMEPs.js |       0 |        0 |       0 |       0 | 1-58              
+ frontend/public   |       0 |        0 |       0 |       0 |                   
+  ...viceWorker.js |       0 |        0 |       0 |       0 | 1-349             
+ frontend/src      |      18 |       50 |      50 |      18 |                   
+  App.tsx          |       0 |        0 |       0 |       0 | 1-54              
+  config.ts        |     100 |      100 |     100 |     100 |                   
+  main.tsx         |       0 |      100 |     100 |       0 | 2-142             
+ ...src/components |       0 |       80 |      80 |       0 |                   
+  ...Dashboard.tsx |       0 |      100 |     100 |       0 | 2-231             
+  ...erWarning.tsx |       0 |      100 |     100 |       0 | 2-28              
+  ...rBoundary.tsx |       0 |        0 |       0 |       0 | 1-59              
+  ErrorDisplay.tsx |       0 |      100 |     100 |       0 | 2-25              
+  Header.tsx       |       0 |      100 |     100 |       0 | 2-47              
+  Navigation.tsx   |       0 |        0 |       0 |       0 | 1-110             
+  ...ctedRoute.tsx |       0 |      100 |     100 |       0 | 2-29              
+  ...ionStatus.tsx |       0 |      100 |     100 |       0 | 2-29              
+  SideNav.tsx      |       0 |      100 |     100 |       0 | 2-57              
+  ...mptDialog.tsx |       0 |      100 |     100 |       0 | 2-54              
+ ...ents/analytics |       0 |      100 |     100 |       0 |                   
+  ...omparison.tsx |       0 |      100 |     100 |       0 | 2-57              
+  ...WordTable.tsx |       0 |      100 |     100 |       0 | 2-64              
+  GoalsSection.tsx |       0 |      100 |     100 |       0 | 2-74              
+  ...llerWords.tsx |       0 |      100 |     100 |       0 | 2-51              
+  ...vityChart.tsx |       0 |      100 |     100 |       0 | 2-66              
+ ...onents/landing |       0 |      100 |     100 |       0 |                   
+  ...esSection.tsx |       0 |      100 |     100 |       0 | 2-74              
+  HeroSection.tsx  |       0 |      100 |     100 |       0 | 2-74              
+  ...ingFooter.tsx |       0 |      100 |     100 |       0 | 2-26              
+  ...ingHeader.tsx |       0 |      100 |     100 |       0 | 2-31              
+  ...lsSection.tsx |       0 |      100 |     100 |       0 | 2-58              
+ ...onents/session |       0 |       25 |      25 |       0 |                   
+  ...ggestions.tsx |       0 |        0 |       0 |       0 | 1-122             
+  ...ryManager.tsx |       0 |        0 |       0 |       0 | 1-126             
+  ...dAnalysis.tsx |       0 |        0 |       0 |       0 | 1-125             
+  ...csDisplay.tsx |       0 |      100 |     100 |       0 | 2-66              
+  ...onSidebar.tsx |       0 |        0 |       0 |       0 | 1-290             
+  SpeakingTips.tsx |       0 |        0 |       0 |       0 | 1-62              
+  ...efulPanel.tsx |       0 |      100 |     100 |       0 | 2-35              
+  ...riptPanel.tsx |       0 |        0 |       0 |       0 | 1-154             
+ .../components/ui |       0 |       60 |      60 |       0 |                   
+  EmptyState.tsx   |       0 |      100 |     100 |       0 | 2-62              
+  FadeIn.tsx       |       0 |      100 |     100 |       0 | 2-37              
+  alert-dialog.tsx |       0 |      100 |     100 |       0 | 3-108             
+  alert.tsx        |       0 |        0 |       0 |       0 | 1-44              
+  ...e-variants.ts |       0 |        0 |       0 |       0 | 1-28              
+  badge.tsx        |       0 |        0 |       0 |       0 | 1-15              
+  ...n-variants.ts |       0 |        0 |       0 |       0 | 1-29              
+  button.tsx       |       0 |        0 |       0 |       0 | 1-25              
+  card.tsx         |       0 |        0 |       0 |       0 | 1-91              
+  checkbox.tsx     |       0 |      100 |     100 |       0 | 3-28              
+  drawer.tsx       |       0 |      100 |     100 |       0 | 3-105             
+  ...down-menu.tsx |       0 |      100 |     100 |       0 | 3-182             
+  input.tsx        |       0 |        0 |       0 |       0 | 1-43              
+  label.tsx        |       0 |      100 |     100 |       0 | 3-24              
+  progress.tsx     |       0 |      100 |     100 |       0 | 3-26              
+  sheet.tsx        |       0 |      100 |     100 |       0 | 3-127             
+  skeleton.tsx     |       0 |        0 |       0 |       0 | 1-14              
+  sonner.tsx       |       0 |      100 |     100 |       0 | 3-30              
+  switch.tsx       |       0 |      100 |     100 |       0 | 3-27              
+  toast.tsx        |       0 |      100 |     100 |       0 | 2-44              
+ ...end/src/config |       0 |      100 |     100 |       0 |                   
+  env.ts           |       0 |      100 |     100 |       0 | 2-14              
+ ...d/src/contexts |       0 |       50 |      50 |       0 |                   
+  AuthContext.tsx  |       0 |        0 |       0 |       0 | 1-13              
+  AuthProvider.tsx |       0 |      100 |     100 |       0 | 2-124             
+ ...tend/src/hooks |       0 |        0 |       0 |       0 |                   
+  useAnalytics.ts  |       0 |        0 |       0 |       0 | 1-55              
+  ...serSupport.ts |       0 |        0 |       0 |       0 | 1-32              
+  ...Vocabulary.ts |       0 |        0 |       0 |       0 | 1-105             
+  ...iceHistory.ts |       0 |        0 |       0 |       0 | 1-13              
+  ...ionManager.ts |       0 |        0 |       0 |       0 | 1-100             
+  ...serProfile.ts |       0 |        0 |       0 |       0 | 1-45              
+  ...alAnalysis.ts |       0 |        0 |       0 |       0 | 1-58              
+ ...echRecognition |   35.81 |    84.21 |   23.07 |   35.81 |                   
+  index.ts         |   67.46 |    83.33 |      50 |   67.46 | ...19-121,125-126 
+  types.ts         |       0 |        0 |       0 |       0 |                   
+  ...illerWords.ts |    8.33 |      100 |       0 |    8.33 | 11-63             
+  ...criptState.ts |   17.24 |      100 |       0 |   17.24 | 9-37              
+  ...ionService.ts |    4.58 |      100 |       0 |    4.58 | 21-117,122-149    
+  utils.ts         |   36.36 |      100 |       0 |   36.36 | 5,8,11,14-17      
+ frontend/src/lib  |    1.68 |       50 |   46.15 |    1.68 |                   
+  ...yticsUtils.ts |       0 |      100 |     100 |       0 | 3-97              
+  canvas.ts        |       0 |      100 |     100 |       0 | 5-21              
+  dateUtils.ts     |       0 |      100 |     100 |       0 | 7-54              
+  e2e-bridge.ts    |       0 |      100 |     100 |       0 | 15-139            
+  logger.ts        |   57.14 |        0 |     100 |   57.14 | 6-11              
+  mockData.ts      |       0 |        0 |       0 |       0 | 1-76              
+  mockSupabase.ts  |    3.38 |      100 |       0 |    3.38 | 4-63              
+  pdfGenerator.ts  |       0 |        0 |       0 |       0 | 1-78              
+  processImage.ts  |       0 |        0 |       0 |       0 | 1-22              
+  storage.ts       |       0 |        0 |       0 |       0 | 1-103             
+  ...baseClient.ts |   13.33 |      100 |       0 |   13.33 | 17-51             
+  theme.ts         |       0 |      100 |     100 |       0 | 3-360             
+  utils.ts         |       0 |        0 |       0 |       0 | 1-44              
+  wer.ts           |       0 |      100 |     100 |       0 | 9-38              
+ ...tend/src/mocks |       0 |    66.66 |   66.66 |       0 |                   
+  browser.ts       |       0 |      100 |     100 |       0 | 2-6               
+  handlers.ts      |       0 |        0 |       0 |       0 | 1-58              
+  ...user-utils.ts |       0 |      100 |     100 |       0 | 4-57              
+ ...tend/src/pages |       0 |       40 |      40 |       0 |                   
+  ...yticsPage.tsx |       0 |      100 |     100 |       0 | 2-111             
+  AuthPage.tsx     |       0 |        0 |       0 |       0 | 1-249             
+  ...eededPage.tsx |       0 |        0 |       0 |       0 | 1-47              
+  HomePage.tsx     |       0 |      100 |     100 |       0 | 2-44              
+  Index.tsx        |       0 |        0 |       0 |       0 | 1-21              
+  MainPage.tsx     |       0 |      100 |     100 |       0 | 2-27              
+  PricingPage.tsx  |       0 |      100 |     100 |       0 | 2-100             
+  SessionPage.tsx  |       0 |        0 |       0 |       0 | 1-249             
+  SignInPage.tsx   |       0 |        0 |       0 |       0 | 1-105             
+  SignUpPage.tsx   |       0 |        0 |       0 |       0 | 1-129             
+ ...services/audio |       0 |      100 |     100 |       0 |                   
+  pauseDetector.ts |       0 |      100 |     100 |       0 | 4-107             
+ .../transcription |   10.12 |      100 |       0 |   10.12 |                   
+  ...ionService.ts |   10.12 |      100 |       0 |   10.12 | ...03-204,207-216 
+ ...cription/modes |    5.96 |       50 |    7.69 |    5.96 |                   
+  ...AssemblyAI.ts |   11.96 |      100 |       0 |   11.96 | ...55-174,179-180 
+  LocalWhisper.ts  |       0 |        0 |       0 |       0 | 1-209             
+  NativeBrowser.ts |    7.61 |      100 |       0 |    7.61 | ...45-153,156-157 
+  types.ts         |       0 |        0 |       0 |       0 |                   
+ ...cription/utils |       0 |    66.66 |      50 |       0 |                   
+  ...or.worklet.ts |       0 |      100 |     100 |       0 | 19-84             
+  ...Utils.impl.ts |       0 |        0 |       0 |       0 | 1-96              
+  audioUtils.ts    |       0 |      100 |       0 |       0 | 3-8               
+  types.ts         |       0 |        0 |       0 |       0 |                   
+ ...end/src/stores |       0 |        0 |       0 |       0 |                   
+  ...ssionStore.ts |       0 |        0 |       0 |       0 | 1-83              
+ ...tend/src/types |       0 |        0 |       0 |       0 |                   
+  analytics.ts     |       0 |        0 |       0 |       0 |                   
+  session.ts       |       0 |        0 |       0 |       0 |                   
+  user.ts          |       0 |        0 |       0 |       0 |                   
+ ...tend/src/utils |       0 |        0 |       0 |       0 |                   
+  ...rWordUtils.ts |       0 |        0 |       0 |       0 | 1-118             
+-------------------|---------|----------|---------|---------|-------------------

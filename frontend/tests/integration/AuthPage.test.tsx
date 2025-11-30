@@ -76,8 +76,8 @@ describe('AuthPage Integration', () => {
             );
 
             expect(screen.getByText(/Welcome Back/i)).toBeInTheDocument();
-            expect(screen.getByPlaceholderText(/email/i)).toBeInTheDocument();
-            expect(screen.getByPlaceholderText(/password/i)).toBeInTheDocument();
+            expect(screen.getByTestId('email-input')).toBeInTheDocument();
+            expect(screen.getByTestId('password-input')).toBeInTheDocument();
             expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument();
         });
 
@@ -91,8 +91,8 @@ describe('AuthPage Integration', () => {
                 </BrowserRouter>
             );
 
-            const emailInput = screen.getByPlaceholderText(/email/i);
-            const passwordInput = screen.getByPlaceholderText(/password/i);
+            const emailInput = screen.getByTestId('email-input');
+            const passwordInput = screen.getByTestId('password-input');
 
             await user.type(emailInput, 'invalid-email');
             await user.type(passwordInput, 'password123');
@@ -117,8 +117,8 @@ describe('AuthPage Integration', () => {
                 </BrowserRouter>
             );
 
-            await user.type(screen.getByPlaceholderText(/email/i), 'test@example.com');
-            await user.type(screen.getByPlaceholderText(/password/i), 'password123');
+            await user.type(screen.getByTestId('email-input'), 'test@example.com');
+            await user.type(screen.getByTestId('password-input'), 'password123');
             await user.click(screen.getByRole('button', { name: /sign in/i }));
 
             await waitFor(() => {
@@ -144,12 +144,12 @@ describe('AuthPage Integration', () => {
                 </BrowserRouter>
             );
 
-            await user.type(screen.getByPlaceholderText(/email/i), 'test@example.com');
-            await user.type(screen.getByPlaceholderText(/password/i), 'wrongpassword');
+            await user.type(screen.getByTestId('email-input'), 'test@example.com');
+            await user.type(screen.getByTestId('password-input'), 'wrongpassword');
             await user.click(screen.getByRole('button', { name: /sign in/i }));
 
             await waitFor(() => {
-                expect(screen.getByText(/invalid login credentials/i)).toBeInTheDocument();
+                expect(screen.getByText(/The email or password you entered is incorrect./i)).toBeInTheDocument();
             });
         });
     });
@@ -168,7 +168,7 @@ describe('AuthPage Integration', () => {
             await user.click(screen.getByText(/create an account/i));
 
             expect(screen.getByText(/create account/i)).toBeInTheDocument();
-            expect(screen.getByRole('button', { name: /sign up/i })).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: /create account/i })).toBeInTheDocument();
         });
 
         it('validates password strength for sign-up', async () => {
@@ -183,12 +183,12 @@ describe('AuthPage Integration', () => {
 
             await user.click(screen.getByText(/create an account/i));
 
-            const emailInput = screen.getByPlaceholderText(/email/i);
-            const passwordInput = screen.getByPlaceholderText(/password/i);
+            const emailInput = screen.getByTestId('email-input');
+            const passwordInput = screen.getByTestId('password-input');
 
             await user.type(emailInput, 'newuser@example.com');
             await user.type(passwordInput, '123'); // Too short
-            await user.click(screen.getByRole('button', { name: /sign up/i }));
+            await user.click(screen.getByRole('button', { name: /create account/i }));
 
             // Should show password strength error
             expect(mockSupabaseClient.auth.signUp).not.toHaveBeenCalled();
@@ -211,9 +211,9 @@ describe('AuthPage Integration', () => {
 
             await user.click(screen.getByText(/create an account/i));
 
-            await user.type(screen.getByPlaceholderText(/email/i), 'newuser@example.com');
-            await user.type(screen.getByPlaceholderText(/password/i), 'StrongPass123!');
-            await user.click(screen.getByRole('button', { name: /sign up/i }));
+            await user.type(screen.getByTestId('email-input'), 'newuser@example.com');
+            await user.type(screen.getByTestId('password-input'), 'StrongPass123!');
+            await user.click(screen.getByRole('button', { name: /create account/i }));
 
             await waitFor(() => {
                 expect(mockSupabaseClient.auth.signUp).toHaveBeenCalledWith({
@@ -238,7 +238,7 @@ describe('AuthPage Integration', () => {
             await user.click(screen.getByText(/forgot password/i));
 
             expect(screen.getByText(/reset password/i)).toBeInTheDocument();
-            expect(screen.getByPlaceholderText(/email/i)).toBeInTheDocument();
+            expect(screen.getByTestId('email-input')).toBeInTheDocument();
         });
 
         it('sends password reset email', async () => {
@@ -257,8 +257,8 @@ describe('AuthPage Integration', () => {
             );
 
             await user.click(screen.getByText(/forgot password/i));
-            await user.type(screen.getByPlaceholderText(/email/i), 'reset@example.com');
-            await user.click(screen.getByRole('button', { name: /send reset email/i }));
+            await user.type(screen.getByTestId('email-input'), 'reset@example.com');
+            await user.click(screen.getByRole('button', { name: /send reset link/i }));
 
             await waitFor(() => {
                 expect(mockSupabaseClient.auth.resetPasswordForEmail).toHaveBeenCalledWith(

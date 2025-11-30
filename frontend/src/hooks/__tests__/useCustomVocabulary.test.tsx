@@ -60,14 +60,16 @@ describe('useCustomVocabulary', () => {
             profile: null,
         } as Partial<AuthContextType> as AuthContextType);
 
-        const mockSelect = vi.fn().mockReturnThis();
-        const mockEq = vi.fn().mockReturnThis();
-        mockEq.mockResolvedValue({ data: mockVocab, error: null });
+
+        const mockOrder = vi.fn().mockResolvedValue({ data: mockVocab, error: null });
 
         vi.mocked(getSupabaseClient).mockReturnValue({
             from: vi.fn().mockReturnValue({
-                select: mockSelect,
-                eq: mockEq,
+                select: vi.fn().mockReturnValue({
+                    eq: vi.fn().mockReturnValue({
+                        order: mockOrder,
+                    }),
+                }),
             }),
         } as unknown as SupabaseClient);
 

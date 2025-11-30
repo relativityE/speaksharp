@@ -51,6 +51,8 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript }) => {
       logger.error({ err }, "Error fetching AI suggestions:");
       if (err instanceof Error) {
         setError(err.message);
+      } else if (typeof err === 'object' && err !== null && 'message' in err) {
+        setError((err as { message: string }).message);
       } else {
         setError('An unexpected error occurred.');
       }
@@ -77,10 +79,10 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript }) => {
       </CardHeader>
       <CardContent>
         {isLoading && (
-            <div className="flex justify-center items-center py-4">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                <p className="ml-2 text-muted-foreground">Analyzing your speech...</p>
-            </div>
+          <div className="flex justify-center items-center py-4">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            <p className="ml-2 text-muted-foreground">Analyzing your speech...</p>
+          </div>
         )}
 
         {error && (

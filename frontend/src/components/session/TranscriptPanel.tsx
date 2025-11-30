@@ -127,7 +127,7 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
         if (error) return <ErrorStatePanel error={error} />;
         if (isLoading) return <LoadingStatePanel />;
         if (showEmptyState) return <EmptyStatePanel />;
-        if (!isListening && !hasEverListened.current) return <InitialStatePanel />;
+        if (!isListening && !hasEverListened.current && chunks.length === 0 && !interimTranscript) return <InitialStatePanel />;
         if (showWaitingMessage) {
             return (
                 <div className="absolute inset-0 flex items-center justify-center">

@@ -129,7 +129,18 @@ log "=== PHASE 4: Verify Browser-based MSW startup (Node Script) ==="
       page.on('console', msg => console.log('BROWSER:', msg.text()));
       try {
         await page.goto('http://localhost:5173', { waitUntil: 'networkidle' });
-        await page.waitForFunction(() => window.mswReady === true, { timeout: 10000 });
+        // Use event-driven synchronization instead of polling
+        await page.evaluate(() => {
+          return new Promise((resolve) => {
+            // Check if already ready (fallback for late check)
+            if (window.mswReady) {
+              resolve();
+              return;
+            }
+            // Wait for the event
+            window.addEventListener('e2e:msw-ready', () => resolve(), { once: true });
+          });
+        });
         console.log('[OK] MSW is ready');
       } finally {
         await browser.close();

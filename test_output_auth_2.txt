@@ -1,0 +1,839 @@
+
+> speaksharp@0.0.0 test /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
+> cd frontend && vitest --coverage tests/integration/AuthPage.test.tsx --run --reporter\=verbose
+
+ Vitest  "deps.inline" is deprecated. If you rely on vite-node directly, use "server.deps.inline" instead. Otherwise, consider using "deps.optimizer.web.include"
+
+ RUN  v3.2.4 /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend
+      Coverage enabled with v8
+
+stderr | tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign In Flow > renders sign-in form by default
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign In Flow > renders sign-in form by default 48ms
+ ✓ tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign In Flow > validates email format 98ms
+stderr | tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign In Flow > displays error on failed sign-in
+[AUTH] Error returned by Supabase { message: [32m'Invalid login credentials'[39m }
+[AUTH] Fatal error during auth { message: [32m'Invalid login credentials'[39m }
+
+ ✓ tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign In Flow > calls signInWithPassword with valid credentials 89ms
+ × tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign In Flow > displays error on failed sign-in 1133ms
+   → Unable to find an element with the text: /invalid login credentials/i. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex flex-col items-center justify-center min-h-screen bg-background p-4 relative overflow-hidden"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"absolute inset-0 bg-gradient-to-br from-primary/5 via-background to-background z-0"[39m
+      [36m/>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"absolute top-0 left-0 w-full h-full bg-[url('/assets/grid-pattern.svg')] opacity-[0.03] z-0 pointer-events-none"[39m
+      [36m/>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"relative z-10 w-full max-w-md space-y-8"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"text-center space-y-2"[39m
+        [36m>[39m
+          [36m<h1[39m
+            [33mclass[39m=[32m"text-4xl font-extrabold tracking-tight text-foreground"[39m
+          [36m>[39m
+            [0mSpeakSharp[0m
+          [36m</h1>[39m
+          [36m<p[39m
+            [33mclass[39m=[32m"text-muted-foreground text-lg"[39m
+          [36m>[39m
+            [0mMaster your communication skills.[0m
+          [36m</p>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"rounded-lg border-2 shadow-card p-6 border-border/50 shadow-xl bg-card/95 backdrop-blur-sm"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex flex-col space-y-1 text-center pb-8"[39m
+          [36m>[39m
+            [36m<h3[39m
+              [33mclass[39m=[32m"text-2xl font-bold tracking-tight"[39m
+            [36m>[39m
+              [0mWelcome back[0m
+            [36m</h3>[39m
+            [36m<p[39m
+              [33mclass[39m=[32m"text-muted-foreground text-base"[39m
+            [36m>[39m
+              [0mEnter your credentials to access your account[0m
+            [36m</p>[39m
+          [36m</div>[39m
+          [36m<div>[39m
+            [36m<form[39m
+              [33mclass[39m=[32m"space-y-4"[39m
+              [33mdata-testid[39m=[32m"auth-form"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"space-y-4"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"space-y-2"[39m
+                [36m>[39m
+                  [36m<label[39m
+                    [33mclass[39m=[32m"text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"[39m
+                    [33mfor[39m=[32m"email"[39m
+                  [36m>[39m
+                    [0mEmail[0m
+                  [36m</label>[39m
+                  [36m<input[39m
+                    [33mclass[39m=[32m"flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 h-11"[39m
+                    [33mdata-testid[39m=[32m"email-input"[39m
+                    [33mid[39m=[32m"email"[39m
+                    [33mplaceholder[39m=[32m"name@example.com"[39m
+                    [33mrequired[39m=[32m""[39m
+                    [33mtype[39m=[32m"email"[39m
+                    [33mvalue[39m=[32m"test@example.com"[39m
+                  [36m/>[39m
+                [36m</div>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"space-y-2"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"flex items-center justify-between"[39m
+                  [36m>[39m
+                    [36m<label[39m
+                      [33mclass[39m=[32m"text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"[39m
+                      [33mfor[39m=[32m"password"[39m
+                    [36m>[39m
+                      [0mPassword[0m
+                    [36m</label>[39m
+                    [36m<button[39m
+                      [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md ring-offset-background transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 underline-offset-4 hover:underline py-2 px-0 font-normal text-xs text-muted-foreground hover:text-primary h-auto"[39m
+                      [33mdata-testid[39m=[32m"forgot-password-button"[39m
+                      [33mtype[39m=[32m"button"[39m
+                    [36m>[39m
+                      [0mForgot password?[0m
+                    [36m</button>[39m
+                  [36m</div>[39m
+                  [36m<input[39m
+                    [33mclass[39m=[32m"flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 h-11"[39m
+                    [33mdata-testid[39m=[32m"password-input"[39m
+                    [33mid[39m=[32m"password"[39m
+                    [33mrequired[39m=[32m""[39m
+                    [33mtype[39m=[32m"password"[39m
+                    [33mvalue[39m=[32m"wrongpassword"[39m
+                  [36m/>[39m
+                [36m</div>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"p-3 rounded-md bg-destructive/10 text-destructive text-sm font-medium animate-in fade-in-50"[39m
+                  [33mdata-testid[39m=[32m"auth-error-message"[39m
+                [36m>[39m
+                  [0mAn unexpected error occurred.[0m
+                [36m</div>[39m
+                [36m<button[39m
+                  [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md ring-offset-background duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary-light transform hover:-translate-y-0.5 px-4 py-2 w-full h-11 text-base font-semibold shadow-lg shadow-primary/20 transition-all hover:shadow-primary/30"[39m
+                  [33mdata-testid[39m=[32m"sign-in-submit"[39m
+                  [33mtype[39m=[32m"submit"[39m
+                [36m>[39m
+                  [0mSign In[0m
+                [36m</button>[39m
+              [36m</div>[39m
+            [36m</form>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"relative my-8"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"absolute inset-0 flex items-center"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"w-full border-t"[39m
+                [36m/>[39m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"relative flex justify-center text-xs uppercase"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"bg-card px-2 text-muted-foreground"[39m
+                [36m>[39m
+                  [0mOr[0m
+                [36m</span>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"text-center space-y-4"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"space-y-2"[39m
+              [36m>[39m
+                [36m<p[39m
+                  [33mclass[39m=[32m"text-sm text-muted-foreground"[39m
+                [36m>[39m
+                  [0mDon't have an account?[0m
+                [36m</p>[39m
+                [36m<button[39m
+                  [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm ring-offset-background duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border bg-card text-foreground px-4 py-2 w-full h-11 font-semibold border-primary/20 hover:bg-primary/5 hover:text-primary hover:border-primary/50 transition-colors"[39m
+                  [33mdata-testid[39m=[32m"mode-toggle"[39m
+                  [33mtype[39m=[32m"button"[39m
+                [36m>[39m
+                  [0mCreate an account[0m
+                [36m</button>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"text-center text-sm text-muted-foreground px-8"[39m
+        [36m>[39m
+          [0mBy clicking continue, you agree to our [0m
+          [36m<a[39m
+            [33mclass[39m=[32m"underline underline-offset-4 hover:text-primary"[39m
+            [33mhref[39m=[32m"#"[39m
+          [36m>[39m
+            [0mTerms of Service[0m
+          [36m</a>[39m
+          [0m and [0m
+          [36m<a[39m
+            [33mclass[39m=[32m"underline underline-offset-4 hover:text-primary"[39m
+            [33mhref[39m=[32m"#"[39m
+          [36m>[39m
+            [0mPrivacy Policy[0m
+          [36m</a>[39m
+          [0m.[0m
+        [36m</p>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+
+Ignored nodes: comments, script, style
+[36m<html>[39m
+  [36m<head />[39m
+  [36m<body>[39m
+    [36m<div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex flex-col items-center justify-center min-h-screen bg-background p-4 relative overflow-hidden"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"absolute inset-0 bg-gradient-to-br from-primary/5 via-background to-background z-0"[39m
+        [36m/>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"absolute top-0 left-0 w-full h-full bg-[url('/assets/grid-pattern.svg')] opacity-[0.03] z-0 pointer-events-none"[39m
+        [36m/>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"relative z-10 w-full max-w-md space-y-8"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"text-center space-y-2"[39m
+          [36m>[39m
+            [36m<h1[39m
+              [33mclass[39m=[32m"text-4xl font-extrabold tracking-tight text-foreground"[39m
+            [36m>[39m
+              [0mSpeakSharp[0m
+            [36m</h1>[39m
+            [36m<p[39m
+              [33mclass[39m=[32m"text-muted-foreground text-lg"[39m
+            [36m>[39m
+              [0mMaster your communication skills.[0m
+            [36m</p>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"rounded-lg border-2 shadow-card p-6 border-border/50 shadow-xl bg-card/95 backdrop-blur-sm"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex flex-col space-y-1 text-center pb-8"[39m
+            [36m>[39m
+              [36m<h3[39m
+                [33mclass[39m=[32m"text-2xl font-bold tracking-tight"[39m
+              [36m>[39m
+                [0mWelcome back[0m
+              [36m</h3>[39m
+              [36m<p[39m
+                [33mclass[39m=[32m"text-muted-foreground text-base"[39m
+              [36m>[39m
+                [0mEnter your credentials to access your account[0m
+              [36m</p>[39m
+            [36m</div>[39m
+            [36m<div>[39m
+              [36m<form[39m
+                [33mclass[39m=[32m"space-y-4"[39m
+                [33mdata-testid[39m=[32m"auth-form"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"space-y-4"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"space-y-2"[39m
+                  [36m>[39m
+                    [36m<label[39m
+                      [33mclass[39m=[32m"text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"[39m
+                      [33mfor[39m=[32m"email"[39m
+                    [36m>[39m
+                      [0mEmail[0m
+                    [36m</label>[39m
+                    [36m<input[39m
+                      [33mclass[39m=[32m"flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 h-11"[39m
+                      [33mdata-testid[39m=[32m"email-input"[39m
+                      [33mid[39m=[32m"email"[39m
+                      [33mplaceholder[39m=[32m"name@example.com"[39m
+                      [33mrequired[39m=[32m""[39m
+                      [33mtype[39m=[32m"email"[39m
+                      [33mvalue[39m=[32m"test@example.com"[39m
+                    [36m/>[39m
+                  [36m</div>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"space-y-2"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"flex items-center justify-between"[39m
+                    [36m>[39m
+                      [36m<label[39m
+                        [33mclass[39m=[32m"text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"[39m
+                        [33mfor[39m=[32m"password"[39m
+                      [36m>[39m
+                        [0mPassword[0m
+                      [36m</label>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md ring-offset-background transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 underline-offset-4 hover:underline py-2 px-0 font-normal text-xs text-muted-foreground hover:text-primary h-auto"[39m
+                        [33mdata-testid[39m=[32m"forgot-password-button"[39m
+                        [33mtype[39m=[32m"button"[39m
+                      [36m>[39m
+                        [0mForgot password?[0m
+                      [36m</button>[39m
+                    [36m</div>[39m
+                    [36m<input[39m
+                      [33mclass[39m=[32m"flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 h-11"[39m
+                      [33mdata-testid[39m=[32m"password-input"[39m
+                      [33mid[39m=[32m"password"[39m
+                      [33mrequired[39m=[32m""[39m
+                      [33mtype[39m=[32m"password"[39m
+                      [33mvalue[39m=[32m"wrongpassword"[39m
+                    [36m/>[39m
+                  [36m</div>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"p-3 rounded-md bg-destructive/10 text-destructive text-sm font-medium animate-in fade-in-50"[39m
+                    [33mdata-testid[39m=[32m"auth-error-message"[39m
+                  [36m>[39m
+                    [0mAn unexpected error occurred.[0m
+                  [36m</div>[39m
+                  [36m<button[39m
+                    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md ring-offset-background duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary-light transform hover:-translate-y-0.5 px-4 py-2 w-full h-11 text-base font-semibold shadow-lg shadow-primary/20 transition-all hover:shadow-primary/30"[39m
+                    [33mdata-testid[39m=[32m"sign-in-submit"[39m
+                    [33mtype[39m=[32m"submit"[39m
+                  [36m>[39m
+                    [0mSign In[0m
+                  [36m</button>[39m
+                [36m</div>[39m
+              [36m</form>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"relative my-8"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"absolute inset-0 flex items-center"[39m
+                [36m>[39m
+                  [36m<span[39m
+                    [33mclass[39m=[32m"w-full border-t"[39m
+                  [36m/>[39m
+                [36m</div>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"relative flex justify-center text-xs uppercase"[39m
+                [36m>[39m
+                  [36m<span[39m
+                    [33mclass[39m=[32m"bg-card px-2 text-muted-foreground"[39m
+                  [36m>[39m
+                    [0mOr[0m
+                  [36m</span>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"text-center space-y-4"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"space-y-2"[39m
+                [36m>[39m
+                  [36m<p[39m
+                    [33mclass[39m=[32m"text-sm text-muted-foreground"[39m
+                  [36m>[39m
+                    [0mDon't have an account?[0m
+                  [36m</p>[39m
+                  [36m<button[39m
+                    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm ring-offset-background duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border bg-card text-foreground px-4 py-2 w-full h-11 font-semibold border-primary/20 hover:bg-primary/5 hover:text-primary hover:border-primary/50 transition-colors"[39m
+                    [33mdata-testid[39m=[32m"mode-toggle"[39m
+                    [33mtype[39m=[32m"button"[39m
+                  [36m>[39m
+                    [0mCreate an account[0m
+                  [36m</button>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<p[39m
+            [33mclass[39m=[32m"text-center text-sm text-muted-foreground px-8"[39m
+          [36m>[39m
+            [0mBy clicking continue, you agree to our [0m
+            [36m<a[39m
+              [33mclass[39m=[32m"underline underline-offset-4 hover:text-primary"[39m
+              [33mhref[39m=[32m"#"[39m
+            [36m>[39m
+              [0mTerms of Service[0m
+            [36m</a>[39m
+            [0m and [0m
+            [36m<a[39m
+              [33mclass[39m=[32m"underline underline-offset-4 hover:text-primary"[39m
+              [33mhref[39m=[32m"#"[39m
+            [36m>[39m
+              [0mPrivacy Policy[0m
+            [36m</a>[39m
+            [0m.[0m
+          [36m</p>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</body>[39m
+[36m</html>[39m
+ ✓ tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign Up Flow > switches to sign-up form when clicking sign-up link 63ms
+stderr | tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign Up Flow > validates password strength for sign-up
+[AUTH] Fatal error during auth TypeError: Cannot destructure property 'error' of '(intermediate value)' as it is undefined.
+    at handleSubmit [90m(/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/[39msrc/pages/AuthPage.tsx:55:24[90m)[39m
+
+stderr | tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign Up Flow > calls signUp with valid credentials
+[AUTH] Error returned by Supabase { message: [32m'Invalid login credentials'[39m }
+[AUTH] Fatal error during auth { message: [32m'Invalid login credentials'[39m }
+
+ × tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign Up Flow > validates password strength for sign-up 186ms
+   → expected "spy" to not be called at all, but actually been called 1 times[90m
+
+Received: 
+
+[1m  1st spy call:
+
+[22m    Array [
+      Object {
+        "email": "newuser@example.com",
+        "password": "123",
+      },
+    ]
+[39m[90m
+
+Number of calls: [1m1[22m
+[39m
+ ✓ tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign Up Flow > calls signUp with valid credentials 148ms
+ ✓ tests/integration/AuthPage.test.tsx > AuthPage Integration > Password Reset Flow > switches to password reset form 49ms
+ ✓ tests/integration/AuthPage.test.tsx > AuthPage Integration > Password Reset Flow > sends password reset email 143ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign In Flow > displays error on failed sign-in
+TestingLibraryElementError: Unable to find an element with the text: /invalid login credentials/i. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex flex-col items-center justify-center min-h-screen bg-background p-4 relative overflow-hidden"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"absolute inset-0 bg-gradient-to-br from-primary/5 via-background to-background z-0"[39m
+      [36m/>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"absolute top-0 left-0 w-full h-full bg-[url('/assets/grid-pattern.svg')] opacity-[0.03] z-0 pointer-events-none"[39m
+      [36m/>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"relative z-10 w-full max-w-md space-y-8"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"text-center space-y-2"[39m
+        [36m>[39m
+          [36m<h1[39m
+            [33mclass[39m=[32m"text-4xl font-extrabold tracking-tight text-foreground"[39m
+          [36m>[39m
+            [0mSpeakSharp[0m
+          [36m</h1>[39m
+          [36m<p[39m
+            [33mclass[39m=[32m"text-muted-foreground text-lg"[39m
+          [36m>[39m
+            [0mMaster your communication skills.[0m
+          [36m</p>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"rounded-lg border-2 shadow-card p-6 border-border/50 shadow-xl bg-card/95 backdrop-blur-sm"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex flex-col space-y-1 text-center pb-8"[39m
+          [36m>[39m
+            [36m<h3[39m
+              [33mclass[39m=[32m"text-2xl font-bold tracking-tight"[39m
+            [36m>[39m
+              [0mWelcome back[0m
+            [36m</h3>[39m
+            [36m<p[39m
+              [33mclass[39m=[32m"text-muted-foreground text-base"[39m
+            [36m>[39m
+              [0mEnter your credentials to access your account[0m
+            [36m</p>[39m
+          [36m</div>[39m
+          [36m<div>[39m
+            [36m<form[39m
+              [33mclass[39m=[32m"space-y-4"[39m
+              [33mdata-testid[39m=[32m"auth-form"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"space-y-4"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"space-y-2"[39m
+                [36m>[39m
+                  [36m<label[39m
+                    [33mclass[39m=[32m"text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"[39m
+                    [33mfor[39m=[32m"email"[39m
+                  [36m>[39m
+                    [0mEmail[0m
+                  [36m</label>[39m
+                  [36m<input[39m
+                    [33mclass[39m=[32m"flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 h-11"[39m
+                    [33mdata-testid[39m=[32m"email-input"[39m
+                    [33mid[39m=[32m"email"[39m
+                    [33mplaceholder[39m=[32m"name@example.com"[39m
+                    [33mrequired[39m=[32m""[39m
+                    [33mtype[39m=[32m"email"[39m
+                    [33mvalue[39m=[32m"test@example.com"[39m
+                  [36m/>[39m
+                [36m</div>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"space-y-2"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"flex items-center justify-between"[39m
+                  [36m>[39m
+                    [36m<label[39m
+                      [33mclass[39m=[32m"text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"[39m
+                      [33mfor[39m=[32m"password"[39m
+                    [36m>[39m
+                      [0mPassword[0m
+                    [36m</label>[39m
+                    [36m<button[39m
+                      [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md ring-offset-background transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 underline-offset-4 hover:underline py-2 px-0 font-normal text-xs text-muted-foreground hover:text-primary h-auto"[39m
+                      [33mdata-testid[39m=[32m"forgot-password-button"[39m
+                      [33mtype[39m=[32m"button"[39m
+                    [36m>[39m
+                      [0mForgot password?[0m
+                    [36m</button>[39m
+                  [36m</div>[39m
+                  [36m<input[39m
+                    [33mclass[39m=[32m"flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 h-11"[39m
+                    [33mdata-testid[39m=[32m"password-input"[39m
+                    [33mid[39m=[32m"password"[39m
+                    [33mrequired[39m=[32m""[39m
+                    [33mtype[39m=[32m"password"[39m
+                    [33mvalue[39m=[32m"wrongpassword"[39m
+                  [36m/>[39m
+                [36m</div>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"p-3 rounded-md bg-destructive/10 text-destructive text-sm font-medium animate-in fade-in-50"[39m
+                  [33mdata-testid[39m=[32m"auth-error-message"[39m
+                [36m>[39m
+                  [0mAn unexpected error occurred.[0m
+                [36m</div>[39m
+                [36m<button[39m
+                  [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md ring-offset-background duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary-light transform hover:-translate-y-0.5 px-4 py-2 w-full h-11 text-base font-semibold shadow-lg shadow-primary/20 transition-all hover:shadow-primary/30"[39m
+                  [33mdata-testid[39m=[32m"sign-in-submit"[39m
+                  [33mtype[39m=[32m"submit"[39m
+                [36m>[39m
+                  [0mSign In[0m
+                [36m</button>[39m
+              [36m</div>[39m
+            [36m</form>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"relative my-8"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"absolute inset-0 flex items-center"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"w-full border-t"[39m
+                [36m/>[39m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"relative flex justify-center text-xs uppercase"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"bg-card px-2 text-muted-foreground"[39m
+                [36m>[39m
+                  [0mOr[0m
+                [36m</span>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"text-center space-y-4"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"space-y-2"[39m
+              [36m>[39m
+                [36m<p[39m
+                  [33mclass[39m=[32m"text-sm text-muted-foreground"[39m
+                [36m>[39m
+                  [0mDon't have an account?[0m
+                [36m</p>[39m
+                [36m<button[39m
+                  [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm ring-offset-background duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border bg-card text-foreground px-4 py-2 w-full h-11 font-semibold border-primary/20 hover:bg-primary/5 hover:text-primary hover:border-primary/50 transition-colors"[39m
+                  [33mdata-testid[39m=[32m"mode-toggle"[39m
+                  [33mtype[39m=[32m"button"[39m
+                [36m>[39m
+                  [0mCreate an account[0m
+                [36m</button>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"text-center text-sm text-muted-foreground px-8"[39m
+        [36m>[39m
+          [0mBy clicking continue, you agree to our [0m
+          [36m<a[39m
+            [33mclass[39m=[32m"underline underline-offset-4 hover:text-primary"[39m
+            [33mhref[39m=[32m"#"[39m
+          [36m>[39m
+            [0mTerms of Service[0m
+          [36m</a>[39m
+          [0m and [0m
+          [36m<a[39m
+            [33mclass[39m=[32m"underline underline-offset-4 hover:text-primary"[39m
+            [33mhref[39m=[32m"#"[39m
+          [36m>[39m
+            [0mPrivacy Policy[0m
+          [36m</a>[39m
+          [0m.[0m
+        [36m</p>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+
+Ignored nodes: comments, script, style
+[36m<html>[39m
+  [36m<head />[39m
+  [36m<body>[39m
+    [36m<div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex flex-col items-center justify-center min-h-screen bg-background p-4 relative overflow-hidden"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"absolute inset-0 bg-gradient-to-br from-primary/5 via-background to-background z-0"[39m
+        [36m/>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"absolute top-0 left-0 w-full h-full bg-[url('/assets/grid-pattern.svg')] opacity-[0.03] z-0 pointer-events-none"[39m
+        [36m/>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"relative z-10 w-full max-w-md space-y-8"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"text-center space-y-2"[39m
+          [36m>[39m
+            [36m<h1[39m
+              [33mclass[39m=[32m"text-4xl font-extrabold tracking-tight text-foreground"[39m
+            [36m>[39m
+              [0mSpeakSharp[0m
+            [36m</h1>[39m
+            [36m<p[39m
+              [33mclass[39m=[32m"text-muted-foreground text-lg"[39m
+            [36m>[39m
+              [0mMaster your communication skills.[0m
+            [36m</p>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"rounded-lg border-2 shadow-card p-6 border-border/50 shadow-xl bg-card/95 backdrop-blur-sm"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex flex-col space-y-1 text-center pb-8"[39m
+            [36m>[39m
+              [36m<h3[39m
+                [33mclass[39m=[32m"text-2xl font-bold tracking-tight"[39m
+              [36m>[39m
+                [0mWelcome back[0m
+              [36m</h3>[39m
+              [36m<p[39m
+                [33mclass[39m=[32m"text-muted-foreground text-base"[39m
+              [36m>[39m
+                [0mEnter your credentials to access your account[0m
+              [36m</p>[39m
+            [36m</div>[39m
+            [36m<div>[39m
+              [36m<form[39m
+                [33mclass[39m=[32m"space-y-4"[39m
+                [33mdata-testid[39m=[32m"auth-form"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"space-y-4"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"space-y-2"[39m
+                  [36m>[39m
+                    [36m<label[39m
+                      [33mclass[39m=[32m"text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"[39m
+                      [33mfor[39m=[32m"email"[39m
+                    [36m>[39m
+                      [0mEmail[0m
+                    [36m</label>[39m
+                    [36m<input[39m
+                      [33mclass[39m=[32m"flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 h-11"[39m
+                      [33mdata-testid[39m=[32m"email-input"[39m
+                      [33mid[39m=[32m"email"[39m
+                      [33mplaceholder[39m=[32m"name@example.com"[39m
+                      [33mrequired[39m=[32m""[39m
+                      [33mtype[39m=[32m"email"[39m
+                      [33mvalue[39m=[32m"test@example.com"[39m
+                    [36m/>[39m
+                  [36m</div>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"space-y-2"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"flex items-center justify-between"[39m
+                    [36m>[39m
+                      [36m<label[39m
+                        [33mclass[39m=[32m"text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"[39m
+                        [33mfor[39m=[32m"password"[39m
+                      [36m>[39m
+                        [0mPassword[0m
+                      [36m</label>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md ring-offset-background transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 underline-offset-4 hover:underline py-2 px-0 font-normal text-xs text-muted-foreground hover:text-primary h-auto"[39m
+                        [33mdata-testid[39m=[32m"forgot-password-button"[39m
+                        [33mtype[39m=[32m"button"[39m
+                      [36m>[39m
+                        [0mForgot password?[0m
+                      [36m</button>[39m
+                    [36m</div>[39m
+                    [36m<input[39m
+                      [33mclass[39m=[32m"flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 h-11"[39m
+                      [33mdata-testid[39m=[32m"password-input"[39m
+                      [33mid[39m=[32m"password"[39m
+                      [33mrequired[39m=[32m""[39m
+                      [33mtype[39m=[32m"password"[39m
+                      [33mvalue[39m=[32m"wrongpassword"[39m
+                    [36m/>[39m
+                  [36m</div>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"p-3 rounded-md bg-destructive/10 text-destructive text-sm font-medium animate-in fade-in-50"[39m
+                    [33mdata-testid[39m=[32m"auth-error-message"[39m
+                  [36m>[39m
+                    [0mAn unexpected error occurred.[0m
+                  [36m</div>[39m
+                  [36m<button[39m
+                    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md ring-offset-background duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary-light transform hover:-translate-y-0.5 px-4 py-2 w-full h-11 text-base font-semibold shadow-lg shadow-primary/20 transition-all hover:shadow-primary/30"[39m
+                    [33mdata-testid[39m=[32m"sign-in-submit"[39m
+                    [33mtype[39m=[32m"submit"[39m
+                  [36m>[39m
+                    [0mSign In[0m
+                  [36m</button>[39m
+                [36m</div>[39m
+              [36m</form>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"relative my-8"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"absolute inset-0 flex items-center"[39m
+                [36m>[39m
+                  [36m<span[39m
+                    [33mclass[39m=[32m"w-full border-t"[39m
+                  [36m/>[39m
+                [36m</div>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"relative flex justify-center text-xs uppercase"[39m
+                [36m>[39m
+                  [36m<span[39m
+                    [33mclass[39m=[32m"bg-card px-2 text-muted-foreground"[39m
+                  [36m>[39m
+                    [0mOr[0m
+                  [36m</span>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"text-center space-y-4"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"space-y-2"[39m
+                [36m>[39m
+                  [36m<p[39m
+                    [33mclass[39m=[32m"text-sm text-muted-foreground"[39m
+                  [36m>[39m
+                    [0mDon't have an account?[0m
+                  [36m</p>[39m
+                  [36m<button[39m
+                    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm ring-offset-background duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border bg-card text-foreground px-4 py-2 w-full h-11 font-semibold border-primary/20 hover:bg-primary/5 hover:text-primary hover:border-primary/50 transition-colors"[39m
+                    [33mdata-testid[39m=[32m"mode-toggle"[39m
+                    [33mtype[39m=[32m"button"[39m
+                  [36m>[39m
+                    [0mCreate an account[0m
+                  [36m</button>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<p[39m
+            [33mclass[39m=[32m"text-center text-sm text-muted-foreground px-8"[39m
+          [36m>[39m
+            [0mBy clicking continue, you agree to our [0m
+            [36m<a[39m
+              [33mclass[39m=[32m"underline underline-offset-4 hover:text-primary"[39m
+              [33mhref[39m=[32m"#"[39m
+            [36m>[39m
+              [0mTerms of Service[0m
+            [36m</a>[39m
+            [0m and [0m
+            [36m<a[39m
+              [33mclass[39m=[32m"underline underline-offset-4 hover:text-primary"[39m
+              [33mhref[39m=[32m"#"[39m
+            [36m>[39m
+              [0mPrivacy Policy[0m
+            [36m</a>[39m
+            [0m.[0m
+          [36m</p>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</body>[39m
+[36m</html>[39m
+ ❯ Proxy.waitForWrapper ../node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ tests/integration/AuthPage.test.tsx:151:19
+    149|             await user.click(screen.getByRole('button', { name: /sign …
+    150| 
+    151|             await waitFor(() => {
+       |                   ^
+    152|                 expect(screen.getByText(/invalid login credentials/i))…
+    153|             });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign Up Flow > validates password strength for sign-up
+AssertionError: expected "spy" to not be called at all, but actually been called 1 times[90m
+
+Received: 
+
+[1m  1st spy call:
+
+[22m    Array [
+      Object {
+        "email": "newuser@example.com",
+        "password": "123",
+      },
+    ]
+[39m[90m
+
+Number of calls: [1m1[22m
+[39m
+ ❯ tests/integration/AuthPage.test.tsx:194:56
+    192| 
+    193|             // Should show password strength error
+    194|             expect(mockSupabaseClient.auth.signUp).not.toHaveBeenCalle…
+       |                                                        ^
+    195|         });
+    196| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 7 passed (9)
+   Start at  22:46:03
+   Duration  3.74s (transform 124ms, setup 54ms, collect 428ms, tests 1.96s, environment 173ms, prepare 55ms)
+
+ ELIFECYCLE  Test failed. See above for more details.
