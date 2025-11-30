@@ -26,7 +26,7 @@
     "test": "cd frontend && vitest --coverage",
     "// Comprehensive validation for local dev and CI": "",
     "test:all": "./scripts/test-audit.sh local",
-    "check-in-validation": "./scripts/test-audit.sh ci-simulate",
+    "ci:local": "./scripts/test-audit.sh ci-simulate",
     "test:health-check": "./scripts/test-audit.sh health-check",
     "// Lighthouse CI integration": "",
     "lighthouse:ci": "lhci autorun",

@@ -105,17 +105,18 @@ ___
 2.  ✅ **Codebase Context** – Inspect `/frontend/src`, `/tests`, `/docs` before acting.
 3.  ❌ **No Code Reversals Without Consent** – Never undo user work.
 4.  ⏱️ **Timeout Constraint** – Every command must complete within 7 minutes.
-5.  ✅ **Approved Scripts** – Use the following `package.json` scripts for validation and development. The `test:all` and `test:health-check` scripts are canonical.
+5.  ✅ **Approved Scripts** – Use the following `package.json` scripts for validation and development. The `ci:local` script runs the EXACT same pipeline as GitHub CI.
 
     ```json
      "test:all": "./scripts/test-audit.sh local",
+     "ci:local": "./scripts/test-audit.sh ci-simulate",
      "test:health-check": "./scripts/test-audit.sh health-check",
-     "check-in-validation": "./scripts/test-audit.sh ci-simulate",
      "test": "cd frontend && vitest --coverage",
      "dev": "cd frontend && vite",
      "build": "cd frontend && vite build"
     ```
-    **Note:** `test:health-check` runs a comprehensive smoke test (homepage unauth/auth, session page, analytics page) via `scripts/test-audit.sh`, along with preflight, quality checks, and build verification.
+    
+    **CRITICAL:** `ci:local` is NOT a simulation - it runs the exact same commands as GitHub CI (frozen lockfile, same build, same shards). If it passes locally, CI will pass.
     
     **New Configuration Scripts (2025-11-28):**
     - `build.config.js` - Centralized port configuration (DEV: 5173, PREVIEW: 4173)
@@ -152,9 +153,9 @@ ___
 2.  **Mandatory Pre-Push Validation**
     Before pushing to `main`, you MUST run:
     ```bash
-    pnpm run check-in-validation
+    pnpm run ci:local
     ```
-    This script simulates the CI environment. If it fails, DO NOT PUSH. Fix the issues first.
+    This runs the EXACT GitHub CI pipeline locally (frozen lockfile, sharded E2E, lighthouse). If it fails, DO NOT PUSH. Fix the issues first.
 
 3.  **Documentation (SSOT)**
     *   Review and update the seven mandatory documents as per `docs/OUTLINE.md`: `README.md`, `AGENTS.md`, `docs/OUTLINE.md`, `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`.
