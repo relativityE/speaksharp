@@ -82,11 +82,11 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Session History** | 1 | Users can view and analyze their past practice sessions. | ✅ Implemented | ✅ Yes |
 | **Filler Word Detection** | 1 | Detects and counts common filler words (um, uh, like, etc.). | ✅ Implemented | ✅ Yes |
 | **Speaking Pace (WPM)** | 2 | Provides real-time words-per-minute analysis. | ✅ Implemented | ✅ Yes |
-| **Clarity Score** | 2 | Detailed breakdown of speech clarity. | ✅ Implemented | ✅ Yes |
+| **Clarity Score** | 2 | Score based on filler word usage. | ✅ Implemented | ✅ Yes |
 | **Goal Setting** | 2 | Weekly/Daily targets for practice consistency. | ✅ Implemented | ✅ Yes |
 | **User-Friendly Error Handling** | 2 | Specific, user-facing error messages. | ✅ Implemented | ✅ Yes |
 | **Custom Vocabulary** | 2 | Allows users to add custom words to improve accuracy. | ✅ Implemented | ✅ Yes |
-| **Vocal Variety / Pause Detection** | 2 | Analyzes vocal pitch, tone, and pause duration. | ✅ Implemented | ✅ Yes |
+| **Vocal Variety / Pause Detection** | 2 | Analyzes pause duration and frequency. | ✅ Implemented | ✅ Yes |
 | **Speaker Identification**| 1 | Distinguishes between multiple speakers in a transcript. | ✅ Implemented | ✅ Yes |
 
 #### 🚧 Should-Have
@@ -147,7 +147,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Sun, 30 Nov 2025 16:26:49 GMT
+**Last Updated:** Sun, 30 Nov 2025 21:39:20 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -157,10 +157,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 212 |
+| Total tests             | 213 |
 | Unit tests              | 211   |
-| E2E tests (Playwright)  | 1  |
-| Passing tests           | 212   |
+| E2E tests (Playwright)  | 2  |
+| Passing tests           | 213   |
 | Failing tests           | 0   |
 | Disabled/skipped tests  | 0   |
 | Passing unit tests      | 211   |
@@ -176,7 +176,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 | Statements | N/A   |
 | Branches   | N/A   |
 | Functions  | N/A   |
-| Lines      | 41.97%   |
+| Lines      | 41.81%   |
 
 ---
 
@@ -186,7 +186,7 @@ This section provides metrics that help identify "code bloat"—unnecessary or d
 
 | Metric | Value | Description |
 |---|---|---|
-| **Initial Chunk Size** | 252K | The size of the largest initial JavaScript bundle. This is a direct measure of the amount of code a user has to download and parse on their first visit. Large values here are a strong indicator of code bloat. |
+| **Initial Chunk Size** | 872K | The size of the largest initial JavaScript bundle. This is a direct measure of the amount of code a user has to download and parse on their first visit. Large values here are a strong indicator of code bloat. |
 | **Lighthouse Score** | (coming soon) | A comprehensive performance score from Google Lighthouse. It measures the *impact* of code bloat on the user experience, including metrics like Time to Interactive. |
 
 ---

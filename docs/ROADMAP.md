@@ -103,10 +103,12 @@ This phase is about confirming the core feature set works as expected and polish
   - **Finding 5.1:** Deduplicated CI workflow setup with composite action
   - **Finding 1.2:** Removed redundant `dotenv` dependency
 - **🔵 NEW - Jules V3 Report (2025-11-30):**
-  - **V3-F1:** Refactor `package.json` scripts to use `pnpm --filter` instead of `cd frontend &&` pattern
-  - **V3-F2:** CI workflow could be further optimized with single-job matrix strategy (accepted as "good enough")
-  - **V3-F3:** Refactor E2E synchronization to use DOM-based readiness instead of custom events
-  - **V3-F4:** HIGH PRIORITY - Audit PRD feature table for documentation drift (claims features marked as implemented aren't in UI)
+- [x] **Finding 4 (Documentation Drift):** Update PRD feature descriptions to match implementation (Clarity Score, Vocal Variety).
+- [x] **Finding 3 (Architectural Fragility):** Refactor E2E synchronization to use DOM-based readiness (`data-testid="app-main"`) instead of custom events.
+- [ ] **Finding 1 (Script Context):** Refactor `package.json` scripts to use `pnpm --filter` for better monorepo hygiene.
+    - *Status:* Deferred. Requires restructuring project into a proper pnpm workspace with `frontend/package.json`.
+- [ ] **Finding 2 (CI Efficiency):** Refactor CI workflow to use a single-job matrix strategy instead of multiple jobs calling a composite action.
+    - *Status:* Low Priority. Current composite action solution is DRY and functional. Refactor offers marginal performance gains.
 
 
 ### Gating Check

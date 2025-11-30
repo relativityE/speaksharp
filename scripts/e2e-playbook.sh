@@ -177,7 +177,8 @@ log "=== PHASE 7: Visual Homepage Verification (Node Script) ==="
       try {
         const browser = await chromium.launch({ headless: true });
         const page = await browser.newPage();
-        await page.goto('http://localhost:5173', { waitUntil: 'networkidle' });
+        await page.goto('http://localhost:5173', { waitUntil: 'domcontentloaded' });
+        await page.waitForSelector('[data-testid="app-main"]', { timeout: 10000 });
         const screenshot = await page.screenshot({ fullPage: true });
         console.log('✅ Full-page screenshot captured (base64):');
         console.log(screenshot.toString('base64'));

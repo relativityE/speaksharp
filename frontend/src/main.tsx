@@ -132,8 +132,8 @@ const initialize = async () => {
     await renderApp();
 
     // Signal that the app is fully mounted and ready for interaction
-    const { dispatchE2EEvent } = await import('@/lib/e2e-bridge');
-    dispatchE2EEvent('e2e:app-ready');
+    // We now rely on DOM readiness (data-testid="app-main") instead of custom events
+    console.log('[E2E] App fully mounted');
   } else {
     await renderApp();
   }
