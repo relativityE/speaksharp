@@ -154,7 +154,7 @@ This project provides multiple npm scripts for different use cases. Use this dec
 
 **🎯 Want to run the full CI simulation locally?**
 ```bash
-pnpm run check-in-validation
+pnpm run ci:local
 ```
 - Runs frozen lockfile check, quality checks, build, E2E shards (1-4), Lighthouse CI
 - Mirrors GitHub CI workflow exactly

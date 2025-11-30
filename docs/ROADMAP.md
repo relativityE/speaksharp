@@ -276,9 +276,9 @@ These items were identified in a comprehensive system analysis and remain releva
   - **Commit:** `f8980c5`
   - **MoSCoW:** Should Have
   - **Problem:** The `package.json` scripts section contains multiple overlapping test commands creating ambiguity about which to use when:
-    - Multiple test entry points: `test`, `test:unit`, `test:all`, `test:health-check`, `check-in-validation`
+    - Multiple test entry points: `test`, `test:unit`, `test:all`, `test:health-check`, `ci:local`
     - Multiple E2E commands: `test:e2e:ui`, `test:e2e:debug`, `test:e2e:health`, `test:health-check`
-    - Unclear when to use `test:all` vs `check-in-validation` vs direct `test`
+    - Unclear when to use `test:all` vs `ci:local` vs direct `test`
   - **Impact:** Developer confusion, inconsistent usage, harder onboarding.
   - **Current State:** 
     ```json
@@ -286,7 +286,7 @@ These items were identified in a comprehensive system analysis and remain releva
     "test:unit": "cd frontend && vitest --coverage",  // Duplicate!
     "test:all": "./scripts/test-audit.sh local",
     "test:health-check": "playwright test ...",       // E2E subset
-    "check-in-validation": "./scripts/test-audit.sh ci-simulate",
+    "ci:local": "./scripts/test-audit.sh ci-simulate",
     "test:e2e:health": "playwright test ...",         // Duplicate!
     ```
   - **Note:** ✅ Redundant `tsc &&` build step already removed during restructuring
@@ -296,7 +296,7 @@ These items were identified in a comprehensive system analysis and remain releva
       - Remove `test:e2e:health` (identical to `test:health-check`)
     - **Add JSDoc-style comments** explaining each script's purpose
     - **Create "Scripts Reference" section** in README.md with decision tree:
-      - "Want to run full CI simulation?" → `pnpm run check-in-validation`
+      - "Want to run full CI simulation?" → `pnpm run ci:local`
       - "Want quick feedback?" → `pnpm test` for unit, `pnpm run test:health-check` for E2E
       - "Debugging E2E?" → `pnpm run test:e2e:ui` or `test:e2e:debug`
     - **Document in AGENTS.md** which scripts are canonical for CI vs local dev
