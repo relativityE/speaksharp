@@ -149,10 +149,17 @@ ___
     ```
     Must pass lint, typecheck, all unit tests, and the full E2E suite.
 
-2.  **Documentation (SSOT)**
+2.  **Mandatory Pre-Push Validation**
+    Before pushing to `main`, you MUST run:
+    ```bash
+    pnpm run check-in-validation
+    ```
+    This script simulates the CI environment. If it fails, DO NOT PUSH. Fix the issues first.
+
+3.  **Documentation (SSOT)**
     *   Review and update the seven mandatory documents as per `docs/OUTLINE.md`: `README.md`, `AGENTS.md`, `docs/OUTLINE.md`, `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`.
 
-3.  **Branch & Commit Hygiene**
+4.  **Branch & Commit Hygiene**
     *   Branches: `feature/...`, `fix/...`, `chore/...`.
     *   Commit messages must clearly summarize the changes and their impact.
 
