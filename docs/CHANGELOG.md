@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **CRITICAL FIX - LocalWhisper Performance (2025-11-30):**
+  - **Problem:** On-device transcription re-processed entire audio history every second, causing quadratic O(n²) CPU/memory growth
+  - **Solution:** Implemented buffer clearing after each processing cycle (`audioChunks = []`)
+  - **Impact:** On-device STT now scalable for sessions >5 minutes, flagship feature production-ready
+  - **Location:** `frontend/src/services/transcription/modes/LocalWhisper.ts:178`
+  - **Finding:** Jules' Architectural Analysis Finding 3.1
+
 - **Integration Test Stability (2025-11-30):**
   - **AuthPage:** Resolved 9 failing integration tests by improving error handling for Supabase responses and adding client-side password validation.
   - **AISuggestions:** Fixed 11 failing tests by robustly handling non-Error objects in `fetchSuggestions`.
