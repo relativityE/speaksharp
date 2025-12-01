@@ -6,6 +6,9 @@ test.describe('User Tier Flows', () => {
     // The default programmaticLogin logs in a 'pro' user.
     await programmaticLogin(page);
 
+    // Wait for the app to be fully loaded and on the home page before navigating
+    await expect(page.getByTestId('app-main')).toBeVisible();
+
     await page.goto('/analytics');
     await expect(page.getByRole('heading', { name: 'Your Dashboard' })).toBeVisible();
 
