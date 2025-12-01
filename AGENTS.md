@@ -116,6 +116,11 @@ ___
      "build": "cd frontend && vite build"
     ```
     
+    **Terminology Clarification:**
+    - `test:health-check`: Runs a fast validation suite (Preflight + Unit Tests + Smoke E2E).
+    - **"Healthcheck passed!"**: This log message comes from the Lighthouse CLI and refers to its internal environment check, NOT the project's health check script.
+    - **Smoke Test**: Refers specifically to `tests/e2e/smoke.e2e.spec.ts`.
+    
     **CRITICAL:** `ci:local` is NOT a simulation - it runs the exact same commands as GitHub CI (frozen lockfile, same build, same shards). If it passes locally, CI will pass.
     
     **New Configuration Scripts (2025-11-28):**

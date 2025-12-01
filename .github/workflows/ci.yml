@@ -110,8 +110,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: lighthouse-report
-          path: ./.lighthouseci
+          path: .lighthouseci
           retention-days: 30
+          if-no-files-found: warn
 
   report:
     needs: [prepare, test, lighthouse]
@@ -182,7 +183,6 @@ jobs:
         if: success() && github.event_name == 'push'
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
           commit_message: "docs(sqm): Update test audit metrics"
           branch: ${{ github.head_ref || github.ref_name }}
           file_pattern: 'docs/PRD.md'

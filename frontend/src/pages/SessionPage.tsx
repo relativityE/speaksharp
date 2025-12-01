@@ -16,7 +16,7 @@ export const SessionPage: React.FC = () => {
     const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
 
     // Use zustand store for session state
-    const { isListening, isReady, updateElapsedTime, elapsedTime } = useSessionStore();
+    const { updateElapsedTime, elapsedTime } = useSessionStore();
 
     console.log('[DEBUG] SessionPage rendered. Session:', session?.user?.id);
     console.log('[DEBUG] SessionPage profile state:', { isProfileLoading, profileError, profileId: profile?.id });
@@ -31,7 +31,7 @@ export const SessionPage: React.FC = () => {
         profile
     });
 
-    const { transcript, fillerData, startListening, stopListening } = speechRecognition;
+    const { transcript, fillerData, startListening, stopListening, isListening, isReady } = speechRecognition;
     const { pauseMetrics } = useVocalAnalysis(isListening);
     console.log('[DEBUG] SessionPage speechRecognition state:', { isListening, isReady });
 

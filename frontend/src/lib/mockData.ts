@@ -12,8 +12,8 @@ export const MOCK_USER = {
 export const MOCK_USER_PROFILE = {
     id: MOCK_USER.id,
     email: MOCK_USER.email,
-    subscription_status: 'pro',
-    preferred_mode: 'cloud',
+    subscription_status: 'free',
+    preferred_mode: 'native',
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
 } as const;

@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { SessionPage } from '../pom';
 import { programmaticLogin, waitForE2EEvent, attachLiveTranscript } from './helpers';
 
-test.describe.skip('Live Transcript Feature', () => {
+test.describe('Live Transcript Feature', () => {
   test('should display live transcript after session starts', async ({ page }) => {
     // Mock browser APIs BEFORE navigation to ensure they are available when the app loads
     // Only need to mock getUserMedia and AudioContext - SpeechRecognition is handled by e2e-bridge.ts
@@ -110,9 +110,13 @@ test.describe.skip('Live Transcript Feature', () => {
     console.log('[TEST DEBUG] Start button clicked.');
 
     // Wait for speech recognition to be ready
-    console.log('[TEST DEBUG] Waiting for e2e:speech-recognition-ready event...');
-    await waitForE2EEvent(page, 'e2e:speech-recognition-ready');
-    console.log('[TEST DEBUG] ✅ Speech recognition is ready.');
+    // Wait for speech recognition to be ready (robust check)
+    console.log('[TEST DEBUG] Waiting for speech recognition to be active...');
+    await page.waitForFunction(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return !!(window as any).__activeSpeechRecognition;
+    }, null, { timeout: 10000 });
+    console.log('[TEST DEBUG] ✅ Speech recognition is active.');
 
     // Verify that the UI updates to show the session is active
     console.log('[TEST DEBUG] Waiting for session status indicator...');
