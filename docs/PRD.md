@@ -86,7 +86,7 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Goal Setting** | 2 | Weekly/Daily targets for practice consistency. | ✅ Implemented | ✅ Yes |
 | **User-Friendly Error Handling** | 2 | Specific, user-facing error messages. | ✅ Implemented | ✅ Yes |
 | **Custom Vocabulary** | 2 | Allows users to add custom words to improve accuracy. | ✅ Implemented | ✅ Yes |
-| **Vocal Variety / Pause Detection** | 2 | Analyzes pause duration and frequency. | ✅ Implemented | ✅ Yes |
+| **Vocal Variety / Pause Detection** | 2 | Analyzes pause duration and frequency. | 🚧 Backend Ready | ✅ Yes |
 | **Speaker Identification**| 1 | Distinguishes between multiple speakers in a transcript. | ✅ Implemented | ✅ Yes |
 
 #### 🚧 Should-Have
