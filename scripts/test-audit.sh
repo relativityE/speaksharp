@@ -129,7 +129,7 @@ run_lighthouse_ci() {
     echo "🔦 Running lhci autorun..."
     # Capture exit code to ensure cleanup
     set +e
-    npx lhci autorun --config=lighthouserc.json
+    NODE_NO_WARNINGS=1 npx lhci autorun --config=lighthouserc.json
     EXIT_CODE=$?
     set -e
     
