@@ -267,19 +267,46 @@ How it's Launched: The test environment's dev server is not launched by you dire
 
 ### E2E Testing Infrastructure
 
-**Mock Service Worker (MSW)** intercepts all network requests to Supabase, providing deterministic test data. **E2E Bridge** (`frontend/src/lib/e2e-bridge.ts`) extends MSW with additional E2E-specific mocking and event-driven synchronization:
+**Mock Service Worker (MSW)** intercepts all network requests to Supabase, providing deterministic test data. **E2E Bridge** (`frontend/src/lib/e2e-bridge.ts`) extends MSW with additional E2E-specific mocking and synchronization:
 
 - **Mock SpeechRecognition API**: Polyfills browser `SpeechRecognition` and `webkitSpeechRecognition` with `MockSpeechRecognition` class
 - **dispatchMockTranscript()**: Helper function callable from Playwright tests via `page.evaluate()` to simulate transcription events
-- **Event-Driven Synchronization (2025-11-27)**: Custom DOM events replace fragile polling/timeouts for robust test coordination:
-  - `dispatchE2EEvent(eventName, detail)`: Helper to dispatch custom events from app to tests
-  - `e2e:msw-ready`: Signals MSW initialization complete
-  - `e2e:app-ready`: Signals React app fully mounted
-  - `e2e:speech-recognition-ready`: Signals MockSpeechRecognition instance active
-  - `waitForE2EEvent(page, eventName)`: Test helper to await specific events
-- **Initialization**: Automatically loaded when `IS_TEST_ENVIRONMENT` is true in `main.tsx`
 
-**Status**: Event infrastructure complete. Live transcript test requires SessionPage E2E debugging (documented in ROADMAP.md).
+#### Test Synchronization Pattern
+
+**Primary Approach: DOM-Based Readiness** (Industry Best Practice)
+
+The E2E test suite uses **DOM element visibility** as the primary synchronization mechanism. Tests wait for stable, user-visible elements to appear before proceeding:
+
+```typescript
+// Primary synchronization in programmaticLogin (tests/e2e/helpers.ts:73)
+await page.waitForSelector('[data-testid="app-main"]', { timeout: 10000 });
+```
+
+This approach is:
+- **Robust**: Waits for actual rendered UI, not internal state
+- **Deterministic**: Element appears only after React render cycle completes
+- **Industry Standard**: Recommended by Playwright documentation
+
+**Event-Based Sync: Specialized Cases Only**
+
+Custom DOM events are used ONLY for async operations that have no DOM representation:
+
+1. **`e2e:msw-ready`** - Signals Mock Service Worker initialization complete
+   - **Why**: MSW initializes BEFORE React renders (no DOM exists yet)
+   - **Location**: `e2e-bridge.ts:31`, `helpers.ts:68`
+
+2. **`e2e:speech-recognition-ready`** - Signals MockSpeechRecognition instance active
+   - **Why**: SpeechRecognition.start() is async with no visual indicator
+   - **Location**: `e2e-bridge.ts:92`, `live-transcript.e2e.spec.ts:114`
+
+**Event Helpers:**
+- `dispatchE2EEvent(eventName, detail)`: Dispatches custom events from app to tests
+- `waitForE2EEvent(page, eventName)`: Test helper to await specific events
+
+**Removed Event**: The `e2e:app-ready` event was removed (2025-11-27) and replaced with DOM-based synchronization using `[data-testid="app-main"]` (see `main.tsx:135` comment).
+
+**Status**: Hybrid synchronization pattern complete. DOM-based for app readiness, events only for pre-DOM or non-visual async operations.
 
 Summary: How the Dev Server Relates to Environments
 Environment	How Dev Server is Started	Vite Mode	Key Feature
