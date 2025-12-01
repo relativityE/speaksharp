@@ -92,7 +92,7 @@ This phase is about confirming the core feature set works as expected and polish
   - Improves code maintainability and scalability
 - 🔴 **Harden E2E Architecture:** Complete event migration across all tests
 - 🟡 **Increase Unit Test Coverage:** Target: 36% → 70% (Current: ~42%)
-- 🔴 **Improve Accessibility:** Use an ARIA live region for the transcript so screen readers can announce new lines.
+- 🔴 **Improve Accessibility:** Use an ARIA live region for the transcript so screen readers can announce new lines. (Audit: `aria-live` missing in `TranscriptPanel.tsx`)
 - 🔴 **Add Deno unit tests for the token endpoint.**
 - ✅ **Add a soak test:** 5-minute concurrent user test implemented (`tests/soak/soak-test.spec.ts`) with memory leak detection
 - 🔴 **Add Real Testimonials:** Unhide and populate the `TestimonialsSection` on the landing page with genuine user feedback.
@@ -128,10 +128,11 @@ This phase is about confirming the core feature set works as expected and polish
 This phase focuses on long-term architecture, scalability, and preparing for future feature development.
 
 ### 🎯 Must-Have
-- 🔴 **Implement WebSocket reconnect logic:** Add heartbeat and exponential backoff for a more resilient connection.
+- ✅ **Implement WebSocket reconnect logic:** Add heartbeat and exponential backoff for a more resilient connection. (Note: Basic reconnection exists in `useTranscriptionService`, but robust backoff is pending)
 
 ### 🌱 Could-Have (Future Enhancements)
 - 🔴 **Implement Stripe "Pro Mode" Flag:** For feature gating and usage-based billing.
+  - *Status:* Partially Implemented. `UpgradePromptDialog` and `PricingPage` exist, but the backend "Pro Mode" flag and full checkout flow are incomplete.
 - 🔴 **Automate On-Device Model Updates:** Create a script (e.g., GitHub Action) to automatically check for and download new versions of the locally-hosted Whisper model to prevent it from becoming stale.
 - 🔴 **Add Platform Integrations (e.g., Zoom, Google Meet):** Allow SpeakSharp to connect to and analyze audio from third-party meeting platforms.
 - 🟡 **Set up Multi-Env CI/CD:** A basic implementation for DB migrations exists, but needs expansion.
