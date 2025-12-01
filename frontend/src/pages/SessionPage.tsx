@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { useSessionStore } from '../stores/useSessionStore';
+import { useVocalAnalysis } from '../hooks/useVocalAnalysis';
 
 import posthog from 'posthog-js';
 import { Button } from '@/components/ui/button';
@@ -8,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Mic, Square, Play } from 'lucide-react';
 import { useAuthProvider } from '../contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
+import { PauseMetricsDisplay } from '@/components/session/PauseMetricsDisplay';
 
 export const SessionPage: React.FC = () => {
     const { session } = useAuthProvider();
@@ -30,6 +32,7 @@ export const SessionPage: React.FC = () => {
     });
 
     const { transcript, fillerData, startListening, stopListening } = speechRecognition;
+    const { pauseMetrics } = useVocalAnalysis(isListening);
     console.log('[DEBUG] SessionPage speechRecognition state:', { isListening, isReady });
 
     useEffect(() => {
@@ -218,6 +221,11 @@ export const SessionPage: React.FC = () => {
                             description="Regular practice builds confident speaking habits"
                         />
                     </div>
+                </div>
+
+                {/* Pause Metrics */}
+                <div className="md:col-span-2">
+                    <PauseMetricsDisplay metrics={pauseMetrics} isListening={isListening} />
                 </div>
 
                 {/* Live Transcript Display */}
