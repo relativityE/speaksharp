@@ -119,14 +119,16 @@ export default class NativeBrowser implements ITranscriptionMode {
       }
     };
     logger.info('[NativeBrowser] Init complete.');
-  }
 
-  public async startTranscription(): Promise<void> {
-    logger.info('[NativeBrowser] startTranscription called');
+    // Notify that the service is ready immediately after initialization
     if (this.onReady) {
       logger.info('[NativeBrowser] Calling onReady callback...');
       this.onReady();
     }
+  }
+
+  public async startTranscription(): Promise<void> {
+    logger.info('[NativeBrowser] startTranscription called');
     if (!this.recognition) {
       throw new Error('NativeBrowser not initialized');
     }

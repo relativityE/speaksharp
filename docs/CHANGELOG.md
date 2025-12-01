@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Impact:** CI pipeline now functional, all jobs can access the repository before running setup
   - **Files:** `.github/actions/setup-environment/action.yml`, `.github/workflows/ci.yml`
 
+- **Live Transcript E2E Test Fixed (2025-12-01):**
+  - **Problem:** `live-transcript.e2e.spec.ts` timed out waiting for session status to change from "LOADING" to "READY"
+  - **Root Cause:** `NativeBrowser.onReady()` callback was called in `startTranscription()` instead of `init()`, causing UI to wait indefinitely for ready state
+  - **Solution:** Moved `onReady()` callback to end of `init()` method in `NativeBrowser.ts` so UI is notified immediately when service is ready
+  - **Impact:** Test now passes consistently (verified with 3 consecutive runs), unskipped from test suite
+  - **Files:** `frontend/src/services/transcription/modes/NativeBrowser.ts`, `tests/e2e/live-transcript.e2e.spec.ts`
+
 ### Added
 - **Tech Debt Resolution (2025-11-30):**
   - Removed manual Vite chunking to allow automatic code splitting (Finding 1.1)

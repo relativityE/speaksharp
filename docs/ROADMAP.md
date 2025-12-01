@@ -22,13 +22,14 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - ⏸️ **DEFERRED** - Upgrade Postgres version (not critical for alpha)
 
 ### ⚠️ Known Issues
-- **P1 - Live Transcript E2E Test Intermittent Timeout (2025-11-27)**
-  - **Problem:** `live-transcript.e2e.spec.ts` times out waiting for `e2e:speech-recognition-ready` event in some environments (CI/repeated runs)
-  - **Error:** `page.evaluate: Test timeout of 120000ms exceeded` at `waitForE2EEvent` (line 114)
-  - **Root Cause:** MockSpeechRecognition in `e2e-bridge.ts` may not be dispatching `e2e:speech-recognition-ready` event consistently across all execution contexts
-  - **Impact:** Test passes locally but may fail in CI/CD pipeline
-  - **Workaround:** Re-run tests; investigating event dispatch timing issue
-  
+  - **Status:** Safe to ignore - not a functional issue
+
+- **✅ RESOLVED - Live Transcript E2E Test Fixed (2025-12-01)**
+  - **Problem:** Test timed out waiting for session status to change from "LOADING" to "READY"
+  - **Root Cause:** `NativeBrowser.onReady()` was called in `startTranscription()` instead of `init()`, causing UI to wait indefinitely
+  - **Solution:** Moved `onReady()` callback to end of `init()` method in `NativeBrowser.ts`
+  - **Impact:** Test now passes consistently (verified with 3 consecutive runs)
+  - **Status:** ✅ Fixed and unskipped
 - **✅ RESOLVED - Lighthouse Performance Optimization Complete (2025-11-28)**
   - **Solution:** Achieved Performance 95%, Accessibility 95%, SEO 100%, Best Practices 78%
   - **Impact:** Production-ready performance metrics, SEO-optimized
