@@ -46,6 +46,9 @@ This phase is about confirming the core feature set works as expected and polish
 - ✅ **Implement Speaking Pace Analysis:** Add real-time feedback on words per minute to the core analytics.
 - ✅ **Implement Custom Vocabulary:** Allow Pro users to add custom words (jargon, names) to improve transcription accuracy.
 - ✅ **Implement Vocal Variety / Pause Detection:** Add a new Pro-tier feature to analyze vocal variety or pause duration.
+  - ✅ **Pause Detection UI**: Integrate `PauseMetricsDisplay` into SessionPage (Completed 2025-11-30)
+- ✅ **CI Stability**: Fix Lighthouse CI timeouts and ensure local/remote parity (Completed 2025-11-30)
+- [ ] **Live Transcript E2E**: Fix test environment render loop to unskip `live-transcript.e2e.spec.ts`
 - ✅ **User-Friendly Error Handling:** Implement specific, user-facing error messages for common issues.
 - ✅ **Clarity Score Visualization:** Detailed breakdown of speech clarity.
 - ✅ **Goal Setting:** Weekly/Daily targets for practice consistency.

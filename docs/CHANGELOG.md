@@ -401,6 +401,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Refactored
 - **`useSpeechRecognition` Hook:** The hook has been successfully refactored into smaller, more focused hooks (`useTranscriptionService`, `useFillerWords`, `useTranscriptState`). The underlying `useTranscriptionService` was further refactored to resolve a critical memory leak caused by improper instance management. The entire test suite is now passing, confirming the stability of the new implementation.
 
+## [Unreleased]
+
+### Added
+- **Pause Metrics Integration**: Integrated `PauseMetricsDisplay` into SessionPage with real-time tracking via `useVocalAnalysis` hook.
+- **CI Parity**: Updated `test-audit.sh` to match GitHub Actions workflow for Lighthouse execution.
+
+### Fixed
+- **CI Lighthouse Timeout**: Removed redundant manual server start in CI workflow and test script, relying on `lhci autorun` to manage server lifecycle.
+- **Documentation Accuracy**: Corrected PRD feature status and clarified E2E synchronization pattern in ARCHITECTURE.md.
+
+### Changed
+- **E2E Synchronization**: Explicitly documented DOM-based readiness (`[data-testid="app-main"]`) as the primary synchronization pattern.
+
 ## [0.1.0] - 2025-10-26
 
 ### Added
