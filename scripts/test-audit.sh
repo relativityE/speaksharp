@@ -122,23 +122,6 @@ run_lighthouse_ci() {
         pnpm build:test
     fi
     
-    # Start preview server in background
-    echo "🚀 Starting preview server..."
-    # Use a specific port to avoid conflicts if needed, but default 4173 is standard
-    pnpm preview &
-    PREVIEW_PID=$!
-    
-    # Read port from config
-    PREVIEW_PORT=$(node -e 'import("./scripts/build.config.js").then(m => console.log(m.PORTS.PREVIEW))')
-    
-    # Wait for server to be ready
-    echo "⏳ Waiting for preview server on port $PREVIEW_PORT..."
-    if ! npx wait-on http://localhost:$PREVIEW_PORT --timeout 30000; then
-        echo "❌ Preview server failed to start." >&2
-        kill $PREVIEW_PID || true
-        exit 1
-    fi
-    
     # Run Lighthouse
     echo "🔦 Generating Lighthouse Config..."
     node scripts/generate-lhci-config.js
@@ -149,9 +132,6 @@ run_lighthouse_ci() {
     npx lhci autorun --config=lighthouserc.json
     EXIT_CODE=$?
     set -e
-    
-    # Cleanup
-    kill $PREVIEW_PID || true
     
     if [ $EXIT_CODE -ne 0 ]; then
         echo "❌ Lighthouse CI failed (Scores below threshold)." >&2
