@@ -134,7 +134,9 @@ The project's testing strategy prioritizes stability, reliability, and a tight a
 This section tracks high-level product risks and constraints. For a detailed history of resolved issues, see the [Changelog](./CHANGELOG.md).
 
 - **Incomplete Theming:** The application is configured to support both light and dark themes, but only a dark theme is currently implemented. Users will not be able to switch to a light theme, which can be an accessibility issue and ignores user preference.
+- **Accessibility Gaps:** The live transcript lacks an ARIA live region (`aria-live="polite"`), meaning screen readers do not announce new text as it appears. This is a critical accessibility blocker for visually impaired users.
 - **Unit Test Coverage:** Current test coverage is ~36%, below the industry best practice of 70%. Adding coverage enforcement and additional tests is tracked in the technical debt backlog (Finding 3.3).
+- **Test Quality:** A comprehensive audit of the test suite is needed to identify and refactor brittle or low-value tests, ensuring the suite provides high confidence without false positives.
 - **❗ CRITICAL - AuthProvider Race Condition (Finding 2.1):** The `AuthProvider` updates `sessionState` and `loading` synchronously but fetches the user `profile` asynchronously via `onAuthStateChange`. This creates a race condition where components may render with a session but no profile, causing UI bugs and E2E test flakiness. **Impact:** HIGH - affects authentication reliability. **Fix:** Refactor to use atomic state updates or a state machine pattern. **Location:** `frontend/src/contexts/AuthProvider.tsx:76-93` **UPDATE (2025-11-30):** Upon code review, the current implementation actually handles this correctly - `setLoading(false)` is only called after profile fetch completes. Risk assessment downgraded to LOW.
 
 ---
@@ -147,7 +149,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Sun, 30 Nov 2025 21:39:20 GMT
+**Last Updated:** Mon, 01 Dec 2025 02:44:58 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -176,7 +178,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 | Statements | N/A   |
 | Branches   | N/A   |
 | Functions  | N/A   |
-| Lines      | 41.81%   |
+| Lines      | 41.77%   |
 
 ---
 

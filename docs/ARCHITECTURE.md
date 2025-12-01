@@ -712,7 +712,7 @@ This configuration is consumed by:
 - No hardcoded "magic numbers" in codebase
 - Easy to change ports across entire project
 
-### Lighthouse CI Integration
+### 7.1 Lighthouse CI Integration
 Performance quality gates are enforced via Lighthouse CI:
 
 **Configuration Generation** (`scripts/generate-lhci-config.js`):
@@ -738,4 +738,25 @@ Performance quality gates are enforced via Lighthouse CI:
 - Accessibility: 95%
 - **SEO: 100%**
 - Best Practices: 78% (limited by Stripe third-party cookies)
+
+## 8. Technical Debt & Improvements
+
+This section tracks architectural improvements, tooling refactors, and code health initiatives. These items are distinct from product features (tracked in [ROADMAP.md](./ROADMAP.md)) and are prioritized based on their impact on developer velocity and system stability.
+
+### 🧪 Testing Infrastructure
+- **Refactor Integration Tests:** Slim down component tests (`SessionSidebar`, `AnalyticsPage`) to remove redundant coverage now handled by E2E tests.
+- **Harden E2E Architecture:** Complete the migration to event-driven synchronization across all test files.
+- **Refactor Monolithic Test Script:** Break down `scripts/test-audit.sh` into smaller, composable scripts or migrate to a dedicated task runner if complexity grows.
+- **Harden Custom Test Wrapper:** Audit `verifyOnlyStepTracker.ts` for resilience or replace with standard Playwright logging.
+- **Refactor Supabase Mock to Provider Pattern:** Replace global `window.supabase` mock with a proper `SupabaseProvider` context for better type safety and test isolation.
+- **Replace `programmaticLogin` with MSW Network Mocking:** Refactor the login helper to use pure network-level mocking instead of client-side injection, reducing fragility.
+
+### 🔒 Security & Backend
+- **Harden Supabase Security:** Enable OTP expiry (<1 hour) and leaked password protection (requires Supabase Pro).
+- **Add Deno Unit Tests:** Implement unit tests for the `assemblyai-token` Edge Function to ensure auth reliability.
+
+### 🛠️ Tooling & Code Quality
+- **ESLint Configuration:** Fix `no-unused-vars` rule to correctly ignore variables in `catch` blocks (e.g., `catch (_e)`).
+- **Update Core Dependencies:** Upgrade React, Vite, Vitest, and Tailwind to latest stable versions.
+
 

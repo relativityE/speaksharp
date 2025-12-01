@@ -414,6 +414,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **E2E Synchronization**: Explicitly documented DOM-based readiness (`[data-testid="app-main"]`) as the primary synchronization pattern.
 
+### Resolved Technical Debt (Migrated from Roadmap)
+- **Refactor On-Device STT for True Streaming (2025-11-21):**
+  - Switched LocalWhisper to 1s async processing loop, preventing UI freezing.
+- **Complete Live Transcript E2E Test (2025-11-27):**
+  - Fixed button disabled logic and implemented comprehensive audio API mocks.
+- **Refactor Analytics Page (2025-11-26):**
+  - Eliminated prop drilling by centralizing data fetching in `useAnalytics` hook.
+- **E2E Test Suite Not Running:**
+  - Overhauled testing architecture with `scripts/test-audit.sh` for robust sharding.
+- **Analytics Empty State E2E:**
+  - Implemented `analytics-empty-state.e2e.spec.ts` to verify "zero data" state.
+- **Poor Discoverability of test-audit.sh:**
+  - Established canonical `pnpm audit` commands and documented in README.
+- **AuthPage Integration Test Failures (2025-11-30):**
+  - Fixed client-side validation and error handling, passing 9/9 tests.
+- **E2E Tests Run Against Production Build (2025-11-24):**
+  - Configured E2E tests to run against `vite preview` (port 4173) instead of dev server.
+- **Build-Time Environment Variable Validation (2025-11-24):**
+  - Implemented `scripts/validate-env.mjs` and prebuild hooks to fail fast.
+- **Use Vite's loadEnv (2025-11-24):**
+  - Replaced `process.env` with `loadEnv` for correct environment variable loading.
+- **Simplify package.json Scripts (2025-11-28):**
+  - Removed duplicates (`test:unit`, `test:e2e:health`) and added JSDoc comments.
+- **Design System Consistency (2025-11-28):**
+  - Audited components for CVA usage and fixed Badge/Card/Input inconsistencies.
+- **Use Native Playwright Sharding (2025-11-25):**
+  - Replaced custom sharding logic with native `--shard` flag in CI.
+- **Decoupled Session State from Auth Context:**
+  - Replaced `SessionProvider` with `usePracticeHistory` (React Query).
+- **E2E Smoke Test Fixes:**
+  - Refactored to use `localStorage` for session persistence and robust selectors.
+
 ## [0.1.0] - 2025-10-26
 
 ### Added
