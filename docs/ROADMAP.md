@@ -34,6 +34,13 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - **Impact:** Production-ready performance metrics, SEO-optimized
   - **Note:** Best Practices limited to 78% by Stripe cookies (unavoidable, set to warn level)
 
+- **ℹ️ INFO - Node.js Punycode Deprecation Warning (2025-12-01)**
+  - **Warning:** `DeprecationWarning: The punycode module is deprecated` appears during Lighthouse CI runs
+  - **Root Cause:** Transitive dependency chain: `eslint` → `ajv@6.12.6` → `uri-js@4.4.1` → `punycode@2.3.1`
+  - **Impact:** None - cosmetic warning only. Dependencies use the userland `punycode` npm package (v2.3.1), not Node's deprecated built-in module
+  - **Resolution:** Warning suppressed via `NODE_NO_WARNINGS=1` in `test-audit.sh`. Upstream fix requires `ajv` v7+ adoption by eslint ecosystem
+  - **Status:** Safe to ignore - not a functional issue
+
 ### Gating Check
 - 🔴 **Do a Gap Analysis of current implementation against the Current Phase requirements.**
 
