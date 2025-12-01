@@ -128,7 +128,8 @@ This phase is about confirming the core feature set works as expected and polish
 This phase focuses on long-term architecture, scalability, and preparing for future feature development.
 
 ### 🎯 Must-Have
-- ✅ **Implement WebSocket reconnect logic:** Add heartbeat and exponential backoff for a more resilient connection. (Note: Basic reconnection exists in `useTranscriptionService`, but robust backoff is pending)
+- 🔴 **Implement WebSocket reconnect logic:** Add heartbeat and exponential backoff for a more resilient connection.
+  - *Status:* Pending. Basic connection exists in `CloudAssemblyAI`, but lacks retry logic, heartbeats, or backoff strategies.
 
 ### 🌱 Could-Have (Future Enhancements)
 - 🔴 **Implement Stripe "Pro Mode" Flag:** For feature gating and usage-based billing.
