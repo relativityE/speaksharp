@@ -22,7 +22,6 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - ⏸️ **DEFERRED** - Upgrade Postgres version (not critical for alpha)
 
 ### ⚠️ Known Issues
-  - **Status:** Safe to ignore - not a functional issue
 
 - **✅ RESOLVED - Live Transcript E2E Test Fixed (2025-12-01)**
   - **Problem:** Test timed out waiting for session status to change from "LOADING" to "READY"
@@ -30,6 +29,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - **Solution:** Moved `onReady()` callback to end of `init()` method in `NativeBrowser.ts`
   - **Impact:** Test now passes consistently (verified with 3 consecutive runs)
   - **Status:** ✅ Fixed and unskipped
+
 - **✅ RESOLVED - Lighthouse Performance Optimization Complete (2025-11-28)**
   - **Solution:** Achieved Performance 95%, Accessibility 95%, SEO 100%, Best Practices 78%
   - **Impact:** Production-ready performance metrics, SEO-optimized
