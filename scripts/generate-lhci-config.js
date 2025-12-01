@@ -5,7 +5,6 @@ import path from 'path';
 const config = {
     ci: {
         collect: {
-            staticDistDir: './frontend/dist',
             startServerCommand: `pnpm preview --port ${PORTS.PREVIEW}`,
             url: [`http://localhost:${PORTS.PREVIEW}/`],
             numberOfRuns: 3,
