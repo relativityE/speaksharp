@@ -26,6 +26,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Action:** Reviewed and documented skipped tests in `goal-setting.e2e.spec.ts`, `session-comparison.e2e.spec.ts`, and `pdf-export.e2e.spec.ts`.
   - **Purpose:** Confirmed these tests serve as "Living Documentation" for missing features (Goal Setting, Session Comparison) and are correctly skipped.
 
+### Added
+- **Unit Test Coverage Expansion (2025-12-02):**
+  - **Achievement:** Created 84 new unit tests across 7 high-priority files, increasing total test count from 217 to 301 tests (all passing).
+  - **Coverage Areas:**
+    - **Authentication Pages:** `SignInPage.tsx` (14 tests), `SignUpPage.tsx` (15 tests)
+    - **Core Pages:** `AnalyticsPage.tsx` (14 tests), `SessionPage.tsx` (18 tests)
+    - **Utilities:** `storage.ts` (10 tests), `utils.ts` (8 tests), `supabaseClient.ts` (5 tests)
+  - **Test Categories:** Rendering, form validation, loading states, error handling, session control, metrics display, CRUD operations
+  - **Impact:** Significantly improved coverage for previously untested pages (0% → tested) and utility functions
+  - **Files:** 
+    - `frontend/src/pages/__tests__/SignInPage.test.tsx`
+    - `frontend/src/pages/__tests__/SignUpPage.test.tsx`
+    - `frontend/src/pages/__tests__/AnalyticsPage.test.tsx`
+    - `frontend/src/pages/__tests__/SessionPage.test.tsx`
+    - `frontend/src/lib/__tests__/storage.test.ts`
+    - `frontend/src/lib/__tests__/utils.test.ts`
+    - `frontend/src/lib/__tests__/supabaseClient.test.ts`
+
 ### Fixed
 - **CRITICAL - CI Pipeline Composite Action (2025-11-30):**
   - **Problem:** GitHub Actions composite action failed with "Can't find 'action.yml'" error

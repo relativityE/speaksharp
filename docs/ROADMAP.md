@@ -114,13 +114,23 @@ This phase is about confirming the core feature set works as expected and polish
   - Refactored `SessionPage.tsx` to use store instead of local useState
   - Improves code maintainability and scalability
 - ✅ **Add a soak test:** 5-minute concurrent user test implemented (`tests/soak/soak-test.spec.ts`) with memory leak detection
+- **🟡 IN PROGRESS - Expand Unit Test Coverage to 70%:**
+  - **Completed (2025-12-02):** Created 84 new unit tests (301 total passing)
+    - ✅ SignInPage.tsx (14 tests)
+    - ✅ SignUpPage.tsx (15 tests)
+    - ✅ AnalyticsPage.tsx (14 tests)
+    - ✅ SessionPage.tsx (18 tests)
+    - ✅ storage.ts (10 tests)
+    - ✅ utils.ts (8 tests)
+    - ✅ supabaseClient.ts (5 tests)
+  - **Remaining:** Additional page and component tests needed to reach 70% target
 - 🔴 **Add Real Testimonials:** Unhide and populate the `TestimonialsSection` on the landing page with genuine user feedback.
 - 🔴 **Light Theme Implementation:** Add CSS or disable toggle
 - 🔴 **Refactor E2E Test Infrastructure:**
   - Fix `analytics-empty-state.e2e.spec.ts` timeout (empty state not rendering)
-  - Fix `metrics.e2e.spec.ts` timing issue (WPM not updating from mocks)
+  - Fix `metrics.e2e.spec.ts` WPM calculation timing issue
   - Fix `local-stt-caching.e2e.spec.ts` mode selector timeout
-  - Debug hanging `custom-vocabulary.e2e.spec.ts`
+  - Fix `custom-vocabulary.e2e.spec.ts` hanging issue
   - Set up Pro test account for Local STT tests (3 tests skipped)
   - Implement Goal Setting backend (2 tests skipped)
   - Implement Session Comparison features (2 tests skipped)
