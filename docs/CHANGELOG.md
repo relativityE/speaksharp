@@ -25,6 +25,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Impact:** Test now passes consistently (verified with 3 consecutive runs), unskipped from test suite
   - **Files:** `frontend/src/services/transcription/modes/NativeBrowser.ts`, `tests/e2e/live-transcript.e2e.spec.ts`
 
+- **Local STT UX (2025-12-01):**
+  - **Problem:** No user feedback during initial Whisper model download (30MB), leading to perceived hang
+  - **Solution:** Implemented toast notification in `SessionSidebar.tsx` for download start and completion
+  - **Impact:** Improved user experience and transparency during first-time setup
+  - **Files:** `frontend/src/components/session/SessionSidebar.tsx`
+
+- **Metrics E2E Test Fix (2025-12-01):**
+  - **Problem:** `metrics.e2e.spec.ts` failed because `MockSpeechRecognition` events were not reaching the application
+  - **Root Cause:** Conflict between `helpers.ts` mock injection and `e2e-bridge.ts` mock implementation
+  - **Solution:** Updated `helpers.ts` to use `window.dispatchMockTranscript` exposed by `e2e-bridge.ts`
+  - **Impact:** Critical test coverage for WPM, Clarity, and Filler Words restored
+  - **Files:** `tests/e2e/helpers.ts`, `tests/e2e/metrics.e2e.spec.ts`
+
 ### Added
 - **Tech Debt Resolution (2025-11-30):**
   - Removed manual Vite chunking to allow automatic code splitting (Finding 1.1)

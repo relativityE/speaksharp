@@ -74,6 +74,17 @@ export default class TranscriptionService {
   }
 
   public async init(): Promise<{ success: boolean }> {
+    // In E2E test mode, we skip microphone initialization
+    if (typeof window !== 'undefined') {
+      if ((window as Window & { __E2E_MOCK_SESSION__?: boolean }).__E2E_MOCK_SESSION__) {
+        // Initialize a dummy mic object to satisfy checks
+        this.mic = {
+          stop: () => { },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any;
+        return { success: true };
+      }
+    }
     console.log('[TranscriptionService] Initializing mic stream...');
     try {
       this.mic = await createMicStream({ sampleRate: 16000, frameSize: 1024 });

@@ -11,6 +11,10 @@ import { useAuthProvider } from '../contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { PauseMetricsDisplay } from '@/components/session/PauseMetricsDisplay';
 
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { Settings } from 'lucide-react';
+import { CustomVocabularyManager } from '@/components/session/CustomVocabularyManager';
+
 export const SessionPage: React.FC = () => {
     const { session } = useAuthProvider();
     const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
@@ -101,9 +105,26 @@ export const SessionPage: React.FC = () => {
     return (
         <div className="min-h-screen bg-background">
             {/* Page Header */}
-            <div className="text-center py-8 px-6">
-                <h1 className="text-4xl font-bold text-foreground mb-2">Practice Session</h1>
-                <p className="text-muted-foreground">Speak clearly and we'll analyze your speech patterns in real-time</p>
+            <div className="flex items-center justify-between py-8 px-6 max-w-7xl mx-auto">
+                <div>
+                    <h1 className="text-4xl font-bold text-foreground mb-2">Practice Session</h1>
+                    <p className="text-muted-foreground">Speak clearly and we'll analyze your speech patterns in real-time</p>
+                </div>
+                <Sheet>
+                    <SheetTrigger asChild>
+                        <Button variant="outline" size="icon" data-testid="session-settings-button">
+                            <Settings className="h-5 w-5" />
+                        </Button>
+                    </SheetTrigger>
+                    <SheetContent>
+                        <SheetHeader>
+                            <SheetTitle>Session Settings</SheetTitle>
+                        </SheetHeader>
+                        <div className="mt-6">
+                            <CustomVocabularyManager />
+                        </div>
+                    </SheetContent>
+                </Sheet>
             </div>
 
             <div className="max-w-7xl mx-auto px-6 pb-12 space-y-6">

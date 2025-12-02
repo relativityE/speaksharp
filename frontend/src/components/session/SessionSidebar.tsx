@@ -119,9 +119,24 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
 
     const [showEndSessionDialog, setShowEndSessionDialog] = useState(false);
     const [completedSessions, setCompletedSessions] = useState<PracticeSession[]>([]);
+    const [hasShownDownloadToast, setHasShownDownloadToast] = useState(false);
 
     const isModelLoading = modelLoadingProgress !== null;
     const isConnecting = isListening && !isReady;
+
+    // Toast notification for model download
+    useEffect(() => {
+        if (modelLoadingProgress !== null && !hasShownDownloadToast) {
+            toast.info("Downloading AI Model", {
+                description: "First-time setup may take a few moments (~30MB).",
+                duration: 5000,
+            });
+            setHasShownDownloadToast(true);
+        } else if (modelLoadingProgress === null && hasShownDownloadToast) {
+            // Reset when loading finishes or is cancelled
+            setHasShownDownloadToast(false);
+        }
+    }, [modelLoadingProgress, hasShownDownloadToast]);
 
     const endSessionAndSave = async () => {
         setIsEndingSession(true);
