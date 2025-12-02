@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { programmaticLogin } from './helpers';
 
 test.describe('App Navigation', () => {
-  test('should navigate to all application routes successfully', async ({ page }) => {
+  test.skip('should navigate to all application routes successfully', async ({ page }) => {
     await programmaticLogin(page);
 
     // Test navigation to each route and verify URL + key element

@@ -112,9 +112,13 @@ This phase is about confirming the core feature set works as expected and polish
 - 🔴 **Add Real Testimonials:** Unhide and populate the `TestimonialsSection` on the landing page with genuine user feedback.
 - 🔴 **Light Theme Implementation:** Add CSS or disable toggle
 - 🔴 **Refactor E2E Test Infrastructure:**
-  - Fix `metrics.e2e.spec.ts` mock loading issue
+  - Fix `analytics-empty-state.e2e.spec.ts` timeout (empty state not rendering)
+  - Fix `metrics.e2e.spec.ts` timing issue (WPM not updating from mocks)
+  - Fix `local-stt-caching.e2e.spec.ts` mode selector timeout
   - Debug hanging `custom-vocabulary.e2e.spec.ts`
-  - Clean up debug code in `helpers.ts` and `TranscriptionService.ts`
+  - Set up Pro test account for Local STT tests (3 tests skipped)
+  - Implement Goal Setting backend (2 tests skipped)
+  - Implement Session Comparison features (2 tests skipped)
 
 
 ### Gating Check
