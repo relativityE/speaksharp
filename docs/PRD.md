@@ -140,7 +140,7 @@ This section tracks high-level product risks and constraints. For a detailed his
 - **Session Comparison & Progress Tracking Missing:** Users cannot compare sessions side-by-side or track improvement/regression over time. Missing features: (1) session comparison UI, (2) trend charts for WPM/Clarity/Fillers, (3) improvement indicators (green ↑ vs red ↓), (4) progress insights ("Your WPM improved 15% this week!"). **Impact:** Users cannot measure their improvement, reducing motivation and engagement. **Status:** Exposed by E2E test `session-comparison.e2e.spec.ts` - 2 tests skipped until feature implemented.
 - **Goal Setting Incomplete Implementation:** The Goal Setting feature is marked as "✅ Implemented" in the feature matrix but only displays hardcoded mock data ("3 / 5" sessions, "88% / 90%" clarity). The feature lacks: (1) database model for goals, (2) API endpoints for CRUD operations, (3) ability for users to set custom goals, (4) calculation of progress based on actual session data. **Status:** Exposed by E2E test `goal-setting.e2e.spec.ts` - 2 tests skipped until feature is fully implemented. **Location:** `frontend/src/components/analytics/GoalsSection.tsx:10,50,61`
 - **⚠️ Analytics Empty State E2E Test Timeout (2025-12-01):** The `analytics-empty-state.e2e.spec.ts` test times out waiting for the empty state to render. **Root Cause:** Unknown - possible race condition or missing testid. **Impact:** Test infrastructure only. **Status:** Test skipped pending investigation. **Location:** `tests/e2e/analytics-empty-state.e2e.spec.ts:5`
-- **⚠️ Navigation E2E Test Failure (2025-12-02):** The `navigation.e2e.spec.ts` test fails after git rebase - cannot find heading "Transform Your Communication Skills". **Root Cause:** Possible homepage content change in remote branch. **Impact:** Test infrastructure only. **Status:** Test skipped pending investigation. **Location:** `tests/e2e/navigation.e2e.spec.ts:5`
+- **✅ RESOLVED - Navigation E2E Test Failure (2025-12-02):** The `navigation.e2e.spec.ts` test failure due to overlapping headers has been fixed. **Status:** ✅ Fixed.
 - **⚠️ Metrics E2E Test Timing Issue (2025-12-02):** The `metrics.e2e.spec.ts` test fails because WPM does not update from mock transcripts. Mock events are dispatched via `window.dispatchMockTranscript` but metrics remain at 0. **Root Cause:** Unknown - possible timing issue with metrics calculation or transcript processing. **Impact:** Test infrastructure only (NOT a production bug). **Status:** Test skipped pending investigation. **Location:** `tests/e2e/metrics.e2e.spec.ts:5`
 - **⚠️ Local STT Mode Selector Test Timeout (2025-12-02):** The `local-stt-caching.e2e.spec.ts` test times out waiting for the mode selector dropdown button. **Root Cause:** Unknown - button may not be rendering or selector is incorrect. **Impact:** Test infrastructure only. **Status:** Test skipped pending investigation. **Location:** `tests/e2e/local-stt-caching.e2e.spec.ts:123`
 - **⚠️ Local STT Download Progress Tests Skipped (2025-12-01):** Three tests in `local-stt-caching.e2e.spec.ts` are skipped because they require Pro subscription to access On-Device mode. **Tests:** (1) Download progress indicator, (2) Cache loading performance, (3) Toast notification. **Impact:** Missing E2E coverage for Pro-tier feature. **Status:** Requires Pro test account setup. **Location:** `tests/e2e/local-stt-caching.e2e.spec.ts:25,80,149`
@@ -159,7 +159,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Mon, 01 Dec 2025 14:25:20 GMT
+**Last Updated:** Tue, 02 Dec 2025 18:05:40 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -169,10 +169,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 221 |
+| Total tests             | 219 |
 | Unit tests              | 211   |
-| E2E tests (Playwright)  | 10  |
-| Passing tests           | 221   |
+| E2E tests (Playwright)  | 8  |
+| Passing tests           | 219   |
 | Failing tests           | 0   |
 | Disabled/skipped tests  | 0   |
 | Passing unit tests      | 211   |
@@ -188,7 +188,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 | Statements | N/A   |
 | Branches   | N/A   |
 | Functions  | N/A   |
-| Lines      | 0%   |
+| Lines      | 42.27%   |
 
 ---
 

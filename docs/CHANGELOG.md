@@ -9,6 +9,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+- **Navigation E2E Test Fix (2025-12-02):**
+  - **Problem:** `navigation.e2e.spec.ts` failed due to overlapping sticky headers (`LandingHeader` and `Navigation`) intercepting clicks.
+  - **Root Cause:** Redundant `LandingHeader` rendered on homepage alongside main `Navigation` component.
+  - **Solution:** Removed `LandingHeader` from `Index.tsx` and deleted unused `Header.tsx` and `LandingHeader.tsx`.
+  - **Impact:** Navigation tests now pass reliably.
+  - **Files:** `frontend/src/pages/Index.tsx`, `frontend/src/components/Header.tsx` (deleted), `frontend/src/components/landing/LandingHeader.tsx` (deleted).
+
+- **Live Transcript E2E Test Verification (2025-12-02):**
+  - **Verification:** Confirmed `live-transcript.e2e.spec.ts` is passing and unskipped.
+  - **Status:** The previously reported bug regarding `onReady` callback appears resolved in current codebase.
+
+### Documentation
+- **Living Documentation (2025-12-02):**
+  - **Action:** Reviewed and documented skipped tests in `goal-setting.e2e.spec.ts`, `session-comparison.e2e.spec.ts`, and `pdf-export.e2e.spec.ts`.
+  - **Purpose:** Confirmed these tests serve as "Living Documentation" for missing features (Goal Setting, Session Comparison) and are correctly skipped.
 
 ### Fixed
 - **CRITICAL - CI Pipeline Composite Action (2025-11-30):**

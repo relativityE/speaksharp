@@ -23,6 +23,11 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 
 ### ⚠️ Known Issues
 
+- **✅ RESOLVED - Navigation E2E Test Failure (2025-12-02)**
+  - **Problem:** `navigation.e2e.spec.ts` failed due to overlapping headers
+  - **Solution:** Removed redundant `LandingHeader` and unused `Header.tsx`
+  - **Status:** ✅ Fixed
+
 - **✅ RESOLVED - Live Transcript E2E Test Fixed (2025-12-01)**
   - **Problem:** Test timed out waiting for session status to change from "LOADING" to "READY"
   - **Root Cause:** `NativeBrowser.onReady()` was called in `startTranscription()` instead of `init()`, causing UI to wait indefinitely
@@ -62,7 +67,7 @@ This phase is about confirming the core feature set works as expected and polish
 - ✅ **Implement Vocal Variety / Pause Detection:** Add a new Pro-tier feature to analyze vocal variety or pause duration.
   - ✅ **Pause Detection UI**: Integrate `PauseMetricsDisplay` into SessionPage (Completed 2025-11-30)
 - ✅ **CI Stability**: Fix Lighthouse CI timeouts and ensure local/remote parity (Completed 2025-11-30)
-- [ ] **Live Transcript E2E**: Fix test environment render loop to unskip `live-transcript.e2e.spec.ts`
+- ✅ **Live Transcript E2E**: Fix test environment render loop to unskip `live-transcript.e2e.spec.ts` (Completed 2025-12-02)
 - ✅ **User-Friendly Error Handling:** Implement specific, user-facing error messages for common issues.
 - ✅ **Clarity Score Visualization:** Detailed breakdown of speech clarity.
 - ✅ **Clarity Score Visualization:** Detailed breakdown of speech clarity.
