@@ -11,12 +11,9 @@ import { programmaticLogin } from './helpers';
  * - Snapshot individual components rather than full pages when possible
  * - Update baselines intentionally with --update-snapshots flag
  * - Run in consistent CI environment to avoid false positives
- * 
- * NOTE: Skipped in CI until baseline snapshots are committed.
- * To generate baselines locally: pnpm exec playwright test visual-regression --update-snapshots
  */
 
-test.describe.skip('Visual Regression Tests', () => {
+test.describe('Visual Regression Tests', () => {
     test('Homepage - Unauthenticated', async ({ page }) => {
         await page.goto('/');
 
