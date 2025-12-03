@@ -22,6 +22,15 @@ runs:
       shell: bash
       run: pnpm install --frozen-lockfile
 
+    - name: Remove Problematic Package Repositories
+      if: inputs.install-playwright == 'true'
+      shell: bash
+      run: |
+        # Remove Microsoft repos that are causing 403 errors in GitHub Actions
+        sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list
+        sudo rm -f /etc/apt/sources.list.d/azure-cli.list
+        echo "Removed problematic Microsoft package repositories"
+    
     - name: Install Playwright Browsers
       if: inputs.install-playwright == 'true'
       shell: bash
