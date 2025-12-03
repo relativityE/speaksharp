@@ -84,11 +84,15 @@ const renderApp = async (initialSession: Session | null = null) => {
         console.warn('[E2E MODE] Analytics disabled entirely.');
       }
 
+
       // Defer Stripe loading - create promise but don't await it
       // Stripe will be loaded when Elements component mounts
-      const stripePromise = import('@stripe/stripe-js').then(({ loadStripe }) =>
-        loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY!)
-      );
+      // Skip Stripe in test mode to avoid iframe interference with automated testing
+      const stripePromise = IS_TEST_ENVIRONMENT
+        ? Promise.resolve(null)
+        : import('@stripe/stripe-js').then(({ loadStripe }) =>
+          loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY!)
+        );
 
       // Get initial session (mock if in E2E mode)
       let sessionToUse = initialSession;
