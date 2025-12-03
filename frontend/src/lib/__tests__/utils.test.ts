@@ -9,7 +9,8 @@ describe('utils.ts', () => {
         });
 
         it('should handle conditional classes', () => {
-            const result = cn('text-red-500', false && 'bg-blue-500', 'font-bold');
+            const isFalse = false;
+            const result = cn('text-red-500', isFalse && 'bg-blue-500', 'font-bold');
             expect(result).toBe('text-red-500 font-bold');
         });
 

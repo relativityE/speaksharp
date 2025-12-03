@@ -52,13 +52,13 @@ describe('SessionPage', () => {
             isReady: true,
             error: null,
             resetTranscript: vi.fn(),
-        } as any);
+        } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
         mockUseSessionStore.mockReturnValue({
             elapsedTime: 0,
             updateElapsedTime: mockUpdateElapsedTime,
             resetSession: vi.fn(),
-        } as any);
+        } as unknown as ReturnType<typeof SessionStore.useSessionStore>);
 
         mockUseVocalAnalysis.mockReturnValue({
             pauseMetrics: {
@@ -67,17 +67,17 @@ describe('SessionPage', () => {
                 longPauses: 0,
                 pauseRate: 0,
             },
-        } as any);
+        } as unknown as ReturnType<typeof VocalAnalysisHook.useVocalAnalysis>);
 
         mockUseAuthProvider.mockReturnValue({
             session: { user: { id: 'test-user' } },
-        } as any);
+        } as unknown as AuthProvider.AuthContextType);
 
         mockUseUserProfile.mockReturnValue({
             data: { id: 'test-profile' },
             isLoading: false,
             error: null,
-        } as any);
+        } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
     });
 
     afterEach(() => {
@@ -119,7 +119,7 @@ describe('SessionPage', () => {
                 data: null,
                 isLoading: true,
                 error: null,
-            } as any);
+            } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
 
             render(<SessionPage />);
             expect(screen.getByText('Loading session...')).toBeInTheDocument();
@@ -130,7 +130,7 @@ describe('SessionPage', () => {
                 data: null,
                 isLoading: false,
                 error: { message: 'Failed to load' },
-            } as any);
+            } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
 
             render(<SessionPage />);
             expect(screen.getByText('Error Loading Profile')).toBeInTheDocument();
@@ -151,7 +151,7 @@ describe('SessionPage', () => {
             mockUseSpeechRecognition.mockReturnValue({
                 ...mockUseSpeechRecognition(),
                 isListening: true,
-            } as any);
+            } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
             render(<SessionPage />);
 
@@ -166,7 +166,7 @@ describe('SessionPage', () => {
                 ...mockUseSpeechRecognition(),
                 isReady: false,
                 isListening: false,
-            } as any);
+            } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
             render(<SessionPage />);
 
@@ -183,7 +183,7 @@ describe('SessionPage', () => {
             mockUseSpeechRecognition.mockReturnValue({
                 ...mockUseSpeechRecognition(),
                 isReady: false,
-            } as any);
+            } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
             render(<SessionPage />);
             expect(screen.getByTestId('session-status-indicator')).toHaveTextContent('LOADING');
@@ -195,7 +195,7 @@ describe('SessionPage', () => {
             mockUseSpeechRecognition.mockReturnValue({
                 ...mockUseSpeechRecognition(),
                 isListening: true,
-            } as any);
+            } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
             render(<SessionPage />);
 
@@ -211,7 +211,7 @@ describe('SessionPage', () => {
             mockUseSpeechRecognition.mockReturnValue({
                 ...mockUseSpeechRecognition(),
                 isListening: false,
-            } as any);
+            } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
             render(<SessionPage />);
 
@@ -224,7 +224,7 @@ describe('SessionPage', () => {
             mockUseSessionStore.mockReturnValue({
                 elapsedTime: 65, // 1 minute 5 seconds
                 updateElapsedTime: mockUpdateElapsedTime,
-            } as any);
+            } as unknown as ReturnType<typeof SessionStore.useSessionStore>);
 
             render(<SessionPage />);
             expect(screen.getByText('01:05')).toBeInTheDocument();
@@ -234,12 +234,12 @@ describe('SessionPage', () => {
             mockUseSessionStore.mockReturnValue({
                 elapsedTime: 60,
                 updateElapsedTime: mockUpdateElapsedTime,
-            } as any);
+            } as unknown as ReturnType<typeof SessionStore.useSessionStore>);
 
             mockUseSpeechRecognition.mockReturnValue({
                 ...mockUseSpeechRecognition(),
                 transcript: { transcript: 'one two three four five', confidence: 1, isFinal: true },
-            } as any);
+            } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
             render(<SessionPage />);
             // 5 words in 60 seconds = 5 WPM
@@ -253,7 +253,7 @@ describe('SessionPage', () => {
                     'um': { count: 2 },
                     'uh': { count: 3 },
                 },
-            } as any);
+            } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
             render(<SessionPage />);
             expect(screen.getByText('5')).toBeInTheDocument(); // Total filler count
@@ -268,7 +268,7 @@ describe('SessionPage', () => {
                 ...mockUseSpeechRecognition(),
                 isListening: true,
                 transcript: { transcript: '', confidence: 0, isFinal: false },
-            } as any);
+            } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
             render(<SessionPage />);
             expect(screen.getByText('Listening...')).toBeInTheDocument();
@@ -279,7 +279,7 @@ describe('SessionPage', () => {
                 ...mockUseSpeechRecognition(),
                 isListening: true,
                 transcript: { transcript: 'Hello world', confidence: 1, isFinal: true },
-            } as any);
+            } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
             render(<SessionPage />);
             expect(screen.getByText('Hello world')).toBeInTheDocument();
@@ -290,7 +290,7 @@ describe('SessionPage', () => {
                 ...mockUseSpeechRecognition(),
                 isListening: false,
                 transcript: { transcript: '', confidence: 0, isFinal: false },
-            } as any);
+            } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
             render(<SessionPage />);
             expect(screen.getByText('Your spoken words will appear here')).toBeInTheDocument();

@@ -37,7 +37,7 @@ describe('SignUpPage', () => {
                 signUp: mockSignUp,
                 signInWithPassword: mockSignInWithPassword,
             },
-        } as any);
+        } as unknown as ReturnType<typeof supabaseClient.getSupabaseClient>);
     });
 
     const renderSignUpPage = () => {
@@ -77,11 +77,11 @@ describe('SignUpPage', () => {
 
         it('should redirect to home when user is already signed in', () => {
             mockUseAuthProvider.mockReturnValue({
-                session: { user: { id: 'test-user' } } as any,
+                session: { user: { id: 'test-user' } } as unknown as AuthProvider.AuthContextType['session'],
                 loading: false,
                 setSession: mockSetSession,
-                user: { id: 'test-user' } as any,
-                profile: { id: 'test-profile' } as any,
+                user: { id: 'test-user' } as unknown as AuthProvider.AuthContextType['user'],
+                profile: { id: 'test-profile' } as unknown as AuthProvider.AuthContextType['profile'],
                 signOut: vi.fn(),
             });
 
@@ -243,7 +243,7 @@ describe('SignUpPage', () => {
 
         it('should handle missing Supabase client', async () => {
             const user = userEvent.setup();
-            mockGetSupabaseClient.mockReturnValue(null as any);
+            mockGetSupabaseClient.mockReturnValue(null as unknown as ReturnType<typeof supabaseClient.getSupabaseClient>);
 
             renderSignUpPage();
 

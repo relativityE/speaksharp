@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { getSupabaseClient } from '../supabaseClient';
 import { createClient } from '@supabase/supabase-js';
 import { createMockSupabase } from '../mockSupabase';
 
@@ -36,6 +35,7 @@ describe('supabaseClient.ts', () => {
     };
 
     it('should return window.supabase if it exists', async () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const mockWindowClient = { auth: {} } as any;
         window.supabase = mockWindowClient;
 
@@ -51,6 +51,7 @@ describe('supabaseClient.ts', () => {
         vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'key');
 
         const mockClient = { auth: {} };
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         vi.mocked(createMockSupabase).mockReturnValue(mockClient as any);
 
         const module = await reImportModule();
@@ -66,6 +67,7 @@ describe('supabaseClient.ts', () => {
         vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'real-key');
 
         const mockRealClient = { auth: {} };
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         vi.mocked(createClient).mockReturnValue(mockRealClient as any);
 
         const module = await reImportModule();
@@ -101,6 +103,7 @@ describe('supabaseClient.ts', () => {
         vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'real-key');
 
         const mockRealClient = { auth: {} };
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         vi.mocked(createClient).mockReturnValue(mockRealClient as any);
 
         const module = await reImportModule();

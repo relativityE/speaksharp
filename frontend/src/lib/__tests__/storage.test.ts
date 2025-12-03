@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { SupabaseClient } from '@supabase/supabase-js';
 import { getSessionHistory, saveSession, deleteSession, exportData } from '../storage';
 import { getSupabaseClient } from '../supabaseClient';
 import logger from '../logger';
+import { UserProfile } from '@/types/user';
 
 // Mock dependencies
 vi.mock('../supabaseClient');
@@ -14,7 +16,7 @@ describe('storage.ts', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-        vi.mocked(getSupabaseClient).mockReturnValue(mockSupabase as any);
+        vi.mocked(getSupabaseClient).mockReturnValue(mockSupabase as unknown as SupabaseClient);
         vi.spyOn(logger, 'error').mockImplementation(() => { });
     });
 
@@ -36,7 +38,7 @@ describe('storage.ts', () => {
                     order: vi.fn().mockResolvedValue({ data: mockData, error: null }),
                 }),
             });
-            mockSupabase.from.mockReturnValue({ select: mockSelect } as any);
+            mockSupabase.from.mockReturnValue({ select: mockSelect } as unknown as ReturnType<SupabaseClient['from']>);
 
             const result = await getSessionHistory('user1');
             expect(result).toEqual(mockData);
@@ -50,7 +52,7 @@ describe('storage.ts', () => {
                     order: vi.fn().mockResolvedValue({ data: null, error: mockError }),
                 }),
             });
-            mockSupabase.from.mockReturnValue({ select: mockSelect } as any);
+            mockSupabase.from.mockReturnValue({ select: mockSelect } as unknown as ReturnType<SupabaseClient['from']>);
 
             const result = await getSessionHistory('user1');
             expect(result).toEqual([]);
@@ -59,11 +61,11 @@ describe('storage.ts', () => {
     });
 
     describe('saveSession', () => {
-        const mockProfile = { subscription_status: 'free' } as any;
+        const mockProfile = { subscription_status: 'free' } as UserProfile;
         const mockSessionData = { user_id: 'user1', duration: 60 };
 
         it('should return null session if sessionData or userId is missing', async () => {
-            const result = await saveSession({} as any, mockProfile);
+            const result = await saveSession({} as unknown as Parameters<typeof saveSession>[0], mockProfile);
             expect(result).toEqual({ session: null, usageExceeded: false });
             expect(logger.error).toHaveBeenCalledWith('Save Session: Session data and user ID are required.');
         });
@@ -106,7 +108,7 @@ describe('storage.ts', () => {
             const mockDelete = vi.fn().mockReturnValue({
                 eq: vi.fn().mockResolvedValue({ error: null }),
             });
-            mockSupabase.from.mockReturnValue({ delete: mockDelete } as any);
+            mockSupabase.from.mockReturnValue({ delete: mockDelete } as unknown as ReturnType<SupabaseClient['from']>);
 
             const result = await deleteSession('session1');
             expect(result).toBe(true);
@@ -118,7 +120,7 @@ describe('storage.ts', () => {
             const mockDelete = vi.fn().mockReturnValue({
                 eq: vi.fn().mockResolvedValue({ error: mockError }),
             });
-            mockSupabase.from.mockReturnValue({ delete: mockDelete } as any);
+            mockSupabase.from.mockReturnValue({ delete: mockDelete } as unknown as ReturnType<SupabaseClient['from']>);
 
             const result = await deleteSession('session1');
             expect(result).toBe(false);
@@ -135,7 +137,7 @@ describe('storage.ts', () => {
                     order: vi.fn().mockResolvedValue({ data: mockData, error: null }),
                 }),
             });
-            mockSupabase.from.mockReturnValue({ select: mockSelect } as any);
+            mockSupabase.from.mockReturnValue({ select: mockSelect } as unknown as ReturnType<SupabaseClient['from']>);
 
             const result = await exportData('user1');
             expect(result).toEqual({ sessions: mockData });

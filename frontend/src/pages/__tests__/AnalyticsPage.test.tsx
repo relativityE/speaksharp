@@ -39,18 +39,18 @@ describe('AnalyticsPage', () => {
             loading: false,
             error: null,
             refreshAnalytics: vi.fn(),
-        } as any);
+        } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
         mockUseAuthProvider.mockReturnValue({
             user: { id: 'test-user' },
             loading: false,
-        } as any);
+        } as unknown as AuthProvider.AuthContextType);
 
         mockUseUserProfile.mockReturnValue({
             data: { subscription_status: 'free' },
             isLoading: false,
             error: null,
-        } as any);
+        } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
     });
 
     const renderAnalyticsPage = (initialEntry = '/analytics') => {
@@ -70,7 +70,7 @@ describe('AnalyticsPage', () => {
                 sessionHistory: [],
                 loading: true,
                 error: null,
-            } as any);
+            } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
             renderAnalyticsPage();
             expect(screen.getByText('Loading analytics...')).toBeInTheDocument();
@@ -81,7 +81,7 @@ describe('AnalyticsPage', () => {
                 data: null,
                 isLoading: true,
                 error: null,
-            } as any);
+            } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
 
             renderAnalyticsPage();
             expect(screen.getByText('Loading analytics...')).toBeInTheDocument();
@@ -94,7 +94,7 @@ describe('AnalyticsPage', () => {
                 sessionHistory: [],
                 loading: false,
                 error: { message: 'Failed to load sessions' },
-            } as any);
+            } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
             renderAnalyticsPage();
             expect(screen.getByText('Failed to load sessions')).toBeInTheDocument();
@@ -106,7 +106,7 @@ describe('AnalyticsPage', () => {
                 data: null,
                 isLoading: false,
                 error: { message: 'Failed to load profile' },
-            } as any);
+            } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
 
             renderAnalyticsPage();
             expect(screen.getByText('Failed to load profile')).toBeInTheDocument();
@@ -117,7 +117,7 @@ describe('AnalyticsPage', () => {
                 sessionHistory: [],
                 loading: false,
                 error: { message: 'Error' },
-            } as any);
+            } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
             renderAnalyticsPage();
             fireEvent.click(screen.getByText('Refresh Page'));
@@ -149,7 +149,7 @@ describe('AnalyticsPage', () => {
                 sessionHistory: [{ id: 'session-1' }],
                 loading: false,
                 error: null,
-            } as any);
+            } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
             renderAnalyticsPage('/analytics/session-1');
             expect(screen.getByTestId('dashboard-heading')).toHaveTextContent('Session Analysis');
@@ -161,7 +161,7 @@ describe('AnalyticsPage', () => {
                 sessionHistory: [],
                 loading: false,
                 error: null,
-            } as any);
+            } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
             renderAnalyticsPage('/analytics/missing-session');
             expect(screen.getByText('Session Not Found')).toBeInTheDocument();
@@ -173,7 +173,7 @@ describe('AnalyticsPage', () => {
                 sessionHistory: [],
                 loading: false,
                 error: null,
-            } as any);
+            } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
             renderAnalyticsPage('/analytics/missing-session');
             const link = screen.getByRole('link', { name: /view dashboard/i });
@@ -187,7 +187,7 @@ describe('AnalyticsPage', () => {
                 data: { subscription_status: 'free' },
                 isLoading: false,
                 error: null,
-            } as any);
+            } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
 
             renderAnalyticsPage('/analytics');
             expect(screen.getByText('Unlock Your Full Potential')).toBeInTheDocument();
@@ -199,7 +199,7 @@ describe('AnalyticsPage', () => {
                 data: { subscription_status: 'pro' },
                 isLoading: false,
                 error: null,
-            } as any);
+            } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
 
             renderAnalyticsPage('/analytics');
             expect(screen.queryByText('Unlock Your Full Potential')).not.toBeInTheDocument();
@@ -210,7 +210,7 @@ describe('AnalyticsPage', () => {
                 data: { subscription_status: 'free' },
                 isLoading: false,
                 error: null,
-            } as any);
+            } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
 
             renderAnalyticsPage('/analytics/session-1');
             expect(screen.queryByText('Unlock Your Full Potential')).not.toBeInTheDocument();

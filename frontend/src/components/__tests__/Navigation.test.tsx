@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { Session } from '@supabase/supabase-js';
 import Navigation from '../Navigation';
 import * as AuthProvider from '../../contexts/AuthProvider';
 
@@ -39,7 +38,7 @@ describe('Navigation', () => {
             mockUseAuthProvider.mockReturnValue({
                 session: null,
                 signOut: mockSignOut,
-            } as Partial<AuthProvider.AuthContextType> as AuthProvider.AuthContextType);
+            } as unknown as AuthProvider.AuthContextType);
 
             renderNavigation();
             expect(screen.getByText('SpeakSharp')).toBeInTheDocument();
@@ -49,7 +48,7 @@ describe('Navigation', () => {
             mockUseAuthProvider.mockReturnValue({
                 session: null,
                 signOut: mockSignOut,
-            } as Partial<AuthProvider.AuthContextType> as AuthProvider.AuthContextType);
+            } as unknown as AuthProvider.AuthContextType);
 
             renderNavigation();
             expect(screen.getByText('Sign In')).toBeInTheDocument();
@@ -60,7 +59,7 @@ describe('Navigation', () => {
             mockUseAuthProvider.mockReturnValue({
                 session: { user: { id: 'test-user' } },
                 signOut: mockSignOut,
-            } as Partial<AuthProvider.AuthContextType> as AuthProvider.AuthContextType);
+            } as unknown as AuthProvider.AuthContextType);
 
             renderNavigation();
             expect(screen.getAllByText('Home')).toHaveLength(2); // Desktop + mobile
@@ -72,7 +71,7 @@ describe('Navigation', () => {
             mockUseAuthProvider.mockReturnValue({
                 session: { user: { id: 'test-user' } },
                 signOut: mockSignOut,
-            } as Partial<AuthProvider.AuthContextType> as AuthProvider.AuthContextType);
+            } as unknown as AuthProvider.AuthContextType);
 
             renderNavigation();
             expect(screen.getByTestId('nav-sign-out-button')).toBeInTheDocument();
@@ -84,7 +83,7 @@ describe('Navigation', () => {
             mockUseAuthProvider.mockReturnValue({
                 session: { user: { id: 'test-user' } },
                 signOut: mockSignOut,
-            } as Partial<AuthProvider.AuthContextType> as AuthProvider.AuthContextType);
+            } as unknown as AuthProvider.AuthContextType);
 
             renderNavigation();
 
@@ -100,7 +99,7 @@ describe('Navigation', () => {
             mockUseAuthProvider.mockReturnValue({
                 session: { user: { id: 'test-user' } },
                 signOut: mockSignOut,
-            } as Partial<AuthProvider.AuthContextType> as AuthProvider.AuthContextType);
+            } as unknown as AuthProvider.AuthContextType);
 
             renderNavigation();
             const homeLinks = screen.getAllByRole('link', { name: /home/i });
@@ -111,7 +110,7 @@ describe('Navigation', () => {
             mockUseAuthProvider.mockReturnValue({
                 session: { user: { id: 'test-user' } },
                 signOut: mockSignOut,
-            } as Partial<AuthProvider.AuthContextType> as AuthProvider.AuthContextType);
+            } as unknown as AuthProvider.AuthContextType);
 
             renderNavigation();
             const sessionLinks = screen.getAllByRole('link', { name: /session/i });
@@ -122,7 +121,7 @@ describe('Navigation', () => {
             mockUseAuthProvider.mockReturnValue({
                 session: { user: { id: 'test-user' } },
                 signOut: mockSignOut,
-            } as Partial<AuthProvider.AuthContextType> as AuthProvider.AuthContextType);
+            } as unknown as AuthProvider.AuthContextType);
 
             renderNavigation();
             const analyticsLinks = screen.getAllByRole('link', { name: /analytics/i });
@@ -135,7 +134,7 @@ describe('Navigation', () => {
             mockUseAuthProvider.mockReturnValue({
                 session: { user: { id: 'test-user' } },
                 signOut: mockSignOut,
-            } as Partial<AuthProvider.AuthContextType> as AuthProvider.AuthContextType);
+            } as unknown as AuthProvider.AuthContextType);
 
             renderNavigation();
             // Mobile nav should have Home, Session, Analytics
@@ -147,7 +146,7 @@ describe('Navigation', () => {
             mockUseAuthProvider.mockReturnValue({
                 session: null,
                 signOut: mockSignOut,
-            } as Partial<AuthProvider.AuthContextType> as AuthProvider.AuthContextType);
+            } as unknown as AuthProvider.AuthContextType);
 
             renderNavigation();
             // Should only have desktop Sign In/Get Started, no mobile nav
@@ -161,7 +160,7 @@ describe('Navigation', () => {
             mockUseAuthProvider.mockReturnValue({
                 session: { user: { id: 'test-user' } },
                 signOut: mockSignOut,
-            } as Partial<AuthProvider.AuthContextType> as AuthProvider.AuthContextType);
+            } as unknown as AuthProvider.AuthContextType);
 
             renderNavigation('/');
             // The active link should have 'default' or 'secondary' variant
@@ -173,7 +172,7 @@ describe('Navigation', () => {
             mockUseAuthProvider.mockReturnValue({
                 session: { user: { id: 'test-user' } },
                 signOut: mockSignOut,
-            } as Partial<AuthProvider.AuthContextType> as AuthProvider.AuthContextType);
+            } as unknown as AuthProvider.AuthContextType);
 
             renderNavigation('/session');
             expect(screen.getAllByText('Session')).toHaveLength(2);
@@ -183,7 +182,7 @@ describe('Navigation', () => {
             mockUseAuthProvider.mockReturnValue({
                 session: { user: { id: 'test-user' } },
                 signOut: mockSignOut,
-            } as Partial<AuthProvider.AuthContextType> as AuthProvider.AuthContextType);
+            } as unknown as AuthProvider.AuthContextType);
 
             renderNavigation('/analytics');
             expect(screen.getAllByText('Analytics')).toHaveLength(2);

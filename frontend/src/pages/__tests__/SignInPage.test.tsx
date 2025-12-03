@@ -35,7 +35,7 @@ describe('SignInPage', () => {
             auth: {
                 signInWithPassword: mockSignInWithPassword,
             },
-        } as any);
+        } as unknown as ReturnType<typeof supabaseClient.getSupabaseClient>);
     });
 
     const renderSignInPage = () => {
@@ -75,11 +75,11 @@ describe('SignInPage', () => {
 
         it('should redirect to home when user is already signed in', () => {
             mockUseAuthProvider.mockReturnValue({
-                session: { user: { id: 'test-user' } } as any,
+                session: { user: { id: 'test-user' } } as unknown as AuthProvider.AuthContextType['session'],
                 loading: false,
                 setSession: mockSetSession,
-                user: { id: 'test-user' } as any,
-                profile: { id: 'test-profile' } as any,
+                user: { id: 'test-user' } as unknown as AuthProvider.AuthContextType['user'],
+                profile: { id: 'test-profile' } as unknown as AuthProvider.AuthContextType['profile'],
                 signOut: vi.fn(),
             });
 
