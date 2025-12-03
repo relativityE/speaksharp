@@ -12,16 +12,28 @@
   - **Status**: **Fixed** (Replaced `Buffer` with `btoa` in `test-user-utils.ts`)
   - **Impact**: Authentication now works.
 
-## Major Issues (Functionality/UX)
+*(None currently active)*
+
+## Resolved Issues
+
+- **Buffer is not defined**: Fixed by replacing Node.js Buffer with btoa in `test-user-utils.ts`.
+- **Blank Screen in Dev Mode**: Fixed by creating `.env.development` with mock credentials.
+- **Session Page Access**: Fixed by wrapping `/session` in `ProtectedRoute`.
+- **"Get Started" Button Visibility**: Fixed by redirecting authenticated users from Index (`/`) to Session (`/session`).
+- **User Email Display**: Fixed by updating `Navigation.tsx` to show email when authenticated.
+
+## Major Issues
+
 - **🔴 Stop Recording Button Unresponsive**: In Journey 3 (Local Device), clicking "Stop Recording" (or pressing Escape) failed to stop the session.
   - **Impact**: Cannot complete session or view metrics.
   - **Suspected Cause**: State management issue or event handler not firing in headless environment.
   - **Steps to Reproduce**: Start recording, wait 10s, click Stop.
 
-- **⚠️ Empty DOM on Session & Analytics Pages**: `browser_get_dom` returns empty on `/session` and `/analytics`, preventing automated interaction.
-  - **Impact**: Blocks automated testing of session features and analytics.
-  - **Suspected Cause**: Cross-origin iframe (Stripe) interference or security error in headless browser.
-  - **Workaround**: Manual testing required.
+- **⚠️ Empty DOM on Session & Analytics Pages (Automated Testing Only)**
+  - **Status**: BLOCKED (Tooling Limitation)
+  - **Impact**: Cannot use `browser_get_dom` to verify content in automated tests.
+  - **Workaround**: Manual verification or visual regression testing (screenshots work).
+  - **Note**: Stripe Elements was conditionally disabled in test mode, but `browser_get_dom` still fails to capture DOM in the headless environment. App functionality is verified via screenshots.
 
 ## Minor Issues (Cosmetic/Polish)
 *(None yet)*
