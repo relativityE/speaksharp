@@ -134,6 +134,20 @@ This phase is about confirming the core feature set works as expected and polish
   - Set up Pro test account for Local STT tests (3 tests skipped)
   - Implement Goal Setting backend (2 tests skipped)
   - Implement Session Comparison features (2 tests skipped)
+- **✅ COMPLETED (2025-12-03) - Resolve TypeScript 'any' Type Errors in Test Suite:**
+  - Fixed 23+ `Unexpected any` lint errors across 7 test files
+  - Replaced `as any` with proper type assertions using `ReturnType<typeof hook>` pattern
+  - All lint checks passing (exit code 0)
+  - Files modified: Navigation.test.tsx, SessionPage.test.tsx, AnalyticsPage.test.tsx, SignInPage.test.tsx, SignUpPage.test.tsx, storage.test.ts, supabaseClient.test.ts, utils.test.ts
+- **✅ COMPLETED (2025-12-03) - Fix GitHub CI Playwright Installation Failure:**
+  - Resolved 403 Forbidden errors from Microsoft package repositories
+  - Removed problematic `microsoft-prod.list` and `azure-cli.list` before browser installation
+  - CI infrastructure issue, not code issue - safe removal as we don't use Azure/Microsoft tools
+  - Playwright dependencies come from standard Ubuntu repositories
+- **🔴 TODO - Generate Visual Regression Test Baselines:**
+  - Visual regression tests in `visual-regression.e2e.spec.ts` need baseline snapshots
+  - Run locally with `--update-snapshots` flag to generate baselines
+  - Commit snapshots to repository for CI comparison
 
 
 ### Gating Check
