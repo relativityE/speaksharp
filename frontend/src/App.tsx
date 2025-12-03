@@ -38,7 +38,11 @@ const App: React.FC = () => {
             <Route path="/auth" element={<Navigate to="/auth/signin" replace />} />
             <Route path="/auth/signin" element={<SignInPage />} />
             <Route path="/auth/signup" element={<SignUpPage />} />
-            <Route path="/session" element={<SessionPage />} />
+            <Route path="/session" element={
+              <ProtectedRoute>
+                <SessionPage />
+              </ProtectedRoute>
+            } />
             <Route path="/analytics" element={
               <ProtectedRoute>
                 <AnalyticsPage />
