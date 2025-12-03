@@ -32,8 +32,15 @@ export function createMockSession(overrides: Partial<Session> = {}): Session {
   const now = Math.floor(Date.now() / 1000);
   const user = createMockUser();
 
-  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
-  const payload = Buffer.from(JSON.stringify({
+  const base64UrlEncode = (str: string) => {
+    return btoa(str)
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+  };
+
+  const header = base64UrlEncode(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const payload = base64UrlEncode(JSON.stringify({
     sub: user.id,
     email: user.email,
     aud: "authenticated",
@@ -41,7 +48,7 @@ export function createMockSession(overrides: Partial<Session> = {}): Session {
     exp: now + 3600,
     iat: now,
     session_id: `test-session-${now}`,
-  })).toString("base64url");
+  }));
   const signature = "fake-signature-for-e2e-testing";
   const fakeAccessToken = `${header}.${payload}.${signature}`;
 

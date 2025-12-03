@@ -39,6 +39,9 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
+      // Use platform-agnostic snapshot paths by customizing the snapshot name pattern
+      // This removes the -chromium-{platform} suffix from snapshot filenames
+      snapshotPathTemplate: '{testDir}/{testFileDir}/{testFileName}-snapshots/{arg}-{projectName}{ext}',
       use: {
         ...devices['Desktop Chrome'],
         permissions: ['microphone'],
