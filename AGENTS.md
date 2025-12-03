@@ -53,6 +53,7 @@ No destructive reverts without user approval. If you reverted something, immedia
 Always provide ≥2 solutions for any non-trivial problem (fast fix + robust fix).
 Every claim must include file path and exact line numbers and a 2–5 line code snippet as evidence.
 No escalation until Diagnostic Protocol completed (see §4).
+Code MUST be tested locally AND verified via CI (or explicitly waived by user) before merging/pushing to main. Agents must not check in code that is not built or tested.
 
 ___
 
