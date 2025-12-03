@@ -34,6 +34,7 @@ test.describe('App Navigation', () => {
 
     // Click nav link to Home
     await page.getByRole('link', { name: /home/i }).first().click();
-    await expect(page).toHaveURL('/');
+    // Authenticated users are redirected to /session
+    await expect(page).toHaveURL('/session');
   });
 });
