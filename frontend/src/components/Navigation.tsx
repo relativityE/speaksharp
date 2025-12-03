@@ -97,7 +97,7 @@ const Navigation = () => {
                     <Link to="/auth">Sign In</Link>
                   </Button>
                   <Button variant="hero" size="sm" asChild>
-                    <Link to="/auth">Get Started</Link>
+                    <Link to="/auth/signup">Get Started</Link>
                   </Button>
                 </>
               )}
