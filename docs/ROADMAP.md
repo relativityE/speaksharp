@@ -149,7 +149,7 @@ This phase is about confirming the core feature set works as expected and polish
   - Run locally with `--update-snapshots` flag to generate baselines
   - Commit snapshots to repository for CI comparison
 - **🔴 TODO - Execute Comprehensive UX/UI Test Plan:**
-  - **Test Plan**: [docs/UX_TEST_PLAN.md](./UX_TEST_PLAN.md)
+  - **Test Plan**: [formulate_plan/UX_TEST_PLAN.md](../formulate_plan/UX_TEST_PLAN.md)
   - **Scope**: 14 complete user journeys covering all features
   - **Coverage**: All 3 STT modes (Local Device, Native, Cloud), authentication, session recording, analytics, custom vocabulary, accessibility, mobile responsiveness
   - **Deliverables**: 
