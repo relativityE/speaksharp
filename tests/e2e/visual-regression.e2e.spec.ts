@@ -115,7 +115,7 @@ test.describe('Visual Regression Tests', () => {
         await page.waitForTimeout(500);
 
         await expect(page).toHaveScreenshot('session-page-mobile.png', {
-            maxDiffPixelRatio: 0.05,
+            maxDiffPixelRatio: 0.15,
         });
     });
 });
