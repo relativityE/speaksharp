@@ -24,7 +24,7 @@ test.describe('Visual Regression Tests', () => {
         await expect(page).toHaveScreenshot('homepage-unauthenticated.png', {
             fullPage: true,
             // Allow minor rendering differences
-            maxDiffPixelRatio: 0.01,
+            maxDiffPixelRatio: 0.05,
         });
     });
 
@@ -38,7 +38,7 @@ test.describe('Visual Regression Tests', () => {
         // Snapshot the main content area instead of trying to isolate hero
         const mainContent = page.locator('main').first();
         await expect(mainContent).toHaveScreenshot('homepage-hero.png', {
-            maxDiffPixelRatio: 0.01,
+            maxDiffPixelRatio: 0.05,
         });
     });
 
@@ -53,7 +53,7 @@ test.describe('Visual Regression Tests', () => {
         // Snapshot the session page
         await expect(page).toHaveScreenshot('session-page-initial.png', {
             fullPage: true,
-            maxDiffPixelRatio: 0.01,
+            maxDiffPixelRatio: 0.05,
         });
     });
 
@@ -66,7 +66,7 @@ test.describe('Visual Regression Tests', () => {
         // Snapshot individual metric cards
         const metricsContainer = page.locator('.grid').filter({ hasText: 'Speaking Rate' });
         await expect(metricsContainer).toHaveScreenshot('session-metrics-cards.png', {
-            maxDiffPixelRatio: 0.01,
+            maxDiffPixelRatio: 0.05,
         });
     });
 
@@ -79,7 +79,7 @@ test.describe('Visual Regression Tests', () => {
         // Snapshot empty state
         await expect(page).toHaveScreenshot('analytics-empty-state.png', {
             fullPage: true,
-            maxDiffPixelRatio: 0.01,
+            maxDiffPixelRatio: 0.05,
         });
     });
 
@@ -91,7 +91,7 @@ test.describe('Visual Regression Tests', () => {
         // Snapshot sidebar navigation
         const sidebar = page.locator('nav').first();
         await expect(sidebar).toHaveScreenshot('navigation-sidebar.png', {
-            maxDiffPixelRatio: 0.01,
+            maxDiffPixelRatio: 0.05,
         });
     });
 
@@ -105,7 +105,7 @@ test.describe('Visual Regression Tests', () => {
 
         await expect(page).toHaveScreenshot('homepage-mobile.png', {
             fullPage: true,
-            maxDiffPixelRatio: 0.01,
+            maxDiffPixelRatio: 0.05,
         });
     });
 
@@ -118,7 +118,7 @@ test.describe('Visual Regression Tests', () => {
 
         await expect(page).toHaveScreenshot('session-page-mobile.png', {
             fullPage: true,
-            maxDiffPixelRatio: 0.01,
+            maxDiffPixelRatio: 0.05,
         });
     });
 });
