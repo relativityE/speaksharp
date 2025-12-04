@@ -144,11 +144,11 @@ This phase is about confirming the core feature set works as expected and polish
   - Removed problematic `microsoft-prod.list` and `azure-cli.list` before browser installation
   - CI infrastructure issue, not code issue - safe removal as we don't use Azure/Microsoft tools
   - Playwright dependencies come from standard Ubuntu repositories
-- **🔴 TODO - Generate Visual Regression Test Baselines:**
-  - Visual regression tests in `visual-regression.e2e.spec.ts` need baseline snapshots
+- **✅ COMPLETED (2025-12-03) - Generate Visual Regression Test Baselines:**
+  - Visual regression tests in `visual-regression.e2e.spec.ts` now have baseline snapshots
   - Run locally with `--update-snapshots` flag to generate baselines
-  - Commit snapshots to repository for CI comparison
-- **🔴 TODO - Execute Comprehensive UX/UI Test Plan:**
+  - Snapshots committed to repository for CI comparison
+- **🟡 IN PROGRESS - Execute Comprehensive UX/UI Test Plan:**
   - **Test Plan**: [formulate_plan/UX_TEST_PLAN.md](../formulate_plan/UX_TEST_PLAN.md)
   - **Scope**: 14 complete user journeys covering all features
   - **Coverage**: All 3 STT modes (Local Device, Native, Cloud), authentication, session recording, analytics, custom vocabulary, accessibility, mobile responsiveness
@@ -156,7 +156,8 @@ This phase is about confirming the core feature set works as expected and polish
     - Visual regression baseline snapshots (generated during testing)
     - Bug reports for any issues found
     - UX improvement recommendations
-  - **Status**: Test plan documented, execution pending
+  - **Status**: Journeys 1-3, 7-8 verified. Journeys 4-6 implemented in E2E.
+
 
 
 ### Gating Check

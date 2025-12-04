@@ -1,159 +1,300 @@
 
-> speaksharp@0.0.0 test /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
-> cd frontend && vitest --coverage frontend/src/hooks/useSpeechRecognition/__tests__/index.test.tsx --run --reporter\=verbose
+Running 2 tests using 1 worker
 
- Vitest  "deps.inline" is deprecated. If you rely on vite-node directly, use "server.deps.inline" instead. Otherwise, consider using "deps.optimizer.web.include"
+[1A[2K[1/2] [chromium] › tests/e2e/analytics-details.e2e.spec.ts:9:5 › Analytics Details › Journey 8: Session Detail View
+[1A[2K[chromium] › tests/e2e/analytics-details.e2e.spec.ts:9:5 › Analytics Details › Journey 8: Session Detail View
+[E2E DEBUG] Starting programmaticLogin
 
- RUN  v3.2.4 /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend
-      Coverage enabled with v8
+[1A[2K[E2E DEBUG] Setting __E2E_MOCK_SESSION__ flag and MockSpeechRecognition
 
-No test files found, exiting with code 1
+[1A[2K[E2E DEBUG] Navigating to /
 
-filter: frontend/src/hooks/useSpeechRecognition/__tests__/index.test.tsx
-include: src/**/*.test.{js,jsx,ts,tsx}, tests/**/*.test.{js,jsx,ts,tsx}
-exclude:  node_modules/, dist/, build/
+[1A[2K[E2E DEBUG] Waiting for MSW ready signal
 
- % Coverage report from v8
--------------------|---------|----------|---------|---------|-------------------
-File               | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s 
--------------------|---------|----------|---------|---------|-------------------
-All files          |       0 |    52.63 |   52.63 |       0 |                   
- frontend          |       0 |    33.33 |   33.33 |       0 |                   
-  ...ss.config.cjs |       0 |        0 |       0 |       0 | 1-6               
-  ...ind.config.js |       0 |        0 |       0 |       0 | 1-128             
-  ...ind.config.ts |       0 |      100 |     100 |       0 | 2-130             
- ...nd/html/assets |       0 |        0 |       0 |       0 |                   
-  ...x-D_ryMEPs.js |       0 |        0 |       0 |       0 | 1-58              
- frontend/public   |       0 |        0 |       0 |       0 |                   
-  ...viceWorker.js |       0 |        0 |       0 |       0 | 1-349             
- frontend/src      |       0 |    33.33 |   33.33 |       0 |                   
-  App.tsx          |       0 |        0 |       0 |       0 | 1-54              
-  config.ts        |       0 |        0 |       0 |       0 | 1-47              
-  main.tsx         |       0 |      100 |     100 |       0 | 2-142             
- ...src/components |       0 |       80 |      80 |       0 |                   
-  ...Dashboard.tsx |       0 |      100 |     100 |       0 | 2-231             
-  ...erWarning.tsx |       0 |      100 |     100 |       0 | 2-28              
-  ...rBoundary.tsx |       0 |        0 |       0 |       0 | 1-59              
-  ErrorDisplay.tsx |       0 |      100 |     100 |       0 | 2-25              
-  Header.tsx       |       0 |      100 |     100 |       0 | 2-47              
-  Navigation.tsx   |       0 |        0 |       0 |       0 | 1-110             
-  ...ctedRoute.tsx |       0 |      100 |     100 |       0 | 2-29              
-  ...ionStatus.tsx |       0 |      100 |     100 |       0 | 2-29              
-  SideNav.tsx      |       0 |      100 |     100 |       0 | 2-57              
-  ...mptDialog.tsx |       0 |      100 |     100 |       0 | 2-54              
- ...ents/analytics |       0 |      100 |     100 |       0 |                   
-  ...omparison.tsx |       0 |      100 |     100 |       0 | 2-57              
-  ...WordTable.tsx |       0 |      100 |     100 |       0 | 2-64              
-  GoalsSection.tsx |       0 |      100 |     100 |       0 | 2-74              
-  ...llerWords.tsx |       0 |      100 |     100 |       0 | 2-51              
-  ...vityChart.tsx |       0 |      100 |     100 |       0 | 2-66              
- ...onents/landing |       0 |      100 |     100 |       0 |                   
-  ...esSection.tsx |       0 |      100 |     100 |       0 | 2-74              
-  HeroSection.tsx  |       0 |      100 |     100 |       0 | 2-74              
-  ...ingFooter.tsx |       0 |      100 |     100 |       0 | 2-26              
-  ...ingHeader.tsx |       0 |      100 |     100 |       0 | 2-31              
-  ...lsSection.tsx |       0 |      100 |     100 |       0 | 2-58              
- ...onents/session |       0 |       25 |      25 |       0 |                   
-  ...ggestions.tsx |       0 |        0 |       0 |       0 | 1-122             
-  ...ryManager.tsx |       0 |        0 |       0 |       0 | 1-126             
-  ...dAnalysis.tsx |       0 |        0 |       0 |       0 | 1-125             
-  ...csDisplay.tsx |       0 |      100 |     100 |       0 | 2-66              
-  ...onSidebar.tsx |       0 |        0 |       0 |       0 | 1-290             
-  SpeakingTips.tsx |       0 |        0 |       0 |       0 | 1-62              
-  ...efulPanel.tsx |       0 |      100 |     100 |       0 | 2-35              
-  ...riptPanel.tsx |       0 |        0 |       0 |       0 | 1-154             
- .../components/ui |       0 |       60 |      60 |       0 |                   
-  EmptyState.tsx   |       0 |      100 |     100 |       0 | 2-62              
-  FadeIn.tsx       |       0 |      100 |     100 |       0 | 2-37              
-  alert-dialog.tsx |       0 |      100 |     100 |       0 | 3-108             
-  alert.tsx        |       0 |        0 |       0 |       0 | 1-44              
-  ...e-variants.ts |       0 |        0 |       0 |       0 | 1-28              
-  badge.tsx        |       0 |        0 |       0 |       0 | 1-15              
-  ...n-variants.ts |       0 |        0 |       0 |       0 | 1-29              
-  button.tsx       |       0 |        0 |       0 |       0 | 1-25              
-  card.tsx         |       0 |        0 |       0 |       0 | 1-91              
-  checkbox.tsx     |       0 |      100 |     100 |       0 | 3-28              
-  drawer.tsx       |       0 |      100 |     100 |       0 | 3-105             
-  ...down-menu.tsx |       0 |      100 |     100 |       0 | 3-182             
-  input.tsx        |       0 |        0 |       0 |       0 | 1-43              
-  label.tsx        |       0 |      100 |     100 |       0 | 3-24              
-  progress.tsx     |       0 |      100 |     100 |       0 | 3-26              
-  sheet.tsx        |       0 |      100 |     100 |       0 | 3-127             
-  skeleton.tsx     |       0 |        0 |       0 |       0 | 1-14              
-  sonner.tsx       |       0 |      100 |     100 |       0 | 3-30              
-  switch.tsx       |       0 |      100 |     100 |       0 | 3-27              
-  toast.tsx        |       0 |      100 |     100 |       0 | 2-44              
- ...end/src/config |       0 |      100 |     100 |       0 |                   
-  env.ts           |       0 |      100 |     100 |       0 | 2-14              
- ...d/src/contexts |       0 |       50 |      50 |       0 |                   
-  AuthContext.tsx  |       0 |        0 |       0 |       0 | 1-13              
-  AuthProvider.tsx |       0 |      100 |     100 |       0 | 2-124             
- ...tend/src/hooks |       0 |        0 |       0 |       0 |                   
-  useAnalytics.ts  |       0 |        0 |       0 |       0 | 1-55              
-  ...serSupport.ts |       0 |        0 |       0 |       0 | 1-32              
-  ...Vocabulary.ts |       0 |        0 |       0 |       0 | 1-105             
-  ...iceHistory.ts |       0 |        0 |       0 |       0 | 1-13              
-  ...ionManager.ts |       0 |        0 |       0 |       0 | 1-100             
-  ...serProfile.ts |       0 |        0 |       0 |       0 | 1-45              
-  ...alAnalysis.ts |       0 |        0 |       0 |       0 | 1-58              
- ...echRecognition |       0 |    33.33 |   33.33 |       0 |                   
-  index.ts         |       0 |        0 |       0 |       0 | 1-191             
-  types.ts         |       0 |        0 |       0 |       0 |                   
-  ...illerWords.ts |       0 |        0 |       0 |       0 | 1-63              
-  ...criptState.ts |       0 |        0 |       0 |       0 | 1-37              
-  ...ionService.ts |       0 |        0 |       0 |       0 | 1-149             
-  utils.ts         |       0 |      100 |     100 |       0 | 4-17              
- frontend/src/lib  |       0 |       50 |      50 |       0 |                   
-  ...yticsUtils.ts |       0 |      100 |     100 |       0 | 3-97              
-  canvas.ts        |       0 |      100 |     100 |       0 | 5-21              
-  dateUtils.ts     |       0 |      100 |     100 |       0 | 7-54              
-  e2e-bridge.ts    |       0 |      100 |     100 |       0 | 15-139            
-  logger.ts        |       0 |        0 |       0 |       0 | 1-18              
-  mockData.ts      |       0 |        0 |       0 |       0 | 1-76              
-  mockSupabase.ts  |       0 |        0 |       0 |       0 | 1-63              
-  pdfGenerator.ts  |       0 |        0 |       0 |       0 | 1-78              
-  processImage.ts  |       0 |        0 |       0 |       0 | 1-22              
-  storage.ts       |       0 |        0 |       0 |       0 | 1-103             
-  ...baseClient.ts |       0 |      100 |     100 |       0 | 3-51              
-  theme.ts         |       0 |      100 |     100 |       0 | 3-360             
-  utils.ts         |       0 |        0 |       0 |       0 | 1-44              
-  wer.ts           |       0 |      100 |     100 |       0 | 9-38              
- ...tend/src/mocks |       0 |    66.66 |   66.66 |       0 |                   
-  browser.ts       |       0 |      100 |     100 |       0 | 2-6               
-  handlers.ts      |       0 |        0 |       0 |       0 | 1-58              
-  ...user-utils.ts |       0 |      100 |     100 |       0 | 4-57              
- ...tend/src/pages |       0 |       40 |      40 |       0 |                   
-  ...yticsPage.tsx |       0 |      100 |     100 |       0 | 2-111             
-  AuthPage.tsx     |       0 |        0 |       0 |       0 | 1-249             
-  ...eededPage.tsx |       0 |        0 |       0 |       0 | 1-47              
-  HomePage.tsx     |       0 |      100 |     100 |       0 | 2-44              
-  Index.tsx        |       0 |        0 |       0 |       0 | 1-21              
-  MainPage.tsx     |       0 |      100 |     100 |       0 | 2-27              
-  PricingPage.tsx  |       0 |      100 |     100 |       0 | 2-100             
-  SessionPage.tsx  |       0 |        0 |       0 |       0 | 1-249             
-  SignInPage.tsx   |       0 |        0 |       0 |       0 | 1-105             
-  SignUpPage.tsx   |       0 |        0 |       0 |       0 | 1-129             
- ...services/audio |       0 |      100 |     100 |       0 |                   
-  pauseDetector.ts |       0 |      100 |     100 |       0 | 4-107             
- .../transcription |       0 |        0 |       0 |       0 |                   
-  ...ionService.ts |       0 |        0 |       0 |       0 | 1-217             
- ...cription/modes |       0 |       50 |      50 |       0 |                   
-  ...AssemblyAI.ts |       0 |      100 |     100 |       0 | 3-181             
-  LocalWhisper.ts  |       0 |        0 |       0 |       0 | 1-209             
-  NativeBrowser.ts |       0 |        0 |       0 |       0 | 1-158             
-  types.ts         |       0 |        0 |       0 |       0 |                   
- ...cription/utils |       0 |       75 |      75 |       0 |                   
-  ...or.worklet.ts |       0 |      100 |     100 |       0 | 19-84             
-  ...Utils.impl.ts |       0 |        0 |       0 |       0 | 1-96              
-  audioUtils.ts    |       0 |      100 |     100 |       0 | 3-8               
-  types.ts         |       0 |        0 |       0 |       0 |                   
- ...end/src/stores |       0 |        0 |       0 |       0 |                   
-  ...ssionStore.ts |       0 |        0 |       0 |       0 | 1-83              
- ...tend/src/types |       0 |        0 |       0 |       0 |                   
-  analytics.ts     |       0 |        0 |       0 |       0 |                   
-  session.ts       |       0 |        0 |       0 |       0 |                   
-  user.ts          |       0 |        0 |       0 |       0 |                   
- ...tend/src/utils |       0 |        0 |       0 |       0 |                   
-  ...rWordUtils.ts |       0 |        0 |       0 |       0 | 1-118             
--------------------|---------|----------|---------|---------|-------------------
- ELIFECYCLE  Test failed. See above for more details.
+[1A[2K[E2E DEBUG] MSW ready signal received
+
+[1A[2K[E2E DEBUG] Waiting for app-main element
+
+[1A[2K[E2E DEBUG] App-main element found
+
+[1A[2K[E2E] MSW ready, user authenticated via network mocking
+
+[1A[2KNo sessions found in analytics list - skipping detail view verification
+
+[1A[2K[2/2] [chromium] › tests/e2e/analytics-details.e2e.spec.ts:33:5 › Analytics Details › Journey 8.3: Invalid Session ID
+[1A[2K[chromium] › tests/e2e/analytics-details.e2e.spec.ts:33:5 › Analytics Details › Journey 8.3: Invalid Session ID
+[E2E DEBUG] Starting programmaticLogin
+
+[1A[2K[E2E DEBUG] Setting __E2E_MOCK_SESSION__ flag and MockSpeechRecognition
+
+[1A[2K[E2E DEBUG] Navigating to /
+
+[1A[2K[E2E DEBUG] Waiting for MSW ready signal
+
+[1A[2K[E2E DEBUG] MSW ready signal received
+
+[1A[2K[E2E DEBUG] Waiting for app-main element
+
+[1A[2K[E2E DEBUG] App-main element found
+
+[1A[2K[E2E] MSW ready, user authenticated via network mocking
+
+[1A[2K[BROWSER] [MSW] 21:53:52 GET https://mock.supabase.co/rest/v1/user_profiles (%c200 OK%c) color:#69AB32 color:inherit
+
+[1A[2K[BROWSER] Request {url: URL, method: GET, headers: Object, body: }
+
+[1A[2K[BROWSER] Handler: ul
+
+[1A[2K[BROWSER] Response {status: 200, statusText: OK, headers: Object, body: {"id":"test-user-123","subscription_status":"pro","preferred_mode":"cloud"}}
+
+[1A[2K[BROWSER] console.groupEnd
+
+[1A[2K[BROWSER] [ProtectedRoute] User authenticated, rendering children
+
+[1A[2K[BROWSER] [DEBUG] useUserProfile hook called. User: mock-user-id
+
+[1A[2K[BROWSER] [DEBUG] SessionPage rendered. Session: mock-user-id
+
+[1A[2K[BROWSER] [DEBUG] SessionPage profile state: {isProfileLoading: true, profileError: null, profileId: undefined}
+
+[1A[2K[BROWSER] [DEBUG] SessionPage speechRecognition state: {isListening: false, isReady: false}
+
+[1A[2K[BROWSER] [DEBUG] SessionPage: Loading profile...
+
+[1A[2K[BROWSER] [DEBUG] useUserProfile queryFn executing for user: mock-user-id
+
+[1A[2K[BROWSER] [DEBUG] useUserProfile hook called. User: mock-user-id
+
+[1A[2K[BROWSER] [DEBUG] SessionPage rendered. Session: mock-user-id
+
+[1A[2K[BROWSER] [DEBUG] SessionPage profile state: {isProfileLoading: true, profileError: null, profileId: undefined}
+
+[1A[2K[BROWSER] [DEBUG] SessionPage speechRecognition state: {isListening: false, isReady: false}
+
+[1A[2K[BROWSER] [DEBUG] SessionPage: Loading profile...
+
+[1A[2K[BROWSER] [DEBUG] useUserProfile hook called. User: mock-user-id
+
+[1A[2K[BROWSER] [DEBUG] SessionPage rendered. Session: mock-user-id
+
+[1A[2K[BROWSER] [DEBUG] SessionPage profile state: {isProfileLoading: true, profileError: null, profileId: undefined}
+
+[1A[2K[BROWSER] [DEBUG] SessionPage speechRecognition state: {isListening: false, isReady: false}
+
+[1A[2K[BROWSER] [DEBUG] SessionPage: Loading profile...
+
+[1A[2K[BROWSER] [MSW DEBUG] Intercepted: GET /rest/v1/user_profiles
+
+[1A[2K[BROWSER] [MSW DEBUG] Returning single user_profile object
+
+[1A[2K[BROWSER] [DEBUG] useUserProfile queryFn result: Found
+
+[1A[2K[BROWSER] [MSW] 21:53:52 GET https://mock.supabase.co/rest/v1/user_profiles (%c200 OK%c) color:#69AB32 color:inherit
+
+[1A[2K[BROWSER] Request {url: URL, method: GET, headers: Object, body: }
+
+[1A[2K[BROWSER] Handler: ul
+
+[1A[2K[BROWSER] Response {status: 200, statusText: OK, headers: Object, body: {"id":"test-user-123","subscription_status":"pro","preferred_mode":"cloud"}}
+
+[1A[2K[BROWSER] console.groupEnd
+
+[1A[2K[BROWSER] [DEBUG] useUserProfile hook called. User: mock-user-id
+
+[1A[2K[BROWSER] [DEBUG] SessionPage rendered. Session: mock-user-id
+
+[1A[2K[BROWSER] [DEBUG] SessionPage profile state: {isProfileLoading: false, profileError: null, profileId: test-user-123}
+
+[1A[2K[BROWSER] [DEBUG] SessionPage speechRecognition state: {isListening: false, isReady: false}
+
+[1A[2K[BROWSER] [DEBUG] Button render. Disabled: false isListening: false isReady: false
+
+[1A[2K[BROWSER] %c[MSW] Mocking enabled. color:orangered;font-weight:bold;
+
+[1A[2K[BROWSER] %cDocumentation: %chttps://mswjs.io/docs font-weight:bold font-weight:normal
+
+[1A[2K[BROWSER] Found an issue? https://github.com/mswjs/msw/issues
+
+[1A[2K[BROWSER] Worker script URL: http://localhost:4173/mockServiceWorker.js
+
+[1A[2K[BROWSER] Worker scope: http://localhost:4173/
+
+[1A[2K[BROWSER] Client ID: %s (%s) f2ccd12c-b253-4422-8c94-fa8b6280156a top-level
+
+[1A[2K[BROWSER] console.groupEnd
+
+[1A[2K[BROWSER] [E2E] Environment ready, now rendering app
+
+[1A[2K[BROWSER] [E2E DIAGNOSTIC] ./App imported successfully: true
+
+[1A[2K[BROWSER] [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[BROWSER] [E2E] App fully mounted
+
+[1A[2K[BROWSER] [AuthProvider] fetchAndSetProfile called with session: mock-user-id
+
+[1A[2K[BROWSER] [AuthProvider] fetchAndSetProfile called with session: undefined
+
+[1A[2K[BROWSER] [AuthProvider] No session user ID, clearing profile
+
+[1A[2K[BROWSER] [MSW DEBUG] Intercepted: GET /rest/v1/user_profiles
+
+[1A[2K[BROWSER] [MSW DEBUG] Returning single user_profile object
+
+[1A[2K[BROWSER] [AuthProvider] Profile loaded: test-user-123
+
+[1A[2K[BROWSER] [E2E DIAGNOSTIC] Profile found for test-user-123, dispatching event.
+
+[1A[2K[BROWSER] [MSW] 21:53:52 GET https://mock.supabase.co/rest/v1/user_profiles (%c200 OK%c) color:#69AB32 color:inherit
+
+[1A[2K[BROWSER] Request {url: URL, method: GET, headers: Object, body: }
+
+[1A[2K[BROWSER] Handler: ul
+
+[1A[2K[BROWSER] Response {status: 200, statusText: OK, headers: Object, body: {"id":"test-user-123","subscription_status":"pro","preferred_mode":"cloud"}}
+
+[1A[2K[BROWSER] console.groupEnd
+
+[1A[2K[3/2] (retries) [chromium] › tests/e2e/analytics-details.e2e.spec.ts:33:5 › Analytics Details › Journey 8.3: Invalid Session ID (retry #1)
+[1A[2K[E2E DEBUG] Starting programmaticLogin
+
+[1A[2K[E2E DEBUG] Setting __E2E_MOCK_SESSION__ flag and MockSpeechRecognition
+
+[1A[2K[E2E DEBUG] Navigating to /
+
+[1A[2K[E2E DEBUG] Waiting for MSW ready signal
+
+[1A[2K[E2E DEBUG] MSW ready signal received
+
+[1A[2K[E2E DEBUG] Waiting for app-main element
+
+[1A[2K[E2E DEBUG] App-main element found
+
+[1A[2K[E2E] MSW ready, user authenticated via network mocking
+
+[1A[2K[BROWSER] %c[MSW] Mocking enabled. color:orangered;font-weight:bold;
+
+[1A[2K[BROWSER] %cDocumentation: %chttps://mswjs.io/docs font-weight:bold font-weight:normal
+
+[1A[2K[BROWSER] Found an issue? https://github.com/mswjs/msw/issues
+
+[1A[2K[BROWSER] Worker script URL: http://localhost:4173/mockServiceWorker.js
+
+[1A[2K[BROWSER] Worker scope: http://localhost:4173/
+
+[1A[2K[BROWSER] Client ID: %s (%s) 4c9dd135-6714-4860-bd37-a3080954e3d2 top-level
+
+[1A[2K[BROWSER] console.groupEnd
+
+[1A[2K[BROWSER] [E2E] Environment ready, now rendering app
+
+[1A[2K[BROWSER] [E2E DIAGNOSTIC] ./App imported successfully: true
+
+[1A[2K[BROWSER] [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[BROWSER] [E2E] App fully mounted
+
+[1A[2K[BROWSER] [AuthProvider] fetchAndSetProfile called with session: mock-user-id
+
+[1A[2K[BROWSER] [AuthProvider] fetchAndSetProfile called with session: undefined
+
+[1A[2K[BROWSER] [AuthProvider] No session user ID, clearing profile
+
+[1A[2K[BROWSER] [MSW DEBUG] Intercepted: GET /rest/v1/user_profiles
+
+[1A[2K[BROWSER] [MSW DEBUG] Returning single user_profile object
+
+[1A[2K[BROWSER] [AuthProvider] Profile loaded: test-user-123
+
+[1A[2K[BROWSER] [E2E DIAGNOSTIC] Profile found for test-user-123, dispatching event.
+
+[1A[2K[BROWSER] [MSW] 21:54:03 GET https://mock.supabase.co/rest/v1/user_profiles (%c200 OK%c) color:#69AB32 color:inherit
+
+[1A[2K[BROWSER] Request {url: URL, method: GET, headers: Object, body: }
+
+[1A[2K[BROWSER] Handler: ul
+
+[1A[2K[BROWSER] Response {status: 200, statusText: OK, headers: Object, body: {"id":"test-user-123","subscription_status":"pro","preferred_mode":"cloud"}}
+
+[1A[2K[BROWSER] console.groupEnd
+
+[1A[2K  1) [chromium] › tests/e2e/analytics-details.e2e.spec.ts:33:5 › Analytics Details › Journey 8.3: Invalid Session ID 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: getByText('Session Not Found')
+    Expected: visible
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 10000ms[22m
+    [2m  - waiting for getByText('Session Not Found')[22m
+
+
+      37 |         // Wait for loading to finish and error state to appear
+      38 |         // The page shows "Session Not Found" when ID doesn't exist
+    > 39 |         await expect(page.getByText('Session Not Found')).toBeVisible({ timeout: 10000 });
+         |                                                           ^
+      40 |
+      41 |         // Verify link back to dashboard
+      42 |         const dashboardLink = page.getByRole('link', { name: /view dashboard/i });
+        at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e/analytics-details.e2e.spec.ts:39:59
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/playwright/analytics-details.e2e-Anal-8ee65-rney-8-3-Invalid-Session-ID-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/playwright/analytics-details.e2e-Anal-8ee65-rney-8-3-Invalid-Session-ID-chromium/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/playwright/analytics-details.e2e-Anal-8ee65-rney-8-3-Invalid-Session-ID-chromium/error-context.md
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: getByText('Session Not Found')
+    Expected: visible
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 10000ms[22m
+    [2m  - waiting for getByText('Session Not Found')[22m
+
+
+      37 |         // Wait for loading to finish and error state to appear
+      38 |         // The page shows "Session Not Found" when ID doesn't exist
+    > 39 |         await expect(page.getByText('Session Not Found')).toBeVisible({ timeout: 10000 });
+         |                                                           ^
+      40 |
+      41 |         // Verify link back to dashboard
+      42 |         const dashboardLink = page.getByRole('link', { name: /view dashboard/i });
+        at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e/analytics-details.e2e.spec.ts:39:59
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/playwright/analytics-details.e2e-Anal-8ee65-rney-8-3-Invalid-Session-ID-chromium-retry1/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/playwright/analytics-details.e2e-Anal-8ee65-rney-8-3-Invalid-Session-ID-chromium-retry1/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/playwright/analytics-details.e2e-Anal-8ee65-rney-8-3-Invalid-Session-ID-chromium-retry1/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/playwright/analytics-details.e2e-Anal-8ee65-rney-8-3-Invalid-Session-ID-chromium-retry1/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/playwright/analytics-details.e2e-Anal-8ee65-rney-8-3-Invalid-Session-ID-chromium-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[1A[2K  1 failed
+    [chromium] › tests/e2e/analytics-details.e2e.spec.ts:33:5 › Analytics Details › Journey 8.3: Invalid Session ID 
+  1 passed (23.4s)
+
+[36m  Serving HTML report at http://localhost:62613. Press Ctrl+C to quit.[39m

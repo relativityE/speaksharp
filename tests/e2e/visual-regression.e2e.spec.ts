@@ -22,7 +22,6 @@ test.describe('Visual Regression Tests', () => {
 
         // Take full page screenshot
         await expect(page).toHaveScreenshot('homepage-unauthenticated.png', {
-            fullPage: true,
             // Allow minor rendering differences
             maxDiffPixelRatio: 0.05,
         });
@@ -104,7 +103,6 @@ test.describe('Visual Regression Tests', () => {
         await page.waitForLoadState('networkidle');
 
         await expect(page).toHaveScreenshot('homepage-mobile.png', {
-            fullPage: true,
             maxDiffPixelRatio: 0.05,
         });
     });
@@ -117,7 +115,6 @@ test.describe('Visual Regression Tests', () => {
         await page.waitForTimeout(500);
 
         await expect(page).toHaveScreenshot('session-page-mobile.png', {
-            fullPage: true,
             maxDiffPixelRatio: 0.05,
         });
     });

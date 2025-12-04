@@ -48,6 +48,11 @@ const App: React.FC = () => {
                 <AnalyticsPage />
               </ProtectedRoute>
             } />
+            <Route path="/analytics/:sessionId" element={
+              <ProtectedRoute>
+                <AnalyticsPage />
+              </ProtectedRoute>
+            } />
           </Routes>
         </Suspense>
       </main>

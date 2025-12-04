@@ -1,27 +1,7 @@
 
-Running 2 tests using 1 worker
+Running 1 test using 1 worker
 
-[1A[2K[1/2] [chromium] › tests/e2e/analytics-details.e2e.spec.ts:9:5 › Analytics Details › Journey 8: Session Detail View
-[1A[2K[chromium] › tests/e2e/analytics-details.e2e.spec.ts:9:5 › Analytics Details › Journey 8: Session Detail View
-[E2E DEBUG] Starting programmaticLogin
-
-[1A[2K[E2E DEBUG] Setting __E2E_MOCK_SESSION__ flag and MockSpeechRecognition
-
-[1A[2K[E2E DEBUG] Navigating to /
-
-[1A[2K[E2E DEBUG] Waiting for MSW ready signal
-
-[1A[2K[E2E DEBUG] MSW ready signal received
-
-[1A[2K[E2E DEBUG] Waiting for app-main element
-
-[1A[2K[E2E DEBUG] App-main element found
-
-[1A[2K[E2E] MSW ready, user authenticated via network mocking
-
-[1A[2KNo sessions found in analytics list - skipping detail view verification
-
-[1A[2K[2/2] [chromium] › tests/e2e/analytics-details.e2e.spec.ts:33:5 › Analytics Details › Journey 8.3: Invalid Session ID
+[1A[2K[1/1] [chromium] › tests/e2e/analytics-details.e2e.spec.ts:33:5 › Analytics Details › Journey 8.3: Invalid Session ID
 [1A[2K[chromium] › tests/e2e/analytics-details.e2e.spec.ts:33:5 › Analytics Details › Journey 8.3: Invalid Session ID
 [E2E DEBUG] Starting programmaticLogin
 
@@ -39,45 +19,15 @@ Running 2 tests using 1 worker
 
 [1A[2K[E2E] MSW ready, user authenticated via network mocking
 
-[1A[2K[BROWSER] [ProtectedRoute] User authenticated, rendering children
+[1A[2K[BROWSER] [MSW DEBUG] Intercepted: GET /rest/v1/user_profiles
+
+[1A[2K[BROWSER] [MSW DEBUG] Returning single user_profile object
+
+[1A[2K[BROWSER] [AuthProvider] Profile loaded: test-user-123
+
+[1A[2K[BROWSER] [E2E DIAGNOSTIC] Profile found for test-user-123, dispatching event.
 
 [1A[2K[BROWSER] [ProtectedRoute] User authenticated, rendering children
-
-[1A[2K[BROWSER] [DEBUG] useUserProfile hook called. User: mock-user-id
-
-[1A[2K[BROWSER] [DEBUG] SessionPage rendered. Session: mock-user-id
-
-[1A[2K[BROWSER] [DEBUG] SessionPage profile state: {isProfileLoading: true, profileError: null, profileId: undefined}
-
-[1A[2K[BROWSER] [DEBUG] SessionPage speechRecognition state: {isListening: false, isReady: false}
-
-[1A[2K[BROWSER] [DEBUG] SessionPage: Loading profile...
-
-[1A[2K[BROWSER] [DEBUG] useUserProfile queryFn executing for user: mock-user-id
-
-[1A[2K[BROWSER] [DEBUG] useUserProfile hook called. User: mock-user-id
-
-[1A[2K[BROWSER] [DEBUG] SessionPage rendered. Session: mock-user-id
-
-[1A[2K[BROWSER] [DEBUG] SessionPage profile state: {isProfileLoading: true, profileError: null, profileId: undefined}
-
-[1A[2K[BROWSER] [DEBUG] SessionPage speechRecognition state: {isListening: false, isReady: false}
-
-[1A[2K[BROWSER] [DEBUG] SessionPage: Loading profile...
-
-[1A[2K[BROWSER] [DEBUG] useUserProfile hook called. User: mock-user-id
-
-[1A[2K[BROWSER] [DEBUG] SessionPage rendered. Session: mock-user-id
-
-[1A[2K[BROWSER] [DEBUG] SessionPage profile state: {isProfileLoading: true, profileError: null, profileId: undefined}
-
-[1A[2K[BROWSER] [DEBUG] SessionPage speechRecognition state: {isListening: false, isReady: false}
-
-[1A[2K[BROWSER] [DEBUG] SessionPage: Loading profile...
-
-[1A[2K[BROWSER] Error fetching profile: TypeError: Failed to fetch
-
-[1A[2K[BROWSER] [DEBUG] useUserProfile queryFn result: Null
 
 [1A[2K[BROWSER] %c[MSW] Mocking enabled. color:orangered;font-weight:bold;
 
@@ -89,7 +39,7 @@ Running 2 tests using 1 worker
 
 [1A[2K[BROWSER] Worker scope: http://localhost:4173/
 
-[1A[2K[BROWSER] Client ID: %s (%s) 26d749b0-20a2-4491-a053-47c206a9ca94 top-level
+[1A[2K[BROWSER] Client ID: %s (%s) 6448b577-79a7-4a47-b224-a0f5595e519e top-level
 
 [1A[2K[BROWSER] console.groupEnd
 
@@ -115,7 +65,7 @@ Running 2 tests using 1 worker
 
 [1A[2K[BROWSER] [E2E DIAGNOSTIC] Profile found for test-user-123, dispatching event.
 
-[1A[2K[BROWSER] [MSW] 22:05:55 GET https://mock.supabase.co/rest/v1/user_profiles (%c200 OK%c) color:#69AB32 color:inherit
+[1A[2K[BROWSER] [MSW] 22:16:33 GET https://mock.supabase.co/rest/v1/user_profiles (%c200 OK%c) color:#69AB32 color:inherit
 
 [1A[2K[BROWSER] Request {url: URL, method: GET, headers: Object, body: }
 
@@ -178,7 +128,7 @@ Running 2 tests using 1 worker
 
 </body></html>
 
-[1A[2K[3/2] (retries) [chromium] › tests/e2e/analytics-details.e2e.spec.ts:33:5 › Analytics Details › Journey 8.3: Invalid Session ID (retry #1)
+[1A[2K[2/1] (retries) [chromium] › tests/e2e/analytics-details.e2e.spec.ts:33:5 › Analytics Details › Journey 8.3: Invalid Session ID (retry #1)
 [1A[2K[E2E DEBUG] Starting programmaticLogin
 
 [1A[2K[E2E DEBUG] Setting __E2E_MOCK_SESSION__ flag and MockSpeechRecognition
@@ -205,7 +155,7 @@ Running 2 tests using 1 worker
 
 [1A[2K[BROWSER] Worker scope: http://localhost:4173/
 
-[1A[2K[BROWSER] Client ID: %s (%s) ffeddc69-2c93-4589-8caf-0d014559bbf6 top-level
+[1A[2K[BROWSER] Client ID: %s (%s) 00b6947e-1a75-4eff-9a18-1421233ba5bb top-level
 
 [1A[2K[BROWSER] console.groupEnd
 
@@ -231,7 +181,7 @@ Running 2 tests using 1 worker
 
 [1A[2K[BROWSER] [E2E DIAGNOSTIC] Profile found for test-user-123, dispatching event.
 
-[1A[2K[BROWSER] [MSW] 22:06:02 GET https://mock.supabase.co/rest/v1/user_profiles (%c200 OK%c) color:#69AB32 color:inherit
+[1A[2K[BROWSER] [MSW] 22:16:39 GET https://mock.supabase.co/rest/v1/user_profiles (%c200 OK%c) color:#69AB32 color:inherit
 
 [1A[2K[BROWSER] Request {url: URL, method: GET, headers: Object, body: }
 
@@ -371,6 +321,5 @@ Running 2 tests using 1 worker
 
 [1A[2K  1 failed
     [chromium] › tests/e2e/analytics-details.e2e.spec.ts:33:5 › Analytics Details › Journey 8.3: Invalid Session ID 
-  1 passed (13.4s)
 
-[36m  Serving HTML report at http://localhost:63009. Press Ctrl+C to quit.[39m
+[36m  Serving HTML report at http://localhost:63154. Press Ctrl+C to quit.[39m
