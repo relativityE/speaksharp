@@ -27,6 +27,8 @@ export default defineConfig({
     video: 'retain-on-failure',
     trace: 'on-first-retry',
   },
+  // Automatically generate missing snapshots in CI
+  updateSnapshots: process.env.CI ? 'missing' : 'none',
   webServer: {
     command: "pnpm preview:test",
     url: BASE_URL,
