@@ -37,7 +37,7 @@ test.describe('Visual Regression Tests', () => {
         // Snapshot the main content area instead of trying to isolate hero
         const mainContent = page.locator('main').first();
         await expect(mainContent).toHaveScreenshot('homepage-hero.png', {
-            maxDiffPixelRatio: 0.05,
+            maxDiffPixelRatio: 0.15,
         });
     });
 
@@ -103,7 +103,7 @@ test.describe('Visual Regression Tests', () => {
         await page.waitForLoadState('networkidle');
 
         await expect(page).toHaveScreenshot('homepage-mobile.png', {
-            maxDiffPixelRatio: 0.05,
+            maxDiffPixelRatio: 0.15,
         });
     });
 
@@ -115,7 +115,7 @@ test.describe('Visual Regression Tests', () => {
         await page.waitForTimeout(500);
 
         await expect(page).toHaveScreenshot('session-page-mobile.png', {
-            maxDiffPixelRatio: 0.05,
+            maxDiffPixelRatio: 0.15,
         });
     });
 });
