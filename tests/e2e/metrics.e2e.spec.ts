@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { programmaticLogin, mockLiveTranscript } from './helpers';
 
 test.describe('Session Metrics', () => {
-    test.skip('should update WPM, Clarity Score, and Filler Words in real-time', async ({ page }) => {
+    test('should update WPM, Clarity Score, and Filler Words in real-time', async ({ page }) => {
         // Enable console logging
         page.on('console', msg => console.log(`[BROWSER] ${msg.text()}`));
         page.on('pageerror', err => console.log(`[BROWSER ERROR] ${err.message}`));

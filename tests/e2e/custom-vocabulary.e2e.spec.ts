@@ -3,10 +3,6 @@ import { programmaticLogin } from './helpers';
 
 test.describe.skip('Custom Vocabulary', () => {
     test('should allow adding and removing custom words', async ({ page }) => {
-        // Enable console logging for debugging
-        page.on('console', msg => console.log(`[BROWSER ${msg.type().toUpperCase()}] ${msg.text()}`));
-        page.on('pageerror', err => console.log(`[BROWSER ERROR] ${err.message}`));
-
         // Mock vocabulary API calls
         await page.route('**/rest/v1/custom_vocabulary*', async (route) => {
             const method = route.request().method();

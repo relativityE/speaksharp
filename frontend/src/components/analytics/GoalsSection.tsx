@@ -7,7 +7,7 @@ import { useAnalytics } from '@/hooks/useAnalytics';
 import { Skeleton } from '@/components/ui/skeleton';
 
 export const GoalsSection: React.FC = () => {
-    const { loading, error } = useAnalytics(); // In a real app, this would fetch goals data
+    const { sessionHistory, overallStats, loading, error } = useAnalytics();
 
     if (loading) {
         return (
@@ -32,6 +32,43 @@ export const GoalsSection: React.FC = () => {
         );
     }
 
+    // Calculate weekly sessions (last 7 days)
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const weeklySessions = sessionHistory?.filter(session => {
+        const sessionDate = new Date(session.created_at);
+        return sessionDate >= sevenDaysAgo;
+    }).length || 0;
+
+    // Default goal: 5 sessions per week
+    const weeklyGoal = 5;
+    const weeklyProgress = Math.min((weeklySessions / weeklyGoal) * 100, 100);
+
+    // Calculate average clarity score from recent sessions
+    const avgClarityScore = parseFloat(overallStats?.avgAccuracy || '0');
+
+    // Default goal: 90% clarity
+    const clarityGoal = 90;
+    const clarityProgress = Math.min((avgClarityScore / clarityGoal) * 100, 100);
+
+    // Determine encouragement message
+    const getEncouragementMessage = () => {
+        if (weeklySessions >= weeklyGoal && avgClarityScore >= clarityGoal) {
+            return "Excellent work! You've crushed your goals this week! 🎉";
+        }
+        if (weeklySessions >= weeklyGoal) {
+            return "Great job on your session frequency! Keep working on clarity.";
+        }
+        if (avgClarityScore >= clarityGoal) {
+            return "Your clarity is outstanding! Try to practice more frequently.";
+        }
+        if (weeklySessions > 0 || avgClarityScore > 0) {
+            return "Keep it up! You're making progress toward your weekly targets.";
+        }
+        return "Start your first session to begin tracking your progress!";
+    };
+
     return (
         <Card>
             <CardHeader>
@@ -47,9 +84,9 @@ export const GoalsSection: React.FC = () => {
                             <Calendar className="h-4 w-4 text-muted-foreground" />
                             Weekly Sessions
                         </span>
-                        <span className="text-muted-foreground">3 / 5</span>
+                        <span className="text-muted-foreground">{weeklySessions} / {weeklyGoal}</span>
                     </div>
-                    <Progress value={60} className="h-2" />
+                    <Progress value={weeklyProgress} className="h-2" />
                 </div>
 
                 <div className="space-y-2">
@@ -58,14 +95,14 @@ export const GoalsSection: React.FC = () => {
                             <Trophy className="h-4 w-4 text-muted-foreground" />
                             Clarity Score Avg
                         </span>
-                        <span className="text-muted-foreground">88% / 90%</span>
+                        <span className="text-muted-foreground">{avgClarityScore.toFixed(0)}% / {clarityGoal}%</span>
                     </div>
-                    <Progress value={97} className="h-2" />
+                    <Progress value={clarityProgress} className="h-2" />
                 </div>
 
                 <div className="pt-2">
                     <p className="text-xs text-muted-foreground text-center">
-                        Keep it up! You're on track to reach your weekly targets.
+                        {getEncouragementMessage()}
                     </p>
                 </div>
             </CardContent>

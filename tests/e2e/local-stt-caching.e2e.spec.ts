@@ -21,7 +21,7 @@ import { programmaticLogin } from './helpers';
  * - Second session loads instantly (no download)
  */
 
-test.describe.skip('Local STT Model Download & Caching', () => {
+test.describe('Local STT Model Download & Caching', () => {
     test.skip('should show download progress on first use of On-Device mode', async ({ page }) => {
         /**
          * SKIPPED: This test requires Pro subscription to access On-Device mode
@@ -120,7 +120,7 @@ test.describe.skip('Local STT Model Download & Caching', () => {
         expect(loadTime).toBeLessThan(2000);
     });
 
-    test.skip('should show mode selector with On-Device option for Pro users', async ({ page }) => {
+    test('should show mode selector with On-Device option for Pro users', async ({ page }) => {
         /**
          * Verify UI shows On-Device mode option
          * This test works for all users (shows disabled for free users)

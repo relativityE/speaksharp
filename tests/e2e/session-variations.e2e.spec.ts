@@ -9,26 +9,32 @@ test.describe('Session Variations', () => {
     });
 
     test('Journey 4 & 5: Switch STT Modes', async ({ page }) => {
-        // Open settings (assuming there's a settings button or mode switcher)
-        // Note: Based on current UI, mode switching might be in a settings dialog or dropdown
-        // For now, we'll look for a mode selector. If not present, we'll verify the default mode.
+        // The mode selector is a DropdownMenu button next to "Live Recording"
+        const modeButton = page.getByRole('button', { name: /Native|On-Device|Cloud AI/ });
 
-        // Check if mode selector exists (this might need adjustment based on actual UI)
-        const modeSelector = page.getByRole('combobox', { name: /transcription mode/i });
+        await modeButton.waitFor({ state: 'visible', timeout: 5000 });
 
-        if (await modeSelector.isVisible()) {
-            // Switch to Native
-            await modeSelector.click();
-            await page.getByRole('option', { name: /native/i }).click();
-            await expect(page.getByText(/native mode active/i)).toBeVisible();
+        // Verify initial mode (should be Native by default)
+        await expect(modeButton).toContainText(/Native/);
 
-            // Switch to Cloud
-            await modeSelector.click();
-            await page.getByRole('option', { name: /cloud/i }).click();
-            await expect(page.getByText(/cloud mode active/i)).toBeVisible();
-        } else {
-            console.log('STT Mode selector not found - skipping mode switch verification');
-        }
+        // Open dropdown
+        await modeButton.click();
+
+        // Switch to Cloud AI
+        await page.getByRole('menuitemradio', { name: /Cloud AI \(AssemblyAI\)/ }).click();
+        await expect(modeButton).toContainText(/Cloud AI/);
+
+        // Open dropdown again
+        await modeButton.click();
+
+        // Switch to On-Device
+        await page.getByRole('menuitemradio', { name: /On-Device \(Whisper\)/ }).click();
+        await expect(modeButton).toContainText(/On-Device/);
+
+        // Switch back to Native
+        await modeButton.click();
+        await page.getByRole('menuitemradio', { name: /Native \(Browser\)/ }).click();
+        await expect(modeButton).toContainText(/Native/);
     });
 
     test('Journey 6: Custom Vocabulary Management', async ({ page }) => {

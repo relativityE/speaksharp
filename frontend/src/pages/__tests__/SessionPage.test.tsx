@@ -50,6 +50,7 @@ describe('SessionPage', () => {
             stopListening: mockStopListening,
             isListening: false,
             isReady: true,
+            modelLoadingProgress: null,
             error: null,
             resetTranscript: vi.fn(),
         } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
@@ -144,7 +145,12 @@ describe('SessionPage', () => {
             const startButton = screen.getByTestId('session-start-stop-button');
             fireEvent.click(startButton);
 
-            expect(mockStartListening).toHaveBeenCalledWith({ forceNative: true });
+            // Default mode is 'native', so it should call with forceNative: true
+            expect(mockStartListening).toHaveBeenCalledWith({
+                forceNative: true,
+                forceOnDevice: false,
+                forceCloud: false
+            });
         });
 
         it('should stop listening when stop button is clicked', async () => {
@@ -161,17 +167,18 @@ describe('SessionPage', () => {
             expect(mockStopListening).toHaveBeenCalled();
         });
 
-        it('should disable start button when not ready', () => {
+        it('should disable start button when listening but not ready', () => {
             mockUseSpeechRecognition.mockReturnValue({
                 ...mockUseSpeechRecognition(),
                 isReady: false,
-                isListening: false,
+                isListening: true,
+                modelLoadingProgress: null,
             } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
             render(<SessionPage />);
 
             const button = screen.getByTestId('session-start-stop-button');
-            expect(button).not.toBeDisabled();
+            expect(button).toBeDisabled();
         });
 
         it('should show READY status when ready', () => {

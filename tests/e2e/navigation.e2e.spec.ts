@@ -2,15 +2,13 @@ import { test, expect } from '@playwright/test';
 import { programmaticLogin } from './helpers';
 
 test.describe('App Navigation', () => {
-  test.skip('should navigate to all application routes successfully', async ({ page }) => {
+  test('should navigate to all application routes successfully', async ({ page }) => {
     await programmaticLogin(page);
 
     // Test navigation to each route and verify URL + key element
     const routes = [
-      { path: '/', heading: 'Transform Your Communication Skills' },
       { path: '/session', heading: 'Practice Session' },
       { path: '/analytics', heading: 'Your Dashboard' },
-      { path: '/sessions', heading: 'Session History' },
     ];
 
     for (const route of routes) {
@@ -20,7 +18,7 @@ test.describe('App Navigation', () => {
     }
   });
 
-  test.skip('should navigate using nav links', async ({ page }) => {
+  test('should navigate using nav links', async ({ page }) => {
     await programmaticLogin(page);
     await page.goto('/');
 

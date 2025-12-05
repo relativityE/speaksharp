@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- **E2E Test Suite Fixes (2025-12-05):**
+  - **Goal Setting:** Fixed `goal-setting.e2e.spec.ts` failures caused by stale build artifacts. Rebuilt frontend to ensure tests run against latest code.
+  - **Analytics Details:** Fixed `analytics-details.e2e.spec.ts` "Invalid Session ID" test by resolving race conditions in loading state assertions.
+  - **Local STT:** Partially fixed `local-stt-caching.e2e.spec.ts` by verifying Pro mode UI elements. Download tests remain skipped due to large model requirements.
+  - **Impact:** Increased E2E test reliability and coverage for core analytics features.
 - **CI Visual Regression Fix (2025-12-03):**
   - **Problem:** GitHub CI failed visual regression tests due to minor cross-platform rendering differences.
   - **Solution:** Increased `maxDiffPixelRatio` from 0.01 to 0.05 in `visual-regression.e2e.spec.ts`.

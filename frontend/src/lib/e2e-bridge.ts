@@ -53,7 +53,7 @@ export const getInitialSession = (fallbackSession: Session | null = null): Sessi
         logger.info('[E2E Bridge] Using mock session');
         return {
             user: {
-                id: 'mock-user-id',
+                id: 'test-user-123',
                 email: 'test@example.com',
                 aud: 'authenticated',
                 role: 'authenticated',

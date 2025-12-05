@@ -20,7 +20,7 @@ import { programmaticLogin } from './helpers';
  */
 
 test.describe('Goal Setting', () => {
-    test.skip('should display goals section in analytics', async ({ page }) => {
+    test('should display goals section in analytics', async ({ page }) => {
         await programmaticLogin(page);
         await page.goto('/analytics');
         await page.waitForSelector('[data-testid="app-main"]');
@@ -32,41 +32,27 @@ test.describe('Goal Setting', () => {
         console.log('[TEST] ✅ Goals section is visible');
     });
 
-    test.skip('should show actual session progress, not hardcoded values', async ({ page }) => {
+    test('should show actual session progress, not hardcoded values', async ({ page }) => {
         /**
-         * SKIPPED: This test exposes that Goal Setting is incomplete.
-         * 
-         * The GoalsSection component shows hardcoded values:
-         * - "3 / 5" for Weekly Sessions
-         * - "88% / 90%" for Clarity Score Avg
-         * 
-         * These values don't change based on actual user data.
-         * 
-         * To fix:
-         * 1. Create goals data model in database
-         * 2. Implement API endpoints for goals CRUD
-         * 3. Update GoalsSection to fetch and display real data
-         * 4. Add ability for users to set their own goals
-         * 5. Calculate progress based on actual session data
-         * 
-         * Once implemented, unskip this test and verify:
+         * This test verifies that Goal Setting shows real data based on actual sessions.
          */
         await programmaticLogin(page);
         await page.goto('/analytics');
         await page.waitForSelector('[data-testid="app-main"]');
 
-        // Get the weekly sessions progress
-        const weeklySessionsText = await page.getByText(/weekly sessions/i).textContent();
+        // Wait for goals section to load
+        await page.getByText('Current Goals').waitFor({ state: 'visible' });
 
-        // This should NOT always be "3 / 5" - it should reflect actual sessions
-        // For a new user with 0 sessions, it should show "0 / X"
-        expect(weeklySessionsText).not.toContain('3 / 5');
+        // Get all text from the page to find the goals data
+        const pageText = await page.textContent('body');
 
-        // Get clarity score progress  
-        const clarityScoreText = await page.getByText(/clarity score avg/i).textContent();
+        console.log('[TEST] Checking page for goal values...');
 
-        // This should NOT always be "88% / 90%" - it should reflect actual data
-        expect(clarityScoreText).not.toContain('88% / 90%');
+        // Should show "2 / 5" for the 2 mock sessions (both within last 7 days)
+        expect(pageText).toContain('2 / 5');
+
+        // Should show actual average clarity score (not hardcoded 88%)
+        expect(pageText).toMatch(/9[012]%\s*\/\s*90%/);
 
         console.log('[TEST] ✅ Goals show real data, not hardcoded values');
     });

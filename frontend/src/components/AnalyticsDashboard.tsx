@@ -119,9 +119,18 @@ export const AnalyticsDashboardSkeleton: React.FC = () => (
 export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ profile }) => {
     const { sessionHistory, overallStats, fillerWordTrends, loading, error } = useAnalytics();
 
-    if (loading) return <AnalyticsDashboardSkeleton />;
-    if (error) return <ErrorDisplay error={error} />;
+    console.log('[AnalyticsDashboard] Rendering. Loading:', loading, 'Error:', error, 'SessionHistory length:', sessionHistory?.length);
+
+    if (loading) {
+        console.log('[AnalyticsDashboard] Showing skeleton (loading)');
+        return <AnalyticsDashboardSkeleton />;
+    }
+    if (error) {
+        console.log('[AnalyticsDashboard] Showing error display:', error);
+        return <ErrorDisplay error={error} />;
+    }
     if (!sessionHistory || sessionHistory.length === 0) {
+        console.log('[AnalyticsDashboard] Showing empty state (no sessions)');
         return (
             <EmptyState
                 title="Your Dashboard Awaits!"
@@ -136,6 +145,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ profile 
         );
     }
 
+    console.log('[AnalyticsDashboard] Showing full dashboard with', sessionHistory.length, 'sessions');
     const isPro = profile?.subscription_status === 'pro';
 
     const handleUpgrade = async () => {

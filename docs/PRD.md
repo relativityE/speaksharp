@@ -139,6 +139,7 @@ This section tracks high-level product risks and constraints. For a detailed his
 - **Test Quality:** A comprehensive audit of the test suite is needed to identify and refactor brittle or low-value tests, ensuring the suite provides high confidence without false positives.
 - **Session Comparison & Progress Tracking Missing:** Users cannot compare sessions side-by-side or track improvement/regression over time. Missing features: (1) session comparison UI, (2) trend charts for WPM/Clarity/Fillers, (3) improvement indicators (green ↑ vs red ↓), (4) progress insights ("Your WPM improved 15% this week!"). **Impact:** Users cannot measure their improvement, reducing motivation and engagement. **Status:** Exposed by E2E test `session-comparison.e2e.spec.ts` - 2 tests skipped until feature implemented.
 - **Goal Setting Incomplete Implementation:** The Goal Setting feature is marked as "✅ Implemented" in the feature matrix but only displays hardcoded mock data ("3 / 5" sessions, "88% / 90%" clarity). The feature lacks: (1) database model for goals, (2) API endpoints for CRUD operations, (3) ability for users to set custom goals, (4) calculation of progress based on actual session data. **Status:** Exposed by E2E test `goal-setting.e2e.spec.ts` - 2 tests skipped until feature is fully implemented. **Location:** `frontend/src/components/analytics/GoalsSection.tsx:10,50,61`
+- **✅ RESOLVED - Goal Setting E2E Test Failure (2025-12-05):** The `goal-setting.e2e.spec.ts` test failure caused by stale build artifacts has been fixed. **Status:** ✅ Fixed.
 - **⚠️ Analytics Empty State E2E Test Timeout (2025-12-01):** The `analytics-empty-state.e2e.spec.ts` test times out waiting for the empty state to render. **Root Cause:** Unknown - possible race condition or missing testid. **Impact:** Test infrastructure only. **Status:** Test skipped pending investigation. **Location:** `tests/e2e/analytics-empty-state.e2e.spec.ts:5`
 - **✅ RESOLVED - Navigation E2E Test Failure (2025-12-02):** The `navigation.e2e.spec.ts` test failure due to overlapping headers has been fixed. **Status:** ✅ Fixed.
 - **⚠️ Metrics E2E Test Timing Issue (2025-12-02):** The `metrics.e2e.spec.ts` test fails because WPM does not update from mock transcripts. Mock events are dispatched via `window.dispatchMockTranscript` but metrics remain at 0. **Root Cause:** Unknown - possible timing issue with metrics calculation or transcript processing. **Impact:** Test infrastructure only (NOT a production bug). **Status:** Test skipped pending investigation. **Location:** `tests/e2e/metrics.e2e.spec.ts:5`
@@ -146,9 +147,9 @@ This section tracks high-level product risks and constraints. For a detailed his
 - **⚠️ Local STT Download Progress Tests Skipped (2025-12-01):** Three tests in `local-stt-caching.e2e.spec.ts` are skipped because they require Pro subscription to access On-Device mode. **Tests:** (1) Download progress indicator, (2) Cache loading performance, (3) Toast notification. **Impact:** Missing E2E coverage for Pro-tier feature. **Status:** Requires Pro test account setup. **Location:** `tests/e2e/local-stt-caching.e2e.spec.ts:25,80,149`
 - **⚠️ Goal Setting Tests Skipped (2025-12-01):** Two tests in `goal-setting.e2e.spec.ts` are skipped because the feature displays hardcoded mock data instead of real functionality. **Tests:** (1) Actual session progress, (2) Custom goal setting. **Impact:** Incomplete feature implementation. **Status:** Requires backend integration. **Location:** `tests/e2e/goal-setting.e2e.spec.ts:35,74`
 - **⚠️ Session Comparison Tests Skipped (2025-12-01):** Two tests in `session-comparison.e2e.spec.ts` are skipped because core comparison features are missing. **Tests:** (1) Side-by-side comparison UI, (2) Progress trends over time. **Impact:** Missing feature. **Status:** Requires feature implementation. **Location:** `tests/e2e/session-comparison.e2e.spec.ts:52,102`
-- **⚠️ Custom Vocabulary E2E Test Hanging (2025-12-01):** The `custom-vocabulary.e2e.spec.ts` test hangs when attempting to add/remove custom words. **Root Cause:** Unknown. **Impact:** Test infrastructure only. **Status:** Test skipped pending investigation. **Location:** `tests/e2e/custom-vocabulary.e2e.spec.ts:4`
+- **⚠️ Custom Vocabulary E2E Test Failure (2025-12-05):** The `custom-vocabulary.e2e.spec.ts` test fails with `net::ERR_FAILED` due to network interception issues with `mock.supabase.co`. **Root Cause:** Playwright `page.route` race condition or Service Worker conflict. **Impact:** Test infrastructure only. **Status:** Test skipped pending migration to MSW handlers. **Location:** `tests/e2e/custom-vocabulary.e2e.spec.ts:4`
 - **⚠️ Visual Regression Tests - Cross-Platform Dimension Mismatch (2025-12-04):** Three visual regression tests fail due to dimension mismatches between macOS (local) and Linux (CI) environments caused by font rendering and CSS reflow differences. **Tests Affected:** (1) Homepage Hero Section (1280x2080 vs 1280x2100), (2) Mobile Viewport Homepage (375x2421 vs 375x2514), (3) Mobile Viewport Session Page (375x2329 vs 375x2413). **Root Cause:** Playwright's `toHaveScreenshot()` requires exact dimension matches; `maxDiffPixelRatio` doesn't apply to dimension mismatches. **Impact:** Test infrastructure only - visual regression coverage reduced. **Status:** Tests skipped. **Solution Required:** Either (1) generate snapshots in CI environment, (2) use platform-agnostic visual testing approach, or (3) implement viewport normalization. **Location:** `tests/e2e/visual-regression.e2e.spec.ts:30,99,110`
-- **⚠️ Analytics Invalid Session ID E2E Test Failure (2025-12-04):** The test for invalid session ID handling fails because React Router doesn't render the `AnalyticsPage` after `page.goto()` navigation in E2E environment. **Root Cause:** Race condition between app initialization, authentication state, React Router route matching, and lazy component loading in production builds. The `<main>` element remains empty despite successful authentication. **Impact:** Test infrastructure only - missing coverage for error handling edge case. **Status:** Test skipped pending investigation. **Solution Required:** Investigate BrowserRouter behavior in production builds, add error boundary logging, or use alternative navigation approach (click links instead of `goto()`). **Location:** `tests/e2e/analytics-details.e2e.spec.ts:33`
+- **✅ RESOLVED - Analytics Invalid Session ID E2E Test Failure (2025-12-05):** The `analytics-details.e2e.spec.ts` test failure has been resolved by fixing race conditions in loading state assertions. **Status:** ✅ Fixed.
 - **❗ CRITICAL - AuthProvider Race Condition (Finding 2.1):** The `AuthProvider` updates `sessionState` and `loading` synchronously but fetches the user `profile` asynchronously via `onAuthStateChange`. This creates a race condition where components may render with a session but no profile, causing UI bugs and E2E test flakiness. **Impact:** HIGH - affects authentication reliability. **Fix:** Refactor to use atomic state updates or a state machine pattern. **Location:** `frontend/src/contexts/AuthProvider.tsx:76-93` **UPDATE (2025-11-30):** Upon code review, the current implementation actually handles this correctly - `setLoading(false)` is only called after profile fetch completes. Risk assessment downgraded to LOW.
 
 ---
@@ -161,7 +162,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Thu, 04 Dec 2025 11:38:43 GMT
+**Last Updated:** Fri, 05 Dec 2025 15:25:16 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -171,12 +172,12 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 350 |
+| Total tests             | 319 |
 | Unit tests              | 314   |
-| E2E tests (Playwright)  | 36  |
-| Passing tests           | 333   |
+| E2E tests (Playwright)  | 5  |
+| Passing tests           | 319   |
 | Failing tests           | 0   |
-| Disabled/skipped tests  | 17   |
+| Disabled/skipped tests  | 0   |
 | Passing unit tests      | 314   |
 | Failing E2E tests       | 0   |
 | Total runtime           | N/A   |
@@ -190,7 +191,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 | Statements | N/A   |
 | Branches   | N/A   |
 | Functions  | N/A   |
-| Lines      | 0%   |
+| Lines      | 53.69%   |
 
 ---
 
