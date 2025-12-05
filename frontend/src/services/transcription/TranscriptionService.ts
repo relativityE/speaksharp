@@ -118,7 +118,11 @@ export default class TranscriptionService {
     // CRITICAL FIX: In test mode, ALWAYS fall back to NativeBrowser
     // to prevent silent crashes from the onnxruntime-web library.
     // This MUST be the first check to prevent the dynamic import below.
-    if (typeof window !== 'undefined' && (window as { TEST_MODE?: boolean }).TEST_MODE) {
+    // EXCEPTION: If __E2E_MOCK_LOCAL_WHISPER__ is set, we allow LocalWhisper (mocked) to proceed.
+    const isTestMode = typeof window !== 'undefined' && (window as { TEST_MODE?: boolean }).TEST_MODE;
+    const useMockLocalWhisper = typeof window !== 'undefined' && (window as { __E2E_MOCK_LOCAL_WHISPER__?: boolean }).__E2E_MOCK_LOCAL_WHISPER__;
+
+    if (isTestMode && !useMockLocalWhisper) {
       logger.info('[TEST_MODE] Forcing Native Browser mode.');
       this.instance = new NativeBrowser(providerConfig);
       await this.instance.init();
@@ -145,11 +149,23 @@ export default class TranscriptionService {
 
     if (useOnDevice) {
       logger.info('[TranscriptionService] Attempting to use On-Device (LocalWhisper) mode for Pro user.');
-      // Dynamic import to avoid loading whisper-turbo on initial load
-      const { default: LocalWhisper } = await import('./modes/LocalWhisper');
-      this.instance = new LocalWhisper(providerConfig);
-      await this.instance.init();
-      await this.instance.startTranscription(this.mic);
+
+      let LocalWhisperClass;
+      if (useMockLocalWhisper) {
+        logger.info('[TranscriptionService] Using MockLocalWhisper for E2E test.');
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        LocalWhisperClass = (window as any).MockLocalWhisper;
+      } else {
+        // Dynamic import to avoid loading whisper-turbo on initial load
+        const module = await import('./modes/LocalWhisper');
+        LocalWhisperClass = module.default;
+      }
+
+      this.instance = new LocalWhisperClass(providerConfig);
+      if (this.instance) {
+        await this.instance.init();
+        await this.instance.startTranscription(this.mic);
+      }
       this.mode = 'on-device';
       return;
     }

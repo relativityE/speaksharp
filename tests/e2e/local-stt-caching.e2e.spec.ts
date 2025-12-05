@@ -33,11 +33,16 @@ test.describe('Local STT Model Download & Caching', () => {
          * 4. Verify progress indicator appears
          */
         await programmaticLogin(page);
+
         await page.goto('/session');
         await page.waitForSelector('[data-testid="app-main"]');
 
-        // Clear IndexedDB to simulate first-time user
+        // Clear IndexedDB to simulate first-time user AND set mock flag
         await page.evaluate(() => {
+            // Set mock flag for TranscriptionService
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (window as any).__E2E_MOCK_LOCAL_WHISPER__ = true;
+
             return new Promise((resolve) => {
                 const request = indexedDB.deleteDatabase('whisper-turbo');
                 request.onsuccess = () => resolve(true);
@@ -70,9 +75,13 @@ test.describe('Local STT Model Download & Caching', () => {
         // Wait for model to finish loading (up to 60 seconds for large model)
         await expect(loadingIndicator).toBeHidden({ timeout: 60000 });
 
-        // Verify button becomes "Start Speaking"
-        await expect(startButton).toContainText(/start speaking/i);
+        // Verify button becomes "Stop" (session auto-starts)
+        await expect(startButton).toContainText(/stop/i);
         await expect(startButton).toBeEnabled();
+
+        // Stop the session to clean up
+        await startButton.click();
+        await expect(startButton).toContainText(/start/i);
 
         console.log('[TEST] ✅ Model download progress verified');
     });

@@ -97,6 +97,58 @@ class MockSpeechRecognition {
     abort() { }
 }
 
+interface MockLocalWhisperOptions {
+    onModelLoadProgress?: (progress: number) => void;
+    onReady?: () => void;
+    onTranscriptUpdate?: (update: unknown) => void;
+}
+
+// Mock LocalWhisper for E2E tests
+class MockLocalWhisper {
+    private onModelLoadProgress: ((progress: number) => void) | undefined;
+    private onReady: (() => void) | undefined;
+    private onTranscriptUpdate: ((update: unknown) => void) | undefined;
+
+    constructor(options: MockLocalWhisperOptions) {
+        this.onModelLoadProgress = options.onModelLoadProgress;
+        this.onReady = options.onReady;
+        this.onTranscriptUpdate = options.onTranscriptUpdate;
+    }
+
+    async init() {
+
+        return new Promise<void>((resolve) => {
+            // Simulate model download
+            if (this.onModelLoadProgress) {
+                this.onModelLoadProgress(0);
+                // Simulate progress
+                setTimeout(() => this.onModelLoadProgress!(0.1), 100);
+                setTimeout(() => this.onModelLoadProgress!(0.5), 300);
+                setTimeout(() => this.onModelLoadProgress!(1), 500);
+            }
+
+            // Simulate ready state after download
+            setTimeout(() => {
+                if (this.onReady) this.onReady();
+                resolve();
+            }, 600);
+        });
+    }
+
+    async startTranscription() {
+        logger.info('[MockLocalWhisper] startTranscription() called');
+    }
+
+    async stopTranscription() {
+        logger.info('[MockLocalWhisper] stopTranscription() called');
+        return '';
+    }
+
+    async getTranscript() {
+        return '';
+    }
+}
+
 const setupSpeechRecognitionMock = () => {
     if (typeof window !== 'undefined') {
         logger.info('[E2E Bridge] Setting up MockSpeechRecognition');
@@ -104,6 +156,10 @@ const setupSpeechRecognitionMock = () => {
         (window as any).SpeechRecognition = MockSpeechRecognition;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (window as any).webkitSpeechRecognition = MockSpeechRecognition;
+
+        // Setup MockLocalWhisper
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (window as any).MockLocalWhisper = MockLocalWhisper;
 
         // Helper to dispatch events from Playwright
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -137,3 +193,4 @@ const setupSpeechRecognitionMock = () => {
         };
     }
 };
+
