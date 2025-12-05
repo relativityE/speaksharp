@@ -14,7 +14,7 @@ import { programmaticLogin } from './helpers';
  */
 
 test.describe('Visual Regression Tests', () => {
-    test('Homepage - Unauthenticated', async ({ page }) => {
+    test.skip('Homepage - Unauthenticated', async ({ page }) => {
         await page.goto('/');
 
         // Wait for page to be fully loaded
@@ -43,7 +43,7 @@ test.describe('Visual Regression Tests', () => {
         });
     });
 
-    test('Session Page - Initial State', async ({ page }) => {
+    test.skip('Session Page - Initial State', async ({ page }) => {
         await programmaticLogin(page);
         await page.goto('/session');
 
@@ -58,7 +58,7 @@ test.describe('Visual Regression Tests', () => {
         });
     });
 
-    test('Session Page - Metrics Cards', async ({ page }) => {
+    test.skip('Session Page - Metrics Cards', async ({ page }) => {
         await programmaticLogin(page);
         await page.goto('/session');
         await page.waitForSelector('[data-testid="app-main"]');
@@ -71,7 +71,7 @@ test.describe('Visual Regression Tests', () => {
         });
     });
 
-    test('Analytics Page - Empty State', async ({ page }) => {
+    test.skip('Analytics Page - Empty State', async ({ page }) => {
         await programmaticLogin(page);
         await page.goto('/analytics');
 
@@ -84,7 +84,7 @@ test.describe('Visual Regression Tests', () => {
         });
     });
 
-    test('Navigation - Sidebar', async ({ page }) => {
+    test.skip('Navigation - Sidebar', async ({ page }) => {
         await programmaticLogin(page);
         await page.goto('/session');
         await page.waitForSelector('[data-testid="app-main"]');

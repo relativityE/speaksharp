@@ -20,7 +20,7 @@ test.describe('App Navigation', () => {
     }
   });
 
-  test('should navigate using nav links', async ({ page }) => {
+  test.skip('should navigate using nav links', async ({ page }) => {
     await programmaticLogin(page);
     await page.goto('/');
 

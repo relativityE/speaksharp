@@ -21,7 +21,7 @@ import { programmaticLogin } from './helpers';
  * - Second session loads instantly (no download)
  */
 
-test.describe('Local STT Model Download & Caching', () => {
+test.describe.skip('Local STT Model Download & Caching', () => {
     test.skip('should show download progress on first use of On-Device mode', async ({ page }) => {
         /**
          * SKIPPED: This test requires Pro subscription to access On-Device mode

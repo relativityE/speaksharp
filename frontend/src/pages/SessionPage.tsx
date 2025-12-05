@@ -9,11 +9,15 @@ import { Badge } from '@/components/ui/badge';
 import { Mic, Square, Play } from 'lucide-react';
 import { useAuthProvider } from '../contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
+import { useSessionMetrics } from '@/hooks/useSessionMetrics';
 import { PauseMetricsDisplay } from '@/components/session/PauseMetricsDisplay';
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Settings } from 'lucide-react';
 import { CustomVocabularyManager } from '@/components/session/CustomVocabularyManager';
+
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, DropdownMenuRadioGroup, DropdownMenuRadioItem } from '@/components/ui/dropdown-menu';
+import { ChevronDown } from 'lucide-react';
 
 export const SessionPage: React.FC = () => {
     const { session } = useAuthProvider();
@@ -26,6 +30,7 @@ export const SessionPage: React.FC = () => {
     console.log('[DEBUG] SessionPage profile state:', { isProfileLoading, profileError, profileId: profile?.id });
 
     const [customWords] = useState<string[]>([]);
+    const [mode, setMode] = useState<'cloud' | 'native' | 'on-device'>('native');
     const startTimeRef = useRef<number | null>(null);
 
     const speechRecognition = useSpeechRecognition({
@@ -35,9 +40,17 @@ export const SessionPage: React.FC = () => {
         profile
     });
 
-    const { transcript, fillerData, startListening, stopListening, isListening, isReady } = speechRecognition;
+    const { transcript, fillerData, startListening, stopListening, isListening, isReady, modelLoadingProgress } = speechRecognition;
     const { pauseMetrics } = useVocalAnalysis(isListening);
     console.log('[DEBUG] SessionPage speechRecognition state:', { isListening, isReady });
+
+    // AUDIT FIX: Extract metrics calculation to custom hook
+    // Must be called before early returns to comply with React Hooks rules
+    const metrics = useSessionMetrics({
+        transcript: transcript.transcript,
+        fillerData,
+        elapsedTime,
+    });
 
     useEffect(() => {
         posthog.capture('session_page_viewed');
@@ -86,18 +99,13 @@ export const SessionPage: React.FC = () => {
         if (isListening) {
             await stopListening();
         } else {
-            await startListening({ forceNative: true });
+            await startListening({
+                forceNative: mode === 'native',
+                forceOnDevice: mode === 'on-device',
+                forceCloud: mode === 'cloud'
+            });
         }
     };
-
-    const minutes = Math.floor(elapsedTime / 60);
-    const seconds = elapsedTime % 60;
-    const formattedTime = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-
-    const fillerCount = Object.values(fillerData).reduce((sum, data) => sum + data.count, 0);
-    const wordCount = transcript.transcript.split(' ').filter(w => w.length > 0).length;
-    const wpm = elapsedTime > 0 ? Math.round((wordCount / elapsedTime) * 60) : 0;
-    const clarityScore = fillerCount > 0 && wordCount > 0 ? Math.max(0, Math.min(100, 100 - (fillerCount / wordCount * 500))) : 87;
 
     const isButtonDisabled = isListening && !isReady;
     console.log('[DEBUG] Button render. Disabled:', isButtonDisabled, 'isListening:', isListening, 'isReady:', isReady);
@@ -132,7 +140,24 @@ export const SessionPage: React.FC = () => {
                 <div className="bg-card border-2 border-white rounded-lg shadow-[0_4px_20px_-2px_rgba(0,0,0,0.3)]">
                     <div className="p-8">
                         <div className="flex items-center justify-between mb-6">
-                            <h2 className="text-xl font-semibold text-foreground">Live Recording</h2>
+                            <div className="flex items-center gap-4">
+                                <h2 className="text-xl font-semibold text-foreground">Live Recording</h2>
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button variant="outline" size="sm" className="gap-2">
+                                            {mode === 'native' ? 'Native' : mode === 'on-device' ? 'On-Device' : 'Cloud AI'}
+                                            <ChevronDown className="h-4 w-4" />
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent>
+                                        <DropdownMenuRadioGroup value={mode} onValueChange={(v) => setMode(v as 'cloud' | 'native' | 'on-device')}>
+                                            <DropdownMenuRadioItem value="native">Native (Browser)</DropdownMenuRadioItem>
+                                            <DropdownMenuRadioItem value="on-device">On-Device (Whisper)</DropdownMenuRadioItem>
+                                            <DropdownMenuRadioItem value="cloud">Cloud AI (AssemblyAI)</DropdownMenuRadioItem>
+                                        </DropdownMenuRadioGroup>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            </div>
                             <Badge className={isReady ? "bg-orange-500/10 text-orange-500 border-orange-500/20" : "bg-muted/10 text-muted-foreground border-muted/20"} data-testid="session-status-indicator">
                                 {isReady ? 'READY' : 'LOADING'}
                             </Badge>
@@ -144,8 +169,24 @@ export const SessionPage: React.FC = () => {
                                 <Mic className={`w-12 h-12 ${isListening ? 'text-red-500' : 'text-white'}`} strokeWidth={2} />
                             </div>
 
+                            {/* Model Loading Indicator */}
+                            {modelLoadingProgress !== null && (
+                                <div className="mb-6 w-full max-w-md" data-testid="model-loading-indicator">
+                                    <div className="flex justify-between text-sm mb-2">
+                                        <span className="text-muted-foreground">Downloading model...</span>
+                                        <span className="text-primary font-medium">{Math.round(modelLoadingProgress * 100)}%</span>
+                                    </div>
+                                    <div className="h-2 bg-secondary rounded-full overflow-hidden">
+                                        <div
+                                            className="h-full bg-primary transition-all duration-300 ease-out"
+                                            style={{ width: `${modelLoadingProgress * 100}%` }}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Timer */}
-                            <div className="text-5xl font-mono font-bold text-foreground mb-2">{formattedTime}</div>
+                            <div className="text-5xl font-mono font-bold text-foreground mb-2">{metrics.formattedTime}</div>
                             <p className="text-muted-foreground mb-8" data-testid="transcript-display">
                                 {isListening ? 'Recording in progress...' : 'Click start to begin recording'}
                             </p>
@@ -156,10 +197,12 @@ export const SessionPage: React.FC = () => {
                                 size="lg"
                                 variant={isListening ? 'destructive' : 'default'}
                                 className="w-48 h-14 text-lg font-semibold"
-                                disabled={isButtonDisabled}
+                                disabled={isButtonDisabled || modelLoadingProgress !== null}
                                 data-testid="session-start-stop-button"
                             >
-                                {isListening ? (
+                                {modelLoadingProgress !== null ? (
+                                    <><div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" /> Initializing...</>
+                                ) : isListening ? (
                                     <><Square className="w-5 h-5 mr-2" /> Stop</>
                                 ) : (
                                     <><Play className="w-5 h-5 mr-2" /> Start</>
@@ -176,9 +219,9 @@ export const SessionPage: React.FC = () => {
                 <div className="bg-card border-2 border-white rounded-lg p-8 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.3)]">
                     <h3 className="text-lg font-semibold text-foreground mb-6">Clarity Score</h3>
                     <div className="flex flex-col items-center">
-                        <div className="text-6xl font-bold text-primary mb-2">{Math.round(clarityScore)}%</div>
+                        <div className="text-6xl font-bold text-primary mb-2">{Math.round(metrics.clarityScore)}%</div>
                         <p className="text-sm text-muted-foreground">
-                            {clarityScore >= 80 ? 'Excellent clarity!' : clarityScore >= 60 ? 'Good clarity' : 'Keep practicing'}
+                            {metrics.clarityLabel}
                         </p>
                     </div>
                 </div>
@@ -187,10 +230,10 @@ export const SessionPage: React.FC = () => {
                 <div className="bg-card border-2 border-white rounded-lg p-8 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.3)]">
                     <h3 className="text-lg font-semibold text-foreground mb-6">Speaking Rate</h3>
                     <div className="flex flex-col items-center">
-                        <div className="text-6xl font-bold text-primary mb-2">{wpm}</div>
+                        <div className="text-6xl font-bold text-primary mb-2">{metrics.wpm}</div>
                         <p className="text-sm text-muted-foreground mb-3">words per minute</p>
                         <Badge className="bg-orange-500/10 text-orange-500 border-orange-500/20">
-                            {wpm >= 120 && wpm <= 160 ? 'Optimal Range' : wpm > 160 ? 'Too Fast' : wpm < 60 ? '' : 'Too Slow'}
+                            {metrics.wpmLabel}
                         </Badge>
                     </div>
                 </div>
@@ -202,7 +245,7 @@ export const SessionPage: React.FC = () => {
                         <h3 className="text-lg font-semibold text-foreground">Filler Words</h3>
                     </div>
                     <div className="flex flex-col items-center mb-4">
-                        <div className="text-5xl font-bold text-orange-500 mb-2">{fillerCount}</div>
+                        <div className="text-5xl font-bold text-orange-500 mb-2">{metrics.fillerCount}</div>
                         <p className="text-sm text-muted-foreground">detected this session</p>
                     </div>
                     <div className="mt-4">
@@ -215,7 +258,7 @@ export const SessionPage: React.FC = () => {
                                     </Badge>
                                 )
                             ))}
-                            {fillerCount === 0 && (
+                            {metrics.fillerCount === 0 && (
                                 <p className="text-xs text-muted-foreground italic">None detected yet</p>
                             )}
                         </div>

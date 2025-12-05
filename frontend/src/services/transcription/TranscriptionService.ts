@@ -144,18 +144,14 @@ export default class TranscriptionService {
     const useOnDevice = this.forceOnDevice || (isPro && this.profile?.preferred_mode === 'on-device');
 
     if (useOnDevice) {
-      if (import.meta.env.VITE_TEST_MODE) {
-        logger.warn('[TEST_MODE] On-device mode is disabled in test builds to prevent crashes. Falling back to native.');
-      } else {
-        logger.info('[TranscriptionService] Attempting to use On-Device (LocalWhisper) mode for Pro user.');
-        // Dynamic import to avoid loading whisper-turbo/onnxruntime on initial load
-        const { default: LocalWhisper } = await import('./modes/LocalWhisper');
-        this.instance = new LocalWhisper(providerConfig);
-        await this.instance.init();
-        await this.instance.startTranscription(this.mic);
-        this.mode = 'on-device';
-        return;
-      }
+      logger.info('[TranscriptionService] Attempting to use On-Device (LocalWhisper) mode for Pro user.');
+      // Dynamic import to avoid loading whisper-turbo on initial load
+      const { default: LocalWhisper } = await import('./modes/LocalWhisper');
+      this.instance = new LocalWhisper(providerConfig);
+      await this.instance.init();
+      await this.instance.startTranscription(this.mic);
+      this.mode = 'on-device';
+      return;
     }
 
     const useCloud = this.forceCloud || isPro;

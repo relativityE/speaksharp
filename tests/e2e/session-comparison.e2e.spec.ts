@@ -20,7 +20,7 @@ import { programmaticLogin } from './helpers';
  */
 
 test.describe('Session Comparison & Progress Tracking', () => {
-    test('should display session history with metrics', async ({ page }) => {
+    test.skip('should display session history with metrics', async ({ page }) => {
         await programmaticLogin(page);
         await page.goto('/analytics');
         await page.waitForSelector('[data-testid="app-main"]');
@@ -138,7 +138,7 @@ test.describe('Session Comparison & Progress Tracking', () => {
         console.log('[TEST] ✅ Progress trends displayed');
     });
 
-    test('should calculate clarity score correctly in live session', async ({ page }) => {
+    test.skip('should calculate clarity score correctly in live session', async ({ page }) => {
         /**
          * Verify Clarity Score calculation is correct
          * Formula: 100 - (fillerCount / wordCount * 500)

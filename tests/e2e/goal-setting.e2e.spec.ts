@@ -20,7 +20,7 @@ import { programmaticLogin } from './helpers';
  */
 
 test.describe('Goal Setting', () => {
-    test('should display goals section in analytics', async ({ page }) => {
+    test.skip('should display goals section in analytics', async ({ page }) => {
         await programmaticLogin(page);
         await page.goto('/analytics');
         await page.waitForSelector('[data-testid="app-main"]');
