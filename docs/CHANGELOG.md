@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Metrics E2E Test Timing Issue (2025-12-06):**
+  - **Problem:** WPM metrics remained at 0 despite mock transcript events - two conflicting MockSpeechRecognition implementations
+  - **Solution:** Removed duplicate mock from `programmaticLogin()`, now uses only e2e-bridge.ts version
+  - **Impact:** Metrics E2E test now passing (WPM: 120, Clarity: 87%, Fillers: 6)
+  - **File:** `tests/e2e/helpers.ts`
+
+- **Custom Vocabulary E2E Network Interception (2025-12-06):**
+  - **Problem:** Test failed with `net::ERR_FAILED` due to `page.route()` conflicting with MSW Service Worker
+  - **Solution:** Migrated to MSW handlers (GET/POST/DELETE for custom_vocabulary endpoints)
+  - **Impact:** Network interception conflicts eliminated, MSW handlers ready (test skipped pending UI debug)
+  - **Files:** `frontend/src/mocks/handlers.ts`, `tests/e2e/custom-vocabulary.e2e.spec.ts`
+
 - **Clarity Score Calculation Bug (2025-12-06):**
   - **Problem:** Formula `100 - (fillerCount / wordCount * 500)` was too harsh - 1 filler in 5 words (20% rate) gave 0% clarity instead of 80%
   - **Solution:** Changed to direct percentage formula: `100 - ((fillerCount / wordCount) * 100)`
