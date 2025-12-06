@@ -99,26 +99,88 @@ export const handlers: RequestHandler[] = [
     return HttpResponse.json(mockSessionHistory);
   }),
 
-  // Custom Vocabulary endpoints
-  http.get('*/rest/v1/custom_vocabulary*', () => {
-    console.log('[MSW DEBUG] Intercepted: GET /rest/v1/custom_vocabulary');
-    // Return empty array by default (tests can override if needed)
-    return HttpResponse.json([]);
+  // Custom Vocabulary endpoints (STATEFUL with PostgREST parsing)
+  http.get('*/rest/v1/custom_vocabulary*', ({ request }) => {
+    const url = new URL(request.url);
+
+    // PostgREST format: ?user_id=eq.test-user-123
+    let userId = 'test-user-123'; // Default
+    const userIdParam = url.searchParams.get('user_id');
+
+    if (userIdParam) {
+      // Remove PostgREST operators (eq., neq., gt., etc.)
+      userId = userIdParam.replace(/^(eq|neq|gt|gte|lt|lte|like|ilike)\./, '');
+    }
+
+    const userWords = mockVocabularyStore.get(userId) || [];
+
+    console.log('[MSW GET] URL:', url.toString());
+    console.log('[MSW GET] user_id param:', userIdParam);
+    console.log('[MSW GET] Parsed userId:', userId);
+    console.log('[MSW GET] Returning', userWords.length, 'words:', userWords);
+
+    return HttpResponse.json(userWords);
   }),
 
   http.post('*/rest/v1/custom_vocabulary*', async ({ request }) => {
-    console.log('[MSW DEBUG] Intercepted: POST /rest/v1/custom_vocabulary');
-    const body = await request.json() as { word: string };
-    return HttpResponse.json([{
-      id: 'mock-vocab-id',
+    console.log('[MSW POST] Intercepted: POST /rest/v1/custom_vocabulary');
+    const body = await request.json() as { word: string; user_id?: string };
+    const userId = body.user_id || 'test-user-123';
+
+    const newWord = {
+      id: `mock-word-${Date.now()}`,
+      user_id: userId,
       word: body.word,
-      user_id: 'test-user-123',
-      created_at: new Date().toISOString()
-    }]);
+      created_at: new Date().toISOString(),
+    };
+
+    // Add to stateful store
+    const userWords = mockVocabularyStore.get(userId) || [];
+    userWords.push(newWord);
+    mockVocabularyStore.set(userId, userWords);
+
+    console.log('[MSW POST] Word added:', newWord);
+    console.log('[MSW POST] User now has', userWords.length, 'words');
+
+    // Return single object (Supabase .single() format)
+    return HttpResponse.json(newWord);
   }),
 
-  http.delete('*/rest/v1/custom_vocabulary*', () => {
-    console.log('[MSW DEBUG] Intercepted: DELETE /rest/v1/custom_vocabulary');
+  http.delete('*/rest/v1/custom_vocabulary*', ({ request }) => {
+    console.log('[MSW DELETE] Intercepted: DELETE /rest/v1/custom_vocabulary');
+    const url = new URL(request.url);
+
+    // PostgREST format: ?id=eq.mock-word-123
+    const idParam = url.searchParams.get('id');
+    const wordId = idParam?.replace(/^(eq|neq|gt|gte|lt|lte|like|ilike)\./, '');
+
+    console.log('[MSW DELETE] Deleting word ID:', wordId);
+
+    // Remove from store
+    for (const [userId, words] of mockVocabularyStore.entries()) {
+      const index = words.findIndex(w => w.id === wordId);
+      if (index > -1) {
+        words.splice(index, 1);
+        mockVocabularyStore.set(userId, words);
+        console.log('[MSW DELETE] Word removed from user:', userId);
+        break;
+      }
+    }
+
     return new HttpResponse(null, { status: 204 });
   }),
 ];
+
+// In-memory vocabulary store (module-level)
+const mockVocabularyStore = new Map<string, Array<{
+  id: string;
+  user_id: string;
+  word: string;
+  created_at: string;
+}>>;
+
+// Export reset function for test setup
+export function resetMockVocabularyStore() {
+  mockVocabularyStore.clear();
+  console.log('[MSW] Vocabulary store reset');
+}

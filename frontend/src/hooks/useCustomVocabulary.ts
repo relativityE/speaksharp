@@ -21,6 +21,7 @@ export const useCustomVocabulary = () => {
         queryFn: async () => {
             if (!supabase || !user) return [];
 
+            console.log('[useCustomVocabulary] Fetching vocabulary for user:', user.id);
             const { data, error } = await supabase
                 .from('custom_vocabulary')
                 .select('*')
@@ -28,9 +29,12 @@ export const useCustomVocabulary = () => {
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
+            console.log('[useCustomVocabulary] Got', data?.length || 0, 'words');
             return (data as CustomWord[]) || [];
         },
         enabled: !!user && !!supabase,
+        staleTime: 0, // Always consider data stale (force refetch)
+        refetchOnMount: 'always', // Always refetch when component mounts
     });
 
     // Add a new word
@@ -67,8 +71,14 @@ export const useCustomVocabulary = () => {
             if (error) throw error;
             return data as CustomWord;
         },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['customVocabulary', user?.id] });
+        onSuccess: async (data) => {
+            console.log('[useCustomVocabulary] Word added successfully:', data);
+            // Force immediate refetch instead of invalidate (better for E2E tests)
+            await queryClient.refetchQueries({
+                queryKey: ['customVocabulary', user?.id],
+                exact: true
+            });
+            console.log('[useCustomVocabulary] Refetch complete');
         },
     });
 
@@ -85,8 +95,12 @@ export const useCustomVocabulary = () => {
 
             if (error) throw error;
         },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['customVocabulary', user?.id] });
+        onSuccess: async () => {
+            console.log('[useCustomVocabulary] Word removed successfully');
+            await queryClient.refetchQueries({
+                queryKey: ['customVocabulary', user?.id],
+                exact: true
+            });
         },
     });
 
