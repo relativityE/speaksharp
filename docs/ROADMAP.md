@@ -100,7 +100,7 @@ This phase is about confirming the core feature set works as expected and polish
 - ✅ **Centralize Configuration:** Move hardcoded values to `src/config.ts`.\
 - ✅ **Fix E2E Test Gap (Live Transcript):** Complete end-to-end coverage implemented (2025-11-27)
 - 🔴 **Implement WebSocket Reconnect Logic:** Add heartbeat and exponential backoff.
-- 🔴 **Implement Session Comparison:** Allow users to compare sessions side-by-side and track progress (WPM, Clarity, Fillers) over time.
+- ✅ **Session Comparison & Progress Tracking (2025-12-06):** Users can now select 2 sessions to compare side-by-side with progress indicators (green ↑ for improvement, red ↓ for regression). Added WPM and Clarity trend charts showing progress over last 10 sessions. **Components:** `ProgressIndicator.tsx`, `TrendChart.tsx`, `SessionComparisonDialog.tsx`. **Status:** ✅ Complete.
 - 🔴 **Implement Local STT Toast Notification:** Show user feedback when Whisper model download completes.
 - 🔄 **PERPETUAL - Documentation Audit:** Verify PRD Known Issues, ROADMAP, and CHANGELOG match actual codebase state. Run test suite and cross-reference with documented issues to eliminate drift. **Frequency:** Before each release and after major feature work.
 
