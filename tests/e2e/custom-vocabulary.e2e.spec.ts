@@ -1,7 +1,18 @@
 import { test, expect } from '@playwright/test';
 import { programmaticLogin } from './helpers';
 
-test.describe.skip('Custom Vocabulary - React Query refetch not triggering UI update', () => {
+test.describe.skip('Custom Vocabulary - React Query refetch issue (needs deeper investigation)', () => {
+    // ISSUE: Word doesn't appear in UI after Add button click
+    // ATTEMPTED FIXES (all unsuccessful):
+    //   1. ✅ Stateful MSW handlers with PostgREST parsing
+    //   2. ✅ Changed invalidateQueries to refetchQueries  
+    //   3. ✅ Added staleTime: 0 and refetchOnMount: 'always'
+    //   4. ✅ MSW readiness signaling verified
+    //   5. ✅ Added comprehensive logging (query keys, user.id)
+    // SYMPTOMS: Button clicks, no errors, word never appears in list
+    // NEXT STEPS: Needs React Query DevTools or browser console inspection
+    // TIME SPENT: 2+ hours debugging
+    // FILES: frontend/src/hooks/useCustomVocabulary.ts, frontend/src/mocks/handlers.ts
     // ISSUE: Word doesn't appear in UI after Add button click
     // ROOT CAUSE: Unknown - multiple fixes attempted:
     //   1. ✅ Stateful MSW handlers with PostgREST parsing

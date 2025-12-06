@@ -16,11 +16,13 @@ export const useCustomVocabulary = () => {
     const supabase = getSupabaseClient();
 
     // Fetch user's custom vocabulary
+    // Fetch custom vocabulary
     const { data: vocabulary = [], isLoading, error } = useQuery({
         queryKey: ['customVocabulary', user?.id],
         queryFn: async () => {
             if (!supabase || !user) return [];
 
+            console.log('[useCustomVocabulary] GET queryKey:', ['customVocabulary', user.id]);
             console.log('[useCustomVocabulary] Fetching vocabulary for user:', user.id);
             const { data, error } = await supabase
                 .from('custom_vocabulary')
@@ -73,11 +75,15 @@ export const useCustomVocabulary = () => {
         },
         onSuccess: async (data) => {
             console.log('[useCustomVocabulary] Word added successfully:', data);
+            console.log('[useCustomVocabulary] user.id:', user?.id);
+            console.log('[useCustomVocabulary] Refetching query key:', ['customVocabulary', user?.id]);
+
             // Force immediate refetch instead of invalidate (better for E2E tests)
             await queryClient.refetchQueries({
                 queryKey: ['customVocabulary', user?.id],
                 exact: true
             });
+
             console.log('[useCustomVocabulary] Refetch complete');
         },
     });
