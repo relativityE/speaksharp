@@ -36,6 +36,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **File:** `frontend/src/hooks/useSessionMetrics.ts`
 
 ### Added
+- **Goal Setting Supabase Sync (2025-12-06):**
+  - **Feature:** Goals now sync to Supabase `user_goals` table when authenticated
+  - **Fallback:** localStorage used when offline/unauthenticated (backward compatible)
+  - **Implementation:** `useGoals` hook fetches from Supabase on mount, upserts on save
+  - **Impact:** Goals persist across devices for authenticated users
+  - **File:** `frontend/src/hooks/useGoals.ts`
+
 - **Goal Setting localStorage Persistence (2025-12-05):**
   - **Problem:** Goal Setting showed hardcoded values (5 sessions, 90% clarity), users couldn't customize targets
   - **Solution:** Implemented `useGoals` hook with localStorage persistence, `EditGoalsDialog` modal, and `Dialog` UI component
