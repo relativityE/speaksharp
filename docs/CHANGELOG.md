@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Impact:** Network interception conflicts eliminated, MSW handlers ready (test skipped pending UI debug)
   - **Files:** `frontend/src/mocks/handlers.ts`, `tests/e2e/custom-vocabulary.e2e.spec.ts`
 
+- **Analytics Empty State E2E Test (2025-12-06):**
+  - **Problem:** Test was marked as skipped/broken in PRD but actually passing
+  - **Solution:** Verified test passes - `__E2E_EMPTY_SESSIONS__` flag works correctly
+  - **Impact:** Documentation drift eliminated
+  - **File:** `tests/e2e/analytics-empty-state.e2e.spec.ts`
+
 - **Clarity Score Calculation Bug (2025-12-06):**
   - **Problem:** Formula `100 - (fillerCount / wordCount * 500)` was too harsh - 1 filler in 5 words (20% rate) gave 0% clarity instead of 80%
   - **Solution:** Changed to direct percentage formula: `100 - ((fillerCount / wordCount) * 100)`
