@@ -77,6 +77,89 @@ export async function programmaticLogin(
   console.log('[E2E] MSW ready, user authenticated via network mocking');
 }
 
+/**
+ * User type for real authentication testing
+ */
+export type UserType = 'free' | 'pro' | 'test';
+
+/**
+ * Programmatic login with real account credentials.
+ * Uses factory pattern to support different user types (Free, Pro, Admin).
+ * 
+ * Environment variables:
+ * - E2E_FREE_EMAIL / E2E_FREE_PASSWORD
+ * - E2E_PRO_EMAIL / E2E_PRO_PASSWORD
+ * - E2E_TEST_EMAIL / E2E_TEST_PASSWORD
+ * 
+ * @param page - Playwright page object
+ * @param userType - Type of user to login as ('free' | 'pro' | 'test')
+ * @throws Error if credentials not configured for the specified user type
+ */
+export async function programmaticLoginAs(page: Page, userType: UserType): Promise<void> {
+  // Get credentials based on user type
+  const envPrefix = userType.toUpperCase();
+  const email = process.env[`E2E_${envPrefix}_EMAIL`];
+  const password = process.env[`E2E_${envPrefix}_PASSWORD`];
+
+  // Graceful error if credentials not configured
+  if (!email || !password) {
+    const errorMsg = `${userType.charAt(0).toUpperCase() + userType.slice(1)} account credentials not configured. Set E2E_${envPrefix}_EMAIL and E2E_${envPrefix}_PASSWORD environment variables.`;
+    console.warn(`⚠️  ${errorMsg}`);
+    throw new Error(errorMsg);
+  }
+
+  console.log(`[${userType.toUpperCase()} Login] Authenticating with:`, email);
+
+  // Navigate to sign-in
+  await page.goto('/sign-in');
+  await page.waitForLoadState('domcontentloaded');
+
+  // Fill credentials
+  await page.getByTestId('email-input').fill(email);
+  await page.getByTestId('password-input').fill(password);
+
+  // Submit
+  await page.getByTestId('sign-in-button').click();
+
+  // Wait for redirect
+  await page.waitForURL('/', { timeout: 15000 });
+
+  // Verify authentication succeeded
+  await page.waitForSelector('[data-testid="app-main"]', { timeout: 10000 });
+
+  // For Pro users, verify badge appears
+  if (userType === 'pro') {
+    const badge = page.locator('[data-testid="pro-badge"]');
+    await badge.waitFor({ state: 'visible', timeout: 10000 });
+  }
+
+  console.log(`[${userType.toUpperCase()} Login] ✅ Successfully authenticated`);
+}
+
+/**
+ * Convenience wrapper for Pro user login.
+ * Requires E2E_PRO_EMAIL and E2E_PRO_PASSWORD environment variables.
+ */
+export async function programmaticLoginPro(page: Page): Promise<void> {
+  return programmaticLoginAs(page, 'pro');
+}
+
+/**
+ * Convenience wrapper for Free user login.
+ * Requires E2E_FREE_EMAIL and E2E_FREE_PASSWORD environment variables.
+ */
+export async function programmaticLoginFree(page: Page): Promise<void> {
+  return programmaticLoginAs(page, 'free');
+}
+
+/**
+ * Convenience wrapper for Test user login.
+ * Requires E2E_TEST_EMAIL and E2E_TEST_PASSWORD environment variables.
+ */
+export async function programmaticLoginTest(page: Page): Promise<void> {
+  return programmaticLoginAs(page, 'test');
+}
+
 /* ---------------------------------------------
  * Navigation Helpers
  * --------------------------------------------- */

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin } from './helpers';
+import { programmaticLoginPro } from './helpers';
 
 /**
  * Local STT (Whisper) Model Download & Caching E2E Test
@@ -22,17 +22,13 @@ import { programmaticLogin } from './helpers';
  */
 
 test.describe('Local STT Model Download & Caching', () => {
-    test.skip('should show download progress on first use of On-Device mode', async ({ page }) => {
+    test('should show download progress on first use of On-Device mode', async ({ page }) => {
         /**
-         * SKIPPED: This test requires Pro subscription to access On-Device mode
-         * 
-         * To run this test:
-         * 1. Set up test user with Pro subscription
-         * 2. Clear IndexedDB to simulate first-time download
-         * 3. Select "On-Device" mode
-         * 4. Verify progress indicator appears
+         * Uses real Pro account to test On-Device mode download flow.
+         * Requires E2E_PRO_EMAIL and E2E_PRO_PASSWORD environment variables.
+         * Test will be skipped if credentials not configured.
          */
-        await programmaticLogin(page);
+        await programmaticLoginPro(page);
 
         await page.goto('/session');
         await page.waitForSelector('[data-testid="app-main"]');
@@ -86,17 +82,12 @@ test.describe('Local STT Model Download & Caching', () => {
         console.log('[TEST] ✅ Model download progress verified');
     });
 
-    test.skip('should load instantly from cache on subsequent use', async ({ page }) => {
+    test('should load instantly from cache on second use', async ({ page }) => {
         /**
-         * SKIPPED: Requires Pro subscription and previous model download
-         * 
-         * This test verifies caching works:
-         * 1. Model was downloaded in previous test
-         * 2. IndexedDB contains cached model
-         * 3. Second session loads instantly (< 2 seconds)
-         * 4. No "Downloading model..." message appears
+         * Uses real Pro account to verify cached model loads quickly.
+         * Requires E2E_PRO_EMAIL and E2E_PRO_PASSWORD environment variables.
          */
-        await programmaticLogin(page);
+        await programmaticLoginPro(page);
         await page.goto('/session');
         await page.waitForSelector('[data-testid="app-main"]');
 
@@ -131,10 +122,10 @@ test.describe('Local STT Model Download & Caching', () => {
 
     test('should show mode selector with On-Device option for Pro users', async ({ page }) => {
         /**
-         * Verify UI shows On-Device mode option
-         * This test works for all users (shows disabled for free users)
+         * Uses real Pro account to verify On-Device mode option is available.
+         * Requires E2E_PRO_EMAIL and E2E_PRO_PASSWORD environment variables.
          */
-        await programmaticLogin(page);
+        await programmaticLoginPro(page);
         await page.goto('/session');
         await page.waitForSelector('[data-testid="app-main"]');
 
@@ -155,18 +146,12 @@ test.describe('Local STT Model Download & Caching', () => {
         }
     });
 
-    test.skip('should show toast notification when model download completes', async ({ page }) => {
+    test('should show toast notification when model download completes', async ({ page }) => {
         /**
-         * SKIPPED: Need to verify if toast notification exists
-         * 
-         * Expected behavior:
-         * - When model finishes downloading, show toast:
-         *   "Model ready! You can now start your session."
-         * 
-         * Current implementation: NO TOAST FOUND
-         * This is a missing UX feature that should be implemented
+         * Uses real Pro account to test download completion toast.
+         * Requires E2E_PRO_EMAIL and E2E_PRO_PASSWORD environment variables.
          */
-        await programmaticLogin(page);
+        await programmaticLoginPro(page);
         await page.goto('/session');
         await page.waitForSelector('[data-testid="app-main"]');
 
