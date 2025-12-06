@@ -1,28 +1,17 @@
 import { test, expect } from '@playwright/test';
 import { programmaticLogin } from './helpers';
 
-test.describe.skip('Custom Vocabulary - React Query refetch issue (needs deeper investigation)', () => {
-    // ISSUE: Word doesn't appear in UI after Add button click
-    // ATTEMPTED FIXES (all unsuccessful):
-    //   1. ✅ Stateful MSW handlers with PostgREST parsing
-    //   2. ✅ Changed invalidateQueries to refetchQueries  
-    //   3. ✅ Added staleTime: 0 and refetchOnMount: 'always'
-    //   4. ✅ MSW readiness signaling verified
-    //   5. ✅ Added comprehensive logging (query keys, user.id)
-    // SYMPTOMS: Button clicks, no errors, word never appears in list
-    // NEXT STEPS: Needs React Query DevTools or browser console inspection
-    // TIME SPENT: 2+ hours debugging
-    // FILES: frontend/src/hooks/useCustomVocabulary.ts, frontend/src/mocks/handlers.ts
-    // ISSUE: Word doesn't appear in UI after Add button click
-    // ROOT CAUSE: Unknown - multiple fixes attempted:
-    //   1. ✅ Stateful MSW handlers with PostgREST parsing
-    //   2. ✅ Changed invalidateQueries to refetchQueries  
-    //   3. ✅ Added staleTime: 0 and refetchOnMount: 'always'
-    //   4. ✅ MSW readiness signaling already in place
-    // SYMPTOMS: Button clicks, no errors, but word never appears in list
-    // NEXT STEPS: Needs deeper investigation with React Query DevTools
-    // FILES: frontend/src/hooks/useCustomVocabulary.ts, frontend/src/mocks/handlers.ts
+test.describe('Custom Vocabulary - Debugging with console logs', () => {
     test('should allow adding and removing custom words', async ({ page }) => {
+        // Capture browser console logs
+        page.on('console', msg => {
+            const type = msg.type();
+            const text = msg.text();
+            if (text.includes('[MSW') || text.includes('[useCustomVocabulary]') || text.includes('[RQ')) {
+                console.log(`[BROWSER ${type.toUpperCase()}]`, text);
+            }
+        });
+
         // MSW handlers in handlers.ts now handle all network requests
         await programmaticLogin(page);
         console.log('[TEST DEBUG] Login complete, navigating to /session');
@@ -74,18 +63,19 @@ test.describe.skip('Custom Vocabulary - React Query refetch issue (needs deeper 
         // Wait a moment for mutation to complete
         await page.waitForTimeout(1000);
 
-        // Wait for the word to appear
+        // Wait for the word to appear (stored as lowercase)
         console.log('[TEST DEBUG] Waiting for word to appear in list');
-        await expect(page.getByText('Antigravity')).toBeVisible({ timeout: 10000 });
+        await expect(page.getByText('antigravity')).toBeVisible({ timeout: 10000 });
+        console.log('[TEST DEBUG] ✅ Word appeared successfully!');
 
-        // Remove the word
+        // Remove the word - use case-insensitive matching
         console.log('[TEST DEBUG] Removing word');
-        const removeBtn = page.locator('button[aria-label="Remove Antigravity"]');
-        await expect(removeBtn).toBeVisible();
+        const removeBtn = page.getByRole('button', { name: /remove antigravity/i });
+        await expect(removeBtn).toBeVisible({ timeout: 5000 });
         await removeBtn.click();
 
         // Verify word is removed
-        console.log('[TEST DEBUG] Verifying word removal');
-        await expect(page.getByText('Antigravity')).toBeHidden();
+        console.log('[TEST DEBUG] Verifying word is removed');
+        await expect(page.getByText('antigravity')).not.toBeVisible({ timeout: 5000 });
     });
 });
