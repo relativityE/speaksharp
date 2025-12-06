@@ -79,10 +79,12 @@ jq -n \
   --argjson e2e_failed "$e2e_failed" \
   --argjson e2e_skipped "$e2e_skipped" \
   --arg bundle_size "$bundle_size" \
+  --argjson total_runtime "${TOTAL_RUNTIME_SECONDS:-0}" \
   '{
     "unit_tests": { "passed": $unit_passed, "failed": $unit_failed, "skipped": $unit_skipped, "total": $unit_total, "coverage": { "lines": $coverage_lines }},
     "e2e_tests": { "passed": $e2e_passed, "failed": $e2e_failed, "skipped": $e2e_skipped },
-    "performance": { "initial_chunk_size": $bundle_size }
+    "performance": { "initial_chunk_size": $bundle_size },
+    "total_runtime_seconds": $total_runtime
   }' > "$METRICS_FILE"
 
 echo "✅ Final metrics file created at $METRICS_FILE"
@@ -90,6 +92,7 @@ echo "--- TEST SUMMARY ---"
 jq -r '
     "Unit Tests: \(.unit_tests.passed // 0)/\(.unit_tests.total // 0) passed | Coverage: \(.unit_tests.coverage.lines // 0)%",
     "E2E Tests: \(.e2e_tests.passed // 0) passed, \(.e2e_tests.failed // 0) failed, \(.e2e_tests.skipped // 0) skipped",
-    "Initial Chunk Size: \(.performance.initial_chunk_size // "unknown")"
+    "Initial Chunk Size: \(.performance.initial_chunk_size // "unknown")",
+    "Total Runtime: \(.total_runtime_seconds // 0)s"
 ' "$METRICS_FILE"
 echo "--------------------"
