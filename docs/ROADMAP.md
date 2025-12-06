@@ -82,9 +82,7 @@ This phase is about confirming the core feature set works as expected and polish
     2. ✅ Add RLS policy: users can only read/write their own goals (in migration)
     3. 🔴 Create `useGoals` hook variant that syncs with Supabase (fall back to localStorage offline)
     4. ✅ Migration: `backend/supabase/migrations/20251206000000_user_goals.sql`
-  - **⚠️ MANUAL ACTION REQUIRED:** Run `cd backend/supabase && supabase db push` to apply pending migrations:
-    - `20251120004400_custom_vocabulary.sql` (if not already applied)
-    - `20251206000000_user_goals.sql` (new)
+  - ✅ **Migrations Applied (2025-12-06):** Both `custom_vocabulary` and `user_goals` migrations successfully deployed to production via GitHub Actions
 - 🔴 **Deploy & confirm live transcript UI works:** Ensure text appears within 2 seconds of speech in a live environment.
 - ✅ **Remove all temporary console.logs:** Clean up the codebase for production.\
 - ✅ **Restructure Codebase:** Reorganize the project structure for better maintainability before alpha soft launch.\
