@@ -34,8 +34,8 @@ jobs:
 
       - name: Install Supabase CLI
         run: |
-          npm install -g supabase@latest
-          supabase --version
+          # Use npx to run supabase CLI (no global install needed)
+          npx supabase@latest --version
 
       - name: Validate environment secrets
         env:
@@ -54,8 +54,8 @@ jobs:
         run: |
           cd backend/supabase
           # Use service key to login the CLI (no local auth)
-          supabase login --no-local-auth --service-role-key "$SUPABASE_SERVICE_KEY" || true
-          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+          npx supabase login --no-local-auth --service-role-key "$SUPABASE_SERVICE_KEY" || true
+          npx supabase link --project-ref "$SUPABASE_PROJECT_REF"
           echo "✅ Linked to Supabase project"
 
       - name: Push migrations to production
@@ -64,13 +64,13 @@ jobs:
         run: |
           cd backend/supabase
           echo "🚀 Pushing migrations to production..."
-          supabase db push
+          npx supabase db push
           echo "✅ Migrations applied successfully"
 
       - name: Save migration list to file
         run: |
           cd backend/supabase
-          supabase migration list > migration_list.txt || true
+          npx supabase migration list > migration_list.txt || true
           head -n 300 migration_list.txt > migration_list_trimmed.txt || true
           echo "Saved migration list"
 
