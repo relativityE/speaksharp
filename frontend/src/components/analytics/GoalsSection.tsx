@@ -4,10 +4,13 @@ import { Progress } from '@/components/ui/progress';
 import { Target, Trophy, Calendar } from 'lucide-react';
 
 import { useAnalytics } from '@/hooks/useAnalytics';
+import { useGoals } from '@/hooks/useGoals';
 import { Skeleton } from '@/components/ui/skeleton';
+import { EditGoalsDialog } from './EditGoalsDialog';
 
 export const GoalsSection: React.FC = () => {
     const { sessionHistory, overallStats, loading, error } = useAnalytics();
+    const { goals, setGoals } = useGoals();
 
     if (loading) {
         return (
@@ -41,15 +44,13 @@ export const GoalsSection: React.FC = () => {
         return sessionDate >= sevenDaysAgo;
     }).length || 0;
 
-    // Default goal: 5 sessions per week
-    const weeklyGoal = 5;
+    // Use customizable goals from localStorage
+    const { weeklyGoal, clarityGoal } = goals;
     const weeklyProgress = Math.min((weeklySessions / weeklyGoal) * 100, 100);
 
     // Calculate average clarity score from recent sessions
     const avgClarityScore = parseFloat(overallStats?.avgAccuracy || '0');
 
-    // Default goal: 90% clarity
-    const clarityGoal = 90;
     const clarityProgress = Math.min((avgClarityScore / clarityGoal) * 100, 100);
 
     // Determine encouragement message
@@ -72,10 +73,13 @@ export const GoalsSection: React.FC = () => {
     return (
         <Card>
             <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                    <Target className="h-5 w-5 text-primary" />
-                    Current Goals
-                </CardTitle>
+                <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center gap-2">
+                        <Target className="h-5 w-5 text-primary" />
+                        Current Goals
+                    </CardTitle>
+                    <EditGoalsDialog goals={goals} onSave={setGoals} />
+                </div>
             </CardHeader>
             <CardContent className="space-y-6">
                 <div className="space-y-2">

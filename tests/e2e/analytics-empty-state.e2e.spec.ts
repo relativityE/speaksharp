@@ -5,7 +5,7 @@ test.describe('Analytics Page - Empty State', () => {
     test('should display empty state when user has no session history', async ({ page }) => {
         // Set the flag using addInitScript to ensure it's available before any code runs
         await page.addInitScript(() => {
-            (window as any).__E2E_EMPTY_SESSIONS__ = true;
+            Object.assign(window, { __E2E_EMPTY_SESSIONS__: true });
         });
 
         await programmaticLogin(page);

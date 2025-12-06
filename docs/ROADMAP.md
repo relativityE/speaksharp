@@ -72,7 +72,19 @@ This phase is about confirming the core feature set works as expected and polish
 - ✅ **Clarity Score Visualization:** Detailed breakdown of speech clarity.
 - ✅ **Clarity Score Visualization:** Detailed breakdown of speech clarity.
 - 🟡 **Goal Setting:** Weekly/Daily targets for practice consistency.
-  - **Status:** Partially implemented (UI only, mock data). Needs backend integration.
+  - **Status:** UI complete with localStorage persistence (2025-12-05). Backend integration pending.
+  - **Current Implementation:**
+    - `useGoals` hook reads/writes to localStorage (`speaksharp:user-goals`)
+    - `EditGoalsDialog` modal allows customizing weekly sessions (1-20) and clarity % (50-100)
+    - Defaults: 5 sessions/week, 90% clarity target
+  - **Supabase Integration TODO:**
+    1. ✅ Create `user_goals` table: `id, user_id, weekly_goal, clarity_goal, created_at, updated_at` (migration ready)
+    2. ✅ Add RLS policy: users can only read/write their own goals (in migration)
+    3. 🔴 Create `useGoals` hook variant that syncs with Supabase (fall back to localStorage offline)
+    4. ✅ Migration: `backend/supabase/migrations/20251206000000_user_goals.sql`
+  - **⚠️ MANUAL ACTION REQUIRED:** Run `cd backend/supabase && supabase db push` to apply pending migrations:
+    - `20251120004400_custom_vocabulary.sql` (if not already applied)
+    - `20251206000000_user_goals.sql` (new)
 - 🔴 **Deploy & confirm live transcript UI works:** Ensure text appears within 2 seconds of speech in a live environment.
 - ✅ **Remove all temporary console.logs:** Clean up the codebase for production.\
 - ✅ **Restructure Codebase:** Reorganize the project structure for better maintainability before alpha soft launch.\

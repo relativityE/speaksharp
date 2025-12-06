@@ -83,7 +83,7 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Filler Word Detection** | 1 | Detects and counts common filler words (um, uh, like, etc.). | ✅ Implemented | ✅ Yes |
 | **Speaking Pace (WPM)** | 2 | Provides real-time words-per-minute analysis. | ✅ Implemented | ✅ Yes |
 | **Clarity Score** | 2 | Score based on filler word usage. | ✅ Implemented | ✅ Yes |
-| **Goal Setting** | 2 | Weekly/Daily targets for practice consistency. | ✅ Implemented | ✅ Yes |
+| **Goal Setting** | 2 | Weekly/Daily targets for practice consistency. | 🟡 Partial | ✅ Yes |
 | **User-Friendly Error Handling** | 2 | Specific, user-facing error messages. | ✅ Implemented | ✅ Yes |
 | **Custom Vocabulary** | 2 | Allows users to add custom words to improve accuracy. | ✅ Implemented | ✅ Yes |
 | **Vocal Variety / Pause Detection** | 2 | Analyzes pause duration and frequency. | ✅ Implemented | ✅ Yes |
@@ -162,7 +162,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Fri, 05 Dec 2025 16:00:24 GMT
+**Last Updated:** Sat, 06 Dec 2025 04:47:56 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -172,13 +172,13 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 319 |
-| Unit tests              | 314   |
+| Total tests             | 345 |
+| Unit tests              | 340   |
 | E2E tests (Playwright)  | 5  |
-| Passing tests           | 319   |
+| Passing tests           | 345   |
 | Failing tests           | 0   |
 | Disabled/skipped tests  | 0   |
-| Passing unit tests      | 314   |
+| Passing unit tests      | 340   |
 | Failing E2E tests       | 0   |
 | Total runtime           | N/A   |
 
@@ -191,7 +191,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 | Statements | N/A   |
 | Branches   | N/A   |
 | Functions  | N/A   |
-| Lines      | 53.38%   |
+| Lines      | 55.16%   |
 
 ---
 

@@ -57,47 +57,54 @@ test.describe('Goal Setting', () => {
         console.log('[TEST] ✅ Goals show real data, not hardcoded values');
     });
 
-    test.skip('should allow users to set custom goals', async ({ page }) => {
+    test('should allow users to set custom goals', async ({ page }) => {
         /**
-         * SKIPPED: Goal setting functionality not implemented yet.
+         * Goal setting via localStorage.
          * 
-         * Expected behavior:
-         * - User can click "Set Goals" or "Edit Goals" button
-         * - Modal/form appears to set weekly session target
-         * - User can set clarity score target
-         * - Goals are saved and persist across sessions
+         * NOTE: Currently uses localStorage for persistence (client-side only).
+         * See ROADMAP.md for Supabase backend integration plan.
          * 
-         * Once implemented, unskip and verify this flow.
+         * This test verifies:
+         * - Edit Goals button opens dialog
+         * - User can modify weekly session and clarity targets
+         * - Goals persist and display updated values
          */
         await programmaticLogin(page);
         await page.goto('/analytics');
         await page.waitForSelector('[data-testid="app-main"]');
 
-        // Look for "Set Goals" or "Edit Goals" button
-        const setGoalsButton = page.getByRole('button', { name: /set goals|edit goals/i });
-        await expect(setGoalsButton).toBeVisible();
+        // Wait for Goals section to load
+        await page.getByText('Current Goals').waitFor({ state: 'visible' });
 
-        await setGoalsButton.click();
+        // Click Edit Goals button (settings icon)
+        const editGoalsButton = page.getByTestId('edit-goals-button');
+        await expect(editGoalsButton).toBeVisible();
+        await editGoalsButton.click();
 
-        // Verify modal/form appears
-        const goalsForm = page.getByRole('dialog');
-        await expect(goalsForm).toBeVisible();
+        // Verify dialog appears
+        const goalsDialog = page.getByTestId('edit-goals-dialog');
+        await expect(goalsDialog).toBeVisible();
 
-        // Set weekly session goal
-        const weeklySessionInput = page.getByLabel(/weekly sessions/i);
-        await weeklySessionInput.fill('10');
+        // Set weekly session goal to 10
+        const weeklyInput = page.getByTestId('weekly-goal-input');
+        await weeklyInput.clear();
+        await weeklyInput.fill('10');
 
-        // Set clarity score goal
-        const clarityGoalInput = page.getByLabel(/clarity.*goal/i);
-        await clarityGoalInput.fill('95');
+        // Set clarity goal to 95
+        const clarityInput = page.getByTestId('clarity-goal-input');
+        await clarityInput.clear();
+        await clarityInput.fill('95');
 
         // Save goals
-        await page.getByRole('button', { name: /save|update/i }).click();
+        await page.getByTestId('save-goals-button').click();
 
-        // Verify goals are saved
-        await expect(page.getByText(/10/)).toBeVisible();
+        // Verify dialog closes and goals are updated
+        await expect(goalsDialog).not.toBeVisible();
+
+        // Verify updated goals display (2 sessions out of 10, clarity target 95%)
+        await expect(page.getByText('2 / 10')).toBeVisible();
         await expect(page.getByText(/95%/)).toBeVisible();
 
-        console.log('[TEST] ✅ Custom goals saved successfully');
+        console.log('[TEST] ✅ Custom goals saved via localStorage');
     });
 });

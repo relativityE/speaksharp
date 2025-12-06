@@ -24,5 +24,11 @@ VALUES
     ('8a069ce3-dafa-4efa-9a2c-67bd83a3d5e8', 'My First Practice', 300, 500, '{"um": 5, "uh": 3}'),
     ('9a069ce3-dafa-4efa-9a2c-67bd83a3d5e9', 'Client Presentation Prep', 1200, 2000, '{"so": 10, "like": 15, "you know": 8}');
 
+-- 4. Create default user goals
+INSERT INTO public.user_goals (user_id, weekly_goal, clarity_goal)
+VALUES
+    ('8a069ce3-dafa-4efa-9a2c-67bd83a3d5e8', 5, 90),   -- Free user: defaults
+    ('9a069ce3-dafa-4efa-9a2c-67bd83a3d5e9', 7, 95);   -- Pro user: higher targets
+
 -- Print a success message
-\echo "✅ Database seeded with 2 test users (free, pro) and 2 sample sessions."
+\echo "✅ Database seeded with 2 test users (free, pro), 2 sample sessions, and user goals."

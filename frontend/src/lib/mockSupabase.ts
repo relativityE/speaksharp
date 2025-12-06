@@ -49,7 +49,7 @@ export const createMockSupabase = () => {
                     order: () => {
                         if (table === 'sessions' && column === 'user_id' && value === MOCK_USER.id) {
                             // Check for E2E empty state flag
-                            const isEmpty = typeof window !== 'undefined' && (window as any).__E2E_EMPTY_SESSIONS__;
+                            const isEmpty = typeof window !== 'undefined' && '__E2E_EMPTY_SESSIONS__' in window && Boolean(window['__E2E_EMPTY_SESSIONS__' as keyof typeof window]);
                             console.log('[MockSupabase] Checking __E2E_EMPTY_SESSIONS__:', isEmpty);
                             if (isEmpty) {
                                 return Promise.resolve({ data: [], error: null });
