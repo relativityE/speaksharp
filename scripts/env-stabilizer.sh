@@ -10,7 +10,8 @@ if [[ "$MODE" == "ci" ]]; then
 
   echo "🔄 Resetting repo..."
   git reset --hard HEAD
-  git clean -fdx
+  # Preserve untracked .env files (matches .gitignore patterns)
+  git clean -fdx -e .env -e '.env*.local'
 
   echo "🧹 Removing node_modules and lockfile..."
   rm -rf node_modules pnpm-lock.yaml
