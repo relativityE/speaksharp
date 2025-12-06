@@ -3,6 +3,7 @@ import { SessionManager, AvailableModels, InferenceSession } from 'whisper-turbo
 import { ITranscriptionMode, TranscriptionModeOptions } from './types';
 import { MicStream } from '../utils/types';
 import { TranscriptUpdate } from '../TranscriptionService';
+import { toast } from 'sonner';
 
 // Helper to convert Float32Array to WAV Uint8Array
 function floatToWav(samples: Float32Array, sampleRate: number = 16000): Uint8Array {
@@ -105,6 +106,9 @@ export default class LocalWhisper implements ITranscriptionMode {
       this.session = result.value;
       this.status = 'idle';
       logger.info('[LocalWhisper] Model loaded successfully.');
+
+      // Show toast notification
+      toast.success('Model ready! You can now start your session.');
 
       // Notify that the service is ready
       if (this.onReady) {
