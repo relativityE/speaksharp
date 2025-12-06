@@ -98,4 +98,27 @@ export const handlers: RequestHandler[] = [
     ];
     return HttpResponse.json(mockSessionHistory);
   }),
+
+  // Custom Vocabulary endpoints
+  http.get('*/rest/v1/custom_vocabulary*', () => {
+    console.log('[MSW DEBUG] Intercepted: GET /rest/v1/custom_vocabulary');
+    // Return empty array by default (tests can override if needed)
+    return HttpResponse.json([]);
+  }),
+
+  http.post('*/rest/v1/custom_vocabulary*', async ({ request }) => {
+    console.log('[MSW DEBUG] Intercepted: POST /rest/v1/custom_vocabulary');
+    const body = await request.json() as { word: string };
+    return HttpResponse.json([{
+      id: 'mock-vocab-id',
+      word: body.word,
+      user_id: 'test-user-123',
+      created_at: new Date().toISOString()
+    }]);
+  }),
+
+  http.delete('*/rest/v1/custom_vocabulary*', () => {
+    console.log('[MSW DEBUG] Intercepted: DELETE /rest/v1/custom_vocabulary');
+    return new HttpResponse(null, { status: 204 });
+  }),
 ];
