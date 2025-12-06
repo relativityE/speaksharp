@@ -168,8 +168,8 @@ test.describe('Local STT Model Download & Caching', () => {
         // Wait for model to load
         await page.waitForSelector('[data-testid="model-loading-indicator"]', { state: 'hidden', timeout: 60000 });
 
-        // Verify success toast appears (wait for it specifically to avoid multiple toast issue)
-        const successToast = page.locator('[data-sonner-toast][data-type="success"]');
+        // Verify success toast appears (use .first() to handle multiple toasts)
+        const successToast = page.locator('[data-sonner-toast][data-type="success"]').first();
         await expect(successToast).toBeVisible({ timeout: 5000 });
         await expect(successToast).toContainText(/model (ready|loaded)/i);
 
