@@ -39,23 +39,23 @@ jobs:
 
       - name: Validate environment secrets
         env:
-          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
         run: |
-          if [ -z "$SUPABASE_PROJECT_REF" ]; then
-            echo "❌ Missing SUPABASE_PROJECT_REF (expected as GitHub secret)" >&2
+          if [ -z "$SUPABASE_PROJECT_ID" ]; then
+            echo "❌ Missing SUPABASE_PROJECT_ID (expected as GitHub secret)" >&2
             exit 1
           fi
-          echo "✅ Project ref validated"
+          echo "✅ Project ID validated"
 
       - name: Link to Supabase project
         env:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
         run: |
           cd backend/supabase
           # Use service key to login the CLI (no local auth)
           npx supabase login --no-local-auth --service-role-key "$SUPABASE_SERVICE_KEY" || true
-          npx supabase link --project-ref "$SUPABASE_PROJECT_REF"
+          npx supabase link --project-ref "$SUPABASE_PROJECT_ID"
           echo "✅ Linked to Supabase project"
 
       - name: Push migrations to production
