@@ -49,18 +49,17 @@ jobs:
 
       - name: Link to Supabase project
         env:
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
         run: |
           cd backend/supabase
-          # Use service key to login the CLI (no local auth)
-          npx supabase login --no-local-auth --service-role-key "$SUPABASE_SERVICE_KEY" || true
+          # SUPABASE_ACCESS_TOKEN env var is used automatically by CLI
           npx supabase link --project-ref "$SUPABASE_PROJECT_ID"
           echo "✅ Linked to Supabase project"
 
       - name: Push migrations to production
         env:
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
           cd backend/supabase
           echo "🚀 Pushing migrations to production..."
