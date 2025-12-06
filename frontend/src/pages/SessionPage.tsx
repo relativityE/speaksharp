@@ -15,6 +15,7 @@ import { PauseMetricsDisplay } from '@/components/session/PauseMetricsDisplay';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Settings } from 'lucide-react';
 import { CustomVocabularyManager } from '@/components/session/CustomVocabularyManager';
+import { SessionPageSkeleton } from '@/components/session/SessionPageSkeleton';
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, DropdownMenuRadioGroup, DropdownMenuRadioItem } from '@/components/ui/dropdown-menu';
 import { ChevronDown } from 'lucide-react';
@@ -73,14 +74,8 @@ export const SessionPage: React.FC = () => {
 
     if (isProfileLoading) {
         console.log('[DEBUG] SessionPage: Loading profile...');
-        return (
-            <div className="min-h-screen bg-background flex items-center justify-center">
-                <div className="flex flex-col items-center gap-4">
-                    <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-                    <p className="text-muted-foreground">Loading session...</p>
-                </div>
-            </div>
-        );
+
+        return <SessionPageSkeleton />;
     }
 
     if (profileError) {
@@ -142,7 +137,7 @@ export const SessionPage: React.FC = () => {
 
             <div className="max-w-7xl mx-auto px-6 pb-12 space-y-6">
                 {/* Live Recording Card - Full Width */}
-                <div className="bg-card border-2 border-white rounded-lg shadow-[0_4px_20px_-2px_rgba(0,0,0,0.3)]">
+                <div className="bg-card border-2 border-white rounded-lg shadow-elegant">
                     <div className="p-8">
                         <div className="flex items-center justify-between mb-6">
                             <div className="flex items-center gap-4">
@@ -201,7 +196,7 @@ export const SessionPage: React.FC = () => {
                                 onClick={handleStartStop}
                                 size="lg"
                                 variant={isListening ? 'destructive' : 'default'}
-                                className="w-48 h-14 text-lg font-semibold"
+                                className="w-48 h-14 text-lg font-semibold hidden md:flex"
                                 disabled={isButtonDisabled || modelLoadingProgress !== null}
                                 data-testid="session-start-stop-button"
                             >
@@ -221,7 +216,7 @@ export const SessionPage: React.FC = () => {
             {/* Metrics Grid - 2 Columns */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Clarity Score */}
-                <div className="bg-card border-2 border-white rounded-lg p-8 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.3)]">
+                <div className="bg-card border-2 border-white rounded-lg p-8 shadow-elegant">
                     <h3 className="text-lg font-semibold text-foreground mb-6">Clarity Score</h3>
                     <div className="flex flex-col items-center">
                         <div className="text-6xl font-bold text-primary mb-2">{Math.round(metrics.clarityScore)}%</div>
@@ -232,7 +227,7 @@ export const SessionPage: React.FC = () => {
                 </div>
 
                 {/* Speaking Rate */}
-                <div className="bg-card border-2 border-white rounded-lg p-8 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.3)]">
+                <div className="bg-card border-2 border-white rounded-lg p-8 shadow-elegant">
                     <h3 className="text-lg font-semibold text-foreground mb-6">Speaking Rate</h3>
                     <div className="flex flex-col items-center">
                         <div className="text-6xl font-bold text-primary mb-2">{metrics.wpm}</div>
@@ -244,7 +239,7 @@ export const SessionPage: React.FC = () => {
                 </div>
 
                 {/* Filler Words */}
-                <div className="bg-card border-2 border-white rounded-lg p-8 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.3)]">
+                <div className="bg-card border-2 border-white rounded-lg p-8 shadow-elegant">
                     <div className="flex items-center gap-2 mb-6">
                         <div className="w-2 h-2 rounded-full bg-orange-500"></div>
                         <h3 className="text-lg font-semibold text-foreground">Filler Words</h3>
@@ -271,7 +266,7 @@ export const SessionPage: React.FC = () => {
                 </div>
 
                 {/* Speaking Tips */}
-                <div className="bg-card border-2 border-white rounded-lg p-8 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.3)]">
+                <div className="bg-card border-2 border-white rounded-lg p-8 shadow-elegant">
                     <div className="flex items-center gap-2 mb-6">
                         <div className="w-1 h-6 bg-primary rounded"></div>
                         <h3 className="text-lg font-semibold text-foreground">Speaking Tips</h3>
@@ -298,12 +293,12 @@ export const SessionPage: React.FC = () => {
                 </div>
 
                 {/* Live Transcript Display */}
-                <div className="bg-card border-2 border-white rounded-lg p-8 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.3)] md:col-span-2" data-testid="transcript-panel">
+                <div className="bg-card border-2 border-white rounded-lg p-8 shadow-elegant md:col-span-2" data-testid="transcript-panel">
                     <div className="flex items-center gap-2 mb-6">
                         <div className="w-1 h-6 bg-primary rounded"></div>
                         <h3 className="text-lg font-semibold text-foreground">Live Transcript</h3>
                     </div>
-                    <div className="min-h-[120px] max-h-[300px] overflow-y-auto p-4 rounded-lg bg-background/50 border border-white/10" data-testid="transcript-container">
+                    <div className="h-[250px] overflow-y-auto p-4 rounded-lg bg-background/50 border border-white/10" data-testid="transcript-container">
                         {isListening && (!transcript.transcript || transcript.transcript.trim() === '') ? (
                             <p className="text-muted-foreground italic animate-pulse">Listening...</p>
                         ) : transcript.transcript && transcript.transcript.trim() !== '' ? (
@@ -313,6 +308,25 @@ export const SessionPage: React.FC = () => {
                         )}
                     </div>
                 </div>
+            </div>
+
+            {/* Mobile Sticky Action Bar */}
+            <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/90 backdrop-blur-lg border-t border-white/10 md:hidden z-50 flex justify-center shadow-lg safe-area-bottom">
+                <Button
+                    onClick={handleStartStop}
+                    size="lg"
+                    variant={isListening ? 'destructive' : 'default'}
+                    className="w-full max-w-sm h-12 text-lg font-semibold shadow-lg"
+                    disabled={isButtonDisabled || modelLoadingProgress !== null}
+                >
+                    {modelLoadingProgress !== null ? (
+                        <><div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" /> Initializing...</>
+                    ) : isListening ? (
+                        <><Square className="w-5 h-5 mr-2" /> Stop Recording</>
+                    ) : (
+                        <><Play className="w-5 h-5 mr-2" /> Start Recording</>
+                    )}
+                </Button>
             </div>
         </div>
 

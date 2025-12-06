@@ -123,7 +123,7 @@ describe('SessionPage', () => {
             } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
 
             render(<SessionPage />);
-            expect(screen.getByText('Loading session...')).toBeInTheDocument();
+            expect(screen.getByTestId('session-page-skeleton')).toBeInTheDocument();
         });
 
         it('should render error state when profile fails to load', () => {

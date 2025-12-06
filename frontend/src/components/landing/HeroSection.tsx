@@ -19,7 +19,7 @@ export const HeroSection = () => {
             <h1 className="text-5xl sm:text-6xl lg:text-7xl font-extrabold text-foreground leading-tight tracking-tight">
               Private Practice. <span className="text-primary">Public Impact!</span>
             </h1>
-            <p className="text-xl text-muted-foreground leading-relaxed max-w-[700px]">
+            <p className="text-xl text-foreground/90 leading-relaxed max-w-[700px] drop-shadow-md">
               Transform your communication skills with real-time feedback, filler word detection, and AI-powered insights that help you speak with confidence and precision.
             </p>
           </div>

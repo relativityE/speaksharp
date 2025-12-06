@@ -80,7 +80,7 @@ This phase is about confirming the core feature set works as expected and polish
   - **Supabase Integration TODO:**
     1. ✅ Create `user_goals` table: `id, user_id, weekly_goal, clarity_goal, created_at, updated_at` (migration ready)
     2. ✅ Add RLS policy: users can only read/write their own goals (in migration)
-    3. 🔴 Create `useGoals` hook variant that syncs with Supabase (fall back to localStorage offline)
+    3. ✅ Create `useGoals` hook variant that syncs with Supabase (fall back to localStorage offline)
     4. ✅ Migration: `backend/supabase/migrations/20251206000000_user_goals.sql`
   - ✅ **Migrations Applied (2025-12-06):** Both `custom_vocabulary` and `user_goals` migrations successfully deployed to production via GitHub Actions
 - 🔴 **Deploy & confirm live transcript UI works:** Ensure text appears within 2 seconds of speech in a live environment.
@@ -99,9 +99,9 @@ This phase is about confirming the core feature set works as expected and polish
 - ⏸️ **Harden Supabase Security:** BLOCKED - OTP/password features require Supabase Pro account (deferred to production launch)\
 - ✅ **Centralize Configuration:** Move hardcoded values to `src/config.ts`.\
 - ✅ **Fix E2E Test Gap (Live Transcript):** Complete end-to-end coverage implemented (2025-11-27)
-- 🔴 **Implement WebSocket Reconnect Logic:** Add heartbeat and exponential backoff.
+- ✅ **Implement WebSocket Reconnect Logic:** Added heartbeat and exponential backoff (1s, 2s, 4s, 8s, max 30s) logic to `CloudAssemblyAI.ts`.
 - ✅ **Session Comparison & Progress Tracking (2025-12-06):** Users can now select 2 sessions to compare side-by-side with progress indicators (green ↑ for improvement, red ↓ for regression). Added WPM and Clarity trend charts showing progress over last 10 sessions. **Components:** `ProgressIndicator.tsx`, `TrendChart.tsx`, `SessionComparisonDialog.tsx`. **Status:** ✅ Complete.
-- 🔴 **Implement Local STT Toast Notification:** Show user feedback when Whisper model download completes.
+- ✅ **Implement Local STT Toast Notification:** Show user feedback when Whisper model download completes.
 - 🔄 **PERPETUAL - Documentation Audit:** Verify PRD Known Issues, ROADMAP, and CHANGELOG match actual codebase state. Run test suite and cross-reference with documented issues to eliminate drift. **Frequency:** Before each release and after major feature work.
 
 ### 🚧 Should-Have (Tech Debt)
@@ -137,14 +137,14 @@ This phase is about confirming the core feature set works as expected and polish
   - **Remaining:** Additional page and component tests needed to reach 70% target
 - 🔴 **Add Real Testimonials:** Unhide and populate the `TestimonialsSection` on the landing page with genuine user feedback.
 - 🔴 **Light Theme Implementation:** Add CSS or disable toggle
-- 🔴 **Refactor E2E Test Infrastructure:**
-  - Fix `analytics-empty-state.e2e.spec.ts` timeout (empty state not rendering)
-  - Fix `metrics.e2e.spec.ts` WPM calculation timing issue
-  - Fix `local-stt-caching.e2e.spec.ts` mode selector timeout
-  - Fix `custom-vocabulary.e2e.spec.ts` hanging issue
-  - Set up Pro test account for Local STT tests (3 tests skipped)
-  - Implement Goal Setting backend (2 tests skipped)
-  - Implement Session Comparison features (2 tests skipped)
+- 🟡 **Refactor E2E Test Infrastructure:**
+  - ✅ Fix `analytics-empty-state.e2e.spec.ts` timeout (empty state not rendering)
+  - ✅ Fix `metrics.e2e.spec.ts` WPM calculation timing issue
+  - ✅ Fix `local-stt-caching.e2e.spec.ts` mode selector timeout
+  - ✅ Fix `custom-vocabulary.e2e.spec.ts` hanging issue
+  - ✅ Set up Pro test account for Local STT tests (3 tests skipped)
+  - ✅ Implement Goal Setting backend (2 tests skipped)
+  - ✅ Implement Session Comparison features (2 tests skipped)
 - **✅ COMPLETED (2025-12-03) - Resolve TypeScript 'any' Type Errors in Test Suite:**
   - Fixed 23+ `Unexpected any` lint errors across 7 test files
   - Replaced `as any` with proper type assertions using `ReturnType<typeof hook>` pattern
@@ -179,6 +179,27 @@ This phase is about confirming the core feature set works as expected and polish
   - **Production Readiness:** NEARLY READY - 2 P1/P2 blockers identified
   - **Report:** Gap analysis documented in artifact `gap_analysis.md`
 
+
+---
+
+## Phase 2.5: UI/UX & Design Polish
+This phase addresses findings from the December 2025 UX Audit (`ux_audit.md`) to align the product with "Premium" design standards.
+
+### 🎯 Must-Have
+- ✅ **Refactor Shadows:** Replace hardcoded shadows in `SessionPage` with design system tokens (`shadow-elegant`). (Completed 2025-12-06)
+- ✅ **Premium Loading States:** Replace spinners with `SessionPageSkeleton` for a refined experience. (Completed 2025-12-06)
+- ✅ **Fix Layout Shifts (CLS):** Constrain transcript container in `SessionPage` to prevent layout jumps.
+    - **Fix:** Switched to fixed `h-[250px]` container and matched Skeleton height.
+- 🔴 **Accessibility Compliance:** Fix low contrast text in `HeroSection` (white text on complex background).
+
+### 🚧 Should-Have
+- 🔴 **Guest Mode / Quick Start:** Allow users to try a "Demo Session" without full sign-up (reduce friction).
+- 🔴 **Restore Social Proof:** Uncomment and populate `TestimonialsSection` on Landing Page.
+- 🔴 **Mobile Optimization:** Implement "Sticky Bottom" controls for `SessionPage` on mobile viewports.
+
+### 🌱 Could-Have
+- 🔴 **Live Overlay / Mini-Mode:** Create a compact "Heads Up Display" view for use during real video calls (vs practice mode).
+- 🔴 **Positive Reinforcement:** Add "Gamified" toasts (e.g., "Great 30s streak!") during speaking sessions.
 
 ---
 ## Phase 3: Extensibility & Future-Proofing
