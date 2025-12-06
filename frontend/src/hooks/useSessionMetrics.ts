@@ -38,9 +38,11 @@ export const useSessionMetrics = ({
         const wordCount = transcript.split(' ').filter(w => w.length > 0).length;
         const wpm = elapsedTime > 0 ? Math.round((wordCount / elapsedTime) * 60) : 0;
 
-        // Calculate clarity score (penalize filler words)
+        // Calculate clarity score (penalize filler words proportionally)
+        // Formula: 100% - (filler percentage)
+        // Example: 1 filler in 5 words (20%) = 80% clarity
         const clarityScore = fillerCount > 0 && wordCount > 0
-            ? Math.max(0, Math.min(100, 100 - (fillerCount / wordCount * 500)))
+            ? Math.max(0, 100 - ((fillerCount / wordCount) * 100))
             : 87;
 
         // Generate clarity label
