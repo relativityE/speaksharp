@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { TrendingUp, Clock, Layers, Sparkles, Download, Target, Gauge, BarChart } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Checkbox } from '@/components/ui/checkbox';
 import { ErrorDisplay } from './ErrorDisplay';
 import { generateSessionPdf } from '../lib/pdfGenerator';
 import { formatDate, formatDateTime } from '../lib/dateUtils';
@@ -12,6 +13,8 @@ import { TopFillerWords } from './analytics/TopFillerWords';
 import { AccuracyComparison } from './analytics/AccuracyComparison';
 import { WeeklyActivityChart } from './analytics/WeeklyActivityChart';
 import { GoalsSection } from './analytics/GoalsSection';
+import { SessionComparisonDialog } from './analytics/SessionComparisonDialog';
+import { TrendChart } from './analytics/TrendChart';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '../lib/logger';
 import { toast } from 'sonner';
@@ -38,6 +41,8 @@ interface StatCardProps {
 interface SessionHistoryItemProps {
     session: PracticeSession;
     isPro: boolean;
+    isSelected: boolean;
+    onToggleSelect: (sessionId: string) => void;
 }
 
 // --- Sub-components ---
@@ -57,7 +62,7 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, className
     </Card>
 );
 
-const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro }) => {
+const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro, isSelected, onToggleSelect }) => {
     const totalFillers = Object.values(session.filler_words || {}).reduce((sum, data) => sum + (data.count || 0), 0);
     const durationMins = (session.duration / 60).toFixed(1);
     const wpm = session.duration > 0 && session.total_words ? ((session.total_words / session.duration) * 60).toFixed(0) : 'N/A';
@@ -65,11 +70,19 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro 
     return (
         <Card className="p-4 transition-all duration-200 hover:bg-secondary/50" data-testid="session-history-item">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div className="flex-grow">
-                    <p className="font-semibold text-foreground text-base">{session.title || `Session from ${formatDate(session.created_at)} `}</p>
-                    <p className="text-xs text-muted-foreground">
-                        {formatDateTime(session.created_at)}
-                    </p>
+                <div className="flex items-center gap-3 flex-grow">
+                    <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => onToggleSelect(session.id)}
+                        data-testid="compare-checkbox"
+                        aria-label={`Select session for comparison`}
+                    />
+                    <div>
+                        <p className="font-semibold text-foreground text-base">{session.title || `Session from ${formatDate(session.created_at)} `}</p>
+                        <p className="text-xs text-muted-foreground">
+                            {formatDateTime(session.created_at)}
+                        </p>
+                    </div>
                 </div>
                 <div className="flex items-center gap-6 text-right">
                     <div>
@@ -118,6 +131,42 @@ export const AnalyticsDashboardSkeleton: React.FC = () => (
 
 export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ profile }) => {
     const { sessionHistory, overallStats, fillerWordTrends, loading, error } = useAnalytics();
+    const [selectedSessions, setSelectedSessions] = useState<string[]>([]);
+    const [showComparison, setShowComparison] = useState(false);
+
+    const toggleSessionSelection = (sessionId: string) => {
+        setSelectedSessions(prev =>
+            prev.includes(sessionId)
+                ? prev.filter(id => id !== sessionId)
+                : prev.length < 2
+                    ? [...prev, sessionId]
+                    : prev
+        );
+    };
+
+    const selectedSessionData = useMemo(() => {
+        if (selectedSessions.length !== 2 || !sessionHistory) return null;
+        const sessions = selectedSessions.map(id => sessionHistory.find(s => s.id === id)).filter(Boolean);
+        if (sessions.length !== 2) return null;
+        return sessions.map(s => ({
+            id: s!.id,
+            created_at: s!.created_at,
+            wpm: s!.duration > 0 && s!.total_words ? Math.round((s!.total_words / s!.duration) * 60) : 0,
+            clarity_score: s!.accuracy ? Math.round(s!.accuracy * 100) : 0,
+            filler_count: Object.values(s!.filler_words || {}).reduce((sum, data) => sum + (data.count || 0), 0),
+            duration_seconds: s!.duration,
+        })) as [any, any];
+    }, [selectedSessions, sessionHistory]);
+
+    const trendData = useMemo(() => {
+        if (!sessionHistory || sessionHistory.length < 2) return [];
+        return sessionHistory.slice(0, 10).reverse().map(s => ({
+            date: formatDate(s.created_at),
+            wpm: s.duration > 0 && s.total_words ? Math.round((s.total_words / s.duration) * 60) : 0,
+            clarity: s.accuracy ? Math.round(s.accuracy * 100) : 0,
+            fillers: Object.values(s.filler_words || {}).reduce((sum, data) => sum + (data.count || 0), 0),
+        }));
+    }, [sessionHistory]);
 
     console.log('[AnalyticsDashboard] Rendering. Loading:', loading, 'Error:', error, 'SessionHistory length:', sessionHistory?.length);
 
@@ -180,6 +229,26 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ profile 
                 <div className="col-span-1 lg:col-span-5">
                     <AccuracyComparison />
                 </div>
+                {trendData.length >= 2 && (
+                    <>
+                        <div className="col-span-1 lg:col-span-3" data-testid="overall-progress">
+                            <TrendChart
+                                data={trendData}
+                                metric="wpm"
+                                title="Speaking Pace Trend"
+                                description="Track your words per minute over time"
+                            />
+                        </div>
+                        <div className="col-span-1 lg:col-span-2">
+                            <TrendChart
+                                data={trendData}
+                                metric="clarity"
+                                title="Clarity Score Trend"
+                                description="Monitor your clarity improvement"
+                            />
+                        </div>
+                    </>
+                )}
                 <div className="col-span-1 lg:col-span-3">
                     <WeeklyActivityChart />
                 </div>
@@ -229,13 +298,36 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ profile 
                 </CardContent>
             </Card>
             <Card>
-                <CardHeader><CardTitle>Session History</CardTitle></CardHeader>
+                <CardHeader className="flex flex-row items-center justify-between">
+                    <CardTitle>Session History</CardTitle>
+                    {selectedSessions.length === 2 && (
+                        <Button
+                            onClick={() => setShowComparison(true)}
+                            variant="default"
+                        >
+                            Compare Sessions
+                        </Button>
+                    )}
+                </CardHeader>
                 <CardContent className="space-y-4">
                     {sessionHistory.slice(0, 10).map((session) => (
-                        <SessionHistoryItem key={session.id} session={session} isPro={isPro} />
+                        <SessionHistoryItem
+                            key={session.id}
+                            session={session}
+                            isPro={isPro}
+                            isSelected={selectedSessions.includes(session.id)}
+                            onToggleSelect={toggleSessionSelection}
+                        />
                     ))}
                 </CardContent>
             </Card>
+            {selectedSessionData && (
+                <SessionComparisonDialog
+                    open={showComparison}
+                    onOpenChange={setShowComparison}
+                    sessions={selectedSessionData}
+                />
+            )}
         </div>
     );
 };
