@@ -15,6 +15,7 @@ export interface TranscriptionModeOptions {
   navigate?: NavigateFunction;
   getAssemblyAIToken?: () => Promise<string | null>;
   customVocabulary?: string[];
+  onConnectionStateChange?: (state: 'connected' | 'reconnecting' | 'disconnected' | 'error') => void;
 }
 
 export interface ITranscriptionMode {

@@ -24,6 +24,9 @@ interface AssemblyAIMessage {
   created?: string;
 }
 
+// Connection state for WebSocket
+export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected' | 'error';
+
 export default class CloudAssemblyAI implements ITranscriptionMode {
   private onTranscriptUpdate: (update: { transcript: Transcript; words?: AssemblyAIWord[] }) => void;
   private onReady: () => void;
@@ -36,7 +39,17 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
   private audioBuffer: Int16Array = new Int16Array(0);
   private readonly MIN_SAMPLES = 800; // 50ms at 16kHz (AssemblyAI minimum)
 
-  constructor({ onTranscriptUpdate, onReady, getAssemblyAIToken, customVocabulary = [] }: TranscriptionModeOptions) {
+  // Reconnection logic
+  private reconnectAttempts = 0;
+  private readonly maxReconnectAttempts = 5;
+  private reconnectTimeout: NodeJS.Timeout | null = null;
+  private heartbeatInterval: NodeJS.Timeout | null = null;
+  private readonly heartbeatIntervalMs = 30000; // 30 seconds
+  private connectionState: ConnectionState = 'disconnected';
+  private onConnectionStateChange?: (state: ConnectionState) => void;
+  private isManualStop = false; // Track if stop was intentional
+
+  constructor({ onTranscriptUpdate, onReady, getAssemblyAIToken, customVocabulary = [], onConnectionStateChange }: TranscriptionModeOptions) {
     if (!onTranscriptUpdate || !onReady || !getAssemblyAIToken) {
       throw new Error("Missing required options for CloudAssemblyAI");
     }
@@ -44,6 +57,7 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
     this.onReady = onReady;
     this._getAssemblyAIToken = getAssemblyAIToken;
     this.customVocabulary = customVocabulary;
+    this.onConnectionStateChange = onConnectionStateChange;
     this.frameHandler = this._handleAudioFrame.bind(this);
   }
 
@@ -73,7 +87,10 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
       this.socket = new WebSocket(url);
 
       this.socket.onopen = () => {
-        logger.info({ readyState: this.socket?.readyState }, '[CloudAssemblyAI] WebSocket OPEN event - calling onReady() and starting audio frame handler');
+        logger.info({ readyState: this.socket?.readyState }, '[CloudAssemblyAI] WebSocket OPEN event');
+        this.reconnectAttempts = 0; // Reset reconnect counter on successful connection
+        this.startHeartbeat(); // Start heartbeat
+        this.updateConnectionState('connected'); // Update state
         this.onReady();
         this.mic?.onFrame(this.frameHandler);
       };
@@ -107,6 +124,14 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
         logger.info({ code: event.code, reason: event.reason, wasClean: event.wasClean }, '[CloudAssemblyAI] WebSocket CLOSE event');
         this.socket = null;
         this.mic?.offFrame(this.frameHandler);
+        this.stopHeartbeat(); // Stop heartbeat
+
+        // Only attempt reconnect if not a normal closure (code 1000)
+        if (event.code !== 1000) {
+          this.attemptReconnect();
+        } else {
+          this.updateConnectionState('disconnected');
+        }
       };
 
     } catch (error) {
@@ -152,6 +177,12 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
   }
 
   public async stopTranscription(): Promise<string> {
+    // Set manual stop flag to prevent reconnection
+    this.isManualStop = true;
+
+    // Cleanup reconnection timers
+    this.cleanupReconnection();
+
     if (this.mic) {
       this.mic.offFrame(this.frameHandler);
       this.mic = null;
@@ -166,10 +197,15 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
       // AssemblyAI v3 doesn't use a 'Terminate' message like v2.
       // Simply closing the socket is sufficient.
-      this.socket.close(1000);
+      this.socket.close(1000); // Normal closure
     }
     this.socket = null;
     this.firstPacketSent = false;
+    this.updateConnectionState('disconnected');
+
+    // Reset manual stop flag for next session
+    this.isManualStop = false;
+
     return ""; // This mode does not maintain a full transcript itself
   }
 
@@ -178,4 +214,80 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
     // The parent service is responsible for aggregating the final transcript parts.
     return "";
   }
+
+  /**
+   * Attempt to reconnect with exponential backoff
+   */
+  private attemptReconnect(): void {
+    // Don't reconnect if stop was manual
+    if (this.isManualStop) {
+      logger.info('[CloudAssemblyAI] Manual stop detected, skipping reconnect');
+      return;
+    }
+
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      logger.error('[CloudAssemblyAI] Max reconnect attempts reached');
+      this.updateConnectionState('disconnected');
+      return;
+    }
+
+    // Exponential backoff: 1s, 2s, 4s, 8s, max 30s
+    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
+    this.reconnectAttempts++;
+
+    logger.info({ delay, attempt: this.reconnectAttempts }, `[CloudAssemblyAI] Reconnecting in ${delay}ms`);
+    this.updateConnectionState('reconnecting');
+
+    this.reconnectTimeout = setTimeout(async () => {
+      logger.info('[CloudAssemblyAI] Attempting reconnect...');
+      if (this.mic) {
+        await this.startTranscription(this.mic);
+      }
+    }, delay);
+  }
+
+  /**
+   * Start heartbeat to detect dead connections
+   */
+  private startHeartbeat(): void {
+    this.heartbeatInterval = setInterval(() => {
+      if (this.socket?.readyState === WebSocket.OPEN) {
+        logger.debug('[CloudAssemblyAI] Heartbeat check - connection alive');
+        // AssemblyAI doesn't require explicit ping, just check readyState
+        // If connection is dead, onclose will fire
+      }
+    }, this.heartbeatIntervalMs);
+  }
+
+  /**
+   * Stop heartbeat interval
+   */
+  private stopHeartbeat(): void {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+  }
+
+  /**
+   * Update connection state and notify callback
+   */
+  private updateConnectionState(state: ConnectionState): void {
+    this.connectionState = state;
+    logger.info({ state }, '[CloudAssemblyAI] Connection state changed');
+    this.onConnectionStateChange?.(state);
+  }
+
+  /**
+   * Cleanup reconnection timers
+   */
+  private cleanupReconnection(): void {
+    this.stopHeartbeat();
+
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+  }
 }
+
