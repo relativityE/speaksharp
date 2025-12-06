@@ -38,6 +38,12 @@ try {
   const unitTestsPassingPct = unit_tests.total > 0 ? ((unit_tests.passed / unit_tests.total) * 100).toFixed(1) : 0;
   const e2eTestsPassingPct = e2eTotal > 0 ? ((e2e_tests.passed / e2eTotal) * 100).toFixed(1) : 0;
 
+  // Format runtime
+  const totalRuntime = metrics.total_runtime_seconds || 0;
+  const runtimeDisplay = totalRuntime > 0
+    ? `${Math.floor(totalRuntime / 60)}m ${totalRuntime % 60}s`
+    : 'See CI logs';
+
   // --- New Vertical Table Generation ---
   const newSqmSection = `
 ## 6. Software Quality Metrics
@@ -60,7 +66,7 @@ try {
 | Disabled/skipped tests  | ${skippedTests} (E2E only)   |
 | Passing unit tests      | ${unit_tests.passed}/${unit_tests.total} (${unitTestsPassingPct}%)   |
 | Passing E2E tests       | ${e2e_tests.passed}/${e2eTotal} (${e2eTestsPassingPct}%)   |
-| Total runtime           | See CI logs   |
+| Total runtime           | ${runtimeDisplay}   |
 
 ---
 

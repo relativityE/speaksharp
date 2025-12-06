@@ -249,13 +249,18 @@ case $STAGE in
         echo "🎉 Health-Check SUCCEEDED."
         ;;
     local)
+        START_TIME=$(date +%s)
         run_preflight
         run_quality_checks
         run_build
         run_e2e_tests_all
+        END_TIME=$(date +%s)
+        TOTAL_RUNTIME=$((END_TIME - START_TIME))
+        export TOTAL_RUNTIME_SECONDS=$TOTAL_RUNTIME
         run_sqm_report_local
         echo "🎉🎉🎉"
         echo "✅ SpeakSharp Local Test Audit SUCCEEDED!"
+        echo "⏱️  Total Runtime: ${TOTAL_RUNTIME}s"
         echo "🎉🎉🎉"
         ;;
     ci-simulate)
