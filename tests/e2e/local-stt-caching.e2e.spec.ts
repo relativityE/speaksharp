@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLoginPro } from './helpers';
+import { programmaticLogin } from './helpers';
 
 /**
  * Local STT (Whisper) Model Download & Caching E2E Test
@@ -28,7 +28,7 @@ test.describe('Local STT Model Download & Caching', () => {
          * Requires E2E_PRO_EMAIL and E2E_PRO_PASSWORD environment variables.
          * Test will be skipped if credentials not configured.
          */
-        await programmaticLoginPro(page);
+        await programmaticLogin(page);
 
         await page.goto('/session');
         await page.waitForSelector('[data-testid="app-main"]');
@@ -87,7 +87,7 @@ test.describe('Local STT Model Download & Caching', () => {
          * Uses real Pro account to verify cached model loads quickly.
          * Requires E2E_PRO_EMAIL and E2E_PRO_PASSWORD environment variables.
          */
-        await programmaticLoginPro(page);
+        await programmaticLogin(page);
         await page.goto('/session');
         await page.waitForSelector('[data-testid="app-main"]');
 
@@ -125,7 +125,7 @@ test.describe('Local STT Model Download & Caching', () => {
          * Uses real Pro account to verify On-Device mode option is available.
          * Requires E2E_PRO_EMAIL and E2E_PRO_PASSWORD environment variables.
          */
-        await programmaticLoginPro(page);
+        await programmaticLogin(page);
         await page.goto('/session');
         await page.waitForSelector('[data-testid="app-main"]');
 
@@ -151,7 +151,7 @@ test.describe('Local STT Model Download & Caching', () => {
          * Uses real Pro account to test download completion toast.
          * Requires E2E_PRO_EMAIL and E2E_PRO_PASSWORD environment variables.
          */
-        await programmaticLoginPro(page);
+        await programmaticLogin(page);
         await page.goto('/session');
         await page.waitForSelector('[data-testid="app-main"]');
 
