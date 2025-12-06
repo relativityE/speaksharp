@@ -28,8 +28,10 @@ export const AllTheProviders = ({ children, authMock, route = '/', path }: AllTh
     user: null,
     profile: null,
     loading: false,
+    isGuest: false,
     signOut: vi.fn().mockResolvedValue(undefined),
     setSession: vi.fn(),
+    enterGuestMode: vi.fn(),
   };
 
   const content = path ? <Routes><Route path={path} element={<>{children}</>} /></Routes> : children;

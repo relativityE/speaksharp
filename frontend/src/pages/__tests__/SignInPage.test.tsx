@@ -27,7 +27,9 @@ describe('SignInPage', () => {
             setSession: mockSetSession,
             user: null,
             profile: null,
+            isGuest: false,
             signOut: vi.fn(),
+            enterGuestMode: vi.fn(),
         });
 
         // Default Supabase client mock
@@ -64,7 +66,9 @@ describe('SignInPage', () => {
                 setSession: mockSetSession,
                 user: null,
                 profile: null,
+                isGuest: false,
                 signOut: vi.fn(),
+                enterGuestMode: vi.fn(),
             });
 
             renderSignInPage();
@@ -80,7 +84,9 @@ describe('SignInPage', () => {
                 setSession: mockSetSession,
                 user: { id: 'test-user' } as unknown as AuthProvider.AuthContextType['user'],
                 profile: { id: 'test-profile' } as unknown as AuthProvider.AuthContextType['profile'],
+                isGuest: false,
                 signOut: vi.fn(),
+                enterGuestMode: vi.fn(),
             });
 
             renderSignInPage();

@@ -24,12 +24,16 @@ const TestimonialCard: React.FC<TestimonialCardProps> = ({ quote, author }) => (
 
 const testimonials = [
   {
-    quote: "SpeakSharp has completely transformed how I prepare for presentations. The real-time feedback is a game changer.",
-    author: "User 1",
+    quote: "SpeakSharp has completely transformed how I prepare for executive presentations. The real-time feedback on filler words is a game changer.",
+    author: "Sarah J., Product Manager",
   },
   {
-    quote: "I never realized how many filler words I used until I started using this app. Highly recommended!",
-    author: "User 2",
+    quote: "I used to be terrified of public speaking. Seeing my clarity score improve gave me the confidence to ace my thesis defense.",
+    author: "Michael C., Graduate Student",
+  },
+  {
+    quote: "An essential tool for anyone looking to polish their communication skills. It's like having a personal speech coach available 24/7.",
+    author: "David L., Sales Director",
   }
 ]
 

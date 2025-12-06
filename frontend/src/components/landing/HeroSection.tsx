@@ -1,10 +1,27 @@
 import * as React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { useAuthProvider } from '@/contexts/AuthProvider';
 
 
 export const HeroSection = () => {
+  const navigate = useNavigate();
+  const { enterGuestMode } = useAuthProvider();
+  const [isLoading, setIsLoading] = React.useState(false);
+
+  const handleGuestMode = async () => {
+    setIsLoading(true);
+    try {
+      await enterGuestMode();
+      navigate('/session');
+    } catch (error) {
+      console.error('Failed to enter guest mode:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <section className="relative w-full pt-32 md:pt-48 lg:pt-56 pb-20 md:pb-32 overflow-hidden">
       <div className="absolute inset-0 bg-gradient-to-br from-primary/20 via-background to-background z-0" />
@@ -47,8 +64,20 @@ export const HeroSection = () => {
             <Button variant="default" size="lg" className="text-lg px-8 py-6 shadow-lg shadow-primary/25 hover:shadow-primary/40 transition-all" asChild>
               <Link to="/auth/signup" data-testid="start-free-session-button">Start Speaking</Link>
             </Button>
-            <Button variant="outline" size="lg" className="text-lg px-8 py-6 bg-background/50 backdrop-blur-sm hover:bg-accent/10" asChild>
-              <Link to="/analytics">View Analytics</Link>
+            <Button
+              variant="outline"
+              size="lg"
+              className="text-lg px-8 py-6 bg-background/50 backdrop-blur-sm hover:bg-accent/10"
+              onClick={handleGuestMode}
+              disabled={isLoading}
+              data-testid="try-demo-button"
+            >
+              {isLoading ? 'Starting...' : 'Try Demo'}
+            </Button>
+          </div>
+          <div className="flex justify-center w-full">
+            <Button variant="link" className="text-muted-foreground hover:text-foreground" asChild>
+              <Link to="/analytics">View Analytics Demo</Link>
             </Button>
           </div>
 

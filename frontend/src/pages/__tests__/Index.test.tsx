@@ -31,7 +31,9 @@ describe('Index', () => {
                 setSession: vi.fn(),
                 user: null,
                 profile: null,
+                isGuest: false,
                 signOut: vi.fn(),
+                enterGuestMode: vi.fn(),
             });
 
             const { container } = render(
@@ -52,8 +54,10 @@ describe('Index', () => {
                 loading: false,
                 setSession: vi.fn(),
                 user: { id: 'test-user' } as AuthProvider.AuthContextType['user'],
-                profile: { id: 'test-profile' } as AuthProvider.AuthContextType['profile'],
+                profile: { id: 'test-user', subscription_status: 'free' } as AuthProvider.AuthContextType['profile'],
+                isGuest: false,
                 signOut: vi.fn(),
+                enterGuestMode: vi.fn(),
             });
 
             render(
@@ -76,7 +80,9 @@ describe('Index', () => {
                 setSession: vi.fn(),
                 user: null,
                 profile: null,
+                isGuest: false,
                 signOut: vi.fn(),
+                enterGuestMode: vi.fn(),
             });
         });
 
