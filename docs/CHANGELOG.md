@@ -47,7 +47,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Impact:** Clarity scores now accurately reflect filler word percentage (20% fillers = 80% clarity)
   - **File:** `frontend/src/hooks/useSessionMetrics.ts`
 
+- **Local STT E2E Test Failures (2025-12-06):**
+  - **Problem:** 4 Local STT tests failed due to timeouts using real authentication (`programmaticLoginPro`) without credentials
+  - **Solution:** Reverted tests to use mock authentication (`programmaticLogin`) with MSW
+  - **Impact:** All 4 Local STT tests now pass (Download progress, cache loading, mode selector, toast notification)
+  - **File:** `tests/e2e/local-stt-caching.e2e.spec.ts`
+
 ### Added
+- **Pro Login Helper (2025-12-06):**
+  - **Feature:** Factory pattern `programmaticLoginAs` supporting Free, Pro, and Test user types
+  - **Benefit:** Enables comprehensive user-independent E2E testing
+  - **Files:** `tests/e2e/helpers.ts`, `.env.test.example`
+
+- **WebSocket Reconnect Logic (2025-12-06):**
+  - **Feature:** Automatic reconnection with exponential backoff (1s-30s) and heartbeat strategy
+  - **Benefit:** Prevents transcription loss during network interruptions
+  - **File:** `frontend/src/services/transcription/modes/CloudAssemblyAI.ts`
 - **Session Comparison and Progress Tracking (2025-12-06):**
   - **Feature:** Users can now compare sessions side-by-side and track progress over time
   - **Components:** Created ProgressIndicator, TrendChart, SessionComparisonDialog

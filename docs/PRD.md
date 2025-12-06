@@ -83,7 +83,7 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Filler Word Detection** | 1 | Detects and counts common filler words (um, uh, like, etc.). | ✅ Implemented | ✅ Yes |
 | **Speaking Pace (WPM)** | 2 | Provides real-time words-per-minute analysis. | ✅ Implemented | ✅ Yes |
 | **Clarity Score** | 2 | Score based on filler word usage. | ✅ Implemented | ✅ Yes |
-| **Goal Setting** | 2 | Weekly/Daily targets for practice consistency. | 🟡 Partial | ✅ Yes |
+| **Goal Setting** | 2 | Weekly/Daily targets for practice consistency. | ✅ Implemented | ✅ Yes |
 | **User-Friendly Error Handling** | 2 | Specific, user-facing error messages. | ✅ Implemented | ✅ Yes |
 | **Custom Vocabulary** | 2 | Allows users to add custom words to improve accuracy. | ✅ Implemented | ✅ Yes |
 | **Vocal Variety / Pause Detection** | 2 | Analyzes pause duration and frequency. | ✅ Implemented | ✅ Yes |
@@ -135,7 +135,7 @@ This section tracks high-level product risks and constraints. For a detailed his
 
 - **Incomplete Theming:** The application is configured to support both light and dark themes, but only a dark theme is currently implemented. Users will not be able to switch to a light theme, which can be an accessibility issue and ignores user preference.
 - **Accessibility Gaps:** The live transcript lacks an ARIA live region (`aria-live="polite"`), meaning screen readers do not announce new text as it appears. This is a critical accessibility blocker for visually impaired users.
-- **Unit Test Coverage:** Current test coverage is improving toward the 70% industry best practice target. Recent additions include 84 new unit tests for authentication pages, core pages, and utility functions (301 total tests passing). Continued coverage expansion is tracked in the technical debt backlog.
+- **Unit Test Coverage:** Current test coverage is improving toward the 70% industry best practice target. Recent additions include 84 new unit tests for authentication pages, core pages, and utility functions (340 total tests passing). Continued coverage expansion is tracked in the technical debt backlog.
 - **Test Quality:** A comprehensive audit of the test suite is needed to identify and refactor brittle or low-value tests, ensuring the suite provides high confidence without false positives.
 - **✅ RESOLVED - Session Comparison & Progress Tracking (2025-12-06):** Implemented full feature with side-by-side comparison, trend charts, and progress indicators. Users can select 2 sessions to compare, view WPM/Clarity/Fillers trends over time, and see improvement/regression indicators. **Status:** ✅ Implemented. **Files:** `ProgressIndicator.tsx`, `TrendChart.tsx`, `SessionComparisonDialog.tsx`, `AnalyticsDashboard.tsx`
 - **⚠️ Goal Setting Partial Implementation (2025-12-06):** Supabase sync implemented - goals persist across devices for authenticated users. Remaining work: (1) calculation of progress based on actual session data, (2) unskip 2 E2E tests. **Status:** Backend integration complete, E2E tests pending. **Location:** `frontend/src/components/analytics/GoalsSection.tsx:10,50,61`
@@ -161,7 +161,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Sat, 06 Dec 2025 17:29:04 GMT
+**Last Updated:** Sat, 06 Dec 2025 20:38:29 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -174,12 +174,12 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 | Total tests             | 368 (340 unit + 28 E2E) |
 | Unit tests              | 340   |
 | E2E tests (Playwright)  | 28  |
-| Passing tests           | 362 (340 unit + 22 E2E)   |
+| Passing tests           | 366 (340 unit + 26 E2E)   |
 | Failing tests           | 0   |
-| Disabled/skipped tests  | 6 (E2E only)   |
+| Disabled/skipped tests  | 2 (E2E only)   |
 | Passing unit tests      | 340/340 (100.0%)   |
-| Passing E2E tests       | 22/28 (78.6%)   |
-| Total runtime           | See CI logs   |
+| Passing E2E tests       | 26/28 (92.9%)   |
+| Total runtime           | 1m 15s   |
 
 ---
 
@@ -187,10 +187,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | N/A   |
-| Branches   | N/A   |
-| Functions  | N/A   |
-| Lines      | N/A   |
+| Statements | 53.51%   |
+| Branches   | 82.04%   |
+| Functions  | 75%   |
+| Lines      | 53.51%   |
 
 ---
 
