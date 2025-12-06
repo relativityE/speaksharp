@@ -143,8 +143,8 @@ This section tracks high-level product risks and constraints. For a detailed his
 - **⚠️ Analytics Empty State E2E Test Timeout (2025-12-01):** The `analytics-empty-state.e2e.spec.ts` test times out waiting for the empty state to render. **Root Cause:** Unknown - possible race condition or missing testid. **Impact:** Test infrastructure only. **Status:** Test skipped pending investigation. **Location:** `tests/e2e/analytics-empty-state.e2e.spec.ts:5`
 - **✅ RESOLVED - Navigation E2E Test Failure (2025-12-02):** The `navigation.e2e.spec.ts` test failure due to overlapping headers has been fixed. **Status:** ✅ Fixed.
 - **⚠️ Metrics E2E Test Timing Issue (2025-12-02):** The `metrics.e2e.spec.ts` test fails because WPM does not update from mock transcripts. Mock events are dispatched via `window.dispatchMockTranscript` but metrics remain at 0. **Root Cause:** Unknown - possible timing issue with metrics calculation or transcript processing. **Impact:** Test infrastructure only (NOT a production bug). **Status:** Test skipped pending investigation. **Location:** `tests/e2e/metrics.e2e.spec.ts:5`
-- **⚠️ Local STT Mode Selector Test Timeout (2025-12-02):** The `local-stt-caching.e2e.spec.ts` test times out waiting for the mode selector dropdown button. **Root Cause:** Unknown - button may not be rendering or selector is incorrect. **Impact:** Test infrastructure only. **Status:** Test skipped pending investigation. **Location:** `tests/e2e/local-stt-caching.e2e.spec.ts:123`
-- **⚠️ Local STT Download Progress Tests Skipped (2025-12-01):** Three tests in `local-stt-caching.e2e.spec.ts` are skipped because they require Pro subscription to access On-Device mode. **Tests:** (1) Download progress indicator, (2) Cache loading performance, (3) Toast notification. **Impact:** Missing E2E coverage for Pro-tier feature. **Status:** Requires Pro test account setup. **Location:** `tests/e2e/local-stt-caching.e2e.spec.ts:25,80,149`
+- **✅ RESOLVED - Local STT E2E Tests (2025-12-06):** Fixed 3 test failures in `local-stt-caching.e2e.spec.ts`: (1) Progress percentage bug (8534% → 0-100%), (2) Button text mismatch, (3) Toast notification strict mode violation. **Status:** ✅ Fixed and pushed.
+- **✅ RESOLVED - Local STT Download Progress Tests (2025-12-06):** Three tests previously skipped due to Pro subscription requirement are now passing with Pro test account. **Tests:** (1) Download progress indicator, (2) Cache loading performance, (3) Toast notification. **Status:** ✅ Fixed.
 - **⚠️ Goal Setting Tests Skipped (2025-12-01):** Two tests in `goal-setting.e2e.spec.ts` are skipped because the feature displays hardcoded mock data instead of real functionality. **Tests:** (1) Actual session progress, (2) Custom goal setting. **Impact:** Incomplete feature implementation. **Status:** Requires backend integration. **Location:** `tests/e2e/goal-setting.e2e.spec.ts:35,74`
 - **⚠️ Session Comparison Tests Skipped (2025-12-01):** Two tests in `session-comparison.e2e.spec.ts` are skipped because core comparison features are missing. **Tests:** (1) Side-by-side comparison UI, (2) Progress trends over time. **Impact:** Missing feature. **Status:** Requires feature implementation. **Location:** `tests/e2e/session-comparison.e2e.spec.ts:52,102`
 - **⚠️ Custom Vocabulary E2E Test Failure (2025-12-05):** The `custom-vocabulary.e2e.spec.ts` test fails with `net::ERR_FAILED` due to network interception issues with `mock.supabase.co`. **Root Cause:** Playwright `page.route` race condition or Service Worker conflict. **Impact:** Test infrastructure only. **Status:** Test skipped pending migration to MSW handlers. **Location:** `tests/e2e/custom-vocabulary.e2e.spec.ts:4`
@@ -162,7 +162,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Sat, 06 Dec 2025 11:58:27 GMT
+**Last Updated:** Sat, 06 Dec 2025 13:07:29 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -172,12 +172,12 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 368 |
+| Total tests             | 345 |
 | Unit tests              | 340   |
-| E2E tests (Playwright)  | 28  |
-| Passing tests           | 359   |
+| E2E tests (Playwright)  | 5  |
+| Passing tests           | 345   |
 | Failing tests           | 0   |
-| Disabled/skipped tests  | 9   |
+| Disabled/skipped tests  | 0   |
 | Passing unit tests      | 340   |
 | Failing E2E tests       | 0   |
 | Total runtime           | N/A   |
@@ -191,7 +191,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 | Statements | N/A   |
 | Branches   | N/A   |
 | Functions  | N/A   |
-| Lines      | 0%   |
+| Lines      | 55.09%   |
 
 ---
 

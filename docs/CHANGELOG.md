@@ -10,6 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Clarity Score Calculation Bug (2025-12-06):**
+  - **Problem:** Formula `100 - (fillerCount / wordCount * 500)` was too harsh - 1 filler in 5 words (20% rate) gave 0% clarity instead of 80%
+  - **Solution:** Changed to direct percentage formula: `100 - ((fillerCount / wordCount) * 100)`
+  - **Impact:** Clarity scores now accurately reflect filler word percentage (20% fillers = 80% clarity)
+  - **File:** `frontend/src/hooks/useSessionMetrics.ts`
+
 ### Added
 - **Goal Setting localStorage Persistence (2025-12-05):**
   - **Problem:** Goal Setting showed hardcoded values (5 sessions, 90% clarity), users couldn't customize targets
