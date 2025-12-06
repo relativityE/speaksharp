@@ -4,6 +4,7 @@ import path from 'path';
 
 const PRD_FILE = path.resolve(process.cwd(), 'docs/PRD.md');
 const METRICS_FILE = path.resolve(process.cwd(), 'test-results/metrics.json');
+const COVERAGE_FILE = path.resolve(process.cwd(), 'frontend/coverage/coverage-summary.json');
 
 console.log('[UpdateScript] Starting PRD metrics update.');
 
@@ -12,6 +13,19 @@ try {
   const prdContent = fs.readFileSync(PRD_FILE, 'utf-8');
   const metrics = JSON.parse(fs.readFileSync(METRICS_FILE, 'utf-8'));
 
+  // Read coverage data
+  let coverage = { statements: 'N/A', branches: 'N/A', functions: 'N/A', lines: 'N/A' };
+  if (fs.existsSync(COVERAGE_FILE)) {
+    const coverageData = JSON.parse(fs.readFileSync(COVERAGE_FILE, 'utf-8'));
+    const total = coverageData.total;
+    coverage = {
+      statements: `${total.statements.pct}%`,
+      branches: `${total.branches.pct}%`,
+      functions: `${total.functions.pct}%`,
+      lines: `${total.lines.pct}%`
+    };
+  }
+
   // --- Data Calculation ---
   const { unit_tests, e2e_tests, performance } = metrics;
   const e2eTotal = (e2e_tests.passed || 0) + (e2e_tests.failed || 0) + (e2e_tests.skipped || 0);
@@ -19,8 +33,10 @@ try {
   const passingTests = unit_tests.passed + e2e_tests.passed;
   const failingTests = unit_tests.failed + e2e_tests.failed;
   const skippedTests = unit_tests.skipped + e2e_tests.skipped;
-  const unitTestsPassing = unit_tests.passed;
-  const e2eTestsFailing = e2e_tests.failed;
+
+  // Calculate percentages
+  const unitTestsPassingPct = unit_tests.total > 0 ? ((unit_tests.passed / unit_tests.total) * 100).toFixed(1) : 0;
+  const e2eTestsPassingPct = e2eTotal > 0 ? ((e2e_tests.passed / e2eTotal) * 100).toFixed(1) : 0;
 
   // --- New Vertical Table Generation ---
   const newSqmSection = `
@@ -36,15 +52,15 @@ try {
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | ${totalTests} |
+| Total tests             | ${totalTests} (${unit_tests.total} unit + ${e2eTotal} E2E) |
 | Unit tests              | ${unit_tests.total}   |
 | E2E tests (Playwright)  | ${e2eTotal}  |
-| Passing tests           | ${passingTests}   |
+| Passing tests           | ${passingTests} (${unit_tests.passed} unit + ${e2e_tests.passed} E2E)   |
 | Failing tests           | ${failingTests}   |
-| Disabled/skipped tests  | ${skippedTests}   |
-| Passing unit tests      | ${unitTestsPassing}   |
-| Failing E2E tests       | ${e2eTestsFailing}   |
-| Total runtime           | N/A   |
+| Disabled/skipped tests  | ${skippedTests} (E2E only)   |
+| Passing unit tests      | ${unit_tests.passed}/${unit_tests.total} (${unitTestsPassingPct}%)   |
+| Passing E2E tests       | ${e2e_tests.passed}/${e2eTotal} (${e2eTestsPassingPct}%)   |
+| Total runtime           | See CI logs   |
 
 ---
 
@@ -52,10 +68,10 @@ try {
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | N/A   |
-| Branches   | N/A   |
-| Functions  | N/A   |
-| Lines      | ${unit_tests.coverage.lines}%   |
+| Statements | ${coverage.statements}   |
+| Branches   | ${coverage.branches}   |
+| Functions  | ${coverage.functions}   |
+| Lines      | ${coverage.lines}   |
 
 ---
 
