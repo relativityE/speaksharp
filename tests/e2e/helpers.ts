@@ -54,90 +54,10 @@ export async function programmaticLogin(
   console.log('[E2E DEBUG] Starting programmaticLogin');
 
   // 1. Set flag before navigation (AuthProvider checks this)
-  console.log('[E2E DEBUG] Setting __E2E_MOCK_SESSION__ flag and MockSpeechRecognition');
+  console.log('[E2E DEBUG] Setting __E2E_MOCK_SESSION__ flag');
   await page.addInitScript(() => {
     (window as unknown as { __E2E_MOCK_SESSION__: boolean }).__E2E_MOCK_SESSION__ = true;
-
-    // Mock SpeechRecognition API
-    class MockSpeechRecognition {
-      continuous = false;
-      interimResults = false;
-      lang = 'en-US';
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      private _onresult: ((event: any) => void) | null = null;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      private _eventQueue: any[] = [];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      onerror: ((event: any) => void) | null = null;
-      onend: (() => void) | null = null;
-      onstart: (() => void) | null = null;
-
-      constructor() {
-        console.log('[MockSpeechRecognition] Constructed');
-
-        // Listen for simulation events from the test
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        window.addEventListener('e2e:simulate-transcript', (e: any) => {
-          console.log('[MockSpeechRecognition] ⚡ Event received:', e.detail);
-
-          // Construct a mock SpeechRecognitionEvent
-          const results = [];
-          const resultItem = [
-            { transcript: e.detail.transcript.final || e.detail.transcript.partial, confidence: 1.0 }
-          ];
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (resultItem as any).isFinal = !!e.detail.transcript.final;
-          results.push(resultItem);
-
-          const event = {
-            resultIndex: 0,
-            results: results
-          };
-
-          // If onresult is set, call it immediately
-          if (this._onresult) {
-            console.log('[MockSpeechRecognition] ✅ Calling onresult immediately');
-            this._onresult(event);
-          } else {
-            // Otherwise, queue it for later
-            console.log('[MockSpeechRecognition] 📦 Queueing event (onresult not set yet)');
-            this._eventQueue.push(event);
-          }
-        });
-      }
-
-      // Getter/setter for onresult to replay queued events
-      get onresult() {
-        return this._onresult;
-      }
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      set onresult(handler: ((event: any) => void) | null) {
-        console.log('[MockSpeechRecognition] onresult handler ASSIGNED', handler ? 'YES' : 'NO');
-        this._onresult = handler;
-
-        // Replay any queued events
-        if (handler && this._eventQueue.length > 0) {
-          console.log(`[MockSpeechRecognition] 🔄 Replaying ${this._eventQueue.length} queued events`);
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          this._eventQueue.forEach((event: any) => {
-            console.log('[MockSpeechRecognition] ↪️ Replaying event:', event);
-            handler(event);
-          });
-          this._eventQueue = [];
-        }
-      }
-
-      start() { console.log('[MockSpeechRecognition] start() called'); if (this.onstart) this.onstart(); }
-      stop() { console.log('[MockSpeechRecognition] stop() called'); if (this.onend) this.onend(); }
-      abort() { console.log('[MockSpeechRecognition] abort() called'); if (this.onend) this.onend(); }
-    }
-
-    // Inject into window
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (window as any).SpeechRecognition = MockSpeechRecognition;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (window as any).webkitSpeechRecognition = MockSpeechRecognition;
+    // Note: MockSpeechRecognition is provided by e2e-bridge.ts, not here
   });
 
   // 2. Navigate to app
