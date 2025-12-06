@@ -1,0 +1,95 @@
+name: Deploy Supabase Migrations (Manual Approval Required)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "DEPLOY" to confirm migration'
+        required: true
+        default: ''
+
+jobs:
+  deploy-migrations:
+    environment: production-db
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Validate confirmation
+        run: |
+          user_input="$(echo "${{ github.event.inputs.confirm }}" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
+          if [ "$user_input" != "DEPLOY" ]; then
+            echo "❌ Deployment cancelled - confirmation not provided"
+            exit 1
+          fi
+          echo "✅ Deployment confirmed"
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Supabase CLI
+        run: |
+          npm install -g supabase@latest
+          supabase --version
+
+      - name: Validate environment secrets
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          if [ -z "$SUPABASE_PROJECT_REF" ]; then
+            echo "❌ Missing SUPABASE_PROJECT_REF (expected as GitHub secret)" >&2
+            exit 1
+          fi
+          echo "✅ Project ref validated"
+
+      - name: Link to Supabase project
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          cd backend/supabase
+          # Use service key to login the CLI (no local auth)
+          supabase login --no-local-auth --service-role-key "$SUPABASE_SERVICE_KEY" || true
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+          echo "✅ Linked to Supabase project"
+
+      - name: Push migrations to production
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          cd backend/supabase
+          echo "🚀 Pushing migrations to production..."
+          supabase db push
+          echo "✅ Migrations applied successfully"
+
+      - name: Save migration list to file
+        run: |
+          cd backend/supabase
+          supabase migration list > migration_list.txt || true
+          head -n 300 migration_list.txt > migration_list_trimmed.txt || true
+          echo "Saved migration list"
+
+      - name: Add migration list to job summary
+        run: |
+          echo "### Migration list" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          sed -n '1,200p' backend/supabase/migration_list_trimmed.txt >> $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "✅ Migration list added to job summary"
+
+      - name: Post-deployment summary
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ Deployment Complete"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "⚠️  IMPORTANT - Post-Deployment Actions:"
+          echo "  1. Rotate/delete the temporary service key in Supabase Dashboard"
+          echo "  2. Verify migrations in Supabase Dashboard"
+          echo "  3. Test affected features in production"
+          echo "  4. Monitor error logs for 24h"
