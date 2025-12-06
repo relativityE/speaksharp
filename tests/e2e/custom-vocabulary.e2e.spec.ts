@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { programmaticLogin } from './helpers';
 
-test.describe.skip('Custom Vocabulary', () => {
+test.describe('Custom Vocabulary', () => {
     test('should allow adding and removing custom words', async ({ page }) => {
         // MSW handlers in handlers.ts now handle all network requests
         await programmaticLogin(page);

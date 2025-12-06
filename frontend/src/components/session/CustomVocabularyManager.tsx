@@ -75,6 +75,7 @@ export const CustomVocabularyManager: React.FC = () => {
                         type="submit"
                         size="icon"
                         disabled={!newWord.trim() || isAdding || vocabulary.length >= VOCABULARY_LIMITS.MAX_WORDS_PER_USER}
+                        aria-label="Add word"
                     >
                         <Plus className="h-4 w-4" />
                     </Button>

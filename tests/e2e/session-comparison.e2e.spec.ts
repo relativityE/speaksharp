@@ -20,7 +20,7 @@ import { programmaticLogin } from './helpers';
  */
 
 test.describe('Session Comparison & Progress Tracking', () => {
-    test.skip('should display session history with metrics', async ({ page }) => {
+    test('should display session history with metrics', async ({ page }) => {
         await programmaticLogin(page);
         await page.goto('/analytics');
         await page.waitForSelector('[data-testid="app-main"]');
@@ -49,7 +49,7 @@ test.describe('Session Comparison & Progress Tracking', () => {
         console.log(`[TEST] ✅ Found ${count} sessions with metrics displayed`);
     });
 
-    test.skip('should allow comparing two sessions side-by-side', async ({ page }) => {
+    test('should allow comparing two sessions side-by-side', async ({ page }) => {
         /**
          * SKIPPED: Session comparison feature does NOT exist
          * 
@@ -99,7 +99,7 @@ test.describe('Session Comparison & Progress Tracking', () => {
         console.log('[TEST] ✅ Session comparison working');
     });
 
-    test.skip('should show progress trends over time', async ({ page }) => {
+    test('should show progress trends over time', async ({ page }) => {
         /**
          * SKIPPED: Progress tracking feature does NOT exist
          * 
