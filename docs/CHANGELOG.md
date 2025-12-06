@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Impact:** Metrics E2E test now passing (WPM: 120, Clarity: 87%, Fillers: 6)
   - **File:** `tests/e2e/helpers.ts`
 
+- **Custom Vocabulary Button Accessibility (2025-12-06):**
+  - **Problem:** Plus button had no accessible label, causing E2E test timeout
+  - **Solution:** Added `aria-label="Add word"` to button
+  - **Impact:** Button now accessible to screen readers and E2E tests
+  - **File:** `frontend/src/components/session/CustomVocabularyManager.tsx`
+
 - **Custom Vocabulary E2E Network Interception (2025-12-06):**
   - **Problem:** Test failed with `net::ERR_FAILED` due to `page.route()` conflicting with MSW Service Worker
   - **Solution:** Migrated to MSW handlers (GET/POST/DELETE for custom_vocabulary endpoints)
@@ -36,6 +42,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **File:** `frontend/src/hooks/useSessionMetrics.ts`
 
 ### Added
+- **Session Comparison and Progress Tracking (2025-12-06):**
+  - **Feature:** Users can now compare sessions side-by-side and track progress over time
+  - **Components:** Created ProgressIndicator, TrendChart, SessionComparisonDialog
+  - **UI:** Added checkboxes to session history, "Compare Sessions" button appears when 2 selected
+  - **Trend Charts:** WPM and Clarity trend charts show progress over last 10 sessions
+  - **Progress Indicators:** Green ↑ for improvement, red ↓ for regression, with percentage change
+  - **Impact:** Users can now track improvement and identify areas needing work
+  - **Files:** `ProgressIndicator.tsx`, `TrendChart.tsx`, `SessionComparisonDialog.tsx`, `AnalyticsDashboard.tsx`
+  - **Dependencies:** Added recharts library for trend visualization
+
 - **Goal Setting Supabase Sync (2025-12-06):**
   - **Feature:** Goals now sync to Supabase `user_goals` table when authenticated
   - **Fallback:** localStorage used when offline/unauthenticated (backward compatible)

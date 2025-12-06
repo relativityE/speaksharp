@@ -185,7 +185,7 @@ describe('CustomVocabularyManager Integration', () => {
             const input = screen.getByPlaceholderText(/SpeakSharp/i);
             await user.type(input, 'microservices');
 
-            const addButton = screen.getByRole('button', { name: '' }); // Icon-only button
+            const addButton = screen.getByRole('button', { name: /add word/i });
             await user.click(addButton);
 
             await waitFor(() => {
@@ -219,7 +219,7 @@ describe('CustomVocabularyManager Integration', () => {
             const input = screen.getByPlaceholderText(/SpeakSharp/i);
             await user.type(input, 'a');
 
-            const addButton = screen.getByRole('button', { name: '' });
+            const addButton = screen.getByRole('button', { name: /add word/i });
             await user.click(addButton);
 
             // Should call addWord (validation happens in the hook/backend usually, or if client-side, we need to mock that behavior)
@@ -266,7 +266,7 @@ describe('CustomVocabularyManager Integration', () => {
             const input = screen.getByPlaceholderText(/SpeakSharp/i) as HTMLInputElement;
             await user.type(input, 'devops');
 
-            const addButton = screen.getByRole('button', { name: '' });
+            const addButton = screen.getByRole('button', { name: /add word/i });
             await user.click(addButton);
 
             await waitFor(() => {

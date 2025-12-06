@@ -155,7 +155,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ profile 
             clarity_score: s!.accuracy ? Math.round(s!.accuracy * 100) : 0,
             filler_count: Object.values(s!.filler_words || {}).reduce((sum, data) => sum + (data.count || 0), 0),
             duration_seconds: s!.duration,
-        })) as [any, any];
+        })) as [{ id: string; created_at: string; wpm: number; clarity_score: number; filler_count: number; duration_seconds: number }, { id: string; created_at: string; wpm: number; clarity_score: number; filler_count: number; duration_seconds: number }];
     }, [selectedSessions, sessionHistory]);
 
     const trendData = useMemo(() => {
