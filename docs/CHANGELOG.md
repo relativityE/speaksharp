@@ -30,8 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Custom Vocabulary E2E Network Interception (2025-12-06):**
   - **Problem:** Test failed with `net::ERR_FAILED` due to `page.route()` conflicting with MSW Service Worker
-  - **Solution:** Migrated to MSW handlers (GET/POST/DELETE for custom_vocabulary endpoints)
-  - **Impact:** Network interception conflicts eliminated, MSW handlers ready (test skipped pending UI debug)
+  - **Solution:** Migrated to MSW handlers (GET/POST/DELETE for custom_vocabulary endpoints), implemented stateful Map-based storage with PostgREST query param parsing
+  - **Status:** MSW handlers return correct data, but React Query cache not refetching after mutation
+  - **Impact:** Network interception conflicts eliminated, test re-skipped pending React Query investigation
   - **Files:** `frontend/src/mocks/handlers.ts`, `tests/e2e/custom-vocabulary.e2e.spec.ts`
 
 - **Analytics Empty State E2E Test (2025-12-06):**
