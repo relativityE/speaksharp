@@ -233,18 +233,20 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ profile 
                     <>
                         <div className="col-span-1 lg:col-span-3" data-testid="overall-progress">
                             <TrendChart
-                                data={trendData}
-                                metric="wpm"
                                 title="Speaking Pace Trend"
                                 description="Track your words per minute over time"
+                                data={trendData}
+                                metric="wpm"
+                                data-testid="wpm-trend-chart"
                             />
                         </div>
                         <div className="col-span-1 lg:col-span-2">
                             <TrendChart
+                                title="Clarity Trend"
+                                description="Monitor your speech clarity percentage"
                                 data={trendData}
                                 metric="clarity"
-                                title="Clarity Score Trend"
-                                description="Monitor your clarity improvement"
+                                data-testid="clarity-trend-chart"
                             />
                         </div>
                     </>

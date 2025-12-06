@@ -119,18 +119,21 @@ export const SessionComparisonDialog: React.FC<SessionComparisonDialogProps> = (
                             label="WPM"
                             value={session2.wpm}
                             previousValue={session1.wpm}
+                            data-testid="improvement-indicator"
                         />
                         <ProgressIndicator
                             label="Clarity"
                             value={session2.clarity_score}
                             previousValue={session1.clarity_score}
                             unit="%"
+                            data-testid="improvement-indicator"
                         />
                         <ProgressIndicator
                             label="Fillers"
                             value={session2.filler_count}
                             previousValue={session1.filler_count}
                             inverse
+                            data-testid="improvement-indicator"
                         />
                     </CardContent>
                 </Card>
