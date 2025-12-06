@@ -41,12 +41,16 @@ export const handlers: RequestHandler[] = [
   http.get('*/rest/v1/sessions', ({ request }) => {
     console.log('[MSW DEBUG] Intercepted: GET /rest/v1/sessions');
 
+    // Check window flag for empty sessions (E2E test control)
+    const windowFlag = typeof window !== 'undefined' && (window as any).__E2E_EMPTY_SESSIONS__;
+    console.log('[MSW DEBUG] window.__E2E_EMPTY_SESSIONS__:', windowFlag);
+
     // Check if test wants empty sessions via custom header
     const emptyFlag = request.headers.get('x-e2e-empty-sessions') === 'true';
     console.log('[MSW DEBUG] x-e2e-empty-sessions header:', emptyFlag);
 
-    if (emptyFlag) {
-      console.log('[MSW DEBUG] Returning empty sessions array (E2E header set)');
+    if (windowFlag || emptyFlag) {
+      console.log('[MSW DEBUG] Returning empty sessions array');
       return HttpResponse.json([]);
     }
 
