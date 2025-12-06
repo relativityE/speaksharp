@@ -101,7 +101,8 @@ This phase is about confirming the core feature set works as expected and polish
 - ✅ **Fix E2E Test Gap (Live Transcript):** Complete end-to-end coverage implemented (2025-11-27)
 - 🔴 **Implement WebSocket Reconnect Logic:** Add heartbeat and exponential backoff.
 - 🔴 **Implement Session Comparison:** Allow users to compare sessions side-by-side and track progress (WPM, Clarity, Fillers) over time.
-- ✅ **Implement Local STT Toast Notification:** Show user feedback when Whisper model download completes.
+- 🔴 **Implement Local STT Toast Notification:** Show user feedback when Whisper model download completes.
+- 🔄 **PERPETUAL - Documentation Audit:** Verify PRD Known Issues, ROADMAP, and CHANGELOG match actual codebase state. Run test suite and cross-reference with documented issues to eliminate drift. **Frequency:** Before each release and after major feature work.
 
 ### 🚧 Should-Have (Tech Debt)
 - **✅ COMPLETED - CVA-Based Design System Refinement (2025-11-28):**
