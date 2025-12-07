@@ -21,13 +21,13 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, DropdownMenuRad
 import { ChevronDown } from 'lucide-react';
 
 export const SessionPage: React.FC = () => {
-    const { session, isGuest } = useAuthProvider();
+    const { session } = useAuthProvider();
     const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
 
     // Use zustand store for session state
     const { updateElapsedTime, elapsedTime } = useSessionStore();
 
-    console.log('[DEBUG] SessionPage rendered. Session:', session?.user?.id, 'Guest:', isGuest);
+    console.log('[DEBUG] SessionPage rendered. Session:', session?.user?.id);
     console.log('[DEBUG] SessionPage profile state:', { isProfileLoading, profileError, profileId: profile?.id });
 
     const [customWords] = useState<string[]>([]);
@@ -108,16 +108,6 @@ export const SessionPage: React.FC = () => {
 
     return (
         <div className="min-h-screen bg-background">
-            {isGuest && (
-                <div className="bg-blue-500/10 border-b border-blue-500/20 px-6 py-2 text-center" data-testid="guest-mode-banner">
-                    <p className="text-sm text-blue-400 font-medium flex items-center justify-center gap-2">
-                        <span>👋 You are testing in Guest Mode. Data will not be saved.</span>
-                        <Button variant="link" className="h-auto p-0 text-blue-400 font-bold underline hover:text-blue-300" onClick={() => window.location.replace('/auth/signup')}>
-                            Create Account
-                        </Button>
-                    </p>
-                </div>
-            )}
             {/* Page Header */}
             <div className="flex items-center justify-between py-8 px-6 max-w-7xl mx-auto">
                 <div>
@@ -140,15 +130,7 @@ export const SessionPage: React.FC = () => {
                         <SheetTitle>Session Settings</SheetTitle>
                     </SheetHeader>
                     <div className="mt-6">
-                        {isGuest ? (
-                            <div className="text-center p-6 border border-dashed border-white/10 rounded-lg bg-muted/5">
-                                <h3 className="font-semibold text-foreground mb-2">Pro Feature</h3>
-                                <p className="text-sm text-muted-foreground mb-4">Create a custom vocabulary to improve transcription accuracy for specific terms.</p>
-                                <Button onClick={() => window.location.replace('/auth/signup')}>Sign Up to Upgrade</Button>
-                            </div>
-                        ) : (
-                            <CustomVocabularyManager />
-                        )}
+                        <CustomVocabularyManager />
                     </div>
                 </SheetContent>
             </Sheet>
