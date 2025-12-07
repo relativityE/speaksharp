@@ -34,6 +34,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Supports trend analysis and goal-setting feature verification
   - **File:** `frontend/src/mocks/handlers.ts`
 
+- **Demo Recording Automation (2025-12-07):**
+  - Added Playwright test specifically designed to record full product walkthroughs
+  - Generates `video.webm` capturing Landing, Auth, Session, and Analytics flows
+  - **File:** `tests/e2e/demo-recording.e2e.spec.ts`
+
 ### Fixed
 - **HeroSection WCAG Contrast Improved (2025-12-07):**
   - **Problem:** White text on complex gradient background failed WCAG AA 4.5:1 contrast ratio
