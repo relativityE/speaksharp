@@ -132,7 +132,7 @@ SpeakSharp is built on a modern, serverless technology stack designed for real-t
     *   **Cloud Transcription:** AssemblyAI (v3 Streaming API)
     *   **Payments:** Stripe
     *   **Error Reporting:** Sentry
-    *   **Product Analytics:** PostHog
+    *   **Product Analytics:** PostHog (New: 2025-12-07)
 *   **Testing:**
     *   **Unit/Integration:** Vitest (`^2.1.9`)
     *   **DOM Environment:** happy-dom (`^18.0.1`)
@@ -757,6 +757,9 @@ This section tracks architectural improvements, tooling refactors, and code heal
 
 ### 🛠️ Tooling & Code Quality
 - **ESLint Configuration:** Fix `no-unused-vars` rule to correctly ignore variables in `catch` blocks (e.g., `catch (_e)`).
+- **Update Core Dependencies:** Upgrade React, Vite, Vitest, and Tailwind to latest stable versions.
+
+
 - **Update Core Dependencies:** Upgrade React, Vite, Vitest, and Tailwind to latest stable versions.
 
 
