@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import posthog from 'posthog-js';
 
 export default function SignUpPage() {
     const { session, loading, setSession } = useAuthProvider();
@@ -38,9 +39,13 @@ export default function SignUpPage() {
 
             if (signInData.session) {
                 setSession(signInData.session);
+                // Track successful signup
+                posthog.capture('signup_completed', { email_domain: email.split('@')[1] });
             } else {
                 // If no session, it likely requires email confirmation
                 setMessage('Success! Please check your email for a confirmation link.');
+                // Still track signup initiation
+                posthog.capture('signup_completed', { requires_confirmation: true });
             }
 
         } catch (err: unknown) {

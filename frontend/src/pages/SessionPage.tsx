@@ -94,12 +94,21 @@ export const SessionPage: React.FC = () => {
     const handleStartStop = async () => {
         if (isListening) {
             await stopListening();
+            // Track session end with metrics
+            posthog.capture('session_ended', {
+                duration: elapsedTime,
+                wpm: metrics.wpm,
+                clarity_score: metrics.clarityScore,
+                filler_count: metrics.fillerCount
+            });
         } else {
             await startListening({
                 forceNative: mode === 'native',
                 forceOnDevice: mode === 'on-device',
                 forceCloud: mode === 'cloud'
             });
+            // Track session start
+            posthog.capture('session_started', { mode });
         }
     };
 

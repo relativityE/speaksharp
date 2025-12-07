@@ -6,8 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Mail } from 'lucide-react';
 
-// Sign In page – defaults to sign_in view
+// Sign In page – supports both password and magic link
 export default function SignInPage() {
     const { session, loading, setSession } = useAuthProvider();
 
@@ -16,6 +17,7 @@ export default function SignInPage() {
     const [error, setError] = useState<string | null>(null);
     const [message, setMessage] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isSendingMagicLink, setIsSendingMagicLink] = useState(false);
 
     const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
@@ -31,6 +33,31 @@ export default function SignInPage() {
             setError(err instanceof Error ? err.message : 'An unexpected error occurred');
         } finally {
             setIsSubmitting(false);
+        }
+    };
+
+    const handleMagicLink = async () => {
+        if (!email) {
+            setError('Please enter your email address first');
+            return;
+        }
+        setIsSendingMagicLink(true);
+        setError(null);
+        setMessage(null);
+        try {
+            const supabase = getSupabaseClient();
+            const { error: otpError } = await supabase.auth.signInWithOtp({
+                email,
+                options: {
+                    emailRedirectTo: `${window.location.origin}/`
+                }
+            });
+            if (otpError) throw otpError;
+            setMessage('Magic link sent! Check your email for a login link.');
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : 'Failed to send magic link');
+        } finally {
+            setIsSendingMagicLink(false);
         }
     };
 
@@ -57,7 +84,7 @@ export default function SignInPage() {
                         <CardTitle className="text-2xl font-bold tracking-tight">Welcome back</CardTitle>
                         <CardDescription className="text-base">Enter your credentials to access your account</CardDescription>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="space-y-4">
                         <form onSubmit={handleSubmit} className="space-y-4" data-testid="auth-form">
                             <div className="space-y-2">
                                 <Label htmlFor="email">Email</Label>
@@ -94,6 +121,29 @@ export default function SignInPage() {
                                 {isSubmitting ? 'Signing in...' : 'Sign In'}
                             </Button>
                         </form>
+
+                        {/* Divider */}
+                        <div className="relative">
+                            <div className="absolute inset-0 flex items-center">
+                                <span className="w-full border-t border-border" />
+                            </div>
+                            <div className="relative flex justify-center text-xs uppercase">
+                                <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
+                            </div>
+                        </div>
+
+                        {/* Magic Link Button */}
+                        <Button
+                            type="button"
+                            variant="outline"
+                            className="w-full h-11 text-base font-medium"
+                            onClick={handleMagicLink}
+                            disabled={isSendingMagicLink || !email}
+                            data-testid="magic-link-button"
+                        >
+                            <Mail className="mr-2 h-4 w-4" />
+                            {isSendingMagicLink ? 'Sending...' : 'Email Magic Link'}
+                        </Button>
                     </CardContent>
                 </Card>
                 <div className="text-center text-sm text-muted-foreground">
