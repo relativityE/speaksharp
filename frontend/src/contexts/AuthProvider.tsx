@@ -74,6 +74,14 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, newSession) => {
+        // In E2E test mode, don't let Supabase auth state changes override the mock session
+        // The mock session is set via initialSession from e2e-bridge.ts
+        if (import.meta.env.MODE === 'test' || import.meta.env.VITE_TEST_MODE === 'true') {
+          if (initialSession && !newSession) {
+            console.log('[AuthProvider] Ignoring empty session in test mode - keeping mock session');
+            return; // Don't clear the mock session
+          }
+        }
         fetchAndSetProfile(newSession);
       }
     );

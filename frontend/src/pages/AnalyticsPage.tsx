@@ -37,10 +37,14 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     const { user } = useAuthProvider();
     const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
 
+    console.log('[AnalyticsPage] Rendering. sessionId:', sessionId, 'loading:', loading, 'isProfileLoading:', isProfileLoading);
+    console.log('[AnalyticsPage] sessionHistory length:', sessionHistory?.length, 'error:', error, 'profileError:', profileError);
+
     const isPro = profile?.subscription_status === 'pro';
 
     // Show loading state while fetching data
     if (loading || isProfileLoading) {
+        console.log('[AnalyticsPage] Showing loading state');
         return (
             <div className="flex items-center justify-center py-16">
                 <div className="text-center">

@@ -1,11 +1,16 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin } from './helpers';
+import { programmaticLogin, navigateToRoute } from './helpers';
 
 test.describe('Analytics Page - Dashboard with Data', () => {
   test('should display analytics dashboard with session data', async ({ page }) => {
     // MSW provides mock session data by default
     await programmaticLogin(page);
-    await page.goto('/analytics');
+
+    // Use client-side navigation to avoid full page reload issues
+    await navigateToRoute(page, '/analytics');
+
+    console.log('[TEST] Current URL:', page.url());
+    console.log('[TEST] Waiting for dashboard heading...');
 
     // Verify dashboard heading
     const mainHeading = page.getByTestId('dashboard-heading');

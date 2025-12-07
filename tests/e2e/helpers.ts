@@ -78,6 +78,31 @@ export async function programmaticLogin(
 }
 
 /**
+ * Navigate to a protected route using client-side navigation.
+ * This avoids full page reload issues that cause ProtectedRoute loading state bugs.
+ * 
+ * IMPORTANT: Use this instead of page.goto() for protected routes like /analytics, /session
+ * 
+ * @param page - Playwright page object
+ * @param route - Target route (e.g., '/analytics', '/session')
+ */
+export async function navigateToRoute(page: Page, route: string): Promise<void> {
+  console.log(`[E2E DEBUG] Navigating to ${route} using client-side navigation`);
+
+  // Use evaluate to trigger React Router navigation without full page reload
+  await page.evaluate((targetRoute) => {
+    // React Router uses the browser history API
+    window.history.pushState({}, '', targetRoute);
+    // Dispatch popstate to notify React Router of the change
+    window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+  }, route);
+
+  // Wait for route change to complete
+  await page.waitForURL(`**${route}`, { timeout: 10000 });
+  console.log(`[E2E DEBUG] Navigation to ${route} complete`);
+}
+
+/**
  * User type for real authentication testing
  */
 export type UserType = 'free' | 'pro' | 'test';
