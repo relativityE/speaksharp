@@ -16,7 +16,9 @@ test.describe('Session Metrics', () => {
         await page.getByTestId('session-start-stop-button').click();
         console.log('[TEST] ✅ Clicked start button');
 
-        await expect(page.getByText('Stop')).toBeVisible();
+        // Wait for button to change to "Stop" state (desktop shows "Stop", mobile shows "Stop Recording")
+        const stopButton = page.getByTestId('session-start-stop-button').first(); // Get first visible button
+        await expect(stopButton).toContainText('Stop');
         console.log('[TEST] ✅ Stop button visible - service should be ready');
 
         // Target the WPM card
