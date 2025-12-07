@@ -10,6 +10,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **PostHog Analytics Events (2025-12-07):**
+  - `signup_completed` event in SignUpPage with email_domain property
+  - `session_started` event when recording begins with mode property
+  - `session_ended` event when recording stops with duration, wpm, clarity_score, filler_count
+  - **Files:** `SignUpPage.tsx`, `SessionPage.tsx`
+
+- **Magic Link Sign-In (2025-12-07):**
+  - Added "Email Magic Link" passwordless login option
+  - Uses Supabase `signInWithOtp()` for secure 15-minute one-time links
+  - **File:** `SignInPage.tsx`
+
+- **User Journey E2E Tests (2025-12-07):**
+  - Full journey test: login → session → analytics → return session (7 steps)
+  - Pro user session start test with default cloud mode
+  - Free user tier gating test (only Native Browser STT available)
+  - **File:** `tests/e2e/user-journey.e2e.spec.ts`
+
+- **Rich Mock Session Data (2025-12-07):**
+  - 5 mock sessions showing improvement trend (clarity 65%→94%, fillers 20→1, WPM 28→40)
+  - 6 pre-populated custom vocabulary words (Kubernetes, microservices, CI/CD, serverless, neural networks, gradient descent)
+  - Supports trend analysis and goal-setting feature verification
+  - **File:** `frontend/src/mocks/handlers.ts`
+
 ### Fixed
 - **HeroSection WCAG Contrast Improved (2025-12-07):**
   - **Problem:** White text on complex gradient background failed WCAG AA 4.5:1 contrast ratio

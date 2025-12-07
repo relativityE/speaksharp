@@ -1,12 +1,21 @@
 import { http, HttpResponse, type RequestHandler } from 'msw';
 import { createMockSession, createMockUserProfile, createMockUser } from './test-user-utils';
 
+// Pre-populated custom vocabulary store with technical terms
+const mockVocabularyStore: Map<string, Array<{ id: string; user_id: string; word: string; created_at: string }>> = new Map([
+  ['test-user-123', [
+    { id: 'vocab-1', user_id: 'test-user-123', word: 'Kubernetes', created_at: new Date(Date.now() - 7 * 86400000).toISOString() },
+    { id: 'vocab-2', user_id: 'test-user-123', word: 'microservices', created_at: new Date(Date.now() - 6 * 86400000).toISOString() },
+    { id: 'vocab-3', user_id: 'test-user-123', word: 'CI/CD', created_at: new Date(Date.now() - 5 * 86400000).toISOString() },
+    { id: 'vocab-4', user_id: 'test-user-123', word: 'serverless', created_at: new Date(Date.now() - 3 * 86400000).toISOString() },
+    { id: 'vocab-5', user_id: 'test-user-123', word: 'neural networks', created_at: new Date(Date.now() - 2 * 86400000).toISOString() },
+    { id: 'vocab-6', user_id: 'test-user-123', word: 'gradient descent', created_at: new Date(Date.now() - 1 * 86400000).toISOString() },
+  ]]
+]);
 
 export const handlers: RequestHandler[] = [
   http.get('*/auth/v1/user', () => {
     console.log('[MSW DEBUG] Intercepted: GET /auth/v1/user');
-    // This handler is less important when using programmatic login,
-    // but we keep it for completeness.
     const user = createMockUser();
     return HttpResponse.json(user);
   }),
@@ -54,46 +63,123 @@ export const handlers: RequestHandler[] = [
       return HttpResponse.json([]);
     }
 
+    // Rich mock session data for analytics testing
+    // Shows improvement trend over 5 sessions for trend analysis
     const mockSessionHistory = [
       {
         id: 'session-1',
         user_id: 'test-user-123',
-        created_at: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
-        duration: 300, // 5 minutes
-        transcript: 'This is a test transcript with some um filler words and uh pauses.',
-        title: 'Practice Session 1',
-        total_words: 150,
-        accuracy: 0.92,
+        created_at: new Date(Date.now() - 7 * 86400000).toISOString(), // 7 days ago
+        duration: 180, // 3 minutes - beginner session
+        transcript: 'Um, so today I wanted to, uh, talk about my presentation skills. Like, I think I need to, um, practice more with, uh, technical terms like API and microservices.',
+        title: 'First Practice Session',
+        total_words: 85,
+        words_per_minute: 28,
+        accuracy: 0.72,
         filler_words: {
-          um: { count: 3 },
-          uh: { count: 2 },
-          like: { count: 1 },
-          total: { count: 6 }
+          um: { count: 8, timestamps: [1.2, 5.4, 12.1, 18.3, 25.6, 32.1, 45.2, 58.9] },
+          uh: { count: 6, timestamps: [3.1, 9.2, 22.4, 38.7, 52.1, 65.3] },
+          like: { count: 4, timestamps: [7.8, 28.9, 41.2, 72.1] },
+          'you know': { count: 2, timestamps: [15.4, 55.8] },
+          total: { count: 20 }
         },
-        clarity_score: 95,
-        articulation_score: 90,
-        pace_score: 85,
-        volume_score: 80,
+        clarity_score: 65,
+        articulation_score: 60,
+        pace_score: 55,
+        volume_score: 70,
+        pauses: { count: 12, avg_duration: 1.8 },
+        topics: ['presentation', 'public speaking', 'technical terms']
       },
       {
         id: 'session-2',
         user_id: 'test-user-123',
-        created_at: new Date(Date.now() - 172800000).toISOString(), // 2 days ago
-        duration: 420, // 7 minutes
-        transcript: 'Another practice session transcript.',
-        title: 'Practice Session 2',
-        total_words: 200,
-        accuracy: 0.88,
+        created_at: new Date(Date.now() - 5 * 86400000).toISOString(), // 5 days ago
+        duration: 240, // 4 minutes
+        transcript: 'Today I practiced discussing REST APIs and, um, database schemas. I think my pacing is, uh, getting better but I still use too many filler words.',
+        title: 'Technical Practice',
+        total_words: 120,
+        words_per_minute: 30,
+        accuracy: 0.78,
         filler_words: {
-          um: { count: 5 },
-          uh: { count: 3 },
-          like: { count: 2 },
-          total: { count: 10 }
+          um: { count: 5, timestamps: [8.2, 22.4, 45.6, 78.2, 112.3] },
+          uh: { count: 4, timestamps: [15.1, 38.9, 62.4, 95.1] },
+          like: { count: 3, timestamps: [28.3, 55.7, 88.2] },
+          'you know': { count: 1, timestamps: [72.4] },
+          total: { count: 13 }
         },
-        clarity_score: 88,
-        articulation_score: 85,
-        pace_score: 82,
-        volume_score: 78,
+        clarity_score: 72,
+        articulation_score: 70,
+        pace_score: 68,
+        volume_score: 75,
+        pauses: { count: 8, avg_duration: 1.4 },
+        topics: ['REST API', 'database', 'technical vocabulary']
+      },
+      {
+        id: 'session-3',
+        user_id: 'test-user-123',
+        created_at: new Date(Date.now() - 3 * 86400000).toISOString(), // 3 days ago
+        duration: 300, // 5 minutes
+        transcript: 'In this session I focused on explaining Kubernetes orchestration and CI/CD pipelines. My confidence with these DevOps terms is improving.',
+        title: 'DevOps Vocabulary Practice',
+        total_words: 165,
+        words_per_minute: 33,
+        accuracy: 0.85,
+        filler_words: {
+          um: { count: 3, timestamps: [18.4, 62.1, 145.8] },
+          uh: { count: 2, timestamps: [42.3, 98.7] },
+          like: { count: 2, timestamps: [75.2, 188.4] },
+          total: { count: 7 }
+        },
+        clarity_score: 80,
+        articulation_score: 78,
+        pace_score: 75,
+        volume_score: 82,
+        pauses: { count: 5, avg_duration: 1.1 },
+        topics: ['Kubernetes', 'CI/CD', 'DevOps']
+      },
+      {
+        id: 'session-4',
+        user_id: 'test-user-123',
+        created_at: new Date(Date.now() - 1 * 86400000).toISOString(), // 1 day ago
+        duration: 420, // 7 minutes
+        transcript: 'Today I presented about machine learning algorithms including neural networks and gradient descent. I feel much more comfortable with the technical terminology now.',
+        title: 'ML Presentation Practice',
+        total_words: 245,
+        words_per_minute: 35,
+        accuracy: 0.91,
+        filler_words: {
+          um: { count: 2, timestamps: [55.2, 185.4] },
+          uh: { count: 1, timestamps: [122.8] },
+          like: { count: 1, timestamps: [298.1] },
+          total: { count: 4 }
+        },
+        clarity_score: 87,
+        articulation_score: 88,
+        pace_score: 84,
+        volume_score: 86,
+        pauses: { count: 3, avg_duration: 0.8 },
+        topics: ['machine learning', 'neural networks', 'algorithms']
+      },
+      {
+        id: 'session-5',
+        user_id: 'test-user-123',
+        created_at: new Date().toISOString(), // Today
+        duration: 480, // 8 minutes - best session
+        transcript: 'This was my most fluent session yet! I discussed cloud architecture, serverless computing, and how SpeakSharp has helped me become a more confident speaker. The custom vocabulary feature really helped with the technical terms.',
+        title: 'Cloud Architecture Deep Dive',
+        total_words: 320,
+        words_per_minute: 40,
+        accuracy: 0.95,
+        filler_words: {
+          um: { count: 1, timestamps: [142.5] },
+          total: { count: 1 }
+        },
+        clarity_score: 94,
+        articulation_score: 92,
+        pace_score: 91,
+        volume_score: 88,
+        pauses: { count: 2, avg_duration: 0.6 },
+        topics: ['cloud architecture', 'serverless', 'AWS']
       },
     ];
     return HttpResponse.json(mockSessionHistory);
@@ -171,16 +257,16 @@ export const handlers: RequestHandler[] = [
   }),
 ];
 
-// In-memory vocabulary store (module-level)
-const mockVocabularyStore = new Map<string, Array<{
-  id: string;
-  user_id: string;
-  word: string;
-  created_at: string;
-}>>;
-
 // Export reset function for test setup
 export function resetMockVocabularyStore() {
-  mockVocabularyStore.clear();
-  console.log('[MSW] Vocabulary store reset');
+  // Reset to pre-populated default state
+  mockVocabularyStore.set('test-user-123', [
+    { id: 'vocab-1', user_id: 'test-user-123', word: 'Kubernetes', created_at: new Date(Date.now() - 7 * 86400000).toISOString() },
+    { id: 'vocab-2', user_id: 'test-user-123', word: 'microservices', created_at: new Date(Date.now() - 6 * 86400000).toISOString() },
+    { id: 'vocab-3', user_id: 'test-user-123', word: 'CI/CD', created_at: new Date(Date.now() - 5 * 86400000).toISOString() },
+    { id: 'vocab-4', user_id: 'test-user-123', word: 'serverless', created_at: new Date(Date.now() - 3 * 86400000).toISOString() },
+    { id: 'vocab-5', user_id: 'test-user-123', word: 'neural networks', created_at: new Date(Date.now() - 2 * 86400000).toISOString() },
+    { id: 'vocab-6', user_id: 'test-user-123', word: 'gradient descent', created_at: new Date(Date.now() - 1 * 86400000).toISOString() },
+  ]);
+  console.log('[MSW] Vocabulary store reset with pre-populated data');
 }

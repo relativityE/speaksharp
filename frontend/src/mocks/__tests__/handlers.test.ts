@@ -94,10 +94,13 @@ describe('MSW Handlers', () => {
 
             expect(response.ok).toBe(true);
             expect(Array.isArray(data)).toBe(true);
-            expect(data.length).toBe(2);
+            // Now returns 5 sessions showing improvement trend
+            expect(data.length).toBe(5);
             expect(data[0]).toHaveProperty('id', 'session-1');
-            expect(data[0]).toHaveProperty('clarity_score', 95);
-            expect(data[1]).toHaveProperty('id', 'session-2');
+            // First session has low clarity (beginner)
+            expect(data[0]).toHaveProperty('clarity_score', 65);
+            // Last session has high clarity (improved)
+            expect(data[4]).toHaveProperty('clarity_score', 94);
         });
 
         it('should return empty array when x-e2e-empty-sessions header is set', async () => {
@@ -120,7 +123,9 @@ describe('MSW Handlers', () => {
             expect(data[0].filler_words).toHaveProperty('um');
             expect(data[0].filler_words).toHaveProperty('uh');
             expect(data[0].filler_words).toHaveProperty('total');
-            expect(data[0].filler_words.total.count).toBe(6);
+            // First session (beginner) has 20 fillers, last session has 1
+            expect(data[0].filler_words.total.count).toBe(20);
+            expect(data[4].filler_words.total.count).toBe(1);
         });
 
         it('should return sessions with valid dates', async () => {
@@ -129,12 +134,12 @@ describe('MSW Handlers', () => {
 
             // Sessions should have valid ISO date strings
             const date1 = new Date(data[0].created_at);
-            const date2 = new Date(data[1].created_at);
+            const date5 = new Date(data[4].created_at);
 
             expect(date1.getTime()).not.toBeNaN();
-            expect(date2.getTime()).not.toBeNaN();
-            // Session 1 should be more recent than session 2
-            expect(date1.getTime()).toBeGreaterThan(date2.getTime());
+            expect(date5.getTime()).not.toBeNaN();
+            // Session 1 is oldest (7 days ago), Session 5 is most recent (today)
+            expect(date5.getTime()).toBeGreaterThan(date1.getTime());
         });
     });
 });
