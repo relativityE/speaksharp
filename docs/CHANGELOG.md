@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-11-27
+**Last Reviewed:** 2025-12-07
 
 # Changelog
 
@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Analytics E2E Test Failures Resolved (2025-12-07):**
+  - **Root Cause 1:** AuthProvider race condition - Supabase `onAuthStateChange` fired twice, clearing mock E2E session
+  - **Solution:** AuthProvider now ignores empty session updates in test mode when initial session exists
+  - **Root Cause 2:** Full page reload with `page.goto()` caused protected route loading state issues
+  - **Solution:** Added `navigateToRoute()` helper for client-side React Router navigation
+  - **Impact:** All 26 E2E tests now pass (previously 12 failing)
+  - **Skipped Tests (2):**
+    - `session-comparison.e2e.spec.ts:135` - Manual verification test for clarity score formula
+    - `pdf-export.e2e.spec.ts:28` - Conditional skip when no sessions are available for PDF export
+  - **Files:** `frontend/src/contexts/AuthProvider.tsx`, `tests/e2e/helpers.ts`, `tests/e2e/analytics.e2e.spec.ts`
+
 - **Metrics E2E Test Timing Issue (2025-12-06):**
   - **Problem:** WPM metrics remained at 0 despite mock transcript events - two conflicting MockSpeechRecognition implementations
   - **Solution:** Removed duplicate mock from `programmaticLogin()`, now uses only e2e-bridge.ts version
