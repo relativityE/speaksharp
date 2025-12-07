@@ -20,8 +20,6 @@ test.describe('SpeakSharp Demo Recording', () => {
         const page = await context.newPage();
 
         // Use slow motion for better demo visibility
-        // test.slow(); // Removed as we handle timing manually
-
         // 1. Landing Page
         console.log('[DEMO] Step 1: Landing Page');
         await page.goto('/');
