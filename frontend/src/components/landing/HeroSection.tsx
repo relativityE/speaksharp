@@ -15,10 +15,10 @@ export const HeroSection = () => {
             <Badge variant="outline" className="text-primary border-primary/50 bg-primary/10 px-4 py-1 text-sm uppercase tracking-wider">
               AI-Powered Speaking Coach
             </Badge>
-            <h1 className="text-5xl sm:text-6xl lg:text-7xl font-extrabold text-foreground leading-tight tracking-tight">
-              Private Practice. <span className="text-primary">Public Impact!</span>
+            <h1 className="text-5xl sm:text-6xl lg:text-7xl font-extrabold text-foreground leading-tight tracking-tight drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">
+              Private Practice. <span className="text-primary drop-shadow-[0_2px_4px_rgba(0,0,0,0.3)]">Public Impact!</span>
             </h1>
-            <p className="text-xl text-foreground/90 leading-relaxed max-w-[700px] drop-shadow-md">
+            <p className="text-xl text-foreground/95 leading-relaxed max-w-[700px] drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)] bg-background/20 backdrop-blur-sm px-4 py-2 rounded-lg">
               Transform your communication skills with real-time feedback, filler word detection, and AI-powered insights that help you speak with confidence and precision.
             </p>
           </div>

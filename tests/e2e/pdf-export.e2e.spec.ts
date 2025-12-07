@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin } from './helpers';
+import { programmaticLogin, navigateToRoute } from './helpers';
 
 /**
  * PDF Export E2E Test
@@ -14,8 +14,8 @@ test.describe('PDF Export', () => {
     test('should trigger PDF download when clicking download button', async ({ page }) => {
         await programmaticLogin(page);
 
-        // Navigate to analytics page
-        await page.goto('/analytics');
+        // Navigate to analytics page using client-side navigation
+        await navigateToRoute(page, '/analytics');
         await page.waitForSelector('[data-testid="app-main"]');
 
         // Check if there are any sessions to export
@@ -51,7 +51,7 @@ test.describe('PDF Export', () => {
 
     test('should have download button for each session in analytics', async ({ page }) => {
         await programmaticLogin(page);
-        await page.goto('/analytics');
+        await navigateToRoute(page, '/analytics');
         await page.waitForSelector('[data-testid="app-main"]');
 
         // Check for session cards

@@ -132,7 +132,7 @@ test.describe('Session Comparison & Progress Tracking', () => {
         console.log('[TEST] ✅ Progress trends displayed');
     });
 
-    test.skip('should calculate clarity score correctly in live session', async ({ page }) => {
+    test('should calculate clarity score correctly in live session', async ({ page }) => {
         /**
          * Verify Clarity Score calculation is correct
          * Formula: 100 - (fillerCount / wordCount * 500)
@@ -143,8 +143,8 @@ test.describe('Session Comparison & Progress Tracking', () => {
         await page.waitForSelector('[data-testid="app-main"]');
 
         // Start session
-        await page.getByTestId('session-start-stop-button').click();
-        await expect(page.getByText('Stop')).toBeVisible();
+        await page.getByTestId('session-start-stop-button').first().click();
+        await expect(page.getByText('Stop').first()).toBeVisible();
 
         // Find clarity score card
         const clarityCard = page.locator('.bg-card', { has: page.getByText('Clarity Score') });
