@@ -11,10 +11,8 @@ export interface AuthContextType {
   user: User | null;
   profile: UserProfile | null;
   loading: boolean;
-  isGuest: boolean;
   signOut: () => Promise<void>;
   setSession: (s: Session | null) => void;
-  enterGuestMode: () => Promise<void>;
 }
 
 // Create the context here
@@ -26,10 +24,9 @@ interface AuthProviderProps {
 }
 
 export function AuthProvider({ children, initialSession = null }: AuthProviderProps) {
-  const [session, setSessionState] = useState<Session | null>(initialSession);
+  const [sessionState, setSessionState] = useState<Session | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(!initialSession);
-  const [isGuest, setIsGuest] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const supabase = getSupabaseClient();
 
@@ -92,70 +89,21 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
   }, [initialSession, supabase]);
 
   const signOut = useCallback(async () => {
-    if (!isGuest) {
-      await supabase.auth.signOut();
-    }
+    await supabase.auth.signOut();
     setSessionState(null);
     setProfile(null);
-    setIsGuest(false);
-  }, [supabase, isGuest]);
+  }, [supabase]);
 
-  const enterGuestMode = useCallback(async () => {
-    setLoading(true);
-    // Create a mock guest user and profile
-    const guestUser = {
-      id: 'guest-user',
-      aud: 'authenticated',
-      role: 'authenticated',
-      email: 'guest@example.com',
-      email_confirmed_at: new Date().toISOString(),
-      phone: '',
-      confirmation_sent_at: '',
-      confirmed_at: new Date().toISOString(),
-      last_sign_in_at: new Date().toISOString(),
-      app_metadata: { provider: 'email' },
-      user_metadata: {},
-      identities: [],
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    } as User;
 
-    const guestProfile: UserProfile = {
-      id: 'guest-user',
-      email: 'guest@example.com',
-      full_name: 'Guest User',
-      subscription_tier: 'free',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      onboarding_completed: true,
-      preferences: {}
-    };
-
-    // Simulate network delay for better UX
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    setSessionState({
-      user: guestUser,
-      access_token: 'mock-token',
-      refresh_token: 'mock-refresh-token',
-      expires_in: 3600,
-      token_type: 'bearer'
-    });
-    setProfile(guestProfile);
-    setIsGuest(true);
-    setLoading(false);
-  }, []);
 
   const value = useMemo((): AuthContextType => ({
-    session,
-    user: session?.user ?? null,
+    session: sessionState,
+    user: sessionState?.user ?? null,
     profile,
     loading,
-    isGuest,
     signOut,
     setSession: setSessionState,
-    enterGuestMode,
-  }), [session, profile, loading, isGuest, signOut, enterGuestMode]);
+  }), [sessionState, profile, loading, signOut]);
 
   if (loading) {
     return (

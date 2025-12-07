@@ -72,7 +72,6 @@ describe('SessionPage', () => {
 
         mockUseAuthProvider.mockReturnValue({
             session: { user: { id: 'test-user' } },
-            isGuest: false,
         } as unknown as AuthProvider.AuthContextType);
 
         mockUseUserProfile.mockReturnValue({
@@ -112,17 +111,6 @@ describe('SessionPage', () => {
         it('should render settings button', () => {
             render(<SessionPage />);
             expect(screen.getByTestId('session-settings-button')).toBeInTheDocument();
-        });
-
-        it('should render guest banner when isGuest is true', () => {
-            mockUseAuthProvider.mockReturnValue({
-                session: { user: { id: 'guest-user' } },
-                isGuest: true,
-            } as unknown as AuthProvider.AuthContextType);
-
-            render(<SessionPage />);
-            expect(screen.getByTestId('guest-mode-banner')).toBeInTheDocument();
-            expect(screen.getByText(/You are testing in Guest Mode/)).toBeInTheDocument();
         });
     });
 
