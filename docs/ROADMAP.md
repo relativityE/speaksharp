@@ -23,12 +23,17 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 
 ### ⚠️ Known Issues
 
+- **✅ RESOLVED - HeroSection WCAG Contrast (2025-12-07)**
+  - **Problem:** White text on complex gradient failed WCAG AA 4.5:1 contrast ratio
+  - **Solution:** Added drop-shadow and backdrop-blur background to hero text
+  - **Status:** ✅ Fixed
+
 - **✅ RESOLVED - Analytics E2E Test Failures (2025-12-07)**
   - **Problem:** 12 E2E tests failing - analytics pages not rendering correctly
   - **Root Cause 1:** AuthProvider race condition - Supabase `onAuthStateChange` cleared mock session
   - **Root Cause 2:** `page.goto()` caused protected route loading state issues
   - **Solution:** AuthProvider ignores empty sessions in test mode; added `navigateToRoute()` helper
-  - **Status:** ✅ Fixed - All 26 E2E tests now pass
+  - **Status:** ✅ Fixed - **27 E2E tests now pass** (only 1 conditional skip)
 
 - **✅ RESOLVED - Navigation E2E Test Failure (2025-12-02)**
   - **Problem:** `navigation.e2e.spec.ts` failed due to overlapping headers

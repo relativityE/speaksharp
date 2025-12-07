@@ -11,14 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **HeroSection WCAG Contrast Improved (2025-12-07):**
+  - **Problem:** White text on complex gradient background failed WCAG AA 4.5:1 contrast ratio
+  - **Solution:** Added drop-shadow and semi-transparent backdrop-blur background to hero text
+  - **Impact:** Hero text now readable across all background variations
+  - **File:** `frontend/src/components/landing/HeroSection.tsx`
+
+- **Clarity Score E2E Test Enabled (2025-12-07):**
+  - **Problem:** Test was skipped with `test.skip()`, preventing verification
+  - **Solution:** Removed skip, fixed `.first()` selector for dual Stop buttons (desktop/mobile)
+  - **Impact:** 27 E2E tests now pass (previously 26), only 1 conditional skip remains
+  - **Files:** `tests/e2e/session-comparison.e2e.spec.ts`, `tests/e2e/pdf-export.e2e.spec.ts`
+
 - **Analytics E2E Test Failures Resolved (2025-12-07):**
   - **Root Cause 1:** AuthProvider race condition - Supabase `onAuthStateChange` fired twice, clearing mock E2E session
   - **Solution:** AuthProvider now ignores empty session updates in test mode when initial session exists
   - **Root Cause 2:** Full page reload with `page.goto()` caused protected route loading state issues
   - **Solution:** Added `navigateToRoute()` helper for client-side React Router navigation
   - **Impact:** All 26 E2E tests now pass (previously 12 failing)
-  - **Skipped Tests (2):**
-    - `session-comparison.e2e.spec.ts:135` - Manual verification test for clarity score formula
+  - **Skipped Tests (1):**
     - `pdf-export.e2e.spec.ts:28` - Conditional skip when no sessions are available for PDF export
   - **Files:** `frontend/src/contexts/AuthProvider.tsx`, `tests/e2e/helpers.ts`, `tests/e2e/analytics.e2e.spec.ts`
 
