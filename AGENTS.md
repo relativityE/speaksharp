@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-11-26
+**Last Reviewed:** 2025-12-07
 
 # Agent Instructions for SpeakSharp Repository
 

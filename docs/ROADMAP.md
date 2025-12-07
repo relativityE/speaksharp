@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-11-27
+**Last Reviewed:** 2025-12-07
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -22,6 +22,13 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - ⏸️ **DEFERRED** - Upgrade Postgres version (not critical for alpha)
 
 ### ⚠️ Known Issues
+
+- **✅ RESOLVED - Analytics E2E Test Failures (2025-12-07)**
+  - **Problem:** 12 E2E tests failing - analytics pages not rendering correctly
+  - **Root Cause 1:** AuthProvider race condition - Supabase `onAuthStateChange` cleared mock session
+  - **Root Cause 2:** `page.goto()` caused protected route loading state issues
+  - **Solution:** AuthProvider ignores empty sessions in test mode; added `navigateToRoute()` helper
+  - **Status:** ✅ Fixed - All 26 E2E tests now pass
 
 - **✅ RESOLVED - Navigation E2E Test Failure (2025-12-02)**
   - **Problem:** `navigation.e2e.spec.ts` failed due to overlapping headers
