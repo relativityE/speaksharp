@@ -37,7 +37,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Demo Recording Automation (2025-12-07):**
   - Added Playwright test specifically designed to record full product walkthroughs
   - Generates `video.webm` capturing Landing, Auth, Session, and Analytics flows
+  - **Demo Recording Automation:** Created `tests/demo/demo-recording.spec.ts` for automated product video generation. Excluded from default CI/test runs to prevent flakes.
   - **File:** `tests/e2e/demo-recording.e2e.spec.ts`
+
+- **Production Readiness Documentation (2025-12-08):**
+  - Added 'Production Readiness Features' section to `ARCHITECTURE.md`
+  - Documents Sentry ErrorBoundary integration with file line references
+  - Documents WebSocket reconnect with exponential backoff, heartbeat, and connection state management
+  - Prevents future code reviews from flagging these as missing
+  - **File:** `docs/ARCHITECTURE.md`
 
 ### Fixed
 - **HeroSection WCAG Contrast Improved (2025-12-07):**
