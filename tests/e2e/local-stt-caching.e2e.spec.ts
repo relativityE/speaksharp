@@ -84,8 +84,12 @@ test.describe('Local STT Model Download & Caching', () => {
 
     test('should load instantly from cache on second use', async ({ page }) => {
         /**
-         * Uses real Pro account to verify cached model loads quickly.
-         * Requires E2E_PRO_EMAIL and E2E_PRO_PASSWORD environment variables.
+         * Verifies cached model loads quickly without showing download progress.
+         * 
+         * Root cause of previous flakiness: artificial 500ms wait before timing
+         * measurement made the measurement unreliable.
+         * 
+         * Fix: Measure actual click-to-ready time, then verify no indicator appeared.
          */
         await programmaticLogin(page);
         await page.goto('/session');
@@ -95,30 +99,29 @@ test.describe('Local STT Model Download & Caching', () => {
         await page.getByRole('button', { name: /cloud ai|on-device|native/i }).click();
         await page.getByRole('menuitemradio', { name: /on-device/i }).click();
 
-        // Click Start Speaking
-        await page.getByTestId('session-start-stop-button').click();
-
-        // Verify NO download indicator appears (model is cached)
+        const startButton = page.getByTestId('session-start-stop-button');
         const loadingIndicator = page.getByTestId('model-loading-indicator');
 
-        // Wait a moment to ensure indicator doesn't appear
-        await page.waitForTimeout(500);
-
-        // Indicator should NOT be visible (model loads from cache)
-        await expect(loadingIndicator).toBeHidden();
-
-        // Now measure actual button state change time
+        // Start timing from click
         const startTime = Date.now();
 
-        // Button should become "Stop" quickly (within 3 seconds for CI environments)
-        const startButton = page.getByTestId('session-start-stop-button');
-        await expect(startButton).toContainText('Stop', { timeout: 3000 });
+        // Click Start Speaking
+        await startButton.click();
+
+        // Wait for button to become "Stop" (session started) - should be fast for cached model
+        await expect(startButton).toContainText('Stop', { timeout: 5000 });
 
         const loadTime = Date.now() - startTime;
-        console.log(`[TEST] ✅ Model loaded from cache in ${loadTime}ms`);
+        console.log(`[TEST] Model loaded in ${loadTime}ms`);
 
-        // Verify it was fast (< 3 seconds - allowing for CI variability)
-        expect(loadTime).toBeLessThan(3000);
+        // For cached model, should complete within 2 seconds
+        // If this fails, either model wasn't cached or there's a performance issue
+        expect(loadTime).toBeLessThan(2000);
+
+        // Verify NO download indicator is visible (cached model shouldn't show progress)
+        await expect(loadingIndicator).toBeHidden();
+
+        console.log('[TEST] ✅ Model loaded from cache - no download indicator shown');
     });
 
     test('should show mode selector with On-Device option for Pro users', async ({ page }) => {
