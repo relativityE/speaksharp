@@ -194,12 +194,29 @@ This phase is about confirming the core feature set works as expected and polish
 
 
 ### Gating Check
-- ✅ **Gap Analysis Complete (2025-11-28)**
+- ✅ **Gap Analysis Complete (2025-11-28, Updated 2025-12-08)**
   - **Phase 1:** 100% Complete
-  - **Phase 2 Must-Have:** 94% Complete (2 gaps: live transcript verification, WebSocket reconnect)
-  - **Phase 2 Should-Have (Tech Debt):** 42% Complete (7 gaps)
-  - **Production Readiness:** NEARLY READY - 2 P1/P2 blockers identified
-  - **Report:** Gap analysis documented in artifact `gap_analysis.md`
+  - **Phase 2 Must-Have:** 100% Complete
+    - ✅ WebSocket Reconnect: Implemented with exponential backoff (1s-30s), 5 max retries, 30s heartbeat (`CloudAssemblyAI.ts:221-291`)
+    - ✅ Error Boundary: `Sentry.ErrorBoundary` wraps `<App/>` (`main.tsx:111-113`)
+  - **Phase 2 Should-Have (Tech Debt):** In Progress (7 new items from Dec 2025 Code Review)
+  - **Production Readiness:** READY - Prior P0 blockers verified as implemented
+
+### 🔴 New Tech Debt (Code Review - Dec 2025)
+
+The following items were identified in an independent code review and triaged as P1 (High Priority):
+
+| Item | Finding | Location | Action |
+|------|---------|----------|--------|
+| 1 | Code duplication across STT modes | `modes/*.ts` | Create shared `AudioProcessor` utility |
+| 2 | Cache invalidation race condition | `useCustomVocabulary.ts` | Use `refetchQueries` instead of `invalidateQueries` |
+| 3 | Missing ARIA labels | `Navigation.tsx` | Add `aria-label` to icon-only buttons |
+| 4 | Missing loading states | `SessionPage.tsx` | Add spinner during STT initialization |
+| 5 | Critical paths under-tested | Coverage report | Expand transcription/storage unit tests |
+| 6 | Business logic in UI | `SessionPage.tsx` | Extract `SessionMetrics` class to `lib/` |
+| 7 | No query pagination | `storage.ts` | Add pagination to `getSessionHistory` |
+
+**Full Triage Report:** See conversation artifact `code_review_triage.md`
 
 
 ---
