@@ -202,7 +202,7 @@ This phase is about confirming the core feature set works as expected and polish
   - **Phase 2 Should-Have (Tech Debt):** In Progress (7 new items from Dec 2025 Code Review)
   - **Production Readiness:** READY - Prior P0 blockers verified as implemented
 
-### 🔴 New Tech Debt (Code Review - Dec 2025)
+### ✅ Tech Debt Resolved (Code Review - Dec 2025)
 
 The following items were identified in an independent code review and triaged as P1 (High Priority):
 
@@ -213,10 +213,10 @@ The following items were identified in an independent code review and triaged as
 | 3 | Missing ARIA labels | `Navigation.tsx`, `SessionPage.tsx` | ✅ **FIXED 2025-12-08** | Added `aria-label` and `aria-hidden` |
 | 4 | Missing loading states | `SessionPage.tsx` | ✅ **PRE-EXISTING FIX** | Already has `SessionPageSkeleton` + model download indicator |
 | 5 | Critical paths under-tested | Coverage report | ✅ **FIXED 2025-12-08** | Added 25 tests for AudioProcessor, TranscriptionError |
-| 6 | Business logic in UI | `SessionPage.tsx` | 🟡 PARTIAL | `useSessionMetrics` hook exists, further extraction possible |
+| 6 | Business logic in UI | `SessionPage.tsx` | ✅ **FIXED** | `useSessionMetrics` hook extracts all metric calculations |
 | 7 | No query pagination | `storage.ts` | ✅ **FIXED 2025-12-08** | Added `PaginationOptions` with limit/offset, default 50 |
 
-**Summary:** 3 items already fixed, 3 items TODO, 1 partial. **Full Triage Report:** See artifact `code_review_triage.md`
+**Summary:** 7/7 items resolved (4 fixed this session, 3 pre-existing).
 
 
 ---
