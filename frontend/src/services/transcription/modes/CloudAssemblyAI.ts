@@ -1,6 +1,7 @@
 import type { ITranscriptionMode, TranscriptionModeOptions, Transcript } from './types';
 import { TranscriptionError } from './types';
 import type { MicStream } from '../utils/types';
+import { floatToInt16 } from '../utils/AudioProcessor';
 import logger from '../../../lib/logger';
 
 // Type definitions for AssemblyAI WebSocket messages
@@ -149,11 +150,8 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
       return;
     }
 
-    // Convert Float32 to Int16
-    const int16Array = new Int16Array(float32Array.length);
-    for (let i = 0; i < float32Array.length; i++) {
-      int16Array[i] = Math.max(-32768, Math.min(32767, float32Array[i] * 32767));
-    }
+    // Convert Float32 to Int16 using shared utility
+    const int16Array = floatToInt16(float32Array);
 
     // Buffer audio until we have at least MIN_SAMPLES (50ms)
     // AssemblyAI requires 50-1000ms per packet

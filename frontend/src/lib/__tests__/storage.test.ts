@@ -35,7 +35,9 @@ describe('storage.ts', () => {
             const mockData = [{ id: '1', user_id: 'user1' }];
             const mockSelect = vi.fn().mockReturnValue({
                 eq: vi.fn().mockReturnValue({
-                    order: vi.fn().mockResolvedValue({ data: mockData, error: null }),
+                    order: vi.fn().mockReturnValue({
+                        range: vi.fn().mockResolvedValue({ data: mockData, error: null }),
+                    }),
                 }),
             });
             mockSupabase.from.mockReturnValue({ select: mockSelect } as unknown as ReturnType<SupabaseClient['from']>);
@@ -49,7 +51,9 @@ describe('storage.ts', () => {
             const mockError = { message: 'DB Error' };
             const mockSelect = vi.fn().mockReturnValue({
                 eq: vi.fn().mockReturnValue({
-                    order: vi.fn().mockResolvedValue({ data: null, error: mockError }),
+                    order: vi.fn().mockReturnValue({
+                        range: vi.fn().mockResolvedValue({ data: null, error: mockError }),
+                    }),
                 }),
             });
             mockSupabase.from.mockReturnValue({ select: mockSelect } as unknown as ReturnType<SupabaseClient['from']>);
@@ -134,7 +138,9 @@ describe('storage.ts', () => {
             // Mock getSessionHistory behavior by mocking supabase calls
             const mockSelect = vi.fn().mockReturnValue({
                 eq: vi.fn().mockReturnValue({
-                    order: vi.fn().mockResolvedValue({ data: mockData, error: null }),
+                    order: vi.fn().mockReturnValue({
+                        range: vi.fn().mockResolvedValue({ data: mockData, error: null }),
+                    }),
                 }),
             });
             mockSupabase.from.mockReturnValue({ select: mockSelect } as unknown as ReturnType<SupabaseClient['from']>);
