@@ -1,5 +1,5 @@
 import { test } from '@playwright/test';
-import { programmaticLogin, navigateToRoute } from './helpers';
+import { programmaticLogin, navigateToRoute } from '../e2e/helpers';
 
 /**
  * Demo Recording Test
