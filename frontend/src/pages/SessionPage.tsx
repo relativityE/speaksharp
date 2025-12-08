@@ -128,8 +128,9 @@ export const SessionPage: React.FC = () => {
                     size="icon"
                     onClick={() => setIsSettingsOpen(true)}
                     data-testid="session-settings-button"
+                    aria-label="Open session settings"
                 >
-                    <Settings className="h-5 w-5" />
+                    <Settings className="h-5 w-5" aria-hidden="true" />
                 </Button>
             </div>
 
