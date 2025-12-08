@@ -214,7 +214,7 @@ The following items were identified in an independent code review and triaged as
 | 4 | Missing loading states | `SessionPage.tsx` | ✅ **PRE-EXISTING FIX** | Already has `SessionPageSkeleton` + model download indicator |
 | 5 | Critical paths under-tested | Coverage report | 🔴 TODO | Expand transcription/storage unit tests |
 | 6 | Business logic in UI | `SessionPage.tsx` | 🟡 PARTIAL | `useSessionMetrics` hook exists, further extraction possible |
-| 7 | No query pagination | `storage.ts` | 🔴 TODO | Add pagination to `getSessionHistory` |
+| 7 | No query pagination | `storage.ts` | ✅ **FIXED 2025-12-08** | Added `PaginationOptions` with limit/offset, default 50 |
 
 **Summary:** 3 items already fixed, 3 items TODO, 1 partial. **Full Triage Report:** See artifact `code_review_triage.md`
 
