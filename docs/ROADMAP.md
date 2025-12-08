@@ -206,17 +206,17 @@ This phase is about confirming the core feature set works as expected and polish
 
 The following items were identified in an independent code review and triaged as P1 (High Priority):
 
-| Item | Finding | Location | Action |
-|------|---------|----------|--------|
-| 1 | Code duplication across STT modes | `modes/*.ts` | Create shared `AudioProcessor` utility |
-| 2 | Cache invalidation race condition | `useCustomVocabulary.ts` | Use `refetchQueries` instead of `invalidateQueries` |
-| 3 | Missing ARIA labels | `Navigation.tsx` | Add `aria-label` to icon-only buttons |
-| 4 | Missing loading states | `SessionPage.tsx` | Add spinner during STT initialization |
-| 5 | Critical paths under-tested | Coverage report | Expand transcription/storage unit tests |
-| 6 | Business logic in UI | `SessionPage.tsx` | Extract `SessionMetrics` class to `lib/` |
-| 7 | No query pagination | `storage.ts` | Add pagination to `getSessionHistory` |
+| # | Finding | Location | Status | Notes |
+|---|---------|----------|--------|-------|
+| 1 | Code duplication across STT modes | `modes/*.ts` | 🔴 TODO | Create shared `AudioProcessor` utility |
+| 2 | Cache invalidation race condition | `useCustomVocabulary.ts` | ✅ **PRE-EXISTING FIX** | Already uses `refetchQueries` (lines 82-85, 106-109) |
+| 3 | Missing ARIA labels | `Navigation.tsx`, `SessionPage.tsx` | ✅ **FIXED 2025-12-08** | Added `aria-label` and `aria-hidden` |
+| 4 | Missing loading states | `SessionPage.tsx` | ✅ **PRE-EXISTING FIX** | Already has `SessionPageSkeleton` + model download indicator |
+| 5 | Critical paths under-tested | Coverage report | 🔴 TODO | Expand transcription/storage unit tests |
+| 6 | Business logic in UI | `SessionPage.tsx` | 🟡 PARTIAL | `useSessionMetrics` hook exists, further extraction possible |
+| 7 | No query pagination | `storage.ts` | 🔴 TODO | Add pagination to `getSessionHistory` |
 
-**Full Triage Report:** See conversation artifact `code_review_triage.md`
+**Summary:** 3 items already fixed, 3 items TODO, 1 partial. **Full Triage Report:** See artifact `code_review_triage.md`
 
 
 ---
