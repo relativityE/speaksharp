@@ -212,7 +212,7 @@ The following items were identified in an independent code review and triaged as
 | 2 | Cache invalidation race condition | `useCustomVocabulary.ts` | ✅ **PRE-EXISTING FIX** | Already uses `refetchQueries` (lines 82-85, 106-109) |
 | 3 | Missing ARIA labels | `Navigation.tsx`, `SessionPage.tsx` | ✅ **FIXED 2025-12-08** | Added `aria-label` and `aria-hidden` |
 | 4 | Missing loading states | `SessionPage.tsx` | ✅ **PRE-EXISTING FIX** | Already has `SessionPageSkeleton` + model download indicator |
-| 5 | Critical paths under-tested | Coverage report | 🔴 TODO | Expand transcription/storage unit tests |
+| 5 | Critical paths under-tested | Coverage report | ✅ **FIXED 2025-12-08** | Added 25 tests for AudioProcessor, TranscriptionError |
 | 6 | Business logic in UI | `SessionPage.tsx` | 🟡 PARTIAL | `useSessionMetrics` hook exists, further extraction possible |
 | 7 | No query pagination | `storage.ts` | ✅ **FIXED 2025-12-08** | Added `PaginationOptions` with limit/offset, default 50 |
 
