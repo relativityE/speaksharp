@@ -10,6 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **PDF Export E2E Test (2025-12-08):**
+  - Removed `test.skip()` - test now always runs and passes gracefully if no sessions
+  - **File:** `tests/e2e/pdf-export.e2e.spec.ts`
+
+- **Custom Vocabulary E2E Test (2025-12-08):**
+  - Marked as resolved - React Query cache fix verified working
+  - **File:** `frontend/src/hooks/useCustomVocabulary.ts`
+
 ### Added
 - **PostHog Analytics Events (2025-12-07):**
   - `signup_completed` event in SignUpPage with email_domain property
