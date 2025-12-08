@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-07
+**Last Reviewed:** 2025-12-08
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -253,7 +253,7 @@ Both the local test runner and CI use the same `test-audit.sh` script, ensuring 
 | Aspect              | Local Test Runner (`pnpm test:all`)                                            | CI (GitHub Actions)                                                 |
 |---------------------|---------------------------------------------------------------------------------|---------------------------------------------------------------------|
 | **Execution**       | `./test-audit.sh local` - single process                                       | Split into stages: `prepare`, `test` (sharded), `report`           |
-| **E2E Tests**       | Runs all 13 tests serially                                                     | **Sharded across 4 workers** using Playwright native `--shard` flag |
+| **E2E Tests**       | Runs all 30+ tests serially                                                   | **Sharded across 4 workers** using Playwright native `--shard` flag |
 | **Parallelization** | Quality checks (lint/typecheck/test) run in parallel via `concurrently`        | Each CI job runs independently in isolated environments             |
 | **Purpose**         | Pre-commit verification and local validation                                   | Gatekeeper for merging to main branch                               |
 | **Speed**           | ~2-3 minutes (serial E2E execution)                                            | ~1-2 minutes (parallel sharding reduces E2E time)                   |

@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-07
+**Last Reviewed:** 2025-12-08
 
 # Changelog
 
@@ -46,6 +46,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Documents WebSocket reconnect with exponential backoff, heartbeat, and connection state management
   - Prevents future code reviews from flagging these as missing
   - **File:** `docs/ARCHITECTURE.md`
+
+- **Code Review P1 Tech Debt Resolution (2025-12-08):**
+  - Created `AudioProcessor.ts` with shared audio utilities (floatToInt16, floatToWav, concatenateFloat32Arrays)
+  - Refactored `CloudAssemblyAI.ts` and `LocalWhisper.ts` to use shared utilities (removed ~50 lines duplication)
+  - Added 25 unit tests for transcription critical paths (AudioProcessor.test.ts, TranscriptionError.test.ts)
+  - Added ARIA labels to Navigation.tsx and SessionPage.tsx for accessibility
+  - Added query pagination to storage.ts with PaginationOptions interface (limit/offset, default 50)
+  - Unit tests increased from 340 to 365
+  - **Files:** `AudioProcessor.ts`, `AudioProcessor.test.ts`, `TranscriptionError.test.ts`, `CloudAssemblyAI.ts`, `LocalWhisper.ts`, `Navigation.tsx`, `SessionPage.tsx`, `storage.ts`
 
 ### Fixed
 - **HeroSection WCAG Contrast Improved (2025-12-07):**

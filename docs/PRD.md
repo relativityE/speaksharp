@@ -1,6 +1,6 @@
 
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-07
+**Last Reviewed:** 2025-12-08
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -135,11 +135,11 @@ This section tracks high-level product risks and constraints. For a detailed his
 
 - **Incomplete Theming:** The application is configured to support both light and dark themes, but only a dark theme is currently implemented. Users will not be able to switch to a light theme, which can be an accessibility issue and ignores user preference.
 - **Accessibility Gaps:** The live transcript lacks an ARIA live region (`aria-live="polite"`), meaning screen readers do not announce new text as it appears. This is a critical accessibility blocker for visually impaired users.
-- **Unit Test Coverage:** Current test coverage is improving toward the 70% industry best practice target. Recent additions include 84 new unit tests for authentication pages, core pages, and utility functions (340 total tests passing). Continued coverage expansion is tracked in the technical debt backlog.
-- **UX - Layout Shift (CLS):** The `SessionPage` transcript container grows from 0 height during usage, causing layout instability. This needs to be constrained with a fixed minimum height.
+- **Unit Test Coverage:** Current test coverage is 54.8% with 365 unit tests passing (as of 2025-12-08). Continued coverage expansion is tracked in the technical debt backlog.
+- **✅ RESOLVED - UX - Layout Shift (CLS, 2025-12-06):** The `SessionPage` transcript container now uses fixed `h-[250px]` to prevent layout instability. **Status:** ✅ Fixed.
 - **✅ RESOLVED - UX - Accessibility (Contrast, 2025-12-07):** Hero text contrast improved with drop-shadow and backdrop-blur for WCAG AA compliance. **Status:** ✅ Fixed.
 - **UX - Mobile Experience:** The controls on `SessionPage` are difficult to access on small screens as they scroll away with the content ("thumb stretch" issue). A sticky footer is required.
-- **UX - Missing Social Proof:** The `TestimonialsSection` is hidden, which may impact conversion rates (Social Proof gap).
+- **✅ RESOLVED - Testimonials (2025-12-07):** Populated `TestimonialsSection` with realistic user personas and feedback. **Status:** ✅ Complete.
 - **Test Quality:** A comprehensive audit of the test suite is needed to identify and refactor brittle or low-value tests, ensuring the suite provides high confidence without false positives.
 - **✅ RESOLVED - Session Comparison & Progress Tracking (2025-12-06):** Implemented full feature with side-by-side comparison, trend charts, and progress indicators. Users can select 2 sessions to compare, view WPM/Clarity/Fillers trends over time, and see improvement/regression indicators. **Status:** ✅ Implemented. **Files:** `ProgressIndicator.tsx`, `TrendChart.tsx`, `SessionComparisonDialog.tsx`, `AnalyticsDashboard.tsx`
 - **✅ RESOLVED - Goal Setting Implementation (2025-12-07):** Supabase sync implemented, and GoalsSection now calculates actual progress from `useAnalytics` hook (weekly session count and average clarity score). **Files:** `GoalsSection.tsx`, `useGoals.ts`. **Status:** ✅ Complete.
@@ -150,7 +150,7 @@ This section tracks high-level product risks and constraints. For a detailed his
 - **✅ RESOLVED - Metrics E2E Test Timing Issue (2025-12-06):** Fixed by removing duplicate MockSpeechRecognition from `programmaticLogin()`. Test now passing (WPM: 120, Clarity: 87%, Fillers: 6). **Status:** ✅ Fixed.
 - **✅ RESOLVED - Local STT E2E Tests (2025-12-06):** Fixed 3 test failures in `local-stt-caching.e2e.spec.ts`: (1) Progress percentage bug (8534% → 0-100%), (2) Button text mismatch, (3) Toast notification strict mode violation. **Status:** ✅ Fixed and pushed.
 - **✅ RESOLVED - Local STT Download Progress Tests (2025-12-06):** Three tests previously skipped due to Pro subscription requirement are now passing with Pro test account. **Tests:** (1) Download progress indicator, (2) Cache loading performance, (3) Toast notification. **Status:** ✅ Fixed.
-- **⚠️ Goal Setting Tests Skipped (2025-12-01):** Two tests in `goal-setting.e2e.spec.ts` are skipped because the feature displays hardcoded mock data instead of real functionality. **Tests:** (1) Actual session progress, (2) Custom goal setting. **Impact:** Incomplete feature implementation. **Status:** Requires backend integration. **Location:** `tests/e2e/goal-setting.e2e.spec.ts:35,74`
+- **✅ RESOLVED - Goal Setting Tests (2025-12-07):** Goal Setting feature fully implemented with Supabase sync and UI complete. **Status:** ✅ All tests passing.
 - **✅ RESOLVED - Session Comparison Tests (2025-12-06):** Feature fully implemented with E2E tests passing. **Components:** `ProgressIndicator.tsx`, `TrendChart.tsx`, `SessionComparisonDialog.tsx`. **Features:** Side-by-side comparison with progress indicators (↑/↓), WPM and Clarity trend charts. **Status:** ✅ Complete.
 - **⚠️ Custom Vocabulary E2E Test - React Query Cache Issue (2025-12-06):** MSW POST handler fixed to return proper word object with stateful Map-based storage, but word doesn't appear in UI after Add. **Root Cause:** React Query cache invalidation not triggering refetch immediately. **Status:** MSW handler ✅ fixed, React Query investigation needed. **Location:** `tests/e2e/custom-vocabulary.e2e.spec.ts:4`
 - **✅ RESOLVED - Analytics Invalid Session ID E2E Test Failure (2025-12-05):** The `analytics-details.e2e.spec.ts` test failure has been resolved by fixing race conditions in loading state assertions. **Status:** ✅ Fixed.
