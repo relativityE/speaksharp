@@ -5,21 +5,37 @@ import type { UserProfile } from '../types/user';
 import type { PostgrestError } from '@supabase/supabase-js';
 
 /**
- * Fetches the session history for a specific user.
+ * Pagination options for session history queries.
+ */
+export interface PaginationOptions {
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * Fetches the session history for a specific user with optional pagination.
  * @param {string} userId - The ID of the user.
+ * @param {PaginationOptions} options - Optional pagination settings.
  * @returns {Promise<Array>} A promise that resolves to an array of session objects.
  */
-export const getSessionHistory = async (userId: string): Promise<PracticeSession[]> => {
+export const getSessionHistory = async (
+  userId: string,
+  options: PaginationOptions = {}
+): Promise<PracticeSession[]> => {
   const supabase = getSupabaseClient();
   if (!userId) {
     logger.error('Get Session History: User ID is required.');
     return [];
   }
+
+  const { limit = 50, offset = 0 } = options;
+
   const { data, error }: { data: PracticeSession[] | null, error: PostgrestError | null } = await supabase
     .from('sessions')
     .select('*')
     .eq('user_id', userId)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
 
   if (error) {
     logger.error({ error }, 'Error fetching session history:');
