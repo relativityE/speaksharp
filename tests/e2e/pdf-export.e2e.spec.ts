@@ -50,7 +50,7 @@ test.describe('PDF Export', () => {
     test('should have download button for each session in analytics', async ({ page }) => {
         await programmaticLogin(page);
         await navigateToRoute(page, '/analytics');
-        await page.waitForSelector('[data-testid=\"app-main\"]');
+        await page.waitForSelector('[data-testid="app-main"]');
 
         // Wait for session items to load
         const sessionItems = page.locator('[data-testid="session-history-item"]');
