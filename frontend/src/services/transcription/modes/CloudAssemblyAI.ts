@@ -1,4 +1,5 @@
 import type { ITranscriptionMode, TranscriptionModeOptions, Transcript } from './types';
+import { TranscriptionError } from './types';
 import type { MicStream } from '../utils/types';
 import logger from '../../../lib/logger';
 
@@ -47,9 +48,10 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
   private readonly heartbeatIntervalMs = 30000; // 30 seconds
   private connectionState: ConnectionState = 'disconnected';
   private onConnectionStateChange?: (state: ConnectionState) => void;
+  private onError?: (error: TranscriptionError) => void;
   private isManualStop = false; // Track if stop was intentional
 
-  constructor({ onTranscriptUpdate, onReady, getAssemblyAIToken, customVocabulary = [], onConnectionStateChange }: TranscriptionModeOptions) {
+  constructor({ onTranscriptUpdate, onReady, getAssemblyAIToken, customVocabulary = [], onConnectionStateChange, onError }: TranscriptionModeOptions) {
     if (!onTranscriptUpdate || !onReady || !getAssemblyAIToken) {
       throw new Error("Missing required options for CloudAssemblyAI");
     }
@@ -58,6 +60,7 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
     this._getAssemblyAIToken = getAssemblyAIToken;
     this.customVocabulary = customVocabulary;
     this.onConnectionStateChange = onConnectionStateChange;
+    this.onError = onError;
     this.frameHandler = this._handleAudioFrame.bind(this);
   }
 
@@ -117,6 +120,7 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
 
       this.socket.onerror = (error) => {
         logger.error({ error, readyState: this.socket?.readyState }, '❌ [CloudAssemblyAI] WebSocket ERROR event');
+        this.onError?.(TranscriptionError.websocket('WebSocket connection error', true));
         this.stopTranscription();
       };
 
@@ -227,6 +231,7 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
 
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       logger.error('[CloudAssemblyAI] Max reconnect attempts reached');
+      this.onError?.(TranscriptionError.websocket('Max reconnection attempts reached. Please check your network connection.', false));
       this.updateConnectionState('disconnected');
       return;
     }
