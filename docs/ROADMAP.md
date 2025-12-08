@@ -208,7 +208,7 @@ The following items were identified in an independent code review and triaged as
 
 | # | Finding | Location | Status | Notes |
 |---|---------|----------|--------|-------|
-| 1 | Code duplication across STT modes | `modes/*.ts` | 🔴 TODO | Create shared `AudioProcessor` utility |
+| 1 | Code duplication across STT modes | `modes/*.ts` | ✅ **FIXED 2025-12-08** | Created `AudioProcessor.ts` with shared utilities |
 | 2 | Cache invalidation race condition | `useCustomVocabulary.ts` | ✅ **PRE-EXISTING FIX** | Already uses `refetchQueries` (lines 82-85, 106-109) |
 | 3 | Missing ARIA labels | `Navigation.tsx`, `SessionPage.tsx` | ✅ **FIXED 2025-12-08** | Added `aria-label` and `aria-hidden` |
 | 4 | Missing loading states | `SessionPage.tsx` | ✅ **PRE-EXISTING FIX** | Already has `SessionPageSkeleton` + model download indicator |
