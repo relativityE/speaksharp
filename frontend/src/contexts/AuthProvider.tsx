@@ -58,8 +58,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
             if (import.meta.env.MODE === 'test' || import.meta.env.VITE_TEST_MODE === 'true') {
               console.log(`[E2E DIAGNOSTIC] Profile found for ${data.id}, setting flag and dispatching event.`);
               // Set window flag for waitForFunction polling
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              (window as any).__e2eProfileLoaded = true;
+              (window as Window & { __e2eProfileLoaded?: boolean }).__e2eProfileLoaded = true;
               document.dispatchEvent(new CustomEvent('e2e-profile-loaded', { detail: data }));
             }
           }

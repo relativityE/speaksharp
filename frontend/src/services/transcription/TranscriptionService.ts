@@ -76,13 +76,13 @@ export default class TranscriptionService {
 
   public async init(): Promise<{ success: boolean }> {
     // In E2E test mode, we skip microphone initialization
+    // This is required for tests that use __E2E_MOCK_SESSION__ flag
     if (typeof window !== 'undefined') {
       if ((window as Window & { __E2E_MOCK_SESSION__?: boolean }).__E2E_MOCK_SESSION__) {
         // Initialize a dummy mic object to satisfy checks
         this.mic = {
           stop: () => { },
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        } as any;
+        } as unknown as MicStream;
         return { success: true };
       }
     }
@@ -155,8 +155,10 @@ export default class TranscriptionService {
       let LocalWhisperClass;
       if (useMockLocalWhisper) {
         logger.info('[TranscriptionService] Using MockLocalWhisper for E2E test.');
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        LocalWhisperClass = (window as any).MockLocalWhisper;
+        LocalWhisperClass = (window as Window & { MockLocalWhisper?: typeof import('./modes/LocalWhisper').default }).MockLocalWhisper;
+        if (!LocalWhisperClass) {
+          throw new Error('MockLocalWhisper not found on window - E2E test setup incomplete');
+        }
       } else {
         // Dynamic import to avoid loading whisper-turbo on initial load
         const module = await import('./modes/LocalWhisper');
