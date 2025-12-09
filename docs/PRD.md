@@ -158,6 +158,16 @@ This section tracks high-level product risks and constraints. For a detailed his
 - **✅ RESOLVED - AuthProvider Race Condition (Finding 2.1, 2025-12-07):** The `AuthProvider` had a race condition in E2E tests where Supabase `onAuthStateChange` would fire with `undefined` after mock session was set, clearing the authenticated state. **Fix:** AuthProvider now ignores empty session updates in test mode when initial session exists (`import.meta.env.VITE_TEST_MODE === 'true'`). **Impact:** All 31 E2E tests now pass. **Location:** `frontend/src/contexts/AuthProvider.tsx:77-84` **Previous Status (2025-11-30):** Originally flagged as HIGH risk, later downgraded to LOW upon code review. Now fully resolved for E2E testing.
 - **CI Sharded E2E Metrics (2025-12-08):** The `ci:local` command runs E2E tests in 4 shards, but Playwright's blob reporter clears its output directory on each run. This causes the metrics report to only show the last shard's test count (e.g., 6 tests) instead of the total (31 tests). **Workaround:** Run `pnpm test:all` for accurate local metrics. **Impact:** Cosmetic only - all tests still run and pass, just the reported count is incorrect. **Fix Options:** (1) Use non-sharded runs for `ci:local`, or (2) implement unique blob output per shard with proper aggregation.
 
+### Gap Analysis: Alpha Launch Blockers (AI Detective v5 - 2025-12-09)
+
+| Issue | Details | Impact | Priority |
+|-------|---------|--------|----------|
+| **Rate Limiting (Missing)** | AssemblyAI token endpoint has no client/server rate limiting | Cost overruns, abuse risk | **P1 HIGH** |
+| **Usage Limit UX (Incomplete)** | Frontend doesn't prevent session start if usage exceeded | Frustrating UX when session fails to save | **P2 MEDIUM** |
+| **Error Reporting (Unverified)** | No Sentry setup for Web Audio/Worker errors | Production debugging impossible | **P1 HIGH** |
+| **Documentation Drift** | `ARCHITECTURE.md` needs update for `AudioProcessor.ts` and MSW details | Maintainability risk | **P3 LOW** |
+| **E2E Error States Coverage** | Missing tests for: mic denied, usage exceeded, network failure during save | Resilience gap | **P2 MEDIUM** |
+
 ---
 
 ## 5. Development Roadmap
