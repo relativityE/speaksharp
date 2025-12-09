@@ -24,6 +24,14 @@ export default defineConfig({
       reporter: ['text', 'json-summary', 'html'],
       reportsDirectory: './coverage',
       all: true,
+      // Enforce coverage doesn't regress - current: 54.8% lines
+      // Start with 50% as baseline, increase as coverage improves
+      thresholds: {
+        lines: 50,
+        functions: 70,
+        branches: 75,
+        statements: 50,
+      },
     },
 
     // CRITICAL: Run each test file in its own isolated process to prevent memory leaks.

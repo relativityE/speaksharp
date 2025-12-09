@@ -74,6 +74,15 @@ export async function programmaticLogin(
   await page.waitForSelector('[data-testid="app-main"]', { timeout: 10000 });
   console.log('[E2E DEBUG] App-main element found');
 
+  // 5. Wait for profile to be loaded (fixes race condition where startButton is disabled during profile loading)
+  // AuthProvider dispatches 'e2e-profile-loaded' event when profile fetch completes
+  console.log('[E2E DEBUG] Waiting for profile to be loaded');
+  await page.waitForFunction(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return !!(window as any).__e2eProfileLoaded;
+  }, null, { timeout: 10000 });
+  console.log('[E2E DEBUG] Profile loaded');
+
   console.log('[E2E] MSW ready, user authenticated via network mocking');
 }
 

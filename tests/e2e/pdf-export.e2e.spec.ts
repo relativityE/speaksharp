@@ -18,23 +18,16 @@ test.describe('PDF Export', () => {
         await navigateToRoute(page, '/analytics');
         await page.waitForSelector('[data-testid="app-main"]');
 
-        // Wait for sessions to load - look for session history items
+        // Wait for sessions to load - MSW provides 5 mock sessions, so they MUST exist
+        // If this fails, the mock setup is broken (not an acceptable skip scenario)
         const sessionItem = page.locator('[data-testid="session-history-item"]').first();
+        await expect(sessionItem).toBeVisible({ timeout: 10000 });
+        console.log('[TEST] ✅ Session history items loaded (MSW mock data confirmed)');
 
-        try {
-            await sessionItem.waitFor({ timeout: 10000 });
-        } catch {
-            console.log('[TEST] No session history items found - empty state, test passes');
-            return;
-        }
-
-        // Check if there are any download buttons (Pro users only)
+        // Check download button exists (mock user is Pro tier, so it MUST exist)
         const downloadButton = page.getByRole('button', { name: /download session pdf/i }).first();
-
-        if (!(await downloadButton.isVisible())) {
-            console.log('[TEST] No download button visible - user may not be Pro tier');
-            return;
-        }
+        await expect(downloadButton).toBeVisible({ timeout: 5000 });
+        console.log('[TEST] ✅ Download button visible (Pro user confirmed)');
 
         // jsPDF uses blob-based download which may not trigger Playwright's download event
         // Instead, verify the button is clickable and doesn't throw an error
@@ -52,28 +45,21 @@ test.describe('PDF Export', () => {
         await navigateToRoute(page, '/analytics');
         await page.waitForSelector('[data-testid="app-main"]');
 
-        // Wait for session items to load
+        // Wait for session items to load - MSW provides 5 mock sessions
         const sessionItems = page.locator('[data-testid="session-history-item"]');
-
-        try {
-            await sessionItems.first().waitFor({ timeout: 10000 });
-        } catch {
-            console.log('[TEST] No sessions available - empty state verified');
-            return;
-        }
+        await expect(sessionItems.first()).toBeVisible({ timeout: 10000 });
+        console.log('[TEST] ✅ Session items loaded');
 
         const sessionCount = await sessionItems.count();
+        expect(sessionCount).toBeGreaterThan(0);
 
-        // Verify download buttons exist (Pro user only)
+        // Verify download buttons exist (mock user is Pro tier)
         const downloadButtons = page.getByRole('button', { name: /download session pdf/i });
         const buttonCount = await downloadButtons.count();
 
-        // For Pro users, each session should have a download button
-        if (buttonCount > 0) {
-            expect(buttonCount).toBeLessThanOrEqual(sessionCount);
-            console.log(`[TEST] ✅ Found ${buttonCount} download buttons for ${sessionCount} sessions`);
-        } else {
-            console.log('[TEST] No download buttons - user may be Free tier');
-        }
+        // Mock user is Pro, so download buttons MUST exist
+        expect(buttonCount).toBeGreaterThan(0);
+        expect(buttonCount).toBeLessThanOrEqual(sessionCount);
+        console.log(`[TEST] ✅ Found ${buttonCount} download buttons for ${sessionCount} sessions`);
     });
 });

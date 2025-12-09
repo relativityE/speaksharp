@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useState, useRef, useEffect } from 'react';
+import { useMemo, useCallback, useState, useRef } from 'react';
 import { useAuthProvider } from '../../contexts/AuthProvider';
 import { useNavigate } from 'react-router-dom';
 import { getSupabaseClient } from '@/lib/supabaseClient';
@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { useTranscriptState } from './useTranscriptState';
 import { useFillerWords } from './useFillerWords';
 import { useTranscriptionService } from './useTranscriptionService';
+import { useSessionTimer } from './useSessionTimer';
 import { useVocalAnalysis } from '../useVocalAnalysis';
 import { API_CONFIG } from '../../config';
 import type { UseSpeechRecognitionProps, TranscriptStats } from './types';
@@ -20,9 +21,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
   const { session: authSession } = useAuthProvider();
   const navigate = useNavigate();
 
-  const [duration, setDuration] = useState(0);
   const [modelLoadingProgress, setModelLoadingProgress] = useState<number | null>(null);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
   const toastIdRef = useRef<string | number | null>(null);
 
   const transcript = useTranscriptState();
@@ -122,31 +121,14 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
   }), [profile, session, navigate, getAssemblyAIToken, customVocabulary]);
 
   const service = useTranscriptionService(serviceOptions);
-
-  useEffect(() => {
-    if (service.isListening) {
-      timerRef.current = setInterval(() => {
-        setDuration(prev => prev + 1);
-      }, 1000);
-    } else {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-    }
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
-    };
-  }, [service.isListening]);
+  const sessionTimer = useSessionTimer(service.isListening);
 
   const reset = useCallback(() => {
     transcript.reset();
     fillerWords.reset();
-    setDuration(0);
+    sessionTimer.reset();
     service.reset();
-  }, [transcript, fillerWords, service]);
+  }, [transcript, fillerWords, sessionTimer, service]);
 
   const startListening = useCallback(async (forceOptions: ForceOptions = {}) => {
     reset();
@@ -160,7 +142,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         transcript.finalChunks,
         [],
         transcript.interimTranscript,
-        duration
+        sessionTimer.duration
       );
       return {
         ...stats,
@@ -171,16 +153,16 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
       };
     }
     return null;
-  }, [service, transcript, fillerWords, duration]);
+  }, [service, transcript, fillerWords, sessionTimer.duration]);
 
   const transcriptStats = useMemo(() => {
     return calculateTranscriptStats(
       transcript.finalChunks,
       [],
       transcript.interimTranscript,
-      duration
+      sessionTimer.duration
     );
-  }, [transcript.finalChunks, transcript.interimTranscript, duration]);
+  }, [transcript.finalChunks, transcript.interimTranscript, sessionTimer.duration]);
 
   return {
     transcript: transcriptStats,

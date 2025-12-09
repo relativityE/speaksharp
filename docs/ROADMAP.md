@@ -207,18 +207,18 @@ The following items were identified by AI Detective Full-Spectrum Analysis v5 as
 
 | # | Finding | Location | Priority | Status |
 |---|---------|----------|----------|--------|
-| 1 | **Live Transcript E2E Race Condition** | `live-transcript.e2e.spec.ts:96-105` | **P0 BLOCKER** | 🔴 NOT STARTED |
-|   | *Problem:* Test hangs waiting for `startButton` to be enabled. Race between `programmaticLogin` completing and SessionPage profile loading. | | | |
-|   | *Options:* (1) Wait for `e2e-profile-loaded` custom event, (2) Wait for SessionPageSkeleton to disappear, (3) Decouple profile from AuthProvider | | | |
-| 2 | **"God Hook" Architecture** | `useSpeechRecognition/index.ts` | **P1 HIGH** | 🔴 NOT STARTED |
-|   | *Problem:* Hook aggregates 5+ responsibilities: transcription, filler analysis, token fetching, Posthog, metrics. Violates SRP, hard to unit test. | | | |
-|   | *Options:* (1) Decompose into `useSessionTimer`, `useTranscriptionLogic`, `useSessionMetrics`, (2) Extract `useTranscriptionServiceManager` | | | |
-| 3 | **Fragile Test Pattern (PDF Export)** | `pdf-export.e2e.spec.ts:22-29, 55-63` | **P2 MEDIUM** | 🔴 NOT STARTED |
-|   | *Problem:* try/catch silently passes when mock data absent. Should fail to alert broken mock setup. | | | |
-|   | *Options:* (1) Enforce mock data with explicit assertions, (2) Use `test.skip()` only for environment config, not missing data | | | |
-| 4 | **No Coverage Threshold Enforcement** | `vitest.config.mjs` | **P1 HIGH** | 🔴 NOT STARTED |
-|   | *Problem:* Coverage reportied but no threshold enforcement. CI doesn't fail on coverage drops. | | | |
-|   | *Fix:* Add `thresholds: { lines: 80, functions: 80 }` to vitest config | | | |
+| 1 | **Live Transcript E2E Race Condition** | `live-transcript.e2e.spec.ts:96-105` | **P0 BLOCKER** | ✅ FIXED |
+|   | *Problem:* Test hung waiting for `startButton` to be enabled. Race between `programmaticLogin` completing and SessionPage profile loading. | | | |
+|   | *Solution:* Added `__e2eProfileLoaded` window flag in `AuthProvider.tsx` and wait in `programmaticLogin` helper. | | | |
+| 2 | **Hook Architecture (Was "God Hook")** | `useSpeechRecognition/` | **P1 HIGH** | ✅ FIXED |
+|   | *Original Problem:* Hook aggregated 5+ responsibilities. | | | |
+|   | *Solution:* Now decomposed into: `useTranscriptState`, `useFillerWords`, `useTranscriptionService`, `useSessionTimer`, `useVocalAnalysis`. Main hook is composition layer only. | | | |
+| 3 | **Test Pattern (PDF Export)** | `pdf-export.e2e.spec.ts` | **P2 MEDIUM** | ✅ FIXED |
+|   | *Original Problem:* try/catch silently passed when mock data absent. | | | |
+|   | *Solution:* Replaced with explicit `expect()` assertions. MSW mock data must exist - failures indicate broken setup. | | | |
+| 4 | **Coverage Threshold Enforcement** | `vitest.config.mjs` | **P1 HIGH** | ✅ FIXED |
+|   | *Original Problem:* Coverage reported but no enforcement. CI didn't fail on drops. | | | |
+|   | *Solution:* Added `thresholds: { lines: 50, functions: 70, branches: 75, statements: 50 }`. CI now fails if coverage regresses. | | | |
 
 ---
 

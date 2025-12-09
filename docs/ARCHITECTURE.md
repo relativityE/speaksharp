@@ -61,57 +61,57 @@ docs/                   # Project documentation
 
 This section contains a high-level block diagram of the SpeakSharp full-stack architecture.
 
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        SPEAKSHARP ARCHITECTURE                          │
+└─────────────────────────────────────────────────────────────────────────┘
 
-```ascii
-+----------------------------------------------------------------------------------------------------------------------+
-|                                          SpeakSharp System Architecture                                              |
-+----------------------------------------------------------------------------------------------------------------------+
-|                                                                                                                    |
-|    +---------------------------------+       +---------------------------------+       +-------------------------+  |
-|    |      Frontend (Browser)         |       |      Backend (Supabase)         |       |   3rd Party Services    |  |
-|    |      (React SPA / Vite)         |       +---------------------------------+       +-------------------------+  |
-|    +---------------------------------+                   ^                                     ^         ^          |
-|              |      ^                                    |                                     |         |          |
-|              |      | HTTPS/WSS                          | Postgres/RPC                        |         |          |
-|              v      |                                    v                                     |         |          |
-|    +---------------------------------+       +---------------------------------+       +-------------------------+  |
-|    |    User Interface (React)       |       |      Supabase Auth              |       |      AssemblyAI         |  |
-|    |---------------------------------|       |---------------------------------|       | (Streaming STT API)     |  |
-|    | - `frontend/src/pages`          |<----->| - User/Session Management       |<----->| (via WebSockets)        |  |
-|    | - `frontend/src/components`     |       | - RLS for Data Security         |       +-------------------------+  |
-|    | - `frontend/src/contexts`       |       +---------------------------------+                 ^                |
-|    |   - `AuthContext`               |                   ^                                       |                |
-|    | - `frontend/src/hooks` (Logic)  |                   v                                       |                |
-|    |   - `usePracticeHistory`        |       +---------------------------------+       +-------------------------+  |
-|    |   - `useAnalytics`              |       |    Supabase DB (Postgres)       |       |        Stripe           |  |
-|    |   - `useSessionManager`         |       |---------------------------------|       |       (Payments)        |  |
-|    |   - `useSpeechRecognition`      |       | - `users`, `sessions`           |<----->| (via webhooks)          |  |
-|    |     - `useTranscriptState`      |       | - `transcripts`, `usage`        |       +-------------------------+  |
-|    |     - `useFillerWords`          |       | - `ground_truth` in sessions    |                 ^                |
-|    |     - `useTranscriptionService` |       +---------------------------------+                 |                |
-|    | - `frontend/src/lib` (Utils)    |       +---------------------------------+                 |                |
-|    |   - `pdfGenerator`              |<----->| - `users`, `sessions`           |<----->| (via webhooks)          |  |
-|    +---------------------------------+       | - `transcripts`, `usage`        |       +-------------------------+  |
-|              |         |                      +---------------------------------+                 ^                |
-|              |         |                                  ^                                       |                |
-|              |         |                      +---------------------------------+       +-------------------------+  |
-|              |         +--------------------->|     PDF & Image Libs          |       | Sentry (Errors)         |  |
-|              |                                |---------------------------------|       | PostHog (Analytics)     |  |
-|              v                                | - jspdf, jspdf-autotable        |       +-------------------------+  |
-|    +---------------------------------+       | - canvas (replaces sharp)       |                 ^                |
-|    | TranscriptionService            |       +---------------------------------+                 |                |
-|    |---------------------------------|                   ^                                       |                |
-|    | - `CloudAI / LocalWhisper` (Pro)|       |-------------------+                                       |                |
-|    | - `NativeBrowser` (Free)        |                 |                                       |                |
-|    +---------------------------------+       +---------------------------------+                 |                |
-|              |                                | Deno Edge Functions             |-----------------+                |
-|              v                                |---------------------------------|                                |
-|    +---------------------------------+       | - `assemblyai-token` (secure)   |                                |
-|    |      Microphone (Audio Input)   |       | - `stripe-checkout`             |                                |
-|    +---------------------------------+       | - `stripe-webhook`              |                                |
-|                                                +---------------------------------+                                |
-|                                                                                                                    |
-+----------------------------------------------------------------------------------------------------------------------+
+┌─────────────────────────┐     ┌─────────────────────────┐
+│    FRONTEND (React)     │     │  BACKEND (Supabase)     │
+│                         │     │                         │
+│  ┌───────────────────┐  │     │  ┌───────────────────┐  │
+│  │      Pages        │  │     │  │   Supabase Auth   │  │
+│  │  SessionPage      │  │     │  │   (User/Session)  │  │
+│  │  AnalyticsPage    │  │     │  └───────────────────┘  │
+│  └───────────────────┘  │     │           │             │
+│           │             │     │           ▼             │
+│           ▼             │     │  ┌───────────────────┐  │
+│  ┌───────────────────┐  │     │  │   PostgreSQL DB   │  │
+│  │  Custom Hooks     │──┼──┬──┼─▶│  users, sessions  │  │
+│  │  usePracticeHist  │  │  │  │  │  transcripts      │  │
+│  │  useAnalytics     │  │  │  │  └───────────────────┘  │
+│  └───────────────────┘  │  │  │           │             │
+│           │             │  │  │           ▼             │
+│           ▼             │  │  │  ┌───────────────────┐  │
+│  ┌───────────────────┐  │  │  │  │  Edge Functions   │  │
+│  │useSpeechRecognit* │  │  │  │  │  assemblyai-token │  │
+│  │ (DECOMPOSED)      │  │  │  │  │  stripe-checkout  │  │
+│  │ ├─useTranscript   │  │  │  │  └───────────────────┘  │
+│  │ ├─useFillerWords  │  │  │  │                         │
+│  │ ├─useTranscSvc    │  │  │  └─────────────────────────┘
+│  │ ├─useSessionTimer │  │  │
+│  │ └─useVocalAnalys  │  │  │  ┌─────────────────────────┐
+│  └───────────────────┘  │  │  │   3RD PARTY SERVICES    │
+│           │             │  │  │                         │
+│           ▼             │  └──┼─▶ AssemblyAI (STT)      │
+│  ┌───────────────────┐  │     │   Stripe (Payments)     │
+│  │TranscriptionSvc   │──┼─────┼─▶ Sentry (Errors)       │
+│  │ NativeBrowser     │  │     │   PostHog (Analytics)   │
+│  │ CloudAssemblyAI   │  │     │                         │
+│  │ LocalWhisper      │  │     └─────────────────────────┘
+│  └───────────────────┘  │
+│           │             │
+│           ▼             │
+│  ┌───────────────────┐  │
+│  │ Microphone Input  │  │
+│  └───────────────────┘  │
+│                         │
+└─────────────────────────┘
+
+Data Flow:
+  Browser → Hooks → TranscriptionService → AssemblyAI (WebSocket)
+  Hooks ↔ Supabase DB (RPC)
+  Edge Functions ↔ Stripe (Webhooks)
 ```
 
 ## 2. Technology Stack
@@ -628,7 +628,39 @@ The application employs a hybrid state management strategy that clearly separate
 
 This decoupled architecture is highly scalable and maintainable, as new data requirements can be met by creating new, isolated custom hooks without polluting the global state.
 
-### 3.2. Key Components
+### 3.2. Speech Recognition Hook Architecture (Decomposed)
+
+> **⚠️ Note for Reviewers:** This hook has been fully decomposed following the Single Responsibility Principle. If a review flags this as a "God Hook," please verify against this documentation first.
+
+The `useSpeechRecognition` hook in `frontend/src/hooks/useSpeechRecognition/` is a **composition layer** that orchestrates 5 specialized sub-hooks:
+
+| Hook | File | Responsibility |
+|------|------|----------------|
+| `useTranscriptState` | `useTranscriptState.ts` | Manages transcript chunks and interim text |
+| `useFillerWords` | `useFillerWords.ts` | Analyzes filler word frequency and patterns |
+| `useTranscriptionService` | `useTranscriptionService.ts` | Manages STT service lifecycle (Cloud/Local/Native) |
+| `useSessionTimer` | `useSessionTimer.ts` | Tracks session duration with cleanup |
+| `useVocalAnalysis` | `../useVocalAnalysis.ts` | Analyzes pauses and vocal variety |
+
+**Architecture Pattern:**
+```
+useSpeechRecognition (index.ts)
+├── useTranscriptState()     → transcript chunks, interim text
+├── useFillerWords()         → filler analysis from transcript
+├── useTranscriptionService() → STT service, mode selection, token fetching
+├── useSessionTimer()        → duration tracking
+└── useVocalAnalysis()       → pause detection, vocal metrics
+    ↓
+Returns unified API: { transcript, startListening, stopListening, ... }
+```
+
+The main `index.ts` contains only:
+- Service options configuration (callbacks)
+- `reset()` function that delegates to sub-hooks
+- `startListening()`/`stopListening()` wrappers
+- Return object composition
+
+### 3.3. Key Components
 
 - **`SessionSidebar.tsx`**: This component serves as the main control panel for a user's practice session. It contains the start/stop controls, a digital timer, and the transcription mode selector.
   - **Mode Selector**: A segmented button group allows users to choose their desired transcription mode before starting a session. The options are:
