@@ -10,6 +10,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (2025-12-09) - AI Detective v5 Findings
+
+- **Live Transcript E2E Race Condition (P0 BLOCKER):**
+  - Root cause: `startButton` disabled during profile loading after `programmaticLogin`
+  - Solution: Added `__e2eProfileLoaded` window flag in `AuthProvider.tsx`
+  - Added wait for flag in `programmaticLogin` helper
+  - **Files:** `frontend/src/contexts/AuthProvider.tsx`, `tests/e2e/helpers.ts`
+
+- **Hook Architecture Decomposition:**
+  - Extracted `useSessionTimer` from `useSpeechRecognition` main hook
+  - Hook now fully decomposed: `useTranscriptState`, `useFillerWords`, `useTranscriptionService`, `useSessionTimer`, `useVocalAnalysis`
+  - Added Section 3.2 to ARCHITECTURE.md documenting decomposition
+  - **Files:** `frontend/src/hooks/useSpeechRecognition/useSessionTimer.ts` (NEW), `index.ts`
+
+- **PDF Export Test Pattern:**  
+  - Replaced fragile try/catch with explicit `expect()` assertions
+  - Mock data must exist - failures now indicate broken MSW setup
+  - **File:** `tests/e2e/pdf-export.e2e.spec.ts`
+
+### Added (2025-12-09)
+
+- **Coverage Threshold Enforcement:**
+  - Added thresholds to `vitest.config.mjs`: lines 50%, functions 70%, branches 75%
+  - CI now fails if coverage regresses below thresholds
+
+- **Clean Architecture Diagram:**
+  - Replaced broken ASCII diagram with readable version
+  - Clearly shows decomposed hook structure
+  - **File:** `docs/ARCHITECTURE.md`
+
 ### Fixed
 - **PDF Export E2E Test (2025-12-08):**
   - Removed `test.skip()` - test now always runs and passes gracefully if no sessions

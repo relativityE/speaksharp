@@ -165,7 +165,7 @@ This section tracks high-level product risks and constraints. For a detailed his
 | **Rate Limiting (Missing)** | AssemblyAI token endpoint has no client/server rate limiting | Cost overruns, abuse risk | **P1 HIGH** |
 | **Usage Limit UX (Incomplete)** | Frontend doesn't prevent session start if usage exceeded | Frustrating UX when session fails to save | **P2 MEDIUM** |
 | **Error Reporting (Unverified)** | No Sentry setup for Web Audio/Worker errors | Production debugging impossible | **P1 HIGH** |
-| **Documentation Drift** | `ARCHITECTURE.md` needs update for `AudioProcessor.ts` and MSW details | Maintainability risk | **P3 LOW** |
+| ~~Documentation Drift~~ | ~~ARCHITECTURE.md needs update~~ | ~~Maintainability risk~~ | ✅ **RESOLVED 2025-12-09** - Added Section 3.2 documenting hook decomposition, clean ASCII diagram |
 | **E2E Error States Coverage** | Missing tests for: mic denied, usage exceeded, network failure during save | Resilience gap | **P2 MEDIUM** |
 
 ---
