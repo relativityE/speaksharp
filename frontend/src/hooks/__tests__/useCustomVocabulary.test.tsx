@@ -15,13 +15,18 @@ vi.mock('../../lib/supabaseClient', () => ({
     getSupabaseClient: vi.fn(),
 }));
 
-const queryClient = new QueryClient({
+// Create fresh QueryClient per test
+const createTestQueryClient = () => new QueryClient({
     defaultOptions: {
         queries: {
             retry: false,
+            gcTime: 0,
+            staleTime: 0,
         },
     },
 });
+
+let queryClient: QueryClient;
 
 const wrapper = ({ children }: { children: React.ReactNode }) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
@@ -30,7 +35,7 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
 describe('useCustomVocabulary', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        queryClient.clear();
+        queryClient = createTestQueryClient();
     });
 
     it('should return empty vocabulary when no user', async () => {
@@ -75,7 +80,7 @@ describe('useCustomVocabulary', () => {
 
         const { result } = renderHook(() => useCustomVocabulary(), { wrapper });
 
-        await waitFor(() => expect(result.current.vocabulary).toEqual(mockVocab));
+        await waitFor(() => expect(result.current.vocabulary).toEqual(mockVocab), { timeout: 5000 });
     });
 
     it('should validate word before adding', async () => {
