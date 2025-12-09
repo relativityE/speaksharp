@@ -33,7 +33,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - **Root Cause 1:** AuthProvider race condition - Supabase `onAuthStateChange` cleared mock session
   - **Root Cause 2:** `page.goto()` caused protected route loading state issues
   - **Solution:** AuthProvider ignores empty sessions in test mode; added `navigateToRoute()` helper
-  - **Status:** ✅ Fixed - **27 E2E tests now pass** (only 1 conditional skip)
+  - **Status:** ✅ Fixed - **31 E2E tests now pass** (no skips)
 
 - **✅ RESOLVED - Navigation E2E Test Failure (2025-12-02)**
   - **Problem:** `navigation.e2e.spec.ts` failed due to overlapping headers

@@ -155,7 +155,8 @@ This section tracks high-level product risks and constraints. For a detailed his
 - **✅ RESOLVED - Custom Vocabulary E2E Test (2025-12-08):** Previously flagged React Query cache issue is now resolved. MSW handlers working correctly, test is active and passing. **Status:** ✅ Fixed.
 - **✅ RESOLVED - PDF Export E2E Test (2025-12-08):** Test was passing but not actually testing due to sessions not loading. Fixed by waiting for `session-history-item` before checking buttons, and using click verification (jsPDF blob doesn't trigger Playwright download event). Now verifies 5 download buttons for 5 mock sessions. **Status:** ✅ Fixed.
 - **✅ RESOLVED - Analytics Invalid Session ID E2E Test Failure (2025-12-05):** The `analytics-details.e2e.spec.ts` test failure has been resolved by fixing race conditions in loading state assertions. **Status:** ✅ Fixed.
-- **✅ RESOLVED - AuthProvider Race Condition (Finding 2.1, 2025-12-07):** The `AuthProvider` had a race condition in E2E tests where Supabase `onAuthStateChange` would fire with `undefined` after mock session was set, clearing the authenticated state. **Fix:** AuthProvider now ignores empty session updates in test mode when initial session exists (`import.meta.env.VITE_TEST_MODE === 'true'`). **Impact:** All 26 E2E tests now pass. **Location:** `frontend/src/contexts/AuthProvider.tsx:77-84` **Previous Status (2025-11-30):** Originally flagged as HIGH risk, later downgraded to LOW upon code review. Now fully resolved for E2E testing.
+- **✅ RESOLVED - AuthProvider Race Condition (Finding 2.1, 2025-12-07):** The `AuthProvider` had a race condition in E2E tests where Supabase `onAuthStateChange` would fire with `undefined` after mock session was set, clearing the authenticated state. **Fix:** AuthProvider now ignores empty session updates in test mode when initial session exists (`import.meta.env.VITE_TEST_MODE === 'true'`). **Impact:** All 31 E2E tests now pass. **Location:** `frontend/src/contexts/AuthProvider.tsx:77-84` **Previous Status (2025-11-30):** Originally flagged as HIGH risk, later downgraded to LOW upon code review. Now fully resolved for E2E testing.
+- **CI Sharded E2E Metrics (2025-12-08):** The `ci:local` command runs E2E tests in 4 shards, but Playwright's blob reporter clears its output directory on each run. This causes the metrics report to only show the last shard's test count (e.g., 6 tests) instead of the total (31 tests). **Workaround:** Run `pnpm test:all` for accurate local metrics. **Impact:** Cosmetic only - all tests still run and pass, just the reported count is incorrect. **Fix Options:** (1) Use non-sharded runs for `ci:local`, or (2) implement unique blob output per shard with proper aggregation.
 
 ---
 
@@ -167,7 +168,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Mon, 08 Dec 2025 20:47:32 GMT
+**Last Updated:** Tue, 09 Dec 2025 00:18:55 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -177,14 +178,14 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 396 (365 unit + 31 E2E) |
+| Total tests             | 365 (365 unit + 0 E2E) |
 | Unit tests              | 365   |
-| E2E tests (Playwright)  | 31  |
-| Passing tests           | 396 (365 unit + 31 E2E)   |
+| E2E tests (Playwright)  | 0  |
+| Passing tests           | 365 (365 unit + 0 E2E)   |
 | Failing tests           | 0   |
 | Disabled/skipped tests  | 0 (E2E only)   |
 | Passing unit tests      | 365/365 (100.0%)   |
-| Passing E2E tests       | 31/31 (100.0%)   |
+| Passing E2E tests       | 0/0 (0%)   |
 | Total runtime           | See CI logs   |
 
 ---
@@ -193,10 +194,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | N/A   |
-| Branches   | N/A   |
-| Functions  | N/A   |
-| Lines      | N/A   |
+| Statements | 54.8%   |
+| Branches   | 82.31%   |
+| Functions  | 75.37%   |
+| Lines      | 54.8%   |
 
 ---
 
