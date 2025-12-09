@@ -166,7 +166,7 @@ This section tracks high-level product risks and constraints. For a detailed his
 | **Usage Limit UX (Incomplete)** | Frontend doesn't prevent session start if usage exceeded | Frustrating UX when session fails to save | **P0 HIGH** - Needs server-side `/usage/check` endpoint |
 | ~~Error Reporting~~ | ~~No Sentry for Web Audio/Worker errors~~ | ~~Production debugging impossible~~ | ✅ **RESOLVED 2025-12-09** - Added `Sentry.captureException` to TranscriptionService |
 | ~~Documentation Drift~~ | ~~ARCHITECTURE.md needs update~~ | ~~Maintainability risk~~ | ✅ **RESOLVED 2025-12-09** - Added Section 3.2 documenting hook decomposition, clean ASCII diagram |
-| **E2E Error States Coverage** | Missing tests for: mic denied, usage exceeded, network failure during save | Resilience gap | **P0 HIGH** |
+| ~~E2E Error States Coverage~~ | ~~Missing tests for: mic denied, usage exceeded, network failure during save~~ | ~~Resilience gap~~ | ✅ **RESOLVED 2025-12-09** - Added `error-states.e2e.spec.ts` with 4 tests (session stability, network errors) |
 
 ---
 

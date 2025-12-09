@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-08
+**Last Reviewed:** 2025-12-09
 
 # Changelog
 
@@ -29,11 +29,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Mock data must exist - failures now indicate broken MSW setup
   - **File:** `tests/e2e/pdf-export.e2e.spec.ts`
 
+- **eslint-disable Code Smell Removal:**
+  - Removed 3 `@typescript-eslint/no-explicit-any` from production code
+  - `TranscriptionService.ts:158` → proper Window type extension for MockLocalWhisper
+  - `theme.ts:204` → Record<string, unknown> for getThemeValue traversal
+  - `AuthProvider.tsx:61` → proper Window type for __e2eProfileLoaded
+  - Added null guard for MockLocalWhisper in E2E mock path
+  - **Files:** `TranscriptionService.ts`, `theme.ts`, `AuthProvider.tsx`
+
 ### Added (2025-12-09)
 
 - **Coverage Threshold Enforcement:**
   - Added thresholds to `vitest.config.mjs`: lines 50%, functions 70%, branches 75%
   - CI now fails if coverage regresses below thresholds
+
+- **E2E Error State Tests:**
+  - New test file: `tests/e2e/error-states.e2e.spec.ts`
+  - 4 tests covering session stability and network error handling
+  - Fixed test-id selector: uses `session-start-stop-button` (not `start-button`)
+  - All 35 E2E tests now passing
 
 - **Clean Architecture Diagram:**
   - Replaced broken ASCII diagram with readable version
