@@ -1,4 +1,5 @@
 import logger from '../../lib/logger';
+import * as Sentry from '@sentry/react';
 import CloudAssemblyAI from './modes/CloudAssemblyAI';
 import NativeBrowser from './modes/NativeBrowser';
 import { createMicStream } from './utils/audioUtils';
@@ -92,6 +93,7 @@ export default class TranscriptionService {
       return { success: true };
     } catch (error) {
       console.error('[TranscriptionService] Failed to initialize mic:', error);
+      Sentry.captureException(error, { tags: { component: 'TranscriptionService', method: 'init' } });
       throw error;
     }
   }

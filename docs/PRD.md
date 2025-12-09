@@ -162,11 +162,11 @@ This section tracks high-level product risks and constraints. For a detailed his
 
 | Issue | Details | Impact | Priority |
 |-------|---------|--------|----------|
-| **Rate Limiting (Missing)** | AssemblyAI token endpoint has no client/server rate limiting | Cost overruns, abuse risk | **P1 HIGH** |
-| **Usage Limit UX (Incomplete)** | Frontend doesn't prevent session start if usage exceeded | Frustrating UX when session fails to save | **P2 MEDIUM** |
-| **Error Reporting (Unverified)** | No Sentry setup for Web Audio/Worker errors | Production debugging impossible | **P1 HIGH** |
+| ~~Rate Limiting~~ | ~~AssemblyAI token endpoint no rate limiting~~ | ~~Cost overruns, abuse risk~~ | ✅ **RESOLVED 2025-12-09** - Added client-side `rateLimiter.ts` (5 calls/min, 5s interval) |
+| **Usage Limit UX (Incomplete)** | Frontend doesn't prevent session start if usage exceeded | Frustrating UX when session fails to save | **P0 HIGH** - Needs server-side `/usage/check` endpoint |
+| ~~Error Reporting~~ | ~~No Sentry for Web Audio/Worker errors~~ | ~~Production debugging impossible~~ | ✅ **RESOLVED 2025-12-09** - Added `Sentry.captureException` to TranscriptionService |
 | ~~Documentation Drift~~ | ~~ARCHITECTURE.md needs update~~ | ~~Maintainability risk~~ | ✅ **RESOLVED 2025-12-09** - Added Section 3.2 documenting hook decomposition, clean ASCII diagram |
-| **E2E Error States Coverage** | Missing tests for: mic denied, usage exceeded, network failure during save | Resilience gap | **P2 MEDIUM** |
+| **E2E Error States Coverage** | Missing tests for: mic denied, usage exceeded, network failure during save | Resilience gap | **P0 HIGH** |
 
 ---
 

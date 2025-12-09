@@ -5,6 +5,7 @@ import { getSupabaseClient } from '@/lib/supabaseClient';
 import { calculateTranscriptStats } from '../../utils/fillerWordUtils';
 import logger from '../../lib/logger';
 import { toast } from 'sonner';
+import { checkRateLimit } from '../../lib/rateLimiter';
 
 import { useTranscriptState } from './useTranscriptState';
 import { useFillerWords } from './useFillerWords';
@@ -29,6 +30,15 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
   const vocalAnalysis = useVocalAnalysis(false); // We'll enable this when we have mic access
 
   const getAssemblyAIToken = useCallback(async (): Promise<string | null> => {
+    // Rate limit check to prevent abuse
+    const rateCheck = checkRateLimit('ASSEMBLYAI_TOKEN');
+    if (!rateCheck.allowed) {
+      const seconds = Math.ceil((rateCheck.retryAfterMs || 0) / 1000);
+      toast.error(`Please wait ${seconds} seconds before starting another session.`);
+      logger.warn({ retryAfterMs: rateCheck.retryAfterMs }, 'Rate limited token request');
+      return null;
+    }
+
     try {
       const supabase = getSupabaseClient();
       if (!supabase) throw new Error("Supabase client not available");
