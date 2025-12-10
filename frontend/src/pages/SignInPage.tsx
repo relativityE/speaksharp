@@ -35,7 +35,12 @@ export default function SignInPage() {
                 navigate('/session');
             }
         } catch (err: unknown) {
-            setError(err instanceof Error ? err.message : 'An unexpected error occurred');
+            // Provide more descriptive error messages for common failure modes
+            if (err instanceof TypeError && err.message === 'Failed to fetch') {
+                setError('Unable to connect to authentication server. Check your network connection and Supabase configuration.');
+            } else {
+                setError(err instanceof Error ? err.message : 'An unexpected error occurred');
+            }
         } finally {
             setIsSubmitting(false);
         }
