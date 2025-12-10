@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-08
+**Last Reviewed:** 2025-12-10
 
 # Agent Instructions for SpeakSharp Repository
 
@@ -212,6 +212,7 @@ ___
 ---
 
 ## 📝 Agent Work Log (Recent)
+*   **2025-12-10 (Antigravity):** Fixed CI metrics aggregation - `ci:local` now correctly reports 35 E2E tests (was 8). Solution: `PLAYWRIGHT_BLOB_OUTPUT_DIR` per shard + JSONL extraction in `test-audit.sh`. Completed Test ID centralization (`testIds.ts`, `tests/constants.ts`). Fixed E2E navigation race conditions via `navigateToRoute()`. Refactored `pauseDetector.test.ts` to use fake timers. Updated all 8 mandatory docs.
 *   **2025-12-10 (Antigravity):** Refactored E2E test organization (moved real auth tests to `frontend/tests/integration`). Centralized test IDs in `tests/constants.ts`. Fixed Analytics Dashboard rendering (Supabase table name fix).
 
 

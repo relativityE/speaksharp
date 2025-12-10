@@ -90,7 +90,9 @@ run_e2e_tests_shard() {
 
     # Run Playwright with native sharding
     # Playwright expects 1-indexed shards
-    pnpm exec playwright test tests/e2e --shard="${SHARD_NUM}/${TOTAL_SHARDS}" --reporter=blob
+    # Use PLAYWRIGHT_BLOB_OUTPUT_DIR env var to output blobs to unique dir per shard
+    PLAYWRIGHT_BLOB_OUTPUT_DIR="blob-report/shard-${SHARD_NUM}" \
+        pnpm exec playwright test tests/e2e --shard="${SHARD_NUM}/${TOTAL_SHARDS}" --reporter=blob
 
     echo "✅ E2E Test Shard ${SHARD_NUM} Passed."
 }
@@ -203,7 +205,38 @@ run_ci_simulation() {
     mkdir -p merged-reports test-results/playwright
     
     if [ -d "blob-report" ] && [ "$(ls -A blob-report 2>/dev/null)" ]; then
-        pnpm exec playwright merge-reports --reporter json,html blob-report > test-results/playwright/results.json
+        # Count tests from each shard directory
+        local total_passed=0
+        local total_failed=0
+        local total_skipped=0
+        
+        for shard_dir in blob-report/shard-*; do
+            if [ -d "$shard_dir" ]; then
+                # Look for the blob zip file in each shard directory
+                for zip_file in "$shard_dir"/*.zip; do
+                    if [ -f "$zip_file" ]; then
+                        # Extract and count from report.jsonl (JSONL format)
+                        # Count onTestEnd events by status (clean output with tr)
+                        local passed_raw=$(unzip -p "$zip_file" report.jsonl 2>/dev/null | grep -c '"method":"onTestEnd".*"status":"passed"' 2>/dev/null | tr -d '[:space:]')
+                        local failed_raw=$(unzip -p "$zip_file" report.jsonl 2>/dev/null | grep -c '"method":"onTestEnd".*"status":"failed"' 2>/dev/null | tr -d '[:space:]')
+                        local skipped_raw=$(unzip -p "$zip_file" report.jsonl 2>/dev/null | grep -c '"method":"onTestEnd".*"status":"skipped"' 2>/dev/null | tr -d '[:space:]')
+                        # Default to 0 if empty
+                        local passed=${passed_raw:-0}
+                        local failed=${failed_raw:-0}
+                        local skipped=${skipped_raw:-0}
+                        total_passed=$((total_passed + passed))
+                        total_failed=$((total_failed + failed))
+                        total_skipped=$((total_skipped + skipped))
+                        echo "  📊 Shard $(basename $shard_dir): $passed passed, $failed failed, $skipped skipped"
+                    fi
+                done
+            fi
+        done
+        
+        echo "  📊 Total: $total_passed passed, $total_failed failed, $total_skipped skipped"
+        
+        # Create the aggregated JSON for metrics
+        echo "{\"stats\": {\"expected\": $total_passed, \"unexpected\": $total_failed, \"skipped\": $total_skipped}}" > test-results/playwright/results.json
         echo "✅ Merged reports."
     else
         echo "⚠️ No blob reports to merge."
@@ -251,6 +284,8 @@ case $STAGE in
         echo "🎉 Health-Check SUCCEEDED."
         ;;
     local)
+        # Unset CI to ensure local-friendly behaviors (e.g., JSON reporter, non-fatal E2E check)
+        unset CI
         START_TIME=$(date +%s)
         run_preflight
         run_quality_checks

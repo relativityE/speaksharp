@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-07
+**Last Reviewed:** 2025-12-10
 
 # 📚 SpeakSharp Documentation Outline
 
@@ -66,13 +66,6 @@ This section defines the canonical location for every type of documentation.
         *   Timestamped note when **tech debt items are closed**.
         *   Logging when **known issues** are resolved.
         *   Summaries of major testing shifts (e.g., “Added end-to-end testing suite”).
- 
- *   **[`DESIGN_TOKENS.md`](./DESIGN_TOKENS.md)**
-     *   **Content**: Detailed reference for the design system, including color tokens, typography, and usage guidelines.
-     *   **Best fit for**:
-         *   Looking up specific token names (e.g., `--primary`, `--shadow-elegant`).
-         *   Understanding how to use CVA with the design system.
-
 ---
 
 ## ⚖️ Rule of Thumb for Ambiguous Leftovers

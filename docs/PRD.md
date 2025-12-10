@@ -135,12 +135,12 @@ This section tracks high-level product risks and constraints. For a detailed his
 
 - **Incomplete Theming:** The application is configured to support both light and dark themes, but only a dark theme is currently implemented. Users will not be able to switch to a light theme, which can be an accessibility issue and ignores user preference.
 - **Accessibility Gaps:** The live transcript lacks an ARIA live region (`aria-live="polite"`), meaning screen readers do not announce new text as it appears. This is a critical accessibility blocker for visually impaired users.
-- **Unit Test Coverage:** Current test coverage is 54.8% with 365 unit tests passing (as of 2025-12-08). Continued coverage expansion is tracked in the technical debt backlog.
+- **Unit Test Coverage:** Current test coverage is 56.65% with 369 unit tests passing (as of 2025-12-10). Continued coverage expansion is tracked in the technical debt backlog.
 - **✅ RESOLVED - UX - Layout Shift (CLS, 2025-12-06):** The `SessionPage` transcript container now uses fixed `h-[250px]` to prevent layout instability. **Status:** ✅ Fixed.
 - **✅ RESOLVED - UX - Accessibility (Contrast, 2025-12-07):** Hero text contrast improved with drop-shadow and backdrop-blur for WCAG AA compliance. **Status:** ✅ Fixed.
 - **UX - Mobile Experience:** The controls on `SessionPage` are difficult to access on small screens as they scroll away with the content ("thumb stretch" issue). A sticky footer is required.
 - **✅ RESOLVED - Testimonials (2025-12-07):** Populated `TestimonialsSection` with realistic user personas and feedback. **Status:** ✅ Complete.
-- **Test Quality:** A comprehensive audit of the test suite is needed to identify and refactor brittle or low-value tests, ensuring the suite provides high confidence without false positives.
+- **Test Quality (Partially Addressed 2025-12-10):** A comprehensive audit of the test suite is ongoing. Test ID centralization completed (eliminated magic strings). Refactored brittle `.first()` selectors. Remaining: identify low-value tests.
 - **✅ RESOLVED - Session Comparison & Progress Tracking (2025-12-06):** Implemented full feature with side-by-side comparison, trend charts, and progress indicators. Users can select 2 sessions to compare, view WPM/Clarity/Fillers trends over time, and see improvement/regression indicators. **Status:** ✅ Implemented. **Files:** `ProgressIndicator.tsx`, `TrendChart.tsx`, `SessionComparisonDialog.tsx`, `AnalyticsDashboard.tsx`
 - **✅ RESOLVED - Goal Setting Implementation (2025-12-07):** Supabase sync implemented, and GoalsSection now calculates actual progress from `useAnalytics` hook (weekly session count and average clarity score). **Files:** `GoalsSection.tsx`, `useGoals.ts`. **Status:** ✅ Complete.
 - **✅ RESOLVED - Goal Setting E2E Test Failure (2025-12-05):** The `goal-setting.e2e.spec.ts` test failure caused by stale build artifacts has been fixed. **Status:** ✅ Fixed.
@@ -155,8 +155,8 @@ This section tracks high-level product risks and constraints. For a detailed his
 - **✅ RESOLVED - Custom Vocabulary E2E Test (2025-12-08):** Previously flagged React Query cache issue is now resolved. MSW handlers working correctly, test is active and passing. **Status:** ✅ Fixed.
 - **✅ RESOLVED - PDF Export E2E Test (2025-12-08):** Test was passing but not actually testing due to sessions not loading. Fixed by waiting for `session-history-item` before checking buttons, and using click verification (jsPDF blob doesn't trigger Playwright download event). Now verifies 5 download buttons for 5 mock sessions. **Status:** ✅ Fixed.
 - **✅ RESOLVED - Analytics Invalid Session ID E2E Test Failure (2025-12-05):** The `analytics-details.e2e.spec.ts` test failure has been resolved by fixing race conditions in loading state assertions. **Status:** ✅ Fixed.
-- **✅ RESOLVED - AuthProvider Race Condition (Finding 2.1, 2025-12-07):** The `AuthProvider` had a race condition in E2E tests where Supabase `onAuthStateChange` would fire with `undefined` after mock session was set, clearing the authenticated state. **Fix:** AuthProvider now ignores empty session updates in test mode when initial session exists (`import.meta.env.VITE_TEST_MODE === 'true'`). **Impact:** All 31 E2E tests now pass. **Location:** `frontend/src/contexts/AuthProvider.tsx:77-84` **Previous Status (2025-11-30):** Originally flagged as HIGH risk, later downgraded to LOW upon code review. Now fully resolved for E2E testing.
-- **CI Sharded E2E Metrics (2025-12-08):** The `ci:local` command runs E2E tests in 4 shards, but Playwright's blob reporter clears its output directory on each run. This causes the metrics report to only show the last shard's test count (e.g., 6 tests) instead of the total (31 tests). **Workaround:** Run `pnpm test:all` for accurate local metrics. **Impact:** Cosmetic only - all tests still run and pass, just the reported count is incorrect. **Fix Options:** (1) Use non-sharded runs for `ci:local`, or (2) implement unique blob output per shard with proper aggregation.
+- **✅ RESOLVED - AuthProvider Race Condition (Finding 2.1, 2025-12-07):** The `AuthProvider` had a race condition in E2E tests where Supabase `onAuthStateChange` would fire with `undefined` after mock session was set, clearing the authenticated state. **Fix:** AuthProvider now ignores empty session updates in test mode when initial session exists (`import.meta.env.VITE_TEST_MODE === 'true'`). **Impact:** All 35 E2E tests now pass. **Location:** `frontend/src/contexts/AuthProvider.tsx:77-84` **Previous Status (2025-11-30):** Originally flagged as HIGH risk, later downgraded to LOW upon code review. Now fully resolved for E2E testing.
+- **✅ RESOLVED - CI Sharded E2E Metrics (2025-12-10):** The `ci:local` command was incorrectly reporting only 8 E2E tests instead of 35 due to Playwright blob reports being overwritten per shard. **Fix:** Implemented `PLAYWRIGHT_BLOB_OUTPUT_DIR` per shard with JSONL extraction for accurate aggregation in `test-audit.sh`. Now correctly reports 35 E2E tests. **Status:** ✅ Fixed.
 
 ### Gap Analysis: Alpha Launch Blockers (AI Detective v5 - 2025-12-09)
 
@@ -178,7 +178,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Wed, 10 Dec 2025 19:51:16 GMT
+**Last Updated:** Wed, 10 Dec 2025 22:51:53 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -188,14 +188,14 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 383 (375 unit + 8 E2E) |
-| Unit tests              | 375   |
-| E2E tests (Playwright)  | 8  |
-| Passing tests           | 383 (375 unit + 8 E2E)   |
+| Total tests             | 404 (369 unit + 35 E2E) |
+| Unit tests              | 369   |
+| E2E tests (Playwright)  | 35  |
+| Passing tests           | 404 (369 unit + 35 E2E)   |
 | Failing tests           | 0   |
 | Disabled/skipped tests  | 0 (E2E only)   |
-| Passing unit tests      | 375/375 (100.0%)   |
-| Passing E2E tests       | 8/8 (100.0%)   |
+| Passing unit tests      | 369/369 (100.0%)   |
+| Passing E2E tests       | 35/35 (100.0%)   |
 | Total runtime           | See CI logs   |
 
 ---
@@ -204,10 +204,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | 56.96%   |
-| Branches   | 82.28%   |
+| Statements | 56.65%   |
+| Branches   | 82.26%   |
 | Functions  | 72.79%   |
-| Lines      | 56.96%   |
+| Lines      | 56.65%   |
 
 ---
 
@@ -217,7 +217,7 @@ This section provides metrics that help identify "code bloat"—unnecessary or d
 
 | Metric | Value | Description |
 |---|---|---|
-| **Initial Chunk Size** | 872K | The size of the largest initial JavaScript bundle. This is a direct measure of the amount of code a user has to download and parse on their first visit. Large values here are a strong indicator of code bloat. |
+| **Initial Chunk Size** | 876K | The size of the largest initial JavaScript bundle. This is a direct measure of the amount of code a user has to download and parse on their first visit. Large values here are a strong indicator of code bloat. |
 | **Lighthouse Score** | (coming soon) | A comprehensive performance score from Google Lighthouse. It measures the *impact* of code bloat on the user experience, including metrics like Time to Interactive. |
 
 ---

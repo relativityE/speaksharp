@@ -1,11 +1,11 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-09
+**Last Reviewed:** 2025-12-10
 
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp System Architecture
 
-**Version 3.5** | **Last Updated: 2025-11-30**
+**Version 3.6** | **Last Updated: 2025-12-10**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -253,7 +253,7 @@ Both the local test runner and CI use the same `test-audit.sh` script, ensuring 
 | Aspect              | Local Test Runner (`pnpm test:all`)                                            | CI (GitHub Actions)                                                 |
 |---------------------|---------------------------------------------------------------------------------|---------------------------------------------------------------------|
 | **Execution**       | `./test-audit.sh local` - single process                                       | Split into stages: `prepare`, `test` (sharded), `report`           |
-| **E2E Tests**       | Runs all 30+ tests serially                                                   | **Sharded across 4 workers** using Playwright native `--shard` flag |
+| **E2E Tests**       | Runs all 35 tests serially                                                    | **Sharded across 4 workers** using Playwright native `--shard` flag |
 | **Parallelization** | Quality checks (lint/typecheck/test) run in parallel via `concurrently`        | Each CI job runs independently in isolated environments             |
 | **Purpose**         | Pre-commit verification and local validation                                   | Gatekeeper for merging to main branch                               |
 | **Speed**           | ~2-3 minutes (serial E2E execution)                                            | ~1-2 minutes (parallel sharding reduces E2E time)                   |
@@ -296,6 +296,17 @@ How it's Launched: The test environment's dev server is not launched by you dire
 
 - **Mock SpeechRecognition API**: Polyfills browser `SpeechRecognition` and `webkitSpeechRecognition` with `MockSpeechRecognition` class
 - **dispatchMockTranscript()**: Helper function callable from Playwright tests via `page.evaluate()` to simulate transcription events
+
+#### Centralized Test IDs (2025-12-10)
+
+Test IDs are centralized to eliminate magic strings and ensure selector consistency:
+
+| Location | Purpose |
+|----------|---------|
+| `frontend/src/constants/testIds.ts` | Source of truth (55 IDs) |
+| `tests/constants.ts` | Mirror for E2E imports |
+
+**Dynamic IDs:** For list items, use pattern `${TEST_IDS.SESSION_HISTORY_ITEM}-${id}` (e.g., `session-history-item-abc123`).
 
 #### Test Synchronization Pattern
 

@@ -23,7 +23,7 @@ test.describe('App Navigation', () => {
     await page.goto('/');
 
     // Click nav link to Session
-    await page.getByRole('link', { name: /session/i }).first().click();
+    await page.getByRole('link', { name: /practice/i }).first().click();
     await expect(page).toHaveURL('/session');
 
     // Click nav link to Analytics

@@ -692,7 +692,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ profile 
                                 </Button>
                             )}
                         </CardHeader>
-                        <CardContent className="space-y-4">
+                        <CardContent className="space-y-4" data-testid={TEST_IDS.SESSION_HISTORY_LIST}>
                             {sessionHistory && sessionHistory.length > 0 ? (
                                 sessionHistory.slice(0, 10).map((session) => (
                                     <SessionHistoryItem

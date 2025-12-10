@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-09
+**Last Reviewed:** 2025-12-10
 
 # Changelog
 
@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added (2025-12-10)
+
+- **Test ID Centralization:**
+  - Created `frontend/src/constants/testIds.ts` as single source of truth for all `data-testid` attributes (55 IDs)
+  - Mirrored constants in `tests/constants.ts` for E2E test imports
+  - Documents dynamic ID pattern: `session-history-item-${id}` for list items
+  - **Files:** `frontend/src/constants/testIds.ts`, `tests/constants.ts`
 
 - **Soak Test CI/CD Workflow:**
   - Created `.github/workflows/soak-test.yml` for running soak tests in CI with real Supabase credentials
@@ -30,6 +36,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **File:** `docs/ARCHITECTURE.md`
 
 ### Fixed (2025-12-10)
+
+- **CI Metrics Aggregation (35 E2E Tests Now Correctly Reported):**
+  - **Problem:** `ci:local` only reported 8 E2E tests (last shard only) instead of 35 (all 4 shards)
+  - **Root Cause 1:** All shards wrote blob reports to same directory, overwriting each other
+  - **Root Cause 2:** Playwright `merge-reports` didn't properly aggregate stats
+  - **Solution:** 
+    - Added `PLAYWRIGHT_BLOB_OUTPUT_DIR="blob-report/shard-${SHARD_NUM}"` for unique shard outputs
+    - Implemented JSONL extraction to count `onTestEnd` events from each shard's `report.jsonl`
+    - Aggregates: Shard 1 (10) + Shard 2 (8) + Shard 3 (9) + Shard 4 (8) = 35 total
+  - **Impact:** `ci:local` and `test:all` now correctly report 35 E2E tests
+  - **File:** `scripts/test-audit.sh`
+
+- **E2E Navigation Race Condition Fix:**
+  - **Problem:** `session-comparison.e2e.spec.ts` failed to find session history items
+  - **Root Cause:** `page.goto('/analytics')` caused race condition with MSW service worker activation
+  - **Solution:** Changed to `navigateToRoute(page, '/analytics')` (client-side navigation) in all 3 test cases
+  - **Impact:** Session comparison tests now pass reliably
+  - **Files:** `tests/e2e/session-comparison.e2e.spec.ts`, `tests/e2e/pdf-export.e2e.spec.ts`
+
+- **Navigation Test "Practice" Label:**
+  - **Problem:** `Navigation.test.tsx` checked for "Session" link but UI shows "Practice"
+  - **Solution:** Updated all assertions to check for "Practice" instead of "Session"
+  - **Files:** `frontend/src/components/__tests__/Navigation.test.tsx`, `tests/e2e/navigation.e2e.spec.ts`
+
+- **Session History Data-TestID Fix:**
+  - **Problem:** E2E tests couldn't find session history items (wrong selector)
+  - **Solution:** Added `data-testid={TEST_IDS.SESSION_HISTORY_LIST}` to `AnalyticsDashboard.tsx` CardContent
+  - **Impact:** Tests now correctly locate session history list via centralized test ID
+  - **File:** `frontend/src/components/AnalyticsDashboard.tsx`
+
+- **Brittle Mobile Button Selector:**
+  - **Problem:** `metrics.e2e.spec.ts` used `.first()` on start/stop button (fragile)
+  - **Solution:** Added unique `data-testid` for mobile button: `${TEST_IDS.SESSION_START_STOP_BUTTON}-mobile`
+  - **Files:** `frontend/src/pages/SessionPage.tsx`, `tests/e2e/metrics.e2e.spec.ts`
+
+- **Unit Test Timeout Fix (pauseDetector.test.ts):**
+  - **Problem:** "Timeout calling onTaskUpdate" errors due to busy-wait loops
+  - **Solution:** Refactored to use Vitest fake timers (`vi.useFakeTimers`, `vi.setSystemTime`)
+  - **Impact:** Tests run deterministically without timeouts
+  - **File:** `frontend/src/services/audio/__tests__/pauseDetector.test.ts`
+
+- **Linting Error Fix:**
+  - Removed unnecessary `eslint-disable no-empty` directive from `pauseDetector.test.ts`
 
 - **Post-Login Redirect Missing:**
   - **Problem:** After successful sign-in, users stayed on `/auth/signin` instead of being redirected

@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-09
+**Last Reviewed:** 2025-12-10
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -144,12 +144,20 @@ This phase is about confirming the core feature set works as expected and polish
 - **✅ COMPLETED - Refactor E2E Test Infrastructure (2025-12-07):**
   - ✅ Fix `analytics-empty-state.e2e.spec.ts` timeout (empty state not rendering)
   - ✅ Fix `metrics.e2e.spec.ts` WPM calculation timing issue
-  - 🔴 **Fix CI Metrics Reporting (Data Loss):**
-  - **Issue:** `update-metrics` script only captures the last shard's results (e.g., 8 vs 35 tests) in sharded CI runs.
-  - **Fix:** Implement report merging (blob reports) before generating metrics.
-- 🟡 **Refactor: Centralize Test IDs & Fix Duplicates:**
+  - ✅ **COMPLETED (2025-12-10) - Fix CI Metrics Reporting (Data Loss):**
+  - **Issue:** `update-metrics` script only captured the last shard's results (e.g., 8 vs 35 tests) in sharded CI runs.
+  - **Solution:** Implemented per-shard blob output (`PLAYWRIGHT_BLOB_OUTPUT_DIR`) and JSONL extraction to aggregate test counts from all shards. Now correctly reports 35 E2E tests.
+  - **Files:** `scripts/test-audit.sh`
+- ✅ **COMPLETED (2025-12-10) - Refactor: Centralize Test IDs & Fix Duplicates:**
   - **Goal:** Eliminate magic strings and duplicate selectors (e.g., `.first()`).
-  - **Status:** In Progress. Created `frontend/src/constants/testIds.ts`. Refactoring components and tests.
+  - **Solution:** 
+    - Created `frontend/src/constants/testIds.ts` as single source of truth (55 IDs)
+    - Mirrored in `tests/constants.ts` for E2E test imports
+    - Refactored components: `Navigation.tsx`, `SessionPage.tsx`, `AnalyticsDashboard.tsx`
+    - Fixed dynamic IDs: `session-history-item-${id}` pattern for lists
+    - Replaced brittle `.first()` selectors with specific `data-testid` attributes (e.g., mobile button)
+    - Fixed E2E tests: `session-comparison.e2e.spec.ts`, `pdf-export.e2e.spec.ts`, `navigation.e2e.spec.ts`
+  - **Files:** `testIds.ts`, `tests/constants.ts`, plus 6 component/test files
   - ✅ Fix `local-stt-caching.e2e.spec.ts` mode selector timeout
   - ✅ Fix `custom-vocabulary.e2e.spec.ts` hanging issue
   - ✅ Set up Pro test account for Local STT tests
@@ -185,7 +193,7 @@ This phase is about confirming the core feature set works as expected and polish
     - Visual regression baseline snapshots (generated)
     - Bug reports documented in ROADMAP Tech Debt section
     - UX improvement recommendations incorporated
-  - **Status**: ✅ Complete - All 31 E2E tests passing, journeys verified
+  - **Status**: ✅ Complete - All 35 E2E tests passing, journeys verified
 
 
 
@@ -267,7 +275,7 @@ This phase focuses on long-term architecture, scalability, and preparing for fut
 - 🔴 **Automate On-Device Model Updates:** Create a script (e.g., GitHub Action) to automatically check for and download new versions of the locally-hosted Whisper model to prevent it from becoming stale.
 - 🔴 **Add Platform Integrations (e.g., Zoom, Google Meet):** Allow SpeakSharp to connect to and analyze audio from third-party meeting platforms.
 - 🟡 **Set up Multi-Env CI/CD:** A basic implementation for DB migrations exists, but needs expansion.
-- 🔴 **Replace E2E Custom Event Synchronization:** Refactor `e2e-profile-loaded` custom events to use robust wait strategies (waiting for visible UI elements instead of custom DOM events). Current implementation works but creates tight coupling between app and tests.
+- 🟡 **Replace E2E Custom Event Synchronization (Partial 2025-12-10):** Implemented `navigateToRoute()` helper for client-side navigation, reducing reliance on custom events. Remaining: `e2e-profile-loaded` event still used in `programmaticLogin`.
 - ✅ **Create Mock Data Factory Functions:** Rich mock data implemented in `handlers.ts` (2025-12-07) - 5 sessions with improvement trend, 6 vocabulary words. Supports trend analysis and goal verification.
 
 ### Gating Check
