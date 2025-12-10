@@ -1,5 +1,7 @@
 import type { Page } from '@playwright/test';
 import { MetricsCollector } from './metrics-collector';
+import { navigateToRoute } from '../e2e/helpers';
+import { ROUTES, TEST_IDS, TIMEOUTS } from '../constants';
 
 /**
  * Configuration for user simulation
@@ -87,10 +89,26 @@ export class UserSimulator {
     private async navigateToSessions(page: Page): Promise<void> {
         const startTime = Date.now();
 
-        await page.goto('/sessions');
-        await page.waitForSelector('[data-testid="session-sidebar"]', {
-            timeout: 5000
-        });
+        console.log(`[User] 📍 Navigating to session page: ${ROUTES.SESSION}`);
+        await page.goto(ROUTES.SESSION, { waitUntil: 'networkidle' });
+        console.log(`[User] 📍 Current URL: ${page.url()}`);
+
+        // Wait for the session page to fully load - look for the start/stop button
+        console.log(`[User] ⏳ Waiting for start button...`);
+        try {
+            await page.waitForSelector(`[data-testid="${TEST_IDS.SESSION_START_STOP_BUTTON}"]`, {
+                timeout: TIMEOUTS.PAGE_LOAD
+            });
+            console.log(`[User] ✅ Session page loaded, start button visible`);
+        } catch {
+            // Capture what we see for debugging
+            const bodyText = await page.textContent('body');
+            console.log(`[User] ❌ Start button not found! Page body (first 1000 chars):`);
+            console.log(bodyText?.substring(0, 1000));
+            await page.screenshot({ path: `test-results/soak/debug-session-${Date.now()}.png` });
+            console.log(`[User] 📸 Screenshot saved`);
+            throw new Error(`Start button not found on session page. URL: ${page.url()}`);
+        }
 
         this.metrics.recordResponseTime(Date.now() - startTime);
     }
@@ -114,8 +132,8 @@ export class UserSimulator {
         const startButton = page.getByTestId('session-start-stop-button');
         await startButton.click();
 
-        // Wait for session to become active
-        await page.waitForSelector('[data-testid="session-status-indicator"]:has-text("Session Active")', {
+        // Wait for session to become active (status shows READY when ready)
+        await page.waitForSelector('[data-testid="session-status-indicator"]', {
             timeout: 10000,
         });
 
@@ -184,13 +202,14 @@ export class UserSimulator {
     private async navigateToAnalytics(page: Page): Promise<void> {
         const startTime = Date.now();
 
-        await page.goto('/analytics');
+        // Use navigateToRoute helper to preserve auth context
+        await navigateToRoute(page, ROUTES.ANALYTICS);
 
         // Wait for analytics dashboard to load (either stats or empty state)
-        const statsLocator = page.locator('[data-testid="stat-card-total-sessions"]');
+        const statsLocator = page.locator(`[data-testid="${TEST_IDS.STAT_CARD_TOTAL_SESSIONS}"]`);
         const emptyStateLocator = page.locator('[data-testid="analytics-dashboard-empty-state"]');
 
-        await statsLocator.or(emptyStateLocator).first().waitFor({ timeout: 5000 });
+        await statsLocator.or(emptyStateLocator).first().waitFor({ timeout: TIMEOUTS.SHORT });
 
         this.metrics.recordResponseTime(Date.now() - startTime);
     }

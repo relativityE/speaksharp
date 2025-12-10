@@ -109,6 +109,14 @@ export async function navigateToRoute(page: Page, route: string): Promise<void> 
   // Wait for route change to complete
   await page.waitForURL(`**${route}`, { timeout: 10000 });
   console.log(`[E2E DEBUG] Navigation to ${route} complete`);
+
+  // Wait for MSW to be ready to intercept requests (timing fix)
+  // This gives the service worker time to catch up after navigation
+  await page.waitForFunction(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return !!(window as any).mswReady;
+  }, null, { timeout: 5000 });
+  console.log(`[E2E DEBUG] MSW ready confirmed after navigation`);
 }
 
 /**

@@ -1,8 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin, navigateToRoute } from './helpers';
+import { programmaticLogin, navigateToRoute, attachLiveTranscript } from './helpers';
 
 test.describe('Analytics Page - Dashboard with Data', () => {
   test('should display analytics dashboard with session data', async ({ page }) => {
+    // Capture browser console logs for debugging
+    attachLiveTranscript(page);
+
     // MSW provides mock session data by default
     await programmaticLogin(page);
 
@@ -21,7 +24,7 @@ test.describe('Analytics Page - Dashboard with Data', () => {
     const dashboard = page.getByTestId('analytics-dashboard');
     await expect(dashboard).toBeVisible();
 
-    // Verify key metrics are displayed
-    await expect(page.getByTestId('speaking-pace')).toBeVisible();
+    // Verify key metrics are displayed (testid pattern: stat-card-{option.id})
+    await expect(page.getByTestId('stat-card-speaking_pace')).toBeVisible();
   });
 });

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { programmaticLogin, mockLiveTranscript } from './helpers';
+import { TEST_IDS } from '../constants';
 
 test.describe('Session Metrics', () => {
     test('should update WPM, Clarity Score, and Filler Words in real-time', async ({ page }) => {
@@ -13,17 +14,18 @@ test.describe('Session Metrics', () => {
         console.log('[TEST] ✅ Navigated to /session');
 
         // Start recording
-        await page.getByTestId('session-start-stop-button').click();
+        await page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON).click();
         console.log('[TEST] ✅ Clicked start button');
 
-        // Wait for button to change to "Stop" state (desktop shows "Stop", mobile shows "Stop Recording")
-        const stopButton = page.getByTestId('session-start-stop-button').first(); // Get first visible button
+        // Wait for button to change to "Stop" state
+        // Note: Desktop button has 'Stop', Mobile has 'Stop Recording'. Both contain 'Stop'.
+        const stopButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
+        await expect(stopButton).toBeVisible();
         await expect(stopButton).toContainText('Stop');
         console.log('[TEST] ✅ Stop button visible - service should be ready');
 
         // Target the WPM card
-        const wpmCard = page.locator('.bg-card', { has: page.getByText('Speaking Rate') });
-        const wpmValue = wpmCard.locator('.text-6xl');
+        const wpmValue = page.getByTestId(TEST_IDS.WPM_VALUE);
 
         // Verify initial WPM is 0
         await expect(wpmValue).toHaveText('0');
@@ -45,8 +47,7 @@ test.describe('Session Metrics', () => {
         console.log('[TEST] ✅ WPM updated from 0');
 
         // Verify Clarity Score (should be high since no fillers)
-        const clarityCard = page.locator('.bg-card', { has: page.getByText('Clarity Score') });
-        const clarityValue = clarityCard.locator('.text-6xl');
+        const clarityValue = page.getByTestId(TEST_IDS.CLARITY_SCORE_VALUE);
         const clarityText = await clarityValue.textContent();
         console.log('[TEST] Clarity Score:', clarityText);
         // Clarity should be > 80% for clean speech
@@ -59,8 +60,7 @@ test.describe('Session Metrics', () => {
         await page.waitForTimeout(1000);
 
         // Verify Filler Count increased
-        const fillerCard = page.locator('.bg-card', { has: page.getByText('Filler Words') });
-        const fillerValue = fillerCard.locator('.text-5xl');
+        const fillerValue = page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE);
         const fillerText = await fillerValue.textContent();
         console.log('[TEST] Filler Words count:', fillerText);
         // Should have at least 2 fillers (Um, uh)

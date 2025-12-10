@@ -190,7 +190,6 @@ describe('AnalyticsPage', () => {
             } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
 
             renderAnalyticsPage('/analytics');
-            expect(screen.getByText('Unlock Your Full Potential')).toBeInTheDocument();
             expect(screen.getByTestId('analytics-page-upgrade-button')).toBeInTheDocument();
         });
 
@@ -202,7 +201,7 @@ describe('AnalyticsPage', () => {
             } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
 
             renderAnalyticsPage('/analytics');
-            expect(screen.queryByText('Unlock Your Full Potential')).not.toBeInTheDocument();
+            expect(screen.queryByTestId('analytics-page-upgrade-button')).not.toBeInTheDocument();
         });
 
         it('should NOT render upgrade banner when viewing specific session', () => {
@@ -213,7 +212,7 @@ describe('AnalyticsPage', () => {
             } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
 
             renderAnalyticsPage('/analytics/session-1');
-            expect(screen.queryByText('Unlock Your Full Potential')).not.toBeInTheDocument();
+            expect(screen.queryByTestId('analytics-page-upgrade-button')).not.toBeInTheDocument();
         });
     });
 });

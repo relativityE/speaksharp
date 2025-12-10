@@ -10,6 +10,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (2025-12-10)
+
+- **Soak Test CI/CD Workflow:**
+  - Created `.github/workflows/soak-test.yml` for running soak tests in CI with real Supabase credentials
+  - Workflow generates `.env.development` at runtime from GitHub secrets (`SUPABASE_URL`, `SUPABASE_ANON_KEY`)
+  - Manually triggered via `workflow_dispatch`, can optionally run on schedule
+  - Uploads test results as artifacts for debugging
+  - **File:** `.github/workflows/soak-test.yml`
+
+- **Centralized Soak Test Configuration:**
+  - Extended `tests/constants.ts` with `SOAK_CONFIG`, `SOAK_TEST_USERS`, `ROUTES`, `TEST_IDS`, and `TIMEOUTS`
+  - Single source of truth for all soak test parameters
+  - **File:** `tests/constants.ts`
+
+- **Auth Architecture Documentation:**
+  - Added "Auth Architecture (Non-Blocking Design)" section to `ARCHITECTURE.md`
+  - Documents that `AuthProvider` is non-blocking and `ProtectedRoute` handles loading states
+  - **File:** `docs/ARCHITECTURE.md`
+
+### Fixed (2025-12-10)
+
+- **Post-Login Redirect Missing:**
+  - **Problem:** After successful sign-in, users stayed on `/auth/signin` instead of being redirected
+  - **Root Cause:** `SignInPage.tsx` set session but didn't call `navigate('/session')`
+  - **Solution:** Added `useNavigate` hook and `navigate('/session')` after successful authentication
+  - **Impact:** Users now properly redirected to session page after login
+  - **File:** `frontend/src/pages/SignInPage.tsx`
+
+- **Soak Test Real Supabase Integration:**
+  - Refactored `soak-test.spec.ts` to use real Supabase login with form-based authentication
+  - Each concurrent user gets different credentials from `SOAK_TEST_USERS` array
+  - Added strategic debug logs with URL polling during auth wait
+  - **Files:** `tests/soak/soak-test.spec.ts`, `tests/soak/user-simulator.ts`
+
+### Removed (2025-12-10)
+
+- **Deleted `.env` file:**
+  - Removed root `.env` file that shouldn't be in the repository (contained dummy values)
+  - Environment files should not be committed; real credentials managed via GitHub secrets
+
 ### Fixed (2025-12-09) - AI Detective v5 Findings
 
 - **Live Transcript E2E Race Condition (P0 BLOCKER):**

@@ -63,7 +63,7 @@ describe('Navigation', () => {
 
             renderNavigation();
             expect(screen.getAllByText('Home')).toHaveLength(2); // Desktop + mobile
-            expect(screen.getAllByText('Session')).toHaveLength(2);
+            expect(screen.getAllByText('Practice')).toHaveLength(2);
             expect(screen.getAllByText('Analytics')).toHaveLength(2);
         });
 
@@ -106,14 +106,14 @@ describe('Navigation', () => {
             expect(homeLinks[0]).toHaveAttribute('href', '/');
         });
 
-        it('should have correct href for Session link', () => {
+        it('should have correct href for Practice link', () => {
             mockUseAuthProvider.mockReturnValue({
                 session: { user: { id: 'test-user' } },
                 signOut: mockSignOut,
             } as unknown as AuthProvider.AuthContextType);
 
             renderNavigation();
-            const sessionLinks = screen.getAllByRole('link', { name: /session/i });
+            const sessionLinks = screen.getAllByRole('link', { name: /practice/i });
             expect(sessionLinks[0]).toHaveAttribute('href', '/session');
         });
 
@@ -175,7 +175,7 @@ describe('Navigation', () => {
             } as unknown as AuthProvider.AuthContextType);
 
             renderNavigation('/session');
-            expect(screen.getAllByText('Session')).toHaveLength(2);
+            expect(screen.getAllByText('Practice')).toHaveLength(2);
         });
 
         it('should highlight Analytics link when on analytics page', () => {

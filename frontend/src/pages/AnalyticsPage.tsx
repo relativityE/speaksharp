@@ -2,39 +2,61 @@ import React from 'react';
 import { NavLink, useNavigate, useParams } from 'react-router-dom';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
 import { useAnalytics } from '../hooks/useAnalytics';
-import { useAuthProvider } from '../contexts/AuthProvider';
+// import { useAuthProvider } from '../contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Zap, Sparkles, BarChart } from 'lucide-react';
+// import { Badge } from '@/components/ui/badge';
+import { Mic, BarChart, User } from 'lucide-react';
+// import { Settings } from 'lucide-react';
 
 // --- Sub-components ---
 
-const UpgradeBanner: React.FC = () => {
+const PageHeader: React.FC<{ isPro: boolean; sessionId?: string }> = ({ isPro, sessionId }) => {
     const navigate = useNavigate();
+
+    // Different heading and description based on whether viewing a specific session
+    const isSessionView = !!sessionId;
+    const heading = isSessionView ? 'Session Analysis' : 'Your Dashboard';
+    const description = isSessionView
+        ? 'A detailed breakdown of your recent practice session.'
+        : "Here's an overview of your progress. Keep it up!";
+
     return (
-        <Card className="mb-8 bg-gradient-to-r from-purple-500 to-indigo-600 text-white shadow-lg">
-            <CardContent className="p-6 flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                    <Sparkles className="w-8 h-8 text-yellow-300" />
-                    <div>
-                        <h3 className="font-bold text-lg">Unlock Your Full Potential</h3>
-                        <p className="text-sm opacity-90">Get unlimited practice, advanced analytics, and more with Pro.</p>
+        <div className="mb-8">
+            <h1 className="text-3xl font-bold text-foreground mb-2" data-testid="dashboard-heading">{heading}</h1>
+            <p className="text-muted-foreground mb-4">{description}</p>
+
+            {/* Plan Banner - Only show on dashboard view, not session view */}
+            {!isSessionView && !isPro && (
+                <button
+                    onClick={() => navigate('/#pricing')}
+                    className="w-full flex items-center justify-between bg-secondary hover:bg-secondary/90 text-white px-6 py-3 rounded-full transition-colors"
+                    data-testid="analytics-page-upgrade-button"
+                >
+                    <div className="flex items-center gap-3">
+                        <Mic className="w-5 h-5" />
+                        <span className="font-medium">Free Plan</span>
+                        <span className="text-white/70 hidden sm:inline">|</span>
+                        <span className="text-sm text-white/90 hidden sm:inline">Upgrade to Pro for unlimited practice, PDF exports, and detailed analytics</span>
                     </div>
+                    <div className="flex items-center gap-2 font-medium">
+                        Upgrade to Pro <User className="w-4 h-4" />
+                    </div>
+                </button>
+            )}
+            {!isSessionView && isPro && (
+                <div className="w-full flex items-center justify-center bg-secondary text-gray-900 px-6 py-3 rounded-full">
+                    <span className="font-medium">✨ Pro Plan Active</span>
                 </div>
-                <Button variant="secondary" className="bg-white text-purple-600 hover:bg-gray-100" onClick={() => navigate('/#pricing')} data-testid="analytics-page-upgrade-button">
-                    <Zap className="w-4 h-4 mr-2" />
-                    Upgrade Now
-                </Button>
-            </CardContent>
-        </Card>
+            )}
+        </div>
     );
 };
 
 const AuthenticatedAnalyticsView: React.FC = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
     const { sessionHistory, loading, error } = useAnalytics();
-    const { user } = useAuthProvider();
+    // const { user } = useAuthProvider();
     const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
 
     console.log('[AnalyticsPage] Rendering. sessionId:', sessionId, 'loading:', loading, 'isProfileLoading:', isProfileLoading);
@@ -70,7 +92,9 @@ const AuthenticatedAnalyticsView: React.FC = () => {
         );
     }
 
-    if (sessionId && sessionHistory.length === 0 && !loading && !error) {
+    // Show "Session Not Found" if viewing a specific session that doesn't exist
+    const sessionExists = sessionId ? sessionHistory.some(s => s.id === sessionId) : true;
+    if (sessionId && !sessionExists && !loading && !error) {
         return (
             <div className="text-center py-16">
                 <h2 className="text-2xl font-semibold mb-4">Session Not Found</h2>
@@ -83,19 +107,11 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     }
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 items-start">
-            <div className="lg:col-span-4">
-                {user && !isPro && !sessionId && <UpgradeBanner />}
-                <div className="mb-8">
-                    <h1 className="text-3xl font-bold text-foreground" data-testid="dashboard-heading">{sessionId ? "Session Analysis" : "Your Dashboard"}</h1>
-                    <p className="mt-2 text-base text-muted-foreground">
-                        {sessionId ? "A detailed breakdown of your recent practice session." : "Here's an overview of your progress. Keep it up!"}
-                    </p>
-                </div>
-                <AnalyticsDashboard
-                    profile={profile || null}
-                />
-            </div>
+        <div>
+            <PageHeader isPro={isPro} sessionId={sessionId} />
+            <AnalyticsDashboard
+                profile={profile || null}
+            />
         </div>
     );
 };
@@ -104,8 +120,8 @@ const AuthenticatedAnalyticsView: React.FC = () => {
 
 export const AnalyticsPage: React.FC = () => {
     return (
-        <div className="min-h-screen bg-background">
-            <div className="container mx-auto px-4 py-10">
+        <div className="min-h-screen bg-gradient-subtle pt-20">
+            <div className="max-w-7xl mx-auto px-8 md:px-12 py-10">
                 <AuthenticatedAnalyticsView />
             </div>
         </div>

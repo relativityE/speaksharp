@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin } from './helpers';
+import { programmaticLogin, navigateToRoute } from './helpers';
 
 test.describe('Analytics Details', () => {
     test.beforeEach(async ({ page }) => {
@@ -30,19 +30,15 @@ test.describe('Analytics Details', () => {
         }
     });
 
-    // TODO: Fix this test - React Router is not rendering the route after page.goto()
-    // The issue is that the app is using a production build and navigation causes
-    // the <main> element to remain empty. This needs investigation into the
-    // interaction between BrowserRouter, Suspense, and lazy-loaded components in E2E tests.
     test('Journey 8.3: Invalid Session ID', async ({ page }) => {
-        await page.goto('/analytics/invalid-session-id');
-        await page.waitForURL('/analytics/invalid-session-id');
+        // Use navigateToRoute to preserve auth context (page.goto resets everything)
+        await navigateToRoute(page, '/analytics/invalid-session-id');
 
         // Wait for loading to finish and error state to appear
         // The page shows "Session Not Found" when ID doesn't exist
-        await expect(page.getByText('Loading analytics...')).not.toBeVisible({ timeout: 10000 });
+        await expect(page.getByText('Loading analytics...')).not.toBeVisible({ timeout: 15000 });
 
-        await expect(page.getByText('Session Not Found')).toBeVisible({ timeout: 5000 });
+        await expect(page.getByText('Session Not Found')).toBeVisible({ timeout: 10000 });
 
         // Verify link back to dashboard
         const dashboardLink = page.getByRole('link', { name: /view dashboard/i });

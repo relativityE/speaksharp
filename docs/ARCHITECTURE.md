@@ -674,6 +674,30 @@ The application's homepage (`/`) has special routing logic to handle different u
 - **Production (`import.meta.env.DEV` is false):** Authenticated users who navigate to the homepage are automatically redirected to the main application interface (`/session`). This ensures they land on a functional page after logging in.
 - **Development (`import.meta.env.DEV` is true):** The redirect is disabled. This allows developers to access and work on the public-facing homepage components even while being authenticated.
 
+### Auth Architecture (Non-Blocking Design)
+
+The application uses a non-blocking auth architecture that allows public pages to render immediately while protected routes handle their own authentication loading states.
+
+```
+AuthProvider (non-blocking) → App → Routes
+                                    ├── Public: Landing (/), Pricing, SignIn, SignUp
+                                    │   └── Renders immediately (no auth wait)
+                                    └── Protected: Session (/session), Analytics (/analytics)
+                                        └── Wrapped in ProtectedRoute
+                                            └── Shows loading spinner while auth initializes
+                                            └── Redirects to /auth if not authenticated
+```
+
+**Design Principles:**
+1. **Public pages render immediately** - No auth dependency for landing, pricing, signin, signup
+2. **Protected routes handle their own loading** - `ProtectedRoute` component shows loading state, not `AuthProvider`
+3. **Auth state is available but not blocking** - Components can check auth without waiting
+
+**Key Files:**
+- `frontend/src/contexts/AuthProvider.tsx` - Provides auth context, always renders children
+- `frontend/src/components/ProtectedRoute.tsx` - Wraps protected routes, handles loading/redirect
+- `frontend/src/pages/Index.tsx` - Landing page, renders immediately for unauthenticated users
+
 ### Memory Leak Prevention
 Given the real-time nature of the application, proactive memory management is critical. Components involving continuous data streams (e.g., `useSpeechRecognition`, `TranscriptionService`) must be carefully audited for memory leaks. This includes ensuring all `useEffect` hooks have proper cleanup functions.
 

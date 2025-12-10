@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Mic, BarChart3, Home, LogOut } from "lucide-react";
+import { TEST_IDS } from '@/constants/testIds';
 import { useLocation, Link, useNavigate } from "react-router-dom";
 import { useAuthProvider } from "@/contexts/AuthProvider";
 
@@ -14,9 +15,24 @@ const Navigation = () => {
   };
 
   const navItems = [
-    { path: "/", icon: Home, label: "Home" },
-    { path: "/session", icon: Mic, label: "Session" },
-    { path: "/analytics", icon: BarChart3, label: "Analytics" },
+    {
+      path: "/",
+      icon: Home,
+      label: "Home",
+      testId: TEST_IDS.NAV_HOME_LINK
+    },
+    {
+      path: "/session",
+      icon: Mic,
+      label: "Practice",
+      testId: TEST_IDS.NAV_SESSION_LINK
+    },
+    {
+      path: "/analytics",
+      icon: BarChart3,
+      label: "Analytics",
+      testId: TEST_IDS.NAV_ANALYTICS_LINK
+    },
   ];
 
   const MobileNav = () => (
@@ -69,7 +85,7 @@ const Navigation = () => {
                       size="sm"
                       asChild
                     >
-                      <Link to={item.path} className="flex items-center space-x-2">
+                      <Link to={item.path} className="flex items-center space-x-2" data-testid={item.testId}>
                         <item.icon className="h-4 w-4" />
                         <span>{item.label}</span>
                       </Link>
@@ -86,7 +102,7 @@ const Navigation = () => {
                   <span className="hidden md:inline text-sm text-muted-foreground">
                     {session.user?.email}
                   </span>
-                  <Button variant="ghost" size="sm" onClick={handleSignOut} data-testid="nav-sign-out-button">
+                  <Button variant="ghost" size="sm" onClick={handleSignOut} data-testid={TEST_IDS.NAV_SIGN_OUT_BUTTON}>
                     <LogOut className="h-4 w-4 mr-2" />
                     Sign Out
                   </Button>

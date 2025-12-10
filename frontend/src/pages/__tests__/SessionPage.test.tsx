@@ -300,7 +300,7 @@ describe('SessionPage', () => {
             } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
             render(<SessionPage />);
-            expect(screen.getByText('Your spoken words will appear here')).toBeInTheDocument();
+            expect(screen.getByText('words appear here...')).toBeInTheDocument();
         });
     });
 });

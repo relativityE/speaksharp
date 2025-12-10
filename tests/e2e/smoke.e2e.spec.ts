@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { programmaticLogin } from './helpers';
+import { TEST_IDS, TIMEOUTS } from '../constants';
 
 test.describe('Smoke Test', () => {
   test('should perform comprehensive app health check and full user journey @smoke @health-check', async ({ page }) => {
@@ -48,8 +49,9 @@ test.describe('Smoke Test', () => {
       await page.goto('/session');
       await expect(page.getByRole('heading', { name: 'Practice Session' })).toBeVisible();
 
-      // Verify the start/stop button (main functional element)
-      await expect(page.getByTestId('session-start-stop-button')).toBeVisible();
+      // Wait for session page to load
+      await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeVisible({ timeout: TIMEOUTS.PAGE_LOAD });
+      console.log('[TEST] ✅ Session page loaded');
     });
 
     // Step 5: Navigate to Analytics Page and verify content
@@ -59,7 +61,9 @@ test.describe('Smoke Test', () => {
       // Wait for data to load and verify dashboard elements
       // Two-stage assertion: Wait for loading skeleton to disappear, then check for content
       await expect(page.getByTestId('analytics-dashboard-skeleton')).toBeHidden({ timeout: 15000 });
-      await expect(page.getByTestId('speaking-pace')).toBeVisible({ timeout: 15000 });
+      // Check for dashboard stats
+      await expect(page.getByTestId(TEST_IDS.ANALYTICS_DASHBOARD)).toBeVisible();
+      await expect(page.getByTestId('stat-card-speaking_pace')).toBeVisible({ timeout: 15000 });
       await expect(page.getByTestId('dashboard-heading')).toBeVisible();
     });
 

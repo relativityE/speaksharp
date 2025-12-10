@@ -1,7 +1,7 @@
 import React, { useState, FormEvent, ChangeEvent } from 'react';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { useAuthProvider } from '@/contexts/AuthProvider';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,6 +11,7 @@ import { Mail } from 'lucide-react';
 // Sign In page – supports both password and magic link
 export default function SignInPage() {
     const { session, loading, setSession } = useAuthProvider();
+    const navigate = useNavigate();
 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -28,7 +29,11 @@ export default function SignInPage() {
             const supabase = getSupabaseClient();
             const { error: authError, data } = await supabase.auth.signInWithPassword({ email, password });
             if (authError) throw authError;
-            if (data.session) setSession(data.session);
+            if (data.session) {
+                setSession(data.session);
+                // Redirect to session page after successful login
+                navigate('/session');
+            }
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : 'An unexpected error occurred');
         } finally {

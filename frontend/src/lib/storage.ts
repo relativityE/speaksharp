@@ -29,19 +29,33 @@ export const getSessionHistory = async (
   }
 
   const { limit = 50, offset = 0 } = options;
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const requestUrl = `${supabaseUrl}/rest/v1/sessions`;
 
-  const { data, error }: { data: PracticeSession[] | null, error: PostgrestError | null } = await supabase
-    .from('sessions')
-    .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1);
+  console.log('[DEBUG getSessionHistory] Fetching sessions for user:', userId);
+  console.log('[DEBUG getSessionHistory] Request URL:', requestUrl);
 
-  if (error) {
-    logger.error({ error }, 'Error fetching session history:');
-    return [];
+  try {
+    const { data, error }: { data: PracticeSession[] | null, error: PostgrestError | null } = await supabase
+      .from('sessions')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    console.log('[DEBUG getSessionHistory] Result:', { dataLength: data?.length, error: error?.message });
+
+    if (error) {
+      logger.error({ error }, `Error fetching session history from ${requestUrl}:`);
+      throw new Error(`Failed to fetch sessions from ${requestUrl}: ${error.message}`);
+    }
+    return data || [];
+  } catch (fetchError) {
+    const errorMessage = fetchError instanceof Error ? fetchError.message : String(fetchError);
+    console.error(`[getSessionHistory] Failed to fetch from ${requestUrl}:`, errorMessage);
+    // Re-throw with descriptive message including the URL
+    throw new Error(`Failed to fetch sessions from ${requestUrl}: ${errorMessage}`);
   }
-  return data || [];
 };
 
 /**

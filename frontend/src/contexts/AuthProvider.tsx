@@ -2,7 +2,6 @@
 import React, { useState, useEffect, ReactNode, useMemo, useCallback, useContext, createContext } from 'react';
 import { getSupabaseClient } from '../lib/supabaseClient';
 import { Session, User } from '@supabase/supabase-js';
-import { Skeleton } from '@/components/ui/skeleton';
 import { UserProfile } from '@/types/user';
 
 // Define the context value type right inside the provider file
@@ -31,6 +30,31 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
   const supabase = getSupabaseClient();
 
   useEffect(() => {
+    // DEV BYPASS: Add ?devBypass=true to URL to skip auth for UI testing
+    if (import.meta.env.DEV && window.location.search.includes('devBypass=true')) {
+      console.log('[AuthProvider] DEV BYPASS ENABLED - using mock session');
+      const mockSession = {
+        access_token: 'dev-bypass-token',
+        refresh_token: 'dev-bypass-refresh',
+        expires_in: 3600,
+        expires_at: Date.now() / 1000 + 3600,
+        token_type: 'bearer',
+        user: {
+          id: 'dev-bypass-user-id',
+          email: 'dev@speaksharp.app',
+          aud: 'authenticated',
+          role: 'authenticated',
+          app_metadata: {},
+          user_metadata: {},
+          created_at: new Date().toISOString(),
+        }
+      } as Session;
+      setSessionState(mockSession);
+      setProfile({ id: 'dev-bypass-user-id', subscription_status: 'free' } as UserProfile);
+      setLoading(false);
+      return;
+    }
+
     if (!supabase) {
       // In a real app, you might want to throw an error or handle this state gracefully
       console.error('Supabase client is not available.');
@@ -88,9 +112,20 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       }
     );
 
-    // Handle initial session if provided
+    // Handle initial session if provided (e.g., from E2E tests)
     if (initialSession) {
       fetchAndSetProfile(initialSession);
+    } else {
+      // CRITICAL FIX: Fetch initial session to properly set loading state
+      // Without this, loading stays true forever and page stays blank
+      supabase.auth.getSession().then(({ data: { session }, error }) => {
+        if (error) {
+          console.error('[AuthProvider] Error getting initial session:', error);
+          setLoading(false); // Still need to set loading false so landing page shows
+        } else {
+          fetchAndSetProfile(session);
+        }
+      });
     }
 
     return () => {
@@ -115,14 +150,8 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     setSession: setSessionState,
   }), [sessionState, profile, loading, signOut]);
 
-  if (loading) {
-    return (
-      <div className="w-full h-screen flex justify-center items-center" data-testid="auth-provider-loading">
-        <Skeleton className="h-24 w-24 rounded-full" data-testid="loading-skeleton" />
-      </div>
-    );
-  }
-
+  // Don't block app rendering while loading - landing page is PUBLIC
+  // Individual protected routes will handle their own loading states
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

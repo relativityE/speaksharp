@@ -1,59 +1,85 @@
 import { test, expect, type Page } from '@playwright/test';
 import { MetricsCollector } from './metrics-collector';
 import { UserSimulator } from './user-simulator';
+import { SOAK_CONFIG, SOAK_TEST_USERS, ROUTES } from '../constants';
 import fs from 'fs';
 import path from 'path';
 
 /**
- * Configuration for soak test
+ * Helper to set up authenticated test user using REAL Supabase login
+ * Each concurrent user gets different credentials to avoid session conflicts
  */
-const SOAK_CONFIG = {
-    // Budget-aware defaults for alpha testing
-    concurrentUsers: 2, // Free Supabase tier handles 10 connections, 2 users is safe
-    sessionDuration: 5 * 60 * 1000, // 5 minutes (per user request)
-    useNativeMode: true, // Avoid AssemblyAI costs
-    trackMemory: true, // Monitor for memory leaks
-    resultsDir: 'test-results/soak',
-};
+async function setupAuthenticatedUser(page: Page, userIndex: number): Promise<void> {
+    const credentials = SOAK_TEST_USERS[userIndex % SOAK_TEST_USERS.length];
 
-/**
- * Helper to set up authenticated test user using REAL Supabase auth
- * Uses existing test users from database:
- * - User 0: test@test.com
- * - User 1: soak-test-0@example.com
- */
-async function setupAuthenticatedUser(page: Page, userId: string): Promise<void> {
-    // Map user IDs to actual emails in database
-    const userCredentials: Record<string, { email: string; password: string }> = {
-        'user-0': { email: 'test@test.com', password: 'TestPass123!' },
-        'user-1': { email: 'soak-test-0@example.com', password: 'soak-test-password-123' },
-    };
+    console.log(`[Soak Test] 🔐 User ${userIndex} logging in with credentials:`);
+    console.log(`[Soak Test]   Email: ${credentials.email}`);
+    console.log(`[Soak Test]   Password: ${'*'.repeat(credentials.password.length)}`);
 
-
-    const credentials = userCredentials[userId];
-    if (!credentials) {
-        throw new Error(`No credentials configured for ${userId}`);
-    }
-
-    // Navigate to auth page
-    await page.goto('/auth');
+    // Navigate to sign-in page
+    console.log(`[Soak Test] 📍 Navigating to: ${ROUTES.SIGN_IN}`);
+    await page.goto(ROUTES.SIGN_IN);
+    console.log(`[Soak Test] 📍 Current URL after goto: ${page.url()}`);
 
     // Wait for auth form to load
-    await page.waitForSelector('[data-testid="email-input"]', { timeout: 5000 });
+    console.log(`[Soak Test] ⏳ Waiting for email input...`);
+    await page.waitForSelector('input[type="email"]', { timeout: 10000 });
+    console.log(`[Soak Test] ✅ Email input found`);
 
     // Fill in credentials
-    await page.fill('[data-testid="email-input"]', credentials.email);
-    await page.fill('[data-testid="password-input"]', credentials.password);
+    console.log(`[Soak Test] ✍️ Filling in credentials...`);
+    await page.fill('input[type="email"]', credentials.email);
+    await page.fill('input[type="password"]', credentials.password);
+    console.log(`[Soak Test] ✅ Credentials filled`);
 
-    // Click sign in button
-    await page.click('[data-testid="sign-in-submit"]');
+    // Submit the form
+    console.log(`[Soak Test] 🚀 Clicking submit button...`);
+    await page.click('button[type="submit"]');
 
-    // Wait for successful authentication (redirects to home or dashboard)
-    await page.waitForSelector('[data-testid="nav-sign-out-button"]', {
-        timeout: 15000, // Allow time for Supabase auth
-    });
+    // Wait a moment for the form to process
+    await page.waitForTimeout(1000);
+    console.log(`[Soak Test] 📍 URL 1s after submit: ${page.url()}`);
 
-    console.log(`[Soak Test] ✅ ${credentials.email} authenticated successfully`);
+    // Wait for auth to complete - URL should change from signin page
+    console.log(`[Soak Test] ⏳ Waiting for auth to complete (max 20s)...`);
+
+    // Poll every 2 seconds to see progress
+    const startTime = Date.now();
+    for (let i = 0; i < 10; i++) {
+        await page.waitForTimeout(2000);
+        const currentUrl = page.url();
+        console.log(`[Soak Test] 📍 URL at ${((Date.now() - startTime) / 1000).toFixed(0)}s: ${currentUrl}`);
+
+        if (!currentUrl.includes('/auth/signin')) {
+            console.log(`[Soak Test] ✅ Redirect detected!`);
+            break;
+        }
+
+        // Check for error messages on the page
+        const errorText = await page.$eval('body', (el) => {
+            const text = el.textContent || '';
+            if (text.includes('Invalid') || text.includes('Error') || text.includes('Failed')) {
+                return text.substring(0, 300);
+            }
+            return null;
+        }).catch(() => null);
+
+        if (errorText) {
+            console.log(`[Soak Test] ❌ Error on page: ${errorText}`);
+            throw new Error(`Login failed: ${errorText}`);
+        }
+    }
+
+    console.log(`[Soak Test] 📍 URL after auth: ${page.url()}`);
+
+    // Navigate to session page explicitly if needed
+    if (!page.url().includes(ROUTES.SESSION)) {
+        console.log(`[Soak Test] 🚀 Navigating to ${ROUTES.SESSION} manually...`);
+        await page.goto(ROUTES.SESSION, { waitUntil: 'networkidle' });
+    }
+
+    console.log(`[Soak Test] ✅ User ${userIndex} authenticated with real Supabase credentials`);
+    console.log(`[Soak Test] 📍 Final URL: ${page.url()}`);
 }
 
 test.describe('Soak Test - Concurrent User Simulation', () => {
@@ -61,8 +87,8 @@ test.describe('Soak Test - Concurrent User Simulation', () => {
 
     test.beforeAll(() => {
         // Ensure results directory exists
-        if (!fs.existsSync(SOAK_CONFIG.resultsDir)) {
-            fs.mkdirSync(SOAK_CONFIG.resultsDir, { recursive: true });
+        if (!fs.existsSync(SOAK_CONFIG.RESULTS_DIR)) {
+            fs.mkdirSync(SOAK_CONFIG.RESULTS_DIR, { recursive: true });
         }
     });
 
@@ -72,21 +98,21 @@ test.describe('Soak Test - Concurrent User Simulation', () => {
 
     test.afterEach(async () => {
         // Generate and save report
-        const report = metrics.generateReport(SOAK_CONFIG.concurrentUsers);
+        const report = metrics.generateReport(SOAK_CONFIG.CONCURRENT_USERS);
 
         // Print to console
         metrics.printSummary(report);
 
         // Save JSON report
         const reportPath = path.join(
-            SOAK_CONFIG.resultsDir,
+            SOAK_CONFIG.RESULTS_DIR,
             `metrics-${Date.now()}.json`
         );
         fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
 
         // Save human-readable summary
         const summaryPath = path.join(
-            SOAK_CONFIG.resultsDir,
+            SOAK_CONFIG.RESULTS_DIR,
             `summary-${Date.now()}.txt`
         );
         fs.writeFileSync(summaryPath, generateTextSummary(report));
@@ -96,13 +122,13 @@ test.describe('Soak Test - Concurrent User Simulation', () => {
 
     test('should handle concurrent users for 5 minutes', async ({ browser }) => {
         const startTime = Date.now();
-        console.log(`\n🚀 Starting soak test with ${SOAK_CONFIG.concurrentUsers} concurrent users...`);
+        console.log(`\n🚀 Starting soak test with ${SOAK_CONFIG.CONCURRENT_USERS} concurrent users...`);
         console.log(`📅 Start time: ${new Date(startTime).toISOString()}`);
-        console.log(`⏱️  Duration: ${SOAK_CONFIG.sessionDuration / 1000 / 60} minutes per user\n`);
+        console.log(`⏱️  Duration: ${SOAK_CONFIG.SESSION_DURATION_MS / 1000 / 60} minutes per user\n`);
 
         // Create multiple browser contexts (simulate separate users)
         const userContexts = await Promise.all(
-            Array.from({ length: SOAK_CONFIG.concurrentUsers }, () =>
+            Array.from({ length: SOAK_CONFIG.CONCURRENT_USERS }, () =>
                 browser.newContext({
                     viewport: { width: 1280, height: 720 },
                     // Unique storage state per user
@@ -116,18 +142,18 @@ test.describe('Soak Test - Concurrent User Simulation', () => {
             userContexts.map((ctx) => ctx.newPage())
         );
 
-        // Set up authenticated sessions for each user
+        // Set up authenticated sessions for each user (different credentials per user)
         await Promise.all(
-            userPages.map((page, i) => setupAuthenticatedUser(page, `user-${i}`))
+            userPages.map((page, i) => setupAuthenticatedUser(page, i))
         );
 
         // Create simulators for each user
         const simulators = userPages.map(
             () =>
                 new UserSimulator(metrics, {
-                    sessionDuration: SOAK_CONFIG.sessionDuration,
-                    useNativeMode: SOAK_CONFIG.useNativeMode,
-                    trackMemory: SOAK_CONFIG.trackMemory,
+                    sessionDuration: SOAK_CONFIG.SESSION_DURATION_MS,
+                    useNativeMode: SOAK_CONFIG.USE_NATIVE_MODE,
+                    trackMemory: SOAK_CONFIG.TRACK_MEMORY,
                 })
         );
 
@@ -157,10 +183,10 @@ test.describe('Soak Test - Concurrent User Simulation', () => {
         console.log(`\n✅ Soak test completed in ${durationSec.toFixed(1)}s`);
 
         // Assertions to verify test health
-        const report = metrics.generateReport(SOAK_CONFIG.concurrentUsers);
+        const report = metrics.generateReport(SOAK_CONFIG.CONCURRENT_USERS);
 
         // All users should complete successfully
-        expect(report.metrics.successCount).toBe(SOAK_CONFIG.concurrentUsers);
+        expect(report.metrics.successCount).toBe(SOAK_CONFIG.CONCURRENT_USERS);
         expect(report.metrics.errorCount).toBe(0);
 
         // Response times should be reasonable (< 5s for any operation)

@@ -1,0 +1,74 @@
+name: Soak Test
+
+on:
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+  # Optional: Run on a schedule (e.g., every night at midnight)
+  # schedule:
+  #   - cron: '0 0 * * *'
+
+jobs:
+  run-soak-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Create .env.development from Secrets
+        run: |
+          cat > .env.development << EOF
+          VITE_SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          VITE_API_URL=http://localhost:3000
+          VITE_STRIPE_PUBLISHABLE_KEY=pk_test_mock
+          EOF
+          # Verify file creation (without printing secrets)
+          echo "Created .env.development with $(wc -l < .env.development) lines"
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install chromium --with-deps
+
+      - name: Build application
+        run: pnpm build
+
+      - name: Start dev server and run soak test
+        run: |
+          # Start the dev server in background
+          pnpm dev &
+          DEV_PID=$!
+          
+          # Wait for dev server to be ready
+          echo "Waiting for dev server..."
+          npx wait-on http://localhost:5173 --timeout 60000
+          
+          # Run the soak test
+          pnpm exec playwright test --config=playwright.soak.config.ts --project=chromium
+          
+          # Kill dev server
+          kill $DEV_PID || true
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-test-results
+          path: |
+            test-results/soak/
+            test-results/soak-report/
+          retention-days: 7

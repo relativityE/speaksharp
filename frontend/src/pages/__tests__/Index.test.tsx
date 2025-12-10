@@ -24,7 +24,7 @@ describe('Index', () => {
     });
 
     describe('Loading State', () => {
-        it('should render null when loading', () => {
+        it('should render landing page immediately even when loading (public page)', () => {
             mockUseAuthProvider.mockReturnValue({
                 session: null,
                 loading: true,
@@ -34,14 +34,15 @@ describe('Index', () => {
                 signOut: vi.fn(),
             });
 
-            const { container } = render(
+            render(
                 <BrowserRouter>
                     <Index />
                 </BrowserRouter>
             );
 
-            // Should render nothing when loading
-            expect(container.firstChild).toBeNull();
+            // Landing page should render immediately for unauthenticated users
+            // This is by design - public pages don't wait for auth state
+            expect(screen.getByTestId('hero-section')).toBeInTheDocument();
         });
     });
 
@@ -102,7 +103,7 @@ describe('Index', () => {
             // Check main container has min-h-screen
             const mainDiv = container.firstChild as HTMLElement;
             expect(mainDiv).toHaveClass('min-h-screen');
-            expect(mainDiv).toHaveClass('bg-background');
+            expect(mainDiv).toHaveClass('bg-gradient-subtle');
             expect(mainDiv).toHaveClass('flex');
             expect(mainDiv).toHaveClass('flex-col');
         });

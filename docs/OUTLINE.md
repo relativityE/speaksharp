@@ -21,7 +21,6 @@ With every commit, you **must** review the following eight documents to ensure t
 5.  `docs/ARCHITECTURE.md`
 6.  `docs/ROADMAP.md`
 7.  `docs/CHANGELOG.md`
-8.  `docs/IMPLEMENTATION_STATUS.md` (New: 2025-12-08 - prevents review false positives)
 
 This process ensures our documentation remains a reliable Single Source of Truth (SSOT).
 

@@ -90,7 +90,7 @@ run_e2e_tests_shard() {
 
     # Run Playwright with native sharding
     # Playwright expects 1-indexed shards
-    pnpm exec playwright test tests/e2e --shard="${SHARD_NUM}/${TOTAL_SHARDS}"
+    pnpm exec playwright test tests/e2e --shard="${SHARD_NUM}/${TOTAL_SHARDS}" --reporter=blob
 
     echo "✅ E2E Test Shard ${SHARD_NUM} Passed."
 }
@@ -176,6 +176,8 @@ run_ci_simulation() {
     
     # Clean up previous runs
     rm -rf test-results merged-reports blob-report
+    
+
     
     # 1. Setup (Match GitHub CI "prepare" job steps)
     echo "🔧 CI Setup: Installing dependencies..."

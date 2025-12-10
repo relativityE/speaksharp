@@ -25,29 +25,29 @@ const features = [
   {
     icon: <Mic className="size-8" />,
     title: "Real-time Analysis",
-    description: "Get instant feedback on your speech as you talk. See filler words, pace, and clarity in real-time.",
+    description: "Get instant feedback on your speech patterns, filler words, and clarity as you speak.",
     iconBgColor: "bg-primary/10",
     iconTextColor: "text-primary",
   },
   {
     icon: <BarChart3 className="size-8" />,
     title: "Progress Tracking",
-    description: "Track your improvement over time with detailed analytics and insights into your speaking patterns.",
-    iconBgColor: "bg-orange-500/10",
-    iconTextColor: "text-orange-500",
+    description: "Monitor your improvement over time with detailed analytics and personalized insights.",
+    iconBgColor: "bg-primary/10",
+    iconTextColor: "text-primary",
   },
   {
     icon: <Target className="size-8" />,
     title: "Goal Setting",
-    description: "Set personal goals for reducing filler words, improving pace, and building confident speaking habits.",
-    iconBgColor: "bg-green-500/10",
-    iconTextColor: "text-green-500",
+    description: "Set specific speaking goals and track your progress towards better communication.",
+    iconBgColor: "bg-primary/10",
+    iconTextColor: "text-primary",
   }
 ]
 
 export const FeaturesSection = () => {
   return (
-    <section className="w-full py-12 md:py-24 lg:py-32 bg-secondary">
+    <section className="w-full py-12 md:py-24 lg:py-32 bg-muted/30">
       <div className="container px-4 md:px-6">
         <div className="flex flex-col items-center justify-center space-y-4 text-center">
           <div className="space-y-3">

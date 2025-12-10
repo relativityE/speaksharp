@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { programmaticLogin } from './helpers';
+import { TEST_IDS } from '../constants';
 
 /**
  * Session Comparison & Progress Tracking E2E Test
@@ -26,16 +27,21 @@ test.describe('Session Comparison & Progress Tracking', () => {
         await page.waitForSelector('[data-testid="app-main"]');
 
         // Check if session history exists
-        const sessionItems = page.locator('[data-testid="session-history-item"]');
-        const count = await sessionItems.count();
+        // Verify at least 2 items
+        const items = page.locator(`[data-testid^="${TEST_IDS.SESSION_HISTORY_ITEM}-"]`);
+        const count = await items.count();
+        expect(count).toBeGreaterThanOrEqual(2);
 
-        if (count === 0) {
-            console.log('[TEST] No sessions - empty state verified');
-            return;
-        }
+
+        // Target list container specifically and verify visibility
+        await expect(page.getByTestId(TEST_IDS.SESSION_HISTORY_LIST)).toBeVisible();
+
+        // We can just verify visibility of the container or items generically here if needed,
+        // or check for specific session IDs if known. For generic list checking:
+        await expect(items.first()).toBeVisible();
 
         // Verify each session shows key metrics
-        const firstSession = sessionItems.first();
+        const firstSession = items.first();
 
         // Should show WPM
         await expect(firstSession.getByText(/WPM/i)).toBeVisible();
@@ -74,11 +80,14 @@ test.describe('Session Comparison & Progress Tracking', () => {
         await page.waitForSelector('[data-testid="app-main"]');
 
         // Select first session
-        const sessions = page.locator('[data-testid="session-history-item"]');
-        await sessions.first().locator('[data-testid="compare-checkbox"]').check();
+        const sessions = page.locator(`[data-testid^="${TEST_IDS.SESSION_HISTORY_ITEM}-"]`);
+        const count = await sessions.count();
+        expect(count).toBeGreaterThanOrEqual(2);
 
-        // Select second session
-        await sessions.nth(1).locator('[data-testid="compare-checkbox"]').check();
+        // Select first two sessions for comparison using centralized checkbox ID
+        // Note: Checkbox ID is generic inside the unique card, so we scope it.
+        await sessions.nth(0).locator(`[data-testid="${TEST_IDS.COMPARE_CHECKBOX}"]`).check();
+        await sessions.nth(1).locator(`[data-testid="${TEST_IDS.COMPARE_CHECKBOX}"]`).check();
 
         // Click "Compare Sessions" button
         await page.getByRole('button', { name: /compare sessions/i }).click();
@@ -142,13 +151,18 @@ test.describe('Session Comparison & Progress Tracking', () => {
         await page.goto('/session');
         await page.waitForSelector('[data-testid="app-main"]');
 
-        // Start session
-        await page.getByTestId('session-start-stop-button').first().click();
+        // 2. Start Recording
+        await page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON).click();
+        console.log('[TEST] ✅ Recording started');
         await expect(page.getByText('Stop').first()).toBeVisible();
 
+        // 3. Verify real-time metrics appear
+        await expect(page.getByTestId(TEST_IDS.WPM_VALUE)).toBeVisible();
+        await expect(page.getByTestId(TEST_IDS.CLARITY_SCORE_VALUE)).toBeVisible();
+        console.log('[TEST] ✅ Metrics visible');
+
         // Find clarity score card
-        const clarityCard = page.locator('.bg-card', { has: page.getByText('Clarity Score') });
-        const clarityValue = clarityCard.locator('.text-6xl');
+        const clarityValue = page.getByTestId(TEST_IDS.CLARITY_SCORE_VALUE);
 
         // Initial value should be visible (default 87% when no data)
         await expect(clarityValue).toBeVisible();

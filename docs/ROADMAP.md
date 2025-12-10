@@ -23,6 +23,11 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 
 ### ⚠️ Known Issues
 
+- **🟡 INVESTIGATING - PDF Filename Inconsistency (2025-12-09)**
+  - **Problem:** `jsPDF.save()` does not reliably set the filename across all browsers in `devBypass` mode (resulted in UUID names instead of `session_YYYYMMDD_User.pdf`).
+  - **Workaround:** Implemented manual Blob download via `<a>` tag to enforce naming.
+  - **Status:** 🟡 Monitoring (Workaround applied)
+
 - **✅ RESOLVED - HeroSection WCAG Contrast (2025-12-07)**
   - **Problem:** White text on complex gradient failed WCAG AA 4.5:1 contrast ratio
   - **Solution:** Added drop-shadow and backdrop-blur background to hero text
@@ -32,8 +37,8 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - **Problem:** 12 E2E tests failing - analytics pages not rendering correctly
   - **Root Cause 1:** AuthProvider race condition - Supabase `onAuthStateChange` cleared mock session
   - **Root Cause 2:** `page.goto()` caused protected route loading state issues
-  - **Solution:** AuthProvider ignores empty sessions in test mode; added `navigateToRoute()` helper
-  - **Status:** ✅ Fixed - **31 E2E tests now pass** (no skips)
+  - **Solution:** AuthProvider ignores empty sessions; Added `navigateToRoute()` helper; **Fixed Supabase table name mismatch (`profiles` vs `user_profiles`)**
+  - **Status:** ✅ Fixed - **All E2E tests now pass** (no skips)
 
 - **✅ RESOLVED - Navigation E2E Test Failure (2025-12-02)**
   - **Problem:** `navigation.e2e.spec.ts` failed due to overlapping headers
@@ -133,10 +138,18 @@ This phase is about confirming the core feature set works as expected and polish
   - ✅ Utilities: storage.ts (10), utils.ts (8), supabaseClient.ts (5)
   - ✅ Transcription: AudioProcessor.test.ts (15), TranscriptionError.test.ts (10)
   - **Target:** 70% coverage (currently 54.8%)
+  - **✅ COMPLETED (2025-12-10) - Refactor Test Organization:**
+  - Moved `auth-real.e2e.spec.ts` to `frontend/tests/integration/` to isolate real-backend tests from local E2E suite
 - 🔴 **Light Theme Implementation:** Add CSS or disable toggle
 - **✅ COMPLETED - Refactor E2E Test Infrastructure (2025-12-07):**
   - ✅ Fix `analytics-empty-state.e2e.spec.ts` timeout (empty state not rendering)
   - ✅ Fix `metrics.e2e.spec.ts` WPM calculation timing issue
+  - 🔴 **Fix CI Metrics Reporting (Data Loss):**
+  - **Issue:** `update-metrics` script only captures the last shard's results (e.g., 8 vs 35 tests) in sharded CI runs.
+  - **Fix:** Implement report merging (blob reports) before generating metrics.
+- 🟡 **Refactor: Centralize Test IDs & Fix Duplicates:**
+  - **Goal:** Eliminate magic strings and duplicate selectors (e.g., `.first()`).
+  - **Status:** In Progress. Created `frontend/src/constants/testIds.ts`. Refactoring components and tests.
   - ✅ Fix `local-stt-caching.e2e.spec.ts` mode selector timeout
   - ✅ Fix `custom-vocabulary.e2e.spec.ts` hanging issue
   - ✅ Set up Pro test account for Local STT tests
@@ -150,7 +163,7 @@ This phase is about confirming the core feature set works as expected and polish
   - Created Playwright test (`demo-recording.e2e.spec.ts`) to automate video demo generation.
   - Captures full user journey: Landing -> Auth -> Session -> Analytics.
 - **✅ COMPLETED (2025-12-07) - Populate Testimonials:**
-  - Populated `TestimonialsSection` with realistic user personas and feedback.
+  - [x] **Testimonials Section** (Implemented but Disabled pending real content)
 - **✅ COMPLETED (2025-12-03) - Resolve TypeScript 'any' Type Errors in Test Suite:**
   - Fixed 23+ `Unexpected any` lint errors across 7 test files
   - Replaced `as any` with proper type assertions using `ReturnType<typeof hook>` pattern

@@ -2,18 +2,18 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { useSessionStore } from '../stores/useSessionStore';
 import { useVocalAnalysis } from '../hooks/useVocalAnalysis';
+import { TEST_IDS } from '@/constants/testIds';
 
 import posthog from 'posthog-js';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Mic, Square, Play } from 'lucide-react';
+import { Mic, MicOff, Square, Play, AlertTriangle, Lightbulb, Settings } from 'lucide-react';
 import { useAuthProvider } from '../contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { useSessionMetrics } from '@/hooks/useSessionMetrics';
 import { PauseMetricsDisplay } from '@/components/session/PauseMetricsDisplay';
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { Settings } from 'lucide-react';
 import { CustomVocabularyManager } from '@/components/session/CustomVocabularyManager';
 import { SessionPageSkeleton } from '@/components/session/SessionPageSkeleton';
 
@@ -34,6 +34,7 @@ export const SessionPage: React.FC = () => {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [mode, setMode] = useState<'cloud' | 'native' | 'on-device'>('native');
     const startTimeRef = useRef<number | null>(null);
+    const transcriptContainerRef = useRef<HTMLDivElement>(null);
 
     const speechRecognition = useSpeechRecognition({
         customWords,
@@ -72,6 +73,13 @@ export const SessionPage: React.FC = () => {
         }
     }, [isListening, updateElapsedTime]);
 
+    // Auto-scroll transcript to bottom when content changes
+    useEffect(() => {
+        if (transcriptContainerRef.current && transcript.transcript) {
+            transcriptContainerRef.current.scrollTop = transcriptContainerRef.current.scrollHeight;
+        }
+    }, [transcript.transcript]);
+
     if (isProfileLoading) {
         console.log('[DEBUG] SessionPage: Loading profile...');
 
@@ -81,7 +89,7 @@ export const SessionPage: React.FC = () => {
     if (profileError) {
         console.log('[DEBUG] SessionPage: Profile error:', profileError);
         return (
-            <div className="min-h-screen bg-background flex items-center justify-center">
+            <div className="min-h-screen bg-gradient-subtle flex items-center justify-center">
                 <div className="text-center p-6 max-w-md">
                     <h2 className="text-xl font-bold text-destructive mb-2">Error Loading Profile</h2>
                     <p className="text-muted-foreground mb-4">We couldn't load your profile settings. Please try refreshing the page.</p>
@@ -116,22 +124,11 @@ export const SessionPage: React.FC = () => {
     console.log('[DEBUG] Button render. Disabled:', isButtonDisabled, 'isListening:', isListening, 'isReady:', isReady);
 
     return (
-        <div className="min-h-screen bg-background">
+        <div className="min-h-screen bg-gradient-subtle pt-20">
             {/* Page Header */}
-            <div className="flex items-center justify-between py-8 px-6 max-w-7xl mx-auto">
-                <div>
-                    <h1 className="text-4xl font-bold text-foreground mb-2">Practice Session</h1>
-                    <p className="text-muted-foreground">Speak clearly and we'll analyze your speech patterns in real-time</p>
-                </div>
-                <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => setIsSettingsOpen(true)}
-                    data-testid="session-settings-button"
-                    aria-label="Open session settings"
-                >
-                    <Settings className="h-5 w-5" aria-hidden="true" />
-                </Button>
+            <div className="text-center py-8 px-6 max-w-7xl mx-auto">
+                <h1 className="text-3xl font-bold text-foreground mb-2">Practice Session</h1>
+                <p className="text-sm text-muted-foreground">We'll analyze your speech patterns in real-time</p>
             </div>
 
             <Sheet open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
@@ -147,7 +144,7 @@ export const SessionPage: React.FC = () => {
 
             <div className="max-w-7xl mx-auto px-6 pb-12 space-y-6">
                 {/* Live Recording Card - Full Width */}
-                <div className="bg-card border-2 border-white rounded-lg shadow-elegant">
+                <div className="bg-card border border-border rounded-lg shadow-elegant">
                     <div className="p-8">
                         <div className="flex items-center justify-between mb-6">
                             <div className="flex items-center gap-4">
@@ -168,20 +165,29 @@ export const SessionPage: React.FC = () => {
                                     </DropdownMenuContent>
                                 </DropdownMenu>
                             </div>
-                            <Badge className={isReady ? "bg-orange-500/10 text-orange-500 border-orange-500/20" : "bg-muted/10 text-muted-foreground border-muted/20"} data-testid="session-status-indicator">
-                                {isReady ? 'READY' : 'LOADING'}
-                            </Badge>
+                            <div className="flex items-center gap-2">
+                                <Button variant="ghost" size="icon" onClick={() => setIsSettingsOpen(true)} data-testid={TEST_IDS.SESSION_SETTINGS_BUTTON}>
+                                    <Settings className="h-5 w-5" />
+                                </Button>
+                                <Badge className="bg-secondary text-white border-secondary" data-testid={TEST_IDS.SESSION_STATUS_INDICATOR}>
+                                    {isReady ? 'READY' : 'LOADING'}
+                                </Badge>
+                            </div>
                         </div>
 
-                        <div className="flex flex-col items-center py-12 bg-background/30 rounded-lg border border-white/10">
+                        <div className="flex flex-col items-center py-4 bg-background/30 rounded-lg border border-white/10">
                             {/* Mic Icon Circle */}
-                            <div className={`w-24 h-24 rounded-full flex items-center justify-center mb-6 ${isListening ? 'bg-red-500/20' : 'bg-primary'}`}>
-                                <Mic className={`w-12 h-12 ${isListening ? 'text-red-500' : 'text-white'}`} strokeWidth={2} />
+                            <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-4 ${isListening ? 'bg-red-500/20' : 'bg-primary'}`}>
+                                {isListening ? (
+                                    <Mic className="w-8 h-8 text-red-500" strokeWidth={2} />
+                                ) : (
+                                    <MicOff className="w-8 h-8 text-white" strokeWidth={2} />
+                                )}
                             </div>
 
                             {/* Model Loading Indicator */}
                             {modelLoadingProgress !== null && (
-                                <div className="mb-6 w-full max-w-md" data-testid="model-loading-indicator">
+                                <div className="mb-6 w-full max-w-md" data-testid={TEST_IDS.MODEL_LOADING_INDICATOR}>
                                     <div className="flex justify-between text-sm mb-2">
                                         <span className="text-muted-foreground">Downloading model...</span>
                                         <span className="text-primary font-medium">{Math.round(modelLoadingProgress * 100)}%</span>
@@ -196,19 +202,21 @@ export const SessionPage: React.FC = () => {
                             )}
 
                             {/* Timer */}
-                            <div className="text-5xl font-mono font-bold text-foreground mb-2">{metrics.formattedTime}</div>
-                            <p className="text-muted-foreground mb-8" data-testid="transcript-display">
+                            <div className="text-3xl font-medium text-foreground mb-2">{metrics.formattedTime}</div>
+                            <p className="text-muted-foreground" data-testid={TEST_IDS.TRANSCRIPT_DISPLAY}>
                                 {isListening ? 'Recording in progress...' : 'Click start to begin recording'}
                             </p>
+                        </div>
 
-                            {/* Control Button */}
+                        {/* Control Button - Outside shaded box */}
+                        <div className="flex justify-center mt-6">
                             <Button
                                 onClick={handleStartStop}
                                 size="lg"
                                 variant={isListening ? 'destructive' : 'default'}
-                                className="w-48 h-14 text-lg font-semibold hidden md:flex"
+                                className="w-48 h-12 text-lg font-semibold hidden md:flex"
                                 disabled={isButtonDisabled || modelLoadingProgress !== null}
-                                data-testid="session-start-stop-button"
+                                data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
                             >
                                 {modelLoadingProgress !== null ? (
                                     <><div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" /> Initializing...</>
@@ -221,41 +229,58 @@ export const SessionPage: React.FC = () => {
                         </div>
                     </div>
                 </div>
+
+                {/* Live Transcript Display - Right below Live Recording */}
+                <div className="bg-card border border-border rounded-lg p-6 shadow-elegant" data-testid={TEST_IDS.TRANSCRIPT_PANEL}>
+                    <div className="flex items-center gap-2 mb-4">
+                        <div className="w-1 h-5 bg-primary rounded"></div>
+                        <h3 className="text-base font-semibold text-foreground">Live Transcript</h3>
+                    </div>
+                    <div ref={transcriptContainerRef} className="h-[250px] overflow-y-auto p-4 rounded-lg bg-background/50 border border-white/10 scroll-smooth" data-testid={TEST_IDS.TRANSCRIPT_CONTAINER}>
+                        {isListening && (!transcript.transcript || transcript.transcript.trim() === '') ? (
+                            <p className="text-muted-foreground italic animate-pulse">Listening...</p>
+                        ) : transcript.transcript && transcript.transcript.trim() !== '' ? (
+                            <p className="text-white leading-relaxed">{transcript.transcript}</p>
+                        ) : (
+                            <p className="text-white/60 italic">words appear here...</p>
+                        )}
+                    </div>
+                </div>
             </div>
 
-            {/* Metrics Grid - 2 Columns */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Metrics Cards - Full Width Stacked */}
+            <div className="max-w-7xl mx-auto px-6 pb-12 space-y-6">
                 {/* Clarity Score */}
-                <div className="bg-card border-2 border-white rounded-lg p-8 shadow-elegant">
+                <div className="bg-card border border-border rounded-lg p-8 shadow-elegant">
                     <h3 className="text-lg font-semibold text-foreground mb-6">Clarity Score</h3>
                     <div className="flex flex-col items-center">
-                        <div className="text-6xl font-bold text-primary mb-2">{Math.round(metrics.clarityScore)}%</div>
+                        <div data-testid={TEST_IDS.CLARITY_SCORE_VALUE} style={{ color: '#2aa198', fontSize: '60px', fontWeight: 700, lineHeight: 1.2, marginBottom: '1rem' }}>{Math.round(metrics.clarityScore)}%</div>
+                        {/* Progress bar - teal filled, orange remaining */}
+                        <div className="w-full h-3 rounded-full overflow-hidden flex bg-secondary mb-3">
+                            <div
+                                className="h-full bg-accent transition-all duration-300"
+                                style={{ width: `${metrics.clarityScore}%` }}
+                            />
+                        </div>
                         <p className="text-sm text-muted-foreground">
-                            {metrics.clarityLabel}
+                            {metrics.clarityLabel || 'Excellent clarity!'}
                         </p>
                     </div>
                 </div>
 
-                {/* Speaking Rate */}
-                <div className="bg-card border-2 border-white rounded-lg p-8 shadow-elegant">
-                    <h3 className="text-lg font-semibold text-foreground mb-6">Speaking Rate</h3>
-                    <div className="flex flex-col items-center">
-                        <div className="text-6xl font-bold text-primary mb-2">{metrics.wpm}</div>
-                        <p className="text-sm text-muted-foreground mb-3">words per minute</p>
-                        <Badge className="bg-orange-500/10 text-orange-500 border-orange-500/20">
-                            {metrics.wpmLabel}
-                        </Badge>
-                    </div>
+                {/* Pause Analysis - Right below Clarity Score */}
+                <div>
+                    <PauseMetricsDisplay metrics={pauseMetrics} isListening={isListening} />
                 </div>
 
                 {/* Filler Words */}
-                <div className="bg-card border-2 border-white rounded-lg p-8 shadow-elegant">
+                <div className="bg-card border border-border rounded-lg p-8 shadow-elegant">
                     <div className="flex items-center gap-2 mb-6">
-                        <div className="w-2 h-2 rounded-full bg-orange-500"></div>
+                        <AlertTriangle className="size-5 text-secondary" />
                         <h3 className="text-lg font-semibold text-foreground">Filler Words</h3>
                     </div>
                     <div className="flex flex-col items-center mb-4">
-                        <div className="text-5xl font-bold text-orange-500 mb-2">{metrics.fillerCount}</div>
+                        <div data-testid={TEST_IDS.FILLER_COUNT_VALUE} style={{ color: '#f5a623', fontSize: '60px', fontWeight: 700, lineHeight: 1.2, marginBottom: '0.5rem' }}>{metrics.fillerCount}</div>
                         <p className="text-sm text-muted-foreground">detected this session</p>
                     </div>
                     <div className="mt-4">
@@ -263,25 +288,41 @@ export const SessionPage: React.FC = () => {
                         <div className="flex flex-wrap gap-2">
                             {Object.entries(fillerData).map(([word, data]) => (
                                 data.count > 0 && (
-                                    <Badge key={word} variant="secondary" className="text-xs">
+                                    <Badge key={word} variant="outline" className="text-xs bg-muted/50">
                                         "{word}"
                                     </Badge>
                                 )
                             ))}
                             {metrics.fillerCount === 0 && (
-                                <p className="text-xs text-muted-foreground italic">None detected yet</p>
+                                <div className="flex gap-2">
+                                    <Badge variant="outline" className="text-xs bg-muted/50">"um"</Badge>
+                                    <Badge variant="outline" className="text-xs bg-muted/50">"uh"</Badge>
+                                    <Badge variant="outline" className="text-xs bg-muted/50">"like"</Badge>
+                                </div>
                             )}
                         </div>
                     </div>
                 </div>
 
+                {/* Speaking Rate - Above Speaking Tips */}
+                <div className="bg-card border border-border rounded-lg p-8 shadow-elegant">
+                    <h3 className="text-lg font-semibold text-foreground mb-6">Speaking Rate</h3>
+                    <div className="flex flex-col items-center">
+                        <div data-testid={TEST_IDS.WPM_VALUE} style={{ color: '#2aa198', fontSize: '60px', fontWeight: 700, lineHeight: 1.2, marginBottom: '0.5rem' }}>{metrics.wpm}</div>
+                        <p className="text-sm text-muted-foreground mb-3">words per minute</p>
+                        <Badge className="bg-secondary text-white border-secondary">
+                            {metrics.wpmLabel || 'Optimal Range'}
+                        </Badge>
+                    </div>
+                </div>
+
                 {/* Speaking Tips */}
-                <div className="bg-card border-2 border-white rounded-lg p-8 shadow-elegant">
+                <div className="bg-card border border-border rounded-lg p-8 shadow-elegant">
                     <div className="flex items-center gap-2 mb-6">
-                        <div className="w-1 h-6 bg-primary rounded"></div>
+                        <Lightbulb className="size-5 text-secondary" />
                         <h3 className="text-lg font-semibold text-foreground">Speaking Tips</h3>
                     </div>
-                    <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <SpeakingTipCard
                             title="Pace Yourself"
                             description="Maintain 120-160 words per minute for optimal clarity"
@@ -297,27 +338,6 @@ export const SessionPage: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Pause Metrics */}
-                <div className="md:col-span-2">
-                    <PauseMetricsDisplay metrics={pauseMetrics} isListening={isListening} />
-                </div>
-
-                {/* Live Transcript Display */}
-                <div className="bg-card border-2 border-white rounded-lg p-8 shadow-elegant md:col-span-2" data-testid="transcript-panel">
-                    <div className="flex items-center gap-2 mb-6">
-                        <div className="w-1 h-6 bg-primary rounded"></div>
-                        <h3 className="text-lg font-semibold text-foreground">Live Transcript</h3>
-                    </div>
-                    <div className="h-[250px] overflow-y-auto p-4 rounded-lg bg-background/50 border border-white/10" data-testid="transcript-container">
-                        {isListening && (!transcript.transcript || transcript.transcript.trim() === '') ? (
-                            <p className="text-muted-foreground italic animate-pulse">Listening...</p>
-                        ) : transcript.transcript && transcript.transcript.trim() !== '' ? (
-                            <p className="text-foreground leading-relaxed">{transcript.transcript}</p>
-                        ) : (
-                            <p className="text-muted-foreground italic">Your spoken words will appear here</p>
-                        )}
-                    </div>
-                </div>
             </div>
 
             {/* Mobile Sticky Action Bar */}
@@ -328,6 +348,7 @@ export const SessionPage: React.FC = () => {
                     variant={isListening ? 'destructive' : 'default'}
                     className="w-full max-w-sm h-12 text-lg font-semibold shadow-lg"
                     disabled={isButtonDisabled || modelLoadingProgress !== null}
+                    data-testid={`${TEST_IDS.SESSION_START_STOP_BUTTON}-mobile`}
                 >
                     {modelLoadingProgress !== null ? (
                         <><div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" /> Initializing...</>

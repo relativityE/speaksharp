@@ -103,7 +103,7 @@ ___
 ## ⚡ Quick Reference – Non-Negotiable Rules
 
 1.  ✅ **Pre-flight Check** – Always start with `./scripts/preflight.sh`.
-2.  ✅ **Codebase Context** – Inspect `/frontend/src`, `/tests`, `/docs` before acting.
+2.  ✅ **Codebase Context** – Inspect `/frontend/src`, `/tests` (E2E), `/frontend/tests/integration` (Real DB), `/docs` before acting.
 3.  ❌ **No Code Reversals Without Consent** – Never undo user work.
 4.  ⏱️ **Timeout Constraint** – Every command must complete within 7 minutes.
 5.  ✅ **Approved Scripts** – Use the following `package.json` scripts for validation and development. The `ci:local` script runs the EXACT same pipeline as GitHub CI.
@@ -210,5 +210,8 @@ ___
 *   🧠 Think like a senior engineer — prioritize evidence-based, long-term stability.
 
 ---
+
+## 📝 Agent Work Log (Recent)
+*   **2025-12-10 (Antigravity):** Refactored E2E test organization (moved real auth tests to `frontend/tests/integration`). Centralized test IDs in `tests/constants.ts`. Fixed Analytics Dashboard rendering (Supabase table name fix).
 
 

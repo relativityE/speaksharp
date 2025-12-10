@@ -13,6 +13,8 @@ The codebase is organized into clearly separated directories:
 speaksharp/
 ├── frontend/          # React application
 │   ├── src/          # Application source code
+│   ├── tests/        # Frontend-specific tests
+│   │   └── integration/ # Real DB integration tests
 │   ├── public/       # Static assets
 │   └── *.config.*    # Frontend build configs (Vite, Vitest, etc.)
 ├── backend/           # Supabase backend services
@@ -28,8 +30,11 @@ speaksharp/
 │   ├── unit/
 │   ├── fixtures/
 │   └── pom/
-├── docs/              # Documentation
-└── Root configs       # Workspace-level configuration
+└── ...
+```
+
+**Note:** Unit and Integration tests are located within `frontend/src` and `frontend/tests` respectively.
+
     ├── package.json
     ├── eslint.config.js
     └── ...
@@ -165,6 +170,7 @@ pnpm run ci:local
 pnpm test:health-check
 ```
 - Runs preflight, lint, typecheck, unit tests, build, **smoke E2E test**
+- **Note:** The `test:health-check` script executes the test suite defined in `tests/e2e/smoke.e2e.spec.ts`.
 - **Smoke test verifies:** Homepage (unauth/auth), Session page, Analytics page
 - Faster than full CI simulation
 - **Use for:** Quick feedback loops

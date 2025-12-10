@@ -34,7 +34,7 @@ describe('useUserProfile', () => {
     });
 
     it('should return null when no user is authenticated', async () => {
-        (useAuthProvider as any).mockReturnValue({ user: null });
+        (useAuthProvider as any).mockReturnValue({ session: null });
 
         const { result } = renderHook(() => useUserProfile(), { wrapper });
 
@@ -45,7 +45,7 @@ describe('useUserProfile', () => {
         const mockUser = { id: 'test-user-id' };
         const mockProfile = { id: 'test-user-id', subscription_status: 'pro' };
 
-        (useAuthProvider as any).mockReturnValue({ user: mockUser });
+        (useAuthProvider as any).mockReturnValue({ session: { user: mockUser } });
 
         const mockSelect = vi.fn().mockReturnThis();
         const mockEq = vi.fn().mockReturnThis();
@@ -68,7 +68,7 @@ describe('useUserProfile', () => {
 
     it('should handle errors gracefully', async () => {
         const mockUser = { id: 'test-user-id' };
-        (useAuthProvider as any).mockReturnValue({ user: mockUser });
+        (useAuthProvider as any).mockReturnValue({ session: { user: mockUser } });
 
         const mockSelect = vi.fn().mockReturnThis();
         const mockEq = vi.fn().mockReturnThis();
@@ -84,7 +84,7 @@ describe('useUserProfile', () => {
 
         const { result } = renderHook(() => useUserProfile(), { wrapper });
 
-        await waitFor(() => expect(result.current.isSuccess).toBe(true));
-        expect(result.current.data).toBeNull();
+        await waitFor(() => expect(result.current.isError).toBe(true));
+        expect(result.current.data).toBeUndefined();
     });
 });

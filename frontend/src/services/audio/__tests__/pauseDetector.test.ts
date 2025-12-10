@@ -1,12 +1,17 @@
-/* eslint-disable vitest/expect-expect, no-empty */
-import { describe, it, expect, beforeEach } from 'vitest';
+/* eslint-disable vitest/expect-expect */
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { PauseDetector } from '../pauseDetector';
 
 describe('PauseDetector', () => {
     let pauseDetector: PauseDetector;
 
     beforeEach(() => {
+        vi.useFakeTimers();
         pauseDetector = new PauseDetector(0.1, 500); // threshold 0.1, min duration 500ms
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
     });
 
     it('should initialize with default values', () => {
@@ -33,17 +38,14 @@ describe('PauseDetector', () => {
         pauseDetector.processAudioFrame(silentFrame);
 
         // 2. Wait for > 500ms
-        const startTime = Date.now();
-        while (Date.now() - startTime < 600) {
-            // Busy wait to simulate time passing (since PauseDetector uses Date.now())
-        }
+        vi.advanceTimersByTime(600);
 
         // 3. End silence (speech detected)
         pauseDetector.processAudioFrame(loudFrame);
 
         const metrics = pauseDetector.getMetrics();
         expect(metrics.totalPauses).toBe(1);
-        expect(metrics.longestPause).toBeGreaterThanOrEqual(0.5);
+        expect(metrics.longestPause).toBeGreaterThanOrEqual(0.6); // 600ms
     });
 
     it('should ignore short silences', () => {
@@ -54,10 +56,7 @@ describe('PauseDetector', () => {
         pauseDetector.processAudioFrame(silentFrame);
 
         // 2. Wait for < 500ms
-        const startTime = Date.now();
-        while (Date.now() - startTime < 100) {
-            // Busy wait
-        }
+        vi.advanceTimersByTime(100);
 
         // 3. End silence
         pauseDetector.processAudioFrame(loudFrame);
@@ -72,8 +71,7 @@ describe('PauseDetector', () => {
 
         // Create a pause
         pauseDetector.processAudioFrame(silentFrame);
-        const startTime = Date.now();
-        while (Date.now() - startTime < 600) { }
+        vi.advanceTimersByTime(600);
         pauseDetector.processAudioFrame(loudFrame);
 
         expect(pauseDetector.getMetrics().totalPauses).toBe(1);
@@ -84,10 +82,6 @@ describe('PauseDetector', () => {
     });
 
     it('should calculate RMS correctly', () => {
-        // RMS of [1, 1, 1, 1] is 1
-        // RMS of [0.5, 0.5, 0.5, 0.5] is 0.5
-        // We can't access private calculateRMS, but we can test threshold behavior
-
         const pd = new PauseDetector(0.5, 500);
 
         // Frame with RMS < 0.5 (silence)
@@ -97,8 +91,8 @@ describe('PauseDetector', () => {
         // Frame with RMS >= 0.5 (speech)
         const loudFrame = new Float32Array([0.6, 0.6, 0.6, 0.6]);
 
-        const startTime = Date.now();
-        while (Date.now() - startTime < 600) { }
+        // Wait enough time to register pause if quietFrame triggered it
+        vi.advanceTimersByTime(600);
 
         pd.processAudioFrame(loudFrame);
 
