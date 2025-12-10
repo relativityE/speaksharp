@@ -261,6 +261,43 @@ Both the local test runner and CI use the same `test-audit.sh` script, ensuring 
 
 **Key Architectural Benefit:** The shared `test-audit.sh` script eliminates "works on my machine" issues by guaranteeing that the exact same validation logic runs both locally and in CI.
 
+### Supabase Environments & CI Workflows
+
+The project uses **two distinct Supabase configurations** depending on the execution context:
+
+| Environment | Supabase URL | When Used |
+|-------------|--------------|-----------|
+| **Mock** | `https://mock.supabase.co` | Local dev, E2E tests (MSW intercepts all requests) |
+| **Real** | `${{ secrets.SUPABASE_URL }}` | CI workflows that require live database access |
+
+#### GitHub Actions Workflows
+
+| Workflow | File | Supabase | Trigger | Purpose |
+|----------|------|----------|---------|---------|
+| **CI - Test Audit** | `ci.yml` | Mock | Push/PR to main | Runs lint, typecheck, unit tests, sharded E2E tests |
+| **Soak Test** | `soak-test.yml` | **Real** | Manual (`workflow_dispatch`) | 5-minute performance tests with real auth |
+| **Dev Integration** | `dev-real-integration.yml` | **Real** | Manual | Live user flow tests against real Supabase |
+| **Supabase Migrations** | `deploy-supabase-migrations.yml` | **Real** | Manual | Database schema migrations deployment |
+
+#### Required GitHub Secrets (for Real Supabase workflows)
+
+| Secret | Used By |
+|--------|---------|
+| `SUPABASE_URL` | soak-test, dev-real-integration, migrations |
+| `SUPABASE_ANON_KEY` | soak-test, dev-real-integration |
+| `SUPABASE_SERVICE_KEY` | dev-real-integration, migrations |
+| `E2E_PRO_EMAIL` / `E2E_PRO_PASSWORD` | dev-real-integration |
+
+#### Soak Test Users
+
+Pre-created users in Supabase for soak testing (defined in `tests/constants.ts`):
+
+| Email | Purpose |
+|-------|---------|
+| `soak-test@test.com` | Concurrent user 0 |
+| `soak-test1@test.com` | Concurrent user 1 |
+
+
 ### Application Environments (Production, Development, and Test)
 
 Understanding the environment separation is crucial for both development and testing. Based on my analysis of the project's configuration and documentation, here is a breakdown of the three key environments and how the dev server relates to them.
