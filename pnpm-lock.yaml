@@ -59,6 +59,9 @@ importers:
       date-fns:
         specifier: ^4.1.0
         version: 4.1.0
+      embla-carousel-react:
+        specifier: ^8.6.0
+        version: 8.6.0(react@18.3.1)
       jspdf:
         specifier: ^3.0.2
         version: 3.0.3
@@ -253,12 +256,6 @@ importers:
       sharp:
         specifier: 0.33.1
         version: 0.33.1
-
-  frontend:
-    dependencies:
-      embla-carousel-react:
-        specifier: ^8.6.0
-        version: 8.6.0(react@18.3.1)
 
 packages:
 
