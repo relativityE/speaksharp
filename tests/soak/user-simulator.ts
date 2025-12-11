@@ -124,7 +124,8 @@ export class UserSimulator {
             const modeButton = page.getByRole('button', { name: /Native|Cloud AI|On-Device/ });
             await modeButton.click();
 
-            const nativeOption = page.getByText('Native', { exact: true });
+            // Use menuitemradio role to target the actual menu item, not the trigger button
+            const nativeOption = page.getByRole('menuitemradio', { name: 'Native' });
             await nativeOption.click();
         }
 
