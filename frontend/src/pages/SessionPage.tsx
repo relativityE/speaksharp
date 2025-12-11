@@ -30,6 +30,8 @@ export const SessionPage: React.FC = () => {
     console.log('[DEBUG] SessionPage rendered. Session:', session?.user?.id);
     console.log('[DEBUG] SessionPage profile state:', { isProfileLoading, profileError, profileId: profile?.id });
 
+    const isPro = profile?.subscription_status === 'pro';
+
     const [customWords] = useState<string[]>([]);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [mode, setMode] = useState<'cloud' | 'native' | 'on-device'>('native');
@@ -152,15 +154,19 @@ export const SessionPage: React.FC = () => {
                                 <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                         <Button variant="outline" size="sm" className="gap-2">
-                                            {mode === 'native' ? 'Native' : mode === 'on-device' ? 'On-Device' : 'Cloud AI'}
+                                            {mode === 'native' ? 'Native' : mode === 'on-device' ? 'On-Device' : 'Cloud'}
                                             <ChevronDown className="h-4 w-4" />
                                         </Button>
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent>
                                         <DropdownMenuRadioGroup value={mode} onValueChange={(v) => setMode(v as 'cloud' | 'native' | 'on-device')}>
                                             <DropdownMenuRadioItem value="native">Native (Browser)</DropdownMenuRadioItem>
-                                            <DropdownMenuRadioItem value="on-device">On-Device (Whisper)</DropdownMenuRadioItem>
-                                            <DropdownMenuRadioItem value="cloud">Cloud AI (AssemblyAI)</DropdownMenuRadioItem>
+                                            <DropdownMenuRadioItem value="on-device" disabled={!isPro}>
+                                                On-Device (Whisper) {!isPro && '(Pro)'}
+                                            </DropdownMenuRadioItem>
+                                            <DropdownMenuRadioItem value="cloud" disabled={!isPro}>
+                                                Cloud (AssemblyAI) {!isPro && '(Pro)'}
+                                            </DropdownMenuRadioItem>
                                         </DropdownMenuRadioGroup>
                                     </DropdownMenuContent>
                                 </DropdownMenu>

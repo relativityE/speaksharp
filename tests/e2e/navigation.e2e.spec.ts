@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin } from './helpers';
+import { programmaticLogin, navigateToRoute } from './helpers';
 
 test.describe('App Navigation', () => {
   test('should navigate to all application routes successfully', async ({ page }) => {
@@ -12,7 +12,7 @@ test.describe('App Navigation', () => {
     ];
 
     for (const route of routes) {
-      await page.goto(route.path);
+      await navigateToRoute(page, route.path);
       await expect(page).toHaveURL(route.path);
       await expect(page.getByRole('heading', { name: new RegExp(route.heading, 'i') })).toBeVisible();
     }

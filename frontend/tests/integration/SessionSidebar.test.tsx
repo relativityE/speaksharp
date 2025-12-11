@@ -105,7 +105,7 @@ describe('SessionSidebar', () => {
       );
 
       await user.click(screen.getByRole('button', { name: 'Native' }));
-      expect(await screen.findByRole('menuitemradio', { name: 'Cloud AI' })).toHaveAttribute('aria-disabled', 'true');
+      expect(await screen.findByRole('menuitemradio', { name: 'Cloud' })).toHaveAttribute('aria-disabled', 'true');
       expect(await screen.findByRole('menuitemradio', { name: 'On-Device' })).toHaveAttribute('aria-disabled', 'true');
       expect(await screen.findByRole('menuitemradio', { name: 'Native' })).not.toHaveAttribute('aria-disabled', 'true');
     });
@@ -133,7 +133,7 @@ describe('SessionSidebar', () => {
       vi.mocked(useUserProfile).mockReturnValue(makeQuerySuccess({ id: 'pro-user', subscription_status: 'pro' }));
     });
 
-    it('renders with all modes enabled and "Cloud AI" as default', async () => {
+    it('renders with all modes enabled and "Cloud" as default', async () => {
       const user = userEvent.setup();
       render(
         <MockAuthProvider value={mockAuthContextValue}>
@@ -141,8 +141,8 @@ describe('SessionSidebar', () => {
         </MockAuthProvider>
       );
 
-      await user.click(screen.getByRole('button', { name: 'Cloud AI' }));
-      expect(await screen.findByRole('menuitemradio', { name: 'Cloud AI' })).toBeEnabled();
+      await user.click(screen.getByRole('button', { name: 'Cloud' }));
+      expect(await screen.findByRole('menuitemradio', { name: 'Cloud' })).toBeEnabled();
       expect(await screen.findByRole('menuitemradio', { name: 'On-Device' })).toBeEnabled();
       expect(await screen.findByRole('menuitemradio', { name: 'Native' })).toBeEnabled();
     });
@@ -171,7 +171,7 @@ describe('SessionSidebar', () => {
         </MockAuthProvider>
       );
 
-      await user.click(screen.getByRole('button', { name: 'Cloud AI' }));
+      await user.click(screen.getByRole('button', { name: 'Cloud' }));
       await user.click(await screen.findByRole('menuitemradio', { name: 'On-Device' }));
       await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenCalledExactlyOnceWith({
@@ -198,8 +198,8 @@ describe('SessionSidebar', () => {
         </MockAuthProvider>
       );
 
-      await user.click(screen.getByRole('button', { name: 'Cloud AI' }));
-      expect(await screen.findByRole('menuitemradio', { name: 'Cloud AI' })).toBeEnabled();
+      await user.click(screen.getByRole('button', { name: 'Cloud' }));
+      expect(await screen.findByRole('menuitemradio', { name: 'Cloud' })).toBeEnabled();
       expect(await screen.findByRole('menuitemradio', { name: 'On-Device' })).toBeEnabled();
       expect(await screen.findByRole('menuitemradio', { name: 'Native' })).toBeEnabled();
     });
@@ -221,7 +221,7 @@ describe('SessionSidebar', () => {
       });
 
       // Switch to on-device
-      await user.click(screen.getByRole('button', { name: 'Cloud AI' }));
+      await user.click(screen.getByRole('button', { name: 'Cloud' }));
       await user.click(await screen.findByRole('menuitemradio', { name: 'On-Device' }));
       await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenLastCalledWith({

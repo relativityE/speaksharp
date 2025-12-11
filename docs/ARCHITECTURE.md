@@ -298,33 +298,50 @@ The project uses **two distinct Supabase configurations** depending on the execu
 
 #### 2. Soak Test (`soak-test.yml`)
 
-**Purpose:** Validates application behavior under sustained concurrent load to identify memory leaks, resource contention, and API quota issues.
+**Purpose:** Validates application behavior under sustained concurrent load against real Supabase infrastructure to identify memory leaks, resource contention, and API quota issues.
 
-**Supabase Mode:** Real (authenticates against live Supabase)
+##### Hybrid Testing Strategy
 
-**What it does:**
-1. Creates `.env.development` with real Supabase credentials from GitHub secrets
-2. Starts dev server with real backend
-3. Runs concurrent user simulations (2 users, configurable duration)
-4. Collects performance metrics (response times, memory usage, success/error counts)
-5. Saves JSON report to `test-results/soak/`
+| Feature | Local Development | CI/CD (Soak Test) |
+| :--- | :--- | :--- |
+| **Database** | Mock (`mock.supabase.co`) | **Real Production DB** |
+| **Credentials** | Placeholder / Safe | Injected via GitHub Secrets |
+| **Goal** | Fast Iteration (UI/Logic) | Reliability & Load Testing |
 
-**Trigger:** Manual (`workflow_dispatch`)
+##### Soak Test Prerequisites
 
-**Required Secrets:**
+**Pre-seeded Test Users:**
+- To separate load testing from onboarding flows, the project uses manually pre-created users
+- **Do not** delete or modify these users in Production
+- **Users:** `soak-test@test.com`, `soak-test1@test.com` (Passwords stored in 1Password/Vault)
+- These users must exist in the Supabase Dashboard → Authentication → Users with email confirmed
+
+**Required GitHub Secrets:**
+
 | Secret | Purpose |
 |--------|---------|
-| `SUPABASE_URL` | Real Supabase project URL |
+| `SUPABASE_URL` | Real Supabase project URL (e.g., `https://yourproject.supabase.co`) |
 | `SUPABASE_ANON_KEY` | Real Supabase anon/public key |
 
-**Pre-requisites:** Soak test users must exist in Supabase Auth:
-- `soak-test@test.com` (password: `speaksharp1`)
-- `soak-test1@test.com` (password: `speaksharp2`)
+##### CI/CD Workflow
 
-**When to use:**
-- Before major releases to catch performance regressions
-- After adding features that may impact memory/API usage
-- To validate concurrent user handling
+**Trigger:** Manual dispatch via GitHub Actions
+
+**Mechanism:** The workflow generates a temporary `.env.development` file at runtime using repository secrets (`SUPABASE_URL`, `SUPABASE_ANON_KEY`)
+
+**Critical Configuration:** Ensure `http://localhost:5173` is listed in **Supabase Dashboard → Authentication → URL Configuration → Redirect URLs**
+
+**Execution Flow:**
+1. Workflow creates `.env.development` with real credentials
+2. Starts dev server (`pnpm dev`) connected to production Supabase
+3. Launches 2 concurrent Playwright workers
+4. Each worker authenticates with pre-seeded credentials
+5. Workers execute application tasks for 5 minutes
+6. Performance metrics collected (response times, memory, success/error rates)
+7. Results saved to `test-results/soak/`:**
+- Pre-production validation before major releases
+- After database schema changes to confirm migrations work
+- Debugging production issues with real data
 
 ---
 
@@ -788,13 +805,21 @@ useSpeechRecognition (index.ts)
 Returns unified API: { transcript, startListening, stopListening, ... }
 ```
 
+### 3.2.1 On-Device Model Caching Strategy
+To enable a performant "On-Device" transcription mode without repeated large downloads (30MB+), an aggressive caching strategy is implemented:
+
+- **Service Worker (`sw.js`):** A dedicated Service Worker intercepts network requests for the Whisper model file (`tiny-q8g16.bin`).
+- **Cache-First Strategy:** The worker checks a specific cache (`whisper-models-v1`) before network.
+- **Lazy Loading:** The model is only downloaded when the user actively selects "On-Device" mode and starts a session.
+- **Performance:** Reduces subsequent load times from >30s to <1s (effectively instant).
+
+### 3.3. Key Components
 The main `index.ts` contains only:
 - Service options configuration (callbacks)
 - `reset()` function that delegates to sub-hooks
 - `startListening()`/`stopListening()` wrappers
 - Return object composition
 
-### 3.3. Key Components
 
 - **`SessionSidebar.tsx`**: This component serves as the main control panel for a user's practice session. It contains the start/stop controls, a digital timer, and the transcription mode selector.
   - **Mode Selector**: A segmented button group allows users to choose their desired transcription mode before starting a session. The options are:

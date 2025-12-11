@@ -129,6 +129,17 @@ const renderApp = async (initialSession: Session | null = null) => {
 };
 
 const initialize = async () => {
+  // Try to register SW in all cases if available
+  if ('serviceWorker' in navigator) {
+    try {
+      const registration = await navigator.serviceWorker.register('/sw.js');
+      console.log('[ServiceWorker] Registered with scope:', registration.scope);
+    } catch (error) {
+      console.error('[ServiceWorker] Registration failed:', error);
+    }
+  }
+
+
   if (IS_TEST_ENVIRONMENT) {
     const { initializeE2EEnvironment } = await import('@/lib/e2e-bridge');
     await initializeE2EEnvironment();

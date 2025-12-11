@@ -7,8 +7,7 @@ test.describe('Analytics Details', () => {
     });
 
     test('Journey 8: Session Detail View', async ({ page }) => {
-        await page.goto('/analytics');
-        await page.waitForSelector('[data-testid="app-main"]');
+        await navigateToRoute(page, '/analytics');
 
         // Check if there are sessions (mocked data usually has some)
         const sessionLink = page.locator('a[href^="/analytics/"]').first();

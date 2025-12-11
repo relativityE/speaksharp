@@ -32,49 +32,23 @@ async function setupAuthenticatedUser(page: Page, userIndex: number): Promise<vo
     await page.fill('input[type="password"]', credentials.password);
     console.log(`[Soak Test] ✅ Credentials filled`);
 
-    // Submit the form
-    console.log(`[Soak Test] 🚀 Clicking submit button...`);
-    await page.click('button[type="submit"]');
+    // CRITICAL FIX: Robustly click and wait for navigation
+    console.log(`[Soak Test] 🖱️ Clicking Sign In...`);
 
-    // Wait a moment for the form to process
-    await page.waitForTimeout(1000);
-    console.log(`[Soak Test] 📍 URL 1s after submit: ${page.url()}`);
+    // Click the button (ensure we target the submit button specifically)
+    await page.getByRole('button', { name: /sign in/i }).click();
 
-    // Wait for auth to complete - URL should change from signin page
-    console.log(`[Soak Test] ⏳ Waiting for auth to complete (max 20s)...`);
+    // Explicitly WAIT for the redirect to the dashboard/home
+    console.log(`[Soak Test] ⏳ Waiting for redirect to authenticated page...`);
+    await page.waitForURL((url) => {
+        return url.pathname === '/session' || url.pathname === '/';
+    }, { timeout: 30000 });
 
-    // Poll every 2 seconds to see progress
-    const startTime = Date.now();
-    for (let i = 0; i < 10; i++) {
-        await page.waitForTimeout(2000);
-        const currentUrl = page.url();
-        console.log(`[Soak Test] 📍 URL at ${((Date.now() - startTime) / 1000).toFixed(0)}s: ${currentUrl}`);
+    console.log(`[Soak Test] ✅ Login successful! Current URL: ${page.url()}`);
 
-        if (!currentUrl.includes('/auth/signin')) {
-            console.log(`[Soak Test] ✅ Redirect detected!`);
-            break;
-        }
-
-        // Check for error messages on the page
-        const errorText = await page.$eval('body', (el) => {
-            const text = el.textContent || '';
-            if (text.includes('Invalid') || text.includes('Error') || text.includes('Failed')) {
-                return text.substring(0, 300);
-            }
-            return null;
-        }).catch(() => null);
-
-        if (errorText) {
-            console.log(`[Soak Test] ❌ Error on page: ${errorText}`);
-            throw new Error(`Login failed: ${errorText}`);
-        }
-    }
-
-    console.log(`[Soak Test] 📍 URL after auth: ${page.url()}`);
-
-    // Navigate to session page explicitly if needed
+    // Navigate to session page if not already there
     if (!page.url().includes(ROUTES.SESSION)) {
-        console.log(`[Soak Test] 🚀 Navigating to ${ROUTES.SESSION} manually...`);
+        console.log(`[Soak Test] 🚀 Navigating to ${ROUTES.SESSION}...`);
         await page.goto(ROUTES.SESSION, { waitUntil: 'networkidle' });
     }
 

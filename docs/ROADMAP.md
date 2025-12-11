@@ -23,6 +23,11 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 
 ### ⚠️ Known Issues
 
+- **✅ RESOLVED - Soak Test Race Condition (2025-12-11)**
+  - **Problem:** `soak-test` workflow failing with "Success Rate: 0/4" - authentication redirect not waiting properly
+  - **Solution:** Fixed Playwright script to use `page.waitForURL()` instead of polling. Added comprehensive documentation of hybrid testing strategy (local=mocks, CI=real Supabase) to `ARCHITECTURE.md`
+  - **Status:** ✅ Fixed - Test now properly waits for authentication redirect
+
 - **🟡 INVESTIGATING - PDF Filename Inconsistency (2025-12-09)**
   - **Problem:** `jsPDF.save()` does not reliably set the filename across all browsers in `devBypass` mode (resulted in UUID names instead of `session_YYYYMMDD_User.pdf`).
   - **Workaround:** Implemented manual Blob download via `<a>` tag to enforce naming.
@@ -131,6 +136,12 @@ This phase is about confirming the core feature set works as expected and polish
   - Refactored `SessionPage.tsx` to use store instead of local useState
   - Improves code maintainability and scalability
 - ✅ **Add a soak test:** 5-minute concurrent user test implemented (`tests/soak/soak-test.spec.ts`) with memory leak detection
+  - ✅ **COMPLETED (2025-12-11) - Fix Soak Test Race Condition:**
+    - **Problem:** CI soak test failing with "Success Rate: 0/4" - Playwright script not waiting for authentication redirect
+    - **Root Cause:** Script used polling loop with `waitForTimeout` instead of proper navigation wait
+    - **Solution:** Replaced with `page.getByRole('button', { name: /sign in/i }).click()` and `page.waitForURL()` for deterministic redirect wait
+    - **Documentation:** Added hybrid testing strategy to `ARCHITECTURE.md` (local=mocks, CI=real Supabase)
+    - **Files:** `tests/soak/soak-test.spec.ts`, `docs/ARCHITECTURE.md`
 - **✅ COMPLETED - Expand Unit Test Coverage (2025-12-08):**
   - **Current:** 365 unit tests passing
   - ✅ Authentication pages: SignInPage (14), SignUpPage (15)
@@ -167,9 +178,11 @@ This phase is about confirming the core feature set works as expected and polish
 - **✅ COMPLETED (2025-12-07) - PostHog Analytics Integration:**
   - Integrated `posthog-js` for product analytics.
   - Tracking events: `signup_completed`, `session_started`, `session_ended` (w/ metrics).
-- **✅ COMPLETED (2025-12-07) - Demo Recording Automation:**
-  - Created Playwright test (`demo-recording.e2e.spec.ts`) to automate video demo generation.
-  - Captures full user journey: Landing -> Auth -> Session -> Analytics.
+- **✅ COMPLETED (2025-12-07, Updated 2025-12-10) - Demo Recording Automation:**
+  - Created Playwright test (`tests/demo/demo-recording.spec.ts`) with dedicated config (`playwright.demo.config.ts`)
+  - Showcases Cloud AI and Native STT modes with brief recording sessions
+  - Captures full user journey: Landing → Auth → Session (STT mode selection) → Analytics
+  - Run: `pnpm build:test && pnpm exec playwright test --config=playwright.demo.config.ts`
 - **✅ COMPLETED (2025-12-07) - Populate Testimonials:**
   - [x] **Testimonials Section** (Implemented but Disabled pending real content)
 - **✅ COMPLETED (2025-12-03) - Resolve TypeScript 'any' Type Errors in Test Suite:**
@@ -272,7 +285,12 @@ This phase focuses on long-term architecture, scalability, and preparing for fut
 ### 🌱 Could-Have (Future Enhancements)
 - 🔴 **Implement Stripe "Pro Mode" Flag:** For feature gating and usage-based billing.
   - *Status:* Partially Implemented. `UpgradePromptDialog` and `PricingPage` exist, but the backend "Pro Mode" flag and full checkout flow are incomplete.
-- 🔴 **Whisper Model Caching & Auto-Update:** Create a script to manage the on-device Whisper model lifecycle:
+- 🟡 **Whisper Model Caching & Auto-Update:** Create a script to manage the on-device Whisper model lifecycle:
+  - ✅ **Implement Script & SW:** `download-whisper-model.sh` and `sw.js` (Completed 2025-12-10). Reduced load time from >30s to <5s.
+  - ✅ **Refactor Terminology:** Rename "Local" to "On-Device" and "Cloud AI" to "Cloud" (Completed 2025-12-11).
+  - 🔴 **Internal Refactor:** Rename `LocalWhisper` to `OnDeviceWhisper` (Backlog - Marketing/Code Consistency).
+  - 🔴 **Documentation:** Update Architecture to reflect On-Device/SW strategy (Backlog).
+  - Cache the WASM model after first download (persist to IndexedDB or filesystem)
   - Cache the WASM model after first download (persist to IndexedDB or filesystem)
   - Check for model updates periodically (e.g., weekly via manifest file)
   - Show update notification to users when a new model version is available

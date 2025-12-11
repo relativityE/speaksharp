@@ -241,6 +241,7 @@ describe('SessionPage', () => {
             mockUseSessionStore.mockReturnValue({
                 elapsedTime: 60,
                 updateElapsedTime: mockUpdateElapsedTime,
+                resetSession: vi.fn(),
             } as unknown as ReturnType<typeof SessionStore.useSessionStore>);
 
             mockUseSpeechRecognition.mockReturnValue({

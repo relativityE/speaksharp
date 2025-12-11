@@ -10,7 +10,7 @@ test.describe('Session Variations', () => {
 
     test('Journey 4 & 5: Switch STT Modes', async ({ page }) => {
         // The mode selector is a DropdownMenu button next to "Live Recording"
-        const modeButton = page.getByRole('button', { name: /Native|On-Device|Cloud AI/ });
+        const modeButton = page.getByRole('button', { name: /Native|On-Device|Cloud/ });
 
         await modeButton.waitFor({ state: 'visible', timeout: 5000 });
 
@@ -20,9 +20,9 @@ test.describe('Session Variations', () => {
         // Open dropdown
         await modeButton.click();
 
-        // Switch to Cloud AI
-        await page.getByRole('menuitemradio', { name: /Cloud AI \(AssemblyAI\)/ }).click();
-        await expect(modeButton).toContainText(/Cloud AI/);
+        // Switch to Cloud
+        await page.getByRole('menuitemradio', { name: /Cloud \(AssemblyAI\)/ }).click();
+        await expect(modeButton).toContainText(/Cloud/);
 
         // Open dropdown again
         await modeButton.click();

@@ -1,4 +1,4 @@
-name: Soak Test
+Iname: Soak Test
 
 on:
   # Allows you to run this workflow manually from the Actions tab

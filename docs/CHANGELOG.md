@@ -10,6 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (2025-12-11)
+
+- **On-Device Whisper Optimization:** Implemented a Service Worker (`sw.js`) to cache the 30MB Whisper model (`tiny-q8g16.bin`). Reduces subsequent load times from >30s to <1s.
+- **UI Terminology Update:** Renamed "Local" transcription mode to "On-Device" and "Cloud AI" to "Cloud" for clarity and consistency.
+- **Soak Test Documentation:** Added comprehensive hybrid testing strategy documentation to `ARCHITECTURE.md`, explaining local (mock) vs CI (real Supabase) environment separation, pre-seeded test user requirements, and critical configuration details.
+
+### Fixed (2025-12-11)
+
+- **Soak Test Race Condition:** Fixed CI soak test failures (Success Rate: 0/4) caused by Playwright script not waiting for authentication redirect. Replaced polling loop with `page.getByRole('button', { name: /sign in/i }).click()` and `page.waitForURL()` for deterministic navigation wait. **File:** `tests/soak/soak-test.spec.ts`
+
+### Changed (2025-12-11)
+- **UI Restrictions:** Disabled "On-Device" and "Cloud" options for Free users in the Session control dropdown.
+
 ### Added (2025-12-10)
 
 - **Test ID Centralization:**

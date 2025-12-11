@@ -1,6 +1,6 @@
 // tests/e2e/ui-state-capture.e2e.spec.ts
 import { test } from '@playwright/test';
-import { programmaticLogin, capturePage } from './helpers';
+import { programmaticLogin, capturePage, navigateToRoute } from './helpers';
 
 const envPages = process.env.UI_CAPTURE_PAGES;
 const pagesFromEnv = envPages ? envPages.split(',').map((p) => p.trim()) : undefined;
@@ -26,13 +26,13 @@ test.describe('UI State Capture', () => {
 
         case 'sessions':
           await programmaticLogin(page);
-          await page.goto('/sessions');
+          await navigateToRoute(page, '/sessions');
           await capturePage(page, `sessions-${testInfo.workerIndex}.png`, 'auth');
           break;
 
         case 'analytics':
           await programmaticLogin(page);
-          await page.goto('/analytics');
+          await navigateToRoute(page, '/analytics');
           await capturePage(page, `analytics-${testInfo.workerIndex}.png`, 'auth');
           break;
 

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin } from './helpers';
+import { programmaticLogin, navigateToRoute } from './helpers';
 
 /**
  * Goal Setting E2E Test
@@ -22,8 +22,7 @@ import { programmaticLogin } from './helpers';
 test.describe('Goal Setting', () => {
     test('should display goals section in analytics', async ({ page }) => {
         await programmaticLogin(page);
-        await page.goto('/analytics');
-        await page.waitForSelector('[data-testid="app-main"]');
+        await navigateToRoute(page, '/analytics');
 
         // Verify Goals section exists
         const goalsSection = page.getByText('Current Goals');
@@ -37,8 +36,7 @@ test.describe('Goal Setting', () => {
          * This test verifies that Goal Setting shows real data based on actual sessions.
          */
         await programmaticLogin(page);
-        await page.goto('/analytics');
-        await page.waitForSelector('[data-testid="app-main"]');
+        await navigateToRoute(page, '/analytics');
 
         // Wait for goals section to load
         await page.getByText('Current Goals').waitFor({ state: 'visible' });
@@ -72,8 +70,7 @@ test.describe('Goal Setting', () => {
          * - Goals persist and display updated values
          */
         await programmaticLogin(page);
-        await page.goto('/analytics');
-        await page.waitForSelector('[data-testid="app-main"]');
+        await navigateToRoute(page, '/analytics');
 
         // Wait for Goals section to load
         await page.getByText('Current Goals').waitFor({ state: 'visible' });

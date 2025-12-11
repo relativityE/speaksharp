@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin } from './helpers';
+import { programmaticLogin, navigateToRoute } from './helpers';
 
 /**
  * Local STT (Whisper) Model Download & Caching E2E Test
@@ -92,8 +92,7 @@ test.describe('Local STT Model Download & Caching', () => {
          * Fix: Measure actual click-to-ready time, then verify no indicator appeared.
          */
         await programmaticLogin(page);
-        await page.goto('/session');
-        await page.waitForSelector('[data-testid="app-main"]');
+        await navigateToRoute(page, '/session');
 
         // Select On-Device mode
         await page.getByRole('button', { name: /cloud ai|on-device|native/i }).click();
@@ -130,8 +129,7 @@ test.describe('Local STT Model Download & Caching', () => {
          * Requires E2E_PRO_EMAIL and E2E_PRO_PASSWORD environment variables.
          */
         await programmaticLogin(page);
-        await page.goto('/session');
-        await page.waitForSelector('[data-testid="app-main"]');
+        await navigateToRoute(page, '/session');
 
         // Click mode selector
         await page.getByRole('button', { name: /cloud ai|on-device|native/i }).click();
@@ -156,8 +154,7 @@ test.describe('Local STT Model Download & Caching', () => {
          * Requires E2E_PRO_EMAIL and E2E_PRO_PASSWORD environment variables.
          */
         await programmaticLogin(page);
-        await page.goto('/session');
-        await page.waitForSelector('[data-testid="app-main"]');
+        await navigateToRoute(page, '/session');
 
         // Clear cache and trigger download
         await page.evaluate(() => {

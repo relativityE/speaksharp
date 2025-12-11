@@ -157,6 +157,7 @@ This section tracks high-level product risks and constraints. For a detailed his
 - **✅ RESOLVED - Analytics Invalid Session ID E2E Test Failure (2025-12-05):** The `analytics-details.e2e.spec.ts` test failure has been resolved by fixing race conditions in loading state assertions. **Status:** ✅ Fixed.
 - **✅ RESOLVED - AuthProvider Race Condition (Finding 2.1, 2025-12-07):** The `AuthProvider` had a race condition in E2E tests where Supabase `onAuthStateChange` would fire with `undefined` after mock session was set, clearing the authenticated state. **Fix:** AuthProvider now ignores empty session updates in test mode when initial session exists (`import.meta.env.VITE_TEST_MODE === 'true'`). **Impact:** All 35 E2E tests now pass. **Location:** `frontend/src/contexts/AuthProvider.tsx:77-84` **Previous Status (2025-11-30):** Originally flagged as HIGH risk, later downgraded to LOW upon code review. Now fully resolved for E2E testing.
 - **✅ RESOLVED - CI Sharded E2E Metrics (2025-12-10):** The `ci:local` command was incorrectly reporting only 8 E2E tests instead of 35 due to Playwright blob reports being overwritten per shard. **Fix:** Implemented `PLAYWRIGHT_BLOB_OUTPUT_DIR` per shard with JSONL extraction for accurate aggregation in `test-audit.sh`. Now correctly reports 35 E2E tests. **Status:** ✅ Fixed.
+- **ℹ️ INFO - Soak Test Environment (2025-12-11):** The `soak-test` workflow logic is verified via `pnpm test:soak`, but full execution requires the CI/Staging environment with real Supabase secrets. Local runs use mock authentication, which cannot simulate the full user load on the database.
 
 ### Gap Analysis: Alpha Launch Blockers (AI Detective v5 - 2025-12-09)
 
@@ -178,7 +179,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Thu, 11 Dec 2025 00:29:07 GMT
+**Last Updated:** Thu, 11 Dec 2025 13:19:12 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -188,14 +189,14 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 404 (369 unit + 35 E2E) |
-| Unit tests              | 369   |
-| E2E tests (Playwright)  | 35  |
-| Passing tests           | 404 (369 unit + 35 E2E)   |
-| Failing tests           | 0   |
+| Total tests             | 409 (371 unit + 38 E2E) |
+| Unit tests              | 371   |
+| E2E tests (Playwright)  | 38  |
+| Passing tests           | 407 (371 unit + 36 E2E)   |
+| Failing tests           | 2   |
 | Disabled/skipped tests  | 0 (E2E only)   |
-| Passing unit tests      | 369/369 (100.0%)   |
-| Passing E2E tests       | 35/35 (100.0%)   |
+| Passing unit tests      | 371/371 (100.0%)   |
+| Passing E2E tests       | 36/38 (94.7%)   |
 | Total runtime           | See CI logs   |
 
 ---
@@ -204,10 +205,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | N/A   |
-| Branches   | N/A   |
-| Functions  | N/A   |
-| Lines      | N/A   |
+| Statements | 56.41%   |
+| Branches   | 82.17%   |
+| Functions  | 72.53%   |
+| Lines      | 56.41%   |
 
 ---
 
