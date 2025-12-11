@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin } from './helpers';
+import { programmaticLogin, navigateToRoute } from './helpers';
 import { TEST_IDS, TIMEOUTS } from '../constants';
 
 test.describe('Smoke Test', () => {
@@ -46,7 +46,7 @@ test.describe('Smoke Test', () => {
 
     // Step 4: Navigate to Session Page and verify content
     await test.step('Navigate to Session Page', async () => {
-      await page.goto('/session');
+      await navigateToRoute(page, '/session');
       await expect(page.getByRole('heading', { name: 'Practice Session' })).toBeVisible();
 
       // Wait for session page to load
@@ -56,7 +56,7 @@ test.describe('Smoke Test', () => {
 
     // Step 5: Navigate to Analytics Page and verify content
     await test.step('Navigate to Analytics Page', async () => {
-      await page.goto('/analytics');
+      await navigateToRoute(page, '/analytics');
 
       // Wait for data to load and verify dashboard elements
       // Two-stage assertion: Wait for loading skeleton to disappear, then check for content

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin } from './helpers';
+import { programmaticLogin, navigateToRoute } from './helpers';
 
 test.describe('User Tier Flows', () => {
   test('should not show the upgrade banner for a pro user', async ({ page }) => {
@@ -9,7 +9,7 @@ test.describe('User Tier Flows', () => {
     // Wait for the app to be fully loaded and on the home page before navigating
     await expect(page.getByTestId('app-main')).toBeVisible();
 
-    await page.goto('/analytics');
+    await navigateToRoute(page, '/analytics');
     await expect(page.getByRole('heading', { name: 'Your Dashboard' })).toBeVisible();
 
     // For a 'pro' user, the upgrade banner should not be visible.

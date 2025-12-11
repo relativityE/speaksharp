@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin, mockLiveTranscript } from './helpers';
+import { programmaticLogin, navigateToRoute, mockLiveTranscript } from './helpers';
 import { TEST_IDS } from '../constants';
 
 test.describe('Session Metrics', () => {
@@ -9,7 +9,7 @@ test.describe('Session Metrics', () => {
         page.on('pageerror', err => console.log(`[BROWSER ERROR] ${err.message}`));
 
         await programmaticLogin(page);
-        await page.goto('/session');
+        await navigateToRoute(page, '/session');
 
         console.log('[TEST] ✅ Navigated to /session');
 

@@ -18,6 +18,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed (2025-12-11)
 
+- **E2E Navigation Race Condition Fix (14 Tests Fixed):**
+  - **Problem:** Multiple E2E tests failing or flaky due to using `page.goto()` on protected routes after `programmaticLogin()`, causing full page reloads that break E2E mock session and MSW context
+  - **Solution:** Replaced `page.goto()` with `navigateToRoute()` helper for client-side navigation that preserves mock session
+  - **Tests Fixed:**
+    - `goal-setting.e2e.spec.ts` (3 tests) - Goal setting CRUD operations
+    - `navigation.e2e.spec.ts` (1 test) - App navigation verification
+    - `ui-state-capture.e2e.spec.ts` (2 routes) - Screenshot capture
+    - `analytics-details.e2e.spec.ts` (1 test) - Session detail view
+    - `local-stt-caching.e2e.spec.ts` (4 tests) - Model download and caching
+    - `metrics.e2e.spec.ts` (1 test) - Real-time metrics updates
+    - `smoke.e2e.spec.ts` (2 routes) - Full app health check
+    - `users.e2e.spec.ts` (1 route) - User tier verification
+    - `session-comparison.e2e.spec.ts` (1 route) - Clarity score test
+    - `soak-test.spec.ts` (login flow) - Load testing authentication
+  - **Impact:** All 36 E2E tests now pass reliably (previously had 2-4 flaky failures per run)
+  - **Files:** 11 test files updated with `navigateToRoute()` for protected routes
+
 - **Soak Test Race Condition:** Fixed CI soak test failures (Success Rate: 0/4) caused by Playwright script not waiting for authentication redirect. Replaced polling loop with `page.getByRole('button', { name: /sign in/i }).click()` and `page.waitForURL()` for deterministic navigation wait. **File:** `tests/soak/soak-test.spec.ts`
 
 ### Changed (2025-12-11)

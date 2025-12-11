@@ -152,7 +152,7 @@ test.describe('Session Comparison & Progress Tracking', () => {
          * Clamped between 0-100
          */
         await programmaticLogin(page);
-        await page.goto('/session');
+        await navigateToRoute(page, '/session');
         await page.waitForSelector('[data-testid="app-main"]');
 
         // 2. Start Recording

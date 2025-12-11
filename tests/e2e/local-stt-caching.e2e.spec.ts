@@ -30,7 +30,7 @@ test.describe('Local STT Model Download & Caching', () => {
          */
         await programmaticLogin(page);
 
-        await page.goto('/session');
+        await navigateToRoute(page, '/session');
         await page.waitForSelector('[data-testid="app-main"]');
 
         // Clear IndexedDB to simulate first-time user AND set mock flag
