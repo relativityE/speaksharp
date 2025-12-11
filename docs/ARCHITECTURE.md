@@ -277,32 +277,111 @@ The project uses **two distinct Supabase configurations** depending on the execu
 | **Mock** | `https://mock.supabase.co` | Local dev, E2E tests (MSW intercepts all requests) |
 | **Real** | `${{ secrets.SUPABASE_URL }}` | CI workflows that require live database access |
 
-#### GitHub Actions Workflows
+---
 
-| Workflow | File | Supabase | Trigger | Purpose |
-|----------|------|----------|---------|---------|
-| **CI - Test Audit** | `ci.yml` | Mock | Push/PR to main | Runs lint, typecheck, unit tests, sharded E2E tests |
-| **Soak Test** | `soak-test.yml` | **Real** | Manual | Concurrent user performance tests with real Supabase auth |
-| **Dev Integration** | `dev-real-integration.yml` | **Real** | Manual | Live user flow tests against real Supabase |
-| **Supabase Migrations** | `deploy-supabase-migrations.yml` | **Real** | Manual | Database schema migrations deployment |
+#### 1. CI - Test Audit (`ci.yml`)
 
-#### Required GitHub Secrets (for Real Supabase workflows)
+**Purpose:** The main automated CI pipeline that runs on every push/PR to `main`.
 
-| Secret | Used By |
+**Supabase Mode:** Mock (MSW intercepts all Supabase requests)
+
+**What it does:**
+1. Runs `test-audit.sh prepare` - Lint, typecheck, unit tests (parallelized)
+2. Runs `test-audit.sh test` - Sharded E2E tests across 4 workers
+3. Runs `test-audit.sh report` - Generates SQM report, commits to `docs/PRD.md`
+
+**Trigger:** Automatic on push/PR to `main`
+
+**No secrets required** - Uses mock data only.
+
+---
+
+#### 2. Soak Test (`soak-test.yml`)
+
+**Purpose:** Validates application behavior under sustained concurrent load to identify memory leaks, resource contention, and API quota issues.
+
+**Supabase Mode:** Real (authenticates against live Supabase)
+
+**What it does:**
+1. Creates `.env.development` with real Supabase credentials from GitHub secrets
+2. Starts dev server with real backend
+3. Runs concurrent user simulations (2 users, configurable duration)
+4. Collects performance metrics (response times, memory usage, success/error counts)
+5. Saves JSON report to `test-results/soak/`
+
+**Trigger:** Manual (`workflow_dispatch`)
+
+**Required Secrets:**
+| Secret | Purpose |
 |--------|---------|
-| `SUPABASE_URL` | soak-test, dev-real-integration, migrations |
-| `SUPABASE_ANON_KEY` | soak-test, dev-real-integration |
-| `SUPABASE_SERVICE_KEY` | dev-real-integration, migrations |
-| `E2E_PRO_EMAIL` / `E2E_PRO_PASSWORD` | dev-real-integration |
+| `SUPABASE_URL` | Real Supabase project URL |
+| `SUPABASE_ANON_KEY` | Real Supabase anon/public key |
 
-#### Soak Test Users
+**Pre-requisites:** Soak test users must exist in Supabase Auth:
+- `soak-test@test.com` (password: `speaksharp1`)
+- `soak-test1@test.com` (password: `speaksharp2`)
 
-Pre-created users in Supabase for soak testing (defined in `tests/constants.ts`):
+**When to use:**
+- Before major releases to catch performance regressions
+- After adding features that may impact memory/API usage
+- To validate concurrent user handling
 
-| Email | Purpose |
-|-------|---------|
-| `soak-test@test.com` | Concurrent user 0 |
-| `soak-test1@test.com` | Concurrent user 1 |
+---
+
+#### 3. Dev Integration (`dev-real-integration.yml`)
+
+**Purpose:** Runs E2E tests against the **real Supabase database** to validate that actual user flows work with production-like data.
+
+**Supabase Mode:** Real (uses live database, not mocks)
+
+**What it does:**
+1. Sets `VITE_USE_LIVE_DB: "true"` - Disables MSW mocking, uses real Supabase
+2. Injects real Supabase credentials from GitHub secrets
+3. Uses real test user credentials (`E2E_PRO_EMAIL`/`E2E_PRO_PASSWORD`)
+4. Runs `frontend/tests/integration/live-user-flow.spec.ts`
+
+**Trigger:** Manual (`workflow_dispatch`)
+
+**Required Secrets:**
+| Secret | Purpose |
+|--------|---------|
+| `SUPABASE_URL` | Real Supabase project URL |
+| `SUPABASE_ANON_KEY` | Real Supabase anon key |
+| `SUPABASE_SERVICE_KEY` | Service role key for backend operations |
+| `E2E_PRO_EMAIL` | Email of a real Pro user in Supabase |
+| `E2E_PRO_PASSWORD` | That user's password |
+
+**When to use:**
+- Pre-production validation before major releases
+- After database schema changes to confirm migrations work
+- Debugging production issues with real data
+
+---
+
+#### 4. Deploy Supabase Migrations (`deploy-supabase-migrations.yml`)
+
+**Purpose:** Pushes database schema migrations from `backend/supabase/migrations/` to the production Supabase database.
+
+**Supabase Mode:** Real (modifies production database)
+
+**What it does:**
+1. **Requires manual confirmation** - Must type "DEPLOY" to proceed
+2. Links to Supabase project using `SUPABASE_PROJECT_ID`
+3. Runs `supabase db push` - Applies all pending migrations
+4. Generates migration list in job summary
+
+**Trigger:** Manual (`workflow_dispatch` with confirmation input)
+
+**Required Secrets:**
+| Secret | Purpose |
+|--------|---------|
+| `SUPABASE_PROJECT_ID` | Your Supabase project reference ID |
+| `SUPABASE_ACCESS_TOKEN` | Personal access token for Supabase CLI |
+
+**When to use:**
+- After adding new SQL migration files
+- When creating new tables, columns, indexes, or RLS policies
+- **Caution:** This modifies the production database
 
 
 ### Application Environments (Production, Development, and Test)
