@@ -250,14 +250,21 @@ The CI pipeline, defined in `.github/workflows/ci.yml`, is a multi-stage, parall
 
 Both the local test runner and CI use the same `test-audit.sh` script, ensuring perfect alignment between local and remote environments. However, they differ in execution strategy:
 
-| Aspect              | Local Test Runner (`pnpm test:all`)                                            | CI (GitHub Actions)                                                 |
-|---------------------|---------------------------------------------------------------------------------|---------------------------------------------------------------------|
-| **Execution**       | `./test-audit.sh local` - single process                                       | Split into stages: `prepare`, `test` (sharded), `report`           |
-| **E2E Tests**       | Runs all 35 tests serially                                                    | **Sharded across 4 workers** using Playwright native `--shard` flag |
-| **Parallelization** | Quality checks (lint/typecheck/test) run in parallel via `concurrently`        | Each CI job runs independently in isolated environments             |
-| **Purpose**         | Pre-commit verification and local validation                                   | Gatekeeper for merging to main branch                               |
-| **Speed**           | ~2-3 minutes (serial E2E execution)                                            | ~1-2 minutes (parallel sharding reduces E2E time)                   |
-| **Error Handling**  | Exits immediately on first failure with `exit 1`                               | Individual job failures prevent downstream jobs from running        |
+**Local Test Runner (`pnpm test:all`):**
+- Runs `./test-audit.sh local` as a single process
+- Executes all 35 E2E tests serially
+- Quality checks (lint/typecheck/test) run in parallel via `concurrently`
+- Purpose: Pre-commit verification and local validation
+- Speed: ~2-3 minutes
+- Exits immediately on first failure
+
+**CI (GitHub Actions):**
+- Split into stages: `prepare`, `test` (sharded), `report`
+- E2E tests sharded across 4 workers using Playwright `--shard` flag
+- Each job runs independently in isolated environments
+- Purpose: Gatekeeper for merging to main branch
+- Speed: ~1-2 minutes (parallel sharding)
+- Individual job failures prevent downstream jobs
 
 **Key Architectural Benefit:** The shared `test-audit.sh` script eliminates "works on my machine" issues by guaranteeing that the exact same validation logic runs both locally and in CI.
 
@@ -275,7 +282,7 @@ The project uses **two distinct Supabase configurations** depending on the execu
 | Workflow | File | Supabase | Trigger | Purpose |
 |----------|------|----------|---------|---------|
 | **CI - Test Audit** | `ci.yml` | Mock | Push/PR to main | Runs lint, typecheck, unit tests, sharded E2E tests |
-| **Soak Test** | `soak-test.yml` | **Real** | Manual (`workflow_dispatch`) | 5-minute performance tests with real auth |
+| **Soak Test** | `soak-test.yml` | **Real** | Manual | Concurrent user performance tests with real Supabase auth |
 | **Dev Integration** | `dev-real-integration.yml` | **Real** | Manual | Live user flow tests against real Supabase |
 | **Supabase Migrations** | `deploy-supabase-migrations.yml` | **Real** | Manual | Database schema migrations deployment |
 
