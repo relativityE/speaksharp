@@ -272,7 +272,12 @@ This phase focuses on long-term architecture, scalability, and preparing for fut
 ### 🌱 Could-Have (Future Enhancements)
 - 🔴 **Implement Stripe "Pro Mode" Flag:** For feature gating and usage-based billing.
   - *Status:* Partially Implemented. `UpgradePromptDialog` and `PricingPage` exist, but the backend "Pro Mode" flag and full checkout flow are incomplete.
-- 🔴 **Automate On-Device Model Updates:** Create a script (e.g., GitHub Action) to automatically check for and download new versions of the locally-hosted Whisper model to prevent it from becoming stale.
+- 🔴 **Whisper Model Caching & Auto-Update:** Create a script to manage the on-device Whisper model lifecycle:
+  - Cache the WASM model after first download (persist to IndexedDB or filesystem)
+  - Check for model updates periodically (e.g., weekly via manifest file)
+  - Show update notification to users when a new model version is available
+  - Support offline mode with cached model
+  - *Priority:* Required before On-Device mode can be demo'd reliably
 - 🔴 **Add Platform Integrations (e.g., Zoom, Google Meet):** Allow SpeakSharp to connect to and analyze audio from third-party meeting platforms.
 - 🟡 **Set up Multi-Env CI/CD:** A basic implementation for DB migrations exists, but needs expansion.
 - 🟡 **Replace E2E Custom Event Synchronization (Partial 2025-12-10):** Implemented `navigateToRoute()` helper for client-side navigation, reducing reliance on custom events. Remaining: `e2e-profile-loaded` event still used in `programmaticLogin`.
