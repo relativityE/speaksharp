@@ -23,6 +23,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - ⏸️ **BLOCKED** - Shorten OTP expiry to <1 hour (requires Supabase Pro account)
   - ⏸️ **BLOCKED** - Enable leaked password protection (requires Supabase Pro account)
   - ⏸️ **DEFERRED** - Upgrade Postgres version (not critical for alpha)
+- 🔴 **Integration Test (Usage Limits):** Create a script/task to verify `check-usage-limit` against real Supabase (Staging/Production) to validate logic without mocks. Current tests use Mock Service Worker.
 
 ### ⚠️ Known Issues
 
