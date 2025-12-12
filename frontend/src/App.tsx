@@ -11,6 +11,7 @@ const AnalyticsPage = React.lazy(() => import('./pages/AnalyticsPage').then(modu
 const SignInPage = React.lazy(() => import('./pages/SignInPage'));
 const SignUpPage = React.lazy(() => import('./pages/SignUpPage'));
 const SessionPage = React.lazy(() => import('./pages/SessionPage').then(module => ({ default: module.SessionPage })));
+const DesignSystemPage = React.lazy(() => import('./pages/DesignSystemPage').then(module => ({ default: module.DesignSystemPage })));
 
 const PageLoader = () => (
   <div className="flex h-[50vh] w-full items-center justify-center">
@@ -35,6 +36,7 @@ const App: React.FC = () => {
         <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/" element={<Index />} />
+            <Route path="/design" element={<DesignSystemPage />} />
             <Route path="/auth" element={<Navigate to="/auth/signin" replace />} />
             <Route path="/auth/signin" element={<SignInPage />} />
             <Route path="/auth/signup" element={<SignUpPage />} />

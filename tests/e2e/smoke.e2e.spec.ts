@@ -9,11 +9,18 @@ test.describe('Smoke Test', () => {
       console.log(`[BROWSER CONSOLE] ${msg.type()}: ${msg.text()}`);
     });
 
-    // Step 1: Verify app boots and renders DOM (from bootcheck)
-    await test.step('Boot Check - Verify DOM Renders', async () => {
-      // Note: page.goto('/') is intentional here for unauthenticated landing page test
-      await page.goto('/', { waitUntil: 'domcontentloaded' }); // eslint-disable-line no-restricted-syntax
+    // Step 1: Programmatic login (this does the initial page.goto('/') internally)
+    // IMPORTANT: Do NOT call page.goto() before programmaticLogin - it causes MSW ready event race
+    await test.step('Programmatic Login', async () => {
+      await programmaticLogin(page);
+      console.log('✅ Login completed successfully.');
 
+      // Verify auth state after login
+      await expect(page.getByTestId('nav-sign-out-button')).toBeVisible();
+    });
+
+    // Step 2: Verify app booted correctly (done after login to avoid double page.goto)
+    await test.step('Verify App Booted Correctly', async () => {
       // Verify main app container loads
       await expect(page.getByTestId('app-main')).toBeVisible({ timeout: 15000 });
 
@@ -27,25 +34,7 @@ test.describe('Smoke Test', () => {
       expect(title).toBeTruthy();
     });
 
-    // Step 2: Verify unauthenticated state (from health-check)
-    await test.step('Verify Unauthenticated Homepage', async () => {
-      // Should show Sign In button when not authenticated
-      await expect(page.getByRole('link', { name: 'Sign In' }).first()).toBeVisible();
-
-      // Should NOT show sign-out button
-      await expect(page.getByTestId('nav-sign-out-button')).not.toBeVisible();
-    });
-
-    // Step 3: Programmatic login
-    await test.step('Programmatic Login', async () => {
-      await programmaticLogin(page);
-      console.log('✅ Login completed successfully.');
-
-      // Verify auth state after login
-      await expect(page.getByTestId('nav-sign-out-button')).toBeVisible();
-    });
-
-    // Step 4: Navigate to Session Page and verify content
+    // Step 3: Navigate to Session Page and verify content
     await test.step('Navigate to Session Page', async () => {
       await navigateToRoute(page, '/session');
       await expect(page.getByRole('heading', { name: 'Practice Session' })).toBeVisible();
@@ -55,7 +44,7 @@ test.describe('Smoke Test', () => {
       console.log('[TEST] ✅ Session page loaded');
     });
 
-    // Step 5: Navigate to Analytics Page and verify content
+    // Step 4: Navigate to Analytics Page and verify content
     await test.step('Navigate to Analytics Page', async () => {
       await navigateToRoute(page, '/analytics');
 
@@ -68,14 +57,14 @@ test.describe('Smoke Test', () => {
       await expect(page.getByTestId('dashboard-heading')).toBeVisible();
     });
 
-    // Step 6: Log out
+    // Step 5: Log out
     await test.step('Logout', async () => {
       const signOutButton = page.getByTestId('nav-sign-out-button');
       await expect(signOutButton).toBeVisible();
       await signOutButton.click();
     });
 
-    // Step 7: Verify successful logout
+    // Step 6: Verify successful logout
     await test.step('Verify Logout', async () => {
       await expect(page.getByRole('link', { name: 'Sign In' }).first()).toBeVisible({ timeout: 10000 });
       await expect(page.getByTestId('nav-sign-out-button')).not.toBeVisible();

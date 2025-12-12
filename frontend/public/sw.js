@@ -121,19 +121,34 @@ self.addEventListener('fetch', (event) => {
     // Check if the URL matches any of our mapped remote URLs
     if (URL_MAPPINGS[url]) {
         const localPath = URL_MAPPINGS[url];
-        console.log(`[ServiceWorker] Intercepting ${url} -> Serving local: ${localPath}`);
+        console.log(`[ServiceWorker] Intercepting ${url} -> Checking cache / fallback to local: ${localPath}`);
 
         event.respondWith(
-            fetch(localPath).then((response) => {
-                if (!response.ok) {
-                    console.error(`[ServiceWorker] Failed to fetch local asset: ${localPath}`);
-                    // Fallback to original request if local fails
-                    return fetch(event.request);
-                }
-                return response;
-            }).catch((err) => {
-                console.error(`[ServiceWorker] Error serving local asset: ${err}`);
-                return fetch(event.request);
+            caches.open(MODEL_CACHE_NAME).then((cache) => {
+                // 1. Check cache for the ORIGINAL request (Remote URL)
+                return cache.match(event.request).then((cachedResponse) => {
+                    if (cachedResponse) {
+                        console.log(`[ServiceWorker] Serving from cache: ${url}`);
+                        return cachedResponse;
+                    }
+
+                    // 2. If miss, fetch from LOCAL path (bundled assets)
+                    console.log(`[ServiceWorker] Cache miss. Fetching local asset: ${localPath}`);
+                    return fetch(localPath).then((response) => {
+                        if (!response.ok) {
+                            console.warn(`[ServiceWorker] Local asset missing: ${localPath}. Falling back to network.`);
+                            // 3. Fallback: Fetch original remote URL
+                            return fetch(event.request);
+                        }
+
+                        // 4. Store the response in cache under the ORIGINAL request key
+                        cache.put(event.request, response.clone());
+                        return response;
+                    }).catch((err) => {
+                        console.error(`[ServiceWorker] Error fetching local asset: ${err}`);
+                        return fetch(event.request);
+                    });
+                });
             })
         );
     }

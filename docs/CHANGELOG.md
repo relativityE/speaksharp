@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Files:** `.github/workflows/deploy-supabase-migrations.yml`
 - **PRD Features Update:** Added 5 new features to canonical feature list (Screen Reader Accessibility, Usage Limit Pre-Check, Weekly Activity Chart, Premium Loading States, On-Device Model Caching).
 - **On-Device Whisper Optimization:** Implemented a Service Worker (`sw.js`) to cache the 30MB Whisper model (`tiny-q8g16.bin`). Reduces subsequent load times from >30s to <1s.
+- **Gamification (Streaks):** Implemented `useStreak` hook and "Streak" logic (consecutive days) with toast notifications for positive reinforcement.
+- **Custom Component Showcase:** Added `/design` route and `DesignSystemPage` to visualize and verify typography, colors, buttons, and components.
+- **Unit Test Coverage:** Added unit tests for `useStreak` and `DesignSystemPage`, increasing total unit tests to 379.
 
 ### Fixed (2025-12-11)
 
@@ -45,6 +48,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `soak-test.spec.ts` (login flow) - Load testing authentication
   - **Impact:** All 36 E2E tests now pass reliably (previously had 2-4 flaky failures per run)
   - **Files:** 11 test files updated with `navigateToRoute()` for protected routes
+
+- **Flaky E2E Test Fixes (live-transcript.e2e, smoke.e2e):**
+  - **Problem 1:** `live-transcript.e2e.spec.ts` failed with `session-start-stop-button` not visible - `SessionPage.pom.ts` used `page.goto()` after auth, destroying MSW context
+  - **Problem 2:** `smoke.e2e.spec.ts` timed out in `waitForE2EEvent` - calling `page.goto('/')` before `programmaticLogin` caused MSW ready event race condition
+  - **Solution 1:** Refactored `SessionPage.pom.ts` to always use `navigateToRoute()` (page.goto is anti-pattern after auth)
+  - **Solution 2:** Restructured `smoke.e2e.spec.ts` to call `programmaticLogin` first (it does `page.goto('/')` internally)
+  - **Impact:** Both tests now pass reliably (4.0s execution time)
+  - **Files:** `tests/pom/SessionPage.pom.ts`, `tests/e2e/smoke.e2e.spec.ts`
+
+- **MSW Handler Coverage Improvements:**
+  - **Problem:** Console errors during E2E tests from unmocked Supabase endpoints (`useGoals`, `useUsageLimit`)
+  - **Solution:** Added MSW handlers for:
+    - `user_goals` table (GET/POST) - for `useGoals` hook
+    - `check-usage-limit` Edge Function - for `useUsageLimit` hook
+    - **Catch-all handlers** for unmocked endpoints that log `[MSW ⚠️ UNMOCKED]` warnings with function/table name
+  - **Impact:** Clean console output during tests; unmocked endpoints now visible for debugging
+  - **Files:** `frontend/src/mocks/handlers.ts`
 
 - **Soak Test Race Condition:** Fixed CI soak test failures (Success Rate: 0/4) caused by Playwright script not waiting for authentication redirect. Replaced polling loop with `page.getByRole('button', { name: /sign in/i }).click()` and `page.waitForURL()` for deterministic navigation wait. **File:** `tests/soak/soak-test.spec.ts`
 

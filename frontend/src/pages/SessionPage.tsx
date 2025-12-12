@@ -12,6 +12,7 @@ import { useAuthProvider } from '../contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { useSessionMetrics } from '@/hooks/useSessionMetrics';
 import { useUsageLimit, formatRemainingTime } from '@/hooks/useUsageLimit';
+import { useStreak } from '@/hooks/useStreak';
 import { PauseMetricsDisplay } from '@/components/session/PauseMetricsDisplay';
 import { toast } from 'sonner';
 
@@ -36,6 +37,7 @@ export const SessionPage: React.FC = () => {
 
     // Usage limit check for pre-session validation
     const { data: usageLimit } = useUsageLimit();
+    const { updateStreak } = useStreak();
 
     const [customWords] = useState<string[]>([]);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -117,6 +119,19 @@ export const SessionPage: React.FC = () => {
                     clarity_score: metrics.clarityScore,
                     filler_count: metrics.fillerCount
                 });
+
+                // Update Streak & Show Positive Reinforcement
+                const { currentStreak, isNewDay } = updateStreak();
+                if (isNewDay) {
+                    toast.success(`🔥 ${currentStreak} Day Streak!`, {
+                        description: "Consistency is key. Great job!",
+                        duration: 5000,
+                    });
+                } else {
+                    toast.success("Great practice session!", {
+                        description: "You're making progress.",
+                    });
+                }
             } catch (error) {
                 console.error('[SessionPage] Error stopping recording:', error);
                 console.error('[SessionPage] Error details:', {

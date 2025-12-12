@@ -1,11 +1,11 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-10
+**Last Reviewed:** 2025-12-11
 
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp System Architecture
 
-**Version 3.6** | **Last Updated: 2025-12-10**
+**Version 3.7** | **Last Updated: 2025-12-11**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -16,12 +16,17 @@ SpeakSharp follows a modular, domain-driven directory structure that clearly sep
 ```
 frontend/
   ├── src/              # Application code
+  │   ├── assets/       # Static assets (images, icons)
   │   ├── components/   # React components (UI library, features)
+  │   ├── config/       # Configuration files
+  │   ├── constants/    # App constants (testIds, etc.)
   │   ├── contexts/     # React Context providers (AuthContext)
   │   ├── hooks/        # Custom React hooks (business logic)
   │   ├── lib/          # Utilities (pdfGenerator, logger, storage)
+  │   ├── mocks/        # MSW handlers for E2E testing
   │   ├── pages/        # Route-level page components
   │   ├── services/     # External service integrations (transcription, analytics)
+  │   ├── stores/       # State management stores
   │   ├── types/        # TypeScript type definitions
   │   └── utils/        # Helper functions (fillerWordUtils, etc)
   ├── tests/            # Frontend test infrastructure
@@ -35,12 +40,22 @@ frontend/
   └── [configs]         # vite.config.mjs, vitest.config.mjs, tsconfig.json, etc
 
 tests/                  # Project-level tests (cross-cutting)
+  ├── demo/             # Demo/example tests
   ├── e2e/              # End-to-end Playwright tests
-  ├── soak/             # Performance/load tests (manual, not in CI)
-  └── pom/              # Page Object Models (shared by E2E)
+  ├── pom/              # Page Object Models (shared by E2E)
+  ├── setup/            # Test setup utilities
+  └── soak/             # Performance/load tests (manual, not in CI)
 
 backend/                # Backend services
   └── supabase/         # Supabase functions, migrations, seed data
+      └── functions/    # Edge Functions:
+          ├── _shared/              # Shared utilities
+          ├── assemblyai-token/     # AssemblyAI token generation
+          ├── check-usage-limit/    # Usage limit validation
+          ├── get-ai-suggestions/   # AI-powered feedback
+          ├── stripe-checkout/      # Stripe payment sessions
+          ├── stripe-webhook/       # Stripe webhook handlers
+          └── test-import/          # Test utilities
 
 scripts/                # Build, test, and CI/CD automation scripts
 
@@ -252,7 +267,7 @@ Both the local test runner and CI use the same `test-audit.sh` script, ensuring 
 
 **Local Test Runner (`pnpm test:all`):**
 - Runs `./test-audit.sh local` as a single process
-- Executes all 35 E2E tests serially
+- Executes all 36 E2E tests serially
 - Quality checks (lint/typecheck/test) run in parallel via `concurrently`
 - Purpose: Pre-commit verification and local validation
 - Speed: ~2-3 minutes
@@ -519,6 +534,28 @@ The `navigateToRoute()` helper (defined in `tests/e2e/helpers.ts`) performs clie
 **ESLint Enforcement:** A custom ESLint rule (`no-restricted-syntax`) warns when `page.goto()` is used in E2E test files (except `helpers.ts`).
 
 **Files Updated:** 11 E2E test files migrated to `navigateToRoute()` (2025-12-10).
+
+**Page Object Models (POMs):** POMs like `SessionPage.pom.ts` MUST use `navigateToRoute()` in their `navigate()` methods since they are always used after `programmaticLogin()`. Using `page.goto()` in a POM is an anti-pattern that breaks MSW context. (Fixed 2025-12-11)
+
+#### MSW Catch-All Handlers
+
+The MSW handlers in `frontend/src/mocks/handlers.ts` include catch-all handlers at the end of the handler array that log unmocked endpoints:
+
+```typescript
+// Catch-all for unmocked Edge Functions
+http.all('*/functions/v1/*', ({ request }) => {
+  console.warn(`[MSW ⚠️ UNMOCKED FUNCTION] ${request.method} /functions/v1/${functionName}`);
+  return HttpResponse.json({ _msw_unmocked: true });
+});
+
+// Catch-all for unmocked REST API tables
+http.all('*/rest/v1/*', ({ request }) => {
+  console.warn(`[MSW ⚠️ UNMOCKED TABLE] ${request.method} /rest/v1/${tableName}`);
+  return HttpResponse.json(request.method === 'GET' ? [] : { _msw_unmocked: true });
+});
+```
+
+When testing, any unmocked Supabase endpoint will show a `[MSW ⚠️ UNMOCKED]` warning in the console, making it easy to identify missing handlers. (Added 2025-12-11)
 
 Summary: How the Dev Server Relates to Environments
 Environment	How Dev Server is Started	Vite Mode	Key Feature

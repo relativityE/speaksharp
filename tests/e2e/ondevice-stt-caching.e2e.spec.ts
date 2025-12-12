@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { programmaticLogin, navigateToRoute } from './helpers';
 
 /**
- * Local STT (Whisper) Model Download & Caching E2E Test
+ * On-Device STT (Whisper) Model Download & Caching E2E Test
  * 
  * PURPOSE: Verify the complete UX flow for local Whisper model download and caching
  * 
@@ -21,7 +21,7 @@ import { programmaticLogin, navigateToRoute } from './helpers';
  * - Second session loads instantly (no download)
  */
 
-test.describe('Local STT Model Download & Caching', () => {
+test.describe('On-Device STT Model Download & Caching', () => {
     test('should show download progress on first use of On-Device mode', async ({ page }) => {
         /**
          * Uses real Pro account to test On-Device mode download flow.

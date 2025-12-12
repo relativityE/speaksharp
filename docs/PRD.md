@@ -1,12 +1,12 @@
 
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-08
+**Last Reviewed:** 2025-12-11
 
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp Product Requirements Document
 
-**Version 8.2** | **Last Updated:** 2025-11-20
+**Version 8.3** | **Last Updated:** 2025-12-11
 
 ## 1. Executive Summary
 
@@ -104,6 +104,8 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Weekly Activity Chart** | 2 | Visual chart showing practice frequency over the past week. | ✅ Implemented | ✅ Yes |
 | **Premium Loading States** | 2.5 | Skeleton loading UI for premium user experience. | ✅ Implemented | ✅ Yes |
 | **On-Device Model Caching** | 3 | Service Worker caches Whisper model for faster subsequent loads (<5s). | ✅ Implemented | ✅ Yes |
+| **Gamification (Streaks)** | 2 | Tracks daily practice streaks with local storage + toast positive reinforcement. | ✅ Implemented | ✅ Yes |
+| **Design System Showcase** | 2 | `/design` route to visualize and test UI components in isolation. | ✅ Implemented | ✅ Yes |
 
 
 
@@ -140,11 +142,11 @@ This section tracks high-level product risks and constraints. For a detailed his
 
 - **Incomplete Theming:** The application is configured to support both light and dark themes, but only a dark theme is currently implemented. Users will not be able to switch to a light theme, which can be an accessibility issue and ignores user preference.
 - **✅ RESOLVED - Accessibility (aria-live, 2025-12-11):** Added `aria-live="polite"`, `aria-label`, and `role="log"` to the live transcript container (`SessionPage.tsx:266-272`). Screen readers now announce new transcript text as it appears. **Status:** ✅ Fixed.
-- **Unit Test Coverage:** Current test coverage is 56.65% with 369 unit tests passing (as of 2025-12-10). Continued coverage expansion is tracked in the technical debt backlog.
+- **Unit Test Coverage:** Current test coverage is 55.82% with 379 unit tests passing (as of 2025-12-11). Continued coverage expansion is tracked in the technical debt backlog.
 - **✅ RESOLVED - UX - Layout Shift (CLS, 2025-12-06):** The `SessionPage` transcript container now uses fixed `h-[250px]` to prevent layout instability. **Status:** ✅ Fixed.
 - **✅ RESOLVED - UX - Accessibility (Contrast, 2025-12-07):** Hero text contrast improved with drop-shadow and backdrop-blur for WCAG AA compliance. **Status:** ✅ Fixed.
 - **UX - Mobile Experience:** The controls on `SessionPage` are difficult to access on small screens as they scroll away with the content ("thumb stretch" issue). A sticky footer is required.
-- **✅ RESOLVED - Testimonials (2025-12-07):** Populated `TestimonialsSection` with realistic user personas and feedback. **Status:** ✅ Complete.
+- **🟡 IN PROGRESS - Testimonials:** `TestimonialsSection` component exists but contains "TBD for now" placeholder content and is commented out in `MainPage.tsx` and `Index.tsx`. Needs real user testimonials before enabling.
 - **Test Quality (Partially Addressed 2025-12-10):** A comprehensive audit of the test suite is ongoing. Test ID centralization completed (eliminated magic strings). Refactored brittle `.first()` selectors. Remaining: identify low-value tests.
 - **✅ RESOLVED - Session Comparison & Progress Tracking (2025-12-06):** Implemented full feature with side-by-side comparison, trend charts, and progress indicators. Users can select 2 sessions to compare, view WPM/Clarity/Fillers trends over time, and see improvement/regression indicators. **Status:** ✅ Implemented. **Files:** `ProgressIndicator.tsx`, `TrendChart.tsx`, `SessionComparisonDialog.tsx`, `AnalyticsDashboard.tsx`
 - **✅ RESOLVED - Goal Setting Implementation (2025-12-07):** Supabase sync implemented, and GoalsSection now calculates actual progress from `useAnalytics` hook (weekly session count and average clarity score). **Files:** `GoalsSection.tsx`, `useGoals.ts`. **Status:** ✅ Complete.
@@ -169,7 +171,7 @@ This section tracks high-level product risks and constraints. For a detailed his
 | Issue | Details | Impact | Priority |
 |-------|---------|--------|----------|
 | ~~Rate Limiting~~ | ~~AssemblyAI token endpoint no rate limiting~~ | ~~Cost overruns, abuse risk~~ | ✅ **RESOLVED 2025-12-09** - Added client-side `rateLimiter.ts` (5 calls/min, 5s interval) |
-| **Usage Limit UX (Incomplete)** | Frontend doesn't prevent session start if usage exceeded | Frustrating UX when session fails to save | **P0 HIGH** - Needs server-side `/usage/check` endpoint |
+| ~~Usage Limit UX (Incomplete)~~ | ~~Frontend doesn't prevent session start if usage exceeded~~ | ~~Frustrating UX when session fails to save~~ | ✅ **RESOLVED 2025-12-11** - Added `check-usage-limit` Edge Function with `useUsageLimit` hook. Shows toast with Upgrade button pre-session |
 | ~~Error Reporting~~ | ~~No Sentry for Web Audio/Worker errors~~ | ~~Production debugging impossible~~ | ✅ **RESOLVED 2025-12-09** - Added `Sentry.captureException` to TranscriptionService |
 | ~~Documentation Drift~~ | ~~ARCHITECTURE.md needs update~~ | ~~Maintainability risk~~ | ✅ **RESOLVED 2025-12-09** - Added Section 3.2 documenting hook decomposition, clean ASCII diagram |
 | ~~E2E Error States Coverage~~ | ~~Missing tests for: mic denied, usage exceeded, network failure during save~~ | ~~Resilience gap~~ | ✅ **RESOLVED 2025-12-09** - Added `error-states.e2e.spec.ts` with 4 tests (session stability, network errors) |
@@ -184,7 +186,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Fri, 12 Dec 2025 00:53:38 GMT
+**Last Updated:** Fri, 12 Dec 2025 01:27:50 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -194,13 +196,13 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 407 (371 unit + 36 E2E) |
-| Unit tests              | 371   |
+| Total tests             | 415 (379 unit + 36 E2E) |
+| Unit tests              | 379   |
 | E2E tests (Playwright)  | 36  |
-| Passing tests           | 407 (371 unit + 36 E2E)   |
+| Passing tests           | 415 (379 unit + 36 E2E)   |
 | Failing tests           | 0   |
 | Disabled/skipped tests  | 0 (E2E only)   |
-| Passing unit tests      | 371/371 (100.0%)   |
+| Passing unit tests      | 379/379 (100.0%)   |
 | Passing E2E tests       | 36/36 (100.0%)   |
 | Total runtime           | See CI logs   |
 
@@ -210,10 +212,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | N/A   |
-| Branches   | N/A   |
-| Functions  | N/A   |
-| Lines      | N/A   |
+| Statements | 55.95%   |
+| Branches   | 79.98%   |
+| Functions  | 71.67%   |
+| Lines      | 55.95%   |
 
 ---
 

@@ -24,6 +24,8 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - ⏸️ **BLOCKED** - Enable leaked password protection (requires Supabase Pro account)
   - ⏸️ **DEFERRED** - Upgrade Postgres version (not critical for alpha)
 - 🔴 **Integration Test (Usage Limits):** Create a script/task to verify `check-usage-limit` against real Supabase (Staging/Production) to validate logic without mocks. Current tests use Mock Service Worker.
+- 🔴 **Console Error Highlighting (P0 - Debugging):** Add automatic ANSI color highlighting for ERROR/FAILED/FATAL (red bold) and WARNING/WARN (yellow bold) in all terminal output. Should apply globally to any console usage (not require agents to remember a specific script). Improves developer experience for spotting issues.
+- 🔴 **Independent Documentation Review:** Have an independent reviewer analyze the codebase against documentation (ARCHITECTURE.md, PRD.md, ROADMAP.md) to identify gaps, outdated sections, and missing coverage. Ensures docs match actual implementation.
 
 ### ⚠️ Known Issues
 
@@ -38,6 +40,9 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - **Status:** ✅ Fixed - Critical accessibility improvement.
 
 - **✅ RESOLVED - Soak Test Race Condition (2025-12-11)**
+  - **Problem:** Soak test failed (0/4 success) due to race condition during auth redirect.
+  - **Solution:** Replaced polling loop with deterministic `waitForURL` and Role-based clicking.
+  - **Status:** ✅ Fixed (verified locally).
 
 - **✅ RESOLVED - PDF Filename Inconsistency (2025-12-11)**
   - **Problem:** `jsPDF.save()` did not reliably set the filename across all browsers in `devBypass` mode (resulted in UUID names instead of `session_YYYYMMDD_User.pdf`).
@@ -55,6 +60,15 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - **Root Cause 2:** `page.goto()` caused protected route loading state issues
   - **Solution:** AuthProvider ignores empty sessions; Added `navigateToRoute()` helper; **Fixed Supabase table name mismatch (`profiles` vs `user_profiles`)**
   - **Status:** ✅ Fixed - **All E2E tests now pass** (no skips)
+
+- **✅ RESOLVED - Flaky E2E Tests (live-transcript, smoke) (2025-12-11)**
+  - **Problem 1:** `live-transcript.e2e.spec.ts` flaky - `session-start-stop-button` not visible
+  - **Problem 2:** `smoke.e2e.spec.ts` timed out in `waitForE2EEvent` (120s timeout)
+  - **Root Cause 1:** `SessionPage.pom.ts` used `page.goto()` after auth, destroying MSW context
+  - **Root Cause 2:** Smoke test called `page.goto('/')` before `programmaticLogin`, causing MSW ready event race
+  - **Solution:** `SessionPage.pom` now uses `navigateToRoute()`; Smoke test restructured to call `programmaticLogin` first
+  - **Bonus:** Added MSW catch-all handlers that log `[MSW ⚠️ UNMOCKED]` for debugging unmocked endpoints
+  - **Status:** ✅ Fixed - Both tests pass reliably (36/36 E2E tests green)
 
 - **✅ RESOLVED - Navigation E2E Test Failure (2025-12-02)**
   - **Problem:** `navigation.e2e.spec.ts` failed due to overlapping headers
@@ -135,7 +149,7 @@ This phase is about confirming the core feature set works as expected and polish
   - ✅ Audited all 20 UI components for consistent CVA variant usage (2025-11-28)
   - ✅ Fixed Badge typo, refactored Input to use CVA, replaced Card shadow
   - ✅ Documented design token guidelines in `docs/DESIGN_TOKENS.md`
-  - 🔴 Add lightweight custom component showcase (route + page)
+  - ✅ **Add lightweight custom component showcase (2025-12-11):** Implemented `/design` route with `DesignSystemPage` visualizing tokens/components.
 - ✅ **Refactor `useSpeechRecognition` hook:** Improve maintainability and fix memory leaks.
 - ✅ **Add Robust UX States:** Completed 2025-11-27 (SessionPage, SignInPage, SignUpPage, WeeklyActivityChart, GoalsSection)
 - ✅ **Centralize configuration:** Move hardcoded values (e.g., session limits) to a config file.
@@ -155,7 +169,7 @@ This phase is about confirming the core feature set works as expected and polish
     - **Documentation:** Added hybrid testing strategy to `ARCHITECTURE.md` (local=mocks, CI=real Supabase)
     - **Files:** `tests/soak/soak-test.spec.ts`, `docs/ARCHITECTURE.md`
 - **✅ COMPLETED - Expand Unit Test Coverage (2025-12-08):**
-  - **Current:** 365 unit tests passing
+  - **Current:** 379 unit tests passing
   - ✅ Authentication pages: SignInPage (14), SignUpPage (15)
   - ✅ Core pages: AnalyticsPage (14), SessionPage (18)
   - ✅ Utilities: storage.ts (10), utils.ts (8), supabaseClient.ts (5)
@@ -280,11 +294,11 @@ This phase addresses findings from the December 2025 UX Audit (`ux_audit.md`) to
 
 ### 🚧 Should-Have
 - 🔴 **Guest Mode / Quick Start:** Allow users to try a "Demo Session" without full sign-up (reduce friction).
-- 🔴 **Mobile Optimization:** Implement "Sticky Bottom" controls for `SessionPage` on mobile viewports.
+- ✅ **Mobile Optimization (2025-12-11):** Implement "Sticky Bottom" controls for `SessionPage` on mobile viewports. (Implemented in `SessionPage.tsx`).
 
 ### 🌱 Could-Have
 - 🔴 **Live Overlay / Mini-Mode:** Create a compact "Heads Up Display" view for use during real video calls (vs practice mode).
-- 🔴 **Positive Reinforcement:** Add "Gamified" toasts (e.g., "Great 30s streak!") during speaking sessions.
+- ✅ **Positive Reinforcement (2025-12-11):** Implemented "Gamified" toasts (e.g., "🔥 3 Day Streak!") and `useStreak` hook.
 
 ---
 ## Phase 3: Extensibility & Future-Proofing
@@ -300,13 +314,10 @@ This phase focuses on long-term architecture, scalability, and preparing for fut
 - 🟡 **Whisper Model Caching & Auto-Update:** Create a script to manage the on-device Whisper model lifecycle:
   - ✅ **Implement Script & SW:** `download-whisper-model.sh` and `sw.js` (Completed 2025-12-10). Reduced load time from >30s to <5s.
   - ✅ **Refactor Terminology:** Rename "Local" to "On-Device" and "Cloud AI" to "Cloud" (Completed 2025-12-11).
-  - ✅ **COMPLETED (2025-12-11) - Internal Refactor:** Renamed `OnDeviceWhisper` class (formerly `LocalWhisper`) for marketing consistency. Updated 36 references across 14 files.
+  - ✅ **Internal Refactor (2025-12-11):** Renamed `OnDeviceWhisper` class (formerly `LocalWhisper`) for marketing consistency. Updated 36 references across 14 files.
   - 🔴 **Documentation:** Update Architecture to reflect On-Device/SW strategy (Backlog).
-  - Cache the WASM model after first download (persist to IndexedDB or filesystem)
-  - Cache the WASM model after first download (persist to IndexedDB or filesystem)
-  - Check for model updates periodically (e.g., weekly via manifest file)
-  - Show update notification to users when a new model version is available
-  - Support offline mode with cached model
+  - ✅ **Cache WASM Model (2025-12-11):** Service Worker now caches `.bin` and `.wasm` files using Cache Storage API.
+  - ✅ **Offline Support (2025-12-11):** Model loads from cache when offline (verified via SW logic).
   - *Priority:* Required before On-Device mode can be demo'd reliably
 - 🔴 **Add Platform Integrations (e.g., Zoom, Google Meet):** Allow SpeakSharp to connect to and analyze audio from third-party meeting platforms.
 - 🟡 **Set up Multi-Env CI/CD:** A basic implementation for DB migrations exists, but needs expansion.

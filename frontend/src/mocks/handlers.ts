@@ -297,6 +297,63 @@ export const handlers: RequestHandler[] = [
 
     return new HttpResponse(null, { status: 204 });
   }),
+
+  // User Goals endpoints
+  http.get('*/rest/v1/user_goals*', () => {
+    console.log('[MSW DEBUG] Intercepted: GET /rest/v1/user_goals');
+    // Return default goals for test user
+    return HttpResponse.json({
+      user_id: 'test-user-123',
+      weekly_goal: 5,
+      clarity_goal: 90,
+    });
+  }),
+
+  http.post('*/rest/v1/user_goals*', async ({ request }) => {
+    console.log('[MSW DEBUG] Intercepted: POST /rest/v1/user_goals (upsert)');
+    const body = await request.json();
+    console.log('[MSW DEBUG] Upserted goals:', body);
+    return HttpResponse.json(body);
+  }),
+
+  // Edge Function: check-usage-limit
+  http.post('*/functions/v1/check-usage-limit', () => {
+    console.log('[MSW DEBUG] Intercepted: POST /functions/v1/check-usage-limit');
+    // Return unlimited usage for test user (Pro tier simulation)
+    return HttpResponse.json({
+      allowed: true,
+      remaining_minutes: 999,
+      limit_minutes: 999,
+      is_pro: true,
+    });
+  }),
+
+  // ============================================================
+  // CATCH-ALL HANDLERS (must be last - log unmocked endpoints)
+  // ============================================================
+
+  // Catch-all for unmocked Edge Functions
+  http.all('*/functions/v1/*', ({ request }) => {
+    const url = new URL(request.url);
+    const functionName = url.pathname.split('/functions/v1/')[1];
+    console.warn(`[MSW ⚠️ UNMOCKED FUNCTION] ${request.method} /functions/v1/${functionName}`);
+    console.warn(`[MSW ⚠️] Add a handler for this Edge Function in handlers.ts to silence this warning`);
+    // Return empty success to prevent test failures
+    return HttpResponse.json({ _msw_unmocked: true, function: functionName });
+  }),
+
+  // Catch-all for unmocked REST API endpoints
+  http.all('*/rest/v1/*', ({ request }) => {
+    const url = new URL(request.url);
+    const tableName = url.pathname.split('/rest/v1/')[1]?.split('?')[0];
+    console.warn(`[MSW ⚠️ UNMOCKED TABLE] ${request.method} /rest/v1/${tableName}`);
+    console.warn(`[MSW ⚠️] Add a handler for this table in handlers.ts to silence this warning`);
+    // Return empty array for GET, empty object for others
+    if (request.method === 'GET') {
+      return HttpResponse.json([]);
+    }
+    return HttpResponse.json({ _msw_unmocked: true, table: tableName });
+  }),
 ];
 
 // Export reset function for test setup

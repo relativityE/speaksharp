@@ -97,7 +97,7 @@ test.describe('Live Transcript Feature', () => {
 
     const sessionPage = new SessionPage(page);
     console.log('[TEST DEBUG] Navigating to session page...');
-    await sessionPage.navigate();
+    await sessionPage.navigate(); // Uses navigateToRoute internally - preserves MSW context
 
     console.log('[TEST DEBUG] Checking start button state...');
     // We expect the button to be enabled now that we fixed the disabled logic
