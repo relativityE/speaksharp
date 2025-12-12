@@ -29,13 +29,44 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 
 ### 🚨 Alpha Launch Blockers (Comprehensive Audit - 2025-12-12)
 
-> **Source:** Independent code review by Manus AI. These are confirmed bugs requiring fixes before alpha soft launch.
+> **Source:** Independent code review by Manus AI. Verified with code evidence.
 
-- 🔴 **P0 - Usage Reset Never Writes to DB:** The `check-usage-limit` Edge Function resets `usedSeconds` locally but never writes the reset to the database. Free users will never have their monthly usage reset. **File:** `check-usage-limit/index.ts:72-78`. **Fix:** Add database update call when reset condition is met.
+#### P0 - Must Fix Before Alpha
 
-- 🔴 **P0 - Missing Stripe Subscription Webhooks:** The `stripe-webhook` Edge Function only handles `checkout.session.completed`. Missing handlers for `customer.subscription.deleted`, `customer.subscription.updated`, and `invoice.payment_failed`. Users who cancel or fail payment retain "Pro" status forever. **File:** `stripe-webhook/index.ts:25-36`. **Fix:** Add handlers to downgrade user status on cancel/fail.
+- 🔴 **Usage Reset Never Writes to DB:** The `check-usage-limit` Edge Function resets `usedSeconds` locally but never writes the reset to the database. Free users will never have their monthly usage reset.
+  - **File:** `check-usage-limit/index.ts:72-78`
+  - **Evidence:** `if (!resetDate || resetDate <= oneMonthAgo) { usedSeconds = 0; }` - sets local var but no DB update follows
+  - **Fix:** Add Supabase UPDATE call to reset `usage_seconds` and set new `usage_reset_date`
 
-- 🟡 **Vocal Analysis Disabled:** The `useVocalAnalysis` hook exists but is initialized with `false` and `processAudioFrame` is never called. Pause detection feature is intentionally disabled pending mic integration. **File:** `useSpeechRecognition/index.ts:30`. **Status:** Known alpha limitation, not a bug.
+- 🔴 **Missing Stripe Subscription Webhooks:** The `stripe-webhook` Edge Function only handles `checkout.session.completed`. Missing handlers for subscription lifecycle events.
+  - **File:** `stripe-webhook/index.ts:25-36`
+  - **Missing Events:** `customer.subscription.deleted`, `customer.subscription.updated`, `invoice.payment_failed`
+  - **Impact:** Users who cancel or whose payment fails retain "Pro" status forever
+  - **Fix:** Add handlers to downgrade `subscription_status` to 'free' on cancel/fail
+
+#### P1 - Should Fix (Tech Debt)
+
+- 🟡 **Session Store elapsedTime Reset:** The `stopSession` action in `useSessionStore.ts` resets `elapsedTime` to 0 immediately, which could cause brief UI flicker before final stats display.
+  - **File:** `useSessionStore.ts:51-56`
+  - **Evidence:** `stopSession: () => set({ ... elapsedTime: 0 })`
+  - **Fix:** Move `elapsedTime: 0` to `resetSession` only, not `stopSession`
+
+- 🟡 **Filler Word Regex False Positives:** Simple regex patterns for "like" and "so" will match legitimate uses (e.g., "I like pizza", "so what happened").
+  - **File:** `fillerWordUtils.ts:39-41`
+  - **Evidence:** `/\b(like)\b/gi` matches all instances, not just filler usage
+  - **Fix (Beta):** Integrate NLP model for Part-of-Speech tagging to only flag interjections
+
+- 🟡 **Missing Backend Env Vars in env.required:** The `env.required` file only lists frontend VITE_ variables, not backend secrets needed for Edge Functions.
+  - **File:** `env.required`
+  - **Missing:** `ASSEMBLYAI_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`
+  - **Note:** Backend vars are Supabase secrets, not Vite. Consider separate `backend.env.required` or document in README
+
+#### P2 - Known Limitations (Alpha Acceptable)
+
+- 🟢 **Vocal Analysis Disabled:** The `useVocalAnalysis` hook exists but is initialized with `false`. Pause detection feature intentionally disabled pending microphone stream integration.
+  - **File:** `useSpeechRecognition/index.ts:30`
+  - **Evidence:** `const vocalAnalysis = useVocalAnalysis(false); // We'll enable this when we have mic access`
+  - **Status:** Feature placeholder for future release, not a bug
 
 ### ⚠️ Known Issues
 

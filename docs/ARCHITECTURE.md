@@ -161,6 +161,14 @@ The following critical features are fully implemented and production-ready:
 | **React Error Boundary** | ✅ Complete | `Sentry.ErrorBoundary` wraps entire `<App/>` component with user-friendly fallback | [`main.tsx:111-113`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/main.tsx#L111-L113) |
 | **E2E Test Isolation** | ✅ Complete | Sentry/PostHog disabled in `IS_TEST_ENVIRONMENT` to prevent test pollution | [`main.tsx:47, 83-85`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/main.tsx#L47) |
 
+> **Error Boundary Implementation Details:**
+> The application uses `Sentry.ErrorBoundary` as the global error boundary, wrapping the entire React component tree. When any child component throws an error:
+> 1. The error is automatically reported to Sentry with full stack trace
+> 2. Users see a fallback message: "An error has occurred. Please refresh the page."
+> 3. The error does NOT crash the entire app - users can still navigate (if the error is in a specific component)
+>
+> A custom `ErrorBoundary.tsx` component also exists for component-level error handling if needed.
+
 #### WebSocket Resilience (CloudAssemblyAI)
 
 | Feature | Status | Implementation | Evidence |

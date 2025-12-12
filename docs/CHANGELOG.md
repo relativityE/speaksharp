@@ -30,6 +30,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Custom Component Showcase:** Added `/design` route and `DesignSystemPage` to visualize and verify typography, colors, buttons, and components.
 - **Unit Test Coverage:** Added unit tests for `useStreak` and `DesignSystemPage`, increasing total unit tests to 379.
 
+### Security (2025-12-12)
+
+- **Externalized Test Credentials:** Hardcoded passwords in `tests/constants.ts` replaced with `process.env` lookups. Credentials now loaded from `TEST_USER_PASSWORD`, `SOAK_TEST_PASSWORD_1`, `SOAK_TEST_PASSWORD_2` environment variables with local fallbacks for mock testing.
+  - **Files:** `tests/constants.ts`
+  - **Rationale:** Prevents credential exposure if repository is shared or made public.
+
+- **Configurable Load Testing:** `SOAK_CONFIG.CONCURRENT_USERS` now reads from `process.env.CONCURRENT_USERS` (defaults to 2). CI can override with higher values (e.g., 20) for true load testing.
+  - **Files:** `tests/constants.ts`
+  - **Usage:** `CONCURRENT_USERS=20 pnpm test:soak`
+
 ### Fixed (2025-12-11)
 
 - **E2E Navigation Race Condition Fix (14 Tests Fixed):**

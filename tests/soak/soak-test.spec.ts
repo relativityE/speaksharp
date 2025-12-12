@@ -39,6 +39,11 @@ async function setupAuthenticatedUser(page: Page, userIndex: number): Promise<vo
     await page.getByRole('button', { name: /sign in/i }).click();
 
     // Explicitly WAIT for the redirect to the dashboard/home
+    // NOTE: After successful Supabase auth, the app can redirect to either:
+    // - '/' (homepage) if no specific redirect was in URL
+    // - '/session' (session page) if that was the original destination
+    // We accept EITHER to handle both scenarios robustly.
+    // If your app uses '/dashboard', add it here: url.pathname === '/dashboard'
     console.log(`[Soak Test] ⏳ Waiting for redirect to authenticated page...`);
     await page.waitForURL((url) => {
         return url.pathname === '/session' || url.pathname === '/';
