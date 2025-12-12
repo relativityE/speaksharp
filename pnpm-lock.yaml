@@ -109,7 +109,7 @@ importers:
         version: 5.0.9(@types/react@18.3.26)(immer@11.0.0)(react@18.3.1)(use-sync-external-store@1.6.0(react@18.3.1))
     devDependencies:
       '@esbuild/darwin-arm64':
-        specifier: ^0.25.10
+        specifier: ^0.25.12
         version: 0.25.12
       '@lhci/cli':
         specifier: ^0.15.1
@@ -118,10 +118,10 @@ importers:
         specifier: ^1.57.0
         version: 1.57.0
       '@rollup/rollup-darwin-arm64':
-        specifier: ^4.52.3
+        specifier: ^4.53.2
         version: 4.53.2
       '@tailwindcss/oxide-darwin-arm64':
-        specifier: ^4.1.14
+        specifier: ^4.1.17
         version: 4.1.17
       '@tailwindcss/postcss':
         specifier: ^4.1.13

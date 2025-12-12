@@ -27,21 +27,15 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 - 🔴 **Console Error Highlighting (P0 - Debugging):** Add automatic ANSI color highlighting for ERROR/FAILED/FATAL (red bold) and WARNING/WARN (yellow bold) in all terminal output. Should apply globally to any console usage (not require agents to remember a specific script). Improves developer experience for spotting issues.
 - 🔴 **Independent Documentation Review:** Have an independent reviewer analyze the codebase against documentation (ARCHITECTURE.md, PRD.md, ROADMAP.md) to identify gaps, outdated sections, and missing coverage. Ensures docs match actual implementation.
 
-### 🔍 External Audit Findings (2025-12-12)
+### 🚨 Alpha Launch Blockers (Comprehensive Audit - 2025-12-12)
 
-| Finding | Status | Notes |
-|---------|--------|-------|
-| CI/CD `Iname` typo in soak-test.yml | ✅ **FIXED** | Line 1 now correctly reads `name: Soak Test` |
-| Hardcoded test credentials | ✅ **FIXED** | `tests/constants.ts` now uses `process.env` with fallbacks |
-| CONCURRENT_USERS=2 (not load test) | ✅ **FIXED** | Now configurable via `process.env.CONCURRENT_USERS` |
-| No Error Boundary | ✅ **WAS ALREADY FIXED** | `Sentry.ErrorBoundary` exists in `main.tsx:111` |
-| Flaky selectors (no test IDs) | ✅ **WAS ALREADY FIXED** | Centralized `TEST_IDS` with `data-testid` attributes |
-| Supabase singleton issues | ⚠️ **N/A** | Already using context provider pattern |
+> **Source:** Independent code review by Manus AI. These are confirmed bugs requiring fixes before alpha soft launch.
 
-**Audit Recommendations Implemented:**
-- ✅ Credentials now load from `process.env.TEST_USER_PASSWORD`, `SOAK_TEST_PASSWORD_1`, etc.
-- ✅ CONCURRENT_USERS can be set via CI env (e.g., `CONCURRENT_USERS=20` for load testing)
-- ✅ Global Error Boundary already exists via Sentry integration
+- 🔴 **P0 - Usage Reset Never Writes to DB:** The `check-usage-limit` Edge Function resets `usedSeconds` locally but never writes the reset to the database. Free users will never have their monthly usage reset. **File:** `check-usage-limit/index.ts:72-78`. **Fix:** Add database update call when reset condition is met.
+
+- 🔴 **P0 - Missing Stripe Subscription Webhooks:** The `stripe-webhook` Edge Function only handles `checkout.session.completed`. Missing handlers for `customer.subscription.deleted`, `customer.subscription.updated`, and `invoice.payment_failed`. Users who cancel or fail payment retain "Pro" status forever. **File:** `stripe-webhook/index.ts:25-36`. **Fix:** Add handlers to downgrade user status on cancel/fail.
+
+- 🟡 **Vocal Analysis Disabled:** The `useVocalAnalysis` hook exists but is initialized with `false` and `processAudioFrame` is never called. Pause detection feature is intentionally disabled pending mic integration. **File:** `useSpeechRecognition/index.ts:30`. **Status:** Known alpha limitation, not a bug.
 
 ### ⚠️ Known Issues
 

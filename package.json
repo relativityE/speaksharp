@@ -78,11 +78,11 @@
     "sharp": "0.33.1"
   },
   "devDependencies": {
-    "@esbuild/darwin-arm64": "^0.25.10",
+    "@esbuild/darwin-arm64": "^0.25.12",
     "@lhci/cli": "^0.15.1",
     "@playwright/test": "^1.57.0",
-    "@rollup/rollup-darwin-arm64": "^4.52.3",
-    "@tailwindcss/oxide-darwin-arm64": "^4.1.14",
+    "@rollup/rollup-darwin-arm64": "^4.53.2",
+    "@tailwindcss/oxide-darwin-arm64": "^4.1.17",
     "@tailwindcss/postcss": "^4.1.13",
     "@testing-library/jest-dom": "^6.8.0",
     "@testing-library/react": "^14.3.1",
