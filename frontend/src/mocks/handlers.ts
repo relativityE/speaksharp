@@ -17,18 +17,48 @@ export const handlers: RequestHandler[] = [
   http.get('*/auth/v1/user', () => {
     console.log('[MSW DEBUG] Intercepted: GET /auth/v1/user');
     const user = createMockUser();
+
+    // DEFENSIVE: Verify mock user was created
+    if (!user) {
+      console.error('[MSW CRITICAL] createMockUser() returned null/undefined!');
+      return HttpResponse.json({ error: 'Mock user creation failed' }, { status: 500 });
+    }
+    if (!user.id) {
+      console.error('[MSW CRITICAL] createMockUser() returned user without id!', user);
+    }
+
     return HttpResponse.json(user);
   }),
 
   http.post('*/auth/v1/signup', async () => {
     console.log('[MSW DEBUG] Intercepted: POST /auth/v1/signup');
     const session = createMockSession();
+
+    // DEFENSIVE: Verify mock session was created
+    if (!session) {
+      console.error('[MSW CRITICAL] createMockSession() returned null/undefined for signup!');
+      return HttpResponse.json({ error: 'Mock session creation failed' }, { status: 500 });
+    }
+    if (!session.user) {
+      console.error('[MSW CRITICAL] createMockSession() returned session without user!', session);
+    }
+
     return HttpResponse.json(session);
   }),
 
   http.post('*/auth/v1/token', async () => {
     console.log('[MSW DEBUG] Intercepted: POST /auth/v1/token');
     const session = createMockSession();
+
+    // DEFENSIVE: Verify mock session was created
+    if (!session) {
+      console.error('[MSW CRITICAL] createMockSession() returned null/undefined for token!');
+      return HttpResponse.json({ error: 'Mock session creation failed' }, { status: 500 });
+    }
+    if (!session.access_token) {
+      console.error('[MSW CRITICAL] createMockSession() returned session without access_token!', session);
+    }
+
     return HttpResponse.json(session);
   }),
 
@@ -37,6 +67,18 @@ export const handlers: RequestHandler[] = [
   http.get('*/rest/v1/user_profiles', ({ request }) => {
     console.log('[MSW DEBUG] Intercepted: GET /rest/v1/user_profiles');
     const profile = createMockUserProfile();
+
+    // DEFENSIVE: Verify mock profile was created with required fields
+    if (!profile) {
+      console.error('[MSW CRITICAL] createMockUserProfile() returned null/undefined!');
+      return HttpResponse.json({ error: 'Mock profile creation failed' }, { status: 500 });
+    }
+    if (!profile.id) {
+      console.error('[MSW CRITICAL] createMockUserProfile() returned profile without id!', profile);
+    }
+    if (!profile.subscription_status) {
+      console.error('[MSW WARNING] createMockUserProfile() returned profile without subscription_status!', profile);
+    }
 
     // The Supabase client uses this header to request a single object vs. an array.
     if (request.headers.get('Accept') === 'application/vnd.pgrst.object+json') {

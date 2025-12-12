@@ -85,8 +85,8 @@ test.describe('Free User Tier Restrictions', () => {
                 subscription_status: 'free'
             };
         });
-
-        await page.goto('/');
+        // Navigate to homepage first to initialize app with free profile mock
+        await page.goto('/'); // eslint-disable-line no-restricted-syntax -- mock set via addInitScript before navigation
         await page.waitForSelector('[data-testid="app-main"]', { timeout: 10000 });
 
         // Navigate to session page

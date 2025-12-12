@@ -98,7 +98,7 @@ This section contains a high-level block diagram of the SpeakSharp full-stack ar
 │  │TranscriptionSvc   │──┼─────┼─▶ Sentry (Errors)       │
 │  │ NativeBrowser     │  │     │   PostHog (Analytics)   │
 │  │ CloudAssemblyAI   │  │     │                         │
-│  │ LocalWhisper      │  │     └─────────────────────────┘
+│  │ OnDeviceWhisper      │  │     └─────────────────────────┘
 │  └───────────────────┘  │
 │           │             │
 │           ▼             │
@@ -428,7 +428,7 @@ Key Characteristics:
 Mocked Backend: It does not connect to a real Supabase database. Instead, it uses Mock Service Worker (MSW) to intercept all API calls and provide predictable, fake data. This ensures tests are fast and reliable.
 Compile-Time Modifications: This is the most critical distinction. When the server is launched in test mode, a special build-time flag, import.meta.env.VITE_TEST_MODE, is set to true. The application's source code uses this flag to conditionally exclude certain heavy WASM-based libraries (used for on-device transcription) that are known to crash the Playwright test runner.
 Headless Operation: This environment is designed to be run by an automated tool (Playwright), not a human.
-How it's Launched: The test environment's dev server is not launched by you directly with pnpm dev. Instead, it is launched automatically by the test runner (Playwright) when you run a command like pnpm test:e2e. The Playwright configuration file (playwright.config.ts) is configured to start the Vite server using a specific command: vite --mode test. This --mode test flag is what tells Vite to apply the special test configuration.
+How it's Launched: The test environment's dev server is not launched by you directly with pnpm dev. Instead, it is launched automatically by the test runner (Playwright) when you run a command like `pnpm playwright test`. The Playwright configuration file (playwright.config.ts) is configured to start the Vite server using a specific command: vite --mode test. This --mode test flag is what tells Vite to apply the special test configuration.
 
 ### E2E Testing Infrastructure
 
@@ -483,6 +483,42 @@ Custom DOM events are used ONLY for async operations that have no DOM representa
 **Removed Event**: The `e2e:app-ready` event was removed (2025-11-27) and replaced with DOM-based synchronization using `[data-testid="app-main"]` (see `main.tsx:135` comment).
 
 **Status**: Hybrid synchronization pattern complete. DOM-based for app readiness, events only for pre-DOM or non-visual async operations.
+
+#### ⚠️ E2E Anti-Pattern: Do NOT use `page.goto()` on Protected Routes
+
+After calling `programmaticLogin()`, **never use `await page.goto('/path')` to navigate to protected routes**. This causes a full page reload that destroys the MSW context and mock session.
+
+**✅ When `page.goto()` IS Allowed:**
+- Initial navigation BEFORE auth: `await page.goto('/')` inside `programmaticLogin()`
+- Public routes before login: `await page.goto('/sign-in')`, `await page.goto('/pricing')`
+- The `helpers.ts` file is excluded from the ESLint rule for this reason
+
+**❌ When `page.goto()` is FORBIDDEN:**
+- AFTER `programmaticLogin()` for protected routes like `/analytics`, `/session`
+- Any navigation that would trigger a full page reload after auth
+
+**❌ Broken Pattern:**
+```typescript
+await programmaticLogin(page);
+await page.goto('/analytics'); // WRONG! Full reload breaks mocks
+```
+
+**✅ Correct Pattern:**
+```typescript
+await programmaticLogin(page);
+await navigateToRoute(page, '/analytics'); // Uses React Router client-side navigation
+```
+
+**Why:** `page.goto()` triggers a full browser reload, which:
+1. Re-runs `addInitScript` and resets mock state
+2. Destroys the MSW service worker context
+3. Clears the injected session from AuthProvider
+
+The `navigateToRoute()` helper (defined in `tests/e2e/helpers.ts`) performs client-side React Router navigation, preserving the authenticated state.
+
+**ESLint Enforcement:** A custom ESLint rule (`no-restricted-syntax`) warns when `page.goto()` is used in E2E test files (except `helpers.ts`).
+
+**Files Updated:** 11 E2E test files migrated to `navigateToRoute()` (2025-12-10).
 
 Summary: How the Dev Server Relates to Environments
 Environment	How Dev Server is Started	Vite Mode	Key Feature
@@ -687,7 +723,7 @@ Soak tests use real user credentials to authenticate against the running develop
     *   **Problem:** The on-device transcription feature uses heavy WASM-based speech recognition libraries which rely on WebAssembly. These libraries are fundamentally incompatible with the Playwright test environment and cause a silent, catastrophic browser crash that is untraceable with standard debugging tools.
     *   **Solution:** A test-aware guard has been implemented directly in the application's source code.
         *   **Flag Injection:** The `programmaticLogin` helper in `tests/e2e/helpers.ts` uses `page.addInitScript()` to inject a global `window.TEST_MODE = true;` flag before any application code runs.
-        *   **Conditional Import:** The `TranscriptionService.ts` checks for the presence of `window.TEST_MODE`. If the flag is true, it completely skips the dynamic import of the `LocalWhisper` module that would have loaded the crashing library. Instead, it gracefully falls back to the safe, native browser transcription engine.
+        *   **Conditional Import:** The `TranscriptionService.ts` checks for the presence of `window.TEST_MODE`. If the flag is true, it completely skips the dynamic import of the `OnDeviceWhisper` module that would have loaded the crashing library. Instead, it gracefully falls back to the safe, native browser transcription engine.
     *   **Benefit:** This source-code-level solution is more robust than network-level blocking (`page.route`), which can be unreliable with modern bundlers. It directly prevents the incompatible code from ever being loaded in the test environment.
 
 6.  **Stateful Mocking with `localStorage`:**
@@ -901,18 +937,18 @@ The `TranscriptionService.ts` provides a unified abstraction layer over multiple
 *   **Modes:**
     *   **`CloudAssemblyAI`:** Uses the AssemblyAI v3 streaming API for high-accuracy cloud-based transcription. This is one of the modes available to Pro users.
     *   **`NativeBrowser`:** Uses the browser's built-in `SpeechRecognition` API. This is the primary mode for Free users and a fallback for Pro users.
-    *   **`LocalWhisper`:** An on-device, privacy-first transcription mode for Pro users, powered by `@xenova/transformers` running a Whisper model directly in the browser.
+    *   **`OnDeviceWhisper`:** An on-device, privacy-first transcription mode for Pro users, powered by `@xenova/transformers` running a Whisper model directly in the browser.
 *   **Audio Processing:** `audioUtils.ts`, `audioUtils.impl.ts`, and `audio-processor.worklet.js` are responsible for capturing and resampling microphone input. A critical bug in the resampling logic that was degrading AI quality has been fixed.
 
 ### On-Device STT Implementation Details
  
- The `LocalWhisper` provider uses the [`whisper-turbo`](https://github.com/xenova/whisper-turbo) library to run the `whisper-tiny.en` model directly in the user's browser using WebAssembly.
+ The `OnDeviceWhisper` provider uses the [`whisper-turbo`](https://github.com/xenova/whisper-turbo) library to run the `whisper-tiny.en` model directly in the user's browser using WebAssembly.
  
  *   **How it Works:**
-     1.  **Dynamic Loading:** The `LocalWhisper` module is dynamically imported via `import()` only when the user explicitly selects "On-Device" mode. This prevents the heavy WebAssembly (WASM) dependencies from loading during the initial application render, significantly improving startup performance.
+     1.  **Dynamic Loading:** The `OnDeviceWhisper` module is dynamically imported via `import()` only when the user explicitly selects "On-Device" mode. This prevents the heavy WebAssembly (WASM) dependencies from loading during the initial application render, significantly improving startup performance.
      2.  **Model Loading:** The application downloads the quantized `whisper-tiny` model (~40MB). Progress is reported to the UI via a toast notification. On an average broadband connection, this takes 5-10 seconds.
      3.  **Caching:** Once downloaded, the model files are automatically cached in the browser's `CacheStorage` (specifically in the `transformers-cache` namespace). Subsequent loads are nearly instant as they are served directly from this local cache.
-     4.  **True Streaming Architecture (Refactored 2025-11-26):** LocalWhisper now uses continuous 1-second audio buffering instead of the legacy 5-second batch processing. This provides near-real-time transcript updates:
+     4.  **True Streaming Architecture (Refactored 2025-11-26):** OnDeviceWhisper now uses continuous 1-second audio buffering instead of the legacy 5-second batch processing. This provides near-real-time transcript updates:
          - Audio is continuously recorded into a circular buffer
          - Every 1 second, the buffer is processed by Whisper
          - A concurrency lock (`isProcessing`) ensures only one inference runs at a time

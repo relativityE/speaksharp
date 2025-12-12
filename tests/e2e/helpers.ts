@@ -87,13 +87,36 @@ export async function programmaticLogin(
 }
 
 /**
- * Navigate to a protected route using client-side navigation.
- * This avoids full page reload issues that cause ProtectedRoute loading state bugs.
+ * ⚠️ CRITICAL: Use this instead of page.goto() for protected routes!
  * 
- * IMPORTANT: Use this instead of page.goto() for protected routes like /analytics, /session
+ * Navigate to a protected route using client-side React Router navigation.
+ * 
+ * ## Why This Exists
+ * After `programmaticLogin()`, using `await page.goto('/path')` causes a FULL PAGE RELOAD
+ * which destroys the MSW context and mock session, causing tests to fail.
+ * 
+ * ## ✅ When page.goto() IS Allowed:
+ * - Initial navigation BEFORE auth: `await page.goto('/')` in programmaticLogin
+ * - Public routes: `await page.goto('/sign-in')`, `await page.goto('/pricing')`
+ * 
+ * ## ❌ When page.goto() is FORBIDDEN:
+ * - AFTER programmaticLogin() for protected routes
+ * 
+ * ## Anti-Pattern (DO NOT USE):
+ * ```typescript
+ * await programmaticLogin(page);
+ * await page.goto('/analytics'); // ❌ BREAKS MOCKS!
+ * ```
+ * 
+ * ## Correct Pattern:
+ * ```typescript
+ * await programmaticLogin(page);
+ * await navigateToRoute(page, '/analytics'); // ✅ Preserves mocks
+ * ```
  * 
  * @param page - Playwright page object
  * @param route - Target route (e.g., '/analytics', '/session')
+ * @see https://github.com/[repo]/docs/ARCHITECTURE.md#e2e-anti-pattern
  */
 export async function navigateToRoute(page: Page, route: string): Promise<void> {
   console.log(`[E2E DEBUG] Navigating to ${route} using client-side navigation`);

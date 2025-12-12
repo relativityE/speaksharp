@@ -85,9 +85,11 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Clarity Score** | 2 | Score based on filler word usage. | ✅ Implemented | ✅ Yes |
 | **Goal Setting** | 2 | Weekly/Daily targets for practice consistency. | ✅ Implemented | ✅ Yes |
 | **User-Friendly Error Handling** | 2 | Specific, user-facing error messages. | ✅ Implemented | ✅ Yes |
-| **Custom Vocabulary** | 2 | Allows users to add custom words to improve accuracy. | ✅ Implemented | ✅ Yes |
+| **Custom Vocabulary** | 2 | Allows users to add custom words to improve accuracy. Free: 10 words max. Pro: 100 words max. | ✅ Implemented | ✅ Yes |
 | **Vocal Variety / Pause Detection** | 2 | Analyzes pause duration and frequency. | ✅ Implemented | ✅ Yes |
 | **Speaker Identification**| 1 | Distinguishes between multiple speakers in a transcript. | ✅ Implemented | ✅ Yes |
+| **Screen Reader Accessibility** | 2 | Live transcript uses ARIA live regions so screen readers announce new text automatically. | ✅ Implemented | ✅ Yes |
+| **Usage Limit Pre-Check** | 2 | Checks remaining usage BEFORE session starts. Shows upgrade prompt if exceeded. | ✅ Implemented | ✅ Yes |
 
 #### 🚧 Should-Have
 
@@ -96,9 +98,12 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **AI Suggestions** | 1 | Provides AI-driven feedback on transcripts. | ✅ Implemented | ✅ Yes |
 | **Filler Word Trend** | 1 | Analyzes the trend of filler word usage across sessions. | ✅ Implemented | ✅ Yes |
 | **Session Comparison** | 1 | Compares stats from the 4 most recent sessions. | ✅ Implemented | ✅ Yes |
-| **PDF Export** | 1 | Allows users to download a PDF report of their session. | ✅ Implemented | ✅ Yes |
+| **PDF Export** | 1 | Allows users to download a PDF report of their session (FileSaver.js). | ✅ Implemented | ✅ Yes |
 | **STT Accuracy Comparison** | 1 | Rolling average comparison of STT engine accuracy against a ground truth. | ✅ Implemented | ✅ Yes |
 | **Top 2 Filler Words**| 1 | Maintains the top 2 highest filler words for the most recent 4 sessions. | ✅ Implemented | ✅ Yes |
+| **Weekly Activity Chart** | 2 | Visual chart showing practice frequency over the past week. | ✅ Implemented | ✅ Yes |
+| **Premium Loading States** | 2.5 | Skeleton loading UI for premium user experience. | ✅ Implemented | ✅ Yes |
+| **On-Device Model Caching** | 3 | Service Worker caches Whisper model for faster subsequent loads (<5s). | ✅ Implemented | ✅ Yes |
 
 
 
@@ -134,7 +139,7 @@ The project's testing strategy prioritizes stability, reliability, and a tight a
 This section tracks high-level product risks and constraints. For a detailed history of resolved issues, see the [Changelog](./CHANGELOG.md).
 
 - **Incomplete Theming:** The application is configured to support both light and dark themes, but only a dark theme is currently implemented. Users will not be able to switch to a light theme, which can be an accessibility issue and ignores user preference.
-- **Accessibility Gaps:** The live transcript lacks an ARIA live region (`aria-live="polite"`), meaning screen readers do not announce new text as it appears. This is a critical accessibility blocker for visually impaired users.
+- **✅ RESOLVED - Accessibility (aria-live, 2025-12-11):** Added `aria-live="polite"`, `aria-label`, and `role="log"` to the live transcript container (`SessionPage.tsx:266-272`). Screen readers now announce new transcript text as it appears. **Status:** ✅ Fixed.
 - **Unit Test Coverage:** Current test coverage is 56.65% with 369 unit tests passing (as of 2025-12-10). Continued coverage expansion is tracked in the technical debt backlog.
 - **✅ RESOLVED - UX - Layout Shift (CLS, 2025-12-06):** The `SessionPage` transcript container now uses fixed `h-[250px]` to prevent layout instability. **Status:** ✅ Fixed.
 - **✅ RESOLVED - UX - Accessibility (Contrast, 2025-12-07):** Hero text contrast improved with drop-shadow and backdrop-blur for WCAG AA compliance. **Status:** ✅ Fixed.
@@ -179,7 +184,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Thu, 11 Dec 2025 19:11:39 GMT
+**Last Updated:** Fri, 12 Dec 2025 00:34:01 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -189,14 +194,14 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 404 (371 unit + 33 E2E) |
+| Total tests             | 407 (371 unit + 36 E2E) |
 | Unit tests              | 371   |
-| E2E tests (Playwright)  | 33  |
-| Passing tests           | 404 (371 unit + 33 E2E)   |
+| E2E tests (Playwright)  | 36  |
+| Passing tests           | 407 (371 unit + 36 E2E)   |
 | Failing tests           | 0   |
 | Disabled/skipped tests  | 0 (E2E only)   |
 | Passing unit tests      | 371/371 (100.0%)   |
-| Passing E2E tests       | 33/33 (100.0%)   |
+| Passing E2E tests       | 36/36 (100.0%)   |
 | Total runtime           | See CI logs   |
 
 ---
@@ -205,10 +210,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | N/A   |
-| Branches   | N/A   |
-| Functions  | N/A   |
-| Lines      | N/A   |
+| Statements | 55.08%   |
+| Branches   | 79.98%   |
+| Functions  | 71.37%   |
+| Lines      | 55.08%   |
 
 ---
 

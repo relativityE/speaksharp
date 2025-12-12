@@ -3,7 +3,7 @@
  *
  * This module extracts common audio processing patterns used by:
  * - CloudAssemblyAI (Float32 → Int16)
- * - LocalWhisper (Float32 → WAV)
+ * - OnDeviceWhisper (Float32 → WAV)
  *
  * Centralizing these utilities reduces code duplication and ensures
  * consistent audio handling across all transcription modes.
@@ -26,7 +26,7 @@ export function floatToInt16(float32Array: Float32Array): Int16Array {
 
 /**
  * Convert Float32Array audio samples to WAV-formatted Uint8Array.
- * Used by LocalWhisper for inference.
+ * Used by OnDeviceWhisper for inference.
  *
  * @param samples - Audio samples in Float32 format
  * @param sampleRate - Sample rate (default: 16000 Hz for Whisper)

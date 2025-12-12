@@ -120,11 +120,11 @@ export default class TranscriptionService {
     // CRITICAL FIX: In test mode, ALWAYS fall back to NativeBrowser
     // to prevent silent crashes from the onnxruntime-web library.
     // This MUST be the first check to prevent the dynamic import below.
-    // EXCEPTION: If __E2E_MOCK_LOCAL_WHISPER__ is set, we allow LocalWhisper (mocked) to proceed.
+    // EXCEPTION: If __E2E_MOCK_LOCAL_WHISPER__ is set, we allow OnDeviceWhisper (mocked) to proceed.
     const isTestMode = typeof window !== 'undefined' && (window as { TEST_MODE?: boolean }).TEST_MODE;
-    const useMockLocalWhisper = typeof window !== 'undefined' && (window as { __E2E_MOCK_LOCAL_WHISPER__?: boolean }).__E2E_MOCK_LOCAL_WHISPER__;
+    const useMockOnDeviceWhisper = typeof window !== 'undefined' && (window as { __E2E_MOCK_LOCAL_WHISPER__?: boolean }).__E2E_MOCK_LOCAL_WHISPER__;
 
-    if (isTestMode && !useMockLocalWhisper) {
+    if (isTestMode && !useMockOnDeviceWhisper) {
       logger.info('[TEST_MODE] Forcing Native Browser mode.');
       this.instance = new NativeBrowser(providerConfig);
       await this.instance.init();
@@ -150,22 +150,22 @@ export default class TranscriptionService {
     const useOnDevice = this.forceOnDevice || (isPro && this.profile?.preferred_mode === 'on-device');
 
     if (useOnDevice) {
-      logger.info('[TranscriptionService] Attempting to use On-Device (LocalWhisper) mode for Pro user.');
+      logger.info('[TranscriptionService] Attempting to use On-Device (OnDeviceWhisper) mode for Pro user.');
 
-      let LocalWhisperClass;
-      if (useMockLocalWhisper) {
-        logger.info('[TranscriptionService] Using MockLocalWhisper for E2E test.');
-        LocalWhisperClass = (window as Window & { MockLocalWhisper?: typeof import('./modes/LocalWhisper').default }).MockLocalWhisper;
-        if (!LocalWhisperClass) {
-          throw new Error('MockLocalWhisper not found on window - E2E test setup incomplete');
+      let OnDeviceWhisperClass;
+      if (useMockOnDeviceWhisper) {
+        logger.info('[TranscriptionService] Using MockOnDeviceWhisper for E2E test.');
+        OnDeviceWhisperClass = (window as Window & { MockOnDeviceWhisper?: typeof import('./modes/OnDeviceWhisper').default }).MockOnDeviceWhisper;
+        if (!OnDeviceWhisperClass) {
+          throw new Error('MockOnDeviceWhisper not found on window - E2E test setup incomplete');
         }
       } else {
         // Dynamic import to avoid loading whisper-turbo on initial load
-        const module = await import('./modes/LocalWhisper');
-        LocalWhisperClass = module.default;
+        const module = await import('./modes/OnDeviceWhisper');
+        OnDeviceWhisperClass = module.default;
       }
 
-      this.instance = new LocalWhisperClass(providerConfig);
+      this.instance = new OnDeviceWhisperClass(providerConfig);
       if (this.instance) {
         await this.instance.init();
         await this.instance.startTranscription(this.mic);

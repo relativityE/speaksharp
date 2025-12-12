@@ -8,7 +8,7 @@ import { UserProfile } from '../../../types/user';
 // Mock the modes
 vi.mock('../modes/NativeBrowser');
 vi.mock('../modes/CloudAssemblyAI');
-vi.mock('../modes/LocalWhisper');
+vi.mock('../modes/OnDeviceWhisper');
 vi.mock('../utils/audioUtils', () => ({
   createMicStream: vi.fn().mockResolvedValue({
     stop: vi.fn(),
@@ -76,7 +76,7 @@ describe('TranscriptionService', () => {
 
   it('should use On-Device for Pro users with preference', async () => {
     // Mock dynamic import
-    vi.mock('../modes/LocalWhisper', () => ({
+    vi.mock('../modes/OnDeviceWhisper', () => ({
       default: vi.fn().mockImplementation(() => ({
         init: vi.fn(),
         startTranscription: vi.fn(),

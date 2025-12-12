@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SessionPage } from '../SessionPage';
 import * as UserProfileHook from '@/hooks/useUserProfile';
+import * as UsageLimitHook from '@/hooks/useUsageLimit';
 import * as SpeechRecognitionHook from '../../hooks/useSpeechRecognition';
 import * as SessionStore from '../../stores/useSessionStore';
 import * as VocalAnalysisHook from '../../hooks/useVocalAnalysis';
@@ -14,11 +15,13 @@ vi.mock('../../stores/useSessionStore');
 vi.mock('../../hooks/useVocalAnalysis');
 vi.mock('../../contexts/AuthProvider');
 vi.mock('@/hooks/useUserProfile');
+vi.mock('@/hooks/useUsageLimit');
 vi.mock('posthog-js', () => ({ default: { capture: vi.fn() } }));
 vi.mock('@/components/session/PauseMetricsDisplay', () => ({ PauseMetricsDisplay: () => <div>Pause Metrics</div> }));
 vi.mock('@/components/session/CustomVocabularyManager', () => ({ CustomVocabularyManager: () => <div>Custom Vocabulary</div> }));
 
 const mockUseUserProfile = vi.mocked(UserProfileHook.useUserProfile);
+const mockUseUsageLimit = vi.mocked(UsageLimitHook.useUsageLimit);
 const mockUseSpeechRecognition = vi.mocked(SpeechRecognitionHook.useSpeechRecognition);
 const mockUseSessionStore = vi.mocked(SessionStore.useSessionStore);
 const mockUseVocalAnalysis = vi.mocked(VocalAnalysisHook.useVocalAnalysis);
@@ -55,6 +58,11 @@ describe('SessionPage - STT Mode Selection UI', () => {
         mockUseAuthProvider.mockReturnValue({
             session: { user: { id: 'test-user' } },
         } as unknown as AuthProvider.AuthContextType);
+
+        mockUseUsageLimit.mockReturnValue({
+            data: { can_start: true, remaining_seconds: 1800, limit_seconds: 1800, is_pro: false },
+            isLoading: false,
+        } as unknown as ReturnType<typeof UsageLimitHook.useUsageLimit>);
     });
 
     it('should disable Pro options (On-Device, Cloud) for Free users', async () => {

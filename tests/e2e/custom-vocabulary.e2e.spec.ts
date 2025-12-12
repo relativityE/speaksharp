@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin } from './helpers';
+import { programmaticLogin, navigateToRoute } from './helpers';
 
 test.describe('Custom Vocabulary - Debugging with console logs', () => {
     test('should allow adding and removing custom words', async ({ page }) => {
@@ -12,11 +12,9 @@ test.describe('Custom Vocabulary - Debugging with console logs', () => {
             }
         });
 
-        // MSW handlers in handlers.ts now handle all network requests
         await programmaticLogin(page);
         console.log('[TEST DEBUG] Login complete, navigating to /session');
-        await page.goto('/session');
-        await page.waitForURL('**/session');
+        await navigateToRoute(page, '/session');
         console.log('[TEST DEBUG] Navigated to /session');
 
         // Open settings sheet

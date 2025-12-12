@@ -1,0 +1,136 @@
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.44.4';
+
+const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+const FREE_TIER_LIMIT_SECONDS = 1800; // 30 minutes
+
+interface UsageLimitResponse {
+    can_start: boolean;
+    remaining_seconds: number; // -1 for unlimited (Pro)
+    limit_seconds: number;
+    used_seconds: number;
+    subscription_status: string;
+    is_pro: boolean;
+    error?: string;
+}
+
+type SupabaseClientFactory = (authHeader: string | null) => SupabaseClient;
+
+// Define the handler with dependency injection for testability
+export async function handler(req: Request, createSupabase: SupabaseClientFactory) {
+    if (req.method === 'OPTIONS') {
+        return new Response('ok', { headers: corsHeaders });
+    }
+
+    try {
+        const authHeader = req.headers.get('Authorization');
+        const supabaseClient = createSupabase(authHeader);
+
+        const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
+
+        if (userError || !user) {
+            return new Response(JSON.stringify({ error: 'Authentication failed' }), {
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                status: 401,
+            });
+        }
+
+        // Get user profile with usage data
+        const { data: profile, error: profileError } = await supabaseClient
+            .from('user_profiles')
+            .select('usage_seconds, usage_reset_date, subscription_status')
+            .eq('id', user.id)
+            .single();
+
+        if (profileError) {
+            console.error('Profile fetch error:', profileError);
+            // Default to allowing start if profile not found
+            const response: UsageLimitResponse = {
+                can_start: true,
+                remaining_seconds: FREE_TIER_LIMIT_SECONDS,
+                limit_seconds: FREE_TIER_LIMIT_SECONDS,
+                used_seconds: 0,
+                subscription_status: 'unknown',
+                is_pro: false,
+                error: 'Profile not found - allowing session',
+            };
+            return new Response(JSON.stringify(response), {
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                status: 200,
+            });
+        }
+
+        const isPro = profile.subscription_status === 'pro';
+        let usedSeconds = profile.usage_seconds || 0;
+
+        // Reset usage if a new month has started
+        const resetDate = profile.usage_reset_date ? new Date(profile.usage_reset_date) : null;
+        const oneMonthAgo = new Date();
+        oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+
+        if (!resetDate || resetDate <= oneMonthAgo) {
+            usedSeconds = 0;
+        }
+
+        // Pro users have unlimited usage
+        if (isPro) {
+            const response: UsageLimitResponse = {
+                can_start: true,
+                remaining_seconds: -1,
+                limit_seconds: -1,
+                used_seconds: usedSeconds,
+                subscription_status: profile.subscription_status,
+                is_pro: true,
+            };
+            return new Response(JSON.stringify(response), {
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                status: 200,
+            });
+        }
+
+        // Calculate remaining for free users
+        const remainingSeconds = Math.max(0, FREE_TIER_LIMIT_SECONDS - usedSeconds);
+        const canStart = remainingSeconds > 0;
+
+        const response: UsageLimitResponse = {
+            can_start: canStart,
+            remaining_seconds: remainingSeconds,
+            limit_seconds: FREE_TIER_LIMIT_SECONDS,
+            used_seconds: usedSeconds,
+            subscription_status: profile.subscription_status,
+            is_pro: false,
+        };
+
+        console.log(`✅ Usage check for user ${user.id}: ${remainingSeconds}s remaining, can_start: ${canStart}`);
+
+        return new Response(JSON.stringify(response), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            status: 200,
+        });
+
+    } catch (error) {
+        console.error('Error checking usage limit:', error);
+        const errorMessage = (error instanceof Error) ? error.message : 'An unexpected error occurred';
+        return new Response(JSON.stringify({ error: errorMessage, can_start: true }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            status: 500,
+        });
+    }
+}
+
+// Start the server with the real dependencies
+serve((req: Request) => {
+    const supabaseClientFactory: SupabaseClientFactory = (authHeader) =>
+        createClient(
+            Deno.env.get('SUPABASE_URL') ?? '',
+            Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+            { global: { headers: { Authorization: authHeader! } } }
+        );
+
+    return handler(req, supabaseClientFactory);
+});

@@ -15,8 +15,8 @@ test.describe('UI State Capture', () => {
     const captureForPage = async (which: string) => {
       switch (which) {
         case 'homepage':
-          // unauthenticated homepage
-          await page.goto('/');
+          // unauthenticated homepage - page.goto() is intentional for unauth state
+          await page.goto('/'); // eslint-disable-line no-restricted-syntax
           await capturePage(page, `homepage-unauth-${testInfo.workerIndex}.png`, 'unauth');
 
           // authenticated homepage
@@ -37,8 +37,8 @@ test.describe('UI State Capture', () => {
           break;
 
         default:
-          // fallback: capture unauth homepage
-          await page.goto('/');
+          // fallback: capture unauth homepage - page.goto() is intentional for unauth state
+          await page.goto('/'); // eslint-disable-line no-restricted-syntax
           await capturePage(page, `unknown-${which}-unauth-${testInfo.workerIndex}.png`, 'unauth');
           break;
       }

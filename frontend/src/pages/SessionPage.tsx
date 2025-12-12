@@ -11,7 +11,9 @@ import { Mic, MicOff, Square, Play, AlertTriangle, Lightbulb, Settings } from 'l
 import { useAuthProvider } from '../contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { useSessionMetrics } from '@/hooks/useSessionMetrics';
+import { useUsageLimit, formatRemainingTime } from '@/hooks/useUsageLimit';
 import { PauseMetricsDisplay } from '@/components/session/PauseMetricsDisplay';
+import { toast } from 'sonner';
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { CustomVocabularyManager } from '@/components/session/CustomVocabularyManager';
@@ -31,6 +33,9 @@ export const SessionPage: React.FC = () => {
     console.log('[DEBUG] SessionPage profile state:', { isProfileLoading, profileError, profileId: profile?.id });
 
     const isPro = profile?.subscription_status === 'pro';
+
+    // Usage limit check for pre-session validation
+    const { data: usageLimit } = useUsageLimit();
 
     const [customWords] = useState<string[]>([]);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -103,22 +108,66 @@ export const SessionPage: React.FC = () => {
 
     const handleStartStop = async () => {
         if (isListening) {
-            await stopListening();
-            // Track session end with metrics
-            posthog.capture('session_ended', {
-                duration: elapsedTime,
-                wpm: metrics.wpm,
-                clarity_score: metrics.clarityScore,
-                filler_count: metrics.fillerCount
-            });
+            try {
+                await stopListening();
+                // Track session end with metrics
+                posthog.capture('session_ended', {
+                    duration: elapsedTime,
+                    wpm: metrics.wpm,
+                    clarity_score: metrics.clarityScore,
+                    filler_count: metrics.fillerCount
+                });
+            } catch (error) {
+                console.error('[SessionPage] Error stopping recording:', error);
+                console.error('[SessionPage] Error details:', {
+                    message: error instanceof Error ? error.message : String(error),
+                    stack: error instanceof Error ? error.stack : undefined,
+                    isListening,
+                    mode
+                });
+            }
         } else {
-            await startListening({
-                forceNative: mode === 'native',
-                forceOnDevice: mode === 'on-device',
-                forceCloud: mode === 'cloud'
-            });
-            // Track session start
-            posthog.capture('session_started', { mode });
+            try {
+                // PRE-SESSION USAGE CHECK: Validate before starting
+                if (!isPro && usageLimit && !usageLimit.can_start) {
+                    toast.error(
+                        `Monthly usage limit reached (${formatRemainingTime(usageLimit.limit_seconds)}). Upgrade to Pro for unlimited practice.`,
+                        {
+                            action: {
+                                label: 'Upgrade',
+                                onClick: () => window.location.href = '/#pricing'
+                            },
+                            duration: 8000
+                        }
+                    );
+                    return;
+                }
+
+                // Warn if running low on time (less than 5 minutes)
+                if (!isPro && usageLimit && usageLimit.remaining_seconds > 0 && usageLimit.remaining_seconds < 300) {
+                    toast.warning(
+                        `Only ${formatRemainingTime(usageLimit.remaining_seconds)} remaining this month.`,
+                        { duration: 5000 }
+                    );
+                }
+
+                console.log('[SessionPage] Starting session with mode:', mode);
+                await startListening({
+                    forceNative: mode === 'native',
+                    forceOnDevice: mode === 'on-device',
+                    forceCloud: mode === 'cloud'
+                });
+                // Track session start
+                posthog.capture('session_started', { mode });
+            } catch (error) {
+                console.error('[SessionPage] Error starting recording:', error);
+                console.error('[SessionPage] Error details:', {
+                    message: error instanceof Error ? error.message : String(error),
+                    stack: error instanceof Error ? error.stack : undefined,
+                    mode,
+                    profileStatus: profile?.subscription_status
+                });
+            }
         }
     };
 
@@ -242,7 +291,14 @@ export const SessionPage: React.FC = () => {
                         <div className="w-1 h-5 bg-primary rounded"></div>
                         <h3 className="text-base font-semibold text-foreground">Live Transcript</h3>
                     </div>
-                    <div ref={transcriptContainerRef} className="h-[250px] overflow-y-auto p-4 rounded-lg bg-background/50 border border-white/10 scroll-smooth" data-testid={TEST_IDS.TRANSCRIPT_CONTAINER}>
+                    <div
+                        ref={transcriptContainerRef}
+                        className="h-[250px] overflow-y-auto p-4 rounded-lg bg-background/50 border border-white/10 scroll-smooth"
+                        data-testid={TEST_IDS.TRANSCRIPT_CONTAINER}
+                        aria-live="polite"
+                        aria-label="Live transcript of your speech"
+                        role="log"
+                    >
                         {isListening && (!transcript.transcript || transcript.transcript.trim() === '') ? (
                             <p className="text-muted-foreground italic animate-pulse">Listening...</p>
                         ) : transcript.transcript && transcript.transcript.trim() !== '' ? (

@@ -21,13 +21,33 @@ export const CustomVocabularyManager: React.FC = () => {
     } = useCustomVocabulary();
 
     const isPro = profile?.subscription_status === 'pro';
+    const maxWords = isPro
+        ? VOCABULARY_LIMITS.MAX_WORDS_PER_USER
+        : Math.min(VOCABULARY_LIMITS.MAX_WORDS_PER_USER, VOCABULARY_LIMITS.MAX_WORDS_FREE);
+    const isAtLimit = vocabulary.length >= maxWords;
+    const isNearLimit = !isPro && vocabulary.length >= maxWords - 2; // Show nudge at 8/10 words
 
     const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
+        console.log('[CustomVocabularyManager] handleSubmit called, newWord:', newWord);
+
         if (newWord.trim()) {
-            addWord(newWord.trim(), {
-                onSuccess: () => setNewWord(''),
-            });
+            console.log('[CustomVocabularyManager] Calling addWord mutation with:', newWord.trim());
+            try {
+                addWord(newWord.trim(), {
+                    onSuccess: () => {
+                        console.log('[CustomVocabularyManager] onSuccess callback - clearing input');
+                        setNewWord('');
+                    },
+                    onError: (error) => {
+                        console.error('[CustomVocabularyManager] onError callback:', error);
+                    }
+                });
+            } catch (error) {
+                console.error('[CustomVocabularyManager] Error calling addWord:', error);
+            }
+        } else {
+            console.log('[CustomVocabularyManager] newWord is empty after trim, not submitting');
         }
     };
 
@@ -52,12 +72,17 @@ export const CustomVocabularyManager: React.FC = () => {
             <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                     Custom Vocabulary
-                    <span className="text-sm font-normal text-muted-foreground">
-                        ({vocabulary.length}/{VOCABULARY_LIMITS.MAX_WORDS_PER_USER})
+                    <span className={`text-sm font-normal ${isAtLimit ? 'text-destructive' : 'text-muted-foreground'}`}>
+                        ({vocabulary.length}/{maxWords})
                     </span>
                 </CardTitle>
                 <CardDescription>
                     Add technical terms, jargon, or names to improve transcription accuracy.
+                    {isNearLimit && !isAtLimit && (
+                        <span className="block mt-1 text-xs text-primary">
+                            💡 Pro users get 100 custom words
+                        </span>
+                    )}
                 </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -68,13 +93,13 @@ export const CustomVocabularyManager: React.FC = () => {
                         value={newWord}
                         onChange={(e) => setNewWord(e.target.value)}
                         placeholder="e.g., SpeakSharp, AI-powered"
-                        disabled={isAdding || vocabulary.length >= VOCABULARY_LIMITS.MAX_WORDS_PER_USER}
+                        disabled={isAdding || isAtLimit}
                         className="flex-1"
                     />
                     <Button
                         type="submit"
                         size="icon"
-                        disabled={!newWord.trim() || isAdding || vocabulary.length >= VOCABULARY_LIMITS.MAX_WORDS_PER_USER}
+                        disabled={!newWord.trim() || isAdding || isAtLimit}
                         aria-label="Add word"
                     >
                         <Plus className="h-4 w-4" />

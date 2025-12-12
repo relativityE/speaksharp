@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-10
+**Last Reviewed:** 2025-12-11
 
 # Changelog
 
@@ -12,9 +12,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added (2025-12-11)
 
+- **Usage Limit Pre-Check (P0 UX Fix):** New `check-usage-limit` Edge Function checks remaining usage BEFORE session starts. Frontend shows toast error with Upgrade button if limit exceeded, warns when <5min remaining. Prevents frustrating UX where users record and can't save.
+  - **Files:** `backend/supabase/functions/check-usage-limit/index.ts`, `frontend/src/hooks/useUsageLimit.ts`, `SessionPage.tsx`
+- **Screen Reader Accessibility:** Added `aria-live="polite"`, `aria-label`, and `role="log"` to live transcript container. Screen readers now announce transcript text as it appears.
+  - **Files:** `SessionPage.tsx:266-272`
+- **FileSaver.js PDF Export:** Replaced manual Blob/`<a>` download with industry-standard `file-saver` library (`saveAs()`) for reliable cross-browser PDF downloads.
+  - **Files:** `pdfGenerator.ts`, `package.json` (added `file-saver@^2.0.5`)
+- **Strategic Error Logging:** Added comprehensive try-catch blocks and defensive logging to critical paths:
+  - `OnDeviceWhisper.ts` - null checks for mic stream, uninitialized session
+  - `SessionPage.tsx` - handleStartStop error logging
+  - `AuthPage.tsx` - auth flow logging (already comprehensive)
+- **Edge Function Deployment:** Updated GitHub Actions workflow to deploy all Edge Functions including new `check-usage-limit`.
+  - **Files:** `.github/workflows/deploy-supabase-migrations.yml`
+- **PRD Features Update:** Added 5 new features to canonical feature list (Screen Reader Accessibility, Usage Limit Pre-Check, Weekly Activity Chart, Premium Loading States, On-Device Model Caching).
 - **On-Device Whisper Optimization:** Implemented a Service Worker (`sw.js`) to cache the 30MB Whisper model (`tiny-q8g16.bin`). Reduces subsequent load times from >30s to <1s.
-- **UI Terminology Update:** Renamed "Local" transcription mode to "On-Device" and "Cloud AI" to "Cloud" for clarity and consistency.
-- **Soak Test Documentation:** Added comprehensive hybrid testing strategy documentation to `ARCHITECTURE.md`, explaining local (mock) vs CI (real Supabase) environment separation, pre-seeded test user requirements, and critical configuration details.
 
 ### Fixed (2025-12-11)
 
@@ -36,6 +47,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Files:** 11 test files updated with `navigateToRoute()` for protected routes
 
 - **Soak Test Race Condition:** Fixed CI soak test failures (Success Rate: 0/4) caused by Playwright script not waiting for authentication redirect. Replaced polling loop with `page.getByRole('button', { name: /sign in/i }).click()` and `page.waitForURL()` for deterministic navigation wait. **File:** `tests/soak/soak-test.spec.ts`
+
+- **Unit Test & Lint Fixes:**
+  - **SessionPage Tests:** Fixed `No QueryClient set` errors by adding missing `useUsageLimit` mocks.
+  - **PDF Generator Tests:** Updated tests to verify `FileSaver.js` integration and implemented temp file verification.
+  - **E2E Linting:** Resolved `page.goto` warnings in 5 test files by using `navigateToRoute` or appropriate disable directives.
 
 ### Changed (2025-12-11)
 - **UI Restrictions:** Disabled "On-Device" and "Cloud" options for Free users in the Session control dropdown.
@@ -150,10 +166,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **eslint-disable Code Smell Removal:**
   - Removed 3 `@typescript-eslint/no-explicit-any` from production code
-  - `TranscriptionService.ts:158` → proper Window type extension for MockLocalWhisper
+  - `TranscriptionService.ts:158` → proper Window type extension for MockOnDeviceWhisper
   - `theme.ts:204` → Record<string, unknown> for getThemeValue traversal
   - `AuthProvider.tsx:61` → proper Window type for __e2eProfileLoaded
-  - Added null guard for MockLocalWhisper in E2E mock path
+  - Added null guard for MockOnDeviceWhisper in E2E mock path
   - **Files:** `TranscriptionService.ts`, `theme.ts`, `AuthProvider.tsx`
 
 ### Added (2025-12-09)
@@ -234,12 +250,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Code Review P1 Tech Debt Resolution (2025-12-08):**
   - Created `AudioProcessor.ts` with shared audio utilities (floatToInt16, floatToWav, concatenateFloat32Arrays)
-  - Refactored `CloudAssemblyAI.ts` and `LocalWhisper.ts` to use shared utilities (removed ~50 lines duplication)
+  - Refactored `CloudAssemblyAI.ts` and `OnDeviceWhisper.ts` to use shared utilities (removed ~50 lines duplication)
   - Added 25 unit tests for transcription critical paths (AudioProcessor.test.ts, TranscriptionError.test.ts)
   - Added ARIA labels to Navigation.tsx and SessionPage.tsx for accessibility
   - Added query pagination to storage.ts with PaginationOptions interface (limit/offset, default 50)
   - Unit tests increased from 340 to 365
-  - **Files:** `AudioProcessor.ts`, `AudioProcessor.test.ts`, `TranscriptionError.test.ts`, `CloudAssemblyAI.ts`, `LocalWhisper.ts`, `Navigation.tsx`, `SessionPage.tsx`, `storage.ts`
+  - **Files:** `AudioProcessor.ts`, `AudioProcessor.test.ts`, `TranscriptionError.test.ts`, `CloudAssemblyAI.ts`, `OnDeviceWhisper.ts`, `Navigation.tsx`, `SessionPage.tsx`, `storage.ts`
 
 ### Fixed
 - **HeroSection WCAG Contrast Improved (2025-12-07):**
@@ -454,11 +470,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Removed redundant `dotenv` dependency (Finding 1.2)
   - Fixed metrics script to calculate initial chunk size correctly (252K vs 21M)
 
-- **CRITICAL FIX - LocalWhisper Performance (2025-11-30):**
+- **CRITICAL FIX - OnDeviceWhisper Performance (2025-11-30):**
   - **Problem:** On-device transcription re-processed entire audio history every second, causing quadratic O(n²) CPU/memory growth
   - **Solution:** Implemented buffer clearing after each processing cycle (`audioChunks = []`)
   - **Impact:** On-device STT now scalable for sessions >5 minutes, flagship feature production-ready
-  - **Location:** `frontend/src/services/transcription/modes/LocalWhisper.ts:178`
+  - **Location:** `frontend/src/services/transcription/modes/OnDeviceWhisper.ts:178`
   - **Finding:** Jules' Architectural Analysis Finding 3.1
 
 - **Integration Test Stability (2025-11-30):**
@@ -723,9 +739,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `CloudAssemblyAI`: Logs for token fetching and WebSocket connection
   - Enhanced error logging for microphone permission denied and other speech recognition errors
 - **On-Device Transcription Fixes (2025-11-21):**
-  - **"Connecting..." Hang:** Resolved a critical bug where the UI would get stuck in a "Connecting..." state because the `LocalWhisper` mode was failing to notify the application when it was ready. Added the missing `onReady()` callback invocation.
+  - **"Connecting..." Hang:** Resolved a critical bug where the UI would get stuck in a "Connecting..." state because the `OnDeviceWhisper` mode was failing to notify the application when it was ready. Added the missing `onReady()` callback invocation.
   - **Missing Download Toast:** Fixed an issue where the model download toast notification was not appearing. Added an initial progress event (`0%`) to ensure immediate user feedback.
-  - **Startup Performance:** Optimized application startup time by converting the `LocalWhisper` module to a dynamic import. This prevents the heavy `whisper-turbo` and WebAssembly dependencies from loading during the initial application render, addressing the "blank screen" lag on refresh.
+  - **Startup Performance:** Optimized application startup time by converting the `OnDeviceWhisper` module to a dynamic import. This prevents the heavy `whisper-turbo` and WebAssembly dependencies from loading during the initial application render, addressing the "blank screen" lag on refresh.
   - **Type Safety:** Resolved a TypeScript error in `SessionSidebar` related to the `modelLoadingProgress` prop.
 
 ### Changed
@@ -843,7 +859,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Resolved Technical Debt (Migrated from Roadmap)
 - **Refactor On-Device STT for True Streaming (2025-11-21):**
-  - Switched LocalWhisper to 1s async processing loop, preventing UI freezing.
+  - Switched OnDeviceWhisper to 1s async processing loop, preventing UI freezing.
 - **Complete Live Transcript E2E Test (2025-11-27):**
   - Fixed button disabled logic and implemented comprehensive audio API mocks.
 - **Refactor Analytics Page (2025-11-26):**

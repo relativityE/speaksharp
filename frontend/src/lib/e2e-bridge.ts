@@ -97,19 +97,19 @@ class MockSpeechRecognition {
     abort() { }
 }
 
-interface MockLocalWhisperOptions {
+interface MockOnDeviceWhisperOptions {
     onModelLoadProgress?: (progress: number) => void;
     onReady?: () => void;
     onTranscriptUpdate?: (update: unknown) => void;
 }
 
-// Mock LocalWhisper for E2E tests
-class MockLocalWhisper {
+// Mock OnDeviceWhisper for E2E tests
+class MockOnDeviceWhisper {
     private onModelLoadProgress: ((progress: number) => void) | undefined;
     private onReady: (() => void) | undefined;
     private onTranscriptUpdate: ((update: unknown) => void) | undefined;
 
-    constructor(options: MockLocalWhisperOptions) {
+    constructor(options: MockOnDeviceWhisperOptions) {
         this.onModelLoadProgress = options.onModelLoadProgress;
         this.onReady = options.onReady;
         this.onTranscriptUpdate = options.onTranscriptUpdate;
@@ -136,11 +136,11 @@ class MockLocalWhisper {
     }
 
     async startTranscription() {
-        logger.info('[MockLocalWhisper] startTranscription() called');
+        logger.info('[MockOnDeviceWhisper] startTranscription() called');
     }
 
     async stopTranscription() {
-        logger.info('[MockLocalWhisper] stopTranscription() called');
+        logger.info('[MockOnDeviceWhisper] stopTranscription() called');
         return '';
     }
 
@@ -157,9 +157,9 @@ const setupSpeechRecognitionMock = () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (window as any).webkitSpeechRecognition = MockSpeechRecognition;
 
-        // Setup MockLocalWhisper
+        // Setup MockOnDeviceWhisper
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (window as any).MockLocalWhisper = MockLocalWhisper;
+        (window as any).MockOnDeviceWhisper = MockOnDeviceWhisper;
 
         // Helper to dispatch events from Playwright
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -1,11 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin } from './helpers';
+import { programmaticLogin, navigateToRoute } from './helpers';
 
 test.describe('Session Variations', () => {
     test.beforeEach(async ({ page }) => {
         await programmaticLogin(page);
-        await page.goto('/session');
-        await page.waitForSelector('[data-testid="app-main"]');
+        await navigateToRoute(page, '/session');
     });
 
     test('Journey 4 & 5: Switch STT Modes', async ({ page }) => {
@@ -38,25 +37,27 @@ test.describe('Session Variations', () => {
     });
 
     test('Journey 6: Custom Vocabulary Management', async ({ page }) => {
-        // Navigate to Custom Vocabulary section (assuming it's a modal or separate page/tab)
-        // For this test, we'll assume it's accessible via a button on the session page
-        const vocabButton = page.getByRole('button', { name: /custom vocabulary/i });
+        // Custom Vocabulary is inside the settings sheet
+        const settingsButton = page.getByTestId('session-settings-button');
+        await settingsButton.click();
 
-        if (await vocabButton.isVisible()) {
-            await vocabButton.click();
+        await expect(page.getByRole('heading', { name: 'Session Settings' })).toBeVisible();
+        await expect(page.getByRole('heading', { name: /Custom Vocabulary/ })).toBeVisible();
 
-            // Add a word
-            await page.getByPlaceholder(/add a word/i).fill('SpeakSharp');
-            await page.getByRole('button', { name: /add/i }).click();
+        // Fill input and add word (note: mutation lowercases all words)
+        const wordInput = page.getByPlaceholder(/SpeakSharp/i);
+        await wordInput.fill('TestWord');
 
-            // Verify word added
-            await expect(page.getByText('SpeakSharp')).toBeVisible();
+        const addButton = page.getByRole('button', { name: 'Add word' });
+        await addButton.click();
 
-            // Remove word
-            await page.getByRole('button', { name: /remove speaksharp/i }).click();
-            await expect(page.getByText('SpeakSharp')).not.toBeVisible();
-        } else {
-            console.log('Custom Vocabulary button not found - skipping vocab verification');
-        }
+        // Wait for word to appear - it will be lowercased to 'testword'
+        await expect(page.getByText('testword', { exact: true })).toBeVisible({ timeout: 5000 });
+
+        // Remove the word
+        await page.getByRole('button', { name: /Remove testword/i }).click();
+
+        // Verify word is removed
+        await expect(page.getByText('testword', { exact: true })).not.toBeVisible({ timeout: 5000 });
     });
 });

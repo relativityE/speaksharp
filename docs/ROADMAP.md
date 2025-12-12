@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-10
+**Last Reviewed:** 2025-12-11
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -8,14 +8,17 @@
 
 This document outlines the forward-looking development plan for SpeakSharp. Completed tasks are moved to the [Changelog](./CHANGELOG.md).
 
-Status Key: 🟡 In Progress | 🔴 Not Started
+Status Key: 🟡 In Progress | 🔴 Not Started | ✅ Complete
 ---
 
 ## Phase 1: Stabilize & Harden the MVP
 This phase focuses on fixing critical bugs, addressing code health, and ensuring the existing features are reliable and robust.
 
 ### 🚧 Should-Have (Tech Debt)
-- 🔴 **Create Troubleshooting Guide:** Add error recovery steps to the documentation.
+- ✅ **Strategic Error Logging (2025-12-11):** Added defensive error logging to OnDeviceWhisper.ts, SessionPage.tsx, AuthPage.tsx. Comprehensive coverage in critical paths.
+- ✅ **Usage Limit Pre-Check (2025-12-11):** P0 UX fix. New Edge Function `check-usage-limit` validates usage BEFORE session start. Shows toast with Upgrade button if exceeded.
+- ✅ **Screen Reader Accessibility (2025-12-11):** Added `aria-live="polite"` to live transcript for screen reader announcements.
+- ✅ **PDF Export Fix (2025-12-11):** Replaced manual download with FileSaver.js industry standard.
 - 🔴 **Harden Supabase Security:** Address security advisor warnings.
   - ⏸️ **BLOCKED** - Shorten OTP expiry to <1 hour (requires Supabase Pro account)
   - ⏸️ **BLOCKED** - Enable leaked password protection (requires Supabase Pro account)
@@ -23,15 +26,22 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 
 ### ⚠️ Known Issues
 
-- **✅ RESOLVED - Soak Test Race Condition (2025-12-11)**
-  - **Problem:** `soak-test` workflow failing with "Success Rate: 0/4" - authentication redirect not waiting properly
-  - **Solution:** Fixed Playwright script to use `page.waitForURL()` instead of polling. Added comprehensive documentation of hybrid testing strategy (local=mocks, CI=real Supabase) to `ARCHITECTURE.md`
-  - **Status:** ✅ Fixed - Test now properly waits for authentication redirect
+- **✅ RESOLVED - Usage Limit Pre-Check UX (2025-12-11)**
+  - **Problem:** Usage check happened AFTER session save, leading to frustrating UX where users recorded for minutes only to find they couldn't save.
+  - **Solution:** Created `check-usage-limit` Edge Function for pre-session validation. Frontend shows toast with Upgrade button if limit exceeded, warns when <5min remaining.
+  - **Status:** ✅ Fixed - P0 UX improvement for free tier users.
 
-- **🟡 INVESTIGATING - PDF Filename Inconsistency (2025-12-09)**
-  - **Problem:** `jsPDF.save()` does not reliably set the filename across all browsers in `devBypass` mode (resulted in UUID names instead of `session_YYYYMMDD_User.pdf`).
-  - **Workaround:** Implemented manual Blob download via `<a>` tag to enforce naming.
-  - **Status:** 🟡 Monitoring (Workaround applied)
+- **✅ RESOLVED - Screen Reader Accessibility (2025-12-11)**
+  - **Problem:** Live transcript lacked ARIA live region (`aria-live="polite"`), screen readers didn't announce new text.
+  - **Solution:** Added `aria-live="polite"`, `aria-label`, and `role="log"` to transcript container in SessionPage.tsx.
+  - **Status:** ✅ Fixed - Critical accessibility improvement.
+
+- **✅ RESOLVED - Soak Test Race Condition (2025-12-11)**
+
+- **✅ RESOLVED - PDF Filename Inconsistency (2025-12-11)**
+  - **Problem:** `jsPDF.save()` did not reliably set the filename across all browsers in `devBypass` mode (resulted in UUID names instead of `session_YYYYMMDD_User.pdf`).
+  - **Solution:** Implemented FileSaver.js (`file-saver@^2.0.5`) - the industry standard for cross-browser file downloads. Uses `saveAs(blob, filename)` API (`pdfGenerator.ts:76`).
+  - **Status:** ✅ Fixed - Industry-standard solution provides reliable cross-browser support.
 
 - **✅ RESOLVED - HeroSection WCAG Contrast (2025-12-07)**
   - **Problem:** White text on complex gradient failed WCAG AA 4.5:1 contrast ratio
@@ -116,6 +126,7 @@ This phase is about confirming the core feature set works as expected and polish
 - ✅ **Implement WebSocket Reconnect Logic:** Added heartbeat and exponential backoff (1s, 2s, 4s, 8s, max 30s) logic to `CloudAssemblyAI.ts`.
 - ✅ **Session Comparison & Progress Tracking (2025-12-06):** Users can now select 2 sessions to compare side-by-side with progress indicators (green ↑ for improvement, red ↓ for regression). Added WPM and Clarity trend charts showing progress over last 10 sessions. **Components:** `ProgressIndicator.tsx`, `TrendChart.tsx`, `SessionComparisonDialog.tsx`. **Status:** ✅ Complete.
 - ✅ **Implement Local STT Toast Notification:** Show user feedback when Whisper model download completes.
+- ✅ **Custom Vocabulary Tier Limits \u0026 Conversion Nudges (2025-12-11):** Implemented tier-based limits (Free: 10 words, Pro: 100 words) with subtle upgrade nudges when free users approach limit (shown at 8/10 words). Error messages include upgrade CTA. Uses `Math.min(MAX_WORDS_PER_USER, MAX_WORDS_FREE)` pattern for free tier enforcement.
 - 🔄 **PERPETUAL - Documentation Audit:** Verify PRD Known Issues, ROADMAP, and CHANGELOG match actual codebase state. Run test suite and cross-reference with documented issues to eliminate drift. **Frequency:** Before each release and after major feature work.
 
 ### 🚧 Should-Have (Tech Debt)
@@ -288,7 +299,7 @@ This phase focuses on long-term architecture, scalability, and preparing for fut
 - 🟡 **Whisper Model Caching & Auto-Update:** Create a script to manage the on-device Whisper model lifecycle:
   - ✅ **Implement Script & SW:** `download-whisper-model.sh` and `sw.js` (Completed 2025-12-10). Reduced load time from >30s to <5s.
   - ✅ **Refactor Terminology:** Rename "Local" to "On-Device" and "Cloud AI" to "Cloud" (Completed 2025-12-11).
-  - 🔴 **Internal Refactor:** Rename `LocalWhisper` to `OnDeviceWhisper` (Backlog - Marketing/Code Consistency).
+  - ✅ **COMPLETED (2025-12-11) - Internal Refactor:** Renamed `OnDeviceWhisper` class (formerly `LocalWhisper`) for marketing consistency. Updated 36 references across 14 files.
   - 🔴 **Documentation:** Update Architecture to reflect On-Device/SW strategy (Backlog).
   - Cache the WASM model after first download (persist to IndexedDB or filesystem)
   - Cache the WASM model after first download (persist to IndexedDB or filesystem)

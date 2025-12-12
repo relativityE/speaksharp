@@ -36,7 +36,7 @@ export class TranscriptionError extends Error {
   }
 
   /**
-   * Factory for model loading errors (LocalWhisper)
+   * Factory for model loading errors (OnDeviceWhisper)
    */
   static modelLoad(message: string): TranscriptionError {
     return new TranscriptionError(message, 'MODEL_LOAD', true);

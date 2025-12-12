@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 
 type Status = 'idle' | 'loading' | 'transcribing' | 'stopped' | 'error';
 
-export default class LocalWhisper implements ITranscriptionMode {
+export default class OnDeviceWhisper implements ITranscriptionMode {
   private onTranscriptUpdate: (update: TranscriptUpdate) => void;
   private onModelLoadProgress?: (progress: number) => void;
   private onReady?: () => void;
@@ -23,7 +23,7 @@ export default class LocalWhisper implements ITranscriptionMode {
 
   constructor({ onTranscriptUpdate, onModelLoadProgress, onReady }: TranscriptionModeOptions) {
     if (!onTranscriptUpdate) {
-      throw new Error("onTranscriptUpdate callback is required for LocalWhisper.");
+      throw new Error("onTranscriptUpdate callback is required for OnDeviceWhisper.");
     }
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onModelLoadProgress = onModelLoadProgress;
@@ -32,15 +32,15 @@ export default class LocalWhisper implements ITranscriptionMode {
     this.transcript = '';
     this.session = null;
     this.manager = new SessionManager();
-    logger.info('[LocalWhisper] Initialized (whisper-turbo backend).');
+    logger.info('[OnDeviceWhisper] Initialized (whisper-turbo backend).');
   }
 
   public async init(): Promise<void> {
-    logger.info('[LocalWhisper] Initializing model...');
+    logger.info('[OnDeviceWhisper] Initializing model...');
     this.status = 'loading';
 
     try {
-      logger.info(`[LocalWhisper] Loading model: ${AvailableModels.WHISPER_TINY}`);
+      logger.info(`[OnDeviceWhisper] Loading model: ${AvailableModels.WHISPER_TINY}`);
 
       // Trigger initial progress to ensure UI shows "Downloading..." immediately
       if (this.onModelLoadProgress) {
@@ -50,7 +50,7 @@ export default class LocalWhisper implements ITranscriptionMode {
       const result = await this.manager.loadModel(
         AvailableModels.WHISPER_TINY,
         () => {
-          logger.info('[LocalWhisper] Model loaded callback triggered.');
+          logger.info('[OnDeviceWhisper] Model loaded callback triggered.');
         },
         (progress: number) => {
           if (this.onModelLoadProgress) {
@@ -65,7 +65,7 @@ export default class LocalWhisper implements ITranscriptionMode {
 
       this.session = result.value;
       this.status = 'idle';
-      logger.info('[LocalWhisper] Model loaded successfully.');
+      logger.info('[OnDeviceWhisper] Model loaded successfully.');
 
       // Show toast notification
       toast.success('Model ready! You can now start your session.');
@@ -75,18 +75,29 @@ export default class LocalWhisper implements ITranscriptionMode {
         this.onReady();
       }
     } catch (error) {
-      logger.error({ err: error }, '[LocalWhisper] Failed to load model.');
+      logger.error({ err: error }, '[OnDeviceWhisper] Failed to load model.');
       this.status = 'error';
       throw error;
     }
   }
 
   public async startTranscription(mic: MicStream): Promise<void> {
+    if (!mic) {
+      logger.error('[OnDeviceWhisper CRITICAL] startTranscription called with null/undefined mic!');
+      throw new Error('MicStream is required for OnDeviceWhisper');
+    }
+    if (typeof mic.onFrame !== 'function') {
+      logger.error('[OnDeviceWhisper CRITICAL] MicStream missing onFrame method!');
+      throw new Error('Invalid MicStream: missing onFrame method');
+    }
     this.mic = mic;
-    logger.info('[LocalWhisper] startTranscription() called.');
-    if (this.status !== 'idle' || !this.session) {
-      logger.error('[LocalWhisper] Not ready for transcription.');
-      return;
+    logger.info('[OnDeviceWhisper] startTranscription() called.');
+    if (this.status !== 'idle') {
+      logger.warn(`[OnDeviceWhisper] Unexpected status: ${this.status}, expected 'idle'`);
+    }
+    if (!this.session) {
+      logger.error('[OnDeviceWhisper] session is null - model may not have loaded. Call init() first.');
+      throw new Error('OnDeviceWhisper session not initialized. Call init() first.');
     }
     this.status = 'transcribing';
     this.audioChunks = [];
@@ -103,12 +114,19 @@ export default class LocalWhisper implements ITranscriptionMode {
       this.processAudio();
     }, 1000);
 
-    logger.info('[LocalWhisper] Streaming started.');
+    logger.info('[OnDeviceWhisper] Streaming started.');
   }
 
   private async processAudio(): Promise<void> {
-    if (this.isProcessing || !this.session || this.audioChunks.length === 0) {
+    if (this.isProcessing) {
+      return; // Already processing, skip
+    }
+    if (!this.session) {
+      logger.error('[OnDeviceWhisper] processAudio called but session is null!');
       return;
+    }
+    if (this.audioChunks.length === 0) {
+      return; // No audio to process
     }
 
     this.isProcessing = true;
@@ -138,14 +156,14 @@ export default class LocalWhisper implements ITranscriptionMode {
       this.audioChunks = [];
 
     } catch (err) {
-      logger.error({ err }, '[LocalWhisper] Transcription processing failed.');
+      logger.error({ err }, '[OnDeviceWhisper] Transcription processing failed.');
     } finally {
       this.isProcessing = false;
     }
   }
 
   public async stopTranscription(): Promise<string> {
-    logger.info('[LocalWhisper] stopTranscription() called.');
+    logger.info('[OnDeviceWhisper] stopTranscription() called.');
 
     if (this.processingInterval) {
       clearInterval(this.processingInterval);

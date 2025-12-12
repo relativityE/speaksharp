@@ -76,6 +76,33 @@ export default tseslint.config(
     },
   },
 
+  // ⚠️ E2E Test Anti-Pattern Detection
+  //
+  // RULE: Catches usage of page.goto() which breaks MSW mocks in authenticated tests.
+  //
+  // ✅ ALLOWED (helpers.ts excluded):
+  //    - page.goto('/') for INITIAL navigation BEFORE auth
+  //    - page.goto('/sign-in') for public routes
+  //
+  // ❌ FORBIDDEN (triggers warning):
+  //    - page.goto('/analytics') AFTER programmaticLogin() - breaks MSW context
+  //    - page.goto('/session') AFTER programmaticLogin() - breaks mock session
+  //
+  // USE navigateToRoute(page, '/path') instead for protected routes after login.
+  {
+    files: ['tests/e2e/**/*.{ts,spec.ts}'],
+    ignores: ['tests/e2e/helpers.ts'], // helpers.ts has legitimate page.goto() for initial navigation
+    rules: {
+      'no-restricted-syntax': [
+        'warn',
+        {
+          selector: "CallExpression[callee.object.name='page'][callee.property.name='goto']",
+          message: '⚠️ Do NOT use page.goto() after programmaticLogin! Use navigateToRoute(page, "/path") instead. page.goto() causes full page reload that destroys MSW context. See tests/e2e/helpers.ts for correct pattern.',
+        },
+      ],
+    },
+  },
+
   // Config for Test files
   {
     files: ['**/*.{test,spec}.{js,jsx,ts,tsx}'],

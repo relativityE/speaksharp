@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { useAuthProvider } from '@/contexts/AuthProvider';
+import { useUserProfile } from '@/hooks/useUserProfile';
 import { VOCABULARY_LIMITS } from '@/config';
 
 interface CustomWord {
@@ -12,6 +13,7 @@ interface CustomWord {
 
 export const useCustomVocabulary = () => {
     const { user } = useAuthProvider();
+    const { data: profile } = useUserProfile();
     const queryClient = useQueryClient();
     const supabase = getSupabaseClient();
 
@@ -42,10 +44,15 @@ export const useCustomVocabulary = () => {
     // Add a new word
     const addWord = useMutation({
         mutationFn: async (word: string) => {
+            console.log('[useCustomVocabulary] ADD MUTATION STARTED for word:', word);
+            console.log('[useCustomVocabulary] Current vocabulary length:', vocabulary.length);
+            console.log('[useCustomVocabulary] User:', user?.id, 'Profile:', profile?.subscription_status);
+
             if (!supabase || !user) throw new Error('Not authenticated');
 
             // Validate word
             const trimmed = word.trim().toLowerCase();
+            console.log('[useCustomVocabulary] Trimmed word:', trimmed);
             if (!trimmed) throw new Error('Word cannot be empty');
             if (trimmed.length > VOCABULARY_LIMITS.MAX_WORD_LENGTH) {
                 throw new Error(`Word must be ${VOCABULARY_LIMITS.MAX_WORD_LENGTH} characters or less`);
@@ -59,11 +66,18 @@ export const useCustomVocabulary = () => {
                 throw new Error('Word already in vocabulary');
             }
 
-            // Check word limit
-            if (vocabulary.length >= VOCABULARY_LIMITS.MAX_WORDS_PER_USER) {
-                throw new Error(`Maximum ${VOCABULARY_LIMITS.MAX_WORDS_PER_USER} custom words allowed`);
+            // Check word limit (tier-based)
+            const maxWords = profile?.subscription_status === 'pro'
+                ? VOCABULARY_LIMITS.MAX_WORDS_PER_USER
+                : Math.min(VOCABULARY_LIMITS.MAX_WORDS_PER_USER, VOCABULARY_LIMITS.MAX_WORDS_FREE);
+
+            console.log('[useCustomVocabulary] Max words for tier:', maxWords, 'Current:', vocabulary.length);
+            if (vocabulary.length >= maxWords) {
+                const tier = profile?.subscription_status === 'pro' ? 'Pro' : 'Free';
+                throw new Error(`${tier} tier limit: ${maxWords} words. ${tier === 'Free' ? 'Upgrade to Pro for 100 words!' : ''}`);
             }
 
+            console.log('[useCustomVocabulary] Validation passed, making POST request...');
             const { data, error } = await supabase
                 .from('custom_vocabulary')
                 .insert({ user_id: user.id, word: trimmed })
@@ -71,6 +85,7 @@ export const useCustomVocabulary = () => {
                 .single();
 
             if (error) throw error;
+            console.log('[useCustomVocabulary] POST successful, data:', data);
             return data as CustomWord;
         },
         onSuccess: async (data) => {
@@ -78,13 +93,22 @@ export const useCustomVocabulary = () => {
             console.log('[useCustomVocabulary] user.id:', user?.id);
             console.log('[useCustomVocabulary] Refetching query key:', ['customVocabulary', user?.id]);
 
-            // Force immediate refetch instead of invalidate (better for E2E tests)
-            await queryClient.refetchQueries({
-                queryKey: ['customVocabulary', user?.id],
-                exact: true
-            });
-
-            console.log('[useCustomVocabulary] Refetch complete');
+            try {
+                // Force immediate refetch instead of invalidate (better for E2E tests)
+                await queryClient.refetchQueries({
+                    queryKey: ['customVocabulary', user?.id],
+                    exact: true
+                });
+                console.log('[useCustomVocabulary] Refetch complete');
+            } catch (error) {
+                console.error('[useCustomVocabulary] ERROR during refetch:', error);
+                throw error;
+            }
+        },
+        onError: (error) => {
+            console.error('[useCustomVocabulary] ADD MUTATION ERROR:', error);
+            console.error('[useCustomVocabulary] Error message:', error.message);
+            console.error('[useCustomVocabulary] Error stack:', error.stack);
         },
     });
 
@@ -103,10 +127,20 @@ export const useCustomVocabulary = () => {
         },
         onSuccess: async () => {
             console.log('[useCustomVocabulary] Word removed successfully');
-            await queryClient.refetchQueries({
-                queryKey: ['customVocabulary', user?.id],
-                exact: true
-            });
+            try {
+                await queryClient.refetchQueries({
+                    queryKey: ['customVocabulary', user?.id],
+                    exact: true
+                });
+                console.log('[useCustomVocabulary] Refetch after remove complete');
+            } catch (error) {
+                console.error('[useCustomVocabulary] ERROR during remove refetch:', error);
+                throw error;
+            }
+        },
+        onError: (error) => {
+            console.error('[useCustomVocabulary] REMOVE MUTATION ERROR:', error);
+            console.error('[useCustomVocabulary] Error message:', error.message);
         },
     });
 

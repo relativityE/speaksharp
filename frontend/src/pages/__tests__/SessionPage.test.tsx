@@ -6,6 +6,7 @@ import * as SessionStore from '../../stores/useSessionStore';
 import * as VocalAnalysisHook from '../../hooks/useVocalAnalysis';
 import * as AuthProvider from '../../contexts/AuthProvider';
 import * as UserProfileHook from '@/hooks/useUserProfile';
+import * as UsageLimitHook from '@/hooks/useUsageLimit';
 
 // Mock modules
 vi.mock('../../hooks/useSpeechRecognition');
@@ -13,6 +14,7 @@ vi.mock('../../stores/useSessionStore');
 vi.mock('../../hooks/useVocalAnalysis');
 vi.mock('../../contexts/AuthProvider');
 vi.mock('@/hooks/useUserProfile');
+vi.mock('@/hooks/useUsageLimit');
 vi.mock('posthog-js', () => ({
     default: {
         capture: vi.fn(),
@@ -32,6 +34,7 @@ const mockUseSessionStore = vi.mocked(SessionStore.useSessionStore);
 const mockUseVocalAnalysis = vi.mocked(VocalAnalysisHook.useVocalAnalysis);
 const mockUseAuthProvider = vi.mocked(AuthProvider.useAuthProvider);
 const mockUseUserProfile = vi.mocked(UserProfileHook.useUserProfile);
+const mockUseUsageLimit = vi.mocked(UsageLimitHook.useUsageLimit);
 
 describe('SessionPage', () => {
     const mockStartListening = vi.fn();
@@ -79,6 +82,11 @@ describe('SessionPage', () => {
             isLoading: false,
             error: null,
         } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
+
+        mockUseUsageLimit.mockReturnValue({
+            data: { can_start: true, remaining_seconds: 1800, limit_seconds: 1800, is_pro: false },
+            isLoading: false,
+        } as unknown as ReturnType<typeof UsageLimitHook.useUsageLimit>);
     });
 
     afterEach(() => {

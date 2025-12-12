@@ -43,12 +43,17 @@ export default function AuthPage() {
     setIsSubmitting(true);
     setError(null);
     setMessage(null);
+    console.log('[AuthPage] handleSubmit called, view:', view);
 
     try {
       const supabase = getSupabaseClient();
-      if (!supabase) throw new Error("Supabase client not available");
+      if (!supabase) {
+        console.error('[AuthPage CRITICAL] Supabase client is null/undefined!');
+        throw new Error("Supabase client not available");
+      }
 
       if (password.length < 6 && view !== 'forgot_password') {
+        console.log('[AuthPage] Password too short, rejecting');
         setError(friendlyErrors['Password should be at least 6 characters']);
         setIsSubmitting(false);
         return;
@@ -56,38 +61,52 @@ export default function AuthPage() {
 
       let authResult;
       if (view === 'sign_in') {
+        console.log('[AuthPage] Attempting sign_in for:', email);
         authResult = await supabase.auth.signInWithPassword({ email, password });
       } else if (view === 'sign_up') {
+        console.log('[AuthPage] Attempting sign_up for:', email);
         const { error: signUpError } = await supabase.auth.signUp({ email, password });
-        if (signUpError) throw signUpError;
+        if (signUpError) {
+          console.error('[AuthPage] Sign-up error:', signUpError.message);
+          throw signUpError;
+        }
         // In an E2E test, immediately sign in to create a session
         authResult = await supabase.auth.signInWithPassword({ email, password });
       } else { // forgot_password
+        console.log('[AuthPage] Attempting password reset for:', email);
         const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
           redirectTo: `${window.location.origin}/`,
         });
-        if (resetError) throw resetError;
+        if (resetError) {
+          console.error('[AuthPage] Password reset error:', resetError.message);
+          throw resetError;
+        }
         setMessage('Password reset link sent if account exists.');
         return;
       }
 
       if (authResult.error) {
-        console.error('[AUTH] Error returned by Supabase', authResult.error);
+        console.error('[AuthPage] Auth error returned by Supabase:', authResult.error.message);
+        console.error('[AuthPage] Error code:', authResult.error.status);
         throw authResult.error;
       }
 
       if (authResult.data.session) {
+        console.log('[AuthPage] Session received, setting session for user:', authResult.data.session.user?.id);
         setSession(authResult.data.session);
       } else if (view === 'sign_up') {
+        console.log('[AuthPage] Sign-up successful, awaiting email confirmation');
         setMessage('Success! Please check your email for a confirmation link.');
       } else {
+        console.error('[AuthPage CRITICAL] No session returned from Supabase for sign-in! authResult.data:', authResult.data);
         throw new Error('No session returned from Supabase for sign-in.');
       }
     } catch (err: unknown) {
-      console.error('[AUTH] Fatal error during auth', err);
+      console.error('[AuthPage] Fatal error during auth:', err);
       let errorMessage = 'Unknown error';
       if (err instanceof Error) {
         errorMessage = err.message;
+        console.error('[AuthPage] Error stack:', err.stack);
       } else if (typeof err === 'object' && err !== null && 'message' in err) {
         errorMessage = (err as { message: string }).message;
       }

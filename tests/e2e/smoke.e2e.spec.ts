@@ -11,7 +11,8 @@ test.describe('Smoke Test', () => {
 
     // Step 1: Verify app boots and renders DOM (from bootcheck)
     await test.step('Boot Check - Verify DOM Renders', async () => {
-      await page.goto('/');
+      // Note: page.goto('/') is intentional here for unauthenticated landing page test
+      await page.goto('/', { waitUntil: 'domcontentloaded' }); // eslint-disable-line no-restricted-syntax
 
       // Verify main app container loads
       await expect(page.getByTestId('app-main')).toBeVisible({ timeout: 15000 });

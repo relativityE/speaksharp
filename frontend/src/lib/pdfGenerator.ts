@@ -1,8 +1,8 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { saveAs } from 'file-saver';
 import { PracticeSession as Session } from '../types/session';
 import { format, parseISO } from 'date-fns';
-// import { processImage } from './processImage';
 
 // A more specific type for the internal, undocumented API
 interface jsPDFInternal {
@@ -57,15 +57,6 @@ export const generateSessionPdf = async (session: Session, username: string = 'U
     const transcriptLines = doc.splitTextToSize(session.transcript || 'No transcript available.', 180);
     doc.text(transcriptLines, 14, 32);
 
-    // --- Image Example (Skipped: Buffer not available in browser) ---
-    /*
-    try {
-       // Buffer logic removed to prevent crash.
-    } catch (error) {
-      console.error('Error processing image:', error);
-    }
-    */
-
     // --- Footer ---
     const pageCount = (doc.internal as unknown as jsPDFInternal).getNumberOfPages();
     for (let i = 1; i <= pageCount; i++) {
@@ -79,24 +70,21 @@ export const generateSessionPdf = async (session: Session, username: string = 'U
     const sanitizedUser = username.replace(/[^a-zA-Z0-9]/g, '_');
     const filename = `session_${dateStr}_${sanitizedUser}.pdf`;
 
-    // Debug: Force alert removed
-    // alert(`Debug: Saving PDF as ${filename}`);
     toast.info(`Saving as: ${filename}`, { id: 'pdf-gen-name' });
 
-    // Force manual download to ensure filename is respected
+    // Use FileSaver.js (industry standard) for reliable cross-browser download
     const blob = doc.output('blob');
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    saveAs(blob, filename);
 
     toast.success("PDF Downloaded!", { id: 'pdf-gen' });
   } catch (error: unknown) {
-    console.error('Error in PDF generation:', error);
+    console.error('[pdfGenerator] Error in PDF generation:', error);
+    console.error('[pdfGenerator] Error details:', {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      sessionId: session.id
+    });
     toast.error('Failed to generate PDF report. Please try again.', { id: 'pdf-gen' });
   }
 };
+

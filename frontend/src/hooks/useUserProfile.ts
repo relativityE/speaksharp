@@ -11,9 +11,19 @@ export const useUserProfile = () => {
   const query = useQuery({
     queryKey: ['userProfile', session?.user?.id],
     queryFn: async () => {
-      if (!session?.user?.id) return null;
+      if (!session?.user?.id) {
+        console.log('[useUserProfile] No session or user id, returning null');
+        return null;
+      }
 
       const supabase = getSupabaseClient();
+
+      // DEFENSIVE: Verify Supabase client exists
+      if (!supabase) {
+        console.error('[useUserProfile CRITICAL] getSupabaseClient() returned null/undefined!');
+        throw new Error('Supabase client not initialized');
+      }
+
       const { data, error } = await supabase
         .from('user_profiles')
         .select('*')
@@ -21,9 +31,18 @@ export const useUserProfile = () => {
         .single();
 
       if (error) {
-        console.error('Error fetching profile:', error);
+        console.error('[useUserProfile ERROR] Fetch failed:', error.message);
+        console.error('[useUserProfile ERROR] User ID:', session.user.id);
         throw error;
       }
+
+      // DEFENSIVE: Verify profile data returned
+      if (!data) {
+        console.error('[useUserProfile WARNING] Query succeeded but no data returned for user:', session.user.id);
+      } else if (!data.subscription_status) {
+        console.error('[useUserProfile WARNING] Profile missing subscription_status:', data);
+      }
+
       return data;
     },
     enabled: !!session?.user,

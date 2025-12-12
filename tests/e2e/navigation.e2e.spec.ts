@@ -20,7 +20,8 @@ test.describe('App Navigation', () => {
 
   test('should navigate using nav links', async ({ page }) => {
     await programmaticLogin(page);
-    await page.goto('/');
+    // After login, we're at /session, so use links from there
+    await navigateToRoute(page, '/session');
 
     // Click nav link to Session
     await page.getByRole('link', { name: /practice/i }).first().click();

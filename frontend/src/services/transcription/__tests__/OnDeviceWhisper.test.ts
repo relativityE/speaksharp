@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import LocalWhisper from '../modes/LocalWhisper';
+import OnDeviceWhisper from '../modes/OnDeviceWhisper';
 import { MicStream } from '../utils/types';
 
 // Mock the whisper-turbo library
@@ -22,14 +22,14 @@ vi.mock('whisper-turbo', () => {
   };
 });
 
-describe('LocalWhisper (whisper-turbo backend)', () => {
-  let localWhisper: LocalWhisper;
+describe('OnDeviceWhisper (whisper-turbo backend)', () => {
+  let onDeviceWhisper: OnDeviceWhisper;
   const mockOnTranscriptUpdate = vi.fn();
   const mockOnModelLoadProgress = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
-    localWhisper = new LocalWhisper({
+    onDeviceWhisper = new OnDeviceWhisper({
       onTranscriptUpdate: mockOnTranscriptUpdate,
       onModelLoadProgress: mockOnModelLoadProgress,
       onReady: vi.fn()
@@ -37,11 +37,11 @@ describe('LocalWhisper (whisper-turbo backend)', () => {
   });
 
   it('initializes correctly', async () => {
-    await expect(localWhisper.init()).resolves.not.toThrow();
+    await expect(onDeviceWhisper.init()).resolves.not.toThrow();
   });
 
   it('starts transcription and emits update', async () => {
-    await localWhisper.init();
+    await onDeviceWhisper.init();
 
     const mockMic = {
       onFrame: vi.fn((callback) => {
@@ -53,7 +53,7 @@ describe('LocalWhisper (whisper-turbo backend)', () => {
 
     // We need to mock setTimeout to speed up the 5s recording
     vi.useFakeTimers();
-    const startPromise = localWhisper.startTranscription(mockMic);
+    const startPromise = onDeviceWhisper.startTranscription(mockMic);
 
     vi.advanceTimersByTime(5000);
     await startPromise;
