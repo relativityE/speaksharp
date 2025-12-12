@@ -27,6 +27,22 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 - 🔴 **Console Error Highlighting (P0 - Debugging):** Add automatic ANSI color highlighting for ERROR/FAILED/FATAL (red bold) and WARNING/WARN (yellow bold) in all terminal output. Should apply globally to any console usage (not require agents to remember a specific script). Improves developer experience for spotting issues.
 - 🔴 **Independent Documentation Review:** Have an independent reviewer analyze the codebase against documentation (ARCHITECTURE.md, PRD.md, ROADMAP.md) to identify gaps, outdated sections, and missing coverage. Ensures docs match actual implementation.
 
+### 🔍 External Audit Findings (2025-12-12)
+
+| Finding | Status | Notes |
+|---------|--------|-------|
+| CI/CD `Iname` typo in soak-test.yml | ✅ **FIXED** | Line 1 now correctly reads `name: Soak Test` |
+| Hardcoded test credentials | ✅ **FIXED** | `tests/constants.ts` now uses `process.env` with fallbacks |
+| CONCURRENT_USERS=2 (not load test) | ✅ **FIXED** | Now configurable via `process.env.CONCURRENT_USERS` |
+| No Error Boundary | ✅ **WAS ALREADY FIXED** | `Sentry.ErrorBoundary` exists in `main.tsx:111` |
+| Flaky selectors (no test IDs) | ✅ **WAS ALREADY FIXED** | Centralized `TEST_IDS` with `data-testid` attributes |
+| Supabase singleton issues | ⚠️ **N/A** | Already using context provider pattern |
+
+**Audit Recommendations Implemented:**
+- ✅ Credentials now load from `process.env.TEST_USER_PASSWORD`, `SOAK_TEST_PASSWORD_1`, etc.
+- ✅ CONCURRENT_USERS can be set via CI env (e.g., `CONCURRENT_USERS=20` for load testing)
+- ✅ Global Error Boundary already exists via Sentry integration
+
 ### ⚠️ Known Issues
 
 - **✅ RESOLVED - Usage Limit Pre-Check UX (2025-12-11)**
