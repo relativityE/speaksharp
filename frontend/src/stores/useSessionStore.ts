@@ -52,7 +52,8 @@ export const useSessionStore = create<SessionStore>((set) => ({
         set({
             isListening: false,
             startTime: null,
-            elapsedTime: 0,
+            // P1 FIX: Don't reset elapsedTime here - let UI show final duration
+            // elapsedTime is reset in resetSession() when starting a new session
         }),
 
     setReady: (ready) =>

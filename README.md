@@ -61,6 +61,7 @@ To get started with SpeakSharp, you'll need to have Node.js (version 22.12.0 or 
     Create a `.env` file in the project root with these required variables:
     
     ```bash
+    # Frontend (Vite) - Required for build
     VITE_SUPABASE_URL=https://your-project.supabase.co
     VITE_SUPABASE_ANON_KEY=your-anon-key-here
     VITE_STRIPE_PUBLISHABLE_KEY=pk_test_your-key-here
@@ -68,6 +69,17 @@ To get started with SpeakSharp, you'll need to have Node.js (version 22.12.0 or 
     
     **The build will fail immediately if any required variables are missing.**  
     See `env.required` for the complete list or copy `.env.example` to `.env` and fill in your values.
+
+    **Backend (Supabase Edge Functions):**
+    
+    These are Supabase secrets, set via `supabase secrets set` or the Supabase Dashboard:
+    
+    ```bash
+    ASSEMBLYAI_API_KEY=your-assemblyai-key    # For cloud transcription
+    STRIPE_SECRET_KEY=sk_test_your-key        # For payment processing
+    STRIPE_WEBHOOK_SECRET=whsec_your-secret   # For webhook verification
+    SUPABASE_SERVICE_ROLE_KEY=your-role-key   # For admin DB operations
+    ```
 
 5.  **Run the development server:**
     ```bash

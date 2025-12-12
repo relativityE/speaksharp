@@ -29,7 +29,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 
 ### 🚨 Alpha Launch Blockers (Comprehensive Audit - 2025-12-12)
 
-> **Source:** Independent code review by Manus AI. Verified with code evidence.
+> **Source:** Independent code review. Verified with code evidence.
 
 #### P0 - Must Fix Before Alpha
 
@@ -54,7 +54,14 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 - 🟡 **Filler Word Regex False Positives:** Simple regex patterns for "like" and "so" will match legitimate uses (e.g., "I like pizza", "so what happened").
   - **File:** `fillerWordUtils.ts:39-41`
   - **Evidence:** `/\b(like)\b/gi` matches all instances, not just filler usage
-  - **Fix (Beta):** Integrate NLP model for Part-of-Speech tagging to only flag interjections
+  - **Reviewer Comment:** "More advanced NLP techniques or context-aware models are typically required for high-accuracy filler word detection, which is a core feature."
+  - **Problem Explained:**
+    - "I **like** pizza" → Counted as filler (WRONG - it's a verb)
+    - "It's, **like**, really big" → Counted as filler (CORRECT - it's a filler)
+    - "**So** what happened?" → Counted as filler (WRONG - it's a conjunction)
+    - "**So**... I was thinking" → Counted as filler (CORRECT - it's a discourse marker)
+  - **Fix (Beta):** Integrate NLP library (e.g., `compromise` or `transformers.js`) for Part-of-Speech tagging to only flag words when used as interjections/discourse markers
+  - **Alpha Decision:** Current regex is acceptable for alpha. Users may see some false positives. Refinement based on real user feedback in Beta.
 
 - 🟡 **Missing Backend Env Vars in env.required:** The `env.required` file only lists frontend VITE_ variables, not backend secrets needed for Edge Functions.
   - **File:** `env.required`

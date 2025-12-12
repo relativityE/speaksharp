@@ -505,7 +505,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Solution:** Implemented buffer clearing after each processing cycle (`audioChunks = []`)
   - **Impact:** On-device STT now scalable for sessions >5 minutes, flagship feature production-ready
   - **Location:** `frontend/src/services/transcription/modes/OnDeviceWhisper.ts:178`
-  - **Finding:** Jules' Architectural Analysis Finding 3.1
+  - **Finding:** Architectural Analysis Finding 3.1
 
 - **Integration Test Stability (2025-11-30):**
   - **AuthPage:** Resolved 9 failing integration tests by improving error handling for Supabase responses and adding client-side password validation.

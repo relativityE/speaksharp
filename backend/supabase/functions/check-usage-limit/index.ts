@@ -75,6 +75,22 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
 
         if (!resetDate || resetDate <= oneMonthAgo) {
             usedSeconds = 0;
+            // P0 FIX: Actually persist the reset to the database
+            const newResetDate = new Date().toISOString();
+            const { error: resetError } = await supabaseClient
+                .from('user_profiles')
+                .update({
+                    usage_seconds: 0,
+                    usage_reset_date: newResetDate,
+                })
+                .eq('id', user.id);
+
+            if (resetError) {
+                console.error('Failed to reset usage in database:', resetError);
+                // Continue with local reset value - user experience is still correct
+            } else {
+                console.log(`✅ Monthly usage reset for user ${user.id}, new reset date: ${newResetDate}`);
+            }
         }
 
         // Pro users have unlimited usage
