@@ -430,6 +430,32 @@ The project uses **two distinct Supabase configurations** depending on the execu
 
 ---
 
+#### 3.6 Setup Test Users (`setup-test-users.yml`)
+
+**Purpose:** Creates or updates test users (Free/Pro) in the real Supabase database securely using GitHub Secrets.
+
+**Supabase Mode:** Real (modifies production authentication)
+
+**What it does:**
+1. Generates or retrieves test credentials from GitHub Secrets
+2. Calls Supabase Admin API to create user or update password
+3. Sets `email_confirmed_at` to ensure user can sign in immediately
+4. Creates necessary profile records
+5. Outputs credentials to workflow summary for use in other tests
+
+**Trigger:** Manual (`workflow_dispatch`)
+
+**Inputs:**
+- `user_type`: "free" or "pro" (default: free)
+
+**Required Secrets:**
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_KEY`
+- `E2E_FREE_EMAIL` / `E2E_FREE_PASSWORD`
+- `E2E_PRO_EMAIL` / `E2E_PRO_PASSWORD`
+
+---
+
 #### 4. Deploy Supabase Migrations (`deploy-supabase-migrations.yml`)
 
 

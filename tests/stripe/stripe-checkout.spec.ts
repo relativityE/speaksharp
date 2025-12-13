@@ -46,12 +46,13 @@ test.describe('Stripe Checkout Flow', () => {
         await page.click('button[type="submit"]');
 
         await page.waitForURL('/session');
-        await page.waitForLoadState('networkidle'); // Ensure auth state fully hydrated
-        console.log('✅ Sign-in successful, auth state hydrated');
+        await page.waitForURL('/session');
+        console.log('✅ Sign-in successful, redirect complete');
 
         // Step 2: Navigate to analytics
         console.log('[Stripe Test] Step 2: Navigating to analytics...');
-        await page.goto('/analytics', { waitUntil: 'networkidle' });
+        await page.goto('/analytics');
+        // networkidle is flaky due to background polling - just wait for the element we need
         await expect(page.getByTestId('analytics-dashboard-upgrade-button')).toBeVisible();
         console.log('✅ Analytics page loaded, upgrade banner visible');
 
