@@ -8,7 +8,7 @@
  * 
  * What it does:
  * 1. Signs in with E2E_FREE_EMAIL test user (guaranteed FREE tier)
- * 2. Navigates to /pricing and clicks "Upgrade to Pro"
+ * 2. Navigates to /analytics and clicks "Upgrade Now" on the upgrade banner
  * 3. Verifies redirect to Stripe checkout
  * 
  * Prerequisites:
@@ -52,15 +52,16 @@ test.describe('Stripe Checkout Flow', () => {
         await expect(page.getByTestId('app-main')).toBeVisible({ timeout: 10000 });
         console.log('✅ Sign-in successful');
 
-        // Step 2: Navigate to pricing page
-        console.log('[Stripe Test] Step 2: Navigating to pricing...');
-        await page.goto('/pricing');
+        // Step 2: Navigate to analytics page (where the Upgrade banner is)
+        console.log('[Stripe Test] Step 2: Navigating to analytics...');
+        await page.goto('/analytics');
         await page.waitForLoadState('domcontentloaded');
-        console.log('✅ Navigated to pricing page');
+        await expect(page.getByTestId('analytics-dashboard-upgrade-button')).toBeVisible({ timeout: 15000 });
+        console.log('✅ Navigated to analytics page, upgrade banner visible');
 
-        // Step 3: Click "Upgrade to Pro" button
-        console.log('[Stripe Test] Step 3: Clicking Upgrade to Pro...');
-        const upgradeButton = page.getByRole('button', { name: /upgrade to pro/i });
+        // Step 3: Click "Upgrade Now" button on the dashboard
+        console.log('[Stripe Test] Step 3: Clicking Upgrade Now...');
+        const upgradeButton = page.getByRole('button', { name: /upgrade now/i });
         await expect(upgradeButton).toBeVisible({ timeout: 10000 });
 
         // Listen for Edge Function response
