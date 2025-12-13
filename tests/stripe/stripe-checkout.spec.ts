@@ -47,8 +47,8 @@ test.describe('Stripe Checkout Flow', () => {
         await page.fill('input[type="password"]', testPassword);
         await page.click('button[type="submit"]');
 
-        // Wait for successful login - redirect to home
-        await page.waitForURL('/', { timeout: 15000 });
+        // Wait for successful login - redirect to session page
+        await page.waitForURL('/session', { timeout: 15000 });
         await expect(page.getByTestId('app-main')).toBeVisible({ timeout: 10000 });
         console.log('✅ Sign-in successful');
 
