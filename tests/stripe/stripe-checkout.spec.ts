@@ -51,8 +51,24 @@ test.describe('Stripe Checkout Flow', () => {
 
         // Step 2: Navigate to analytics
         console.log('[Stripe Test] Step 2: Navigating to analytics...');
+
+        // Forward browser console to test output for debugging
+        page.on('console', msg => console.log(`[BROWSER] ${msg.text()}`));
+
         await page.goto('/analytics');
-        // networkidle is flaky due to background polling - just wait for the element we need
+
+        // Diagnostic: Check what's rendering
+        const hasSpinner = await page.locator('.animate-spin').isVisible();
+        const hasDashboard = await page.getByTestId('analytics-dashboard').isVisible();
+        console.log(`[Stripe Test] Page state: spinner=${hasSpinner}, dashboard=${hasDashboard}`);
+
+        // Wait for loading to complete (spinner disappears)
+        if (hasSpinner) {
+            console.log('[Stripe Test] ⏳ Waiting for loading spinner to disappear...');
+            await page.locator('.animate-spin').waitFor({ state: 'hidden', timeout: 30000 });
+            console.log('[Stripe Test] ✅ Loading complete');
+        }
+
         await expect(page.getByTestId('analytics-dashboard-upgrade-button')).toBeVisible();
         console.log('✅ Analytics page loaded, upgrade banner visible');
 

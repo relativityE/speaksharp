@@ -12,6 +12,11 @@ test.describe('UI State Capture', () => {
     // - if env var UI_CAPTURE_PAGES provided: comma-separated pages, e.g. "homepage,sessions,analytics"
     const pagesToCapture = pagesFromEnv ?? ['homepage', 'sessions', 'analytics'];
 
+    // Track login state to avoid redundant MSW re-initialization
+    // Each programmaticLogin() calls page.goto('/') which destroys the MSW context
+    // and requires a full service worker re-registration (slow and flaky)
+    let isLoggedIn = false;
+
     const captureForPage = async (which: string) => {
       switch (which) {
         case 'homepage':
@@ -21,17 +26,24 @@ test.describe('UI State Capture', () => {
 
           // authenticated homepage
           await programmaticLogin(page);
+          isLoggedIn = true;
           await capturePage(page, `homepage-auth-${testInfo.workerIndex}.png`, 'auth');
           break;
 
         case 'sessions':
-          await programmaticLogin(page);
+          if (!isLoggedIn) {
+            await programmaticLogin(page);
+            isLoggedIn = true;
+          }
           await navigateToRoute(page, '/sessions');
           await capturePage(page, `sessions-${testInfo.workerIndex}.png`, 'auth');
           break;
 
         case 'analytics':
-          await programmaticLogin(page);
+          if (!isLoggedIn) {
+            await programmaticLogin(page);
+            isLoggedIn = true;
+          }
           await navigateToRoute(page, '/analytics');
           await capturePage(page, `analytics-${testInfo.workerIndex}.png`, 'auth');
           break;

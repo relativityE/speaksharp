@@ -50,15 +50,16 @@ export function attachLiveTranscript(page: Page): void {
  * Waits for a custom event dispatched by the E2E bridge
  */
 export async function waitForE2EEvent(page: Page, eventName: string): Promise<void> {
+  // Special handling for msw-ready: use polling which is more robust than event listeners
+  // because it handles all race conditions (flag set before/during/after) automatically.
+  if (eventName === 'e2e:msw-ready') {
+    await page.waitForFunction(() => window.mswReady === true, undefined, { timeout: 30000 });
+    return;
+  }
+
+  // Fallback for other events (though we mainly use this for msw-ready)
   await page.evaluate((name) => {
     return new Promise<void>((resolve) => {
-      // If the event has already fired, check fallback flag for mswReady
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      if (name === 'e2e:msw-ready' && (window as any).mswReady) {
-        resolve();
-        return;
-      }
-
       window.addEventListener(name, () => resolve(), { once: true });
     });
   }, eventName);
@@ -71,6 +72,10 @@ export async function waitForE2EEvent(page: Page, eventName: string): Promise<vo
 /**
  * Programmatic login using MSW network interception.
  * Sets __E2E_MOCK_SESSION__ flag to trigger mock session injection.
+ * 
+ * ⚠️ IMPORTANT: This function triggers a full page reload via page.goto('/').
+ * Do NOT call this multiple times in the same test - it will destroy the MSW context.
+ * Use `navigateToRoute()` for subsequent page navigation after login.
  */
 export async function programmaticLogin(
   page: Page
@@ -78,10 +83,13 @@ export async function programmaticLogin(
   console.log('[E2E DEBUG] Starting programmaticLogin');
 
   // 1. Set flag before navigation (AuthProvider checks this)
+  // Using idempotency guard to prevent script stacking from multiple calls
   console.log('[E2E DEBUG] Setting __E2E_MOCK_SESSION__ flag');
   await page.addInitScript(() => {
-    (window as unknown as { __E2E_MOCK_SESSION__: boolean }).__E2E_MOCK_SESSION__ = true;
-    // Note: MockSpeechRecognition is provided by e2e-bridge.ts, not here
+    // Guard against multiple script additions (addInitScript stacks cumulatively)
+    if (!(window as unknown as { __E2E_MOCK_SESSION__: boolean }).__E2E_MOCK_SESSION__) {
+      (window as unknown as { __E2E_MOCK_SESSION__: boolean }).__E2E_MOCK_SESSION__ = true;
+    }
   });
 
   // 2. Navigate to app
@@ -263,9 +271,7 @@ export async function mockLiveTranscript(
 ): Promise<void> {
   for (const line of lines) {
     await page.evaluate((text) => {
-      // @ts-expect-error - dispatchMockTranscript is added by e2e-bridge.ts at runtime
       if (typeof window.dispatchMockTranscript === 'function') {
-        // @ts-expect-error - dispatchMockTranscript is added by e2e-bridge.ts at runtime
         window.dispatchMockTranscript(text, true);
       } else {
         console.error('[E2E Helper] window.dispatchMockTranscript is not defined!');
@@ -291,7 +297,7 @@ export async function capturePage(
       : '[data-testid="nav-sign-out-button"]';
 
   await page.waitForSelector(selector, {
-    state: 'visible',
+    state: authState === 'unauth' ? 'visible' : 'attached', // Sign-out may be in collapsed nav
     timeout: 20000,
   });
 

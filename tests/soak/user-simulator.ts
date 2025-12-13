@@ -152,19 +152,25 @@ export class UserSimulator {
 
         for (let i = 0; i < iterations; i++) {
             // Simulate speech input to keep session active (works with MockSpeechRecognition in E2E mode)
-            await page.evaluate((iteration: number) => {
+            const speechWorked = await page.evaluate((iteration: number) => {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const simulateSpeech = (window as any).__simulateSpeechResult;
-                if (typeof simulateSpeech === 'function') {
+                const dispatchMockTranscript = (window as any).dispatchMockTranscript;
+                if (typeof dispatchMockTranscript === 'function') {
                     const phrases = [
                         'Testing speech recognition',
                         'This is a soak test',
                         'Simulating user input',
                         'Practice makes perfect',
                     ];
-                    simulateSpeech(phrases[iteration % phrases.length], true);
+                    dispatchMockTranscript(phrases[iteration % phrases.length], true);
+                    return true;
                 }
+                return false;
             }, i);
+
+            if (!speechWorked && i === 0) {
+                console.warn('[User] ⚠️ dispatchMockTranscript not available - speech simulation disabled');
+            }
 
             await page.waitForTimeout(checkInterval);
 
