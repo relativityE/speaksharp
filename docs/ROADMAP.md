@@ -23,9 +23,10 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - ⏸️ **BLOCKED** - Shorten OTP expiry to <1 hour (requires Supabase Pro account)
   - ⏸️ **BLOCKED** - Enable leaked password protection (requires Supabase Pro account)
   - ⏸️ **DEFERRED** - Upgrade Postgres version (not critical for alpha)
-- 🔴 **Integration Test (Usage Limits):** Create a script/task to verify `check-usage-limit` against real Supabase (Staging/Production) to validate logic without mocks. Current tests use Mock Service Worker.
-- 🔴 **Console Error Highlighting (P0 - Debugging):** Add automatic ANSI color highlighting for ERROR/FAILED/FATAL (red bold) and WARNING/WARN (yellow bold) in all terminal output. Should apply globally to any console usage (not require agents to remember a specific script). Improves developer experience for spotting issues.
-- 🔴 **Independent Documentation Review:** Have an independent reviewer analyze the codebase against documentation (ARCHITECTURE.md, PRD.md, ROADMAP.md) to identify gaps, outdated sections, and missing coverage. Ensures docs match actual implementation.
+- 🟡 **Integration Test (Usage Limits) [HIGH PRIORITY]:** Create a script/task to verify `check-usage-limit` against real Supabase (Staging/Production) to validate logic without mocks. Current tests use Mock Service Worker.
+- 🟡 **Console Error Highlighting (P0 - Debugging) [HIGH PRIORITY]:** Add automatic ANSI color highlighting for ERROR/FAILED/FATAL (red bold) and WARNING/WARN (yellow bold) in all terminal output. Should apply globally to any console usage (not require agents to remember a specific script). Improves developer experience for spotting issues.
+- 🟡 **Independent Documentation Review [HIGH PRIORITY]:** Have an independent reviewer analyze the codebase against documentation (ARCHITECTURE.md, PRD.md, ROADMAP.md) to identify gaps, outdated sections, and missing coverage. Ensures docs match actual implementation.
+- 🟡 **Gap Analysis [HIGH PRIORITY]:** Do a Gap Analysis of current implementation against the Current Phase requirements.
 
 ### 🚨 Alpha Launch Blockers (Comprehensive Audit - 2025-12-12)
 
@@ -33,23 +34,20 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 
 #### P0 - Must Fix Before Alpha
 
-- 🔴 **Usage Reset Never Writes to DB:** The `check-usage-limit` Edge Function resets `usedSeconds` locally but never writes the reset to the database. Free users will never have their monthly usage reset.
-  - **File:** `check-usage-limit/index.ts:72-78`
-  - **Evidence:** `if (!resetDate || resetDate <= oneMonthAgo) { usedSeconds = 0; }` - sets local var but no DB update follows
-  - **Fix:** Add Supabase UPDATE call to reset `usage_seconds` and set new `usage_reset_date`
+- ✅ **Usage Reset DB Persistence (2025-12-12):** The `check-usage-limit` Edge Function now persists monthly usage resets to the database.
+  - **File:** `check-usage-limit/index.ts:78-93`
+  - **Fix:** Added Supabase UPDATE call to reset `usage_seconds` to 0 and set new `usage_reset_date`
 
-- 🔴 **Missing Stripe Subscription Webhooks:** The `stripe-webhook` Edge Function only handles `checkout.session.completed`. Missing handlers for subscription lifecycle events.
-  - **File:** `stripe-webhook/index.ts:25-36`
-  - **Missing Events:** `customer.subscription.deleted`, `customer.subscription.updated`, `invoice.payment_failed`
-  - **Impact:** Users who cancel or whose payment fails retain "Pro" status forever
-  - **Fix:** Add handlers to downgrade `subscription_status` to 'free' on cancel/fail
+- ✅ **Stripe Subscription Webhooks (2025-12-12):** The `stripe-webhook` Edge Function now handles all subscription lifecycle events.
+  - **File:** `stripe-webhook/index.ts:46-109`
+  - **Events Handled:** `customer.subscription.deleted`, `customer.subscription.updated`, `invoice.payment_failed`
+  - **Behavior:** Downgrades `subscription_status` to 'free' on cancellation, unpaid status, or after 3 failed payment attempts
 
 #### P1 - Should Fix (Tech Debt)
 
-- 🟡 **Session Store elapsedTime Reset:** The `stopSession` action in `useSessionStore.ts` resets `elapsedTime` to 0 immediately, which could cause brief UI flicker before final stats display.
-  - **File:** `useSessionStore.ts:51-56`
-  - **Evidence:** `stopSession: () => set({ ... elapsedTime: 0 })`
-  - **Fix:** Move `elapsedTime: 0` to `resetSession` only, not `stopSession`
+- ✅ **Session Store elapsedTime Reset (2025-12-12):** The `stopSession` action no longer resets `elapsedTime`, allowing UI to show final duration.
+  - **File:** `useSessionStore.ts:51-57`
+  - **Fix:** `elapsedTime` reset moved to `resetSession()` only
 
 - 🟡 **Filler Word Regex False Positives:** Simple regex patterns for "like" and "so" will match legitimate uses (e.g., "I like pizza", "so what happened").
   - **File:** `fillerWordUtils.ts:39-41`
@@ -63,10 +61,16 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - **Fix (Beta):** Integrate NLP library (e.g., `compromise` or `transformers.js`) for Part-of-Speech tagging to only flag words when used as interjections/discourse markers
   - **Alpha Decision:** Current regex is acceptable for alpha. Users may see some false positives. Refinement based on real user feedback in Beta.
 
-- 🟡 **Missing Backend Env Vars in env.required:** The `env.required` file only lists frontend VITE_ variables, not backend secrets needed for Edge Functions.
-  - **File:** `env.required`
-  - **Missing:** `ASSEMBLYAI_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`
-  - **Note:** Backend vars are Supabase secrets, not Vite. Consider separate `backend.env.required` or document in README
+- ✅ **Document Backend Secrets for Contributors (2025-12-12):** Added backend secrets documentation to `.env.example`.
+  - **File:** `./.env.example` (project root)
+  - **Documented:** `ASSEMBLYAI_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SUPABASE_SERVICE_ROLE_KEY` (set via Supabase Dashboard or CLI)
+
+- ✅ **Stripe "Pro Mode" Backend Flag (2025-12-12):** Completed Stripe checkout integration.
+  - **Backend:** `stripe-checkout/index.ts` now uses `STRIPE_PRO_PRICE_ID` env var, extracts user from auth header, includes userId in metadata
+  - **Frontend:** `PricingPage.tsx`, `UpgradePromptDialog.tsx`, `AnalyticsDashboard.tsx` updated to handle `checkoutUrl` response
+  - **Testing:** Added `stripe-checkout-test.yml` workflow and `setup-test-users.yml` for E2E testing with real credentials
+
+- ✅ **Whisper Architecture Documentation (2025-12-12):** ARCHITECTURE.md section 3.2.1 expanded with comprehensive Service Worker caching strategy, architecture diagram, component tables, and setup instructions.
 
 #### P2 - Known Limitations (Alpha Acceptable)
 
@@ -150,7 +154,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - **Status:** ✅ Fixed (aligned with `e2e-bridge.ts`)
 
 ### Gating Check
-- 🔴 **Do a Gap Analysis of current implementation against the Current Phase requirements.**
+- 🟡 **Gap Analysis:** See high priority items in Phase 1 Tech Debt section above.
 
 ---
 ## Phase 2: User Validation & Polish
@@ -357,7 +361,7 @@ This phase focuses on long-term architecture, scalability, and preparing for fut
   - *Status:* ✅ Complete (2025-12-08). Implemented in `CloudAssemblyAI.ts` with exponential backoff (1s-30s), max 5 retries, 30s heartbeat, connection state callbacks.
 
 ### 🌱 Could-Have (Future Enhancements)
-- 🔴 **Implement Stripe "Pro Mode" Flag:** For feature gating and usage-based billing.
+- ✅ **Implement Stripe "Pro Mode" Flag (2025-12-12):** Completed. See P1 section above.
   - *Status:* Partially Implemented. `UpgradePromptDialog` and `PricingPage` exist, but the backend "Pro Mode" flag and full checkout flow are incomplete.
 - 🟡 **Whisper Model Caching & Auto-Update:** Create a script to manage the on-device Whisper model lifecycle:
   - ✅ **Implement Script & SW:** `download-whisper-model.sh` and `sw.js` (Completed 2025-12-10). Reduced load time from >30s to <5s.

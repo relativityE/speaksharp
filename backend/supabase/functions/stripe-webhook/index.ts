@@ -27,9 +27,18 @@ serve(async (req) => {
     // Handle checkout completion - upgrade to Pro
     if (event.type === "checkout.session.completed") {
       const session = event.data.object
-      const { userId, subscriptionId } = session.metadata
+      const userId = session.metadata?.userId
+      const subscriptionId = session.subscription // This is the subscription ID
 
-      console.log(`[Stripe] Upgrading user ${userId} to Pro`)
+      if (!userId) {
+        console.error("[Stripe] Missing userId in checkout session metadata")
+        return new Response(JSON.stringify({ error: "Missing userId metadata" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        })
+      }
+
+      console.log(`[Stripe] Upgrading user ${userId} to Pro (subscription: ${subscriptionId})`)
       const { error } = await supabase
         .from("user_profiles")
         .update({
@@ -40,6 +49,8 @@ serve(async (req) => {
 
       if (error) {
         console.error(`[Stripe] Failed to upgrade user ${userId}:`, error)
+      } else {
+        console.log(`[Stripe] ✅ User ${userId} upgraded to Pro successfully`)
       }
     }
 

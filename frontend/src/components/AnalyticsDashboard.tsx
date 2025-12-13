@@ -303,7 +303,11 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ profile 
             if (!supabase) throw new Error("Supabase client not available");
             const { data, error } = await supabase.functions.invoke('stripe-checkout');
             if (error) throw error;
-            if (data.checkoutUrl) window.location.href = data.checkoutUrl;
+            if (data?.checkoutUrl) {
+                window.location.href = data.checkoutUrl;
+            } else {
+                throw new Error("No checkout URL returned");
+            }
         } catch (err: unknown) {
             logger.error({ err }, 'Error creating Stripe checkout session:');
             toast.error('Unable to start upgrade process. Please try again or contact support.');

@@ -120,9 +120,8 @@ describe('PricingPage', () => {
             await user.click(proButton);
 
             await waitFor(() => {
-                expect(mockInvoke).toHaveBeenCalledWith('stripe-checkout', {
-                    body: { priceId: 'pro' },
-                });
+                // Backend now uses STRIPE_PRO_PRICE_ID env var, no body needed
+                expect(mockInvoke).toHaveBeenCalledWith('stripe-checkout');
             });
 
             // Restore original location

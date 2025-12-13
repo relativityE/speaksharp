@@ -9,16 +9,40 @@ import {
   MOCK_TRANSCRIPTS,
 } from './fixtures/mockData';
 
-/* ---------------------------------------------
-   Utilities
----------------------------------------------- */
+/**
+ * ANSI color codes for terminal output
+ */
+const ANSI = {
+  RED: '\x1b[31m',
+  YELLOW: '\x1b[33m',
+  BOLD: '\x1b[1m',
+  RESET: '\x1b[0m',
+};
 
 /**
- * Stream console logs into Playwright (original feature)
+ * Stream console logs into Playwright with colorized ERROR/WARN output
+ * - ERROR messages appear in red bold
+ * - WARN messages appear in yellow
+ * - Other messages appear normally
  */
 export function attachLiveTranscript(page: Page): void {
   page.on('console', (msg) => {
-    console.log(`[BROWSER ${msg.type().toUpperCase()}] ${msg.text()}`);
+    const type = msg.type().toUpperCase();
+    const text = msg.text();
+
+    // Apply color based on message type
+    let prefix = '';
+    let suffix = '';
+
+    if (type === 'ERROR') {
+      prefix = ANSI.RED + ANSI.BOLD;
+      suffix = ANSI.RESET;
+    } else if (type === 'WARNING' || type === 'WARN') {
+      prefix = ANSI.YELLOW;
+      suffix = ANSI.RESET;
+    }
+
+    console.log(`${prefix}[BROWSER ${type}] ${text}${suffix}`);
   });
 }
 

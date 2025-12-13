@@ -398,7 +398,40 @@ The project uses **two distinct Supabase configurations** depending on the execu
 
 ---
 
+#### 3.5 Stripe Checkout Test (`stripe-checkout-test.yml`)
+
+**Purpose:** Validates the Stripe checkout Edge Function works correctly with real credentials.
+
+**Supabase Mode:** Real (uses live database and Stripe test mode)
+
+**What it does:**
+1. Sets `VITE_USE_LIVE_DB: "true"` - Disables MSW mocking, uses real Supabase
+2. Injects real Supabase and Stripe credentials from GitHub secrets
+3. Uses FREE tier test user credentials (`E2E_FREE_EMAIL`/`E2E_FREE_PASSWORD`)
+4. Runs `frontend/tests/integration/stripe-checkout.spec.ts`
+5. Verifies clicking "Upgrade to Pro" redirects to `checkout.stripe.com`
+
+**Trigger:** Manual (`workflow_dispatch`)
+
+**Required Secrets:**
+| Secret | Purpose |
+|--------|---------|
+| `SUPABASE_URL` | Real Supabase project URL |
+| `SUPABASE_ANON_KEY` | Real Supabase anon key |
+| `SUPABASE_SERVICE_KEY` | Service role key for backend operations |
+| `STRIPE_PUBLISHABLE_KEY` | Stripe test mode publishable key (pk_test_...) |
+| `E2E_FREE_EMAIL` | Email of a FREE tier user in Supabase |
+| `E2E_FREE_PASSWORD` | That user's password |
+
+**When to use:**
+- After modifying `stripe-checkout` Edge Function
+- After changes to pricing page or upgrade flow
+- Pre-release validation of payment integration
+
+---
+
 #### 4. Deploy Supabase Migrations (`deploy-supabase-migrations.yml`)
+
 
 **Purpose:** Pushes database schema migrations from `backend/supabase/migrations/` to the production Supabase database.
 
@@ -887,12 +920,101 @@ Returns unified API: { transcript, startListening, stopListening, ... }
 ```
 
 ### 3.2.1 On-Device Model Caching Strategy
-To enable a performant "On-Device" transcription mode without repeated large downloads (30MB+), an aggressive caching strategy is implemented:
 
-- **Service Worker (`sw.js`):** A dedicated Service Worker intercepts network requests for the Whisper model file (`tiny-q8g16.bin`).
-- **Cache-First Strategy:** The worker checks a specific cache (`whisper-models-v1`) before network.
-- **Lazy Loading:** The model is only downloaded when the user actively selects "On-Device" mode and starts a session.
-- **Performance:** Reduces subsequent load times from >30s to <1s (effectively instant).
+To enable a performant "On-Device" transcription mode without repeated 30MB+ downloads, an aggressive two-layer caching strategy is implemented.
+
+#### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         User Starts Session                              │
+│                    (Selects "On-Device" Mode)                           │
+└───────────────────────────────┬─────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      OnDeviceWhisper.init()                             │
+│                  (Dynamic import - lazy loaded)                          │
+└───────────────────────────────┬─────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     Service Worker (sw.js)                               │
+│                   Intercepts model file requests                         │
+├─────────────────────────────────────────────────────────────────────────┤
+│  1. Check CacheStorage (whisper-models-v1)                              │
+│     ├── HIT  → Return cached file instantly (<1s)                       │
+│     └── MISS → Continue to step 2                                       │
+│                                                                          │
+│  2. Fetch from local /models/ directory (bundled assets)                │
+│     ├── SUCCESS → Cache response, return to app                         │
+│     └── FAIL    → Fallback to CDN (step 3)                              │
+│                                                                          │
+│  3. Fallback: Fetch from remote CDN                                     │
+│     └── Cache for future use                                            │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Key Components
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| **Service Worker** | `frontend/public/sw.js` | Intercepts and caches model requests |
+| **Model Downloader** | `scripts/download-whisper-model.sh` | Pre-downloads models to `/public/models/` |
+| **OnDeviceWhisper** | `frontend/src/services/transcription/modes/OnDeviceWhisper.ts` | Loads and runs Whisper model |
+
+#### Model Files
+
+| File | Size | Source | Purpose |
+|------|------|--------|---------|
+| `tiny-q8g16.bin` | ~30MB | rmbl.us/whisper-turbo | Quantized Whisper Tiny model (English) |
+| `tokenizer.json` | ~2MB | HuggingFace | Text encoding/decoding configuration |
+
+#### URL Mappings (sw.js)
+
+The Service Worker maps remote CDN URLs to local bundled paths:
+
+```javascript
+const URL_MAPPINGS = {
+  'https://rmbl.us/whisper-turbo/tiny-q8g16.bin': '/models/tiny-q8g16.bin',
+  'https://huggingface.co/.../tokenizer.json': '/models/tokenizer.json',
+};
+```
+
+#### Caching Strategy
+
+- **Cache-First:** Always attempt to serve from CacheStorage before network
+- **Local Fallback:** If cache miss, try bundled `/models/` directory before CDN
+- **Immutable Models:** No expiration (version bumps via `MODEL_CACHE_NAME`)
+- **Offline Support:** After first download, works completely offline
+
+#### Performance Impact
+
+| Scenario | Load Time | Network Usage |
+|----------|-----------|---------------|
+| First Load (no cache) | ~30s (CDN download) | 30MB |
+| Subsequent Loads (cached) | <1s | 0 bytes |
+| With Pre-downloaded Models | <1s (first load) | 0 bytes |
+
+#### Setup for Development
+
+```bash
+# Pre-download models for instant first-load experience
+./scripts/download-whisper-model.sh
+
+# Verify models exist
+ls -lh frontend/public/models/
+# tiny-q8g16.bin (~30MB)
+# tokenizer.json (~2MB)
+```
+
+#### Versioning
+
+To invalidate the cache (e.g., after model upgrade), bump the version in `sw.js`:
+
+```javascript
+const MODEL_CACHE_NAME = 'whisper-models-v2'; // was v1
+```
 
 ### 3.3. Key Components
 The main `index.ts` contains only:

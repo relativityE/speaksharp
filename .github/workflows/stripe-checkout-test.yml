@@ -1,14 +1,10 @@
-name: Soak Test
+name: Stripe Test
 
-on:
-  # Allows you to run this workflow manually from the Actions tab
-  workflow_dispatch:
-  # Optional: Run on a schedule (e.g., every night at midnight)
-  # schedule:
-  #   - cron: '0 0 * * *'
+on: 
+  workflow_dispatch: # Manual trigger only
 
 jobs:
-  run-soak-test:
+  stripe-checkout-test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -32,11 +28,12 @@ jobs:
 
       - name: Create .env.development from Secrets
         run: |
-          cat > .env.development << EOF
+          cat > .env.development <<EOF
           VITE_SUPABASE_URL=${{ secrets.SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
           VITE_API_URL=http://localhost:3000
-          VITE_STRIPE_PUBLISHABLE_KEY=pk_test_mock
+          VITE_STRIPE_PUBLISHABLE_KEY=${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          STRIPE_PRO_PRICE_ID=${{ secrets.STRIPE_PRO_PRICE_ID }}
           EOF
           # Verify file creation (without printing secrets)
           echo "Created .env.development with $(wc -l < .env.development) lines"
@@ -47,20 +44,24 @@ jobs:
       - name: Build application
         run: pnpm build
 
-      - name: Start dev server and run soak test
+      - name: Start dev server and run Stripe checkout test
+        env:
+          # Real Supabase mode (test uses E2E_FREE_* credentials from secrets)
+          VITE_USE_LIVE_DB: "true"
+          # Test user credentials (FREE tier - created by setup-test-users workflow)
+          E2E_FREE_EMAIL: ${{ secrets.E2E_FREE_EMAIL }}
+          E2E_FREE_PASSWORD: ${{ secrets.E2E_FREE_PASSWORD }}
         run: |
-          # Start the dev server in background with E2E mode for MockSpeechRecognition
-          # This enables speech simulation without a real microphone, while still using
-          # real Supabase auth (credentials from SOAK_TEST_USERS)
-          VITE_E2E=true pnpm dev &
+          # Start the dev server in background
+          pnpm dev &
           DEV_PID=$!
           
           # Wait for dev server to be ready
           echo "Waiting for dev server..."
           npx wait-on http://localhost:5173 --timeout 60000
           
-          # Run the soak test
-          pnpm exec playwright test --config=playwright.soak.config.ts --project=chromium
+          # Run the Stripe checkout test
+          pnpm exec playwright test frontend/tests/integration/stripe-checkout.spec.ts --project=chromium
           
           # Kill dev server
           kill $DEV_PID || true
@@ -69,8 +70,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: soak-test-results
+          name: stripe-checkout-test-results
           path: |
-            test-results/soak/
-            test-results/soak-report/
+            test-results/
           retention-days: 7
+

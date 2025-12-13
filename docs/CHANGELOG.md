@@ -30,6 +30,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Custom Component Showcase:** Added `/design` route and `DesignSystemPage` to visualize and verify typography, colors, buttons, and components.
 - **Unit Test Coverage:** Added unit tests for `useStreak` and `DesignSystemPage`, increasing total unit tests to 379.
 
+### Added (2025-12-12)
+
+- **Stripe Checkout Testing Infrastructure:**
+  - **`stripe-checkout.spec.ts`:** New E2E test for Stripe checkout flow. Signs in with FREE user, navigates to /pricing, clicks "Upgrade to Pro", verifies redirect to Stripe checkout.
+  - **`stripe-checkout-test.yml`:** GitHub Actions workflow for running Stripe checkout tests with real Supabase/Stripe credentials.
+  - **`setup-test-users.yml`:** GitHub Actions workflow to create test users (FREE or PRO tier) via Supabase Admin API. Supports dropdown selection for user type.
+  - **Files:** `.github/workflows/stripe-checkout-test.yml`, `.github/workflows/setup-test-users.yml`, `frontend/tests/integration/stripe-checkout.spec.ts`
+
+- **Stripe Pro Mode Backend Fixes:**
+  - **`stripe-checkout/index.ts`:** Refactored to use `STRIPE_PRO_PRICE_ID` env var (no frontend body required), extract user from auth header, include `userId` in session metadata.
+  - **`stripe-webhook/index.ts`:** Fixed metadata extraction to use `session.metadata?.userId` and `session.subscription`.
+  - **Frontend Updates:** `PricingPage.tsx`, `UpgradePromptDialog.tsx`, `AnalyticsDashboard.tsx` updated to expect `data.checkoutUrl` with safe null handling.
+  - **Files:** `backend/supabase/functions/stripe-checkout/index.ts`, `backend/supabase/functions/stripe-webhook/index.ts`, `frontend/src/pages/PricingPage.tsx`
+
 ### Security (2025-12-12)
 
 - **Externalized Test Credentials:** Hardcoded passwords in `tests/constants.ts` replaced with `process.env` lookups. Credentials now loaded from `TEST_USER_PASSWORD`, `SOAK_TEST_PASSWORD_1`, `SOAK_TEST_PASSWORD_2` environment variables with local fallbacks for mock testing.

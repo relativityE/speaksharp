@@ -45,13 +45,19 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
     try {
       const supabase = getSupabaseClient();
       if (!supabase) throw new Error("Supabase client not available");
-      const { data, error } = await supabase.functions.invoke('stripe-checkout', {
-        body: { priceId: tier.name.toLowerCase() }, // e.g., 'pro'
-      });
+
+      // Backend uses STRIPE_PRO_PRICE_ID env var, no need to send priceId
+      const { data, error } = await supabase.functions.invoke('stripe-checkout');
+
       if (error) throw error;
-      if (data.checkoutUrl) window.location.href = data.checkoutUrl;
+      if (data?.checkoutUrl) {
+        window.location.href = data.checkoutUrl;
+      } else {
+        throw new Error("No checkout URL returned");
+      }
     } catch (err: unknown) {
       logger.error({ err, tier: tier.name }, 'Error creating Stripe checkout session:');
+      // Could add toast notification here for user feedback
     }
   };
 

@@ -1,0 +1,109 @@
+/**
+ * Stripe Checkout Flow Test
+ * 
+ * This test runs ONLY in "Real Mode" against the live Supabase instance.
+ * It verifies the Stripe checkout Edge Function works correctly.
+ * 
+ * Trigger: Manually via GitHub Actions workflow "Stripe Test"
+ * 
+ * What it does:
+ * 1. Signs in with E2E_FREE_EMAIL test user (guaranteed FREE tier)
+ * 2. Navigates to /pricing and clicks "Upgrade to Pro"
+ * 3. Verifies redirect to Stripe checkout
+ * 
+ * Prerequisites:
+ * 1. Run "Setup Test Users" workflow first with user_type=free
+ * 2. Add E2E_FREE_EMAIL and E2E_FREE_PASSWORD as GitHub secrets
+ * 3. STRIPE_PRO_PRICE_ID must be set in Supabase Edge Function secrets
+ */
+
+import { test, expect } from '@playwright/test';
+
+// Skip this test unless we're in live mode (not using mock.supabase.co)
+const isMockSupabase = !process.env.VITE_SUPABASE_URL || process.env.VITE_SUPABASE_URL.includes('mock.supabase.co');
+test.skip(isMockSupabase, 'Skipping Stripe test in mock environment');
+
+test.describe('Stripe Checkout Flow', () => {
+    // Use FREE user credentials from GitHub secrets (set by setup-test-users workflow)
+    const testEmail = process.env.E2E_FREE_EMAIL || 'e2e-free-user@test.com';
+    const testPassword = process.env.E2E_FREE_PASSWORD || 'TestPassword123!';
+
+    test.beforeAll(() => {
+        console.log('🚨 Running LIVE Stripe checkout test against real Supabase');
+        console.log(`📧 Test user: ${testEmail}`);
+
+        if (!process.env.E2E_FREE_EMAIL) {
+            console.warn('⚠️ E2E_FREE_EMAIL not set - using default. Run setup-test-users workflow first!');
+        }
+    });
+
+    test('should sign in and initiate Stripe checkout', async ({ page }) => {
+        // Step 1: Sign in with FREE user
+        console.log('[Stripe Test] Step 1: Signing in...');
+        await page.goto('/auth/signin');
+        await page.waitForSelector('[data-testid="auth-form"]', { timeout: 10000 });
+
+        await page.fill('input[type="email"]', testEmail);
+        await page.fill('input[type="password"]', testPassword);
+        await page.click('button[type="submit"]');
+
+        // Wait for successful login - redirect to home
+        await page.waitForURL('/', { timeout: 15000 });
+        await expect(page.getByTestId('app-main')).toBeVisible({ timeout: 10000 });
+        console.log('✅ Sign-in successful');
+
+        // Step 2: Navigate to pricing page
+        console.log('[Stripe Test] Step 2: Navigating to pricing...');
+        await page.goto('/pricing');
+        await page.waitForLoadState('domcontentloaded');
+        console.log('✅ Navigated to pricing page');
+
+        // Step 3: Click "Upgrade to Pro" button
+        console.log('[Stripe Test] Step 3: Clicking Upgrade to Pro...');
+        const upgradeButton = page.getByRole('button', { name: /upgrade to pro/i });
+        await expect(upgradeButton).toBeVisible({ timeout: 10000 });
+
+        // Listen for Edge Function response
+        const responsePromise = page.waitForResponse(
+            resp => resp.url().includes('stripe-checkout'),
+            { timeout: 15000 }
+        );
+
+        await upgradeButton.click();
+
+        // Step 4: Verify Stripe redirect
+        console.log('[Stripe Test] Step 4: Verifying Stripe redirect...');
+
+        // Wait for either redirect or response
+        const response = await responsePromise;
+
+        // Give browser time to redirect
+        await page.waitForTimeout(2000);
+
+        const currentUrl = page.url();
+        const isStripeCheckout = currentUrl.includes('checkout.stripe.com');
+
+        if (isStripeCheckout) {
+            console.log('✅ Successfully redirected to Stripe checkout');
+            console.log(`📍 Checkout URL: ${currentUrl}`);
+            await expect(page).toHaveURL(/checkout\.stripe\.com/, { timeout: 5000 });
+        } else {
+            // Check edge function response for checkout URL
+            const responseBody = await response.json().catch(() => null);
+
+            if (responseBody?.checkoutUrl) {
+                console.log('✅ Edge function returned checkout URL:', responseBody.checkoutUrl);
+                expect(responseBody.checkoutUrl).toContain('checkout.stripe.com');
+            } else if (responseBody?.error) {
+                console.error('❌ Edge function error:', responseBody.error);
+                throw new Error(`Stripe checkout failed: ${responseBody.error}`);
+            } else {
+                console.error('❌ Unexpected response:', responseBody);
+                throw new Error('Stripe checkout failed - no checkout URL returned');
+            }
+        }
+
+        console.log('✅ Stripe Checkout Test PASSED');
+    });
+});
+

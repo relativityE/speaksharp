@@ -21,17 +21,19 @@ export const UpgradePromptDialog: React.FC<UpgradePromptDialogProps> = ({ open, 
 
   const handleUpgrade = async () => {
     try {
-        const supabase = getSupabaseClient();
-        if (!supabase) throw new Error("Supabase client not available");
-        const { data, error } = await supabase.functions.invoke('stripe-checkout');
-        if (error) throw error;
-        // The edge function returns a URL to the Stripe checkout page
-        if (data.checkoutUrl) {
-            window.location.href = data.checkoutUrl;
-        }
+      const supabase = getSupabaseClient();
+      if (!supabase) throw new Error("Supabase client not available");
+      const { data, error } = await supabase.functions.invoke('stripe-checkout');
+      if (error) throw error;
+      // The edge function returns a URL to the Stripe checkout page
+      if (data?.checkoutUrl) {
+        window.location.href = data.checkoutUrl;
+      } else {
+        throw new Error("No checkout URL returned");
+      }
     } catch (err: unknown) {
-        logger.error({err}, 'Error creating Stripe checkout session:');
-        // You might want to show an error message to the user here
+      logger.error({ err }, 'Error creating Stripe checkout session:');
+      // You might want to show an error message to the user here
     }
   };
 

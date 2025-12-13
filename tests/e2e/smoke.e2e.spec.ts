@@ -1,13 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin, navigateToRoute } from './helpers';
+import { programmaticLogin, navigateToRoute, attachLiveTranscript } from './helpers';
 import { TEST_IDS, TIMEOUTS } from '../constants';
 
 test.describe('Smoke Test', () => {
   test('should perform comprehensive app health check and full user journey @smoke @health-check', async ({ page }) => {
-    // Forward browser console logs for diagnostics
-    page.on('console', msg => {
-      console.log(`[BROWSER CONSOLE] ${msg.type()}: ${msg.text()}`);
-    });
+    // Forward browser console logs with colorized ERROR/WARN output
+    attachLiveTranscript(page);
 
     // Step 1: Programmatic login (this does the initial page.goto('/') internally)
     // IMPORTANT: Do NOT call page.goto() before programmaticLogin - it causes MSW ready event race
