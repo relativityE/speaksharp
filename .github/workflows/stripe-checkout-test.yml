@@ -61,7 +61,7 @@ jobs:
           npx wait-on http://localhost:5173 --timeout 60000
           
           # Run the Stripe checkout test
-          pnpm exec playwright test frontend/tests/integration/stripe-checkout.spec.ts --project=chromium
+          pnpm exec playwright test --config=playwright.stripe.config.ts --project=chromium
           
           # Kill dev server
           kill $DEV_PID || true
@@ -72,6 +72,6 @@ jobs:
         with:
           name: stripe-checkout-test-results
           path: |
-            test-results/
+            test-results/stripe/
+            test-results/stripe-report/
           retention-days: 7
-
