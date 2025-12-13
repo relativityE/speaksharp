@@ -75,21 +75,16 @@ test.describe('Stripe Checkout Flow', () => {
         // Step 4: Verify Stripe redirect
         console.log('[Stripe Test] Step 4: Verifying Stripe redirect...');
 
-        // Wait for either redirect or response
+        // Wait for edge function response 
         const response = await responsePromise;
 
-        // Give browser time to redirect
-        await page.waitForTimeout(2000);
-
-        const currentUrl = page.url();
-        const isStripeCheckout = currentUrl.includes('checkout.stripe.com');
-
-        if (isStripeCheckout) {
+        // Wait for redirect to Stripe checkout (event-driven, no arbitrary timeout)
+        try {
+            await page.waitForURL(/checkout\.stripe\.com/, { timeout: 10000 });
             console.log('✅ Successfully redirected to Stripe checkout');
-            console.log(`📍 Checkout URL: ${currentUrl}`);
-            await expect(page).toHaveURL(/checkout\.stripe\.com/, { timeout: 5000 });
-        } else {
-            // Check edge function response for checkout URL
+            console.log(`📍 Checkout URL: ${page.url()}`);
+        } catch {
+            // If no redirect, check edge function response for checkout URL
             const responseBody = await response.json().catch(() => null);
 
             if (responseBody?.checkoutUrl) {
