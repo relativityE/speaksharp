@@ -48,7 +48,7 @@ test.describe('Stripe Checkout Flow', () => {
         await page.click('button[type="submit"]');
 
         // Wait for successful login - redirect to session page
-        await page.waitForURL('/session', { timeout: 15000 });
+        await page.waitForURL('/session', { timeout: 10000 });
         await expect(page.getByTestId('app-main')).toBeVisible({ timeout: 10000 });
         console.log('✅ Sign-in successful');
 
@@ -56,7 +56,7 @@ test.describe('Stripe Checkout Flow', () => {
         console.log('[Stripe Test] Step 2: Navigating to analytics...');
         await page.goto('/analytics');
         await page.waitForLoadState('domcontentloaded');
-        await expect(page.getByTestId('analytics-dashboard-upgrade-button')).toBeVisible({ timeout: 15000 });
+        await expect(page.getByTestId('analytics-dashboard-upgrade-button')).toBeVisible({ timeout: 10000 });
         console.log('✅ Navigated to analytics page, upgrade banner visible');
 
         // Step 3: Click "Upgrade Now" button on the dashboard
@@ -67,7 +67,7 @@ test.describe('Stripe Checkout Flow', () => {
         // Listen for Edge Function response
         const responsePromise = page.waitForResponse(
             resp => resp.url().includes('stripe-checkout'),
-            { timeout: 15000 }
+            { timeout: 10000 }
         );
 
         await upgradeButton.click();
