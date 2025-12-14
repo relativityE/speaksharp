@@ -220,6 +220,11 @@ This phase is about confirming the core feature set works as expected and polish
     - **Solution:** Replaced with `page.getByRole('button', { name: /sign in/i }).click()` and `page.waitForURL()` for deterministic redirect wait
     - **Documentation:** Added hybrid testing strategy to `ARCHITECTURE.md` (local=mocks, CI=real Supabase)
     - **Files:** `tests/soak/soak-test.spec.ts`, `docs/ARCHITECTURE.md`
+  - ✅ **COMPLETED (2025-12-14) - Fix Soak Test E2E Bridge Initialization:**
+    - **Problem:** Soak test stuck in READY state, `dispatchMockTranscript` was undefined in CI
+    - **Root Cause:** Workflow used `VITE_E2E=true` but `IS_TEST_ENVIRONMENT` checks `VITE_TEST_MODE`
+    - **Solution:** Changed to `VITE_TEST_MODE=true` in soak-test.yml. Added critical warning to ARCHITECTURE.md.
+    - **Files:** `.github/workflows/soak-test.yml`, `docs/ARCHITECTURE.md`
 - **✅ COMPLETED - Expand Unit Test Coverage (2025-12-08):**
   - **Current:** 379 unit tests passing
   - ✅ Authentication pages: SignInPage (14), SignUpPage (15)

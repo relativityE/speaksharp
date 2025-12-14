@@ -11,6 +11,13 @@ interface EmptyStateProps {
         href?: string;
         onClick?: () => void;
     };
+    /** Optional subtle secondary action (text link, not button) */
+    secondaryAction?: {
+        label: string;
+        href: string;
+        prefix?: string;
+        testId?: string;
+    };
     icon?: React.ReactNode;
     className?: string;
     testId?: string;
@@ -20,6 +27,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
     title,
     description,
     action,
+    secondaryAction,
     icon,
     className,
     testId,
@@ -56,6 +64,19 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
                         {action.label}
                     </Button>
                 )
+            )}
+            {/* Subtle secondary action - non-aggressive text link */}
+            {secondaryAction && (
+                <p className="mt-4 text-xs text-muted-foreground">
+                    {secondaryAction.prefix && <span>{secondaryAction.prefix} </span>}
+                    <Link
+                        to={secondaryAction.href}
+                        className="text-primary hover:underline"
+                        data-testid={secondaryAction.testId}
+                    >
+                        {secondaryAction.label}
+                    </Link>
+                </p>
             )}
         </div>
     );

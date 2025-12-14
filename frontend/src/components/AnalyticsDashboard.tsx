@@ -484,6 +484,13 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ profile 
                 }}
                 icon={<BarChart className="w-10 h-10 text-primary" />}
                 testId="analytics-dashboard-empty-state"
+                // Subtle upgrade option for FREE users - no friction
+                secondaryAction={!isPro ? {
+                    prefix: "Want unlimited sessions?",
+                    label: "View Pro features",
+                    href: "/pricing",
+                    testId: "analytics-dashboard-upgrade-button"
+                } : undefined}
             />
         );
     }

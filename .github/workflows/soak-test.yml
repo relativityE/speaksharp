@@ -49,10 +49,10 @@ jobs:
 
       - name: Start dev server and run soak test
         run: |
-          # Start the dev server in background with E2E mode for MockSpeechRecognition
-          # This enables speech simulation without a real microphone, while still using
-          # real Supabase auth (credentials from SOAK_TEST_USERS)
-          VITE_E2E=true pnpm dev &
+          # Start the dev server in background with test mode for MockSpeechRecognition
+          # VITE_TEST_MODE enables e2e-bridge.ts which provides speech simulation
+          # This allows testing without a real microphone while using real Supabase auth
+          VITE_TEST_MODE=true pnpm dev &
           DEV_PID=$!
           
           # Wait for dev server to be ready

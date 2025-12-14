@@ -81,6 +81,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Solution:** Created `tests/e2e/types.d.ts` with proper Window interface extension for E2E properties.
   - **Files:** `tests/e2e/types.d.ts` (new)
 
+- **Soak Test CI Failure - Wrong Environment Variable (Root Cause):**
+  - **Problem:** Soak test used `VITE_E2E=true` but `IS_TEST_ENVIRONMENT` checks `VITE_TEST_MODE`. The E2E bridge never initialized, so `dispatchMockTranscript` was undefined.
+  - **Solution:** Changed `VITE_E2E=true` to `VITE_TEST_MODE=true` in soak-test.yml. Added critical warning to ARCHITECTURE.md.
+  - **Files:** `.github/workflows/soak-test.yml`, `docs/ARCHITECTURE.md`
+
+- **Stripe Checkout Test - Upgrade Button Not Visible for Empty Users:**
+  - **Problem:** FREE users with 0 sessions saw EmptyState, which had no upgrade button. Test timed out waiting for `analytics-dashboard-upgrade-button`.
+  - **Solution:** Added `secondaryAction` prop to EmptyState component for subtle upgrade links. AnalyticsDashboard now shows "Want unlimited sessions? View Pro features" for FREE users even with 0 sessions.
+  - **Files:** `frontend/src/components/ui/EmptyState.tsx`, `frontend/src/components/AnalyticsDashboard.tsx`
+
 ### Fixed (2025-12-11)
 
 - **E2E Navigation Race Condition Fix (14 Tests Fixed):**

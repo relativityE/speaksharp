@@ -598,6 +598,36 @@ await navigateToRoute(page, '/analytics'); // Uses React Router client-side navi
 
 The `navigateToRoute()` helper (defined in `tests/e2e/helpers.ts`) performs client-side React Router navigation, preserving the authenticated state.
 
+#### ⚠️ CRITICAL: E2E Environment Variables
+
+> [!CAUTION]
+> The E2E bridge (`e2e-bridge.ts`) ONLY initializes when `IS_TEST_ENVIRONMENT === true`.
+> This flag checks for `VITE_TEST_MODE=true` or `NODE_ENV=test`, **NOT** `VITE_E2E`.
+
+**Required for CI Workflows running live tests:**
+```yaml
+# ✅ CORRECT - enables e2e-bridge.ts, MockSpeechRecognition, dispatchMockTranscript
+VITE_TEST_MODE=true pnpm dev &
+
+# ❌ WRONG - does NOT enable e2e-bridge.ts!
+VITE_E2E=true pnpm dev &
+```
+
+**Where this matters:**
+- `.github/workflows/soak-test.yml` - Must use `VITE_TEST_MODE=true`
+- Any workflow using real Supabase auth + mock speech
+
+**Code Path:**
+```
+frontend/src/config/env.ts:14
+  export const IS_TEST_ENVIRONMENT = getEnvVar('VITE_TEST_MODE') === 'true' || process.env.NODE_ENV === 'test'
+
+frontend/src/main.tsx:143
+  if (IS_TEST_ENVIRONMENT) {
+    await initializeE2EEnvironment(); // Sets up MockSpeechRecognition + dispatchMockTranscript
+  }
+```
+
 **ESLint Enforcement:** A custom ESLint rule (`no-restricted-syntax`) warns when `page.goto()` is used in E2E test files (except `helpers.ts`).
 
 **Files Updated:** 11 E2E test files migrated to `navigateToRoute()` (2025-12-10).
