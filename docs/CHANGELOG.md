@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-11
+**Last Reviewed:** 2025-12-14
 
 # Changelog
 
@@ -53,6 +53,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Configurable Load Testing:** `SOAK_CONFIG.CONCURRENT_USERS` now reads from `process.env.CONCURRENT_USERS` (defaults to 2). CI can override with higher values (e.g., 20) for true load testing.
   - **Files:** `tests/constants.ts`
   - **Usage:** `CONCURRENT_USERS=20 pnpm test:soak`
+
+### Fixed (2025-12-14)
+
+- **Soak Test CI Failure - Session Stuck in READY State:**
+  - **Problem:** Soak test failing with timeout in `stopPracticeSession` when session became inactive (status=READY) during `runActiveSession`. The code waited for dialog/message that never appeared.
+  - **Solution:** Added `buttonShowsStart` as a valid end state in `stopPracticeSession`. Now handles sessions that stopped themselves gracefully.
+  - **Files:** `tests/soak/user-simulator.ts`
+
+- **Soak Test Speech Simulation Not Working:**
+  - **Problem:** Speech simulation used incorrect function name `__simulateSpeechResult` instead of `dispatchMockTranscript` defined in `e2e-bridge.ts`.
+  - **Solution:** Changed function name to match the actual implementation.
+  - **Files:** `tests/soak/user-simulator.ts`
+
+- **Stripe Checkout Test Strict Mode Violation:**
+  - **Problem:** Test failed with "strict mode violation: locator('.animate-spin') resolved to 2 elements" when waiting for loading spinner to disappear.
+  - **Solution:** Removed fragile spinner-checking logic. Now waits directly for the upgrade button using Playwright's auto-waiting semantics.
+  - **Files:** `tests/stripe/stripe-checkout.spec.ts`
+
+- **UI State Capture Test Flaky Timeout:**
+  - **Problem:** Test intermittently timed out waiting for `mswReady` due to redundant `programmaticLogin()` calls causing MSW context re-initialization.
+  - **Solution:** Added `isLoggedIn` tracking to skip redundant logins. Changed `capturePage` auth check from `'visible'` to `'attached'` state.
+  - **Files:** `tests/e2e/ui-state-capture.e2e.spec.ts`, `tests/e2e/helpers.ts`
+
+- **E2E Window Type Declarations:**
+  - **Problem:** TypeScript `no-explicit-any` errors for `window.mswReady` and `window.dispatchMockTranscript` in test files.
+  - **Solution:** Created `tests/e2e/types.d.ts` with proper Window interface extension for E2E properties.
+  - **Files:** `tests/e2e/types.d.ts` (new)
 
 ### Fixed (2025-12-11)
 

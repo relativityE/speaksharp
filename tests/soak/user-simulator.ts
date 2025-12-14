@@ -226,16 +226,20 @@ export class UserSimulator {
         await stopButton.click();
 
         // Handle the session end dialog OR the "No speech detected" state (Toast or Empty Panel)
+        // Also handle case where session already stopped (button shows Start)
         const dialogLocator = page.locator('div[role="alertdialog"]');
         const emptyStateLocator = page.getByText('No speech was detected during the session');
         const toastLocator = page.getByText('No speech was detected. Session not saved');
+        const buttonShowsStart = stopButton.filter({ hasText: 'Start' });
 
-        const sessionEndLocator = dialogLocator.or(emptyStateLocator).or(toastLocator);
+        const sessionEndLocator = dialogLocator.or(emptyStateLocator).or(toastLocator).or(buttonShowsStart);
         await sessionEndLocator.first().waitFor({ timeout: 10000 });
 
         if (await dialogLocator.isVisible()) {
             const stayButton = page.getByRole('button', { name: 'Stay on Page' });
             await stayButton.click();
+        } else if (await buttonShowsStart.isVisible()) {
+            console.log(`[User] Session ended (button shows Start - session was already stopped).`);
         } else {
             console.log(`[User] Session ended without speech (Toast or Empty State detected).`);
         }
