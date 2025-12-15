@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-14
+**Last Reviewed:** 2025-12-15
 
 # Changelog
 
@@ -9,6 +9,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Fixed (2025-12-15)
+
+- **UI State Capture Test - MSW Service Worker Race Condition (Root Cause Identified):**
+  - **Problem:** Test intermittently timed out waiting for `e2e:msw-ready` with React never mounting (#root empty). Occurred only in parallel shard execution.
+  - **Root Cause (99.5% confidence):** MSW service workers are browser-global per-origin. When multiple shards run simultaneously, workers race for registration causing silent failures. `window.mswReady` never set → 30s timeout.
+  - **Diagnostic Improvements:** Added explicit console.error logging to `e2e-bridge.ts` with user agent, SW support, URL, and timing diagnostics for CI visibility.
+  - **Long-term Solution:** Gradual migration from MSW to Playwright route interception (tracked in ROADMAP.md).
+  - **Files:** `frontend/src/lib/e2e-bridge.ts`, `tests/e2e/mock-routes.ts` (new), `tests/e2e/fixtures.ts` (new)
 
 ### Added (2025-12-11)
 
@@ -90,6 +99,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Problem:** FREE users with 0 sessions saw EmptyState, which had no upgrade button. Test timed out waiting for `analytics-dashboard-upgrade-button`.
   - **Solution:** Added `secondaryAction` prop to EmptyState component for subtle upgrade links. AnalyticsDashboard now shows "Want unlimited sessions? View Pro features" for FREE users even with 0 sessions.
   - **Files:** `frontend/src/components/ui/EmptyState.tsx`, `frontend/src/components/AnalyticsDashboard.tsx`
+
+- **Stripe Checkout Test - Element Selector Mismatch:**
+  - **Problem:** Test found testid but then looked for `getByRole('button', { name: /upgrade now/i })` which doesn't exist in EmptyState (it's a Link with different text).
+  - **Solution:** Changed test to use `getByTestId()` consistently, which works for both EmptyState Link and full dashboard Button.
+  - **Files:** `tests/stripe/stripe-checkout.spec.ts`
+
+- **Soak Test CI Failure - MSW Intercepting Real Supabase:**
+  - **Problem:** `VITE_TEST_MODE=true` triggered MSW initialization, which intercepted real Supabase requests and returned mock data for wrong user ID, causing auth mismatch.
+  - **Solution:** Added conditional MSW skip in e2e-bridge.ts when `VITE_USE_LIVE_DB=true`. Soak test now uses `VITE_TEST_MODE=true VITE_USE_LIVE_DB=true` for real auth + mock speech.
+  - **Files:** `frontend/src/lib/e2e-bridge.ts`, `.github/workflows/soak-test.yml`
 
 ### Fixed (2025-12-11)
 

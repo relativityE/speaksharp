@@ -64,7 +64,8 @@ test.describe('Stripe Checkout Flow', () => {
 
         // Step 3: Click upgrade and capture Edge Function response
         console.log('[Stripe Test] Step 3: Clicking Upgrade Now...');
-        const upgradeButton = page.getByRole('button', { name: /upgrade now/i });
+        // Use testid - works for both EmptyState (Link) and full dashboard (Button)
+        const upgradeButton = page.getByTestId('analytics-dashboard-upgrade-button');
 
         // Set up response listener BEFORE clicking
         const responsePromise = page.waitForResponse(

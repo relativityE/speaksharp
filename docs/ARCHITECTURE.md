@@ -604,28 +604,36 @@ The `navigateToRoute()` helper (defined in `tests/e2e/helpers.ts`) performs clie
 > The E2E bridge (`e2e-bridge.ts`) ONLY initializes when `IS_TEST_ENVIRONMENT === true`.
 > This flag checks for `VITE_TEST_MODE=true` or `NODE_ENV=test`, **NOT** `VITE_E2E`.
 
-**Required for CI Workflows running live tests:**
+**Environment Variable Matrix:**
+
+| Variable | Effect | Use Case |
+|----------|--------|----------|
+| `VITE_TEST_MODE=true` | Enables e2e-bridge (speech mock + MSW) | Standard E2E tests with mocks |
+| `VITE_USE_LIVE_DB=true` | Skips MSW, uses real Supabase | Soak tests with real auth |
+| Both flags together | Speech mock + real Supabase | Headless CI with real auth |
+
+**Required for CI Workflows:**
 ```yaml
-# ✅ CORRECT - enables e2e-bridge.ts, MockSpeechRecognition, dispatchMockTranscript
+# Standard E2E tests (mock everything)
 VITE_TEST_MODE=true pnpm dev &
 
-# ❌ WRONG - does NOT enable e2e-bridge.ts!
-VITE_E2E=true pnpm dev &
+# Soak/Stripe tests (real Supabase + mock speech)
+VITE_TEST_MODE=true VITE_USE_LIVE_DB=true pnpm dev &
 ```
-
-**Where this matters:**
-- `.github/workflows/soak-test.yml` - Must use `VITE_TEST_MODE=true`
-- Any workflow using real Supabase auth + mock speech
 
 **Code Path:**
 ```
 frontend/src/config/env.ts:14
   export const IS_TEST_ENVIRONMENT = getEnvVar('VITE_TEST_MODE') === 'true' || process.env.NODE_ENV === 'test'
 
-frontend/src/main.tsx:143
-  if (IS_TEST_ENVIRONMENT) {
-    await initializeE2EEnvironment(); // Sets up MockSpeechRecognition + dispatchMockTranscript
+frontend/src/lib/e2e-bridge.ts:28-35
+  const useLiveDb = import.meta.env.VITE_USE_LIVE_DB === 'true';
+  if (!useLiveDb) {
+    await worker.start(); // MSW intercepts requests
+  } else {
+    // Skip MSW, use real Supabase
   }
+  setupSpeechRecognitionMock(); // Always enabled
 ```
 
 **ESLint Enforcement:** A custom ESLint rule (`no-restricted-syntax`) warns when `page.goto()` is used in E2E test files (except `helpers.ts`).

@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-11
+**Last Reviewed:** 2025-12-15
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -27,6 +27,12 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 - 🟡 **Console Error Highlighting (P0 - Debugging) [HIGH PRIORITY]:** Add automatic ANSI color highlighting for ERROR/FAILED/FATAL (red bold) and WARNING/WARN (yellow bold) in all terminal output. Should apply globally to any console usage (not require agents to remember a specific script). Improves developer experience for spotting issues.
 - 🟡 **Independent Documentation Review [HIGH PRIORITY]:** Have an independent reviewer analyze the codebase against documentation (ARCHITECTURE.md, PRD.md, ROADMAP.md) to identify gaps, outdated sections, and missing coverage. Ensures docs match actual implementation.
 - 🟡 **Gap Analysis [HIGH PRIORITY]:** Do a Gap Analysis of current implementation against the Current Phase requirements.
+- 🔴 **E2E Test Infrastructure: MSW-to-Playwright Routes Migration (Tech Debt):**
+  - **Problem:** MSW service workers are browser-global per-origin. Parallel shards race for registration, causing intermittent `ui-state-capture` flakiness.
+  - **Root Cause Identified (2025-12-15):** 99.5% confidence - service worker race conditions in parallel CI.
+  - **Proof of Concept:** Created `tests/e2e/mock-routes.ts` and `tests/e2e/fixtures.ts` with Playwright route interception. Single test passed in 4.3s.
+  - **Migration Plan:** Requires clean migration (not hybrid). Migrate all 19 E2E tests to use `programmaticLoginWithRoutes` in a single focused sprint.
+  - **Files Created:** `mock-routes.ts`, `fixtures.ts` (ready for future migration)
 
 ### 🚨 Alpha Launch Blockers (Comprehensive Audit - 2025-12-12)
 
