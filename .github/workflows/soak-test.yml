@@ -29,6 +29,8 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
 
       - name: Create .env.development from Secrets
         run: |
@@ -43,9 +45,6 @@ jobs:
 
       - name: Install Playwright browsers
         run: pnpm exec playwright install chromium --with-deps
-
-      - name: Build application
-        run: pnpm build
 
       - name: Start dev server and run soak test
         run: |

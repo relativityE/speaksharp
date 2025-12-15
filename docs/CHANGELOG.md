@@ -26,6 +26,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Migrated to Playwright route interception which is per-page scoped.
   - Test now passes consistently in parallel execution.
 
+### Fixed (2025-12-15) - CI Workflow Optimization
+
+- **Stripe Test Fixture Lifecycle Fix:**
+  - **Problem:** Test aborted with "page fixtures not supported in beforeAll".
+  - **Root Cause:** `page` is test-scoped in Playwright, not suite-scoped.
+  - **Fix:** Changed `test.beforeAll` → `test.beforeEach` in `stripe-checkout.spec.ts`.
+  - **Confidence:** 100% (deterministic Playwright error).
+
+- **Duplicate waitForURL Removal:**
+  - **Problem:** `stripe-checkout.spec.ts` called `waitForURL('/session')` twice consecutively.
+  - **Fix:** Removed duplicate line.
+
+- **CI Install Chain Optimization:**
+  - **Problem:** `postinstall` installed ALL browsers (~5 min), then workflows installed Chromium again (~2 min redundant).
+  - **Fix:** Removed `postinstall` hook from `package.json`. Browsers installed explicitly in CI workflows.
+  - **Impact:** ~7 min CI time saved per workflow run.
+
+- **Unused Build Step Removal:**
+  - **Problem:** Soak and Stripe workflows ran `pnpm build` but used `pnpm dev` (dev server doesn't use production build).
+  - **Fix:** Removed unused build steps from both workflows.
+  - **Impact:** ~2 min CI time saved per workflow run.
+
 ### Fixed (2025-12-15) - Independent Review Findings
 
 - **Stripe Checkout Test Rigor:**
