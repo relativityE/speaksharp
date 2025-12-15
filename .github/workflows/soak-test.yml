@@ -59,11 +59,16 @@ jobs:
           echo "Waiting for dev server..."
           npx wait-on http://localhost:5173 --timeout 60000
           
-          # Run the soak test
+          # Run the soak test and capture exit code
           pnpm exec playwright test --config=playwright.soak.config.ts --project=chromium
+          TEST_EXIT=$?
           
-          # Kill dev server
-          kill $DEV_PID || true
+          # Kill dev server and wait for cleanup
+          kill $DEV_PID
+          wait $DEV_PID 2>/dev/null || true
+          
+          # Exit with test result
+          exit $TEST_EXIT
 
       - name: Upload test results
         if: always()
