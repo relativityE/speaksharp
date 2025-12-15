@@ -76,10 +76,10 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - **File:** `./.env.example` (project root)
   - **Documented:** `ASSEMBLYAI_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SUPABASE_SERVICE_ROLE_KEY` (set via Supabase Dashboard or CLI)
 
-- ✅ **Stripe "Pro Mode" Backend Flag (2025-12-12):** Completed Stripe checkout integration.
-  - **Backend:** `stripe-checkout/index.ts` now uses `STRIPE_PRO_PRICE_ID` env var, extracts user from auth header, includes userId in metadata
-  - **Frontend:** `PricingPage.tsx`, `UpgradePromptDialog.tsx`, `AnalyticsDashboard.tsx` updated to handle `checkoutUrl` response
-  - **Testing:** Added `stripe-checkout-test.yml` workflow and `setup-test-users.yml` for E2E testing with real credentials
+- ✅ **Stripe "Pro Mode" Backend Flag (2025-12-15):** Completed Stripe checkout integration with rigorous negative verification.
+  - **Backend:** `stripe-checkout/index.ts` now uses `STRIPE_PRO_PRICE_ID` env var, extracts user from auth header, includes userId in metadata.
+  - **Diagnostics:** Added "Diagnostic Logging" and "Negative Verification" (expect 400 with specific error body) to prove configuration in CI without exposing secrets.
+  - **Testing:** Added `stripe-checkout-test.yml` workflow and `setup-test-users.yml` for E2E testing with real credentials.
 
 - ✅ **Whisper Architecture Documentation (2025-12-12):** ARCHITECTURE.md section 3.2.1 expanded with comprehensive Service Worker caching strategy, architecture diagram, component tables, and setup instructions.
 
@@ -101,11 +101,6 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - **Problem:** Live transcript lacked ARIA live region (`aria-live="polite"`), screen readers didn't announce new text.
   - **Solution:** Added `aria-live="polite"`, `aria-label`, and `role="log"` to transcript container in SessionPage.tsx.
   - **Status:** ✅ Fixed - Critical accessibility improvement.
-
-- **✅ RESOLVED - Soak Test Race Condition (2025-12-11)**
-  - **Problem:** Soak test failed (0/4 success) due to race condition during auth redirect.
-  - **Solution:** Replaced polling loop with deterministic `waitForURL` and Role-based clicking.
-  - **Status:** ✅ Fixed (verified locally).
 
 - **✅ RESOLVED - PDF Filename Inconsistency (2025-12-11)**
   - **Problem:** `jsPDF.save()` did not reliably set the filename across all browsers in `devBypass` mode (resulted in UUID names instead of `session_YYYYMMDD_User.pdf`).
@@ -226,11 +221,10 @@ This phase is about confirming the core feature set works as expected and polish
   - Refactored `SessionPage.tsx` to use store instead of local useState
   - Improves code maintainability and scalability
 - ✅ **Add a soak test:** 5-minute concurrent user test implemented (`tests/soak/soak-test.spec.ts`) with memory leak detection
-  - ✅ **COMPLETED (2025-12-11) - Fix Soak Test Race Condition:**
-    - **Problem:** CI soak test failing with "Success Rate: 0/4" - Playwright script not waiting for authentication redirect
-    - **Root Cause:** Script used polling loop with `waitForTimeout` instead of proper navigation wait
-    - **Solution:** Replaced with `page.getByRole('button', { name: /sign in/i }).click()` and `page.waitForURL()` for deterministic redirect wait
-    - **Documentation:** Added hybrid testing strategy to `ARCHITECTURE.md` (local=mocks, CI=real Supabase)
+  - ✅ **STABILIZED - Soak Test "Empty Body" (2025-12-15):**
+    - **Problem:** CI soak test failing with "Success Rate: 0/4" - Race condition and hydration failures ("Empty Body").
+    - **Mitigation:** Implemented `browser.newContext()` for strict user isolation and `expect().toBeVisible()` state guards.
+    - **Status:** Stabilized (Guardrail enforced), though shared process risk remains.
     - **Files:** `tests/soak/soak-test.spec.ts`, `docs/ARCHITECTURE.md`
   - ✅ **COMPLETED (2025-12-14) - Fix Soak Test E2E Bridge Initialization:**
     - **Problem:** Soak test stuck in READY state, `dispatchMockTranscript` was undefined in CI

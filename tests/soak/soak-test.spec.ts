@@ -51,22 +51,19 @@ async function setupAuthenticatedUser(page: Page, userIndex: number): Promise<vo
 
     console.log(`[Soak Test] ✅ Login successful! Current URL: ${page.url()}`);
 
-    // CRITICAL: Wait for the application to actually recognize the user
-    // Just being on the URL isn't enough - we need the auth state to load
-    console.log(`[Soak Test] ⏳ Waiting for application auth state (Sign Out button)...`);
-    await page.waitForSelector('[data-testid="nav-sign-out-button"]', { timeout: 15000 });
+    // Verify application auth state
+    console.log(`[Soak Test] 🔍 Verifying authentication state...`);
+    await expect(page.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 15000 });
     console.log(`[Soak Test] ✅ Application auth state confirmed`);
 
     // Navigate to session page if not already there
     if (!page.url().includes(ROUTES.SESSION)) {
         console.log(`[Soak Test] 🚀 Navigating to ${ROUTES.SESSION}...`);
         await page.goto(ROUTES.SESSION, { waitUntil: 'networkidle' });
-        // Wait for session page specific element
-        await page.waitForSelector(`[data-testid="${TEST_IDS.SESSION_START_STOP_BUTTON}"]`, { timeout: 15000 });
-    } else {
-        // We are already on session page, verify session start button is visible
-        await page.waitForSelector(`[data-testid="${TEST_IDS.SESSION_START_STOP_BUTTON}"]`, { timeout: 15000 });
     }
+
+    // Verify session page readiness
+    await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeVisible({ timeout: 15000 });
 
     console.log(`[Soak Test] ✅ User ${userIndex} authenticated with real Supabase credentials`);
     console.log(`[Soak Test] 📍 Final URL: ${page.url()}`);

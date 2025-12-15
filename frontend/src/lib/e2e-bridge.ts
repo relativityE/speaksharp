@@ -21,16 +21,17 @@ import logger from '@/lib/logger';
  */
 export const initializeE2EEnvironment = async (): Promise<void> => {
     try {
-        const { worker } = await import('@/mocks/browser');
-        await worker.start({ onUnhandledRequest: 'bypass' });
-        logger.info('[E2E Bridge] MSW initialized successfully');
+        console.log('[E2E Bridge] Initializing E2E environment (MSW Removed)');
+
+        // We strictly use Playwright's route capabilities or Live DB now.
+        // MSW Service Worker is no longer started here.
 
         setupSpeechRecognitionMock();
 
         window.mswReady = true;
         dispatchE2EEvent('e2e:msw-ready');
     } catch (error) {
-        logger.error({ error }, '[E2E Bridge] Failed to initialize MSW');
+        logger.error({ error }, '[E2E Bridge] Failed to initialize E2E environment');
         throw error;
     }
 };

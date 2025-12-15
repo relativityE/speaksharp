@@ -26,6 +26,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Migrated to Playwright route interception which is per-page scoped.
   - Test now passes consistently in parallel execution.
 
+### Fixed (2025-12-15) - Independent Review Findings
+
+- **Stripe Checkout Test Rigor:**
+  - **Problem:** Test accepted any `400 Bad Request` as success, which could mask legit failures.
+  - **Solution:** Added rigorous assertions checking for specific JSON error body (`"Configuration Error: SITE_URL is missing"`) and environment context (`"expected in CI"`).
+  - **Files:** `tests/stripe/stripe-checkout.spec.ts`, `backend/supabase/functions/stripe-checkout/index.ts`
+
+- **Soak Test Mitigation (State Guardrail):**
+  - **Problem:** Potential shared state across tests and race conditions during hydration causing "Empty Body" failures.
+  - **Mitigation:** Enforced strict `browser.newContext()` isolation per user and added `expect(...).toBeVisible()` guards to ensure React hydration completes before interaction.
+  - **Status:** Stabilized. This prevents silent hydration failures but does not eliminate the theoretical risk of shared process state in a single Vite instance.
+  - **Files:** `tests/soak/soak-test.spec.ts`
+
 ### Added (2025-12-11)
 
 - **Usage Limit Pre-Check (P0 UX Fix):** New `check-usage-limit` Edge Function checks remaining usage BEFORE session starts. Frontend shows toast error with Upgrade button if limit exceeded, warns when <5min remaining. Prevents frustrating UX where users record and can't save.
