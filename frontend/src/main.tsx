@@ -141,8 +141,8 @@ const initialize = async () => {
 
 
   if (IS_TEST_ENVIRONMENT) {
-    // Check if we should skip MSW (using Playwright routes instead)
-    const skipMSW = import.meta.env.VITE_SKIP_MSW === 'true';
+    // Check if we should skip MSW (using Playwright routes instead OR using Live DB)
+    const skipMSW = import.meta.env.VITE_SKIP_MSW === 'true' || import.meta.env.VITE_USE_LIVE_DB === 'true';
 
     if (skipMSW) {
       // Playwright routes handle network mocking - skip MSW entirely
