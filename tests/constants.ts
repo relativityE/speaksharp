@@ -29,6 +29,8 @@ export const SOAK_TEST_USER = {
 };
 
 // Array of soak test users for concurrent testing (each user gets different credentials)
+// NOTE: These users must exist in Supabase. Create them via Supabase dashboard or admin API.
+// TODO: After verifying 2 users pass, expand to 3 then 5 for scalability testing.
 export const SOAK_TEST_USERS = [
   { email: 'soak-test@test.com', password: 'speaksharp1' },
   { email: 'soak-test1@test.com', password: 'speaksharp2' },

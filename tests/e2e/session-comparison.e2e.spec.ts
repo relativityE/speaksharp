@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin, navigateToRoute } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
 import { TEST_IDS } from '../constants';
 
 /**
@@ -22,7 +22,7 @@ import { TEST_IDS } from '../constants';
 
 test.describe('Session Comparison & Progress Tracking', () => {
     test('should display session history with metrics', async ({ page }) => {
-        await programmaticLogin(page);
+        await programmaticLoginWithRoutes(page);
         await navigateToRoute(page, '/analytics');
         await page.waitForSelector('[data-testid="app-main"]');
 
@@ -77,7 +77,7 @@ test.describe('Session Comparison & Progress Tracking', () => {
          * 4. Show visual indicators for improvement/regression
          * 5. Allow comparing 2-3 sessions at once
          */
-        await programmaticLogin(page);
+        await programmaticLoginWithRoutes(page);
         await navigateToRoute(page, '/analytics');
         await page.waitForSelector('[data-testid="app-main"]');
 
@@ -129,7 +129,7 @@ test.describe('Session Comparison & Progress Tracking', () => {
          * 3. Identify trends (improving = green, regressing = red)
          * 4. Show actionable insights ("Your WPM improved 15% this week!")
          */
-        await programmaticLogin(page);
+        await programmaticLoginWithRoutes(page);
         await navigateToRoute(page, '/analytics');
         await page.waitForSelector('[data-testid="app-main"]');
 
@@ -151,7 +151,7 @@ test.describe('Session Comparison & Progress Tracking', () => {
          * Formula: 100 - (fillerCount / wordCount * 500)
          * Clamped between 0-100
          */
-        await programmaticLogin(page);
+        await programmaticLoginWithRoutes(page);
         await navigateToRoute(page, '/session');
         await page.waitForSelector('[data-testid="app-main"]');
 

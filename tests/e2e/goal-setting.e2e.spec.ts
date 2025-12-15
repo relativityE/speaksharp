@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin, navigateToRoute } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
 
 /**
  * Goal Setting E2E Test
@@ -21,7 +21,7 @@ import { programmaticLogin, navigateToRoute } from './helpers';
 
 test.describe('Goal Setting', () => {
     test('should display goals section in analytics', async ({ page }) => {
-        await programmaticLogin(page);
+        await programmaticLoginWithRoutes(page);
         await navigateToRoute(page, '/analytics');
 
         // Verify Goals section exists
@@ -35,7 +35,7 @@ test.describe('Goal Setting', () => {
         /**
          * This test verifies that Goal Setting shows real data based on actual sessions.
          */
-        await programmaticLogin(page);
+        await programmaticLoginWithRoutes(page);
         await navigateToRoute(page, '/analytics');
 
         // Wait for goals section to load
@@ -69,7 +69,7 @@ test.describe('Goal Setting', () => {
          * - User can modify weekly session and clarity targets
          * - Goals persist and display updated values
          */
-        await programmaticLogin(page);
+        await programmaticLoginWithRoutes(page);
         await navigateToRoute(page, '/analytics');
 
         // Wait for Goals section to load

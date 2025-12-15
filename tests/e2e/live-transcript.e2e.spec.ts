@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { SessionPage } from '../pom';
-import { programmaticLogin, attachLiveTranscript } from './helpers';
+import { programmaticLoginWithRoutes, attachLiveTranscript } from './helpers';
 
 test.describe('Live Transcript Feature', () => {
   test('should display live transcript after session starts', async ({ page }) => {
@@ -93,7 +93,7 @@ test.describe('Live Transcript Feature', () => {
 
     attachLiveTranscript(page);
     await page.setViewportSize({ width: 1280, height: 720 });
-    await programmaticLogin(page);
+    await programmaticLoginWithRoutes(page);
 
     const sessionPage = new SessionPage(page);
     console.log('[TEST DEBUG] Navigating to session page...');
@@ -133,10 +133,10 @@ test.describe('Live Transcript Feature', () => {
     // Use the existing e2e-bridge infrastructure to dispatch a mock transcript
     console.log('[TEST DEBUG] Dispatching mock transcript via window.dispatchMockTranscript...');
     await page.evaluate(() => {
-      // @ts-expect-error - dispatchMockTranscript is added by e2e-bridge.ts at runtime
-      if (window.dispatchMockTranscript) {
-        // @ts-expect-error - dispatchMockTranscript is added by e2e-bridge.ts at runtime
-        window.dispatchMockTranscript('This is a mock transcript.', true);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const win = window as any;
+      if (win.dispatchMockTranscript) {
+        win.dispatchMockTranscript('This is a mock transcript.', true);
       } else {
         console.error('[TEST] dispatchMockTranscript not found!');
       }

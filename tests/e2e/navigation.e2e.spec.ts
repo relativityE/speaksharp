@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin, navigateToRoute } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
 
 test.describe('App Navigation', () => {
   test('should navigate to all application routes successfully', async ({ page }) => {
-    await programmaticLogin(page);
+    await programmaticLoginWithRoutes(page);
 
     // Test navigation to each route and verify URL + key element
     const routes = [
@@ -19,7 +19,7 @@ test.describe('App Navigation', () => {
   });
 
   test('should navigate using nav links', async ({ page }) => {
-    await programmaticLogin(page);
+    await programmaticLoginWithRoutes(page);
     // After login, we're at /session, so use links from there
     await navigateToRoute(page, '/session');
 

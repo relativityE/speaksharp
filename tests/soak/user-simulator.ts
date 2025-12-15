@@ -33,25 +33,27 @@ export class UserSimulator {
 
     /**
      * Simulate a complete user journey
+     * NOTE: Auth is handled by setupAuthenticatedUser in soak-test.spec.ts BEFORE this is called.
+     * Do NOT call login() here - it would redundantly navigate and break auth state.
      */
     async simulateUserJourney(page: Page, userId: string): Promise<void> {
         try {
-            // Step 1: Login
-            await this.login(page, userId);
+            // Auth is already done by setupAuthenticatedUser - we start directly in /session
+            console.log(`[User ${userId}] ✓ Auth verified (handled by setupAuthenticatedUser)`);
 
-            // Step 2: Navigate to session page
+            // Step 1: Navigate to session page (may already be there)
             await this.navigateToSessions(page);
 
-            // Step 3: Start a practice session
+            // Step 2: Start a practice session
             await this.startPracticeSession(page);
 
-            // Step 4: Run session for configured duration
+            // Step 3: Run session for configured duration
             await this.runActiveSession(page);
 
-            // Step 5: Stop session
+            // Step 4: Stop session
             await this.stopPracticeSession(page);
 
-            // Step 6: Navigate to analytics
+            // Step 5: Navigate to analytics
             await this.navigateToAnalytics(page);
 
             this.metrics.recordSuccess();

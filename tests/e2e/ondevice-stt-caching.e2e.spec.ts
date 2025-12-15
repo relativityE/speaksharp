@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin, navigateToRoute } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
 
 /**
  * On-Device STT (Whisper) Model Download & Caching E2E Test
@@ -28,7 +28,7 @@ test.describe('On-Device STT Model Download & Caching', () => {
          * Requires E2E_PRO_EMAIL and E2E_PRO_PASSWORD environment variables.
          * Test will be skipped if credentials not configured.
          */
-        await programmaticLogin(page);
+        await programmaticLoginWithRoutes(page);
 
         await navigateToRoute(page, '/session');
         await page.waitForSelector('[data-testid="app-main"]');
@@ -91,7 +91,7 @@ test.describe('On-Device STT Model Download & Caching', () => {
          * 
          * Fix: Measure actual click-to-ready time, then verify no indicator appeared.
          */
-        await programmaticLogin(page);
+        await programmaticLoginWithRoutes(page);
         await navigateToRoute(page, '/session');
 
         // Select On-Device mode
@@ -128,7 +128,7 @@ test.describe('On-Device STT Model Download & Caching', () => {
          * Uses real Pro account to verify On-Device mode option is available.
          * Requires E2E_PRO_EMAIL and E2E_PRO_PASSWORD environment variables.
          */
-        await programmaticLogin(page);
+        await programmaticLoginWithRoutes(page);
         await navigateToRoute(page, '/session');
 
         // Click mode selector
@@ -153,7 +153,7 @@ test.describe('On-Device STT Model Download & Caching', () => {
          * Uses real Pro account to test download completion toast.
          * Requires E2E_PRO_EMAIL and E2E_PRO_PASSWORD environment variables.
          */
-        await programmaticLogin(page);
+        await programmaticLoginWithRoutes(page);
         await navigateToRoute(page, '/session');
 
         // Clear cache and trigger download

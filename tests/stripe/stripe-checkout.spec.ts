@@ -57,15 +57,16 @@ test.describe('Stripe Checkout Flow', () => {
 
         await page.goto('/analytics');
 
-        // Wait directly for the upgrade button - Playwright's auto-waiting handles loading states
-        // This is cleaner than checking for spinners which is implementation-dependent
-        await expect(page.getByTestId('analytics-dashboard-upgrade-button')).toBeVisible({ timeout: 30000 });
-        console.log('✅ Analytics page loaded, upgrade banner visible');
+        // Both empty state and full dashboard have upgrade button with same testid
+        // Both now trigger handleUpgrade which calls stripe-checkout Edge Function
+        const upgradeButton = page.getByTestId('analytics-dashboard-upgrade-button');
+
+        // Wait for the upgrade button to be visible (works for both states)
+        await upgradeButton.waitFor({ state: 'visible', timeout: 30000 });
+        console.log('✅ Analytics page loaded, upgrade button visible');
 
         // Step 3: Click upgrade and capture Edge Function response
-        console.log('[Stripe Test] Step 3: Clicking Upgrade Now...');
-        // Use testid - works for both EmptyState (Link) and full dashboard (Button)
-        const upgradeButton = page.getByTestId('analytics-dashboard-upgrade-button');
+        console.log('[Stripe Test] Step 3: Clicking Upgrade to Pro...');
 
         // Set up response listener BEFORE clicking
         const responsePromise = page.waitForResponse(

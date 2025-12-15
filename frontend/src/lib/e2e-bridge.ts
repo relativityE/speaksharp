@@ -76,8 +76,8 @@ export const getInitialSession = (fallbackSession: Session | null = null): Sessi
     return fallbackSession;
 };
 
-// Mock SpeechRecognition for E2E tests
-class MockSpeechRecognition {
+// Mock SpeechRecognition for E2E tests - exported for use when MSW is skipped
+export class MockSpeechRecognition {
     continuous = false;
     interimResults = false;
     onresult: ((event: unknown) => void) | null = null;
@@ -149,7 +149,8 @@ class MockOnDeviceWhisper {
     }
 }
 
-const setupSpeechRecognitionMock = () => {
+// Exported for use when VITE_SKIP_MSW=true to set up transcript mocking
+export const setupSpeechRecognitionMock = () => {
     if (typeof window !== 'undefined') {
         logger.info('[E2E Bridge] Setting up MockSpeechRecognition');
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

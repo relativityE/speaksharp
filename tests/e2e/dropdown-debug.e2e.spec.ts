@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin, navigateToRoute } from '../e2e/helpers';
+import { programmaticLoginWithRoutes, navigateToRoute } from '../e2e/helpers';
 
 /**
  * Debug test to reproduce the soak test dropdown issue.
@@ -9,7 +9,7 @@ test.describe('Dropdown Debug - Reproduce Soak Test Issue', () => {
     test('click mode dropdown and select Native', async ({ page }) => {
         // Step 1: Login
         console.log('[DEBUG] Logging in...');
-        await programmaticLogin(page);
+        await programmaticLoginWithRoutes(page);
 
         // Step 2: Navigate to session page
         console.log('[DEBUG] Navigating to /session...');

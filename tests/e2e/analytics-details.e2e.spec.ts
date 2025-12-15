@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin, navigateToRoute } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
 
 test.describe('Analytics Details', () => {
     test.beforeEach(async ({ page }) => {
-        await programmaticLogin(page);
+        await programmaticLoginWithRoutes(page);
     });
 
     test('Journey 8: Session Detail View', async ({ page }) => {

@@ -181,16 +181,63 @@ The following critical features are fully implemented and production-ready:
 
 > **Note for Reviewers:** These features were implemented as part of Phase 2 hardening. If conducting a code review, please verify against the file references above before flagging as missing.
 
+#### On-Device STT (Whisper) & Service Worker Caching
+
+The On-Device transcription mode runs the Whisper AI model locally in the browser using WebAssembly. This eliminates the need for cloud API calls but requires a 30MB model download on first use.
+
+| Feature | Status | Implementation | Evidence |
+|---------|--------|----------------|----------|
+| **Service Worker Cache** | ✅ Complete | Intercepts model requests, serves from Cache Storage API | [`sw.js:100-155`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/public/sw.js#L100-L155) |
+| **Model Download Script** | ✅ Complete | Downloads `tiny-q8g16.bin` (30MB) and `tokenizer.json` to `/public/models/` | [`scripts/download-whisper-model.sh`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/scripts/download-whisper-model.sh) |
+| **URL Mapping** | ✅ Complete | Maps CDN URLs to local paths for offline support | [`sw.js:103-106`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/public/sw.js#L103-L106) |
+| **Cache-First Strategy** | ✅ Complete | Local cache checked before network fallback | [`sw.js:127-152`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/public/sw.js#L127-L152) |
+
+**Cache Flow:**
+```
+1. User selects "On-Device" mode
+2. OnDeviceWhisper.ts requests model from CDN URL
+3. Service Worker intercepts request
+4. First load: Fetches from /models/, caches with Cache Storage API
+5. Subsequent loads: Serves directly from cache (<1 second!)
+```
+
+**URL Mappings:**
+| Remote URL (CDN) | Local Path |
+|------------------|------------|
+| `https://rmbl.us/whisper-turbo/tiny-q8g16.bin` | `/models/tiny-q8g16.bin` |
+| `https://huggingface.co/.../tokenizer.json` | `/models/tokenizer.json` |
+
+**Performance Impact:**
+- First Load: ~30 seconds (CDN download - one-time cost)
+- Subsequent Loads: <1 second (served from cache)
+- Network savings: 30MB per session after first load
+
+**Setup:**
+```bash
+# Download model files (one-time setup)
+./scripts/download-whisper-model.sh
+
+# Verify model files exist
+ls -lh frontend/public/models/
+# Should show: tiny-q8g16.bin (~30MB), tokenizer.json (~2MB)
+```
+
+**Related Files:**
+- `frontend/public/sw.js` - Service Worker with cache logic
+- `scripts/download-whisper-model.sh` - Model downloader
+- `frontend/src/services/transcription/modes/OnDeviceWhisper.ts` - Uses cached models
+
 *   **Testing:**
     *   **Unit/Integration:** Vitest (`^2.1.9`)
     *   **DOM Environment:** happy-dom (`^18.0.1`)
     *   **End-to-End Testing Architecture (The "Three Pillars"):**
     To ensure stability and speed, our E2E tests rely on three distinct layers of abstraction:
 
-    1.  **Network Layer (MSW):**
-        *   **Role:** Intercepts all network requests (`fetch`, `XHR`) leaving the browser.
-        *   **File:** `frontend/src/mocks/handlers.ts`
-        *   **Responsibility:** Returns mock JSON responses for Supabase Auth and Database queries. Ensures tests run without a real backend.
+    1.  **Network Layer (Playwright Route Interception):**
+        *   **Role:** Intercepts all network requests (`fetch`, `XHR`) at the Playwright browser level.
+        *   **File:** `tests/e2e/mock-routes.ts`
+        *   **Responsibility:** Uses `page.route()` API to return mock JSON responses for Supabase Auth and Database queries. Per-page isolation prevents race conditions in parallel CI.
+        *   **Note:** This replaces the previous MSW (Mock Service Worker) approach which had browser-global scope issues causing flaky tests in parallel execution.
 
     2.  **Runtime Layer (E2E Bridge):**
         *   **Role:** Injects mock implementations of *browser APIs* that don't exist or behave differently in a headless environment.
@@ -198,15 +245,16 @@ The following critical features are fully implemented and production-ready:
         *   **Responsibility:**
             *   Mocks `SpeechRecognition` (browser API) to prevent crashes.
             *   Injects initial session state (`window.__E2E_MOCK_SESSION__`) for instant login.
-            *   Dispatches custom events (`e2e:app-ready`) for synchronization.
+            *   Provides `dispatchMockTranscript()` for simulating speech input.
+            *   Dispatches custom events (`e2e:msw-ready`) for synchronization.
 
     3.  **Orchestration Layer (Helpers):**
         *   **Role:** The "Consumer" that Playwright tests actually call.
         *   **File:** `tests/e2e/helpers.ts`
         *   **Responsibility:**
-            *   `programmaticLogin()`: Tells the Bridge to inject a session, then waits for MSW to be ready.
+            *   `programmaticLoginWithRoutes()`: Sets up Playwright routes, injects mock session, navigates with full route isolation.
             *   `mockLiveTranscript()`: Tells the Bridge to simulate speech events.
-            *   `waitForE2EEvent()`: Listens for bridge events to avoid flaky `setTimeout`.
+            *   `navigateToRoute()`: Client-side navigation that preserves mock context.
 
 *   **Single Source of Truth (`pnpm test:all`):** A single command, `pnpm test:all`, is the user-facing entry point for all validation. It runs an underlying orchestration script (`test-audit.sh`) that executes all checks (lint, type-check, tests) in a parallelized, multi-stage process both locally and in CI, guaranteeing consistency and speed.
     *   **Image Processing (Test):** node-canvas (replaces Jimp/Sharp for stability)

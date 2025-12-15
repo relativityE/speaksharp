@@ -141,14 +141,35 @@ const initialize = async () => {
 
 
   if (IS_TEST_ENVIRONMENT) {
-    const { initializeE2EEnvironment } = await import('@/lib/e2e-bridge');
-    await initializeE2EEnvironment();
-    console.log('[E2E] Environment ready, now rendering app');
-    await renderApp();
+    // Check if we should skip MSW (using Playwright routes instead)
+    const skipMSW = import.meta.env.VITE_SKIP_MSW === 'true';
 
-    // Signal that the app is fully mounted and ready for interaction
-    // We now rely on DOM readiness (data-testid="app-main") instead of custom events
-    console.log('[E2E] App fully mounted');
+    if (skipMSW) {
+      // Playwright routes handle network mocking - skip MSW entirely
+      console.log('[E2E] VITE_SKIP_MSW=true, skipping MSW initialization');
+      console.log('[E2E] Using Playwright route interception instead');
+
+      // Set up mock speech recognition, MockOnDeviceWhisper, and dispatchMockTranscript
+      // This is the same setup as initializeE2EEnvironment but without MSW
+      const { setupSpeechRecognitionMock } = await import('@/lib/e2e-bridge');
+      setupSpeechRecognitionMock();
+      console.log('[E2E] Mock speech recognition and dispatchMockTranscript configured');
+
+      // Set mswReady immediately since we're not using MSW
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).mswReady = true;
+      window.dispatchEvent(new CustomEvent('e2e:msw-ready'));
+
+      await renderApp();
+      console.log('[E2E] App fully mounted (Playwright routes mode)');
+    } else {
+      // Original MSW-based initialization
+      const { initializeE2EEnvironment } = await import('@/lib/e2e-bridge');
+      await initializeE2EEnvironment();
+      console.log('[E2E] Environment ready, now rendering app');
+      await renderApp();
+      console.log('[E2E] App fully mounted');
+    }
   } else {
     await renderApp();
   }

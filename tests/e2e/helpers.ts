@@ -1,7 +1,7 @@
 // tests/e2e/helpers.ts
 /**
- * This file contains E2E test helper functions including programmaticLogin
- * which uses MSW network mocking instead of window.supabase injection.
+ * This file contains E2E test helper functions for Playwright-based E2E tests.
+ * Uses Playwright route interception for network mocking (replacing MSW).
  */
 
 import type { Page } from '@playwright/test';
@@ -70,12 +70,9 @@ export async function waitForE2EEvent(page: Page, eventName: string): Promise<vo
 ---------------------------------------------- */
 
 /**
- * Programmatic login using MSW network interception.
- * Sets __E2E_MOCK_SESSION__ flag to trigger mock session injection.
- * 
- * ⚠️ IMPORTANT: This function triggers a full page reload via page.goto('/').
- * Do NOT call this multiple times in the same test - it will destroy the MSW context.
- * Use `navigateToRoute()` for subsequent page navigation after login.
+ * @deprecated Use programmaticLoginWithRoutes instead.
+ * This legacy function uses page.goto which can cause issues.
+ * Kept for backwards compatibility only.
  */
 export async function programmaticLogin(
   page: Page
@@ -314,3 +311,62 @@ export async function capturePage(
 
   console.log(`[E2E CAPTURE] Saved to screenshots/${filename}`);
 }
+
+/* ---------------------------------------------
+   PLAYWRIGHT ROUTE-BASED AUTHENTICATION
+   (Full MSW migration to Playwright routes)
+---------------------------------------------- */
+
+import { setupE2EMocks, injectMockSession } from './mock-routes';
+
+/**
+ * Login using Playwright route interception instead of MSW.
+ * 
+ * ## Why This Exists
+ * MSW service workers are browser-global and race in parallel shards.
+ * Playwright routes are per-page and eliminate this class of flakiness.
+ * 
+ * ## How It Works
+ * 1. Sets up Playwright route interception BEFORE navigation
+ * 2. Routes intercept at browser network layer (higher priority than SW)
+ * 3. No dependency on service worker registration
+ */
+export async function programmaticLoginWithRoutes(page: Page): Promise<void> {
+  console.log('[E2E] Starting programmaticLoginWithRoutes (no MSW dependency)');
+
+  // 1. Setup Playwright routes BEFORE navigation
+  await setupE2EMocks(page);
+  console.log('[E2E] Playwright routes configured');
+
+  // 2. Set mock session flag
+  await page.addInitScript(() => {
+    (window as unknown as { __E2E_MOCK_SESSION__: boolean }).__E2E_MOCK_SESSION__ = true;
+  });
+
+  // 3. Navigate to app
+  console.log('[E2E] Navigating to /');
+  await page.goto('/');
+
+  // 4. Wait for React to mount (no MSW wait needed!)
+  console.log('[E2E] Waiting for React to mount...');
+  await page.waitForSelector('#root > *', { timeout: 15000 });
+
+  // 5. Inject mock session
+  await injectMockSession(page);
+
+  // 6. Reload to pick up the session
+  await page.reload();
+
+  // 7. Wait for authenticated state
+  console.log('[E2E] Waiting for app-main...');
+  await page.waitForSelector('[data-testid="app-main"]', { timeout: 15000 });
+
+  // 8. Wait for profile loaded
+  await page.waitForFunction(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return !!(window as any).__e2eProfileLoaded;
+  }, null, { timeout: 15000 });
+
+  console.log('[E2E] ✅ Logged in via Playwright routes');
+}
+

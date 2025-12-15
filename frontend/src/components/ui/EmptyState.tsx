@@ -11,10 +11,11 @@ interface EmptyStateProps {
         href?: string;
         onClick?: () => void;
     };
-    /** Optional subtle secondary action (text link, not button) */
+    /** Optional subtle secondary action (text link or button) */
     secondaryAction?: {
         label: string;
-        href: string;
+        href?: string;  // Either href or onClick should be provided
+        onClick?: () => void;
         prefix?: string;
         testId?: string;
     };
@@ -65,17 +66,27 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
                     </Button>
                 )
             )}
-            {/* Subtle secondary action - non-aggressive text link */}
+            {/* Subtle secondary action - text link or clickable text */}
             {secondaryAction && (
                 <p className="mt-4 text-xs text-muted-foreground">
                     {secondaryAction.prefix && <span>{secondaryAction.prefix} </span>}
-                    <Link
-                        to={secondaryAction.href}
-                        className="text-primary hover:underline"
-                        data-testid={secondaryAction.testId}
-                    >
-                        {secondaryAction.label}
-                    </Link>
+                    {secondaryAction.href ? (
+                        <Link
+                            to={secondaryAction.href}
+                            className="text-primary hover:underline"
+                            data-testid={secondaryAction.testId}
+                        >
+                            {secondaryAction.label}
+                        </Link>
+                    ) : (
+                        <button
+                            onClick={secondaryAction.onClick}
+                            className="text-primary hover:underline cursor-pointer bg-transparent border-none p-0"
+                            data-testid={secondaryAction.testId}
+                        >
+                            {secondaryAction.label}
+                        </button>
+                    )}
                 </p>
             )}
         </div>

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin, navigateToRoute } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
 
 /**
  * E2E Error State Tests
@@ -14,7 +14,7 @@ import { programmaticLogin, navigateToRoute } from './helpers';
 test.describe('Error State Handling', () => {
     test.describe('Session Page Stability', () => {
         test('should load session page and show start button', async ({ page }) => {
-            await programmaticLogin(page);
+            await programmaticLoginWithRoutes(page);
             await navigateToRoute(page, '/session');
 
             // App should load with session UI elements
@@ -28,7 +28,7 @@ test.describe('Error State Handling', () => {
         });
 
         test('should remain functional after clicking start in mock mode', async ({ page }) => {
-            await programmaticLogin(page);
+            await programmaticLoginWithRoutes(page);
             await navigateToRoute(page, '/session');
 
             await expect(page.getByTestId('app-main')).toBeVisible({ timeout: 15000 });
@@ -56,7 +56,7 @@ test.describe('Error State Handling', () => {
                 route.abort('failed');
             });
 
-            await programmaticLogin(page);
+            await programmaticLoginWithRoutes(page);
             await navigateToRoute(page, '/session');
 
             // App should remain functional despite token fetch failure
@@ -75,7 +75,7 @@ test.describe('Error State Handling', () => {
                 route.abort('failed');
             });
 
-            await programmaticLogin(page);
+            await programmaticLoginWithRoutes(page);
 
             // Wait for error handling
             await page.waitForTimeout(3000);

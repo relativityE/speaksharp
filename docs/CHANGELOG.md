@@ -10,14 +10,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (2025-12-15)
+
+- **E2E Tests: Migrated from MSW to Playwright Route Interception:**
+  - **Problem:** MSW Service Workers caused race conditions in parallel CI (browser-global scope, registration conflicts).
+  - **Solution:** Replaced MSW with Playwright's `page.route()` API for per-page/per-test isolation.
+  - **Result:** All 36 E2E tests pass reliably with `VITE_SKIP_MSW=true`.
+  - **Key Files:** `tests/e2e/mock-routes.ts` (route handlers), `frontend/src/main.tsx` (conditional MSW skip), `tests/e2e/helpers.ts` (programmaticLoginWithRoutes).
+  - **Warning:** DO NOT revert to MSW for E2E tests - the race conditions are fundamental architectural limitations.
+
 ### Fixed (2025-12-15)
 
-- **UI State Capture Test - MSW Service Worker Race Condition (Root Cause Identified):**
-  - **Problem:** Test intermittently timed out waiting for `e2e:msw-ready` with React never mounting (#root empty). Occurred only in parallel shard execution.
-  - **Root Cause (99.5% confidence):** MSW service workers are browser-global per-origin. When multiple shards run simultaneously, workers race for registration causing silent failures. `window.mswReady` never set → 30s timeout.
-  - **Diagnostic Improvements:** Added explicit console.error logging to `e2e-bridge.ts` with user agent, SW support, URL, and timing diagnostics for CI visibility.
-  - **Long-term Solution:** Gradual migration from MSW to Playwright route interception (tracked in ROADMAP.md).
-  - **Files:** `frontend/src/lib/e2e-bridge.ts`, `tests/e2e/mock-routes.ts` (new), `tests/e2e/fixtures.ts` (new)
+- **UI State Capture Test - MSW Race Condition (RESOLVED):**
+  - Root cause identified: MSW Service Workers are browser-global, causing registration races in parallel CI.
+  - Migrated to Playwright route interception which is per-page scoped.
+  - Test now passes consistently in parallel execution.
 
 ### Added (2025-12-11)
 

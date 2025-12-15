@@ -126,6 +126,23 @@ test.describe('Soak Test - Concurrent User Simulation', () => {
             userPages.map((page, i) => setupAuthenticatedUser(page, i))
         );
 
+        // DIAGNOSTIC: Verify auth state before starting journeys
+        console.log('\n[Soak Test] 🔍 DIAGNOSTIC: Verifying auth state for all users...');
+        for (let i = 0; i < userPages.length; i++) {
+            const page = userPages[i];
+            const url = page.url();
+            const signOutVisible = await page.locator('[data-testid="nav-sign-out-button"]').isVisible().catch(() => false);
+            const startButtonVisible = await page.locator('[data-testid="session-start-stop-button"]').isVisible().catch(() => false);
+            console.log(`[Soak Test] User ${i}: URL=${url}, SignOutBtn=${signOutVisible}, StartBtn=${startButtonVisible}`);
+
+            if (!signOutVisible) {
+                console.error(`[Soak Test] ⚠️ User ${i}: nav-sign-out-button NOT visible - auth may have failed!`);
+                // Capture screenshot for debugging
+                await page.screenshot({ path: `test-results/soak/debug-user-${i}-auth-state.png` });
+            }
+        }
+        console.log('[Soak Test] 🔍 DIAGNOSTIC complete\n');
+
         // Create simulators for each user
         const simulators = userPages.map(
             () =>

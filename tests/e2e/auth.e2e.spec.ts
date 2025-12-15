@@ -1,10 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin, navigateToRoute } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
 
 test.describe('Authentication', () => {
   test('should allow a logged-in user to access protected routes', async ({ page }) => {
     await test.step('Programmatically log in', async () => {
-      await programmaticLogin(page);
+      await programmaticLoginWithRoutes(page);
     });
 
     await test.step('Verify user can access protected session page', async () => {

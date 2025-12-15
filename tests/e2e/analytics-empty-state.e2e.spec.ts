@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin, navigateToRoute } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
 
 test.describe('Analytics Page - Empty State', () => {
     test('should display empty state when user has no session history', async ({ page }) => {
@@ -8,7 +8,7 @@ test.describe('Analytics Page - Empty State', () => {
             Object.assign(window, { __E2E_EMPTY_SESSIONS__: true });
         });
 
-        await programmaticLogin(page);
+        await programmaticLoginWithRoutes(page);
 
         // Navigate to analytics page using client-side navigation (NOT page.goto!)
         await navigateToRoute(page, '/analytics');

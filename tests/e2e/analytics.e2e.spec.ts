@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin, navigateToRoute, attachLiveTranscript } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute, attachLiveTranscript } from './helpers';
 
 test.describe('Analytics Page - Dashboard with Data', () => {
   test('should display analytics dashboard with session data', async ({ page }) => {
@@ -7,7 +7,7 @@ test.describe('Analytics Page - Dashboard with Data', () => {
     attachLiveTranscript(page);
 
     // MSW provides mock session data by default
-    await programmaticLogin(page);
+    await programmaticLoginWithRoutes(page);
 
     // Use client-side navigation to avoid full page reload issues
     await navigateToRoute(page, '/analytics');

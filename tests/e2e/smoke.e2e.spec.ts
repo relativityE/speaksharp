@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin, navigateToRoute, attachLiveTranscript } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute, attachLiveTranscript } from './helpers';
 import { TEST_IDS, TIMEOUTS } from '../constants';
 
 test.describe('Smoke Test', () => {
@@ -8,9 +8,9 @@ test.describe('Smoke Test', () => {
     attachLiveTranscript(page);
 
     // Step 1: Programmatic login (this does the initial page.goto('/') internally)
-    // IMPORTANT: Do NOT call page.goto() before programmaticLogin - it causes MSW ready event race
+    // IMPORTANT: Do NOT call page.goto() before programmaticLoginWithRoutes - it causes MSW ready event race
     await test.step('Programmatic Login', async () => {
-      await programmaticLogin(page);
+      await programmaticLoginWithRoutes(page);
       console.log('✅ Login completed successfully.');
 
       // Verify auth state after login

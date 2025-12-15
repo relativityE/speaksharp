@@ -1,6 +1,6 @@
 // tests/e2e/ui-state-capture.e2e.spec.ts
 import { test } from '@playwright/test';
-import { programmaticLogin, capturePage, navigateToRoute } from './helpers';
+import { programmaticLoginWithRoutes, capturePage, navigateToRoute } from './helpers';
 
 const envPages = process.env.UI_CAPTURE_PAGES;
 const pagesFromEnv = envPages ? envPages.split(',').map((p) => p.trim()) : undefined;
@@ -13,7 +13,7 @@ test.describe('UI State Capture', () => {
     const pagesToCapture = pagesFromEnv ?? ['homepage', 'sessions', 'analytics'];
 
     // Track login state to avoid redundant MSW re-initialization
-    // Each programmaticLogin() calls page.goto('/') which destroys the MSW context
+    // Each programmaticLoginWithRoutes() calls page.goto('/') which destroys the MSW context
     // and requires a full service worker re-registration (slow and flaky)
     let isLoggedIn = false;
 
@@ -25,14 +25,14 @@ test.describe('UI State Capture', () => {
           await capturePage(page, `homepage-unauth-${testInfo.workerIndex}.png`, 'unauth');
 
           // authenticated homepage
-          await programmaticLogin(page);
+          await programmaticLoginWithRoutes(page);
           isLoggedIn = true;
           await capturePage(page, `homepage-auth-${testInfo.workerIndex}.png`, 'auth');
           break;
 
         case 'sessions':
           if (!isLoggedIn) {
-            await programmaticLogin(page);
+            await programmaticLoginWithRoutes(page);
             isLoggedIn = true;
           }
           await navigateToRoute(page, '/sessions');
@@ -41,7 +41,7 @@ test.describe('UI State Capture', () => {
 
         case 'analytics':
           if (!isLoggedIn) {
-            await programmaticLogin(page);
+            await programmaticLoginWithRoutes(page);
             isLoggedIn = true;
           }
           await navigateToRoute(page, '/analytics');

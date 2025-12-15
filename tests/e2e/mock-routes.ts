@@ -201,24 +201,55 @@ export async function setupSupabaseAuthMocks(page: Page): Promise<void> {
  */
 export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
     // GET /rest/v1/user_profiles
-    await registerRoute(page, '**/rest/v1/user_profiles*', async (route) => {
+    await page.route('**/rest/v1/user_profiles*', async (route) => {
+        console.log(`[E2E MOCK] Intercepted: ${route.request().method()} ${route.request().url()}`);
         const acceptHeader = route.request().headers()['accept'];
         const isSingleObject = acceptHeader === 'application/vnd.pgrst.object+json';
+
+        // Check if profile override flag is set (for free user testing)
+        const profileOverride = await route.request().frame()?.page()?.evaluate(() => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            return (window as any).__E2E_MOCK_PROFILE__ as { id: string; subscription_status: string } | undefined;
+        }).catch(() => undefined);
+
+        let profile = MOCK_USER_PROFILE;
+        if (profileOverride) {
+            console.log(`[E2E MOCK] Profile override detected: ${JSON.stringify(profileOverride)}`);
+            profile = { ...MOCK_USER_PROFILE, ...profileOverride };
+        }
 
         await route.fulfill({
             status: 200,
             contentType: 'application/json',
-            body: JSON.stringify(isSingleObject ? MOCK_USER_PROFILE : [MOCK_USER_PROFILE]),
+            body: JSON.stringify(isSingleObject ? profile : [profile]),
         });
     });
 
     // GET /rest/v1/sessions
-    await registerRoute(page, '**/rest/v1/sessions*', async (route) => {
-        await route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(MOCK_SESSION_HISTORY),
-        });
+    await page.route('**/rest/v1/sessions*', async (route) => {
+        console.log(`[E2E MOCK] Intercepted: ${route.request().method()} ${route.request().url()}`);
+
+        // Check if empty sessions flag is set in the page context
+        // The flag is set via page.addInitScript() BEFORE navigation
+        const isEmpty = await route.request().frame()?.page()?.evaluate(() => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            return !!(window as any).__E2E_EMPTY_SESSIONS__;
+        }).catch(() => false);
+
+        if (isEmpty) {
+            console.log('[E2E MOCK] Returning empty sessions (flag set)');
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify([]),
+            });
+        } else {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify(MOCK_SESSION_HISTORY),
+            });
+        }
     });
 
     // GET/POST /rest/v1/custom_vocabulary
@@ -255,6 +286,18 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
                 body: JSON.stringify(newWord),
             });
         } else if (method === 'DELETE') {
+            // Parse word ID from URL query params: ?id=eq.word-xxx&user_id=eq.test-user-123
+            const url = new URL(route.request().url());
+            const idParam = url.searchParams.get('id') || '';
+            const wordId = idParam.replace('eq.', '');
+            const userId = 'test-user-123';
+
+            // Actually remove the word from the store
+            const userWords = vocabularyStore.get(userId) || [];
+            const filteredWords = userWords.filter(w => w.id !== wordId);
+            vocabularyStore.set(userId, filteredWords);
+
+            console.log(`[E2E MOCK] Deleted word ${wordId}, remaining: ${filteredWords.length}`);
             await route.fulfill({ status: 204 });
         } else {
             await route.continue();

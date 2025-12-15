@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLogin, navigateToRoute } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
 
 test.describe('Custom Vocabulary - Debugging with console logs', () => {
     test('should allow adding and removing custom words', async ({ page }) => {
@@ -12,7 +12,7 @@ test.describe('Custom Vocabulary - Debugging with console logs', () => {
             }
         });
 
-        await programmaticLogin(page);
+        await programmaticLoginWithRoutes(page);
         console.log('[TEST DEBUG] Login complete, navigating to /session');
         await navigateToRoute(page, '/session');
         console.log('[TEST DEBUG] Navigated to /session');

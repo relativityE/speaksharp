@@ -9,12 +9,12 @@
  * 5. Compares sessions to see trends
  */
 import { test, expect } from '@playwright/test';
-import { programmaticLogin, navigateToRoute } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
 
 test.describe('User Journey - Full Onboarding to Trend Analysis', () => {
     test('should complete full user journey with session and analytics', async ({ page }) => {
         // Step 1: Login as pro user (default mock profile is pro)
-        await programmaticLogin(page);
+        await programmaticLoginWithRoutes(page);
 
         // Step 2: Navigate to session page and verify it loads
         await navigateToRoute(page, '/session');
@@ -60,7 +60,7 @@ test.describe('User Journey - Full Onboarding to Trend Analysis', () => {
 
     test('should allow pro users to start session with default cloud mode', async ({ page }) => {
         // Login as pro user (default mock profile is pro with subscription_status: 'pro')
-        await programmaticLogin(page);
+        await programmaticLoginWithRoutes(page);
         await navigateToRoute(page, '/session');
         await expect(page.locator('[data-testid="app-main"]')).toBeVisible();
 
@@ -85,9 +85,9 @@ test.describe('Free User Tier Restrictions', () => {
                 subscription_status: 'free'
             };
         });
-        // Navigate to homepage first to initialize app with free profile mock
-        await page.goto('/'); // eslint-disable-line no-restricted-syntax -- mock set via addInitScript before navigation
-        await page.waitForSelector('[data-testid="app-main"]', { timeout: 10000 });
+
+        // Use programmaticLoginWithRoutes to set up Playwright route interception
+        await programmaticLoginWithRoutes(page);
 
         // Navigate to session page
         await navigateToRoute(page, '/session');
