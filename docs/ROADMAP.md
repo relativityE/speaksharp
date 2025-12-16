@@ -81,6 +81,11 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - **Diagnostics:** Added "Diagnostic Logging" and "Negative Verification" (expect 400 with specific error body) to prove configuration in CI without exposing secrets.
   - **Testing:** Added `stripe-checkout-test.yml` workflow and `setup-test-users.yml` for E2E testing with real credentials.
 
+- ✅ **Stripe Test Response Handling (2025-12-15):** Fixed test to handle response body read after Stripe redirect.
+  - **Problem:** Browser navigates to Stripe Checkout URL before `response.json()` can be called, causing "Protocol error".
+  - **Fix:** Validate status (200) first, gracefully handle parse error, fall back to verifying browser navigated to `checkout.stripe.com`.
+  - **Files:** `tests/stripe/stripe-checkout.spec.ts`
+
 - ✅ **Whisper Architecture Documentation (2025-12-12):** ARCHITECTURE.md section 3.2.1 expanded with comprehensive Service Worker caching strategy, architecture diagram, component tables, and setup instructions.
 
 #### P2 - Known Limitations (Alpha Acceptable)

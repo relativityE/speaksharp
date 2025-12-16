@@ -99,14 +99,33 @@ test.describe('Stripe Checkout Flow', () => {
         // Step 4: Verify Edge Function response
         console.log('[Stripe Test] Step 4: Verifying Edge Function response...');
         const response = await responsePromise;
-        const responseBody = await response.json();
 
-        // Assert the Edge Function returned a valid Stripe checkout URL
-        expect(response.status()).toBe(200);
-        expect(responseBody.checkoutUrl).toBeDefined();
-        expect(responseBody.checkoutUrl).toContain('checkout.stripe.com');
+        // Assert the Edge Function returned 200 (success)
+        const status = response.status();
+        console.log(`[Network] 📡 Stripe Endpoint Status: ${status}`);
+        expect(status).toBe(200);
 
-        console.log('✅ Edge function returned valid checkout URL:', responseBody.checkoutUrl);
+        // Try to read response body - may fail if browser already navigated
+        let responseBody: { checkoutUrl?: string } = {};
+        try {
+            responseBody = await response.json();
+            console.log('[Network] ✅ Response body parsed:', JSON.stringify(responseBody).substring(0, 100));
+        } catch {
+            // Response body unavailable after navigation - that's OK
+            // The 200 status confirms the Edge Function worked
+            console.log('[Network] ℹ️ Could not parse response body (browser may have navigated)');
+        }
+
+        // If we got the body, validate it
+        if (responseBody.checkoutUrl) {
+            expect(responseBody.checkoutUrl).toContain('checkout.stripe.com');
+            console.log('✅ Edge function returned valid checkout URL:', responseBody.checkoutUrl);
+        } else {
+            // Alternatively, verify by checking the page navigated to Stripe
+            await page.waitForURL(/checkout\.stripe\.com/, { timeout: 10000 });
+            console.log('✅ Browser navigated to Stripe Checkout');
+        }
+
         console.log('✅ Stripe Checkout Test PASSED');
     });
 });

@@ -44,6 +44,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Principle:** `postinstall` prepares the app; workflows prepare the environment.
   - **Impact:** ~7 min CI time saved per workflow run.
 
+- **Dev Server Lifecycle Fix (ELIFECYCLE):**
+  - **Problem:** CI jobs reported ELIFECYCLE errors from orphaned node/esbuild processes when manually killing dev server.
+  - **Fix:** Replaced manual `kill $DEV_PID` with `start-server-and-test` for clean process lifecycle.
+  - **Impact:** CI jobs now exit cleanly with no orphan processes.
+
+- **Stripe Test Response Handling Fix:**
+  - **Problem:** `stripe-checkout.spec.ts` failed with "Protocol error (Network.getResponseBody)" because browser navigated to Stripe before response body could be read.
+  - **Fix:** Validate status (200) first, then try to parse body with graceful error handling. Falls back to verifying browser navigated to `checkout.stripe.com`.
+  - **Impact:** Test now passes with real Stripe Checkout flows.
+
 - **Unused Build Step Removal:**
   - **Problem:** Soak and Stripe workflows ran `pnpm build` but used `pnpm dev` (dev server doesn't use production build).
   - **Fix:** Removed unused build steps from both workflows.
