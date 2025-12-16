@@ -231,6 +231,14 @@ This phase is about confirming the core feature set works as expected and polish
     - **Root Cause:** Workflow used `VITE_E2E=true` but `IS_TEST_ENVIRONMENT` checks `VITE_TEST_MODE`
     - **Solution:** Changed to `VITE_TEST_MODE=true` in soak-test.yml. Added critical warning to ARCHITECTURE.md.
     - **Files:** `.github/workflows/soak-test.yml`, `docs/ARCHITECTURE.md`
+  - ✅ **COMPLETED (2025-12-15) - CI Workflow Architectural Fix:**
+    - **Problem:** ELIFECYCLE errors from orphaned node/esbuild processes when manually killing dev server. Also `postinstall` installed Playwright browsers (~7 min wasted).
+    - **Solution:** 
+      - Replaced manual `kill` with `start-server-and-test` for clean process lifecycle
+      - Removed Playwright from `postinstall` entirely (separation of concerns: postinstall=app, workflows=environment)
+      - Added explicit `pw:install` scripts for developers
+    - **Principle:** `postinstall` prepares the app; workflows prepare the environment.
+    - **Files:** `package.json`, `.github/workflows/soak-test.yml`, `.github/workflows/stripe-checkout-test.yml`, `docs/ARCHITECTURE.md`
 - **✅ COMPLETED - Expand Unit Test Coverage (2025-12-08):**
   - **Current:** 379 unit tests passing
   - ✅ Authentication pages: SignInPage (14), SignUpPage (15)

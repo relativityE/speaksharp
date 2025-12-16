@@ -38,9 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Problem:** `stripe-checkout.spec.ts` called `waitForURL('/session')` twice consecutively.
   - **Fix:** Removed duplicate line.
 
-- **CI Install Chain Optimization:**
-  - **Problem:** `postinstall` installed ALL browsers (~5 min), then workflows installed Chromium again (~2 min redundant).
-  - **Fix:** Removed `postinstall` hook from `package.json`. Browsers installed explicitly in CI workflows.
+- **CI Install Chain Optimization (Architectural Fix):**
+  - **Problem:** `postinstall` installed Playwright browsers (~7 min), violating separation of concerns (postinstall = app, workflow = environment).
+  - **Fix:** Removed Playwright from `postinstall` entirely. Added explicit `pw:install` and `pw:install:all` scripts for developers. CI workflows install browsers explicitly.
+  - **Principle:** `postinstall` prepares the app; workflows prepare the environment.
   - **Impact:** ~7 min CI time saved per workflow run.
 
 - **Unused Build Step Removal:**

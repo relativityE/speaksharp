@@ -269,6 +269,37 @@ This script is the **single source of truth** for all code validation. It is acc
 *   **Stage-Based Execution:** The script is designed to be called with different stages (`prepare`, `test`, `report`) that map directly to the jobs in the CI pipeline. This allows for a sophisticated, multi-stage workflow.
 *   **Local-First Mode:** When run without arguments (as with `pnpm test:all`), it executes a `local` stage that runs all checks sequentially, providing a comprehensive local validation experience.
 
+### CI Dependency Boundary (Architectural Principle)
+
+> **Rule:** `postinstall` prepares the app; workflows prepare the environment.
+
+The `postinstall` npm hook is reserved exclusively for **application-level setup**:
+- Building native dependencies
+- Generating assets required for the SPA to run
+
+The `postinstall` hook **must not** contain:
+- Browser installations (Playwright)
+- OS-level dependencies
+- Test infrastructure setup
+
+**Rationale:** CI workflows have different requirements than local development. Mixing environment-specific setup into `postinstall` creates coupling between package semantics and CI policy, leading to:
+- Non-deterministic installs
+- Long CI times (~7 min wasted on unnecessary browser installs)
+- Hidden env var dependencies
+
+**Developer Workflow:**
+```bash
+pnpm install          # App dependencies only
+pnpm pw:install       # Playwright Chromium (when testing locally)
+pnpm pw:install:all   # All Playwright browsers (optional)
+```
+
+**CI Workflow:**
+```yaml
+- run: pnpm install                                    # Fast, no browsers
+- run: pnpm exec playwright install chromium --with-deps  # Explicit browser install
+```
+
 ### CI/CD Pipeline
 
 The CI pipeline, defined in `.github/workflows/ci.yml`, is a multi-stage, parallelized workflow designed for fast feedback and efficient use of resources.

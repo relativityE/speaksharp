@@ -25,8 +25,6 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install
-        env:
-          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
 
       - name: Create .env.development from Secrets
         run: |
@@ -43,7 +41,7 @@ jobs:
       - name: Install Playwright browsers
         run: pnpm exec playwright install chromium --with-deps
 
-      - name: Start dev server and run Stripe checkout test
+      - name: Run Stripe checkout test
         env:
           # Real Supabase mode (test uses E2E_FREE_* credentials from secrets)
           VITE_USE_LIVE_DB: "true"
@@ -51,24 +49,12 @@ jobs:
           E2E_FREE_EMAIL: ${{ secrets.E2E_FREE_EMAIL }}
           E2E_FREE_PASSWORD: ${{ secrets.E2E_FREE_PASSWORD }}
         run: |
-          # Start the dev server in background
-          pnpm dev &
-          DEV_PID=$!
-          
-          # Wait for dev server to be ready
-          echo "Waiting for dev server..."
-          npx wait-on http://localhost:5173 --timeout 60000
-          
-          # Run the Stripe checkout test and capture exit code
-          pnpm exec playwright test --config=playwright.stripe.config.ts --project=chromium
-          TEST_EXIT=$?
-          
-          # Kill dev server and wait for cleanup
-          kill $DEV_PID
-          wait $DEV_PID 2>/dev/null || true
-          
-          # Exit with test result
-          exit $TEST_EXIT
+          # Using start-server-and-test for clean process lifecycle
+          # (avoids ELIFECYCLE from orphaned node/esbuild processes)
+          npx start-server-and-test \
+            "pnpm dev" \
+            http://localhost:5173 \
+            "pnpm exec playwright test --config=playwright.stripe.config.ts --project=chromium"
 
       - name: Upload test results
         if: always()

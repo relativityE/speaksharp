@@ -86,6 +86,12 @@ To get started with SpeakSharp, you'll need to have Node.js (version 22.12.0 or 
     pnpm dev
     ```
 
+6.  **(Optional) Install Playwright browsers for E2E testing:**
+    ```bash
+    pnpm pw:install       # Chromium only (faster)
+    pnpm pw:install:all   # All browsers
+    ```
+
 ## Asset Organization
 
 This project uses a hybrid approach for managing image assets:
