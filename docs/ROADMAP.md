@@ -95,6 +95,12 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - **Evidence:** `const vocalAnalysis = useVocalAnalysis(false); // We'll enable this when we have mic access`
   - **Status:** Feature placeholder for future release, not a bug
 
+- 🟡 **Transient Profile Fetch Error (2025-12-15):** Initial profile fetch occasionally fails with `TypeError: Failed to fetch` on page load, then self-heals on retry.
+  - **File:** `AuthProvider.tsx:60`
+  - **Symptom:** Log shows `[AuthProvider] Error fetching user profile: {message: TypeError: Failed to fetch...}` followed by successful `[AuthProvider] Profile loaded: ...`
+  - **Impact:** Minimal - app continues normally after retry, slight delay on initial load
+  - **Status:** P2 (Alpha Acceptable) - Self-healing behavior, no user-facing error
+
 ### ⚠️ Known Issues
 
 - **✅ RESOLVED - Usage Limit Pre-Check UX (2025-12-11)**
