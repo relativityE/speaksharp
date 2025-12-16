@@ -3,6 +3,7 @@ import React, { useState, useEffect, ReactNode, useMemo, useCallback, useContext
 import { getSupabaseClient } from '../lib/supabaseClient';
 import { Session, User } from '@supabase/supabase-js';
 import { UserProfile } from '@/types/user';
+import { fetchWithRetry } from '@/utils/fetchWithRetry';
 
 // Define the context value type right inside the provider file
 export interface AuthContextType {
@@ -66,28 +67,28 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       console.log('[AuthProvider] fetchAndSetProfile called with session:', session?.user?.id);
       if (session?.user?.id) {
         try {
-          const { data, error } = await supabase
-            .from('user_profiles')
-            .select('*')
-            .eq('id', session.user.id)
-            .single();
+          // Use fetchWithRetry to handle cold starts and transient network failures
+          const data = await fetchWithRetry(async () => {
+            const { data, error } = await supabase
+              .from('user_profiles')
+              .select('*')
+              .eq('id', session.user.id)
+              .single();
+            if (error) throw error;
+            return data;
+          }, 5, 100); // 5 retries, starting at 100ms with exponential backoff
 
-          if (error) {
-            console.error('[AuthProvider] Error fetching user profile:', error);
-            setProfile(null);
-          } else if (data) {
-            console.log('[AuthProvider] Profile loaded:', data.id);
-            setProfile(data as UserProfile);
-            // --- ARCHITECTURAL FIX: Set flag AND dispatch event AFTER profile is confirmed set ---
-            if (import.meta.env.MODE === 'test' || import.meta.env.VITE_TEST_MODE === 'true') {
-              console.log(`[E2E DIAGNOSTIC] Profile found for ${data.id}, setting flag and dispatching event.`);
-              // Set window flag for waitForFunction polling
-              (window as Window & { __e2eProfileLoaded?: boolean }).__e2eProfileLoaded = true;
-              document.dispatchEvent(new CustomEvent('e2e-profile-loaded', { detail: data }));
-            }
+          console.log('[AuthProvider] Profile loaded:', data.id);
+          setProfile(data as UserProfile);
+          // --- ARCHITECTURAL FIX: Set flag AND dispatch event AFTER profile is confirmed set ---
+          if (import.meta.env.MODE === 'test' || import.meta.env.VITE_TEST_MODE === 'true') {
+            console.log(`[E2E DIAGNOSTIC] Profile found for ${data.id}, setting flag and dispatching event.`);
+            // Set window flag for waitForFunction polling
+            (window as Window & { __e2eProfileLoaded?: boolean }).__e2eProfileLoaded = true;
+            document.dispatchEvent(new CustomEvent('e2e-profile-loaded', { detail: data }));
           }
         } catch (e) {
-          console.error('[AuthProvider] An unexpected error occurred while fetching the profile:', e);
+          console.error('[AuthProvider] Failed to fetch profile after retries:', e);
           setProfile(null);
         }
       } else {

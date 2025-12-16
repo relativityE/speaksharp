@@ -54,6 +54,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Fix:** Validate status (200) first, then try to parse body with graceful error handling. Falls back to verifying browser navigated to `checkout.stripe.com`.
   - **Impact:** Test now passes with real Stripe Checkout flows.
 
+- **Transient Profile Fetch Error (fetchWithRetry):**
+  - **Problem:** Initial profile fetch in CI failed with `TypeError: Failed to fetch` due to cold starts.
+  - **Fix:** Added `fetchWithRetry` utility with exponential backoff (5 retries, 100ms-1600ms). Integrated into `AuthProvider.tsx`.
+  - **Impact:** Eliminates transient fetch failures in serverless/CI environments.
+
 - **Unused Build Step Removal:**
   - **Problem:** Soak and Stripe workflows ran `pnpm build` but used `pnpm dev` (dev server doesn't use production build).
   - **Fix:** Removed unused build steps from both workflows.
