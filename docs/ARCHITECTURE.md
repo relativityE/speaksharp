@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-15
+**Last Reviewed:** 2025-12-17
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -188,6 +188,30 @@ The following critical features are fully implemented and production-ready:
 
 > **Why This Matters:**
 > Supabase Edge Functions and DB connections experience cold starts in CI/serverless environments. The first fetch may timeout, but subsequent retries succeed once the connection is warm. This pattern eliminates transient "Failed to fetch" errors without requiring infrastructure changes.
+
+#### Shared Types (`_shared/types.ts`)
+
+| Feature | Status | Implementation | Evidence |
+|---------|--------|----------------|----------|
+| **UsageLimitResponse** | ✅ Complete | Type-safe API contract for usage limit checks | [`_shared/types.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/backend/supabase/functions/_shared/types.ts) |
+| **Frontend Path Mapping** | ✅ Complete | `@shared/*` alias in tsconfig | [`tsconfig.json:24-26`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tsconfig.json#L24-L26) |
+
+> **Import Patterns:**
+> - **Frontend:** `import { UsageLimitResponse } from '@shared/types'`
+> - **Backend (Deno):** `import { UsageLimitResponse } from '../_shared/types.ts'`
+
+#### Stripe Checkout Fallback Pattern
+
+| Feature | Status | Implementation | Evidence |
+|---------|--------|----------------|----------|
+| **Price ID Fallback** | ✅ Complete | `?? "price_mock_default"` when env var missing | [`stripe-checkout/index.ts:71`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/backend/supabase/functions/stripe-checkout/index.ts#L71) |
+
+> **Environment Resolution:**
+> | Environment | Source |
+> |------------|--------|
+> | Production | Supabase Secrets |
+> | CI | GitHub Secrets → .env.development |
+> | Local Dev | Code fallback (`price_mock_default`) |
 
 > **Note for Reviewers:** These features were implemented as part of Phase 2 hardening. If conducting a code review, please verify against the file references above before flagging as missing.
 
