@@ -21,6 +21,9 @@
       ],
       "tests/*": [
         "tests/*"
+      ],
+      "@shared/*": [
+        "../backend/supabase/functions/_shared/*"
       ]
     },
     "types": [

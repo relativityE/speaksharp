@@ -19,6 +19,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Key Files:** `tests/e2e/mock-routes.ts` (route handlers), `frontend/src/main.tsx` (conditional MSW skip), `tests/e2e/helpers.ts` (programmaticLoginWithRoutes).
   - **Warning:** DO NOT revert to MSW for E2E tests - the race conditions are fundamental architectural limitations.
 
+### Fixed (2025-12-17) - Independent Review Remediation
+
+- **P0 - Secret Sanitization:**
+  - **Problem:** Real `STRIPE_PRO_PRICE_ID` committed in `.env.development`.
+  - **Fix:** Removed from committed file. Added code fallback (`?? "price_mock_default"`) in `stripe-checkout/index.ts`.
+  - **Impact:** Secrets no longer in git. Local dev works without manual `.env.local` setup.
+
+- **P1 - Stripe Test Hardening:**
+  - **Problem:** Catch block swallowed errors after JSON parse failure.
+  - **Fix:** Added URL validation in catch block - fails fast if not on `checkout.stripe.com`.
+  - **File:** `stripe-checkout.spec.ts`
+
+- **P2 - Shared Types Package:**
+  - **Problem:** No type sharing between frontend and Edge Functions.
+  - **Fix:** Created `_shared/types.ts` with `UsageLimitResponse`, `StripeCheckoutResponse`, `UserProfile`.
+  - **Updated:** `tsconfig.json` with `@shared/*` path mapping.
+
+- **P2 - Webhook Unit Tests:**
+  - **Problem:** No unit tests for `stripe-webhook` (signature verification complexity).
+  - **Strategy:** Extracted handler functions for testing business logic without mocking Stripe SDK.
+  - **File:** `stripe-webhook/index.test.ts` (5 test cases)
+
 ### Fixed (2025-12-15)
 
 - **UI State Capture Test - MSW Race Condition (RESOLVED):**

@@ -86,6 +86,13 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - **Fix:** Validate status (200) first, gracefully handle parse error, fall back to verifying browser navigated to `checkout.stripe.com`.
   - **Files:** `tests/stripe/stripe-checkout.spec.ts`
 
+- ✅ **Independent Review Remediation (2025-12-17):** Addressed findings from external codebase audit.
+  - **P0 - Secret Sanitization:** Removed real Stripe Price ID from `.env.development`, added code fallback.
+  - **P1 - Test Hardening:** Added URL validation in catch block for fail-fast behavior.
+  - **P2 - Shared Types:** Created `_shared/types.ts`, updated `tsconfig.json` with `@shared/*` path.
+  - **P2 - Webhook Tests:** Created `stripe-webhook/index.test.ts` with extracted handler pattern (5 test cases).
+  - **Reviewer Correction:** `check-usage-limit` already had 167 lines of unit tests (6 test cases).
+
 - ✅ **Whisper Architecture Documentation (2025-12-12):** ARCHITECTURE.md section 3.2.1 expanded with comprehensive Service Worker caching strategy, architecture diagram, component tables, and setup instructions.
 
 #### P2 - Known Limitations (Alpha Acceptable)

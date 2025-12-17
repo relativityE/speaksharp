@@ -111,9 +111,12 @@ test.describe('Stripe Checkout Flow', () => {
             responseBody = await response.json();
             console.log('[Network] ✅ Response body parsed:', JSON.stringify(responseBody).substring(0, 100));
         } catch {
-            // Response body unavailable after navigation - that's OK
-            // The 200 status confirms the Edge Function worked
-            console.log('[Network] ℹ️ Could not parse response body (browser may have navigated)');
+            // Response body unavailable - validate we navigated to Stripe
+            const currentUrl = page.url();
+            if (!currentUrl.includes('checkout.stripe.com')) {
+                throw new Error(`[P1 Hardening] Expected Stripe redirect, got: ${currentUrl}`);
+            }
+            console.log('[Network] ℹ️ JSON unavailable, URL validation passed');
         }
 
         // If we got the body, validate it

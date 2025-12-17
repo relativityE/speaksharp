@@ -67,10 +67,11 @@ serve(async (req) => {
     }
     console.log(`[Stripe Checkout] ✅ User authenticated: ${user.id} (${user.email || 'no-email'})`);
 
-    // 4. Price Config
-    const priceId = Deno.env.get("STRIPE_PRO_PRICE_ID")
-    if (!priceId) {
-      throw new Error("STRIPE_PRO_PRICE_ID not configured")
+    // 4. Price Config - Use fallback for local dev (prod uses Supabase Secrets)
+    const priceId = Deno.env.get("STRIPE_PRO_PRICE_ID") ?? "price_mock_default";
+    const isUsingMock = priceId === "price_mock_default";
+    if (isUsingMock) {
+      console.warn("[Stripe Checkout] ⚠️ Using mock price ID - set STRIPE_PRO_PRICE_ID for real checkout");
     }
 
     // 5. Stripe Session Creation
