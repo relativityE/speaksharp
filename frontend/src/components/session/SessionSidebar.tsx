@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
+import { isPro as checkIsPro } from '@/constants/subscriptionTiers';
 import logger from '@/lib/logger';
 import { Mic, Square, Loader2, Zap, Cloud, Computer } from 'lucide-react';
 import { toast } from 'sonner';
@@ -111,8 +112,8 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
     const [isEndingSession, setIsEndingSession] = useState(false);
 
     const isDevUser = import.meta.env.VITE_DEV_USER === 'true';
-    const isPro = profile?.subscription_status === 'pro';
-    const canAccessAdvancedModes = isPro || isDevUser;
+    const isProUser = checkIsPro(profile?.subscription_status);
+    const canAccessAdvancedModes = isProUser || isDevUser;
 
     type Mode = 'cloud' | 'on-device' | 'native';
     const [selectedMode, setSelectedMode] = useState<Mode>(canAccessAdvancedModes ? 'cloud' : 'native');
@@ -280,7 +281,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                         </div>
                     </div>
 
-                    {!isPro && (
+                    {!isProUser && (
                         <div className="mt-auto pt-4 border-t">
                             <div className="flex items-center gap-2 text-primary mb-2"><Zap className="w-4 h-4" /><h4 className="font-semibold text-sm">Upgrade to Pro</h4></div>
                             <p className="text-xs text-muted-foreground mb-2">

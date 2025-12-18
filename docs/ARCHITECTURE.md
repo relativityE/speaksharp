@@ -5,7 +5,7 @@
 
 # SpeakSharp System Architecture
 
-**Version 3.7** | **Last Updated: 2025-12-11**
+**Version 3.8** | **Last Updated: 2025-12-17**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -25,7 +25,7 @@ frontend/
   │   ├── lib/          # Utilities (pdfGenerator, logger, storage)
   │   ├── mocks/        # MSW handlers for E2E testing
   │   ├── pages/        # Route-level page components
-  │   ├── services/     # External service integrations (transcription, analytics)
+  │   ├── services/     # Service layer (transcription, domainServices for Supabase access)
   │   ├── stores/       # State management stores
   │   ├── types/        # TypeScript type definitions
   │   └── utils/        # Helper functions (fillerWordUtils, etc)
@@ -1276,6 +1276,34 @@ The application's user tiers have been consolidated into the following structure
 
 *   **Free User (Authenticated):** A user who has created an account but does not have an active Pro subscription. This is the entry-level tier for all users.
 *   **Pro User (Authenticated):** A user with an active, paid subscription via Stripe. This tier includes all features, such as unlimited practice time, cloud-based AI transcription, and privacy-preserving on-device transcription.
+
+## 5.5 Domain Services Layer (`frontend/src/services/domainServices.ts`)
+
+The Domain Services Layer centralizes all Supabase database access, providing a clean separation between React hooks and database operations.
+
+**Services:**
+
+| Service | Purpose | Methods |
+|---------|---------|---------|
+| `sessionService` | Practice session CRUD | `getHistory()`, `getById()`, `create()`, `update()`, `delete()` |
+| `profileService` | User profile management | `getById()`, `update()` |
+| `vocabularyService` | Custom vocabulary | `getWords()`, `addWord()`, `removeWord()` |
+| `goalsService` | User goals | `get()`, `upsert()` |
+
+**Design Benefits:**
+- **Testability:** Services can be mocked without complex Supabase chain mocking
+- **Consistency:** All database errors handled uniformly
+- **Separation of Concerns:** Hooks handle state, services handle data access
+
+**Usage:**
+```typescript
+// Before (tight coupling)
+const { data } = await supabase.from('user_profiles').select('*').eq('id', id).single();
+
+// After (via domain service)
+import { profileService } from '@/services/domainServices';
+const data = await profileService.getById(id);
+```
 
 ## 6. Transcription Service (`frontend/src/services/transcription`)
 

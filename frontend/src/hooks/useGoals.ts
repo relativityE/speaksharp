@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useAuthProvider } from '@/contexts/AuthProvider';
-import { getSupabaseClient } from '@/lib/supabaseClient';
+import { goalsService } from '@/services/domainServices';
 
 export interface UserGoals {
     weeklyGoal: number;
@@ -15,6 +15,8 @@ const DEFAULT_GOALS: UserGoals = {
 
 /**
  * Custom hook for managing user goals with Supabase sync and localStorage fallback.
+ * 
+ * P2-6 FIX: Uses goalsService domain service instead of direct Supabase calls.
  * 
  * - Authenticated users: Goals sync to Supabase `user_goals` table
  * - Unauthenticated/offline: Goals stored in localStorage only
@@ -46,22 +48,13 @@ export function useGoals() {
         if (!user) return;
 
         const fetchGoals = async () => {
-            const supabase = getSupabaseClient();
             try {
-                const { data, error } = await supabase
-                    .from('user_goals')
-                    .select('weekly_goal, clarity_goal')
-                    .eq('user_id', user.id)
-                    .maybeSingle();
-
-                if (error) {
-                    console.error('[useGoals] Error fetching from Supabase:', error);
-                    return; // Keep localStorage goals
-                }
+                // P2-6 FIX: Use domain service
+                const data = await goalsService.get(user.id);
 
                 if (data) {
                     const supabaseGoals = {
-                        weeklyGoal: data.weekly_goal,
+                        weeklyGoal: data.weekly_goal,  // DB column name
                         clarityGoal: data.clarity_goal,
                     };
                     setGoalsState(supabaseGoals);
@@ -70,6 +63,7 @@ export function useGoals() {
                 }
             } catch (err) {
                 console.error('[useGoals] Failed to fetch goals:', err);
+                // Keep localStorage goals on error
             }
         };
 
@@ -88,21 +82,12 @@ export function useGoals() {
 
         // Sync to Supabase if authenticated
         if (user) {
-            const supabase = getSupabaseClient();
             try {
-                const { error } = await supabase
-                    .from('user_goals')
-                    .upsert({
-                        user_id: user.id,
-                        weekly_goal: newGoals.weeklyGoal,
-                        clarity_goal: newGoals.clarityGoal,
-                    }, {
-                        onConflict: 'user_id'
-                    });
-
-                if (error) {
-                    console.error('[useGoals] Error syncing to Supabase:', error);
-                }
+                // P2-6 FIX: Use domain service
+                await goalsService.upsert(user.id, {
+                    weekly_goal: newGoals.weeklyGoal,  // DB column name
+                    clarity_goal: newGoals.clarityGoal,
+                });
             } catch (err) {
                 console.error('[useGoals] Failed to sync goals:', err);
             }

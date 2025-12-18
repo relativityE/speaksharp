@@ -1,9 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAuthProvider } from "../contexts/AuthProvider";
-import { getSupabaseClient } from "../lib/supabaseClient";
+import { profileService } from "../services/domainServices";
 import { UserProfile } from "../types/user";
-
-
 
 export const useUserProfile = () => {
   const { session } = useAuthProvider();
@@ -16,34 +14,17 @@ export const useUserProfile = () => {
         return null;
       }
 
-      const supabase = getSupabaseClient();
-
-      // DEFENSIVE: Verify Supabase client exists
-      if (!supabase) {
-        console.error('[useUserProfile CRITICAL] getSupabaseClient() returned null/undefined!');
-        throw new Error('Supabase client not initialized');
-      }
-
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .eq('id', session.user.id)
-        .single();
-
-      if (error) {
-        console.error('[useUserProfile ERROR] Fetch failed:', error.message);
-        console.error('[useUserProfile ERROR] User ID:', session.user.id);
-        throw error;
-      }
+      // P2-6 FIX: Use domain service instead of direct Supabase call
+      const profile = await profileService.getById(session.user.id);
 
       // DEFENSIVE: Verify profile data returned
-      if (!data) {
-        console.error('[useUserProfile WARNING] Query succeeded but no data returned for user:', session.user.id);
-      } else if (!data.subscription_status) {
-        console.error('[useUserProfile WARNING] Profile missing subscription_status:', data);
+      if (!profile) {
+        console.error('[useUserProfile WARNING] No profile found for user:', session.user.id);
+      } else if (!profile.subscription_status) {
+        console.error('[useUserProfile WARNING] Profile missing subscription_status:', profile);
       }
 
-      return data;
+      return profile;
     },
     enabled: !!session?.user,
     // Cache profile data for 5 minutes to prevent skeleton flashing during navigation

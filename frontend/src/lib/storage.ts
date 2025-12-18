@@ -3,6 +3,7 @@ import logger from './logger';
 import type { PracticeSession } from '../types/session';
 import type { UserProfile } from '../types/user';
 import type { PostgrestError } from '@supabase/supabase-js';
+import { isFree } from '@/constants/subscriptionTiers';
 
 /**
  * Pagination options for session history queries.
@@ -79,7 +80,7 @@ export const saveSession = async (sessionData: Partial<PracticeSession> & { user
   // This function is responsible for both creating the session and updating/checking usage.
   const { data, error } = await supabase.rpc('create_session_and_update_usage', {
     p_session_data: sessionData,
-    p_is_free_user: profile.subscription_status === 'free',
+    p_is_free_user: isFree(profile.subscription_status),
   });
 
   if (error) {

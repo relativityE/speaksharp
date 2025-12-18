@@ -24,8 +24,7 @@ export default defineConfig({
       reporter: ['text', 'json-summary', 'html'],
       reportsDirectory: './coverage',
       all: true,
-      // Enforce coverage doesn't regress - current: 54.8% lines
-      // Start with 50% as baseline, increase as coverage improves
+      // Enforce coverage doesn't regress
       thresholds: {
         lines: 50,
         functions: 70,

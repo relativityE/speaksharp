@@ -45,3 +45,4 @@ resources/
 .vite.pid
 merged-reports/
 .lighthouseci/
+speaksharp-review.zip

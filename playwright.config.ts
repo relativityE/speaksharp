@@ -1,77 +1,56 @@
-import { defineConfig, devices } from '@playwright/test';
-import * as dotenv from 'dotenv';
-import path from 'path';
+import { defineConfig } from '@playwright/test';
+import { loadEnv, getChromeWithMic, getChromeWithMemoryProfiling, baseConfig } from './playwright.base.config';
 
-// Load environment variables from .env.test
-dotenv.config({ path: path.resolve(process.cwd(), '.env.test') });
+/**
+ * Main E2E Test Configuration
+ * 
+ * Purpose: Run E2E tests with mocked auth (MSW)
+ * Usage: pnpm test:e2e
+ */
+
+// Load test environment variables
+loadEnv('test');
 
 const PORT = process.env.VITE_PORT || '5173';
 const BASE_URL = `http://localhost:${PORT}`;
 
 export default defineConfig({
+  ...baseConfig,
   testDir: './tests/e2e',
   outputDir: './test-results/playwright',
-  timeout: 120_000, // 2-minute global timeout for each test file
+  timeout: 120_000, // 2-minute global timeout
   expect: { timeout: 30_000 },
-  workers: 1,
-  fullyParallel: false,
   retries: 1,
-  reporter: process.env.CI ? [['blob'], ['github']] : [['html'], ['json', { outputFile: 'test-results/playwright/results.json' }]],
+  reporter: process.env.CI
+    ? [['blob'], ['github']]
+    : [['html'], ['json', { outputFile: 'test-results/playwright/results.json' }]],
   use: {
+    ...baseConfig.use,
     baseURL: BASE_URL,
-    headless: true,
-    viewport: { width: 1280, height: 720 },
-    deviceScaleFactor: 1,
-    ignoreHTTPSErrors: true,
-    screenshot: 'only-on-failure',
     video: 'retain-on-failure',
-    trace: 'on-first-retry',
   },
-  // Automatically generate missing snapshots in CI
   updateSnapshots: process.env.CI ? 'missing' : 'none',
   webServer: {
-    command: "pnpm preview:test",
+    command: 'pnpm preview:test',
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,
-    timeout: 120 * 1000, // 2 minutes
+    timeout: 120 * 1000,
     env: {
-      DOTENV_CONFIG_PATH: ".env.test",
+      DOTENV_CONFIG_PATH: '.env.test',
     },
   },
   projects: [
     {
       name: 'chromium',
-      // Use platform-agnostic snapshot paths by customizing the snapshot name pattern
-      // This removes the -chromium-{platform} suffix from snapshot filenames
       snapshotPathTemplate: '{testDir}/{testFileDir}/{testFileName}-snapshots/{arg}-{projectName}{ext}',
-      use: {
-        ...devices['Desktop Chrome'],
-        permissions: ['microphone'],
-        launchOptions: {
-          args: [
-            '--use-fake-ui-for-media-stream',
-            '--use-fake-device-for-media-stream',
-          ],
-        },
-      },
+      use: getChromeWithMic(),
     },
     {
       name: 'soak',
       testDir: './tests/soak',
       timeout: 10 * 60 * 1000, // 10 minutes per test
-      retries: 0, // No retries for soak tests
-      use: {
-        ...devices['Desktop Chrome'],
-        permissions: ['microphone'],
-        // Enable precise memory reporting for Chrome
-        launchOptions: {
-          args: [
-            '--enable-precise-memory-info',
-            '--use-fake-ui-for-media-stream',
-            '--use-fake-device-for-media-stream',
-          ],
-        },
-      },
+      retries: 0,
+      use: getChromeWithMemoryProfiling(),
     },
   ],
 });

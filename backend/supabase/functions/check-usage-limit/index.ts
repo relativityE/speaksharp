@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.44.4';
+import { ErrorCodes, createErrorResponse, createSuccessResponse } from '../_shared/errors.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -34,10 +35,11 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
         const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
 
         if (userError || !user) {
-            return new Response(JSON.stringify({ error: 'Authentication failed' }), {
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                status: 401,
-            });
+            return createErrorResponse(
+                ErrorCodes.AUTH_INVALID_TOKEN,
+                'Authentication failed',
+                corsHeaders
+            );
         }
 
         // Get user profile with usage data
@@ -59,10 +61,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
                 is_pro: false,
                 error: 'Profile not found - allowing session',
             };
-            return new Response(JSON.stringify(response), {
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                status: 200,
-            });
+            return createSuccessResponse(response, corsHeaders);
         }
 
         const isPro = profile.subscription_status === 'pro';
@@ -103,10 +102,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
                 subscription_status: profile.subscription_status,
                 is_pro: true,
             };
-            return new Response(JSON.stringify(response), {
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                status: 200,
-            });
+            return createSuccessResponse(response, corsHeaders);
         }
 
         // Calculate remaining for free users
@@ -124,18 +120,17 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
 
         console.log(`✅ Usage check for user ${user.id}: ${remainingSeconds}s remaining, can_start: ${canStart}`);
 
-        return new Response(JSON.stringify(response), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            status: 200,
-        });
+        return createSuccessResponse(response, corsHeaders);
 
     } catch (error) {
         console.error('Error checking usage limit:', error);
         const errorMessage = (error instanceof Error) ? error.message : 'An unexpected error occurred';
-        return new Response(JSON.stringify({ error: errorMessage, can_start: true }), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            status: 500,
-        });
+        return createErrorResponse(
+            ErrorCodes.INTERNAL_ERROR,
+            errorMessage,
+            corsHeaders,
+            { can_start: true } // Fail open - allow session
+        );
     }
 }
 

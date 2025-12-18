@@ -1,14 +1,58 @@
 import type { PracticeSession } from '@/types/session';
 
+/**
+ * P1 TECH DEBT: Client-side Aggregation
+ * 
+ * Current implementation: All aggregation happens in browser
+ * - Acceptable for alpha with <100 sessions per user
+ * - Monitor performance with console.time() in development
+ * 
+ * Future optimization (when users have 500+ sessions):
+ * - Create Supabase RPC: `get_analytics_summary(user_id, date_range)`
+ * - Pre-compute daily/weekly summaries in DB
+ * - Only fetch aggregated results, not raw sessions
+ * 
+ * Migration path:
+ * 1. Add RPC function to Supabase
+ * 2. Update usePracticeHistory to use RPC when session count > threshold
+ * 3. Keep client-side as fallback for small datasets
+ */
+
 export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
+    // P1 FIX: Early exit for empty data
+    if (!sessionHistory || sessionHistory.length === 0) {
+        return {
+            totalSessions: 0,
+            totalPracticeTime: 0,
+            avgWpm: 0,
+            avgFillerWordsPerMin: "0.0",
+            avgAccuracy: "0.0",
+            chartData: []
+        };
+    }
+
     const totalSessions = sessionHistory.length;
-    const totalPracticeTime = Math.round(sessionHistory.reduce((sum, s) => sum + (s.duration || 0), 0) / 60);
-    const totalWords = sessionHistory.reduce((sum, s) => sum + (s.total_words || 0), 0);
-    const avgWpm = totalPracticeTime > 0 ? Math.round(totalWords / (totalPracticeTime)) : 0;
-    const totalFillerWords = sessionHistory.reduce((sum, s) => sum + (s.filler_words?.total?.count || 0), 0);
+
+    // P1 FIX: Single-pass aggregation for efficiency
+    let totalDurationSeconds = 0;
+    let totalWords = 0;
+    let totalFillerWords = 0;
+    let totalAccuracy = 0;
+
+    for (const s of sessionHistory) {
+        totalDurationSeconds += s.duration || 0;
+        totalWords += s.total_words || 0;
+        totalFillerWords += s.filler_words?.total?.count || 0;
+        totalAccuracy += s.accuracy || 0;
+    }
+
+    const totalPracticeTime = Math.round(totalDurationSeconds / 60);
+    const avgWpm = totalPracticeTime > 0 ? Math.round(totalWords / totalPracticeTime) : 0;
     const avgFillerWordsPerMin = totalPracticeTime > 0 ? (totalFillerWords / totalPracticeTime).toFixed(1) : "0.0";
-    const avgAccuracy = totalSessions > 0 ? (sessionHistory.reduce((sum, s) => sum + (s.accuracy || 0), 0) / totalSessions * 100).toFixed(1) : "0.0";
-    const chartData = sessionHistory.map(s => ({
+    const avgAccuracy = totalSessions > 0 ? (totalAccuracy / totalSessions * 100).toFixed(1) : "0.0";
+
+    // Chart data - limit to last 10 sessions to prevent rendering issues
+    const chartData = sessionHistory.slice(0, 10).map(s => ({
         date: new Date(s.created_at).toLocaleDateString(),
         'FW/min': s.duration > 0 ? ((s.filler_words?.total?.count || 0) / (s.duration / 60)).toFixed(2) : "0.0"
     })).reverse();

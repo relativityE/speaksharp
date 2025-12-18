@@ -25,6 +25,7 @@ import type { UserProfile } from '@/types/user';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { TEST_IDS } from '@/constants/testIds';
+import { isPro as checkIsPro } from '@/constants/subscriptionTiers';
 
 // --- Prop Interfaces ---
 
@@ -293,8 +294,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ profile 
         return DEFAULT_ANALYSIS_SLIDES;
     });
 
-    const isPro = profile?.subscription_status === 'pro';
-    const isUpgradeBannerVisible = !isPro;
+    const isProUser = checkIsPro(profile?.subscription_status);
+    const isUpgradeBannerVisible = !isProUser;
 
 
     const handleUpgrade = async () => {
@@ -485,7 +486,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ profile 
                 icon={<BarChart className="w-10 h-10 text-primary" />}
                 testId="analytics-dashboard-empty-state"
                 // Subtle upgrade option for FREE users - triggers Stripe checkout directly
-                secondaryAction={!isPro ? {
+                secondaryAction={!isProUser ? {
                     prefix: "Want unlimited sessions?",
                     label: "Upgrade to Pro",
                     onClick: handleUpgrade,
@@ -709,7 +710,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ profile 
                                     <SessionHistoryItem
                                         key={session.id}
                                         session={session}
-                                        isPro={isPro}
+                                        isPro={isProUser}
                                         isSelected={selectedSessions.includes(session.id)}
                                         onToggleSelect={toggleSessionSelection}
                                         profileName={profile?.full_name || 'User'}

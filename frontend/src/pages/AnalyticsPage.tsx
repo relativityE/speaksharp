@@ -4,6 +4,7 @@ import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
 import { useAnalytics } from '../hooks/useAnalytics';
 // import { useAuthProvider } from '../contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
+import { isPro } from '@/constants/subscriptionTiers';
 import { Button } from '@/components/ui/button';
 // import { Badge } from '@/components/ui/badge';
 import { Mic, BarChart, User } from 'lucide-react';
@@ -62,7 +63,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     console.log('[AnalyticsPage] Rendering. sessionId:', sessionId, 'loading:', loading, 'isProfileLoading:', isProfileLoading);
     console.log('[AnalyticsPage] sessionHistory length:', sessionHistory?.length, 'error:', error, 'profileError:', profileError);
 
-    const isPro = profile?.subscription_status === 'pro';
+    const isProUser = isPro(profile?.subscription_status);
 
     // Show loading state while fetching data
     if (loading || isProfileLoading) {
@@ -108,7 +109,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
 
     return (
         <div>
-            <PageHeader isPro={isPro} sessionId={sessionId} />
+            <PageHeader isPro={isProUser} sessionId={sessionId} />
             <AnalyticsDashboard
                 profile={profile || null}
             />

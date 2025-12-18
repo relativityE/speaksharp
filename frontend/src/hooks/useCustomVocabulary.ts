@@ -3,6 +3,7 @@ import { getSupabaseClient } from '@/lib/supabaseClient';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { VOCABULARY_LIMITS } from '@/config';
+import { isPro, getTierLabel } from '@/constants/subscriptionTiers';
 
 interface CustomWord {
     id: string;
@@ -67,13 +68,13 @@ export const useCustomVocabulary = () => {
             }
 
             // Check word limit (tier-based)
-            const maxWords = profile?.subscription_status === 'pro'
+            const maxWords = isPro(profile?.subscription_status)
                 ? VOCABULARY_LIMITS.MAX_WORDS_PER_USER
                 : Math.min(VOCABULARY_LIMITS.MAX_WORDS_PER_USER, VOCABULARY_LIMITS.MAX_WORDS_FREE);
 
             console.log('[useCustomVocabulary] Max words for tier:', maxWords, 'Current:', vocabulary.length);
             if (vocabulary.length >= maxWords) {
-                const tier = profile?.subscription_status === 'pro' ? 'Pro' : 'Free';
+                const tier = getTierLabel(profile?.subscription_status);
                 throw new Error(`${tier} tier limit: ${maxWords} words. ${tier === 'Free' ? 'Upgrade to Pro for 100 words!' : ''}`);
             }
 

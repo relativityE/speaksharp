@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import Stripe from "https://esm.sh/stripe@16.2.0?target=deno"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.44.2"
+import { ErrorCodes, createErrorResponse, createSuccessResponse } from "../_shared/errors.ts"
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY"), {
   httpClient: Stripe.createFetchHttpClient(),
@@ -10,6 +11,48 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_URL"),
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")
 )
+
+/**
+ * P0 FIX: Idempotency check using event.id
+ * Prevents duplicate processing of the same webhook event.
+ * Returns true if event was already processed, false if new.
+ */
+async function isEventProcessed(eventId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("processed_webhook_events")
+    .select("id")
+    .eq("event_id", eventId)
+    .single()
+
+  if (error && error.code !== "PGRST116") {
+    // PGRST116 = no rows found - that's expected for new events
+    console.error(`[Stripe Webhook] Error checking idempotency:`, error)
+  }
+
+  return !!data
+}
+
+/**
+ * P0 FIX: Record processed event for idempotency
+ */
+async function markEventProcessed(eventId: string, eventType: string): Promise<void> {
+  const { error } = await supabase
+    .from("processed_webhook_events")
+    .insert({
+      event_id: eventId,
+      event_type: eventType,
+      processed_at: new Date().toISOString(),
+    })
+
+  if (error) {
+    // Unique constraint violation means it was already processed (race condition - safe)
+    if (error.code === "23505") {
+      console.log(`[Stripe Webhook] Event ${eventId} already recorded (concurrent request)`)
+    } else {
+      console.error(`[Stripe Webhook] Failed to record event ${eventId}:`, error)
+    }
+  }
+}
 
 serve(async (req) => {
   const signature = req.headers.get("Stripe-Signature")
@@ -22,20 +65,27 @@ serve(async (req) => {
       Deno.env.get("STRIPE_WEBHOOK_SECRET")
     )
 
-    console.log(`[Stripe Webhook] Received event: ${event.type}`)
+    console.log(`[Stripe Webhook] Received event: ${event.type} (${event.id})`)
+
+    // P0 FIX: Idempotency check - skip if already processed
+    if (await isEventProcessed(event.id)) {
+      console.log(`[Stripe Webhook] ⏭️ Event ${event.id} already processed, skipping`)
+      return createSuccessResponse({ received: true, skipped: true }, {})
+    }
 
     // Handle checkout completion - upgrade to Pro
     if (event.type === "checkout.session.completed") {
       const session = event.data.object
       const userId = session.metadata?.userId
-      const subscriptionId = session.subscription // This is the subscription ID
+      const subscriptionId = session.subscription
 
       if (!userId) {
         console.error("[Stripe] Missing userId in checkout session metadata")
-        return new Response(JSON.stringify({ error: "Missing userId metadata" }), {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
-        })
+        return createErrorResponse(
+          ErrorCodes.VALIDATION_MISSING_METADATA,
+          "Missing userId metadata",
+          {}
+        )
       }
 
       console.log(`[Stripe] Upgrading user ${userId} to Pro (subscription: ${subscriptionId})`)
@@ -49,6 +99,11 @@ serve(async (req) => {
 
       if (error) {
         console.error(`[Stripe] Failed to upgrade user ${userId}:`, error)
+        return createErrorResponse(
+          ErrorCodes.DATABASE_ERROR,
+          `Failed to upgrade user: ${error.message}`,
+          {}
+        )
       } else {
         console.log(`[Stripe] ✅ User ${userId} upgraded to Pro successfully`)
       }
@@ -119,11 +174,17 @@ serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({ received: true }), {
-      headers: { "Content-Type": "application/json" },
-    })
+    // P0 FIX: Mark event as processed for idempotency
+    await markEventProcessed(event.id, event.type)
+
+    return createSuccessResponse({ received: true }, {})
   } catch (err) {
-    console.error(`[Stripe Webhook] Error:`, err)
-    return new Response(err.message, { status: 400 })
+    const error = err as Error
+    console.error(`[Stripe Webhook] Error:`, error)
+    return createErrorResponse(
+      ErrorCodes.STRIPE_WEBHOOK_INVALID,
+      error.message || "Webhook processing failed",
+      {}
+    )
   }
 })

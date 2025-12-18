@@ -13,6 +13,7 @@ import { useUserProfile } from '@/hooks/useUserProfile';
 import { useSessionMetrics } from '@/hooks/useSessionMetrics';
 import { useUsageLimit, formatRemainingTime } from '@/hooks/useUsageLimit';
 import { useStreak } from '@/hooks/useStreak';
+import { isPro } from '@/constants/subscriptionTiers';
 import { PauseMetricsDisplay } from '@/components/session/PauseMetricsDisplay';
 import { toast } from 'sonner';
 
@@ -33,7 +34,7 @@ export const SessionPage: React.FC = () => {
     console.log('[DEBUG] SessionPage rendered. Session:', session?.user?.id);
     console.log('[DEBUG] SessionPage profile state:', { isProfileLoading, profileError, profileId: profile?.id });
 
-    const isPro = profile?.subscription_status === 'pro';
+    const isProUser = isPro(profile?.subscription_status);
 
     // Usage limit check for pre-session validation
     const { data: usageLimit } = useUsageLimit();
@@ -144,7 +145,7 @@ export const SessionPage: React.FC = () => {
         } else {
             try {
                 // PRE-SESSION USAGE CHECK: Validate before starting
-                if (!isPro && usageLimit && !usageLimit.can_start) {
+                if (!isProUser && usageLimit && !usageLimit.can_start) {
                     toast.error(
                         `Monthly usage limit reached (${formatRemainingTime(usageLimit.limit_seconds)}). Upgrade to Pro for unlimited practice.`,
                         {
@@ -159,7 +160,7 @@ export const SessionPage: React.FC = () => {
                 }
 
                 // Warn if running low on time (less than 5 minutes)
-                if (!isPro && usageLimit && usageLimit.remaining_seconds > 0 && usageLimit.remaining_seconds < 300) {
+                if (!isProUser && usageLimit && usageLimit.remaining_seconds > 0 && usageLimit.remaining_seconds < 300) {
                     toast.warning(
                         `Only ${formatRemainingTime(usageLimit.remaining_seconds)} remaining this month.`,
                         { duration: 5000 }
@@ -225,11 +226,11 @@ export const SessionPage: React.FC = () => {
                                     <DropdownMenuContent>
                                         <DropdownMenuRadioGroup value={mode} onValueChange={(v) => setMode(v as 'cloud' | 'native' | 'on-device')}>
                                             <DropdownMenuRadioItem value="native">Native (Browser)</DropdownMenuRadioItem>
-                                            <DropdownMenuRadioItem value="on-device" disabled={!isPro}>
-                                                On-Device (Whisper) {!isPro && '(Pro)'}
+                                            <DropdownMenuRadioItem value="on-device" disabled={!isProUser}>
+                                                On-Device (Whisper) {!isProUser && '(Pro)'}
                                             </DropdownMenuRadioItem>
-                                            <DropdownMenuRadioItem value="cloud" disabled={!isPro}>
-                                                Cloud (AssemblyAI) {!isPro && '(Pro)'}
+                                            <DropdownMenuRadioItem value="cloud" disabled={!isProUser}>
+                                                Cloud (AssemblyAI) {!isProUser && '(Pro)'}
                                             </DropdownMenuRadioItem>
                                         </DropdownMenuRadioGroup>
                                     </DropdownMenuContent>

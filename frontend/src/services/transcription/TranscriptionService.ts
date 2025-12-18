@@ -8,6 +8,7 @@ import { Session } from '@supabase/supabase-js';
 import { NavigateFunction } from 'react-router-dom';
 import { ITranscriptionMode, TranscriptionModeOptions } from './modes/types';
 import { MicStream } from './utils/types';
+import { isPro } from '@/constants/subscriptionTiers';
 
 export interface TranscriptUpdate {
   transcript: {
@@ -146,8 +147,8 @@ export default class TranscriptionService {
       return;
     }
 
-    const isPro = this.profile?.subscription_status === 'pro';
-    const useOnDevice = this.forceOnDevice || (isPro && this.profile?.preferred_mode === 'on-device');
+    const isProUser = isPro(this.profile?.subscription_status);
+    const useOnDevice = this.forceOnDevice || (isProUser && this.profile?.preferred_mode === 'on-device');
 
     if (useOnDevice) {
       logger.info('[TranscriptionService] Attempting to use On-Device (OnDeviceWhisper) mode for Pro user.');
@@ -174,7 +175,7 @@ export default class TranscriptionService {
       return;
     }
 
-    const useCloud = this.forceCloud || isPro;
+    const useCloud = this.forceCloud || isProUser;
     if (useCloud) {
       logger.info('[TranscriptionService] Attempting to use Cloud (AssemblyAI) mode for Pro user.');
       logger.info('[TranscriptionService] Fetching AssemblyAI token...');

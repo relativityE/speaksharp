@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import Stripe from "https://esm.sh/stripe@16.2.0?target=deno"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.44.2"
+import { ErrorCodes, createErrorResponse, createSuccessResponse } from "../_shared/errors.ts"
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
   httpClient: Stripe.createFetchHttpClient(),
@@ -33,18 +34,32 @@ serve(async (req) => {
 
     if (!Deno.env.get("SITE_URL")) {
       console.error('[Stripe Checkout] ❌ Missing SITE_URL');
-      throw new Error("Configuration Error: SITE_URL is missing (expected in CI until secrets are provisioned)");
+      return createErrorResponse(
+        ErrorCodes.CONFIG_MISSING_ENV,
+        "Configuration Error: SITE_URL is missing",
+        corsHeaders,
+        { missing: "SITE_URL" }
+      );
     }
     if (!Deno.env.get("STRIPE_SECRET_KEY")) {
       console.error('[Stripe Checkout] ❌ Missing STRIPE_SECRET_KEY');
-      throw new Error("Configuration Error: STRIPE_SECRET_KEY is missing");
+      return createErrorResponse(
+        ErrorCodes.CONFIG_MISSING_ENV,
+        "Configuration Error: STRIPE_SECRET_KEY is missing",
+        corsHeaders,
+        { missing: "STRIPE_SECRET_KEY" }
+      );
     }
 
     // 2. Verify Auth Header
     const authHeader = req.headers.get("Authorization")
     if (!authHeader) {
       console.error('[Stripe Checkout] ❌ Missing Authorization header');
-      throw new Error("Missing authorization header")
+      return createErrorResponse(
+        ErrorCodes.AUTH_MISSING_HEADER,
+        "Missing authorization header",
+        corsHeaders
+      );
     }
 
     const supabase = createClient(
@@ -59,11 +74,19 @@ serve(async (req) => {
 
     if (userError) {
       console.error('[Stripe Checkout] ❌ Auth Error:', userError);
-      throw new Error(`User auth failed: ${userError.message}`);
+      return createErrorResponse(
+        ErrorCodes.AUTH_INVALID_TOKEN,
+        `User auth failed: ${userError.message}`,
+        corsHeaders
+      );
     }
     if (!user) {
       console.error('[Stripe Checkout] ❌ No user returned');
-      throw new Error("User not authenticated (no user found)");
+      return createErrorResponse(
+        ErrorCodes.AUTH_USER_NOT_FOUND,
+        "User not authenticated (no user found)",
+        corsHeaders
+      );
     }
     console.log(`[Stripe Checkout] ✅ User authenticated: ${user.id} (${user.email || 'no-email'})`);
 
@@ -100,35 +123,29 @@ serve(async (req) => {
       })
       console.log(`[Stripe Checkout] ✅ Session created: ${session.id}`)
 
-      return new Response(
-        JSON.stringify({ checkoutUrl: session.url }),
-        {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      )
+      return createSuccessResponse({ checkoutUrl: session.url }, corsHeaders);
     } catch (stripeError) {
       console.error('[Stripe Checkout] ❌ Stripe API Error:', stripeError);
-      // Log detailed Stripe error if available
-      const err = stripeError as any;
+      const err = stripeError as { type?: string; code?: string; param?: string; message?: string };
       if (err.type) console.error('Error Type:', err.type);
       if (err.code) console.error('Error Code:', err.code);
       if (err.param) console.error('Error Param:', err.param);
-      throw stripeError; // Re-throw to outer catch
+
+      return createErrorResponse(
+        ErrorCodes.STRIPE_API_ERROR,
+        err.message || "Stripe API error",
+        corsHeaders,
+        { type: err.type, code: err.code, param: err.param }
+      );
     }
 
   } catch (err) {
-    const error = err as any;
+    const error = err as Error;
     console.error("[Stripe Checkout] 🚨 Fatal Error:", error.message);
-    // Return detailed JSON error for client debugging
-    return new Response(
-      JSON.stringify({
-        error: error.message,
-        stack: error.stack, // Optional: remove in prod if sensitive
-      }),
-      {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
-    )
+    return createErrorResponse(
+      ErrorCodes.INTERNAL_ERROR,
+      error.message || "An unexpected error occurred",
+      corsHeaders
+    );
   }
 })

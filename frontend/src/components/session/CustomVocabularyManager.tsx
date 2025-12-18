@@ -6,6 +6,7 @@ import { Plus, X, Crown } from 'lucide-react';
 import { useCustomVocabulary } from '@/hooks/useCustomVocabulary';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { VOCABULARY_LIMITS } from '@/config';
+import { isPro as checkIsPro } from '@/constants/subscriptionTiers';
 
 export const CustomVocabularyManager: React.FC = () => {
     const [newWord, setNewWord] = useState('');
@@ -20,12 +21,12 @@ export const CustomVocabularyManager: React.FC = () => {
         addError
     } = useCustomVocabulary();
 
-    const isPro = profile?.subscription_status === 'pro';
-    const maxWords = isPro
+    const isProUser = checkIsPro(profile?.subscription_status);
+    const maxWords = isProUser
         ? VOCABULARY_LIMITS.MAX_WORDS_PER_USER
         : Math.min(VOCABULARY_LIMITS.MAX_WORDS_PER_USER, VOCABULARY_LIMITS.MAX_WORDS_FREE);
     const isAtLimit = vocabulary.length >= maxWords;
-    const isNearLimit = !isPro && vocabulary.length >= maxWords - 2; // Show nudge at 8/10 words
+    const isNearLimit = !isProUser && vocabulary.length >= maxWords - 2; // Show nudge at 8/10 words
 
     const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
@@ -51,7 +52,7 @@ export const CustomVocabularyManager: React.FC = () => {
         }
     };
 
-    if (!isPro) {
+    if (!isProUser) {
         return (
             <Card className="border-primary/50">
                 <CardHeader>

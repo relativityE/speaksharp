@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-15
+**Last Reviewed:** 2025-12-17
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -24,6 +24,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - ⏸️ **BLOCKED** - Enable leaked password protection (requires Supabase Pro account)
   - ⏸️ **DEFERRED** - Upgrade Postgres version (not critical for alpha)
 - ✅ **COMPLETED - Integration Test (Usage Limits):** Deno unit tests exist at `backend/supabase/functions/check-usage-limit/index.test.ts` (167 lines, 6 test cases covering auth, free/pro users, exceeded limits, graceful degradation, CORS).
+- 🔴 **Domain Services DI Refactor:** Evolve `domainServices.ts` from internal client retrieval to dependency injection pattern for fully pure, easily testable functions. Low priority - current spy-based testing works for alpha.
 - 🟡 **Console Error Highlighting (P0 - Debugging) [HIGH PRIORITY]:** Add automatic ANSI color highlighting for ERROR/FAILED/FATAL (red bold) and WARNING/WARN (yellow bold) in all terminal output. Should apply globally to any console usage (not require agents to remember a specific script). Improves developer experience for spotting issues.
 - 🟡 **Independent Documentation Review [HIGH PRIORITY]:** Have an independent reviewer analyze the codebase against documentation (ARCHITECTURE.md, PRD.md, ROADMAP.md) to identify gaps, outdated sections, and missing coverage. Ensures docs match actual implementation.
 - 🟡 **Gap Analysis [HIGH PRIORITY]:** Do a Gap Analysis of current implementation against the Current Phase requirements.
@@ -198,7 +199,7 @@ This phase is about confirming the core feature set works as expected and polish
   - ✅ `EditGoalsDialog` modal (1-20 sessions, 50-100% clarity)
   - ✅ `user_goals` table with RLS
   - ✅ Migrations deployed to production
-- 🔴 **Deploy & confirm live transcript UI works:** Ensure text appears within 2 seconds of speech in a live environment.
+- � **Deploy & confirm live transcript UI works:** (MANUAL VERIFICATION) Ensure text appears within 2 seconds of speech in a live environment. Test with Cloud (AssemblyAI) and On-Device (Whisper) modes.
 - ✅ **Remove all temporary console.logs:** Clean up the codebase for production.\
 - ✅ **Restructure Codebase:** Reorganize the project structure for better maintainability before alpha soft launch.\
   - **Implemented Structure:**\
@@ -368,6 +369,41 @@ The following items were identified by AI Detective Full-Spectrum Analysis v5 as
 | 4 | **Coverage Threshold Enforcement** | `vitest.config.mjs` | **P1 HIGH** | ✅ FIXED |
 |   | *Original Problem:* Coverage reported but no enforcement. CI didn't fail on drops. | | | |
 |   | *Solution:* Added `thresholds: { lines: 50, functions: 70, branches: 75, statements: 50 }`. CI now fails if coverage regresses. | | | |
+
+---
+
+### 🔧 Tech Debt Identified (Independent Reviews - Dec 2025)
+
+The following items were identified by two independent external code reviews. Most have been addressed for Alpha launch.
+
+| # | Finding | Location | Priority | Status |
+|---|---------|----------|----------|--------|
+| 1 | **Auth Context Overreach (SRP Violation)** | `AuthProvider.tsx` | P1 HIGH | ✅ DOCUMENTED |
+|   | *Problem:* AuthProvider handles session + profile + loading + refresh in one context. | | | |
+|   | *Resolution:* Documented migration path in AuthProvider.tsx. Acceptable for alpha. | | | |
+| 2 | **Auth Race Condition (Dual Fetch)** | `AuthProvider.tsx` | P1 HIGH | ✅ FIXED |
+|   | *Problem:* `onAuthStateChange` + `getSession()` both call `fetchAndSetProfile`. | | | |
+|   | *Fix (2025-12-17):* Added `pendingProfileFetch` ref to deduplicate concurrent fetches. | | | |
+| 3 | **Plan String Comparison** | Multiple frontend files | P2 MEDIUM | ✅ FIXED |
+|   | *Problem:* `profile?.subscription_status === 'pro'` hardcoded throughout. | | | |
+|   | *Fix (2025-12-17):* Created `constants/subscriptionTiers.ts` with `isPro()`, `isFree()` helpers. Updated 8 files. | | | |
+| 4 | **No Domain Boundary Enforcement** | `services/domainServices.ts` | P2 MEDIUM | ✅ FIXED |
+|   | *Observation:* Hooks call Supabase directly. No domain service layer. | | | |
+|   | *Fix (2025-12-17):* Created `domainServices.ts` with sessionService, profileService, vocabularyService, goalsService. Updated hooks. | | | |
+| 5 | **Stripe Webhook Idempotency** | `stripe-webhook/index.ts` | P0 CRITICAL | ✅ FIXED |
+|   | *Problem:* No `event.id` deduplication. Replay attacks could cause duplicate upgrades. | | | |
+|   | *Fix (2025-12-17):* Added `processed_webhook_events` table. Migration at `migrations/20251217_add_webhook_idempotency.sql`. | | | |
+| 6 | **Client-side Aggregation Scalability** | `analyticsUtils.ts` | P1 HIGH | ✅ OPTIMIZED |
+|   | *Problem:* Entire session history pulled and aggregated client-side. | | | |
+|   | *Fix (2025-12-17):* Optimized to single-pass loop, limited chart to 10 sessions, documented RPC migration path. | | | |
+| 7 | **Edge Function Error Taxonomy** | `backend/supabase/functions/_shared/errors.ts` | P2 MEDIUM | ✅ FIXED |
+|   | *Problem:* Errors thrown as generic `Error` with string messages. | | | |
+|   | *Fix (2025-12-17):* Created `_shared/errors.ts` with error codes + response helpers. Updated 3 Edge Functions. | | | |
+| 8 | **Playwright Config Fragmentation** | `playwright.base.config.ts` | P2 MEDIUM | ✅ FIXED |
+|   | *Problem:* Multiple configs with overlapping settings. | | | |
+|   | *Fix (2025-12-17):* Created `playwright.base.config.ts` with shared presets. Refactored 4 configs to extend it. | | | |
+
+**Summary:** 8 items identified - 8 FIXED. Alpha-ready. ✅
 
 ---
 

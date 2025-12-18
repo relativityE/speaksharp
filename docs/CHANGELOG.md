@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-15
+**Last Reviewed:** 2025-12-17
 
 # Changelog
 
@@ -10,6 +10,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (2025-12-17) - Independent Review Remediation (Batch 2)
+
+- **P0-2 - Stripe Webhook Idempotency:**
+  - **Problem:** No `event.id` deduplication. Replay attacks could cause duplicate upgrades.
+  - **Fix:** Created `processed_webhook_events` table with unique constraint on `event_id`.
+  - **Files:** `stripe-webhook/index.ts`, `migrations/20251217_add_webhook_idempotency.sql`
+  - **Deploy:** Run GitHub Actions → "Deploy Supabase Migrations" → Type "DEPLOY"
+
+- **P1-4 - Auth Context Overreach:**
+  - **Problem:** AuthProvider handles session + profile + loading + refresh in one context.
+  - **Resolution:** Documented migration path in AuthProvider.tsx. Acceptable for alpha.
+
+- **P1-5 - Auth Race Condition:**
+  - **Problem:** `onAuthStateChange` + `getSession()` both call `fetchAndSetProfile` (duplicate fetches).
+  - **Fix:** Added `pendingProfileFetch` ref to deduplicate concurrent profile fetches.
+  - **File:** `AuthProvider.tsx`
+
+- **P1-6 - Client-side Aggregation Scalability:**
+  - **Problem:** Entire session history aggregated client-side with separate `.reduce()` calls.
+  - **Fix:** Optimized to single-pass loop, limited chart to 10 sessions, documented RPC path.
+  - **File:** `analyticsUtils.ts`
+
+- **P2-5 - Plan String Comparison:**
+  - **Problem:** `profile?.subscription_status === 'pro'` hardcoded in 8+ files.
+  - **Fix:** Created `constants/subscriptionTiers.ts` with `isPro()`, `isFree()`, `getTierLabel()`, `getTierLimits()`.
+  - **Updated:** 8 files to use centralized helpers.
+
+- **P2-7 - Edge Function Error Taxonomy:**
+  - **Problem:** Errors thrown as generic `Error` with string messages.
+  - **Fix:** Created `_shared/errors.ts` with `ErrorCodes`, `createErrorResponse()`, `EdgeFunctionError`.
+  - **Updated:** 3 Edge Functions (stripe-checkout, stripe-webhook, check-usage-limit).
+
+- **P2-8 - Playwright Config Fragmentation:**
+  - **Problem:** 4 Playwright configs with overlapping settings.
+  - **Fix:** Created `playwright.base.config.ts` with shared defaults/presets. Refactored all configs to extend it.
+
+- **P2-6 - Domain Boundary Enforcement:** ✅ FIXED
+  - **Observation:** Hooks call Supabase directly without domain service layer.
+  - **Fix:** Created `services/domainServices.ts` with sessionService, profileService, vocabularyService, goalsService. Updated `useUserProfile` and `useGoals` to use services.
+
 ### Changed (2025-12-15)
 
 - **E2E Tests: Migrated from MSW to Playwright Route Interception:**
@@ -19,7 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Key Files:** `tests/e2e/mock-routes.ts` (route handlers), `frontend/src/main.tsx` (conditional MSW skip), `tests/e2e/helpers.ts` (programmaticLoginWithRoutes).
   - **Warning:** DO NOT revert to MSW for E2E tests - the race conditions are fundamental architectural limitations.
 
-### Fixed (2025-12-17) - Independent Review Remediation
+### Fixed (2025-12-17) - Independent Review Remediation (Batch 1)
 
 - **P0 - Secret Sanitization:**
   - **Problem:** Real `STRIPE_PRO_PRICE_ID` committed in `.env.development`.
