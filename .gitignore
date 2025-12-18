@@ -46,3 +46,4 @@ resources/
 merged-reports/
 .lighthouseci/
 speaksharp-review.zip
+repomix-output.xml
