@@ -188,7 +188,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Fri, 19 Dec 2025 02:02:51 GMT
+**Last Updated:** Fri, 19 Dec 2025 02:24:23 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -214,10 +214,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | 56.12%   |
-| Branches   | 79.26%   |
-| Functions  | 72.34%   |
-| Lines      | 56.12%   |
+| Statements | N/A   |
+| Branches   | N/A   |
+| Functions  | N/A   |
+| Lines      | N/A   |
 
 ---
 
