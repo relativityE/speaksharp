@@ -1017,8 +1017,24 @@ The soak test infrastructure consists of three main components:
 
 3. **`soak-test.spec.ts`** (`tests/soak/soak-test.spec.ts`)
    - Orchestrates concurrent user scenarios
-   - Runs 2 users for 5 minutes each (configurable)
+   - Runs 10 users for 5 minutes each (configurable via `tests/constants.ts`)
    - Saves metrics to `test-results/soak/`
+
+#### User Journey State Machine
+
+Each user runs through this journey **in parallel**:
+
+```
+1. AUTH      → Login via Supabase (~5s)
+2. NAVIGATE  → Go to /session page (~3s)
+3. START     → Click Start button
+4. RUNNING   → Wait 5 minutes (30 loops × 10s, heartbeat logs every 1m)
+5. STOP      → Click Stop button
+6. ANALYTICS → Navigate to /analytics
+7. DONE      → Record success/failure
+```
+
+All users execute their journeys concurrently. The test validates that the application can handle sustained load without memory leaks or performance degradation.
 
 #### Configuration
 

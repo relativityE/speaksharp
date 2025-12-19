@@ -149,7 +149,7 @@ export class UserSimulator {
         const checkInterval = 10000;
         const iterations = Math.floor(this.config.sessionDuration / checkInterval);
         let lastStatus: string | null = null;
-        const progressLogInterval = 3; // Log every 3 iterations (30 seconds)
+        const progressLogInterval = 6; // Log every 6 iterations (60 seconds = 1 minute heartbeat)
 
         console.log(`[User ${userId}] 🏁 Journey: Practice Session started (${(this.config.sessionDuration / 60000).toFixed(1)}m)`);
 
