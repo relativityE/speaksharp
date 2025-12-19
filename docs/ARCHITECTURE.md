@@ -519,7 +519,15 @@ The project uses **two distinct Supabase configurations** depending on the execu
 - Soak test users are managed via `scripts/setup-test-users.mjs` and the `setup-test-users.yml` workflow
 - **Email Pattern:** `soak-test{N}@test.com` (0-indexed: `soak-test0`, `soak-test1`, etc.)
 - **Shared Password:** All users share `SOAK_TEST_PASSWORD` secret (no hardcoded credentials)
-- To create/update users, trigger the workflow with `soak` option
+
+**Workflow Actions (soak_action):**
+
+| Action | GitHub Secrets | Supabase |
+|--------|---------------|----------|
+| `update_existing` | Reads `SOAK_TEST_PASSWORD` | Updates all user passwords to match |
+| `generate_new_credentials` | Generates new password, saves to `SOAK_TEST_PASSWORD` | Updates all user passwords to match |
+
+> **Both actions sync Supabase users to match the GitHub secret.** The difference is whether a new password is generated.
 
 **Required GitHub Secrets:**
 
@@ -528,7 +536,7 @@ The project uses **two distinct Supabase configurations** depending on the execu
 | `SUPABASE_URL` | Real Supabase project URL |
 | `SUPABASE_ANON_KEY` | Real Supabase anon/public key |
 | `SUPABASE_SERVICE_KEY` | Service role key for admin operations |
-| `SOAK_TEST_PASSWORD` | Shared password for all soak test users |
+| `SOAK_TEST_PASSWORD` | Shared password for all soak test users (auto-generated if using `generate_new_credentials`) |
 
 ##### CI/CD Workflow
 
