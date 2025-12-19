@@ -31,13 +31,13 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 - ✅ **COMPLETED (2025-12-15) - E2E Test Infrastructure: MSW-to-Playwright Routes Migration:**
   - **Problem:** MSW service workers are browser-global per-origin. Parallel shards race for registration, causing intermittent `ui-state-capture` flakiness.
   - **Root Cause:** 99.5% confidence - service worker race conditions in parallel CI.
-  - **Solution:** Migrated all 36 E2E tests from MSW to Playwright's `page.route()` API.
+  - **Solution:** Migrated all 38 E2E tests from MSW to Playwright's `page.route()` API.
   - **Key Changes:**
     - Added `VITE_SKIP_MSW=true` to `.env.test`
     - Created `tests/e2e/mock-routes.ts` with Playwright route handlers
     - Updated `frontend/src/main.tsx` to skip MSW when flag set
     - Migrated all tests to use `programmaticLoginWithRoutes`
-  - **Result:** All 36 E2E tests pass reliably in parallel CI.
+  - **Result:** All 38 E2E tests pass reliably in parallel CI.
   - **Warning:** DO NOT revert to MSW - the race conditions are fundamental architectural limitations.
 
 ### 🗑️ Codebase Bloat Cleanup (2025-12-18) ✅ COMPLETE
@@ -75,6 +75,21 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 | 3 | HIGH | ✅ Fixed |
 | 4 | MEDIUM | ✅ Fixed |
 | 5 | MEDIUM | ✅ Already done |
+
+### 🧪 Adversarial Test Suite Hardening (2025-12-18) 🟡 In Progress
+
+> **Goal:** Increase line coverage from 56% → 75% with integrity-preserving, adversarial validation. Focus on resilience and design invariants over structural coverage.
+
+*   **P0: Resilience & Revenue Integrity**
+    *   🟡 **WebSocket Resilience:** Test `CloudAssemblyAI.test.ts` with `vi.useFakeTimers()` (backoff, heartbeats).
+    *   🔴 **Billing Idempotency:** Webhook replay and partial failure recovery.
+    *   🔴 **Auth Resilience:** `fetchWithRetry` integration in `AuthProvider`.
+*   **P1: Business Logic**
+    *   🔴 **Tier Gating:** Unit tests for `subscriptionTiers.ts` entitlements.
+    *   🔴 **Domain Services:** CRUD validation in `domainServices.ts`.
+    *   🔴 **Analytics Correctness:** Month-boundary rollover and session aggregation logic.
+*   **P2: E2E Trust**
+    *   🔴 **Canary Tests:** Real-API `@canary` tests for staging environment.
 
 ### 🚨 Alpha Launch Blockers (Comprehensive Audit - 2025-12-12)
 
@@ -181,7 +196,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - **Root Cause 2:** Smoke test called `page.goto('/')` before `programmaticLogin`, causing MSW ready event race
   - **Solution:** `SessionPage.pom` now uses `navigateToRoute()`; Smoke test restructured to call `programmaticLogin` first
   - **Bonus:** Added MSW catch-all handlers that log `[MSW ⚠️ UNMOCKED]` for debugging unmocked endpoints
-  - **Status:** ✅ Fixed - Both tests pass reliably (36/36 E2E tests green)
+  - **Status:** ✅ Fixed - Both tests pass reliably (38/38 E2E tests green)
 
 - **✅ RESOLVED - Navigation E2E Test Failure (2025-12-02)**
   - **Problem:** `navigation.e2e.spec.ts` failed due to overlapping headers
@@ -255,6 +270,8 @@ This phase is about confirming the core feature set works as expected and polish
 - ✅ **Session Comparison & Progress Tracking (2025-12-06):** Users can now select 2 sessions to compare side-by-side with progress indicators (green ↑ for improvement, red ↓ for regression). Added WPM and Clarity trend charts showing progress over last 10 sessions. **Components:** `ProgressIndicator.tsx`, `TrendChart.tsx`, `SessionComparisonDialog.tsx`. **Status:** ✅ Complete.
 - ✅ **Implement Local STT Toast Notification:** Show user feedback when Whisper model download completes.
 - ✅ **Custom Vocabulary Tier Limits \u0026 Conversion Nudges (2025-12-11):** Implemented tier-based limits (Free: 10 words, Pro: 100 words) with subtle upgrade nudges when free users approach limit (shown at 8/10 words). Error messages include upgrade CTA. Uses `Math.min(MAX_WORDS_PER_USER, MAX_WORDS_FREE)` pattern for free tier enforcement.
+- ✅ **Contract Rectification (2025-12-19):** Grounded application assumptions in the database. Added `transcript`, `engine`, `clarity_score`, and `wpm` to the `sessions` table. Implemented atomic `create_session_and_update_usage` Ghost RPC. Purged `avatar_url` and `full_name` phantoms.
+- ✅ **Analytics Integrity Fix (2025-12-19):** Resolved regression in clarity score aggregation to correctly use grounded DB fields.
 - 🔄 **PERPETUAL - Documentation Audit:** Verify PRD Known Issues, ROADMAP, and CHANGELOG match actual codebase state. Run test suite and cross-reference with documented issues to eliminate drift. **Frequency:** Before each release and after major feature work.
 
 ### 🚧 Should-Have (Tech Debt)
@@ -462,10 +479,14 @@ This phase addresses findings from the December 2025 UX Audit (`ux_audit.md`) to
 - ✅ **Positive Reinforcement (2025-12-11):** Implemented "Gamified" toasts (e.g., "🔥 3 Day Streak!") and `useStreak` hook.
 
 ---
-## Phase 3: Extensibility & Future-Proofing
-This phase focuses on long-term architecture, scalability, and preparing for future feature development.
+## Phase 3: Integration Safety (NEXT)
+This phase focuses on hardening the interface between frontend and backend and ensuring robust monitoring.
 
 ### 🎯 Must-Have
+- ✅ **Schema Canary Spec (2025-12-19):** Built a soft-fail E2E spec to detect API drift. Verifies that real/mock Supabase responses match TypeScript interfaces.
+- ✅ **Aggregation Audit (2025-12-19):** Verified behavior for aborted/empty sessions. Implemented safety guards in `SessionSidebar` and Ghost RPC to prevent zero-second usage deduction.
+
+### 🌱 Could-Have (Future Enhancements)
 - ✅ **Implement WebSocket reconnect logic:** Add heartbeat and exponential backoff for a more resilient connection.
   - *Status:* ✅ Complete (2025-12-08). Implemented in `CloudAssemblyAI.ts` with exponential backoff (1s-30s), max 5 retries, 30s heartbeat, connection state callbacks.
 

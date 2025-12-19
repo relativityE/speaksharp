@@ -244,7 +244,14 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
     this.reconnectTimeout = setTimeout(async () => {
       logger.info('[CloudAssemblyAI] Attempting reconnect...');
       if (this.mic) {
-        await this.startTranscription(this.mic);
+        try {
+          await this.startTranscription(this.mic);
+        } catch (error) {
+          logger.error({ error }, '❌ [CloudAssemblyAI] Reconnect transition failed');
+          // If startTranscription fails (e.g. token fetch error), it won't trigger onclose on a socket.
+          // We must manually trigger the next reconnect attempt here to ensure resilience.
+          this.attemptReconnect();
+        }
       }
     }, delay);
   }

@@ -370,3 +370,14 @@ export async function programmaticLoginWithRoutes(page: Page): Promise<void> {
   console.log('[E2E] ✅ Logged in via Playwright routes');
 }
 
+/**
+ * Performs a real login on a live environment.
+ * This is exempt from the page.goto() lint rule because it's in helpers.ts.
+ */
+export async function liveLogin(page: Page, email: string, password: string): Promise<void> {
+  await page.goto('/sign-in');
+  await page.getByTestId('email-input').fill(email);
+  await page.getByTestId('password-input').fill(password);
+  await page.getByTestId('sign-in-button').click();
+  await page.waitForURL('/', { timeout: 15000 });
+}

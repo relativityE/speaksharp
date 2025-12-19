@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { getSupabaseClient } from "@/lib/supabaseClient";
 import logger from "@/lib/logger";
+import { toast } from "sonner";
 
 interface UpgradePromptDialogProps {
   open: boolean;
@@ -26,14 +27,16 @@ export const UpgradePromptDialog: React.FC<UpgradePromptDialogProps> = ({ open, 
       const { data, error } = await supabase.functions.invoke('stripe-checkout');
       if (error) throw error;
       // The edge function returns a URL to the Stripe checkout page
-      if (data?.checkoutUrl) {
+      if (data?.checkoutUrl && typeof data.checkoutUrl === 'string' && data.checkoutUrl.startsWith('https://checkout.stripe.com')) {
         window.location.href = data.checkoutUrl;
       } else {
-        throw new Error("No checkout URL returned");
+        const errorMsg = data?.checkoutUrl ? "Security Error: Invalid checkout URL" : "No checkout URL returned";
+        toast.error(errorMsg);
+        throw new Error(errorMsg);
       }
     } catch (err: unknown) {
       logger.error({ err }, 'Error creating Stripe checkout session:');
-      // You might want to show an error message to the user here
+      toast.error("Subscription failed. Please try again later.");
     }
   };
 

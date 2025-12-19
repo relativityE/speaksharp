@@ -69,8 +69,16 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
 
         // Reset usage if a new month has started
         const resetDate = profile.usage_reset_date ? new Date(profile.usage_reset_date) : null;
+
+        // Robust "one month ago" logic that handles varying month lengths correctly in JS
         const oneMonthAgo = new Date();
-        oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+        const currentMonth = oneMonthAgo.getMonth();
+        oneMonthAgo.setMonth(currentMonth - 1);
+
+        // If JS rolls forward (e.g. March 31 -> March 3), cap it at the last day of the target month
+        if (oneMonthAgo.getMonth() === currentMonth) {
+            oneMonthAgo.setDate(0);
+        }
 
         if (!resetDate || resetDate <= oneMonthAgo) {
             usedSeconds = 0;

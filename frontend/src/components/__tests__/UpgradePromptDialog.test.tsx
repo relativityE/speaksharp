@@ -20,12 +20,12 @@ vi.mock('@/lib/logger', () => ({
 
 describe('UpgradePromptDialog', () => {
     it('does not render the dialog when open is false', () => {
-        render(<UpgradePromptDialog open={false} onOpenChange={() => {}} />);
+        render(<UpgradePromptDialog open={false} onOpenChange={() => { }} />);
         expect(screen.queryByText('Unlock Your Full Potential')).not.toBeInTheDocument();
     });
 
     it('renders the dialog when open is true', () => {
-        render(<UpgradePromptDialog open={true} onOpenChange={() => {}} />);
+        render(<UpgradePromptDialog open={true} onOpenChange={() => { }} />);
         expect(screen.getByText('Unlock Your Full Potential')).toBeInTheDocument();
         expect(screen.getByText('View Plans')).toBeInTheDocument();
         expect(screen.getByText('Maybe Later')).toBeInTheDocument();
@@ -40,7 +40,7 @@ describe('UpgradePromptDialog', () => {
 
     it('calls the upgrade function and redirects on "View Plans" click', async () => {
         vi.mocked(mockSupabase.functions.invoke).mockResolvedValue({
-            data: { checkoutUrl: 'https://stripe.com/checkout' },
+            data: { checkoutUrl: 'https://checkout.stripe.com/pay/abc' },
             error: null,
         });
 
@@ -49,13 +49,13 @@ describe('UpgradePromptDialog', () => {
             writable: true,
         });
 
-        render(<UpgradePromptDialog open={true} onOpenChange={() => {}} />);
+        render(<UpgradePromptDialog open={true} onOpenChange={() => { }} />);
         fireEvent.click(screen.getByTestId('upgrade-prompt-dialog-upgrade-button'));
 
         await waitFor(() => {
             expect(mockSupabase.functions.invoke).toHaveBeenCalledWith('stripe-checkout');
         });
 
-        expect(window.location.href).toBe('https://stripe.com/checkout');
+        expect(window.location.href).toBe('https://checkout.stripe.com/pay/abc');
     });
 });

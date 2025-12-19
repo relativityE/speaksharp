@@ -93,7 +93,13 @@ describe('SessionSidebar', () => {
   describe('for a Free user', () => {
     beforeEach(() => {
       mockAuthContextValue.user = { id: 'free-user', app_metadata: {}, user_metadata: {}, aud: '', created_at: '' };
-      vi.mocked(useUserProfile).mockReturnValue(makeQuerySuccess({ id: 'free-user', subscription_status: 'free' }));
+      vi.mocked(useUserProfile).mockReturnValue(makeQuerySuccess({
+        id: 'free-user',
+        subscription_status: 'free',
+        usage_seconds: 0,
+        usage_reset_date: new Date().toISOString(),
+        created_at: new Date().toISOString()
+      }));
     });
 
     it('renders with "Native" as the default mode and disables advanced modes', async () => {
@@ -130,7 +136,13 @@ describe('SessionSidebar', () => {
   describe('for a Pro user', () => {
     beforeEach(() => {
       mockAuthContextValue.user = { id: 'pro-user', app_metadata: {}, user_metadata: {}, aud: '', created_at: '' };
-      vi.mocked(useUserProfile).mockReturnValue(makeQuerySuccess({ id: 'pro-user', subscription_status: 'pro' }));
+      vi.mocked(useUserProfile).mockReturnValue(makeQuerySuccess({
+        id: 'pro-user',
+        subscription_status: 'pro',
+        usage_seconds: 0,
+        usage_reset_date: new Date().toISOString(),
+        created_at: new Date().toISOString()
+      }));
     });
 
     it('renders with all modes enabled and "Cloud" as default', async () => {
@@ -186,7 +198,13 @@ describe('SessionSidebar', () => {
     beforeEach(() => {
       // Dev user might be on a free tier, but the env var should override
       mockAuthContextValue.user = { id: 'dev-user', app_metadata: {}, user_metadata: {}, aud: '', created_at: '' };
-      vi.mocked(useUserProfile).mockReturnValue(makeQuerySuccess({ id: 'dev-user', subscription_status: 'free' }));
+      vi.mocked(useUserProfile).mockReturnValue(makeQuerySuccess({
+        id: 'dev-user',
+        subscription_status: 'free',
+        usage_seconds: 0,
+        usage_reset_date: new Date().toISOString(),
+        created_at: new Date().toISOString()
+      }));
       vi.stubEnv('VITE_DEV_USER', 'true');
     });
 
@@ -246,7 +264,7 @@ describe('SessionSidebar', () => {
   describe('Session Flow', () => {
     it('calls stopListening and shows the end session dialog when stopping a session', async () => {
       const user = userEvent.setup();
-      const props = { ...defaultProps, isListening: true, startTime: Date.now() };
+      const props = { ...defaultProps, isListening: true, startTime: Date.now() - 2000 };
       render(
         <MockAuthProvider value={mockAuthContextValue}>
           <SessionSidebar {...props} />

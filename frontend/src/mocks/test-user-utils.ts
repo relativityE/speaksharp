@@ -23,7 +23,9 @@ export function createMockUserProfile(overrides: Partial<UserProfile> = {}): Use
   return {
     id: TEST_USER_ID,
     subscription_status: 'pro',
-    preferred_mode: 'cloud',
+    usage_seconds: 1250,
+    usage_reset_date: new Date(Date.now() + 15 * 86400000).toISOString(),
+    created_at: new Date().toISOString(),
     ...overrides,
   };
 }

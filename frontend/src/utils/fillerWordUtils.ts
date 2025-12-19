@@ -26,8 +26,6 @@ interface FinalChunk {
 interface TranscriptStats {
     transcript: string;
     total_words: number;
-    wpm: number;
-    clarity_score: number;
     accuracy: number;
     duration: number;
 }
@@ -99,15 +97,9 @@ export const calculateTranscriptStats = (
         ? wordConfidences.reduce((sum, word) => sum + word.confidence, 0) / wordConfidences.length
         : 0;
 
-    const minutes = duration / 60;
-    const wpm = minutes > 0 ? Math.round(total_words / minutes) : 0;
-    const clarity_score = Math.round(averageConfidence * 100);
-
     return {
         transcript: finalTranscriptText,
         total_words: total_words,
-        wpm: wpm,
-        clarity_score: clarity_score,
         accuracy: averageConfidence,
         duration: duration,
     };

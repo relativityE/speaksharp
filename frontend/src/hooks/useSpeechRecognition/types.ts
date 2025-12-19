@@ -23,8 +23,6 @@ export interface UseSpeechRecognitionProps {
 export interface TranscriptStats {
   transcript: string;
   total_words: number;
-  wpm: number;
-  clarity_score: number;
   accuracy: number;
   duration: number;
 }

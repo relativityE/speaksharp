@@ -37,14 +37,10 @@ export const useUserProfile = () => {
       ...query,
       data: {
         id: 'dev-bypass-user-id',
-        first_name: 'Dev',
-        last_name: 'User',
-        full_name: 'Dev User',
-        avatar_url: null,
-        email: 'dev@example.com',
-        subscription_status: 'pro', // Changed to pro for validation
+        subscription_status: 'pro',
+        usage_seconds: 0,
+        usage_reset_date: new Date(Date.now() + 30 * 86400000).toISOString(),
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
       } as UserProfile
     };
   }

@@ -16,6 +16,8 @@ interface jsPDFInternal {
 import { toast } from 'sonner';
 
 export const generateSessionPdf = async (session: Session, username: string = 'User') => {
+  const identifier = username && username !== 'User' ? username : session.user_id;
+
   try {
     toast.info("Generating PDF...", { id: 'pdf-gen' });
     const doc = new jsPDF();
@@ -65,10 +67,10 @@ export const generateSessionPdf = async (session: Session, username: string = 'U
       doc.text(`Page ${i} of ${pageCount}`, 14, doc.internal.pageSize.height - 10);
     }
 
-    // Use a friendly filename: session_date_username.pdf
+    // Use a friendly filename: session_date_identifier.pdf
     const dateStr = format(parseISO(session.created_at), 'yyyyMMdd');
-    const sanitizedUser = username.replace(/[^a-zA-Z0-9]/g, '_');
-    const filename = `session_${dateStr}_${sanitizedUser}.pdf`;
+    const sanitizedIdentifier = identifier.replace(/[^a-zA-Z0-9]/g, '_');
+    const filename = `session_${dateStr}_${sanitizedIdentifier}.pdf`;
 
     toast.info(`Saving as: ${filename}`, { id: 'pdf-gen-name' });
 

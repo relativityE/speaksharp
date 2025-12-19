@@ -35,26 +35,38 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
 
     // P1 FIX: Single-pass aggregation for efficiency
     let totalDurationSeconds = 0;
-    let totalWords = 0;
+    let sumWpm = 0;
     let totalFillerWords = 0;
-    let totalAccuracy = 0;
+    let totalClarity = 0;
 
     for (const s of sessionHistory) {
-        totalDurationSeconds += s.duration || 0;
-        totalWords += s.total_words || 0;
-        totalFillerWords += s.filler_words?.total?.count || 0;
-        totalAccuracy += s.accuracy || 0;
+        const duration = s.duration || 0;
+        totalDurationSeconds += duration;
+
+        // Use DB-backed metrics if available, otherwise calculate
+        const durationMins = duration / 60;
+        const sessionWpm = s.wpm ?? (durationMins > 0 ? (s.total_words || 0) / durationMins : 0);
+
+        sumWpm += sessionWpm;
+
+        totalFillerWords += Object.entries(s.filler_words || {}).reduce((sum, [word, d]) => {
+            return word === 'total' ? sum : sum + (d.count || 0);
+        }, 0);
+        // Use clarity_score for overall metrics, fallback to accuracy for legacy
+        const sessionClarity = s.clarity_score ?? (s.accuracy ? s.accuracy * 100 : 0);
+        totalClarity += sessionClarity;
     }
 
     const totalPracticeTime = Math.round(totalDurationSeconds / 60);
-    const avgWpm = totalPracticeTime > 0 ? Math.round(totalWords / totalPracticeTime) : 0;
+    const avgWpm = Math.round(sumWpm / totalSessions);
     const avgFillerWordsPerMin = totalPracticeTime > 0 ? (totalFillerWords / totalPracticeTime).toFixed(1) : "0.0";
-    const avgAccuracy = totalSessions > 0 ? (totalAccuracy / totalSessions * 100).toFixed(1) : "0.0";
+    const avgAccuracy = totalSessions > 0 ? (totalClarity / totalSessions).toFixed(1) : "0.0";
 
-    // Chart data - limit to last 10 sessions to prevent rendering issues
+    // Chart data - limit to last 10 sessions
     const chartData = sessionHistory.slice(0, 10).map(s => ({
         date: new Date(s.created_at).toLocaleDateString(),
-        'FW/min': s.duration > 0 ? ((s.filler_words?.total?.count || 0) / (s.duration / 60)).toFixed(2) : "0.0"
+        'FW/min': s.duration > 0 ? ((Object.entries(s.filler_words || {}).reduce((sum, [word, d]) => word === 'total' ? sum : sum + (d.count || 0), 0)) / (s.duration / 60)).toFixed(2) : "0.0",
+        clarity: s.clarity_score ?? (s.duration > 0 ? 100 - (((Object.entries(s.filler_words || {}).reduce((sum, [word, d]) => word === 'total' ? sum : sum + (d.count || 0), 0)) / (s.duration / 60)) * 2) : 100)
     })).reverse();
 
     return { totalSessions, totalPracticeTime, avgWpm, avgFillerWordsPerMin, avgAccuracy, chartData };

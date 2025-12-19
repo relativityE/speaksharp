@@ -3,58 +3,16 @@ import Stripe from "https://esm.sh/stripe@16.2.0?target=deno"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.44.2"
 import { ErrorCodes, createErrorResponse, createSuccessResponse } from "../_shared/errors.ts"
 
-const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY"), {
-  httpClient: Stripe.createFetchHttpClient(),
-})
+// Define types for dependency injection
+type SupabaseClient = any; // Avoid importing full type for worker speed
+type StripeClient = any;
 
-const supabase = createClient(
-  Deno.env.get("SUPABASE_URL"),
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")
-)
-
-/**
- * P0 FIX: Idempotency check using event.id
- * Prevents duplicate processing of the same webhook event.
- * Returns true if event was already processed, false if new.
- */
-async function isEventProcessed(eventId: string): Promise<boolean> {
-  const { data, error } = await supabase
-    .from("processed_webhook_events")
-    .select("id")
-    .eq("event_id", eventId)
-    .single()
-
-  if (error && error.code !== "PGRST116") {
-    // PGRST116 = no rows found - that's expected for new events
-    console.error(`[Stripe Webhook] Error checking idempotency:`, error)
-  }
-
-  return !!data
-}
-
-/**
- * P0 FIX: Record processed event for idempotency
- */
-async function markEventProcessed(eventId: string, eventType: string): Promise<void> {
-  const { error } = await supabase
-    .from("processed_webhook_events")
-    .insert({
-      event_id: eventId,
-      event_type: eventType,
-      processed_at: new Date().toISOString(),
-    })
-
-  if (error) {
-    // Unique constraint violation means it was already processed (race condition - safe)
-    if (error.code === "23505") {
-      console.log(`[Stripe Webhook] Event ${eventId} already recorded (concurrent request)`)
-    } else {
-      console.error(`[Stripe Webhook] Failed to record event ${eventId}:`, error)
-    }
-  }
-}
-
-serve(async (req) => {
+export async function handler(
+  req: Request,
+  stripe: StripeClient,
+  supabase: SupabaseClient,
+  webhookSecret: string
+) {
   const signature = req.headers.get("Stripe-Signature")
   const body = await req.text()
 
@@ -62,15 +20,41 @@ serve(async (req) => {
     const event = await stripe.webhooks.constructEvent(
       body,
       signature,
-      Deno.env.get("STRIPE_WEBHOOK_SECRET")
+      webhookSecret
     )
 
     console.log(`[Stripe Webhook] Received event: ${event.type} (${event.id})`)
 
-    // P0 FIX: Idempotency check - skip if already processed
-    if (await isEventProcessed(event.id)) {
-      console.log(`[Stripe Webhook] ⏭️ Event ${event.id} already processed, skipping`)
-      return createSuccessResponse({ received: true, skipped: true }, {})
+    // P0 FIX: Idempotency Check & Lock
+    // We try to insert first. Unique constraint on 'event_id' handles the lock.
+    const { error: insertError } = await supabase
+      .from("processed_webhook_events")
+      .insert({
+        event_id: event.id,
+        event_type: event.type,
+        processed_at: new Date().toISOString(),
+      })
+
+    if (insertError) {
+      // 23505 is PostgreSQL unique_violation
+      if (insertError.code === "23505") {
+        console.log(`[Stripe Webhook] ⏭️ Event ${event.id} already processed or in progress, skipping`)
+        return createSuccessResponse({ received: true, skipped: true }, {})
+      }
+      console.error(`[Stripe Webhook] Failed to record idempotency key for ${event.id}:`, insertError)
+      // We still try to check if it exists just in case
+      const { data: existing } = await supabase
+        .from("processed_webhook_events")
+        .select("id")
+        .eq("event_id", event.id)
+        .single()
+
+      if (existing) {
+        return createSuccessResponse({ received: true, skipped: true }, {})
+      }
+
+      // If it's some other DB error, we might want to fail so Stripe retries
+      return createErrorResponse(ErrorCodes.DATABASE_ERROR, "Idempotency check failed", {})
     }
 
     // Handle checkout completion - upgrade to Pro
@@ -81,6 +65,9 @@ serve(async (req) => {
 
       if (!userId) {
         console.error("[Stripe] Missing userId in checkout session metadata")
+        // We can't proceed without userId, but we already "locked" this event.
+        // In a real system we might want to "unlock" if it's a permanent failure, 
+        // but here it's likely a config error.
         return createErrorResponse(
           ErrorCodes.VALIDATION_MISSING_METADATA,
           "Missing userId metadata",
@@ -99,6 +86,9 @@ serve(async (req) => {
 
       if (error) {
         console.error(`[Stripe] Failed to upgrade user ${userId}:`, error)
+        // CRITICAL: Delete the idempotency record so Stripe retries can try again!
+        await supabase.from("processed_webhook_events").delete().eq("event_id", event.id)
+
         return createErrorResponse(
           ErrorCodes.DATABASE_ERROR,
           `Failed to upgrade user: ${error.message}`,
@@ -109,7 +99,7 @@ serve(async (req) => {
       }
     }
 
-    // P0 FIX: Handle subscription cancellation - downgrade to Free
+    // Handle subscription cancellation - downgrade to Free
     if (event.type === "customer.subscription.deleted") {
       const subscription = event.data.object
       const subscriptionId = subscription.id
@@ -125,16 +115,18 @@ serve(async (req) => {
 
       if (error) {
         console.error(`[Stripe] Failed to downgrade subscription ${subscriptionId}:`, error)
+        // If it fails, delete lock so it can be retried
+        await supabase.from("processed_webhook_events").delete().eq("event_id", event.id)
+        return createErrorResponse(ErrorCodes.DATABASE_ERROR, "Downgrade failed", {})
       }
     }
 
-    // P0 FIX: Handle subscription updates (e.g., payment method change, plan change)
+    // Handle subscription updates (e.g., payment method change, plan change)
     if (event.type === "customer.subscription.updated") {
       const subscription = event.data.object
       const subscriptionId = subscription.id
       const status = subscription.status
 
-      // If subscription is no longer active, downgrade
       if (status === "canceled" || status === "unpaid" || status === "past_due") {
         console.log(`[Stripe] Subscription ${subscriptionId} status changed to ${status}, downgrading`)
         const { error } = await supabase
@@ -146,17 +138,18 @@ serve(async (req) => {
 
         if (error) {
           console.error(`[Stripe] Failed to update subscription ${subscriptionId}:`, error)
+          await supabase.from("processed_webhook_events").delete().eq("event_id", event.id)
+          return createErrorResponse(ErrorCodes.DATABASE_ERROR, "Status update failed", {})
         }
       }
     }
 
-    // P0 FIX: Handle payment failure - downgrade to Free after grace period
+    // Handle payment failure - downgrade to Free after grace period
     if (event.type === "invoice.payment_failed") {
       const invoice = event.data.object
       const subscriptionId = invoice.subscription
       const attemptCount = invoice.attempt_count || 0
 
-      // After 3 failed attempts, downgrade the user
       if (attemptCount >= 3 && subscriptionId) {
         console.log(`[Stripe] Payment failed ${attemptCount} times for subscription ${subscriptionId}, downgrading`)
         const { error } = await supabase
@@ -168,14 +161,11 @@ serve(async (req) => {
 
         if (error) {
           console.error(`[Stripe] Failed to downgrade after payment failure:`, error)
+          await supabase.from("processed_webhook_events").delete().eq("event_id", event.id)
+          return createErrorResponse(ErrorCodes.DATABASE_ERROR, "Payment failure handling failed", {})
         }
-      } else {
-        console.log(`[Stripe] Payment attempt ${attemptCount} failed for subscription ${subscriptionId}, not downgrading yet`)
       }
     }
-
-    // P0 FIX: Mark event as processed for idempotency
-    await markEventProcessed(event.id, event.type)
 
     return createSuccessResponse({ received: true }, {})
   } catch (err) {
@@ -187,4 +177,20 @@ serve(async (req) => {
       {}
     )
   }
+}
+
+serve(async (req) => {
+  const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY")!
+  const webhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET")!
+
+  const stripe = new Stripe(stripeSecretKey, {
+    httpClient: Stripe.createFetchHttpClient(),
+  })
+
+  const supabase = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+  )
+
+  return handler(req, stripe, supabase, webhookSecret)
 })

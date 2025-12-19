@@ -457,7 +457,7 @@ Both the local test runner and CI use the same `test-audit.sh` script, ensuring 
 
 **Local Test Runner (`pnpm test:all`):**
 - Runs `./test-audit.sh local` as a single process
-- Executes all 36 E2E tests serially
+- Executes all 38 E2E tests serially
 - Quality checks (lint/typecheck/test) run in parallel via `concurrently`
 - Purpose: Pre-commit verification and local validation
 - Speed: ~2-3 minutes
@@ -1322,6 +1322,35 @@ The backend is built entirely on the Supabase platform, leveraging its integrate
     *   `assemblyai-token`: Securely generates temporary tokens for the AssemblyAI transcription service.
     *   `stripe-checkout`: Handles the creation of Stripe checkout sessions.
     *   `stripe-webhook`: Listens for and processes webhooks from Stripe to update user subscription status.
+    *   `create_session_and_update_usage` (RPC): Atomic PL/pgSQL function that persists session data and enforces usage limits in a single transaction.
+
+### 4.1. Database Schema (Grounded)
+
+The database schema is designed for performance and reliability, ensuring that all core metrics are persisted rather than calculated on-the-fly where possible.
+
+#### `public.sessions` table
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | `UUID` | Primary key |
+| `user_id` | `UUID` | Foreign key to `auth.users` |
+| `transcript` | `TEXT` | The full transcribed text of the session |
+| `engine` | `TEXT` | The STT engine used (Cloud, On-Device, Native) |
+| `duration` | `INT` | Session duration in seconds |
+| `total_words`| `INT` | Total word count |
+| `filler_words`| `INT` | Filler word count |
+| `clarity_score`| `FLOAT8`| Grounded clarity metric (0-100) |
+| `wpm` | `FLOAT8`| Grounded words-per-minute metric |
+
+#### `public.user_profiles` table
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | `UUID` | Primary key |
+| `subscription_status` | `TEXT` | 'free' or 'pro' |
+| `usage_seconds` | `INT` | Total usage in the current billing period |
+| `usage_reset_date` | `TIMESTAMPTZ` | Date when usage resets |
+
+> [!NOTE]
+> **Lean Schema Principle:** Fields such as `full_name` and `avatar_url` are intentionally excluded as they are not captured during sign-up and are not required for core functionality. Fallbacks (e.g., `user_id`) are used in reporting.
 
 ## 5. Feature Architecture
 

@@ -143,11 +143,19 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
         setIsEndingSession(true);
         try {
             const sessionData = await stopListening();
-            if (!sessionData || !sessionData.transcript) {
-                toast.error("No speech was detected. Session not saved.");
+            const finalDuration = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
+
+            // INTEGRATION SAFETY: Guard against 0-second or 0-word sessions
+            // We keep the toast notifications as requested by the user.
+            const hasWords = sessionData && sessionData.transcript && sessionData.transcript.trim().length > 0;
+            const isLongEnough = finalDuration >= 1;
+
+            if (!hasWords || !isLongEnough) {
+                const reason = !isLongEnough ? "Session was too short." : "No speech was detected.";
+                toast.error(`${reason} Session not saved.`);
                 return;
             }
-            const finalDuration = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
+
             const sessionWithMetadata: PracticeSession = {
                 ...sessionData,
                 id: `session_${Date.now()}`,
@@ -156,6 +164,13 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                 created_at: new Date().toISOString(),
                 title: `Session from ${formatDateTime(new Date())}`,
             };
+
+            // PERSISTENCE RESILIENCE: Save immediately if authenticated
+            // This ensures data is saved even if the user closes the tab before clicking the dialog.
+            if (user && !user.is_anonymous) {
+                await saveSession(sessionWithMetadata);
+            }
+
             setCompletedSessions(prev => [...prev, sessionWithMetadata]);
             setShowEndSessionDialog(true);
         } catch (e: unknown) {
@@ -172,30 +187,19 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
     const handleNavigateToAnalytics = async () => {
         if (completedSessions.length === 0) return;
 
-        if (user) {
-            for (const session of completedSessions) {
-                await saveSession(session);
-            }
-            toast.success(`${completedSessions.length} session(s) saved successfully!`);
-            navigate(`/analytics`);
-        } else {
+        // Note: authenticated sessions are now saved immediately in endSessionAndSave
+        if (!user || user.is_anonymous) {
             toast.info("Session complete. View your results below.");
             navigate('/analytics', { state: { sessionHistory: completedSessions } });
+        } else {
+            navigate(`/analytics`);
         }
         setCompletedSessions([]);
         setShowEndSessionDialog(false);
     };
 
     const handleStayOnPage = async () => {
-        if (completedSessions.length === 0) return;
-
-        if (user) {
-            for (const session of completedSessions) {
-                await saveSession(session);
-            }
-            toast.success(`${completedSessions.length} session(s) saved successfully!`);
-        }
-
+        // Note: authenticated sessions are now saved immediately in endSessionAndSave
         setCompletedSessions([]);
         setShowEndSessionDialog(false);
     };

@@ -98,9 +98,9 @@ describe('MSW Handlers', () => {
             expect(data.length).toBe(5);
             expect(data[0]).toHaveProperty('id', 'session-1');
             // First session has low clarity (beginner)
-            expect(data[0]).toHaveProperty('clarity_score', 65);
+            expect(data[0]).toHaveProperty('clarity_score', 72.5);
             // Last session has high clarity (improved)
-            expect(data[4]).toHaveProperty('clarity_score', 94);
+            expect(data[4]).toHaveProperty('clarity_score', 95.8);
         });
 
         it('should return empty array when x-e2e-empty-sessions header is set', async () => {

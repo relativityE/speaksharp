@@ -14,4 +14,6 @@ export interface PracticeSession {
   accuracy?: number;
   ground_truth?: string;
   engine?: string;
+  clarity_score?: number;
+  wpm?: number;
 }

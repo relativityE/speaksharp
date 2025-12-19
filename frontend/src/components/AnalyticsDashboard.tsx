@@ -204,7 +204,8 @@ interface SessionHistoryItemProps {
 const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro, isSelected, onToggleSelect, profileName }) => {
     const totalFillers = Object.values(session.filler_words || {}).reduce((sum, data) => sum + (data.count || 0), 0);
     const durationMins = (session.duration / 60).toFixed(1);
-    const wpm = session.duration > 0 && session.total_words ? ((session.total_words / session.duration) * 60).toFixed(0) : 'N/A';
+    const wpm = session.wpm ?? (session.duration > 0 && session.total_words ? Math.round((session.total_words / session.duration) * 60) : 'N/A');
+    const clarity = session.clarity_score ?? (session.accuracy ? (session.accuracy * 100) : null);
 
     return (
         <Card className="p-4 transition-all duration-200 hover:bg-secondary/50" data-testid={`${TEST_IDS.SESSION_HISTORY_ITEM}-${session.id}`}>
@@ -230,7 +231,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro,
                     </div>
                     <div>
                         <p className="text-xs text-muted-foreground">Accuracy</p>
-                        <p className="font-bold text-base text-foreground">{session.accuracy ? `${(session.accuracy * 100).toFixed(1)}% ` : 'N/A'}</p>
+                        <p className="font-bold text-base text-foreground">{clarity ? `${clarity.toFixed(1)}% ` : 'N/A'}</p>
                     </div>
                     <div>
                         <p className="text-xs text-muted-foreground">Fillers</p>
@@ -713,7 +714,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ profile 
                                         isPro={isProUser}
                                         isSelected={selectedSessions.includes(session.id)}
                                         onToggleSelect={toggleSessionSelection}
-                                        profileName={profile?.full_name || 'User'}
+                                        profileName={''}
                                     />
                                 ))
                             ) : (
