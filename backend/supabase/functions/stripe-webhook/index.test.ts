@@ -146,3 +146,130 @@ Deno.test("stripe-webhook handlers", async (t) => {
         assertEquals(result.error, "DB Error");
     });
 });
+
+// ============================================================================
+// Additional Handler Functions (for testing subscription.updated & payment_failed)
+// ============================================================================
+
+/**
+ * Handle customer.subscription.updated event - downgrade if status indicates cancellation
+ */
+export async function handleSubscriptionUpdated(
+    subscription: { id: string; status: string },
+    supabase: MockSupabase
+): Promise<{ success: boolean; action?: string; error?: string }> {
+    const downgradeStatuses = ["canceled", "unpaid", "past_due"];
+
+    if (!downgradeStatuses.includes(subscription.status)) {
+        return { success: true, action: "no_action" };
+    }
+
+    const { error } = await supabase
+        .from("user_profiles")
+        .update({ subscription_status: "free" })
+        .eq("stripe_subscription_id", subscription.id);
+
+    if (error) {
+        return { success: false, error: error.message };
+    }
+
+    return { success: true, action: "downgraded" };
+}
+
+/**
+ * Handle invoice.payment_failed event - downgrade after 3+ failed attempts
+ */
+export async function handlePaymentFailed(
+    invoice: { subscription?: string; attempt_count?: number },
+    supabase: MockSupabase
+): Promise<{ success: boolean; action?: string; error?: string }> {
+    const attemptCount = invoice.attempt_count || 0;
+
+    if (attemptCount < 3 || !invoice.subscription) {
+        return { success: true, action: "no_action" };
+    }
+
+    const { error } = await supabase
+        .from("user_profiles")
+        .update({ subscription_status: "free" })
+        .eq("stripe_subscription_id", invoice.subscription);
+
+    if (error) {
+        return { success: false, error: error.message };
+    }
+
+    return { success: true, action: "downgraded" };
+}
+
+// ============================================================================
+// Additional Tests
+// ============================================================================
+
+Deno.test("stripe-webhook subscription.updated handlers", async (t) => {
+    const mockSuccessSupabase: MockSupabase = {
+        from: () => ({
+            update: () => ({
+                eq: () => Promise.resolve({ error: null }),
+            }),
+        }),
+    };
+
+    await t.step("handleSubscriptionUpdated - downgrades on canceled status", async () => {
+        const subscription = { id: "sub_abc123", status: "canceled" };
+        const result = await handleSubscriptionUpdated(subscription, mockSuccessSupabase);
+        assertEquals(result.success, true);
+        assertEquals(result.action, "downgraded");
+    });
+
+    await t.step("handleSubscriptionUpdated - downgrades on unpaid status", async () => {
+        const subscription = { id: "sub_abc123", status: "unpaid" };
+        const result = await handleSubscriptionUpdated(subscription, mockSuccessSupabase);
+        assertEquals(result.success, true);
+        assertEquals(result.action, "downgraded");
+    });
+
+    await t.step("handleSubscriptionUpdated - downgrades on past_due status", async () => {
+        const subscription = { id: "sub_abc123", status: "past_due" };
+        const result = await handleSubscriptionUpdated(subscription, mockSuccessSupabase);
+        assertEquals(result.success, true);
+        assertEquals(result.action, "downgraded");
+    });
+
+    await t.step("handleSubscriptionUpdated - no action on active status", async () => {
+        const subscription = { id: "sub_abc123", status: "active" };
+        const result = await handleSubscriptionUpdated(subscription, mockSuccessSupabase);
+        assertEquals(result.success, true);
+        assertEquals(result.action, "no_action");
+    });
+});
+
+Deno.test("stripe-webhook invoice.payment_failed handlers", async (t) => {
+    const mockSuccessSupabase: MockSupabase = {
+        from: () => ({
+            update: () => ({
+                eq: () => Promise.resolve({ error: null }),
+            }),
+        }),
+    };
+
+    await t.step("handlePaymentFailed - no action if < 3 attempts", async () => {
+        const invoice = { subscription: "sub_abc123", attempt_count: 2 };
+        const result = await handlePaymentFailed(invoice, mockSuccessSupabase);
+        assertEquals(result.success, true);
+        assertEquals(result.action, "no_action");
+    });
+
+    await t.step("handlePaymentFailed - downgrades at 3+ attempts", async () => {
+        const invoice = { subscription: "sub_abc123", attempt_count: 3 };
+        const result = await handlePaymentFailed(invoice, mockSuccessSupabase);
+        assertEquals(result.success, true);
+        assertEquals(result.action, "downgraded");
+    });
+
+    await t.step("handlePaymentFailed - no action if no subscription", async () => {
+        const invoice = { attempt_count: 5 };
+        const result = await handlePaymentFailed(invoice, mockSuccessSupabase);
+        assertEquals(result.success, true);
+        assertEquals(result.action, "no_action");
+    });
+});

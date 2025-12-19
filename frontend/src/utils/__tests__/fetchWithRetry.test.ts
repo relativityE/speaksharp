@@ -79,4 +79,52 @@ describe('fetchWithRetry', () => {
         const result = await promise;
         expect(result).toBe('success');
     });
+
+    it('should respect custom retry count (retries=1)', async () => {
+        const mockFn = vi.fn().mockRejectedValue(new Error('always fails'));
+
+        const promise = fetchWithRetry(mockFn, 1, 100);
+        promise.catch(() => { }); // Prevent unhandled rejection
+
+        await vi.runAllTimersAsync();
+
+        await expect(promise).rejects.toThrow('always fails');
+        // With retries=1, it should call once + 1 retry = 2 total
+        expect(mockFn).toHaveBeenCalledTimes(2);
+    });
+
+    it('should respect custom delay value', async () => {
+        const mockFn = vi.fn()
+            .mockRejectedValueOnce(new Error('fail'))
+            .mockResolvedValue('success');
+
+        const promise = fetchWithRetry(mockFn, 2, 500);
+
+        await Promise.resolve();
+        expect(mockFn).toHaveBeenCalledTimes(1);
+
+        // Should not retry before 500ms
+        await vi.advanceTimersByTime(499);
+        expect(mockFn).toHaveBeenCalledTimes(1);
+
+        // Should retry at 500ms
+        await vi.advanceTimersByTime(1);
+        await Promise.resolve();
+        expect(mockFn).toHaveBeenCalledTimes(2);
+
+        const result = await promise;
+        expect(result).toBe('success');
+    });
+
+    it('should preserve original error message when all retries fail', async () => {
+        const originalError = new Error('Specific API error: 503 Service Unavailable');
+        const mockFn = vi.fn().mockRejectedValue(originalError);
+
+        const promise = fetchWithRetry(mockFn, 1, 100);
+        promise.catch(() => { });
+
+        await vi.runAllTimersAsync();
+
+        await expect(promise).rejects.toThrow('Specific API error: 503 Service Unavailable');
+    });
 });
