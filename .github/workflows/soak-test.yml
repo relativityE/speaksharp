@@ -63,6 +63,7 @@ jobs:
           VITE_USE_LIVE_DB: "true"
           NEW_FREE_COUNT: ${{ github.event.inputs.new_free_count }}
           NEW_PRO_COUNT: ${{ github.event.inputs.new_pro_count }}
+          SOAK_TEST_PASSWORD: ${{ secrets.SOAK_TEST_PASSWORD }}
         run: |
           # Using start-server-and-test for clean process lifecycle
           # (avoids ELIFECYCLE from orphaned node/esbuild processes)

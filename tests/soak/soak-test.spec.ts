@@ -39,15 +39,31 @@ async function setupAuthenticatedUser(page: Page, userIndex: number): Promise<vo
     await page.getByRole('button', { name: /sign in/i }).click();
 
     // Explicitly WAIT for the redirect to the dashboard/home
-    // NOTE: After successful Supabase auth, the app can redirect to either:
-    // - '/' (homepage) if no specific redirect was in URL
-    // - '/session' (session page) if that was the original destination
-    // We accept EITHER to handle both scenarios robustly.
-    // If your app uses '/dashboard', add it here: url.pathname === '/dashboard'
     console.log(`[Soak Test] ⏳ Waiting for redirect to authenticated page...`);
-    await page.waitForURL((url) => {
-        return url.pathname === '/session' || url.pathname === '/';
-    }, { timeout: 30000 });
+
+    try {
+        await page.waitForURL((url) => {
+            return url.pathname === '/session' || url.pathname === '/';
+        }, { timeout: 30000 });
+    } catch (error) {
+        // DIAGNOSTIC: Check if there's an error message on the page
+        console.error(`[Soak Test] ❌ Authentication failed for ${credentials.email}`);
+
+        // Scan for common error messages
+        const pageContent = await page.textContent('body');
+        if (pageContent?.includes('Invalid login credentials')) {
+            console.error('[Soak Test] ❌ Error found: Invalid login credentials');
+        } else if (pageContent?.includes('error') || pageContent?.includes('Failed')) {
+            console.error(`[Soak Test] ❌ Potential error message found on page: ${pageContent.substring(0, 200)}...`);
+        }
+
+        // Capture a diagnostic screenshot
+        const screenshotPath = `test-results/soak/auth-failure-${userIndex}.png`;
+        await page.screenshot({ path: screenshotPath });
+        console.log(`[Soak Test] 📸 Diagnostic screenshot saved to: ${screenshotPath}`);
+
+        throw error;
+    }
 
     console.log(`[Soak Test] ✅ Login successful! Current URL: ${page.url()}`);
 
