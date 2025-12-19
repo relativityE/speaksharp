@@ -192,7 +192,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Fri, 19 Dec 2025 11:16:47 GMT
+**Last Updated:** Fri, 19 Dec 2025 11:35:22 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -225,7 +225,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 | Metric     | Value |
 | ---------- | ----- |
 | Statements | 57.03%   |
-| Branches   | 79.44%   |
+| Branches   | 79.42%   |
 | Functions  | 73.96%   |
 | Lines      | 57.03%   |
 
@@ -235,10 +235,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric              | Value |
 | ------------------- | ----- |
-| Total Source Size   | 3.2M   |
-| Total Project Size  | 1.5G   |
+| Total Source Size   | 3.5M   |
+| Total Project Size  | 1.1G   |
 | Initial Chunk Size  | 876K   |
-| Code Bloat Index    | 26.48%   |
+| Code Bloat Index    | 25.03%   |
 | Lighthouse Score    | (coming soon)   |
 
 ---
