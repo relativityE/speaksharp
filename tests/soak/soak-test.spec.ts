@@ -2,8 +2,8 @@ import { test, expect, type Page } from '@playwright/test';
 import { MetricsCollector } from './metrics-collector';
 import { UserSimulator } from './user-simulator';
 import { SOAK_CONFIG, SOAK_TEST_USERS, ROUTES, TEST_IDS } from '../constants';
-import fs from 'fs';
-import path from 'path';
+import * as fs from 'fs';
+import * as path from 'path';
 
 /**
  * Helper to set up authenticated test user using REAL Supabase login
@@ -12,34 +12,27 @@ import path from 'path';
 async function setupAuthenticatedUser(page: Page, userIndex: number): Promise<void> {
     const credentials = SOAK_TEST_USERS[userIndex % SOAK_TEST_USERS.length];
 
-    console.log(`[Soak Test] 🔐 User ${userIndex} logging in with credentials:`);
-    console.log(`[Soak Test]   Email: ${credentials.email}`);
-    console.log(`[Soak Test]   Password: ${'*'.repeat(credentials.password.length)}`);
+    console.log(`[Soak Test] [Auth Start] User ${userIndex} logging in...`);
+    console.log(`[Soak Test]   Target User: ${credentials.email}`);
 
     // Navigate to sign-in page
-    console.log(`[Soak Test] 📍 Navigating to: ${ROUTES.SIGN_IN}`);
+    const navStart = Date.now();
     await page.goto(ROUTES.SIGN_IN);
-    console.log(`[Soak Test] 📍 Current URL after goto: ${page.url()}`);
+    console.log(`[Soak Test] [Nav] Sign-in page loaded in ${Date.now() - navStart}ms`);
 
     // Wait for auth form to load
-    console.log(`[Soak Test] ⏳ Waiting for email input...`);
     await page.waitForSelector('input[type="email"]', { timeout: 10000 });
-    console.log(`[Soak Test] ✅ Email input found`);
 
     // Fill in credentials
-    console.log(`[Soak Test] ✍️ Filling in credentials...`);
     await page.fill('input[type="email"]', credentials.email);
     await page.fill('input[type="password"]', credentials.password);
-    console.log(`[Soak Test] ✅ Credentials filled`);
 
     // CRITICAL FIX: Robustly click and wait for navigation
-    console.log(`[Soak Test] 🖱️ Clicking Sign In...`);
-
-    // Click the button (ensure we target the submit button specifically)
+    console.log(`[Soak Test] [Auth] Submitting credentials...`);
     await page.getByRole('button', { name: /sign in/i }).click();
 
     // Explicitly WAIT for the redirect to the dashboard/home
-    console.log(`[Soak Test] ⏳ Waiting for redirect to authenticated page...`);
+    console.log(`[Soak Test] [Auth] Waiting for dashboard redirect...`);
 
     try {
         await page.waitForURL((url) => {
@@ -47,42 +40,43 @@ async function setupAuthenticatedUser(page: Page, userIndex: number): Promise<vo
         }, { timeout: 30000 });
     } catch (error) {
         // DIAGNOSTIC: Check if there's an error message on the page
-        console.error(`[Soak Test] ❌ Authentication failed for ${credentials.email}`);
+        console.error(`[Soak Test] [Auth Error] Authentication failed for ${credentials.email}`);
 
         // Scan for common error messages
         const pageContent = await page.textContent('body');
         if (pageContent?.includes('Invalid login credentials')) {
-            console.error('[Soak Test] ❌ Error found: Invalid login credentials');
+            console.error('[Soak Test] [Auth Error] Message: Invalid login credentials');
         } else if (pageContent?.includes('error') || pageContent?.includes('Failed')) {
-            console.error(`[Soak Test] ❌ Potential error message found on page: ${pageContent.substring(0, 200)}...`);
+            console.error(`[Soak Test] [Auth Error] Potential error found: ${pageContent.substring(0, 200)}...`);
         }
 
         // Capture a diagnostic screenshot
         const screenshotPath = `test-results/soak/auth-failure-${userIndex}.png`;
+        if (!fs.existsSync(path.dirname(screenshotPath))) {
+            fs.mkdirSync(path.dirname(screenshotPath), { recursive: true });
+        }
         await page.screenshot({ path: screenshotPath });
-        console.log(`[Soak Test] 📸 Diagnostic screenshot saved to: ${screenshotPath}`);
+        console.log(`[Soak Test] [Auth Error] Diagnostic screenshot saved to: ${screenshotPath}`);
 
         throw error;
     }
 
-    console.log(`[Soak Test] ✅ Login successful! Current URL: ${page.url()}`);
+    console.log(`[Soak Test] [Auth Success] Logged in as ${credentials.email}`);
 
     // Verify application auth state
-    console.log(`[Soak Test] 🔍 Verifying authentication state...`);
     await expect(page.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 15000 });
-    console.log(`[Soak Test] ✅ Application auth state confirmed`);
+    console.log(`[Soak Test] [Auth Success] Nav Sign Out button visible`);
 
     // Navigate to session page if not already there
     if (!page.url().includes(ROUTES.SESSION)) {
-        console.log(`[Soak Test] 🚀 Navigating to ${ROUTES.SESSION}...`);
+        console.log(`[Soak Test] [Nav] Redirecting to ${ROUTES.SESSION}...`);
         await page.goto(ROUTES.SESSION, { waitUntil: 'networkidle' });
     }
 
     // Verify session page readiness
     await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeVisible({ timeout: 15000 });
 
-    console.log(`[Soak Test] ✅ User ${userIndex} authenticated with real Supabase credentials`);
-    console.log(`[Soak Test] 📍 Final URL: ${page.url()}`);
+    console.log(`[Soak Test] [Auth End] User ${userIndex} fully ready for simulation`);
 }
 
 test.describe('Soak Test - Concurrent User Simulation', () => {
