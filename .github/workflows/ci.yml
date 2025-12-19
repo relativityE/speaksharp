@@ -137,6 +137,7 @@ jobs:
         run: |
           mkdir -p frontend
           cp -r artifacts/all-artifacts/frontend/dist frontend/
+          cp -r artifacts/all-artifacts/frontend/coverage frontend/
           cp artifacts/all-artifacts/unit-metrics.json .
           # test-results is only in shard artifacts, not all-artifacts
           [ -d artifacts/all-artifacts/test-results ] && cp -r artifacts/all-artifacts/test-results . || echo "No test-results in all-artifacts (expected)"

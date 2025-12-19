@@ -149,6 +149,12 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 
 #### P2 - Known Limitations (Alpha Acceptable)
 
+- 🟡 **Code Bloat Index Above Industry Standard:** Current bloat index is 26.48% (industry std: <20%).
+  - **Metric:** Initial Chunk (876KB) / Total Source (3.2MB) = 26.48%
+  - **Optimizations:** Lazy-load Recharts, lazy-load Whisper model loader, aggressive route-based code splitting
+  - **Status:** Acceptable for Alpha, optimize in Beta for performance SLO compliance
+
+
 - 🟢 **Vocal Analysis Disabled:** The `useVocalAnalysis` hook exists but is initialized with `false`. Pause detection feature intentionally disabled pending microphone stream integration.
   - **File:** `useSpeechRecognition/index.ts:30`
   - **Evidence:** `const vocalAnalysis = useVocalAnalysis(false); // We'll enable this when we have mic access`

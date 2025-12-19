@@ -192,9 +192,15 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Fri, 19 Dec 2025 10:09:09 GMT
+**Last Updated:** Fri, 19 Dec 2025 11:16:47 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
+
+**Metric Definitions:**
+- **Total Source Size:** Sum of all code in src, backend, tests, docs, and scripts.
+- **Total Project Size:** Total disk footprint including node_modules and assets.
+- **Initial Chunk Size:** The size of the largest initial JavaScript bundle.
+- **Code Bloat Index:** Ratio of Initial Chunk Size to Total Source Size (lower is better).
 
 ---
 
@@ -218,21 +224,22 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | N/A   |
-| Branches   | N/A   |
-| Functions  | N/A   |
-| Lines      | N/A   |
+| Statements | 57.03%   |
+| Branches   | 79.44%   |
+| Functions  | 73.96%   |
+| Lines      | 57.03%   |
 
 ---
 
 ### Code Bloat & Performance
 
-This section provides metrics that help identify "code bloat"—unnecessary or dead code that increases load times and harms the user experience.
-
-| Metric | Value | Description |
-|---|---|---|
-| **Initial Chunk Size** | 876K | The size of the largest initial JavaScript bundle. This is a direct measure of the amount of code a user has to download and parse on their first visit. Large values here are a strong indicator of code bloat. |
-| **Lighthouse Score** | (coming soon) | A comprehensive performance score from Google Lighthouse. It measures the *impact* of code bloat on the user experience, including metrics like Time to Interactive. |
+| Metric              | Value |
+| ------------------- | ----- |
+| Total Source Size   | 3.2M   |
+| Total Project Size  | 1.5G   |
+| Initial Chunk Size  | 876K   |
+| Code Bloat Index    | 26.48%   |
+| Lighthouse Score    | (coming soon)   |
 
 ---
 <!-- SQM:END -->

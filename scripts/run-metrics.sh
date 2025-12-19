@@ -6,8 +6,6 @@ TEST_RESULTS_DIR="test-results"
 METRICS_FILE="$TEST_RESULTS_DIR/metrics.json"
 mkdir -p "$TEST_RESULTS_DIR"
 
-echo "--- Combining Metrics and Generating Summary ---"
-
 # Unit Test Metrics
 unit_metrics_file="unit-metrics.json"
 if [ ! -f "$unit_metrics_file" ]; then
@@ -19,12 +17,18 @@ unit_failed=$(jq '.numFailedTests' "$unit_metrics_file")
 unit_skipped=$(jq '.numPendingTests' "$unit_metrics_file")
 unit_total=$(jq '.numTotalTests' "$unit_metrics_file")
 
-# Coverage Metrics
+# Coverage Metrics (full breakdown)
 coverage_file="frontend/coverage/coverage-summary.json"
 if [ ! -f "$coverage_file" ]; then
     echo "⚠️ WARNING: Coverage summary not found at $coverage_file. Setting coverage to 0." >&2
+    coverage_statements=0
+    coverage_branches=0
+    coverage_functions=0
     coverage_lines=0
 else
+    coverage_statements=$(jq '.total.statements.pct' "$coverage_file")
+    coverage_branches=$(jq '.total.branches.pct' "$coverage_file")
+    coverage_functions=$(jq '.total.functions.pct' "$coverage_file")
     coverage_lines=$(jq '.total.lines.pct' "$coverage_file")
 fi
 
@@ -34,38 +38,42 @@ if [ -f "$e2e_results_file" ]; then
     e2e_passed=$(jq '.stats.expected' "$e2e_results_file")
     e2e_failed=$(jq '.stats.unexpected' "$e2e_results_file")
     e2e_skipped=$(jq '.stats.skipped' "$e2e_results_file")
-    echo "✅ E2E results found: $e2e_passed passed, $e2e_failed failed, $e2e_skipped skipped"
 else
-    echo "⚠️ WARNING: E2E results file not found at $e2e_results_file"
-    echo "   This usually means E2E tests were not run in this pipeline execution."
-    echo "   E2E tests exist in tests/e2e/ but results are unavailable for metrics."
-    
-    # In CI, this should be an error if we expected E2E results
     if [ "${CI:-false}" = "true" ]; then
         echo "❌ ERROR: Running in CI but E2E results are missing!" >&2
-        echo "   This indicates a pipeline bug. E2E tests should have run and produced results." >&2
         exit 1
     fi
-    
-    echo "   Setting E2E metrics to 0 for this report only."
     e2e_passed=0
     e2e_failed=0
     e2e_skipped=0
 fi
 
 # Bundle Size Metrics
-# Bundle Size Metrics
-# Extract the main entry point from index.html to get the real initial chunk size
-entry_file=$(grep -o '/assets/index-[^"]*\.js' frontend/dist/index.html | head -n 1)
-# Remove leading slash
+entry_file=$(grep -o '/assets/index-[^"]*\.js' frontend/dist/index.html | head -n 1 || true)
 entry_file="${entry_file#/}"
 full_path="frontend/dist/$entry_file"
 
 if [ -f "$full_path" ]; then
     bundle_size=$(du -h "$full_path" | awk '{print $1}')
+    chunk_size_kb=$(du -k "$full_path" | awk '{print $1}')
 else
-    echo "⚠️ WARNING: Could not determine entry point size. File $full_path not found." >&2
     bundle_size="unknown"
+    chunk_size_kb=0
+fi
+
+# Codebase Size Metrics
+SOURCE_DIRS=("frontend/src" "backend" "docs" "scripts" "tests")
+source_size_kb=$(du -sk "${SOURCE_DIRS[@]}" 2>/dev/null | awk '{sum += $1} END {print sum}')
+total_size_kb=$(du -sk . | awk '{print $1}')
+
+source_size=$(du -shc "${SOURCE_DIRS[@]}" 2>/dev/null | tail -n 1 | awk '{print $1}')
+total_size=$(du -sh . | awk '{print $1}')
+
+# Bloat Percentage
+if [ "$source_size_kb" -gt 0 ]; then
+    bloat_pct=$(awk "BEGIN {printf \"%.2f\", ($chunk_size_kb / $source_size_kb) * 100}")
+else
+    bloat_pct=0
 fi
 
 # Create the final combined metrics file
@@ -74,25 +82,32 @@ jq -n \
   --argjson unit_failed "$unit_failed" \
   --argjson unit_skipped "$unit_skipped" \
   --argjson unit_total "$unit_total" \
+  --argjson coverage_statements "$coverage_statements" \
+  --argjson coverage_branches "$coverage_branches" \
+  --argjson coverage_functions "$coverage_functions" \
   --argjson coverage_lines "$coverage_lines" \
   --argjson e2e_passed "$e2e_passed" \
   --argjson e2e_failed "$e2e_failed" \
   --argjson e2e_skipped "$e2e_skipped" \
   --arg bundle_size "$bundle_size" \
+  --arg source_size "$source_size" \
+  --arg total_size "$total_size" \
+  --arg bloat_pct "$bloat_pct" \
   --argjson total_runtime "${TOTAL_RUNTIME_SECONDS:-0}" \
   '{
-    "unit_tests": { "passed": $unit_passed, "failed": $unit_failed, "skipped": $unit_skipped, "total": $unit_total, "coverage": { "lines": $coverage_lines }},
+    "unit_tests": { "passed": $unit_passed, "failed": $unit_failed, "skipped": $unit_skipped, "total": $unit_total },
+    "coverage": { 
+        "statements": $coverage_statements,
+        "branches": $coverage_branches,
+        "functions": $coverage_functions,
+        "lines": $coverage_lines
+    },
     "e2e_tests": { "passed": $e2e_passed, "failed": $e2e_failed, "skipped": $e2e_skipped },
-    "performance": { "initial_chunk_size": $bundle_size },
+    "performance": { 
+        "initial_chunk_size": $bundle_size,
+        "source_size": $source_size,
+        "total_size": $total_size,
+        "bloat_percentage": $bloat_pct
+    },
     "total_runtime_seconds": $total_runtime
   }' > "$METRICS_FILE"
-
-echo "✅ Final metrics file created at $METRICS_FILE"
-echo "--- TEST SUMMARY ---"
-jq -r '
-    "Unit Tests: \(.unit_tests.passed // 0)/\(.unit_tests.total // 0) passed | Coverage: \(.unit_tests.coverage.lines // 0)%",
-    "E2E Tests: \(.e2e_tests.passed // 0) passed, \(.e2e_tests.failed // 0) failed, \(.e2e_tests.skipped // 0) skipped",
-    "Initial Chunk Size: \(.performance.initial_chunk_size // "unknown")",
-    "Total Runtime: \(.total_runtime_seconds // 0)s"
-' "$METRICS_FILE"
-echo "--------------------"
