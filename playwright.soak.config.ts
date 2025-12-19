@@ -1,5 +1,6 @@
 import { defineConfig } from '@playwright/test';
 import { loadEnv, getChromeWithMic, baseConfig, urls } from './playwright.base.config';
+import { SOAK_CONFIG } from './tests/constants';
 
 /**
  * Soak Test Configuration
@@ -18,7 +19,7 @@ export default defineConfig({
     ...baseConfig,
     testDir: './tests/soak',
     outputDir: './test-results/soak',
-    timeout: 600_000, // 10-minute timeout for soak tests
+    timeout: SOAK_CONFIG.PLAYWRIGHT_TIMEOUT_MS,
     expect: { timeout: 30_000 },
     retries: 0, // No retries - we want accurate timing
     reporter: [['html', { outputFolder: 'test-results/soak-report' }], ['list']],
