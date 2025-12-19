@@ -1,6 +1,5 @@
-name: Setup Test Users
-
-on: 
+name: "Setup Test Users"
+on:
   workflow_dispatch:
     inputs:
       mode:
