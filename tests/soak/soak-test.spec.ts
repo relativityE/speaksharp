@@ -12,13 +12,9 @@ import * as path from 'path';
 async function setupAuthenticatedUser(page: Page, userIndex: number): Promise<void> {
     const credentials = SOAK_TEST_USERS[userIndex % SOAK_TEST_USERS.length];
 
-    console.log(`[Soak Test] [Auth Start] User ${userIndex} logging in...`);
-    console.log(`[Soak Test]   Target User: ${credentials.email}`);
-
     // Navigate to sign-in page
-    const navStart = Date.now();
+    const start = Date.now();
     await page.goto(ROUTES.SIGN_IN);
-    console.log(`[Soak Test] [Nav] Sign-in page loaded in ${Date.now() - navStart}ms`);
 
     // Wait for auth form to load
     await page.waitForSelector('input[type="email"]', { timeout: 10000 });
@@ -27,56 +23,33 @@ async function setupAuthenticatedUser(page: Page, userIndex: number): Promise<vo
     await page.fill('input[type="email"]', credentials.email);
     await page.fill('input[type="password"]', credentials.password);
 
-    // CRITICAL FIX: Robustly click and wait for navigation
-    console.log(`[Soak Test] [Auth] Submitting credentials...`);
+    // Submit and wait for redirect
     await page.getByRole('button', { name: /sign in/i }).click();
-
-    // Explicitly WAIT for the redirect to the dashboard/home
-    console.log(`[Soak Test] [Auth] Waiting for dashboard redirect...`);
 
     try {
         await page.waitForURL((url) => {
             return url.pathname === '/session' || url.pathname === '/';
         }, { timeout: 30000 });
     } catch (error) {
-        // DIAGNOSTIC: Check if there's an error message on the page
-        console.error(`[Soak Test] [Auth Error] Authentication failed for ${credentials.email}`);
-
-        // Scan for common error messages
-        const pageContent = await page.textContent('body');
-        if (pageContent?.includes('Invalid login credentials')) {
-            console.error('[Soak Test] [Auth Error] Message: Invalid login credentials');
-        } else if (pageContent?.includes('error') || pageContent?.includes('Failed')) {
-            console.error(`[Soak Test] [Auth Error] Potential error found: ${pageContent.substring(0, 200)}...`);
-        }
-
-        // Capture a diagnostic screenshot
+        console.error(`[Auth FAIL] User ${userIndex} (${credentials.email}): Timeout waiting for redirect`);
         const screenshotPath = `test-results/soak/auth-failure-${userIndex}.png`;
-        if (!fs.existsSync(path.dirname(screenshotPath))) {
-            fs.mkdirSync(path.dirname(screenshotPath), { recursive: true });
-        }
+        if (!fs.existsSync(path.dirname(screenshotPath))) fs.mkdirSync(path.dirname(screenshotPath), { recursive: true });
         await page.screenshot({ path: screenshotPath });
-        console.log(`[Soak Test] [Auth Error] Diagnostic screenshot saved to: ${screenshotPath}`);
-
         throw error;
     }
 
-    console.log(`[Soak Test] [Auth Success] Logged in as ${credentials.email}`);
-
     // Verify application auth state
     await expect(page.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 15000 });
-    console.log(`[Soak Test] [Auth Success] Nav Sign Out button visible`);
 
     // Navigate to session page if not already there
     if (!page.url().includes(ROUTES.SESSION)) {
-        console.log(`[Soak Test] [Nav] Redirecting to ${ROUTES.SESSION}...`);
         await page.goto(ROUTES.SESSION, { waitUntil: 'networkidle' });
     }
 
     // Verify session page readiness
     await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeVisible({ timeout: 15000 });
 
-    console.log(`[Soak Test] [Auth End] User ${userIndex} fully ready for simulation`);
+    console.log(`[Auth OK] User ${userIndex} (${credentials.email}) in ${Date.now() - start}ms`);
 }
 
 test.describe('Soak Test - Concurrent User Simulation', () => {

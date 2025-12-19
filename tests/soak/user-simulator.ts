@@ -38,27 +38,24 @@ export class UserSimulator {
      */
     async simulateUserJourney(page: Page, userId: string): Promise<void> {
         try {
-            // Auth is already done by setupAuthenticatedUser - we start directly in /session
-            console.log(`[User ${userId}] ✓ Auth verified (handled by setupAuthenticatedUser)`);
-
-            // Step 1: Navigate to session page (may already be there)
-            await this.navigateToSessions(page);
+            // Step 1: Navigate to session page
+            await this.navigateToSessions(page, userId);
 
             // Step 2: Start a practice session
-            await this.startPracticeSession(page);
+            await this.startPracticeSession(page, userId);
 
             // Step 3: Run session for configured duration
-            await this.runActiveSession(page);
+            await this.runActiveSession(page, userId);
 
             // Step 4: Stop session
-            await this.stopPracticeSession(page);
+            await this.stopPracticeSession(page, userId);
 
             // Step 5: Navigate to analytics
-            await this.navigateToAnalytics(page);
+            await this.navigateToAnalytics(page, userId);
 
             this.metrics.recordSuccess();
         } catch (error) {
-            console.error(`[User ${userId}] Error during journey:`, error);
+            console.error(`[User ${userId}] ❌ Journey failed:`, error);
             this.metrics.recordError();
         }
     }
@@ -148,71 +145,50 @@ export class UserSimulator {
      * Run session for the configured duration, monitoring memory
      * In E2E mode, we simulate speech to keep the session active
      */
-    private async runActiveSession(page: Page): Promise<void> {
-        const checkInterval = 10000; // Check every 10 seconds
+    private async runActiveSession(page: Page, userId: string): Promise<void> {
+        const checkInterval = 10000;
         const iterations = Math.floor(this.config.sessionDuration / checkInterval);
+        let lastStatus: string | null = null;
+
+        console.log(`[User ${userId}] 🏁 Journey: Practice Session started (${(this.config.sessionDuration / 60000).toFixed(1)}m)`);
 
         for (let i = 0; i < iterations; i++) {
-            // Simulate speech input to keep session active (works with MockSpeechRecognition in E2E mode)
-            const speechWorked = await page.evaluate((iteration: number) => {
+            // Simulate speech input
+            await page.evaluate((iteration: number) => {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const dispatchMockTranscript = (window as any).dispatchMockTranscript;
                 if (typeof dispatchMockTranscript === 'function') {
-                    const phrases = [
-                        'Testing speech recognition',
-                        'This is a soak test',
-                        'Simulating user input',
-                        'Practice makes perfect',
-                    ];
+                    const phrases = ['Testing...', 'Soak test...', 'Simulating...'];
                     dispatchMockTranscript(phrases[iteration % phrases.length], true);
-                    return true;
                 }
-                return false;
             }, i);
-
-            if (!speechWorked && i === 0) {
-                console.warn('[User] ⚠️ dispatchMockTranscript not available - speech simulation disabled');
-            }
 
             await page.waitForTimeout(checkInterval);
 
             // Track memory if enabled
-            if (this.config.trackMemory) {
-                await this.metrics.recordMemoryUsage(page);
-            }
+            if (this.config.trackMemory) await this.metrics.recordMemoryUsage(page);
 
-            // Verify session is still active
+            // Verify session status
             const statusIndicator = page.getByTestId('session-status-indicator');
-            const statusText = await statusIndicator.textContent();
+            const statusText = (await statusIndicator.textContent()) || 'Unknown';
 
-            // In E2E mode with mock, status should be 'Session Active'
-            // If not active yet, it might be 'Ready' or 'Connecting...' - wait a bit more
-            if (statusText !== 'Session Active' && statusText !== 'Connecting...') {
-                console.warn(`[User] Session status: ${statusText} (iteration ${i})`);
-
-                // If status is READY, it means we got disconnected or session stopped. 
-                // In a soak test, we might want to try to restart, but for now just warn.
-                if (statusText === 'Ready') {
-                    // Try to recover by clicking start again if we are deep in the session?
-                    // For now, just log it.
+            // Log ONLY on status CHANGE or if it's the very first iteration and not active
+            if (statusText !== lastStatus) {
+                if (statusText === 'Session Active') {
+                    console.log(`[User ${userId}] ✓ Session Active`);
+                } else {
+                    console.warn(`[User ${userId}] ⚠️ Status Change: ${statusText} (at ${i}/${iterations})`);
                 }
-
-                if (i > 0 && statusText !== 'Ready') {
-                    // Only error if it's some other weird state (like Error)
-                    // Allowing READY for now to see if it's just a flake
-                    // this.metrics.recordError();
-                    // break;
-                }
-            } else if (statusText === 'Session Active') {
-                console.log(`[User] ✓ Session confirmed active (iteration ${i})`);
+                lastStatus = statusText;
             }
         }
+        console.log(`[User ${userId}] 🏁 Journey: Practice Session complete`);
     }
 
     /**
      * Stop the practice session
      */
-    private async stopPracticeSession(page: Page): Promise<void> {
+    private async stopPracticeSession(page: Page, userId: string): Promise<void> {
         const startTime = Date.now();
 
         const stopButton = page.getByTestId('session-start-stop-button');
@@ -220,15 +196,13 @@ export class UserSimulator {
 
         // If session already stopped (button says "Start"), don't click it again
         if (buttonText?.includes('Start')) {
-            console.log('[User] Session already stopped (button says Start). Skipping stop click.');
             this.metrics.recordResponseTime(Date.now() - startTime);
             return;
         }
 
         await stopButton.click();
 
-        // Handle the session end dialog OR the "No speech detected" state (Toast or Empty Panel)
-        // Also handle case where session already stopped (button shows Start)
+        // Handle the session end dialog OR the "No speech detected" state
         const dialogLocator = page.locator('div[role="alertdialog"]');
         const emptyStateLocator = page.getByText('No speech was detected during the session');
         const toastLocator = page.getByText('No speech was detected. Session not saved');
@@ -240,20 +214,16 @@ export class UserSimulator {
         if (await dialogLocator.isVisible()) {
             const stayButton = page.getByRole('button', { name: 'Stay on Page' });
             await stayButton.click();
-        } else if (await buttonShowsStart.isVisible()) {
-            console.log(`[User] Session ended (button shows Start - session was already stopped).`);
-        } else {
-            console.log(`[User] Session ended without speech (Toast or Empty State detected).`);
         }
 
         this.metrics.recordResponseTime(Date.now() - startTime);
-        console.log(`[User] ✓ Session stopped`);
+        console.log(`[User ${userId}] ✓ Session Stopped`);
     }
 
     /**
      * Navigate to analytics page
      */
-    private async navigateToAnalytics(page: Page): Promise<void> {
+    private async navigateToAnalytics(page: Page, userId: string): Promise<void> {
         const startTime = Date.now();
 
         // Use navigateToRoute helper to preserve auth context
@@ -266,6 +236,7 @@ export class UserSimulator {
         await statsLocator.or(emptyStateLocator).first().waitFor({ timeout: TIMEOUTS.SHORT });
 
         this.metrics.recordResponseTime(Date.now() - startTime);
+        console.log(`[User ${userId}] ✓ Analytics Loaded`);
     }
 
     /**

@@ -57,18 +57,18 @@ async function getConfigCounts() {
         const constantsPath = path.resolve(process.cwd(), 'tests/constants.ts');
         const content = fs.readFileSync(constantsPath, 'utf8');
 
-        const countMatch = content.match(/const CONCURRENT_USER_COUNT = (\d+)/);
-        const proRatioMatch = content.match(/PRO_USER_RATIO: ([\d.]+)/);
+        // Extract defaults using robust regex
+        const freeMatch = content.match(/FREE_USER_COUNT = getEnvNum\('.*', (\d+)\)/);
+        const proMatch = content.match(/PRO_USER_COUNT = getEnvNum\('.*', (\d+)\)/);
+        const maxMatch = content.match(/MAX_TOTAL_TEST_USERS = (\d+)/);
 
-        const total = countMatch ? parseInt(countMatch[1], 10) : 10;
-        const proRatio = proRatioMatch ? parseFloat(proRatioMatch[1]) : 0.3;
+        const free = freeMatch ? parseInt(freeMatch[1], 10) : 7;
+        const pro = proMatch ? parseInt(proMatch[1], 10) : 3;
+        const max = maxMatch ? parseInt(maxMatch[1], 10) : 100;
 
-        const pro = Math.floor(total * proRatio);
-        const free = total - pro;
-
-        return { total, free, pro };
+        return { total: free + pro, free, pro, max };
     } catch (e) {
-        return { total: 10, free: 7, pro: 3 };
+        return { total: 10, free: 7, pro: 3, max: 100 };
     }
 }
 
@@ -230,7 +230,14 @@ async function main() {
         console.log('  Mode: Soak (Using Defaults)');
     }
 
-    console.log(`  Target: ${finalFree} free, ${finalPro} pro (Total: ${finalFree + finalPro})`);
+    const totalRequested = finalFree + finalPro;
+    if (totalRequested > config.max) {
+        console.error(`\n❌ SAFETY LIMIT EXCEEDED: Requested ${totalRequested} users, but MAX_TOTAL_TEST_USERS is ${config.max}.`);
+        console.error(`   To provision more users, please update MAX_TOTAL_TEST_USERS in tests/constants.ts.`);
+        process.exit(1);
+    }
+
+    console.log(`  Target: ${finalFree} free, ${finalPro} pro (Total: ${totalRequested})`);
 
     console.log('\nStep 2: 📊 Registering existing users...');
     let existingUsers = await listExistingSoakUsers();

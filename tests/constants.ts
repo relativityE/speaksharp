@@ -43,6 +43,7 @@ const getEnvNum = (key: string, def: number) => {
 export const FREE_USER_COUNT = getEnvNum('NEW_FREE_COUNT', 7);
 export const PRO_USER_COUNT = getEnvNum('NEW_PRO_COUNT', 3);
 export const CONCURRENT_USER_COUNT = FREE_USER_COUNT + PRO_USER_COUNT; // 10 total by default
+export const MAX_TOTAL_TEST_USERS = 100; // Safety cap to prevent provisioning overload
 
 // Auto-generate tiers: first FREE_USER_COUNT are free, next PRO_USER_COUNT are pro
 // Example: 2 free + 1 pro = ['free', 'free', 'pro']
