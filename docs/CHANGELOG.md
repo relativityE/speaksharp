@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (2025-12-19) - Phase 6: Reliability & Infrastructure Hardening
+- **Secure Secret Rotation**: Implemented `GH_PAT` powered rotation for the `SOAK_TEST_PASSWORD` secret in `setup-test-users.yml`.
+- **Database Scalability**: Optimized `setup-test-users.mjs` to fetch profiles using the `.in('id', [...])` filter, eliminating full-table scans during registry synchronization.
+- **Strategic Soak Logging**: Implemented "first and last" logging patterns for session loops and consolidated authentication summaries to reduce CI log noise.
+- **Safety Safeguards**: Enforced a hard 100-user provisioning cap via `MAX_TOTAL_TEST_USERS` in `tests/constants.ts` and setup scripts.
+- **Workflow UI Standards**: Fixed workflow name display issues by ensuring required YAML spacing between `name` and `on` triggers.
+- **Code Hygiene**: Resolved TypeScript namespace import errors for `fs` and `path` in soak testing files.
+
 ### Added (2025-12-19) - Soak Test Scaling Phase 1
 - **Soak User Management Script:** Created `scripts/setup-test-users.mjs` to manage soak test users in Supabase.
   - Queries existing `soak-test*` users
