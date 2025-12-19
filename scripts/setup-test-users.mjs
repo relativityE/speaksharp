@@ -129,8 +129,7 @@ async function createUser(email) {
     // Create profile
     await supabase.from('user_profiles').upsert({
         id: data.user.id,
-        subscription_status: 'free',
-        updated_at: new Date().toISOString()
+        subscription_status: 'free'
     }, { onConflict: 'id' });
 
     return data.user;

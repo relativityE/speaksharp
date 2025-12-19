@@ -123,8 +123,7 @@ jobs:
                 .from('user_profiles')
                 .upsert({
                   id: userId,
-                  subscription_status: userType,
-                  updated_at: new Date().toISOString()
+                  subscription_status: userType
                 }, { onConflict: 'id' });
               
               if (profileError) {
