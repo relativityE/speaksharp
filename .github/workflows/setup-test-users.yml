@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Target Mode: e2e (single user) or soak (batch) *'
+        description: 'Target Mode'
         required: true
         default: 'e2e'
         type: choice
@@ -12,7 +12,7 @@ on:
           - e2e
           - soak
       password_action:
-        description: 'Registry Password Strategy'
+        description: 'Password Strategy'
         required: true
         default: 'use_existing'
         type: choice
@@ -20,12 +20,12 @@ on:
           - use_existing
           - generate_new_credentials
       new_free_count:
-        description: 'Number of FREE users to ensure (0 to use config defaults)'
+        description: 'Free Users'
         required: false
         default: '0'
         type: string
       new_pro_count:
-        description: 'Number of PRO users to ensure (0 to use config defaults)'
+        description: 'Pro Users'
         required: false
         default: '0'
         type: string
