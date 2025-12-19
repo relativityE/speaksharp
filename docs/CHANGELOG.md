@@ -10,6 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (2025-12-19) - Soak Test Scaling Phase 1
+- **Soak User Management Script:** Created `scripts/setup-test-users.mjs` to manage soak test users in Supabase.
+  - Queries existing `soak-test*` users
+  - Renames legacy `soak-test@test.com` → `soak-test0@test.com` for consistent indexing
+  - Updates all passwords to shared `SOAK_TEST_PASSWORD` secret
+  - Verifies logins and reports failures with specific emails
+- **Workflow Update:** Added `soak` option to `setup-test-users.yml` workflow
+- **Email Pattern Standardization:** All soak users now use `soak-test{N}@test.com` (0-indexed)
+- **Files:** `scripts/setup-test-users.mjs`, `.github/workflows/setup-test-users.yml`, `tests/constants.ts`
+
 ### Fixed (2025-12-19) - Analytics & E2E Stabilization
 - **Improved Clarity Score Aggregation:** Refactored `calculateOverallStats` in `analyticsUtils.ts` to correctly use the grounded `clarity_score` field.
 - **E2E Race Condition Fix (Schema Canary):** Switched to `Promise.all` in `schema-canary.e2e.spec.ts` to safely capture API responses during navigation, eliminating the "No resource with given identifier" protocol error.

@@ -12,6 +12,10 @@ on:
           - free
           - pro
           - soak
+      generate_password:
+        description: 'Generate new shared password for soak users (soak only)'
+        type: boolean
+        default: false
 
 jobs:
   setup-test-user:
@@ -36,14 +40,37 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Generate and set SOAK_TEST_PASSWORD (if requested)
+        if: ${{ github.event.inputs.user_type == 'soak' && github.event.inputs.generate_password == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Generate a secure random password
+          NEW_PASSWORD=$(openssl rand -base64 16 | tr -d '/+=' | head -c 20)
+          echo "Generated new SOAK_TEST_PASSWORD"
+          
+          # Set it as a GitHub secret
+          gh secret set SOAK_TEST_PASSWORD --body "$NEW_PASSWORD"
+          echo "✅ SOAK_TEST_PASSWORD secret updated via GitHub API"
+          
+          # Export for use in this workflow run
+          echo "SOAK_TEST_PASSWORD=$NEW_PASSWORD" >> $GITHUB_ENV
+
       - name: Setup test users
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          SOAK_TEST_PASSWORD: ${{ secrets.SOAK_TEST_PASSWORD }}
+          SOAK_TEST_PASSWORD: ${{ env.SOAK_TEST_PASSWORD || secrets.SOAK_TEST_PASSWORD }}
           USER_TYPE: ${{ github.event.inputs.user_type }}
         run: |
           if [ "$USER_TYPE" = "soak" ]; then
+            if [ -z "$SOAK_TEST_PASSWORD" ]; then
+              echo "❌ Error: SOAK_TEST_PASSWORD is not set."
+              echo "Either:"
+              echo "  1. Run this workflow with 'Generate new password' checked, OR"
+              echo "  2. Manually create the SOAK_TEST_PASSWORD secret in GitHub"
+              exit 1
+            fi
             node scripts/setup-test-users.mjs
           else
             node -e "
@@ -117,13 +144,17 @@ jobs:
       - name: Summary
         env:
           USER_TYPE: ${{ github.event.inputs.user_type }}
+          GENERATED: ${{ github.event.inputs.generate_password }}
         run: |
           echo "### Test User Setup Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**User Type:** ${{ github.event.inputs.user_type }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           if [ "$USER_TYPE" = "soak" ]; then
-            echo "Soak test users created/updated. Check logs for details." >> $GITHUB_STEP_SUMMARY
+            if [ "$GENERATED" = "true" ]; then
+              echo "✅ **SOAK_TEST_PASSWORD** was auto-generated and saved to GitHub Secrets" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "Soak test users created/updated. All passwords synced to shared secret." >> $GITHUB_STEP_SUMMARY
           else
             echo "Check the logs above for the email/password to add as GitHub secrets." >> $GITHUB_STEP_SUMMARY
           fi

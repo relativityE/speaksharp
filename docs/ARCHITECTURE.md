@@ -515,18 +515,20 @@ The project uses **two distinct Supabase configurations** depending on the execu
 
 ##### Soak Test Prerequisites
 
-**Pre-seeded Test Users:**
-- To separate load testing from onboarding flows, the project uses manually pre-created users
-- **Do not** delete or modify these users in Production
-- **Users:** `soak-test@test.com`, `soak-test1@test.com` (Passwords stored in 1Password/Vault)
-- These users must exist in the Supabase Dashboard → Authentication → Users with email confirmed
+**Test User Management:**
+- Soak test users are managed via `scripts/setup-test-users.mjs` and the `setup-test-users.yml` workflow
+- **Email Pattern:** `soak-test{N}@test.com` (0-indexed: `soak-test0`, `soak-test1`, etc.)
+- **Shared Password:** All users share `SOAK_TEST_PASSWORD` secret (no hardcoded credentials)
+- To create/update users, trigger the workflow with `soak` option
 
 **Required GitHub Secrets:**
 
 | Secret | Purpose |
 |--------|---------|
-| `SUPABASE_URL` | Real Supabase project URL (e.g., `https://yourproject.supabase.co`) |
+| `SUPABASE_URL` | Real Supabase project URL |
 | `SUPABASE_ANON_KEY` | Real Supabase anon/public key |
+| `SUPABASE_SERVICE_KEY` | Service role key for admin operations |
+| `SOAK_TEST_PASSWORD` | Shared password for all soak test users |
 
 ##### CI/CD Workflow
 
