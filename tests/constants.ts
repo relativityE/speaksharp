@@ -31,9 +31,17 @@ export const SOAK_TEST_USER = {
 // Array of soak test users for concurrent testing
 // Emails follow pattern: soak-test{N}@test.com (0-indexed)
 // Password is shared via SOAK_TEST_PASSWORD env var
-const FREE_USER_COUNT = 7;  // First N users will be 'free'
-const PRO_USER_COUNT = 3;   // Next N users will be 'pro'
-const CONCURRENT_USER_COUNT = FREE_USER_COUNT + PRO_USER_COUNT; // 10 total
+// Can be overridden via NEW_FREE_COUNT and NEW_PRO_COUNT env vars in CI
+const getEnvNum = (key: string, def: number) => {
+  if (typeof process !== 'undefined' && process.env && process.env[key]) {
+    return parseInt(process.env[key] as string, 10);
+  }
+  return def;
+};
+
+export const FREE_USER_COUNT = getEnvNum('NEW_FREE_COUNT', 7);
+export const PRO_USER_COUNT = getEnvNum('NEW_PRO_COUNT', 3);
+export const CONCURRENT_USER_COUNT = FREE_USER_COUNT + PRO_USER_COUNT; // 10 total by default
 
 // Auto-generate tiers: first FREE_USER_COUNT are free, next PRO_USER_COUNT are pro
 // Example: 2 free + 1 pro = ['free', 'free', 'pro']

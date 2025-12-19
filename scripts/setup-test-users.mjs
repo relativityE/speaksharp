@@ -55,25 +55,27 @@ function getNewUserCounts() {
     };
 }
 
-// Read CONCURRENT_USER_COUNT from config (max target users)
-function getMaxUsersFromConfig() {
+// Read user counts from config (max target users)
+function getConfigCounts() {
     const configPath = path.resolve(process.cwd(), 'tests/constants.ts');
     try {
         const content = fs.readFileSync(configPath, 'utf-8');
-        // Match FREE_USER_COUNT + PRO_USER_COUNT or CONCURRENT_USER_COUNT
-        const freeMatch = content.match(/FREE_USER_COUNT\s*=\s*(\d+)/);
-        const proMatch = content.match(/PRO_USER_COUNT\s*=\s*(\d+)/);
+        const freeMatch = content.match(/FREE_USER_COUNT.*?\s?(\d+)\s*;/);
+        const proMatch = content.match(/PRO_USER_COUNT.*?\s?(\d+)\s*;/);
         if (freeMatch && proMatch) {
-            return parseInt(freeMatch[1], 10) + parseInt(proMatch[1], 10);
+            const free = parseInt(freeMatch[1], 10);
+            const pro = parseInt(proMatch[1], 10);
+            return { free, pro, total: free + pro };
         }
-        const concurrentMatch = content.match(/CONCURRENT_USER_COUNT\s*=\s*(\d+)/);
+        const concurrentMatch = content.match(/CONCURRENT_USER_COUNT.*?\s?(\d+)\s*;/);
         if (concurrentMatch) {
-            return parseInt(concurrentMatch[1], 10);
+            const total = parseInt(concurrentMatch[1], 10);
+            return { free: total, pro: 0, total };
         }
     } catch (e) {
         console.warn('⚠️ Could not read user counts from config');
     }
-    return 10; // Default
+    return { free: 7, pro: 3, total: 10 }; // Default
 }
 
 
@@ -199,8 +201,31 @@ async function main() {
     console.log('🧪 Soak Test User Setup');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-    const maxTarget = getMaxUsersFromConfig();
-    const { newFreeCount, newProCount } = getNewUserCounts();
+    const config = getConfigCounts();
+    const { newFreeCount: inputFree, newProCount: inputPro } = getNewUserCounts();
+
+    // Determine final counts (override if inputs provided)
+    let finalFree = config.free;
+    let finalPro = config.pro;
+
+    const isOverride = inputFree > 0 || inputPro > 0;
+
+    if (isOverride) {
+        console.log('🔄 Overriding config with workflow inputs:');
+        if (inputFree > 0) {
+            console.log(`  Free users: ${config.free} -> ${inputFree}`);
+            finalFree = inputFree;
+        }
+        if (inputPro > 0) {
+            console.log(`  Pro users:  ${config.pro} -> ${inputPro}`);
+            finalPro = inputPro;
+        }
+        console.log(`  Total:      ${config.total} -> ${finalFree + finalPro}`);
+    } else {
+        console.log('📌 Using default config counts');
+    }
+
+    const finalTotal = finalFree + finalPro;
 
     // Step 1: List existing users
     let existingUsers = await listExistingSoakUsers();
@@ -210,19 +235,19 @@ async function main() {
 
     // Re-query only if rename happened
     if (didRename) {
-        existingUsers = await listExistingSoakUsers();
+        existingUsers = await listExistingSoakUsers(false);
     }
-    const existingCount = existingUsers.length;
 
-    // Calculate how many we can create
-    const maxToCreate = maxTarget - existingCount;
-    const requested = newFreeCount + newProCount;
+    // Calculate breakdown of existing
+    const existingCount = existingUsers.length;
+    const existingFree = existingUsers.filter(u => u.tier === 'free').length;
+    const existingPro = existingUsers.filter(u => u.tier === 'pro').length;
+    const maxToCreate = Math.max(0, finalTotal - existingCount);
 
     console.log(`\n📊 Status:`);
-    console.log(`  Max target (from config): ${maxTarget}`);
-    console.log(`  Existing users: ${existingCount}`);
-    console.log(`  Max to create: ${maxToCreate}`);
-    console.log(`  Requested: ${newFreeCount} free + ${newProCount} pro = ${requested}`);
+    console.log(`  Target:     ${finalTotal} (${finalFree} free, ${finalPro} pro)`);
+    console.log(`  Existing:   ${existingCount} (${existingFree} free, ${existingPro} pro)`);
+    console.log(`  Need:       ${maxToCreate}`);
 
     // Step 3: Update passwords for existing users
     console.log('\n🔐 Updating passwords to shared password...');
@@ -233,20 +258,11 @@ async function main() {
     }
     console.log(`✅ ${passwordsUpdated}/${existingUsers.length} passwords updated`);
 
-    // Step 4: Create new users based on workflow inputs
-    if (maxToCreate > 0 && (newFreeCount > 0 || newProCount > 0)) {
-        // Calculate padding: if requested < maxToCreate, fill rest with free
-        const padFreeCount = Math.max(0, maxToCreate - requested);
-        const totalFree = newFreeCount + padFreeCount;
-        const totalPro = Math.min(newProCount, maxToCreate - totalFree);
+    // Step 4: Create new users based on final counts
+    if (maxToCreate > 0) {
+        console.log(`\n📝 Creating ${maxToCreate} new users...`);
 
-        if (padFreeCount > 0) {
-            console.log(`\n📌 Padding with ${padFreeCount} additional free users to meet target`);
-        }
-
-        console.log(`\n📝 Creating ${totalFree + totalPro} new users (${totalFree} free, ${totalPro} pro)...`);
-
-        // Find next available index
+        // Find existing indices
         const existingIndices = new Set(existingUsers.map(u => {
             const match = u.email.match(/soak-test(\d+)@/);
             return match ? parseInt(match[1], 10) : -1;
@@ -255,11 +271,15 @@ async function main() {
         let createdFree = 0;
         let createdPro = 0;
 
-        for (let i = 0; i < maxTarget && (createdFree < totalFree || createdPro < totalPro); i++) {
+        // We need to reach finalFree and finalPro
+        const needFree = Math.max(0, finalFree - existingFree);
+        const needPro = Math.max(0, finalPro - existingPro);
+
+        for (let i = 0; i < finalTotal && (createdFree < needFree || createdPro < needPro); i++) {
             if (!existingIndices.has(i)) {
                 const email = getEmailForIndex(i);
-                // Create free first, then pro
-                const tier = createdFree < totalFree ? 'free' : 'pro';
+                // Create free first, then pro, up to the required counts
+                const tier = createdFree < needFree ? 'free' : 'pro';
                 const user = await createUserWithTier(email, tier);
                 if (user) {
                     if (tier === 'free') createdFree++;
@@ -268,20 +288,25 @@ async function main() {
             }
         }
         console.log(`✅ Created ${createdFree} free + ${createdPro} pro users`);
-    } else if (maxToCreate === 0) {
-        console.log(`\n✅ Already at max (${existingCount}/${maxTarget}). No creation needed.`);
     } else {
-        console.log(`\n✅ No new users requested.`);
+        console.log(`\n✅ Sufficient users exist. No creation needed.`);
     }
 
-    // Step 5: Verify logins for all existing + new users
-    const allUsers = await listExistingSoakUsers();
+    // Step 5: Verify logins for the target users
+    const allUsers = await listExistingSoakUsers(false);
+    // Sort so we check indices 0 to finalTotal-1
+    const sortedUsers = allUsers.sort((a, b) => {
+        const idxA = parseInt(a.email.match(/soak-test(\d+)@/)[1], 10);
+        const idxB = parseInt(b.email.match(/soak-test(\d+)@/)[1], 10);
+        return idxA - idxB;
+    }).slice(0, finalTotal);
+
     console.log('\n🔑 Verifying logins...');
     const results = [];
-    for (const user of allUsers) {
+    for (const user of sortedUsers) {
         const result = await verifyLogin(user.email);
         results.push({ email: user.email, ...result });
-        console.log(result.success ? `  ✅ ${user.email}` : `  ❌ ${user.email}: ${result.error}`);
+        console.log(result.success ? `  ✅ ${user.email} (${user.tier})` : `  ❌ ${user.email}: ${result.error}`);
     }
 
     // Summary
@@ -291,15 +316,15 @@ async function main() {
     console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('📊 Summary');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log(`Total users: ${allUsers.length}/${maxTarget}`);
-    console.log(`Verified logins: ${passed}/${allUsers.length}`);
+    console.log(`Target users:   ${finalTotal}`);
+    console.log(`Verified logins: ${passed}/${finalTotal}`);
 
     if (failed.length > 0) {
         console.log('\n❌ Failed logins:');
         failed.forEach(f => console.log(`  - ${f.email}: ${f.error}`));
         process.exit(1);
     } else {
-        console.log('\n✅ All users verified successfully!');
+        console.log('\n✅ All specified users verified successfully!');
     }
 }
 
