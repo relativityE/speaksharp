@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Target Mode: e2e (single user) or soak (batch)'
+        description: 'Target Mode: e2e (single user) or soak (batch) *'
         required: true
         default: 'e2e'
         type: choice
@@ -30,7 +30,7 @@ on:
         default: '0'
         type: string
       use_subset:
-        description: 'Limit to exactly these counts (soak only)'
+        description: '* Limit to exactly these counts (soak only)'
         required: false
         default: false
         type: boolean
@@ -40,6 +40,9 @@ jobs:
   setup-test-user:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      secrets: write
 
     steps:
       - name: Checkout code

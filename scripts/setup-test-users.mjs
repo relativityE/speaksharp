@@ -4,18 +4,16 @@
  * 
  * This script manages soak test users in Supabase:
  * 1. Queries existing soak-test* users
- * 2. Renames soak-test@test.com → soak-test0@test.com (if needed)
+ * 2. Renames old users if needed
  * 3. Updates all passwords to shared SOAK_TEST_PASSWORD
- * 4. Creates missing users to meet CONCURRENT_USERS target
- * 5. Verifies login for all users
- * 
- * Usage:
- *   SUPABASE_URL=xxx SUPABASE_SERVICE_KEY=xxx SOAK_TEST_PASSWORD=xxx node scripts/setup-soak-users.mjs
+ * 4. Creates missing users to meet targets
+ * 5. Syncs subscription tiers (Free/Pro)
+ * 6. Verifies login for all users
  */
 
 import { createClient } from '@supabase/supabase-js';
-import fs from 'fs';
-import path from 'path';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // ============================================
 // Configuration
@@ -47,97 +45,75 @@ function getEmailForIndex(index) {
     return `soak-test${index}@test.com`;
 }
 
-// Get new user counts from env vars (set by workflow inputs)
 function getNewUserCounts() {
     return {
         newFreeCount: parseInt(process.env.NEW_FREE_COUNT || '0', 10),
-        newProCount: parseInt(process.env.NEW_PRO_COUNT || '0', 10),
+        newProCount: parseInt(process.env.NEW_PRO_COUNT || '0', 10)
     };
 }
 
-// Read user counts from config (max target users)
-function getConfigCounts() {
-    const configPath = path.resolve(process.cwd(), 'tests/constants.ts');
+async function getConfigCounts() {
     try {
-        const content = fs.readFileSync(configPath, 'utf-8');
-        // Match FREE_USER_COUNT = getEnvNum('NEW_FREE_COUNT', 7)
-        const freeMatch = content.match(/FREE_USER_COUNT.*?getEnvNum\(.*?,?\s*(\d+)\)/);
-        const proMatch = content.match(/PRO_USER_COUNT.*?getEnvNum\(.*?,?\s*(\d+)\)/);
+        const constantsPath = path.resolve(process.cwd(), 'tests/constants.ts');
+        const content = fs.readFileSync(constantsPath, 'utf8');
 
-        if (freeMatch && proMatch) {
-            const free = parseInt(freeMatch[1], 10);
-            const pro = parseInt(proMatch[1], 10);
-            return { free, pro, total: free + pro };
-        }
+        const countMatch = content.match(/const CONCURRENT_USER_COUNT = (\d+)/);
+        const proRatioMatch = content.match(/PRO_USER_RATIO: ([\d.]+)/);
+
+        const total = countMatch ? parseInt(countMatch[1], 10) : 10;
+        const proRatio = proRatioMatch ? parseFloat(proRatioMatch[1]) : 0.3;
+
+        const pro = Math.floor(total * proRatio);
+        const free = total - pro;
+
+        return { total, free, pro };
     } catch (e) {
-        console.warn('⚠️ Could not read user counts from config');
+        return { total: 10, free: 7, pro: 3 };
     }
-    return { free: 7, pro: 3, total: 10 }; // Default
 }
 
-
-// ============================================
-// Core Functions
-// ============================================
-
-async function listExistingSoakUsers(showLog = true) {
-    if (showLog) console.log('\n📊 Querying Supabase...');
-
+async function listExistingSoakUsers(log = true) {
+    if (log) console.log('📊 Querying Supabase...');
     const { data: users, error } = await supabase.auth.admin.listUsers();
-    if (error) throw error;
-
-    const soakUsers = users.users.filter(u =>
-        u.email?.startsWith('soak-test') && u.email?.endsWith('@test.com')
-    );
-
-    // Fetch tiers from profiles
-    const userIds = soakUsers.map(u => u.id);
-    const { data: profiles } = await supabase
-        .from('user_profiles')
-        .select('id, subscription_status')
-        .in('id', userIds);
-
-    const tierMap = new Map(profiles?.map(p => [p.id, p.subscription_status]) || []);
-
-    // Enrich users with tier
-    const enrichedUsers = soakUsers.map(u => ({
-        ...u,
-        tier: tierMap.get(u.id) || 'free'
-    }));
-
-    if (showLog) {
-        console.log(`Found ${enrichedUsers.length} soak users in Supabase:`);
-        enrichedUsers.forEach(u => console.log(`  - ${u.email} (${u.tier})`));
-    }
-
-    return enrichedUsers;
-}
-
-async function renameOldUser(existingUsers) {
-    // Check if old-style soak-test@test.com exists (without index)
-    const oldUser = existingUsers.find(u => u.email === 'soak-test@test.com');
-    if (!oldUser) return false;
-
-    console.log('\n🔄 Renaming soak-test@test.com → soak-test0@test.com');
-
-    const { error } = await supabase.auth.admin.updateUserById(oldUser.id, {
-        email: 'soak-test0@test.com'
-    });
 
     if (error) {
-        console.error('❌ Failed to rename user:', error.message);
-        throw error;
+        console.error('❌ Failed to list users:', error.message);
+        process.exit(1);
     }
 
-    console.log('✅ User renamed successfully');
-    return true;
+    const soakUsers = users.users.filter(u => u.email.startsWith('soak-test'));
+
+    // Get profiles for tiers
+    const { data: profiles } = await supabase.from('user_profiles').select('id, subscription_status');
+    const profileMap = new Map(profiles?.map(p => [p.id, p.subscription_status]) || []);
+
+    return soakUsers.map(u => ({
+        id: u.id,
+        email: u.email,
+        tier: profileMap.get(u.id) || 'unknown'
+    }));
 }
 
-async function updateUserPassword(userId, email) {
-    const { error } = await supabase.auth.admin.updateUserById(userId, {
+async function renameOldUser(users) {
+    const oldUser = users.find(u => u.email === 'soak-test@test.com');
+    if (oldUser) {
+        console.log('🔄 Renaming soak-test@test.com to soak-test0@test.com...');
+        const { error } = await supabase.auth.admin.updateUserById(oldUser.id, {
+            email: 'soak-test0@test.com'
+        });
+        if (error) {
+            console.error('❌ Failed to rename user:', error.message);
+            return false;
+        }
+        return true;
+    }
+    return false;
+}
+
+async function updateUserPassword(id, email) {
+    const { error } = await supabase.auth.admin.updateUserById(id, {
         password: SOAK_TEST_PASSWORD
     });
-
     if (error) {
         console.error(`❌ Failed to update password for ${email}:`, error.message);
         return false;
@@ -146,8 +122,6 @@ async function updateUserPassword(userId, email) {
 }
 
 async function createUserWithTier(email, tier) {
-    console.log(`  Creating ${email} (${tier})...`);
-
     const { data, error } = await supabase.auth.admin.createUser({
         email,
         password: SOAK_TEST_PASSWORD,
@@ -159,23 +133,15 @@ async function createUserWithTier(email, tier) {
         return null;
     }
 
-    // Create profile with specified tier
-    await supabase.from('user_profiles').upsert({
-        id: data.user.id,
-        subscription_status: tier
-    }, { onConflict: 'id' });
+    // Try update first (for profile cleanup) then upsert
+    await supabase.from('user_profiles').update({ subscription_status: tier }).eq('id', data.user.id);
+    await supabase.from('user_profiles').upsert({ id: data.user.id, subscription_status: tier }, { onConflict: 'id' });
 
     return data.user;
 }
 
 async function verifyLogin(email) {
-    // Use Supabase client to attempt login
-    const { createClient: createAnonClient } = await import('@supabase/supabase-js');
-    const anonClient = createAnonClient(SUPABASE_URL, process.env.SUPABASE_ANON_KEY || SUPABASE_SERVICE_KEY, {
-        auth: { autoRefreshToken: false, persistSession: false }
-    });
-
-    const { data, error } = await anonClient.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password: SOAK_TEST_PASSWORD
     });
@@ -184,13 +150,13 @@ async function verifyLogin(email) {
         return { success: false, error: error.message };
     }
 
-    // Sign out
-    await anonClient.auth.signOut();
+    // Sign out (fail-safe)
+    try { await supabase.auth.signOut(); } catch (e) { }
+
     return { success: true };
 }
 
 async function syncUserTiers(users, targetFree, targetPro) {
-    console.log('\n🔄 Syncing user tiers to match target distribution...');
     let synced = 0;
     const total = targetFree + targetPro;
 
@@ -200,21 +166,35 @@ async function syncUserTiers(users, targetFree, targetPro) {
         const user = users.find(u => u.email === email);
 
         if (user && user.tier !== expectedTier) {
-            console.log(`  Updating ${email}: ${user.tier} -> ${expectedTier}`);
-            const { error } = await supabase.from('user_profiles').upsert({
-                id: user.id,
-                subscription_status: expectedTier
-            }, { onConflict: 'id' });
+            console.log(`  [SYNC] ${email}: ${user.tier} -> ${expectedTier}`);
 
-            if (error) {
-                console.error(`  ❌ Failed to sync ${email}:`, error.message);
+            // Try Update first (more surgical, avoids some permission traps)
+            const { error: updateError } = await supabase
+                .from('user_profiles')
+                .update({ subscription_status: expectedTier })
+                .eq('id', user.id);
+
+            if (updateError) {
+                console.error(`  ⚠️ Schema Access Failed for ${email}: ${updateError.message}`);
+                console.log(`  🔄 Falling back to upsert for ${email}...`);
+
+                const { error: upsertError } = await supabase.from('user_profiles').upsert({
+                    id: user.id,
+                    subscription_status: expectedTier
+                }, { onConflict: 'id' });
+
+                if (upsertError) {
+                    console.error(`  ❌ Sync FAILED for ${email}: ${upsertError.message}`);
+                } else {
+                    synced++;
+                }
             } else {
                 synced++;
             }
         }
     }
-    if (synced === 0) console.log('✅ All existing users already match target tiers');
-    else console.log(`✅ ${synced} users updated to correct tiers`);
+    if (synced > 0) console.log(`  ✅ ${synced} user profiles updated`);
+    else console.log('  ✅ All profiles are already in sync with target tiers');
 }
 
 // ============================================
@@ -227,152 +207,93 @@ async function main() {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     const MODE = process.env.MODE || 'e2e';
-    const config = getConfigCounts();
     const { newFreeCount: inputFree, newProCount: inputPro } = getNewUserCounts();
 
-    // Determine final counts (override if inputs provided)
+    console.log('Step 1: 📋 Initializing configuration...');
+    const config = await getConfigCounts();
+
+    // Determine final counts
     let finalFree = config.free;
     let finalPro = config.pro;
     const isOverride = inputFree > 0 || inputPro > 0;
 
     if (MODE === 'e2e') {
-        // E2E Mode: Enforce 1 user
-        console.log('📌 Mode: E2E (Single User)');
-
+        console.log('  Mode: E2E (Single User Enforcement)');
         finalPro = inputPro > 0 ? 1 : 0;
         finalFree = finalPro === 1 ? 0 : 1;
-
-        if (inputFree + inputPro > 1) {
-            console.log('⚠️  E2E enforcement: Adjusting requested counts to 1 user');
-        }
-
-        console.log(`  free selection from ${inputFree} to ${finalFree}`);
-        console.log(`  pro selection from ${inputPro} to ${finalPro}`);
+        console.log(`  Adjusted counts: ${finalFree} free, ${finalPro} pro`);
+    } else if (isOverride) {
+        console.log('  Mode: Soak (Manual Override Applied)');
+        finalFree = inputFree;
+        finalPro = inputPro;
     } else {
-        // Soak Mode: Use config or overrides
-        console.log('📌 Mode: Soak (Batch Operations)');
-        if (isOverride) {
-            console.log('🔄 Overriding config with workflow inputs:');
-            if (inputFree > 0) {
-                console.log(`  Free:  ${config.free} -> ${inputFree}`);
-                finalFree = inputFree;
-            }
-            if (inputPro > 0) {
-                console.log(`  Pro:   ${config.pro} -> ${inputPro}`);
-                finalPro = inputPro;
-            }
-            console.log(`  Total: ${config.total} -> ${finalFree + finalPro}`);
-        } else {
-            console.log('📌 Using default config counts');
-        }
+        console.log('  Mode: Soak (Using Defaults)');
     }
 
-    const finalTotal = finalFree + finalPro;
+    console.log(`  Target: ${finalFree} free, ${finalPro} pro (Total: ${finalFree + finalPro})`);
 
-    // Step 1: List existing users
+    console.log('\nStep 2: 📊 Registering existing users...');
     let existingUsers = await listExistingSoakUsers();
+    await renameOldUser(existingUsers);
+    existingUsers = await listExistingSoakUsers(false);
+    console.log(`  Found ${existingUsers.length} soak users in database`);
 
-    // Step 2: Rename old-style user if exists (returns true if renamed)
-    const didRename = await renameOldUser(existingUsers);
-
-    // Re-query only if rename happened
-    if (didRename) {
-        existingUsers = await listExistingSoakUsers(false);
-    }
-
-    // Calculate breakdown of existing
-    const existingCount = existingUsers.length;
-    const existingFree = existingUsers.filter(u => u.tier === 'free').length;
-    const existingPro = existingUsers.filter(u => u.tier === 'pro').length;
-    const maxToCreate = Math.max(0, finalTotal - existingCount);
-
-    console.log(`\n📊 Status:`);
-    console.log(`  Target:     ${finalTotal} (${finalFree} free, ${finalPro} pro)`);
-    console.log(`  Existing:   ${existingCount} (${existingFree} free, ${existingPro} pro)`);
-    console.log(`  Need:       ${maxToCreate}`);
-
-    // Step 3: Update passwords for existing users
-    console.log('\n🔐 Updating passwords to shared password...');
-    let passwordsUpdated = 0;
+    console.log('\nStep 3: 🔐 Synchronizing passwords...');
+    let pwUpdated = 0;
     for (const user of existingUsers) {
         const success = await updateUserPassword(user.id, user.email);
-        if (success) passwordsUpdated++;
+        if (success) pwUpdated++;
     }
-    console.log(`✅ ${passwordsUpdated}/${existingUsers.length} passwords updated`);
+    console.log(`  ✅ ${pwUpdated}/${existingUsers.length} passwords synchronized`);
 
-    // Step 4: Create new users based on final counts
-    if (maxToCreate > 0) {
-        console.log(`\n📝 Creating ${maxToCreate} new users...`);
+    console.log('\nStep 4: 👤 Provisioning missing slots...');
+    const totalNeeded = finalFree + finalPro;
+    const existingIndices = new Set(existingUsers.map(u => {
+        const match = u.email.match(/soak-test(\d+)@/);
+        return match ? parseInt(match[1], 10) : -1;
+    }));
 
-        // Find existing indices
-        const existingIndices = new Set(existingUsers.map(u => {
-            const match = u.email.match(/soak-test(\d+)@/);
-            return match ? parseInt(match[1], 10) : -1;
-        }));
-
-        let createdFree = 0;
-        let createdPro = 0;
-
-        // We need to reach finalFree and finalPro
-        const needFree = Math.max(0, finalFree - existingFree);
-        const needPro = Math.max(0, finalPro - existingPro);
-
-        for (let i = 0; i < finalTotal && (createdFree < needFree || createdPro < needPro); i++) {
-            if (!existingIndices.has(i)) {
-                const email = getEmailForIndex(i);
-                // Create free first, then pro, up to the required counts
-                const tier = createdFree < needFree ? 'free' : 'pro';
-                const user = await createUserWithTier(email, tier);
-                if (user) {
-                    if (tier === 'free') createdFree++;
-                    else createdPro++;
-                }
-            }
+    let created = 0;
+    for (let i = 0; i < totalNeeded; i++) {
+        if (!existingIndices.has(i)) {
+            const email = getEmailForIndex(i);
+            const tier = i < finalFree ? 'free' : 'pro';
+            console.log(`  [+] Creating User [${i}]: ${email} (${tier})`);
+            const user = await createUserWithTier(email, tier);
+            if (user) created++;
         }
-        console.log(`✅ Created ${createdFree} free + ${createdPro} pro users`);
-    } else {
-        console.log(`\n✅ Sufficient users exist. No creation needed.`);
     }
+    if (created > 0) console.log(`  ✅ Successfully created ${created} users`);
+    else console.log('  ✅ Registry coverage sufficient (no new users created)');
 
-    // Step 5: SYNC TIERS for all users (critical fix)
-    // Refresh list after creation
-    const currentUsers = await listExistingSoakUsers(false);
-    await syncUserTiers(currentUsers, finalFree, finalPro);
+    console.log('\nStep 5: 🔄 Synchronizing subscription tiers...');
+    const updatedUsers = await listExistingSoakUsers(false);
+    await syncUserTiers(updatedUsers, finalFree, finalPro);
 
-    // Step 6: Verify logins for the target users
-    const allUsers = await listExistingSoakUsers(false);
-    // Sort so we check indices 0 to finalTotal-1
-    const sortedUsers = allUsers.sort((a, b) => {
-        const idxA = parseInt(a.email.match(/soak-test(\d+)@/)[1], 10);
-        const idxB = parseInt(b.email.match(/soak-test(\d+)@/)[1], 10);
+    console.log('\nStep 6: 🔑 Final Login Verification...');
+    const finalUsers = await listExistingSoakUsers(false);
+    const targetUsers = finalUsers.sort((a, b) => {
+        const idxA = parseInt(a.email.match(/soak-test(\d+)@/)?.[1] || '-1', 10);
+        const idxB = parseInt(b.email.match(/soak-test(\d+)@/)?.[1] || '-1', 10);
         return idxA - idxB;
-    }).slice(0, finalTotal);
+    }).slice(0, finalFree + finalPro);
 
-    console.log('\n🔑 Verifying logins...');
-    const results = [];
-    for (const user of sortedUsers) {
+    let verified = 0;
+    for (const user of targetUsers) {
         const result = await verifyLogin(user.email);
-        results.push({ email: user.email, ...result });
-        console.log(result.success ? `  ✅ ${user.email} (${user.tier})` : `  ❌ ${user.email}: ${result.error}`);
+        if (result.success) {
+            console.log(`  [OK] ${user.email.padEnd(25)} | Tier: ${user.tier.padEnd(5)} | Auth: Passed`);
+            verified++;
+        } else {
+            console.error(`  [FAIL] ${user.email.padEnd(25)} | Tier: ${user.tier.padEnd(5)} | Auth: ${result.error}`);
+        }
     }
-
-    // Summary
-    const passed = results.filter(r => r.success).length;
-    const failed = results.filter(r => !r.success);
 
     console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('📊 Summary');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log(`Target users:   ${finalTotal}`);
-    console.log(`Verified logins: ${passed}/${finalTotal}`);
+    console.log(`🎉 Setup Complete: ${verified}/${targetUsers.length} users verified`);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-    if (failed.length > 0) {
-        console.log('\n❌ Failed logins:');
-        failed.forEach(f => console.log(`  - ${f.email}: ${f.error}`));
-        process.exit(1);
-    } else {
-        console.log('\n✅ All specified users verified successfully!');
-    }
+    if (verified < targetUsers.length) process.exit(1);
 }
 
 main().catch(e => {
