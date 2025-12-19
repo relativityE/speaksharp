@@ -24,17 +24,22 @@ export const TEST_USER_EMAIL = 'test-user@example.com';
 export const TEST_USER_PASSWORD = 'password123';
 
 export const SOAK_TEST_USER = {
-  email: 'soak-test@test.com',
-  password: 'speaksharp1',
+  email: 'soak-test0@test.com',
+  password: process.env.SOAK_TEST_PASSWORD || 'speaksharp1',
 };
 
-// Array of soak test users for concurrent testing (each user gets different credentials)
-// NOTE: These users must exist in Supabase. Create them via Supabase dashboard or admin API.
-// TODO: After verifying 2 users pass, expand to 3 then 5 for scalability testing.
-export const SOAK_TEST_USERS = [
-  { email: 'soak-test@test.com', password: 'speaksharp1' },
-  { email: 'soak-test1@test.com', password: 'speaksharp2' },
-] as const;
+// Array of soak test users for concurrent testing
+// Emails follow pattern: soak-test{N}@test.com (0-indexed)
+// Password is shared via SOAK_TEST_PASSWORD env var
+// NOTE: Length should match SOAK_CONFIG.CONCURRENT_USERS (defined below)
+const CONCURRENT_USER_COUNT = 2; // Phase 1: validate with existing 2 users
+export const SOAK_TEST_USERS = Array.from(
+  { length: CONCURRENT_USER_COUNT },
+  (_, i) => ({
+    email: `soak-test${i}@test.com`,
+    password: process.env.SOAK_TEST_PASSWORD || `speaksharp${i + 1}`,
+  })
+);
 
 // ============================================
 // ROUTES

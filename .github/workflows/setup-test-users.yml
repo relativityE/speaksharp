@@ -11,6 +11,7 @@ on:
         options:
           - free
           - pro
+          - soak
 
 jobs:
   setup-test-user:
@@ -35,87 +36,94 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Create or update test user
+      - name: Setup test users
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SOAK_TEST_PASSWORD: ${{ secrets.SOAK_TEST_PASSWORD }}
           USER_TYPE: ${{ github.event.inputs.user_type }}
         run: |
-          node -e "
-          const { createClient } = require('@supabase/supabase-js');
-          
-          const supabase = createClient(
-            process.env.SUPABASE_URL,
-            process.env.SUPABASE_SERVICE_KEY,
-            { auth: { autoRefreshToken: false, persistSession: false } }
-          );
-          
-          const userType = process.env.USER_TYPE || 'free';
-          const email = userType === 'pro' ? 'e2e-pro-user@test.com' : 'e2e-free-user@test.com';
-          const password = 'TestPassword123!';
-          
-          async function setupUser() {
-            console.log('🔧 Setting up test user:', email, 'as', userType);
+          if [ "$USER_TYPE" = "soak" ]; then
+            node scripts/setup-test-users.mjs
+          else
+            node -e "
+            const { createClient } = require('@supabase/supabase-js');
             
-            // Try to get existing user
-            const { data: existingUsers } = await supabase.auth.admin.listUsers();
-            const existingUser = existingUsers?.users?.find(u => u.email === email);
+            const supabase = createClient(
+              process.env.SUPABASE_URL,
+              process.env.SUPABASE_SERVICE_KEY,
+              { auth: { autoRefreshToken: false, persistSession: false } }
+            );
             
-            let userId;
+            const userType = process.env.USER_TYPE || 'free';
+            const email = userType === 'pro' ? 'e2e-pro-user@test.com' : 'e2e-free-user@test.com';
+            const password = 'TestPassword123!';
             
-            if (existingUser) {
-              console.log('📧 User exists, updating...');
-              userId = existingUser.id;
+            async function setupUser() {
+              console.log('🔧 Setting up test user:', email, 'as', userType);
               
-              // Update password
-              await supabase.auth.admin.updateUserById(userId, { password });
-            } else {
-              console.log('📧 Creating new user...');
-              const { data, error } = await supabase.auth.admin.createUser({
-                email,
-                password,
-                email_confirm: true
-              });
+              const { data: existingUsers } = await supabase.auth.admin.listUsers();
+              const existingUser = existingUsers?.users?.find(u => u.email === email);
               
-              if (error) throw error;
-              userId = data.user.id;
+              let userId;
+              
+              if (existingUser) {
+                console.log('📧 User exists, updating...');
+                userId = existingUser.id;
+                await supabase.auth.admin.updateUserById(userId, { password });
+              } else {
+                console.log('📧 Creating new user...');
+                const { data, error } = await supabase.auth.admin.createUser({
+                  email,
+                  password,
+                  email_confirm: true
+                });
+                
+                if (error) throw error;
+                userId = data.user.id;
+              }
+              
+              const { error: profileError } = await supabase
+                .from('user_profiles')
+                .upsert({
+                  id: userId,
+                  subscription_status: userType,
+                  updated_at: new Date().toISOString()
+                }, { onConflict: 'id' });
+              
+              if (profileError) {
+                console.error('Profile error:', profileError);
+              }
+              
+              console.log('✅ Test user ready:');
+              console.log('   Email:', email);
+              console.log('   Password: TestPassword123!');
+              console.log('   Subscription:', userType);
+              console.log('');
+              console.log('💡 Add these as GitHub secrets:');
+              if (userType === 'free') {
+                console.log('   E2E_FREE_EMAIL=' + email);
+                console.log('   E2E_FREE_PASSWORD=TestPassword123!');
+              } else {
+                console.log('   E2E_PRO_EMAIL=' + email);
+                console.log('   E2E_PRO_PASSWORD=TestPassword123!');
+              }
             }
             
-            // Update or create profile with subscription status
-            const { error: profileError } = await supabase
-              .from('user_profiles')
-              .upsert({
-                id: userId,
-                subscription_status: userType,
-                updated_at: new Date().toISOString()
-              }, { onConflict: 'id' });
-            
-            if (profileError) {
-              console.error('Profile error:', profileError);
-            }
-            
-            console.log('✅ Test user ready:');
-            console.log('   Email:', email);
-            console.log('   Password: TestPassword123!');
-            console.log('   Subscription:', userType);
-            console.log('');
-            console.log('💡 Add these as GitHub secrets:');
-            if (userType === 'free') {
-              console.log('   E2E_FREE_EMAIL=' + email);
-              console.log('   E2E_FREE_PASSWORD=TestPassword123!');
-            } else {
-              console.log('   E2E_PRO_EMAIL=' + email);
-              console.log('   E2E_PRO_PASSWORD=TestPassword123!');
-            }
-          }
-          
-          setupUser().catch(e => { console.error(e); process.exit(1); });
-          "
+            setupUser().catch(e => { console.error(e); process.exit(1); });
+            "
+          fi
 
       - name: Summary
+        env:
+          USER_TYPE: ${{ github.event.inputs.user_type }}
         run: |
           echo "### Test User Setup Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**User Type:** ${{ github.event.inputs.user_type }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Check the logs above for the email/password to add as GitHub secrets." >> $GITHUB_STEP_SUMMARY
+          if [ "$USER_TYPE" = "soak" ]; then
+            echo "Soak test users created/updated. Check logs for details." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Check the logs above for the email/password to add as GitHub secrets." >> $GITHUB_STEP_SUMMARY
+          fi
