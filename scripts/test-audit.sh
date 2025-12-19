@@ -166,7 +166,9 @@ run_sqm_report_ci() {
 run_sqm_report_local() {
     echo "✅ [6/6] Generating and Printing SQM Report..."
     if [ -f "./scripts/run-metrics.sh" ]; then
-        ./scripts/run-metrics.sh --json-output
+        ./scripts/run-metrics.sh
+        echo "ℹ️  Formatting Console Output..."
+        node scripts/print-metrics.mjs
     else
         echo "⚠️ Warning: Metric generation scripts not found. Skipping SQM report."
     fi
