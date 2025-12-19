@@ -17,6 +17,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Soak Test User Count Overrides:** Added optional `free_count` and `pro_count` inputs to `soak-test.yml` workflow.
 - **TypeScript Fixes:** Fixed method signature mismatches in `user-simulator.ts`.
 
+### Added (2025-12-19) - P1 Unit Test Coverage
+- **Auth Resilience Tests:** 7 tests in `fetchWithRetry.test.ts` covering exponential backoff, custom retry count, and error message preservation.
+- **Billing Idempotency Tests:** 15 tests in `stripe-webhook/index.test.ts` covering webhook replay, idempotency lock, subscription.updated, and payment_failed handlers.
+- **Tier Gating Tests:** 17 tests in `subscriptionTiers.test.ts` covering isPro, isFree, getTierLabel, getTierLimits, and TIER_LIMITS values.
+
+### Fixed (2025-12-19) - Metrics & Documentation Accuracy
+- **Detailed Lighthouse Reporting:** Updated `metrics.json` pipeline and `run-metrics.sh` to extract all 4 Lighthouse categories (Performance, Accessibility, Best Practices, SEO) instead of a single aggregate score.
+- **Dynamic PRD Updates:** Hardened `update-prd-metrics.mjs` to reliably update `docs/PRD.md` with the latest granular Lighthouse scores and Code Bloat metrics during CI runs.
+- **Console Visibility:** `print-metrics.mjs` now displays a color-coded table of all 4 Lighthouse scores in the CI console output.
+
+### Improved (2025-12-19) - Code Bloat Optimization
+- **Vendor Chunking:** Added `manualChunks` configuration to `vite.config.mjs` to split heavy vendor libraries into separate cacheable chunks.
+- **Bundle Size Reduction:** Initial index bundle reduced from 469KB to 56KB (-88%) by extracting recharts, jspdf, html2canvas, Radix, Sentry, Stripe, TanStack Query, PostHog, and date-fns into separate chunks.
+- **Improved Caching:** Vendor chunks change less frequently than app code, enabling better browser caching for returning users.
+
 ### Fixed (2025-12-19) - Phase 6: Reliability & Infrastructure Hardening
 - **Secure Secret Rotation**: Implemented `GH_PAT` powered rotation for the `SOAK_TEST_PASSWORD` secret in `setup-test-users.yml`.
 - **Database Scalability**: Optimized `setup-test-users.mjs` to fetch profiles using the `.in('id', [...])` filter, eliminating full-table scans during registry synchronization.

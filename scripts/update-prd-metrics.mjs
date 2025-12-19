@@ -104,7 +104,7 @@ try {
 | Total Project Size  | ${performance.total_size}   |
 | Initial Chunk Size  | ${performance.initial_chunk_size}   |
 | Code Bloat Index    | ${performance.bloat_percentage}%   |
-| Lighthouse Score    | (coming soon)   |
+| Lighthouse Scores   | P: ${metrics.lighthouse ? metrics.lighthouse.performance : 'N/A'}, A: ${metrics.lighthouse ? metrics.lighthouse.accessibility : 'N/A'}, BP: ${metrics.lighthouse ? metrics.lighthouse.best_practices : 'N/A'}, SEO: ${metrics.lighthouse ? metrics.lighthouse.seo : 'N/A'} |
 
 ---
   `.trim();

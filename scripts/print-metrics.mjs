@@ -77,6 +77,17 @@ function printMetrics() {
     console.log(`  Initial Chunk:      ${performance.initial_chunk_size}`);
     console.log(`  ${BOLD}${WHITE}Code Bloat Index:   ${performance.bloat_percentage}%${RESET}  ${bloatInd} ${CYAN}(industry std: <${TARGETS.bloat}%)${RESET}`);
 
+    // Lighthouse Scores (all 4 categories)
+    const { lighthouse } = metricsData;
+    if (lighthouse && (lighthouse.performance > 0 || lighthouse.accessibility > 0)) {
+      const getInd = (score) => score >= 90 ? `${GREEN}✓${RESET}` : (score >= 50 ? `${YELLOW}~${RESET}` : `${RED}✗${RESET}`);
+      console.log("\n🔦 Lighthouse Scores:");
+      console.log(`  ${BOLD}${WHITE}Performance:     ${lighthouse.performance}${RESET}  ${getInd(lighthouse.performance)} ${CYAN}(target: 90+)${RESET}`);
+      console.log(`  ${BOLD}${WHITE}Accessibility:   ${lighthouse.accessibility}${RESET}  ${getInd(lighthouse.accessibility)} ${CYAN}(target: 90+)${RESET}`);
+      console.log(`  ${BOLD}${WHITE}Best Practices:  ${lighthouse.best_practices}${RESET}  ${getInd(lighthouse.best_practices)} ${CYAN}(target: 90+)${RESET}`);
+      console.log(`  ${BOLD}${WHITE}SEO:             ${lighthouse.seo}${RESET}  ${getInd(lighthouse.seo)} ${CYAN}(target: 90+)${RESET}`);
+    }
+
     console.log("\n------------------------------------------");
     console.log(`${CYAN}Legend: ${GREEN}✓${RESET} meets std  ${YELLOW}~${RESET} close  ${RED}✗${RESET} below std`);
 

@@ -39,10 +39,10 @@ export class UserSimulator {
     async simulateUserJourney(page: Page, userId: string): Promise<void> {
         try {
             // Step 1: Navigate to session page
-            await this.navigateToSessions(page, userId);
+            await this.navigateToSessions(page);
 
             // Step 2: Start a practice session
-            await this.startPracticeSession(page, userId);
+            await this.startPracticeSession(page);
 
             // Step 3: Run session for configured duration
             await this.runActiveSession(page, userId);
@@ -85,7 +85,7 @@ export class UserSimulator {
     /**
      * Navigate to the sessions page
      */
-    private async navigateToSessions(page: Page, userId: string): Promise<void> {
+    private async navigateToSessions(page: Page): Promise<void> {
         const startTime = Date.now();
 
         console.log(`[User] 📍 Navigating to session page: ${ROUTES.SESSION}`);
@@ -115,7 +115,7 @@ export class UserSimulator {
     /**
      * Start a practice session
      */
-    private async startPracticeSession(page: Page, userId: string): Promise<void> {
+    private async startPracticeSession(page: Page): Promise<void> {
         const startTime = Date.now();
 
         // Select native mode if configured (to save API credits)

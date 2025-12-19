@@ -76,6 +76,31 @@ else
     bloat_pct=0
 fi
 
+# Lighthouse Scores (extract from lhci results if available)
+# lhci stores results in .lighthouseci/ at project root
+LHCI_DIR=".lighthouseci"
+lighthouse_file="$LHCI_DIR/lhr-*.json"
+if compgen -G "$lighthouse_file" > /dev/null 2>&1; then
+    # Get the most recent lhr file (sorted by timestamp in filename)
+    lhr_file=$(ls -t $LHCI_DIR/lhr-*.json 2>/dev/null | head -1)
+    if [ -n "$lhr_file" ] && [ -f "$lhr_file" ]; then
+        lighthouse_performance=$(jq '.categories.performance.score * 100 | floor' "$lhr_file" 2>/dev/null || echo "0")
+        lighthouse_accessibility=$(jq '.categories.accessibility.score * 100 | floor' "$lhr_file" 2>/dev/null || echo "0")
+        lighthouse_best_practices=$(jq '(.categories["best-practices"].score // 0) * 100 | floor' "$lhr_file" 2>/dev/null || echo "0")
+        lighthouse_seo=$(jq '.categories.seo.score * 100 | floor' "$lhr_file" 2>/dev/null || echo "0")
+    else
+        lighthouse_performance=0
+        lighthouse_accessibility=0
+        lighthouse_best_practices=0
+        lighthouse_seo=0
+    fi
+else
+    lighthouse_performance=0
+    lighthouse_accessibility=0
+    lighthouse_best_practices=0
+    lighthouse_seo=0
+fi
+
 # Create the final combined metrics file
 jq -n \
   --argjson unit_passed "$unit_passed" \
@@ -93,6 +118,10 @@ jq -n \
   --arg source_size "$source_size" \
   --arg total_size "$total_size" \
   --arg bloat_pct "$bloat_pct" \
+  --argjson lh_performance "$lighthouse_performance" \
+  --argjson lh_accessibility "$lighthouse_accessibility" \
+  --argjson lh_best_practices "$lighthouse_best_practices" \
+  --argjson lh_seo "$lighthouse_seo" \
   --argjson total_runtime "${TOTAL_RUNTIME_SECONDS:-0}" \
   '{
     "unit_tests": { "passed": $unit_passed, "failed": $unit_failed, "skipped": $unit_skipped, "total": $unit_total },
@@ -108,6 +137,12 @@ jq -n \
         "source_size": $source_size,
         "total_size": $total_size,
         "bloat_percentage": $bloat_pct
+    },
+    "lighthouse": {
+        "performance": $lh_performance,
+        "accessibility": $lh_accessibility,
+        "best_practices": $lh_best_practices,
+        "seo": $lh_seo
     },
     "total_runtime_seconds": $total_runtime
   }' > "$METRICS_FILE"

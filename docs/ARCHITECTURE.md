@@ -696,6 +696,27 @@ Optimized Code: The code is minified, bundled, and tree-shaken to be as small an
 Real Data: It connects to the production Supabase database and live third-party services like Stripe and AssemblyAI using production API keys.
 Security: Debugging features are disabled, and security is paramount.
 How it's Launched: The production environment isn't "launched" with a dev server. Instead, a static build of the frontend is created using pnpm build. This build is then deployed to and served by a hosting provider (like Vercel or Netlify). The backend is the live Supabase instance.
+
+### Build Optimization: Vendor Chunking (2025-12-19)
+
+The production build uses `manualChunks` in `vite.config.mjs` to split heavy vendor libraries into separate cacheable chunks:
+
+| Chunk | Libraries | Purpose |
+|-------|-----------|---------|
+| `vendor-react` | react, react-dom, react-router-dom | Core framework |
+| `vendor-recharts` | recharts | Charts (Analytics page) |
+| `vendor-pdf` | jspdf, jspdf-autotable | PDF export |
+| `vendor-html2canvas` | html2canvas | Screenshot for PDF |
+| `vendor-radix` | @radix-ui/* | UI primitives |
+| `vendor-stripe` | @stripe/* | Payment processing |
+| `vendor-sentry` | @sentry/react | Error monitoring |
+| `vendor-query` | @tanstack/react-query | Data fetching |
+
+**Benefits:**
+- **Smaller initial load:** Index bundle reduced from 469KB to 56KB
+- **Better caching:** Vendor chunks rarely change, enabling long-term browser caching
+- **Lazy loading:** Heavy chunks only load when needed (e.g., recharts on Analytics page)
+
 2. Local Development Environment (development)
 Purpose: This is your primary day-to-day workspace for building and debugging new features on your own machine.
 Key Characteristics:
@@ -904,6 +925,25 @@ Our E2E testing strategy includes a **smoke test** (`tests/e2e/smoke.e2e.spec.ts
 **Purpose:** This smoke test is run as part of `pnpm test:health-check` and provides a fast, reliable signal that core features (homepage, auth, session, analytics) are working after every commit.
 
 **Visual Documentation:** A separate test (`tests/e2e/capture-states.e2e.spec.ts`) handles screenshot generation for visual documentation. This decoupled architecture ensures that purely visual changes (e.g., CSS refactors) do not break the critical functional health check.
+
+### Test Inventory (2025-12-19)
+
+| Category | Count | Location |
+|----------|-------|----------|
+| **Frontend Unit Tests** | 51 | `frontend/src/**/__tests__/*.test.ts` |
+| **Backend Deno Tests** | 5 | `backend/supabase/functions/**/*.test.ts` |
+| **E2E Tests** | 38+ | `tests/e2e/*.e2e.spec.ts` |
+| **Soak Tests** | 1 | `tests/soak/soak-test.spec.ts` |
+
+**Key Test Files:**
+
+| Area | File | Tests |
+|------|------|-------|
+| Auth Resilience | `fetchWithRetry.test.ts` | 7 (backoff, retry count, error) |
+| Tier Gating | `subscriptionTiers.test.ts` | 17 (isPro, isFree, limits) |
+| Billing | `stripe-webhook/index.test.ts` | 12 (idempotency, handlers) |
+| Billing Adversarial | `stripe-webhook/adversarial.test.ts` | 3 (replay, rollback) |
+| Usage Limits | `check-usage-limit/index.test.ts` | 6 (auth, free/pro, CORS) |
 
 
 ### Unit & Integration Testing for React Query

@@ -76,16 +76,16 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 | 4 | MEDIUM | ✅ Fixed |
 | 5 | MEDIUM | ✅ Already done |
 
-### 🧪 Adversarial Test Suite Hardening (2025-12-18) 🟡 In Progress
+### 🧪 Adversarial Test Suite Hardening (2025-12-19) ✅ P1 Complete
 
 > **Goal:** Increase line coverage from 56% → 75% with integrity-preserving, adversarial validation. Focus on resilience and design invariants over structural coverage.
 
 *   **P0: Resilience & Revenue Integrity**
     *   🟡 **WebSocket Resilience:** Test `CloudAssemblyAI.test.ts` with `vi.useFakeTimers()` (backoff, heartbeats).
-    *   🔴 **Billing Idempotency:** Webhook replay and partial failure recovery.
-    *   🔴 **Auth Resilience:** `fetchWithRetry` integration in `AuthProvider`.
+    *   ✅ **Billing Idempotency (2025-12-19):** 15 tests covering webhook replay, idempotency lock, and partial failure recovery.
+    *   ✅ **Auth Resilience (2025-12-19):** 7 tests in `fetchWithRetry.test.ts` (exponential backoff, custom retry count, error preservation).
 *   **P1: Business Logic**
-    *   🔴 **Tier Gating:** Unit tests for `subscriptionTiers.ts` entitlements.
+    *   ✅ **Tier Gating (2025-12-19):** 17 tests in `subscriptionTiers.test.ts` (isPro, isFree, getTierLabel, getTierLimits, TIER_LIMITS values).
     *   🔴 **Domain Services:** CRUD validation in `domainServices.ts`.
     *   🔴 **Analytics Correctness:** Month-boundary rollover and session aggregation logic.
 *   **P2: E2E Trust**
