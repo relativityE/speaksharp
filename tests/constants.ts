@@ -31,9 +31,9 @@ export const SOAK_TEST_USER = {
 // Array of soak test users for concurrent testing
 // Emails follow pattern: soak-test{N}@test.com (0-indexed)
 // Password is shared via SOAK_TEST_PASSWORD env var
-const FREE_USER_COUNT = 2;  // First N users will be 'free'
-const PRO_USER_COUNT = 1;   // Next N users will be 'pro'
-const CONCURRENT_USER_COUNT = FREE_USER_COUNT + PRO_USER_COUNT;
+const FREE_USER_COUNT = 7;  // First N users will be 'free'
+const PRO_USER_COUNT = 3;   // Next N users will be 'pro'
+const CONCURRENT_USER_COUNT = FREE_USER_COUNT + PRO_USER_COUNT; // 10 total
 
 // Auto-generate tiers: first FREE_USER_COUNT are free, next PRO_USER_COUNT are pro
 // Example: 2 free + 1 pro = ['free', 'free', 'pro']

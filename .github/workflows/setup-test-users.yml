@@ -96,7 +96,17 @@ jobs:
           NEW_PRO_COUNT: ${{ github.event.inputs.new_pro_count }}
           USE_SUBSET: ${{ github.event.inputs.use_subset }}
         run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📋 Setup Test Users"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "📌 Mode: $MODE"
+          
           if [ "$MODE" = "soak" ]; then
+            echo "📌 Soak Action: $SOAK_ACTION"
+            echo "📌 New Free: $NEW_FREE_COUNT, New Pro: $NEW_PRO_COUNT"
+            echo ""
+            
             if [ -z "$SOAK_TEST_PASSWORD" ]; then
               echo "❌ Error: SOAK_TEST_PASSWORD is not set."
               echo ""
@@ -106,9 +116,18 @@ jobs:
               exit 1
             fi
             
-            echo "📋 Soak Action: $SOAK_ACTION"
             node scripts/setup-test-users.mjs
           else
+            # E2E mode: enforce single user (ignore batch counts)
+            echo "📌 E2E Tier: $E2E_TIER"
+            if [ "$NEW_FREE_COUNT" != "0" ] || [ "$NEW_PRO_COUNT" != "0" ]; then
+              echo ""
+              echo "⚠️  NOTE: E2E mode creates exactly 1 user."
+              echo "   Your batch counts were ignored (new_free=$NEW_FREE_COUNT, new_pro=$NEW_PRO_COUNT)."
+              echo "   Use 'soak' mode for batch user creation."
+            fi
+            echo ""
+            
             node -e "
             const { createClient } = require('@supabase/supabase-js');
             

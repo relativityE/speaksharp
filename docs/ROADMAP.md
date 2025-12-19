@@ -317,6 +317,11 @@ This phase is about confirming the core feature set works as expected and polish
       - Added explicit `pw:install` scripts for developers
     - **Principle:** `postinstall` prepares the app; workflows prepare the environment.
     - **Files:** `package.json`, `.github/workflows/soak-test.yml`, `.github/workflows/stripe-checkout-test.yml`, `docs/ARCHITECTURE.md`
+  - 🔴 **TODO - Simplify Setup Test Users Workflow UI:**
+    - **Problem:** Current workflow interface (`setup-test-users.yml`) is confusing with overlapping inputs for E2E and Soak modes.
+    - **UX Issues:** "Ignored for e2e/soak" labels are workarounds. Ideally, irrelevant fields should not appear.
+    - **Limitation:** GitHub Actions workflow_dispatch does not support conditional field visibility, greyed-out fields, or dynamic data.
+    - **Future Option:** Build custom web UI that queries Supabase for current state and triggers workflow via GitHub API.
 - **✅ COMPLETED - Expand Unit Test Coverage (2025-12-08):**
   - **Current:** 379 unit tests passing
   - ✅ Authentication pages: SignInPage (14), SignUpPage (15)

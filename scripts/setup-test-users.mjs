@@ -81,8 +81,8 @@ function getMaxUsersFromConfig() {
 // Core Functions
 // ============================================
 
-async function listExistingSoakUsers() {
-    console.log('\n📊 Querying Supabase for soak-test* users...');
+async function listExistingSoakUsers(showLog = true) {
+    if (showLog) console.log('\n📊 Querying Supabase...');
 
     const { data: users, error } = await supabase.auth.admin.listUsers();
     if (error) throw error;
@@ -91,16 +91,33 @@ async function listExistingSoakUsers() {
         u.email?.startsWith('soak-test') && u.email?.endsWith('@test.com')
     );
 
-    console.log(`Found ${soakUsers.length} soak test users:`);
-    soakUsers.forEach(u => console.log(`  - ${u.email}`));
+    // Fetch tiers from profiles
+    const userIds = soakUsers.map(u => u.id);
+    const { data: profiles } = await supabase
+        .from('user_profiles')
+        .select('id, subscription_status')
+        .in('id', userIds);
 
-    return soakUsers;
+    const tierMap = new Map(profiles?.map(p => [p.id, p.subscription_status]) || []);
+
+    // Enrich users with tier
+    const enrichedUsers = soakUsers.map(u => ({
+        ...u,
+        tier: tierMap.get(u.id) || 'free'
+    }));
+
+    if (showLog) {
+        console.log(`Found ${enrichedUsers.length} soak users in Supabase:`);
+        enrichedUsers.forEach(u => console.log(`  - ${u.email} (${u.tier})`));
+    }
+
+    return enrichedUsers;
 }
 
 async function renameOldUser(existingUsers) {
     // Check if old-style soak-test@test.com exists (without index)
     const oldUser = existingUsers.find(u => u.email === 'soak-test@test.com');
-    if (!oldUser) return;
+    if (!oldUser) return false;
 
     console.log('\n🔄 Renaming soak-test@test.com → soak-test0@test.com');
 
@@ -114,6 +131,7 @@ async function renameOldUser(existingUsers) {
     }
 
     console.log('✅ User renamed successfully');
+    return true;
 }
 
 async function updateUserPassword(userId, email) {
@@ -187,11 +205,13 @@ async function main() {
     // Step 1: List existing users
     let existingUsers = await listExistingSoakUsers();
 
-    // Step 2: Rename old-style user if exists
-    await renameOldUser(existingUsers);
+    // Step 2: Rename old-style user if exists (returns true if renamed)
+    const didRename = await renameOldUser(existingUsers);
 
-    // Re-query after rename
-    existingUsers = await listExistingSoakUsers();
+    // Re-query only if rename happened
+    if (didRename) {
+        existingUsers = await listExistingSoakUsers();
+    }
     const existingCount = existingUsers.length;
 
     // Calculate how many we can create
