@@ -31,13 +31,23 @@ export const SOAK_TEST_USER = {
 // Array of soak test users for concurrent testing
 // Emails follow pattern: soak-test{N}@test.com (0-indexed)
 // Password is shared via SOAK_TEST_PASSWORD env var
-// NOTE: Length should match SOAK_CONFIG.CONCURRENT_USERS (defined below)
-const CONCURRENT_USER_COUNT = 2; // Phase 1: validate with existing 2 users
+const FREE_USER_COUNT = 2;  // First N users will be 'free'
+const PRO_USER_COUNT = 1;   // Next N users will be 'pro'
+const CONCURRENT_USER_COUNT = FREE_USER_COUNT + PRO_USER_COUNT;
+
+// Auto-generate tiers: first FREE_USER_COUNT are free, next PRO_USER_COUNT are pro
+// Example: 2 free + 1 pro = ['free', 'free', 'pro']
+export const SOAK_USER_TIERS: ('free' | 'pro')[] = [
+  ...Array(FREE_USER_COUNT).fill('free' as const),
+  ...Array(PRO_USER_COUNT).fill('pro' as const),
+];
+
 export const SOAK_TEST_USERS = Array.from(
   { length: CONCURRENT_USER_COUNT },
   (_, i) => ({
     email: `soak-test${i}@test.com`,
     password: process.env.SOAK_TEST_PASSWORD || `speaksharp${i + 1}`,
+    tier: SOAK_USER_TIERS[i],
   })
 );
 
