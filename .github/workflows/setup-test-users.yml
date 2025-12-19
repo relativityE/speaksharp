@@ -3,17 +3,24 @@ name: Setup Test Users
 on: 
   workflow_dispatch:
     inputs:
-      user_type:
-        description: 'User subscription type'
+      mode:
+        description: 'Mode: e2e (single user) or soak (batch)'
         required: true
+        default: 'e2e'
+        type: choice
+        options:
+          - e2e
+          - soak
+      e2e_tier:
+        description: 'E2E tier (ignored for soak)'
+        required: false
         default: 'free'
         type: choice
         options:
           - free
           - pro
-          - soak
       soak_action:
-        description: 'Soak user action (only for soak type)'
+        description: 'Soak action (ignored for e2e)'
         required: false
         default: 'update_existing'
         type: choice
@@ -21,15 +28,21 @@ on:
           - update_existing
           - generate_new_credentials
       new_free_count:
-        description: 'Number of NEW free soak users to create (soak only)'
+        description: 'New free users (ignored for e2e)'
         required: false
         default: '0'
         type: string
       new_pro_count:
-        description: 'Number of NEW pro soak users to create (soak only)'
+        description: 'New pro users (ignored for e2e)'
         required: false
         default: '0'
         type: string
+      use_subset:
+        description: 'Use only specified counts, not all existing (soak only)'
+        required: false
+        default: false
+        type: boolean
+
 
 jobs:
   setup-test-user:
@@ -55,7 +68,7 @@ jobs:
         run: pnpm install
 
       - name: Generate and set SOAK_TEST_PASSWORD
-        if: ${{ github.event.inputs.user_type == 'soak' && github.event.inputs.soak_action == 'generate_new_credentials' }}
+        if: ${{ github.event.inputs.mode == 'soak' && github.event.inputs.soak_action == 'generate_new_credentials' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -76,12 +89,14 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SOAK_TEST_PASSWORD: ${{ env.SOAK_TEST_PASSWORD || secrets.SOAK_TEST_PASSWORD }}
-          USER_TYPE: ${{ github.event.inputs.user_type }}
+          MODE: ${{ github.event.inputs.mode }}
+          E2E_TIER: ${{ github.event.inputs.e2e_tier }}
           SOAK_ACTION: ${{ github.event.inputs.soak_action }}
           NEW_FREE_COUNT: ${{ github.event.inputs.new_free_count }}
           NEW_PRO_COUNT: ${{ github.event.inputs.new_pro_count }}
+          USE_SUBSET: ${{ github.event.inputs.use_subset }}
         run: |
-          if [ "$USER_TYPE" = "soak" ]; then
+          if [ "$MODE" = "soak" ]; then
             if [ -z "$SOAK_TEST_PASSWORD" ]; then
               echo "❌ Error: SOAK_TEST_PASSWORD is not set."
               echo ""
@@ -103,12 +118,12 @@ jobs:
               { auth: { autoRefreshToken: false, persistSession: false } }
             );
             
-            const userType = process.env.USER_TYPE || 'free';
+            const userType = process.env.E2E_TIER || 'free';
             const email = userType === 'pro' ? 'e2e-pro-user@test.com' : 'e2e-free-user@test.com';
             const password = 'TestPassword123!';
             
             async function setupUser() {
-              console.log('🔧 Setting up test user:', email, 'as', userType);
+              console.log('🔧 Setting up E2E test user:', email, 'as', userType);
               
               const { data: existingUsers } = await supabase.auth.admin.listUsers();
               const existingUser = existingUsers?.users?.find(u => u.email === email);
@@ -154,14 +169,14 @@ jobs:
 
       - name: Summary
         env:
-          USER_TYPE: ${{ github.event.inputs.user_type }}
+          MODE: ${{ github.event.inputs.mode }}
           SOAK_ACTION: ${{ github.event.inputs.soak_action }}
         run: |
           echo "### Test User Setup Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**User Type:** $USER_TYPE" >> $GITHUB_STEP_SUMMARY
+          echo "**Mode:** $MODE" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if [ "$USER_TYPE" = "soak" ]; then
+          if [ "$MODE" = "soak" ]; then
             echo "**Action:** $SOAK_ACTION" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             if [ "$SOAK_ACTION" = "generate_new_credentials" ]; then
