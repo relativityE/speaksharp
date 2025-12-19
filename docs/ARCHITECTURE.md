@@ -1,11 +1,11 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-17
+**Last Reviewed:** 2025-12-18
 
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp System Architecture
 
-**Version 3.8** | **Last Updated: 2025-12-17**
+**Version 3.9** | **Last Updated: 2025-12-18**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -49,13 +49,13 @@ tests/                  # Project-level tests (cross-cutting)
 backend/                # Backend services
   └── supabase/         # Supabase functions, migrations, seed data
       └── functions/    # Edge Functions:
-          ├── _shared/              # Shared utilities
+          ├── _shared/              # Shared utilities (errors.ts, cors.ts, types.ts)
           ├── assemblyai-token/     # AssemblyAI token generation
           ├── check-usage-limit/    # Usage limit validation
           ├── get-ai-suggestions/   # AI-powered feedback
           ├── stripe-checkout/      # Stripe payment sessions
           ├── stripe-webhook/       # Stripe webhook handlers
-          └── test-import/          # Test utilities
+          └── import_map.json       # Centralized Deno dependencies
 
 scripts/                # Build, test, and CI/CD automation scripts
 
@@ -217,22 +217,64 @@ The following critical features are fully implemented and production-ready:
 
 #### On-Device STT (Whisper) & Service Worker Caching
 
-The On-Device transcription mode runs the Whisper AI model locally in the browser using WebAssembly. This eliminates the need for cloud API calls but requires a 30MB model download on first use.
+The On-Device transcription mode runs the Whisper AI model locally in the browser using WebAssembly via the `whisper-turbo` npm package. This eliminates the need for cloud API calls but requires a ~30MB model download on first use.
+
+**Two-Layer Caching Architecture:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    User's Browser                           │
+│                                                             │
+│  ┌─────────────────┐    ┌─────────────────────────────────┐ │
+│  │   SessionPage   │───▶│     OnDeviceWhisper.ts          │ │
+│  └─────────────────┘    │  (whisper-turbo npm package)    │ │
+│                         └──────────────┬──────────────────┘ │
+│                                        │                    │
+│              ┌─────────────────────────┼───────────────┐    │
+│              │                         ▼               │    │
+│              │    ┌────────────────────────────┐       │    │
+│              │    │ Layer 2: whisper-turbo     │       │    │
+│              │    │ IndexedDB (internal cache) │       │    │
+│              │    │ Caches compiled WASM model │       │    │
+│              │    └─────────────┬──────────────┘       │    │
+│              │                  │ (cache miss)         │    │
+│              │                  ▼                      │    │
+│              │    ┌────────────────────────────┐       │    │
+│              │    │ Layer 1: Service Worker    │       │    │
+│              │    │ CacheStorage (sw.js)       │       │    │
+│              │    │ Intercepts CDN requests    │       │    │
+│              │    │ Serves from /models/       │       │    │
+│              │    └─────────────┬──────────────┘       │    │
+│              │                  │ (cache miss)         │    │
+│              └──────────────────┼──────────────────────┘    │
+│                                 ▼                           │
+│                    ┌────────────────────────┐               │
+│                    │  /models/ directory    │               │
+│                    │  (pre-downloaded)      │               │
+│                    │  tiny-q8g16.bin (30MB) │               │
+│                    │  tokenizer.json (2MB)  │               │
+│                    └────────────────────────┘               │
+└─────────────────────────────────────────────────────────────┘
+```
 
 | Feature | Status | Implementation | Evidence |
 |---------|--------|----------------|----------|
 | **Service Worker Cache** | ✅ Complete | Intercepts model requests, serves from Cache Storage API | [`sw.js:100-155`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/public/sw.js#L100-L155) |
-| **Model Download Script** | ✅ Complete | Downloads `tiny-q8g16.bin` (30MB) and `tokenizer.json` to `/public/models/` | [`scripts/download-whisper-model.sh`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/scripts/download-whisper-model.sh) |
+| **Model Download Script** | ✅ Complete | Downloads `tiny-q8g16.bin` (30MB) and `tokenizer.json` to `/public/models/` | [`download-whisper-model.sh`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/scripts/download-whisper-model.sh) |
+| **Model Update Checker** | ✅ Complete | Checks for model version updates from CDN | [`check-whisper-update.sh`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/scripts/check-whisper-update.sh) |
 | **URL Mapping** | ✅ Complete | Maps CDN URLs to local paths for offline support | [`sw.js:103-106`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/public/sw.js#L103-L106) |
 | **Cache-First Strategy** | ✅ Complete | Local cache checked before network fallback | [`sw.js:127-152`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/public/sw.js#L127-L152) |
+| **E2E Tests** | ✅ Complete | Download progress, caching, mode selector, toast, P1 regression | [ondevice-stt.e2e.spec.ts](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e/ondevice-stt.e2e.spec.ts) |
 
 **Cache Flow:**
 ```
 1. User selects "On-Device" mode
-2. OnDeviceWhisper.ts requests model from CDN URL
-3. Service Worker intercepts request
-4. First load: Fetches from /models/, caches with Cache Storage API
-5. Subsequent loads: Serves directly from cache (<1 second!)
+2. OnDeviceWhisper.ts initializes whisper-turbo
+3. whisper-turbo checks IndexedDB for compiled WASM (Layer 2)
+4. If miss, requests model files from CDN URL
+5. Service Worker intercepts request (Layer 1)
+6. First load: Fetches from /models/, caches with Cache Storage API
+7. Subsequent loads: Serves directly from cache (<1 second!)
 ```
 
 **URL Mappings:**
@@ -242,8 +284,8 @@ The On-Device transcription mode runs the Whisper AI model locally in the browse
 | `https://huggingface.co/.../tokenizer.json` | `/models/tokenizer.json` |
 
 **Performance Impact:**
-- First Load: ~30 seconds (CDN download - one-time cost)
-- Subsequent Loads: <1 second (served from cache)
+- First Load: ~2-5 seconds (local file I/O + WASM compilation)
+- Subsequent Loads: <1 second (served from IndexedDB cache)
 - Network savings: 30MB per session after first load
 
 **Setup:**
@@ -254,12 +296,39 @@ The On-Device transcription mode runs the Whisper AI model locally in the browse
 # Verify model files exist
 ls -lh frontend/public/models/
 # Should show: tiny-q8g16.bin (~30MB), tokenizer.json (~2MB)
+
+# Check for model updates (run periodically)
+./scripts/check-whisper-update.sh
+# If updates found, bump MODEL_CACHE_NAME in sw.js
 ```
 
+**Known Issues & Fixes:**
+
+> [!IMPORTANT]
+> **P1 Bug Fix (2025-12-18):** Button showing "Initializing..." after clicking Stop
+> 
+> **Root Cause:** `modelLoadingProgress` state was not reset when stopping/resetting session
+> 
+> **Fix:** Added `setModelLoadingProgress(null)` in both `stopListening` and `reset` functions in [`useSpeechRecognition/index.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/hooks/useSpeechRecognition/index.ts)
+> 
+> **Regression Test:** [`ondevice-stt.e2e.spec.ts` - P1 Regression Test](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e/ondevice-stt.e2e.spec.ts)
+
+**Troubleshooting:**
+| Issue | Solution |
+|-------|----------|
+| Model not loading | Run `./scripts/download-whisper-model.sh` |
+| Stale model version | Run `./scripts/check-whisper-update.sh`, bump `MODEL_CACHE_NAME` in sw.js |
+| Cache not working | Clear site data in DevTools, reload |
+| "Initializing..." stuck | This is P1 bug - verify fix is deployed |
+
 **Related Files:**
-- `frontend/public/sw.js` - Service Worker with cache logic
-- `scripts/download-whisper-model.sh` - Model downloader
-- `frontend/src/services/transcription/modes/OnDeviceWhisper.ts` - Uses cached models
+- [`frontend/public/sw.js`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/public/sw.js) - Service Worker with cache logic
+- [`scripts/download-whisper-model.sh`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/scripts/download-whisper-model.sh) - Model downloader
+- [`scripts/check-whisper-update.sh`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/scripts/check-whisper-update.sh) - Model update checker
+- [`OnDeviceWhisper.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/modes/OnDeviceWhisper.ts) - Uses cached models
+- [`useSpeechRecognition/index.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/hooks/useSpeechRecognition/index.ts) - Manages loading state
+- [`e2e-bridge.ts` (MockOnDeviceWhisper)](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/lib/e2e-bridge.ts) - Fake Whisper service for fast E2E tests (simulates 600ms load)
+
 
 *   **Testing:**
     *   **Unit/Integration:** Vitest (`^2.1.9`)

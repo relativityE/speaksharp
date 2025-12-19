@@ -13,7 +13,7 @@ vi.mock('../../lib/pdfGenerator', () => ({
 }));
 
 // Mock sub-components to avoid rendering complex children
-vi.mock('../analytics/AccuracyComparison', () => ({ AccuracyComparison: () => <div data-testid="accuracy-comparison" /> }));
+vi.mock('../analytics/STTAccuracyComparison', () => ({ STTAccuracyComparison: () => <div data-testid="accuracy-comparison" /> }));
 vi.mock('../analytics/WeeklyActivityChart', () => ({ WeeklyActivityChart: () => <div data-testid="weekly-activity-chart" /> }));
 vi.mock('../analytics/GoalsSection', () => ({ GoalsSection: () => <div data-testid="goals-section" /> }));
 vi.mock('../analytics/TopFillerWords', () => ({ TopFillerWords: () => <div data-testid="top-filler-words" /> }));

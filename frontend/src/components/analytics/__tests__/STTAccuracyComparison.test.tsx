@@ -1,12 +1,12 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, Mock } from 'vitest';
-import { AccuracyComparison } from '../AccuracyComparison';
+import { STTAccuracyComparison } from '../STTAccuracyComparison';
 import { useAnalytics } from '@/hooks/useAnalytics';
 
 vi.mock('@/hooks/useAnalytics');
 
-describe('AccuracyComparison', () => {
+describe('STTAccuracyComparison', () => {
     const defaultMockData = {
         overallStats: {
             totalSessions: 0,
@@ -29,7 +29,7 @@ describe('AccuracyComparison', () => {
             error: null,
         });
 
-        render(<AccuracyComparison />);
+        render(<STTAccuracyComparison />);
         expect(screen.getByText('STT Accuracy Comparison')).toBeInTheDocument();
     });
 
@@ -41,7 +41,7 @@ describe('AccuracyComparison', () => {
             error: new Error('Failed to load'),
         });
 
-        render(<AccuracyComparison />);
+        render(<STTAccuracyComparison />);
         expect(screen.getByText('Could not load accuracy data.')).toBeInTheDocument();
     });
 
@@ -56,7 +56,7 @@ describe('AccuracyComparison', () => {
             error: null,
         });
 
-        render(<AccuracyComparison />);
+        render(<STTAccuracyComparison />);
         expect(screen.getByText('STT Accuracy Comparison (vs. Ground Truth)')).toBeInTheDocument();
     });
 
@@ -68,7 +68,7 @@ describe('AccuracyComparison', () => {
             error: null,
         });
 
-        render(<AccuracyComparison />);
+        render(<STTAccuracyComparison />);
         expect(screen.getByText('Provide ground truth transcripts for at least two sessions to see your accuracy trend.')).toBeInTheDocument();
     });
 });

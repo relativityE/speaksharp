@@ -1,12 +1,12 @@
 
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-15
+**Last Reviewed:** 2025-12-18
 
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp Product Requirements Document
 
-**Version 8.3** | **Last Updated:** 2025-12-11
+**Version 8.4** | **Last Updated:** 2025-12-18
 
 ## 1. Executive Summary
 
@@ -188,7 +188,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Thu, 18 Dec 2025 17:50:52 GMT
+**Last Updated:** Fri, 19 Dec 2025 02:02:51 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -214,10 +214,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | N/A   |
-| Branches   | N/A   |
-| Functions  | N/A   |
-| Lines      | N/A   |
+| Statements | 56.12%   |
+| Branches   | 79.26%   |
+| Functions  | 72.34%   |
+| Lines      | 56.12%   |
 
 ---
 

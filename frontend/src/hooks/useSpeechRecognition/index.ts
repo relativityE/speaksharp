@@ -138,6 +138,12 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     fillerWords.reset();
     sessionTimer.reset();
     service.reset();
+    // Also reset model loading state
+    setModelLoadingProgress(null);
+    if (toastIdRef.current) {
+      toast.dismiss(toastIdRef.current);
+      toastIdRef.current = null;
+    }
   }, [transcript, fillerWords, sessionTimer, service]);
 
   const startListening = useCallback(async (forceOptions: ForceOptions = {}) => {
@@ -146,6 +152,13 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
   }, [service, reset]);
 
   const stopListening = useCallback(async (): Promise<(TranscriptStats & { filler_words: FillerCounts }) | null> => {
+    // P1 BUG FIX: Reset model loading state when stopping to prevent "Initializing..." from persisting
+    setModelLoadingProgress(null);
+    if (toastIdRef.current) {
+      toast.dismiss(toastIdRef.current);
+      toastIdRef.current = null;
+    }
+
     const result = await service.stopListening();
     if (result && result.success) {
       const stats = calculateTranscriptStats(

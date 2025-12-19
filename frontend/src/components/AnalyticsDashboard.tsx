@@ -12,7 +12,7 @@ import { generateSessionPdf } from '../lib/pdfGenerator';
 import { formatDate, formatDateTime } from '../lib/dateUtils';
 import { FillerWordTable } from './analytics/FillerWordTable';
 import { TopFillerWords } from './analytics/TopFillerWords';
-// import { AccuracyComparison } from './analytics/AccuracyComparison'; // Unused
+// import { STTAccuracyComparison } from './analytics/STTAccuracyComparison'; // Deferred: STT engine accuracy comparison
 import { WeeklyActivityChart } from './analytics/WeeklyActivityChart';
 import { GoalsSection } from './analytics/GoalsSection';
 import { SessionComparisonDialog } from './analytics/SessionComparisonDialog';

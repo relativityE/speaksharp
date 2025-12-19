@@ -1,14 +1,36 @@
 // src/lib/e2e-bridge.ts
 /**
- * E2E Test Bridge Module
- *
- * This module isolates all E2E-specific logic from the main application code.
- * It is only loaded when running in test mode (IS_TEST_ENVIRONMENT === true).
- *
- * Purpose:
- * - Initializes Mock Service Worker (MSW) for network mocking
- * - Provides mock session injection for E2E tests
- * - Keeps production code clean from test-specific concerns
+ * ============================================================================
+ * E2E TEST INFRASTRUCTURE MODULE
+ * ============================================================================
+ * 
+ * PURPOSE:
+ * --------
+ * Provides test infrastructure for End-to-End testing with Playwright.
+ * ONLY loaded when IS_TEST_ENVIRONMENT === true (production code stays clean).
+ * 
+ * CONTENTS:
+ * ---------
+ * 1. initializeE2EEnvironment() - Sets up test environment (mswReady, mocks)
+ * 2. dispatchE2EEvent() - Sends custom events for test synchronization
+ * 3. getInitialSession() - Returns mock session when __E2E_MOCK_SESSION__ set
+ * 4. dispatchMockTranscript() - Simulates speech recognition output
+ * 5. MockOnDeviceWhisper - FAKE Whisper service for fast E2E tests
+ *    - Simulates 600ms model load (vs real 2-5 seconds)
+ *    - Used when __E2E_MOCK_LOCAL_WHISPER__ flag is set
+ * 
+ * RELATED FILES:
+ * --------------
+ * - tests/e2e/ondevice-stt.e2e.spec.ts - Uses MockOnDeviceWhisper
+ * - frontend/src/services/transcription/TranscriptionService.ts - Checks for mock
+ * - frontend/src/main.tsx - Calls initializeE2EEnvironment()
+ * 
+ * USAGE IN TESTS:
+ * ---------------
+ * To use MockOnDeviceWhisper in E2E tests:
+ *   await page.evaluate(() => { (window as any).__E2E_MOCK_LOCAL_WHISPER__ = true; });
+ * 
+ * @see docs/ARCHITECTURE.md - "On-Device STT (Whisper) & Service Worker Caching"
  */
 
 import { Session } from '@supabase/supabase-js';
@@ -104,7 +126,23 @@ interface MockOnDeviceWhisperOptions {
     onTranscriptUpdate?: (update: unknown) => void;
 }
 
-// Mock OnDeviceWhisper for E2E tests
+/**
+ * Mock implementation of OnDeviceWhisper for E2E tests.
+ * 
+ * PURPOSE:
+ * Provides a fake Whisper service with predictable timing for E2E tests.
+ * 
+ * TIMING:
+ * - Simulates 600ms model load (vs real 2-5 seconds)
+ * - Progress updates: 0% → 25% → 50% → 75% → 100%
+ * 
+ * USAGE:
+ * Set `window.__E2E_MOCK_LOCAL_WHISPER__ = true` before starting session.
+ * TranscriptionService will use this mock instead of real OnDeviceWhisper.
+ * 
+ * @see frontend/src/services/transcription/modes/OnDeviceWhisper.ts - Real implementation
+ * @see tests/e2e/ondevice-stt.e2e.spec.ts - Uses this mock
+ */
 class MockOnDeviceWhisper {
     private onModelLoadProgress: ((progress: number) => void) | undefined;
     private onReady: (() => void) | undefined;

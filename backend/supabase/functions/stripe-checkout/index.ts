@@ -3,9 +3,15 @@ import Stripe from "https://esm.sh/stripe@16.2.0?target=deno"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.44.2"
 import { ErrorCodes, createErrorResponse, createSuccessResponse } from "../_shared/errors.ts"
 
-const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
-  httpClient: Stripe.createFetchHttpClient(),
-})
+// Defensive Stripe initialization - validate env before crash
+const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY");
+if (!STRIPE_SECRET_KEY) {
+  console.error("FATAL: STRIPE_SECRET_KEY environment variable is not set.");
+}
+
+const stripe = STRIPE_SECRET_KEY
+  ? new Stripe(STRIPE_SECRET_KEY, { httpClient: Stripe.createFetchHttpClient() })
+  : null;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

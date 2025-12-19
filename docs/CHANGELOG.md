@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-17
+**Last Reviewed:** 2025-12-18
 
 # Changelog
 
@@ -9,6 +9,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Fixed (2025-12-18) - On-Device STT P1 Bug & E2E Tests
+
+- **P1 Bug Fix: "Initializing..." Stuck After Stop:**
+  - **Problem:** After clicking Stop, the session button showed "Initializing..." instead of "Start".
+  - **Root Cause:** `modelLoadingProgress` state was not reset when stopping/resetting session.
+  - **Fix:** Added `setModelLoadingProgress(null)` in both `stopListening` and `reset` functions.
+  - **File:** [`useSpeechRecognition/index.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/hooks/useSpeechRecognition/index.ts)
+
+- **New E2E Tests for On-Device Caching:**
+  - **Mock-based test:** Tests UX flow with predictable timing (600ms mock load).
+  - **Real caching test:** Tests actual caching with P1 regression check.
+  - **File:** `ondevice-stt.e2e.spec.ts` (5 tests: download progress, caching, mode selector, toast, P1 regression)
+
+- **New Model Update Checker Script:**
+  - **Purpose:** Checks for newer versions of Whisper model files from CDN.
+  - **Usage:** Run periodically, bump `MODEL_CACHE_NAME` in sw.js if updates found.
+  - **File:** [`scripts/check-whisper-update.sh`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/scripts/check-whisper-update.sh)
+
+- **Documentation Updates:**
+  - Updated ARCHITECTURE.md with two-layer caching diagram.
+  - Added troubleshooting section for On-Device STT issues.
+  - Cross-referenced all related files with clickable links.
+
+### Fixed (2025-12-18) - Gap Analysis & Bloat Cleanup
+
+- **CORS Security Hardening:**
+  - **Problem:** Edge Functions allowed `Access-Control-Allow-Origin: *` (any domain).
+  - **Fix:** Now uses `ALLOWED_ORIGIN` env var, defaults to `localhost:5173`.
+  - **File:** `_shared/cors.ts`
+  - **TODO:** Set `ALLOWED_ORIGIN` in Supabase dashboard for production.
+
+- **Supply Chain Resilience:**
+  - **Problem:** Edge Functions used hardcoded `deno.land` and `esm.sh` URLs.
+  - **Fix:** Created `import_map.json` to centralize dependency versions.
+  - **File:** `backend/supabase/functions/import_map.json`
+
+- **Defensive Stripe Initialization:**
+  - **Problem:** `new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!)` crashes if env missing.
+  - **Fix:** Added null check with early error return.
+  - **File:** `stripe-checkout/index.ts`
+
+- **Component Rename for Clarity:**
+  - `AccuracyComparison.tsx` → `STTAccuracyComparison.tsx`
+  - Added JSDoc explaining deferred STT accuracy comparison feature.
+
+- **Bloat Cleanup (Deleted):**
+  - `backend/supabase/functions/test-import/` - CLI scaffolding
+  - `tests/e2e/dropdown-debug.e2e.spec.ts` - Debug artifact
+  - Edge Function `package.json` files - Deno doesn't use them
 
 ### Fixed (2025-12-17) - Independent Review Remediation (Batch 2)
 

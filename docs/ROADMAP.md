@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-17
+**Last Reviewed:** 2025-12-18
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -39,6 +39,42 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
     - Migrated all tests to use `programmaticLoginWithRoutes`
   - **Result:** All 36 E2E tests pass reliably in parallel CI.
   - **Warning:** DO NOT revert to MSW - the race conditions are fundamental architectural limitations.
+
+### 🗑️ Codebase Bloat Cleanup (2025-12-18) ✅ COMPLETE
+
+> **Source:** Forensic analysis of `repo.manifest.txt` cross-referenced with domain XMLs.
+
+- ✅ **Dead Code Cleanup:**
+  - ~~`AccuracyComparison.tsx`~~ → Renamed to `STTAccuracyComparison.tsx` (deferred feature, not dead code)
+  - ✅ `test-import/` deleted
+  - ✅ `dropdown-debug.e2e.spec.ts` deleted
+  - ✅ Edge Function `package.json` files deleted
+- ✅ **Deno Import Map:** Created `import_map.json` to centralize versions.
+- ✅ **Lazy Load Analytics:** Already implemented - `AnalyticsPage` uses `React.lazy()` in App.tsx.
+
+### 🛡️ Gap Analysis Audit (2025-12-18) ✅ COMPLETE
+
+> **Status:** ✅ ALPHA READY  
+> **Source:** Elite Software Architect audit of reconstructed repo.xml.
+
+#### Security
+- ✅ **CI Secret Exposure:** Verified - only public keys written to file. Sensitive creds already use `env:` block.
+- ✅ **Permissive CORS:** Fixed - now uses `ALLOWED_ORIGIN` env var. TODO: Set in Supabase for production.
+
+#### Reliability
+- ✅ **Supply Chain Risk:** Fixed - `import_map.json` created.
+- ✅ **Stripe Crash Risk:** Fixed - defensive initialization with null check.
+
+#### Performance
+- ✅ **Bundle Heaviness:** Already implemented - `AnalyticsPage` lazy loaded.
+
+| ID | Priority | Status |
+|----|----------|--------|
+| 1 | CRITICAL | ✅ Verified correct |
+| 2 | CRITICAL | ✅ Fixed |
+| 3 | HIGH | ✅ Fixed |
+| 4 | MEDIUM | ✅ Fixed |
+| 5 | MEDIUM | ✅ Already done |
 
 ### 🚨 Alpha Launch Blockers (Comprehensive Audit - 2025-12-12)
 

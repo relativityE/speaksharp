@@ -88,11 +88,17 @@
  * RELATED FILES:
  * --------------
  * - scripts/download-whisper-model.sh: Downloads models to /public/models/
+ * - scripts/check-whisper-update.sh: Checks for model updates from CDN
  * - frontend/src/services/transcription/modes/OnDeviceWhisper.ts: Uses the cached models
+ * - frontend/src/hooks/useSpeechRecognition/index.ts: Manages loading state
+ * 
+ * E2E TESTS:
+ * ----------
+ * - tests/e2e/ondevice-stt.e2e.spec.ts: UX flow, caching, P1 regression
  * 
  * DOCUMENTATION:
  * --------------
- * See docs/ARCHITECTURE.md > "Service Worker Strategy" section
+ * See docs/ARCHITECTURE.md > "On-Device STT (Whisper) & Service Worker Caching"
  * 
  * ============================================================================
  */

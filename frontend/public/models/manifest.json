@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "lastChecked": "2025-12-18T22:52:59Z",
+  "models": {
+    "tiny-q8g16.bin": {
+      "url": "https://rmbl.us/whisper-turbo/tiny-q8g16.bin",
+      "size": 51444634,
+      "lastModified": "Tue, 31 Oct 2023 09:37:29 GMT"
+    },
+    "tokenizer.json": {
+      "url": "https://huggingface.co/openai/whisper-large-v2/raw/main/tokenizer.json",
+      "size": 2480466,
+      "lastModified": null
+    }
+  }
+}

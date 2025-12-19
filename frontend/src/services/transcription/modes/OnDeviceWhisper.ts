@@ -1,3 +1,44 @@
+/**
+ * ============================================================================
+ * ON-DEVICE WHISPER TRANSCRIPTION SERVICE
+ * ============================================================================
+ * 
+ * PURPOSE:
+ * --------
+ * Provides client-side speech-to-text using the Whisper AI model running
+ * locally in the browser via WebAssembly (whisper-turbo npm package).
+ * 
+ * ARCHITECTURE:
+ * -------------
+ * This service is part of a two-layer caching architecture:
+ * 
+ * Layer 1 (Service Worker): sw.js intercepts CDN requests for model files
+ *   and serves them from /models/ directory (CacheStorage API)
+ * 
+ * Layer 2 (whisper-turbo): The npm package internally caches compiled WASM
+ *   in IndexedDB for faster subsequent loads
+ * 
+ * PERFORMANCE:
+ * ------------
+ * - First load: ~2-5 seconds (file I/O + WASM compilation)
+ * - Subsequent loads: <1 second (served from IndexedDB cache)
+ * - Model size: ~30MB (tiny-q8g16.bin) + ~2MB (tokenizer.json)
+ * 
+ * RELATED FILES:
+ * --------------
+ * - frontend/public/sw.js - Service Worker cache logic
+ * - scripts/download-whisper-model.sh - Model pre-download script
+ * - scripts/check-whisper-update.sh - Model version checker
+ * - frontend/src/hooks/useSpeechRecognition/index.ts - Manages loading state
+ * - frontend/src/lib/e2e-bridge.ts - MockOnDeviceWhisper for E2E tests
+ * 
+ * E2E TESTS:
+ * ----------
+ * - tests/e2e/ondevice-stt.e2e.spec.ts (download progress, caching, P1 regression)
+ * 
+ * @see docs/ARCHITECTURE.md - "On-Device STT (Whisper) & Service Worker Caching"
+ */
+
 import logger from '../../../lib/logger';
 import { SessionManager, AvailableModels, InferenceSession } from 'whisper-turbo';
 import { ITranscriptionMode, TranscriptionModeOptions } from './types';

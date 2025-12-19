@@ -4,7 +4,15 @@ import { useAnalytics } from '@/hooks/useAnalytics';
 import { Skeleton } from '@/components/ui/skeleton';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
-export const AccuracyComparison: React.FC = () => {
+/**
+ * STT Accuracy Comparison Chart
+ * 
+ * Compares transcription engine accuracy (AssemblyAI vs Whisper vs Browser)
+ * against user-provided ground truth transcripts over time.
+ * 
+ * @deferred Waiting for ground truth transcript input feature
+ */
+export const STTAccuracyComparison: React.FC = () => {
     const { accuracyData, loading, error } = useAnalytics();
 
     if (loading) {
@@ -42,7 +50,7 @@ export const AccuracyComparison: React.FC = () => {
                             <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
                             <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
                             <YAxis stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} domain={[0, 100]} unit="%" />
-                            <Tooltip cursor={{ fill: 'hsla(var(--secondary))' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}/>
+                            <Tooltip cursor={{ fill: 'hsla(var(--secondary))' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
                             {engines.map((engine, i) => (
                                 <Line key={engine} type="monotone" dataKey="accuracy" data={accuracyData.filter(d => d.engine === engine)} name={engine} stroke={colors[i % colors.length]} strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
                             ))}
