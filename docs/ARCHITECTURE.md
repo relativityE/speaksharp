@@ -516,16 +516,17 @@ The project uses **two distinct Supabase configurations** depending on the execu
 ##### Soak Test Prerequisites
 
 **Test User Management:**
-- Soak test users are managed via `scripts/setup-test-users.mjs` and the `setup-test-users.yml` workflow
-- **Email Pattern:** `soak-test{N}@test.com` (0-indexed: `soak-test0`, `soak-test1`, etc.)
-- **Shared Password:** All users share `SOAK_TEST_PASSWORD` secret (no hardcoded credentials)
+- Soak test users are managed via `scripts/setup-test-users.mjs` and the `setup-test-users.yml` workflow.
+- **Scaling:** Default load is **10 users** (7 Free, 3 Pro), with a safety cap of **100 users** enforced via `MAX_TOTAL_TEST_USERS`.
+- **Email Pattern:** `soak-test{N}@test.com` (e.g., `soak-test0`, `soak-test4`).
+- **Shared Password:** Users share the `SOAK_TEST_PASSWORD` secret defined in GitHub.
 
-**Workflow Actions (soak_action):**
+**Workflow Actions (password_action):**
 
 | Action | GitHub Secrets | Supabase |
 |--------|---------------|----------|
-| `update_existing` | Reads `SOAK_TEST_PASSWORD` | Updates all user passwords to match |
-| `generate_new_credentials` | Generates new password, saves to `SOAK_TEST_PASSWORD` | Updates all user passwords to match |
+| `use_existing` | Reads current `SOAK_TEST_PASSWORD` | Syncs all database users to match this secret |
+| `generate_new_credentials` | Generates new 20-char password via `GH_PAT` | Syncs all database users to the new password |
 
 > **Both actions sync Supabase users to match the GitHub secret.** The difference is whether a new password is generated.
 
@@ -627,27 +628,30 @@ Due to the sensitivity of Stripe `secret keys`, we employ a "Negative Verificati
 
 #### 3.6 Setup Test Users (`setup-test-users.yml`)
 
-**Purpose:** Creates or updates test users (Free/Pro) in the real Supabase database securely using GitHub Secrets.
+**Purpose:** Programmatically manages the soak test user registry (provisioning, password synchronization, and subscription tier alignment).
 
-**Supabase Mode:** Real (modifies production authentication)
+**Supabase Mode:** Real (modifies production authentication and `user_profiles`)
 
 **What it does:**
-1. Generates or retrieves test credentials from GitHub Secrets
-2. Calls Supabase Admin API to create user or update password
-3. Sets `email_confirmed_at` to ensure user can sign in immediately
-4. Creates necessary profile records
-5. Outputs credentials to workflow summary for use in other tests
+1. **Secret Management:** Opt-in rotation of `SOAK_TEST_PASSWORD` using `GH_PAT` (Personal Access Token).
+2. **User Provisioning:** Automatically creates missing users up to the required count (default: 7 Free, 3 Pro).
+3. **Password Sync:** Ensures every `soak-test*` user in the database matches the current GitHub Secret.
+4. **Tier Alignment:** Updates `user_profiles` to match the requested distribution of Free/Pro tiers.
+5. **Security:** Enforces a hard safety cap of **100 users** from `tests/constants.ts`.
 
 **Trigger:** Manual (`workflow_dispatch`)
 
 **Inputs:**
-- `user_type`: "free" or "pro" (default: free)
+- `mode`: "e2e" (1 user) or "soak" (batch sync).
+- `password_action`: "use_existing" or "generate_new_credentials".
+- `new_free_count`: Override default Free user target (0 to use defaults).
+- `new_pro_count`: Override default Pro user target (0 to use defaults).
 
 **Required Secrets:**
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_KEY`
-- `E2E_FREE_EMAIL` / `E2E_FREE_PASSWORD`
-- `E2E_PRO_EMAIL` / `E2E_PRO_PASSWORD`
+- `SOAK_TEST_PASSWORD` (managed by workflow)
+- `GH_PAT` (Required for `generate_new_credentials` action)
 
 ---
 
