@@ -3,6 +3,17 @@ name: Soak Test
 on:
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
+    inputs:
+      new_free_count:
+        description: 'Override FREE users count (0 to use config default 7)'
+        required: false
+        default: '0'
+        type: string
+      new_pro_count:
+        description: 'Override PRO users count (0 to use config default 3)'
+        required: false
+        default: '0'
+        type: string
   # Optional: Run on a schedule (e.g., every night at midnight)
   # schedule:
   #   - cron: '0 0 * * *'
@@ -50,6 +61,8 @@ jobs:
           VITE_TEST_MODE: "true"
           # Real Supabase auth (skip MSW for auth)
           VITE_USE_LIVE_DB: "true"
+          NEW_FREE_COUNT: ${{ github.event.inputs.new_free_count }}
+          NEW_PRO_COUNT: ${{ github.event.inputs.new_pro_count }}
         run: |
           # Using start-server-and-test for clean process lifecycle
           # (avoids ELIFECYCLE from orphaned node/esbuild processes)

@@ -60,17 +60,14 @@ function getConfigCounts() {
     const configPath = path.resolve(process.cwd(), 'tests/constants.ts');
     try {
         const content = fs.readFileSync(configPath, 'utf-8');
-        const freeMatch = content.match(/FREE_USER_COUNT.*?\s?(\d+)\s*;/);
-        const proMatch = content.match(/PRO_USER_COUNT.*?\s?(\d+)\s*;/);
+        // Match FREE_USER_COUNT = getEnvNum('NEW_FREE_COUNT', 7)
+        const freeMatch = content.match(/FREE_USER_COUNT.*?getEnvNum\(.*?,?\s*(\d+)\)/);
+        const proMatch = content.match(/PRO_USER_COUNT.*?getEnvNum\(.*?,?\s*(\d+)\)/);
+
         if (freeMatch && proMatch) {
             const free = parseInt(freeMatch[1], 10);
             const pro = parseInt(proMatch[1], 10);
             return { free, pro, total: free + pro };
-        }
-        const concurrentMatch = content.match(/CONCURRENT_USER_COUNT.*?\s?(\d+)\s*;/);
-        if (concurrentMatch) {
-            const total = parseInt(concurrentMatch[1], 10);
-            return { free: total, pro: 0, total };
         }
     } catch (e) {
         console.warn('⚠️ Could not read user counts from config');
@@ -192,37 +189,82 @@ async function verifyLogin(email) {
     return { success: true };
 }
 
+async function syncUserTiers(users, targetFree, targetPro) {
+    console.log('\n🔄 Syncing user tiers to match target distribution...');
+    let synced = 0;
+    const total = targetFree + targetPro;
+
+    for (let i = 0; i < total; i++) {
+        const email = getEmailForIndex(i);
+        const expectedTier = i < targetFree ? 'free' : 'pro';
+        const user = users.find(u => u.email === email);
+
+        if (user && user.tier !== expectedTier) {
+            console.log(`  Updating ${email}: ${user.tier} -> ${expectedTier}`);
+            const { error } = await supabase.from('user_profiles').upsert({
+                id: user.id,
+                subscription_status: expectedTier
+            }, { onConflict: 'id' });
+
+            if (error) {
+                console.error(`  ❌ Failed to sync ${email}:`, error.message);
+            } else {
+                synced++;
+            }
+        }
+    }
+    if (synced === 0) console.log('✅ All existing users already match target tiers');
+    else console.log(`✅ ${synced} users updated to correct tiers`);
+}
+
 // ============================================
 // Main
 // ============================================
 
 async function main() {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🧪 Soak Test User Setup');
+    console.log('🧪 Test User Registry Setup');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
+    const MODE = process.env.MODE || 'e2e';
     const config = getConfigCounts();
     const { newFreeCount: inputFree, newProCount: inputPro } = getNewUserCounts();
 
     // Determine final counts (override if inputs provided)
     let finalFree = config.free;
     let finalPro = config.pro;
-
     const isOverride = inputFree > 0 || inputPro > 0;
 
-    if (isOverride) {
-        console.log('🔄 Overriding config with workflow inputs:');
-        if (inputFree > 0) {
-            console.log(`  Free users: ${config.free} -> ${inputFree}`);
-            finalFree = inputFree;
+    if (MODE === 'e2e') {
+        // E2E Mode: Enforce 1 user
+        console.log('📌 Mode: E2E (Single User)');
+
+        finalPro = inputPro > 0 ? 1 : 0;
+        finalFree = finalPro === 1 ? 0 : 1;
+
+        if (inputFree + inputPro > 1) {
+            console.log('⚠️  E2E enforcement: Adjusting requested counts to 1 user');
         }
-        if (inputPro > 0) {
-            console.log(`  Pro users:  ${config.pro} -> ${inputPro}`);
-            finalPro = inputPro;
-        }
-        console.log(`  Total:      ${config.total} -> ${finalFree + finalPro}`);
+
+        console.log(`  free selection from ${inputFree} to ${finalFree}`);
+        console.log(`  pro selection from ${inputPro} to ${finalPro}`);
     } else {
-        console.log('📌 Using default config counts');
+        // Soak Mode: Use config or overrides
+        console.log('📌 Mode: Soak (Batch Operations)');
+        if (isOverride) {
+            console.log('🔄 Overriding config with workflow inputs:');
+            if (inputFree > 0) {
+                console.log(`  Free:  ${config.free} -> ${inputFree}`);
+                finalFree = inputFree;
+            }
+            if (inputPro > 0) {
+                console.log(`  Pro:   ${config.pro} -> ${inputPro}`);
+                finalPro = inputPro;
+            }
+            console.log(`  Total: ${config.total} -> ${finalFree + finalPro}`);
+        } else {
+            console.log('📌 Using default config counts');
+        }
     }
 
     const finalTotal = finalFree + finalPro;
@@ -292,7 +334,12 @@ async function main() {
         console.log(`\n✅ Sufficient users exist. No creation needed.`);
     }
 
-    // Step 5: Verify logins for the target users
+    // Step 5: SYNC TIERS for all users (critical fix)
+    // Refresh list after creation
+    const currentUsers = await listExistingSoakUsers(false);
+    await syncUserTiers(currentUsers, finalFree, finalPro);
+
+    // Step 6: Verify logins for the target users
     const allUsers = await listExistingSoakUsers(false);
     // Sort so we check indices 0 to finalTotal-1
     const sortedUsers = allUsers.sort((a, b) => {

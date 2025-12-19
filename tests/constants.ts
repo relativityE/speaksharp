@@ -154,7 +154,7 @@ export const TIMEOUTS = {
 // ============================================
 
 export const SOAK_CONFIG = {
-  CONCURRENT_USERS: 2,
+  CONCURRENT_USERS: CONCURRENT_USER_COUNT,
   SESSION_DURATION_MS: 5 * 60 * 1000, // 5 minutes
   USE_NATIVE_MODE: true,
   TRACK_MEMORY: true,

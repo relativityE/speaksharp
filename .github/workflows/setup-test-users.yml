@@ -4,41 +4,33 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Mode: e2e (single user) or soak (batch)'
+        description: 'Target Mode: e2e (single user) or soak (batch)'
         required: true
         default: 'e2e'
         type: choice
         options:
           - e2e
           - soak
-      e2e_tier:
-        description: 'E2E tier (ignored for soak)'
-        required: false
-        default: 'free'
+      password_action:
+        description: 'Registry Password Strategy'
+        required: true
+        default: 'use_existing'
         type: choice
         options:
-          - free
-          - pro
-      soak_action:
-        description: 'Soak action (ignored for e2e)'
-        required: false
-        default: 'update_existing'
-        type: choice
-        options:
-          - update_existing
+          - use_existing
           - generate_new_credentials
       new_free_count:
-        description: 'New free users (ignored for e2e)'
+        description: 'Number of FREE users to ensure'
         required: false
         default: '0'
         type: string
       new_pro_count:
-        description: 'New pro users (ignored for e2e)'
+        description: 'Number of PRO users to ensure'
         required: false
         default: '0'
         type: string
       use_subset:
-        description: 'Use only specified counts, not all existing (soak only)'
+        description: 'Limit to exactly these counts (soak only)'
         required: false
         default: false
         type: boolean
@@ -68,7 +60,7 @@ jobs:
         run: pnpm install
 
       - name: Generate and set SOAK_TEST_PASSWORD
-        if: ${{ github.event.inputs.mode == 'soak' && github.event.inputs.soak_action == 'generate_new_credentials' }}
+        if: ${{ github.event.inputs.password_action == 'generate_new_credentials' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -90,117 +82,34 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SOAK_TEST_PASSWORD: ${{ env.SOAK_TEST_PASSWORD || secrets.SOAK_TEST_PASSWORD }}
           MODE: ${{ github.event.inputs.mode }}
-          E2E_TIER: ${{ github.event.inputs.e2e_tier }}
-          SOAK_ACTION: ${{ github.event.inputs.soak_action }}
           NEW_FREE_COUNT: ${{ github.event.inputs.new_free_count }}
           NEW_PRO_COUNT: ${{ github.event.inputs.new_pro_count }}
           USE_SUBSET: ${{ github.event.inputs.use_subset }}
         run: |
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "📋 Setup Test Users"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo ""
-          echo "📌 Mode: $MODE"
-          
-          if [ "$MODE" = "soak" ]; then
-            echo "📌 Soak Action: $SOAK_ACTION"
-            echo "📌 New Free: $NEW_FREE_COUNT, New Pro: $NEW_PRO_COUNT"
+          if [ -z "$SOAK_TEST_PASSWORD" ]; then
+            echo "❌ Error: SOAK_TEST_PASSWORD is not set."
             echo ""
-            
-            if [ -z "$SOAK_TEST_PASSWORD" ]; then
-              echo "❌ Error: SOAK_TEST_PASSWORD is not set."
-              echo ""
-              echo "Choose one of these options:"
-              echo "  1. Run workflow with 'generate_new_credentials' action"
-              echo "  2. Manually create SOAK_TEST_PASSWORD secret in GitHub Settings"
-              exit 1
-            fi
-            
-            node scripts/setup-test-users.mjs
-          else
-            # E2E mode: enforce single user (ignore batch counts)
-            echo "📌 E2E Tier: $E2E_TIER"
-            if [ "$NEW_FREE_COUNT" != "0" ] || [ "$NEW_PRO_COUNT" != "0" ]; then
-              echo ""
-              echo "⚠️  NOTE: E2E mode creates exactly 1 user."
-              echo "   Your batch counts were ignored (new_free=$NEW_FREE_COUNT, new_pro=$NEW_PRO_COUNT)."
-              echo "   Use 'soak' mode for batch user creation."
-            fi
-            echo ""
-            
-            node -e "
-            const { createClient } = require('@supabase/supabase-js');
-            
-            const supabase = createClient(
-              process.env.SUPABASE_URL,
-              process.env.SUPABASE_SERVICE_KEY,
-              { auth: { autoRefreshToken: false, persistSession: false } }
-            );
-            
-            const userType = process.env.E2E_TIER || 'free';
-            const email = userType === 'pro' ? 'e2e-pro-user@test.com' : 'e2e-free-user@test.com';
-            const password = 'TestPassword123!';
-            
-            async function setupUser() {
-              console.log('🔧 Setting up E2E test user:', email, 'as', userType);
-              
-              const { data: existingUsers } = await supabase.auth.admin.listUsers();
-              const existingUser = existingUsers?.users?.find(u => u.email === email);
-              
-              let userId;
-              
-              if (existingUser) {
-                console.log('📧 User exists, updating...');
-                userId = existingUser.id;
-                await supabase.auth.admin.updateUserById(userId, { password });
-              } else {
-                console.log('📧 Creating new user...');
-                const { data, error } = await supabase.auth.admin.createUser({
-                  email,
-                  password,
-                  email_confirm: true
-                });
-                
-                if (error) throw error;
-                userId = data.user.id;
-              }
-              
-              const { error: profileError } = await supabase
-                .from('user_profiles')
-                .upsert({
-                  id: userId,
-                  subscription_status: userType
-                }, { onConflict: 'id' });
-              
-              if (profileError) {
-                console.error('Profile error:', profileError);
-              }
-              
-              console.log('✅ Test user ready:');
-              console.log('   Email:', email);
-              console.log('   Password: TestPassword123!');
-              console.log('   Subscription:', userType);
-            }
-            
-            setupUser().catch(e => { console.error(e); process.exit(1); });
-            "
+            echo "Choose one of these options:"
+            echo "  1. Run workflow with 'generate_new_credentials' password action"
+            echo "  2. Manually create SOAK_TEST_PASSWORD secret in GitHub Settings"
+            exit 1
           fi
+          
+          node scripts/setup-test-users.mjs
 
       - name: Summary
         env:
           MODE: ${{ github.event.inputs.mode }}
-          SOAK_ACTION: ${{ github.event.inputs.soak_action }}
+          PASSWORD_ACTION: ${{ github.event.inputs.password_action }}
         run: |
           echo "### Test User Setup Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Mode:** $MODE" >> $GITHUB_STEP_SUMMARY
+          echo "**Password Strategy:** $PASSWORD_ACTION" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if [ "$MODE" = "soak" ]; then
-            echo "**Action:** $SOAK_ACTION" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            if [ "$SOAK_ACTION" = "generate_new_credentials" ]; then
-              echo "✅ New SOAK_TEST_PASSWORD generated and saved to GitHub Secrets" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "✅ Existing users updated with current SOAK_TEST_PASSWORD" >> $GITHUB_STEP_SUMMARY
-            fi
+          
+          if [ "$PASSWORD_ACTION" = "generate_new_credentials" ]; then
+            echo "✅ New SOAK_TEST_PASSWORD generated and saved to GitHub Secrets" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ Registry updated with current SOAK_TEST_PASSWORD" >> $GITHUB_STEP_SUMMARY
           fi
