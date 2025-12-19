@@ -1,11 +1,18 @@
 name: Soak Test
 
 on:
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
-  # Optional: Run on a schedule (e.g., every night at midnight)
-  # schedule:
-  #   - cron: '0 0 * * *'
+    inputs:
+      free_count:
+        description: 'Free Users'
+        required: false
+        default: '0'
+        type: string
+      pro_count:
+        description: 'Pro Users'
+        required: false
+        default: '0'
+        type: string
 
 jobs:
   run-soak-test:
@@ -51,6 +58,8 @@ jobs:
           # Real Supabase auth (skip MSW for auth)
           VITE_USE_LIVE_DB: "true"
           SOAK_TEST_PASSWORD: ${{ secrets.SOAK_TEST_PASSWORD }}
+          NEW_FREE_COUNT: ${{ github.event.inputs.free_count }}
+          NEW_PRO_COUNT: ${{ github.event.inputs.pro_count }}
         run: |
           # Using start-server-and-test for clean process lifecycle
           # (avoids ELIFECYCLE from orphaned node/esbuild processes)

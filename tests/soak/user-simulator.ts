@@ -85,7 +85,7 @@ export class UserSimulator {
     /**
      * Navigate to the sessions page
      */
-    private async navigateToSessions(page: Page): Promise<void> {
+    private async navigateToSessions(page: Page, userId: string): Promise<void> {
         const startTime = Date.now();
 
         console.log(`[User] 📍 Navigating to session page: ${ROUTES.SESSION}`);
@@ -115,7 +115,7 @@ export class UserSimulator {
     /**
      * Start a practice session
      */
-    private async startPracticeSession(page: Page): Promise<void> {
+    private async startPracticeSession(page: Page, userId: string): Promise<void> {
         const startTime = Date.now();
 
         // Select native mode if configured (to save API credits)
@@ -149,6 +149,7 @@ export class UserSimulator {
         const checkInterval = 10000;
         const iterations = Math.floor(this.config.sessionDuration / checkInterval);
         let lastStatus: string | null = null;
+        const progressLogInterval = 3; // Log every 3 iterations (30 seconds)
 
         console.log(`[User ${userId}] 🏁 Journey: Practice Session started (${(this.config.sessionDuration / 60000).toFixed(1)}m)`);
 
@@ -172,7 +173,7 @@ export class UserSimulator {
             const statusIndicator = page.getByTestId('session-status-indicator');
             const statusText = (await statusIndicator.textContent()) || 'Unknown';
 
-            // Log ONLY on status CHANGE or if it's the very first iteration and not active
+            // Log on status CHANGE
             if (statusText !== lastStatus) {
                 if (statusText === 'Session Active') {
                     console.log(`[User ${userId}] ✓ Session Active`);
@@ -180,6 +181,13 @@ export class UserSimulator {
                     console.warn(`[User ${userId}] ⚠️ Status Change: ${statusText} (at ${i}/${iterations})`);
                 }
                 lastStatus = statusText;
+            }
+
+            // Periodic progress log (every 30 seconds)
+            if ((i + 1) % progressLogInterval === 0) {
+                const elapsedSeconds = (i + 1) * (checkInterval / 1000);
+                const remainingSeconds = ((iterations - i - 1) * checkInterval) / 1000;
+                console.log(`[User ${userId}] ⏱️ Progress: ${elapsedSeconds}s elapsed, ${remainingSeconds}s remaining`);
             }
         }
         console.log(`[User ${userId}] 🏁 Journey: Practice Session complete`);
