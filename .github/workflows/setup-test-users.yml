@@ -20,29 +20,20 @@ on:
           - use_existing
           - generate_new_credentials
       new_free_count:
-        description: 'Number of FREE users to ensure'
+        description: 'Number of FREE users to ensure (0 to use config defaults)'
         required: false
         default: '0'
         type: string
       new_pro_count:
-        description: 'Number of PRO users to ensure'
+        description: 'Number of PRO users to ensure (0 to use config defaults)'
         required: false
         default: '0'
         type: string
-      use_subset:
-        description: '* Limit to exactly these counts (soak only)'
-        required: false
-        default: false
-        type: boolean
-
 
 jobs:
   setup-test-user:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    permissions:
-      contents: read
-      secrets: write
 
     steps:
       - name: Checkout code
@@ -65,7 +56,7 @@ jobs:
       - name: Generate and set SOAK_TEST_PASSWORD
         if: ${{ github.event.inputs.password_action == 'generate_new_credentials' }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           echo "🔐 Generating new SOAK_TEST_PASSWORD..."
           
@@ -87,7 +78,6 @@ jobs:
           MODE: ${{ github.event.inputs.mode }}
           NEW_FREE_COUNT: ${{ github.event.inputs.new_free_count }}
           NEW_PRO_COUNT: ${{ github.event.inputs.new_pro_count }}
-          USE_SUBSET: ${{ github.event.inputs.use_subset }}
         run: |
           if [ -z "$SOAK_TEST_PASSWORD" ]; then
             echo "❌ Error: SOAK_TEST_PASSWORD is not set."

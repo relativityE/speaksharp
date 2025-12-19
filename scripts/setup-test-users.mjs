@@ -81,10 +81,20 @@ async function listExistingSoakUsers(log = true) {
         process.exit(1);
     }
 
-    const soakUsers = users.users.filter(u => u.email.startsWith('soak-test'));
+    const soakUsers = users.users.filter(u => u.email && u.email.match(/^soak-test\d*@test\.com$/));
 
-    // Get profiles for tiers
-    const { data: profiles } = await supabase.from('user_profiles').select('id, subscription_status');
+    if (soakUsers.length === 0) return [];
+
+    // Senior architectural choice: Filter profiles by ID to avoid loading the entire table
+    const { data: profiles, error: profileError } = await supabase
+        .from('user_profiles')
+        .select('id, subscription_status')
+        .in('id', soakUsers.map(u => u.id));
+
+    if (profileError) {
+        console.warn(`  ⚠️ Could not fetch profiles: ${profileError.message}`);
+    }
+
     const profileMap = new Map(profiles?.map(p => [p.id, p.subscription_status]) || []);
 
     return soakUsers.map(u => ({
