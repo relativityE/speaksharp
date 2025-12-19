@@ -34,7 +34,8 @@ export const SOAK_TEST_USER = {
 // Can be overridden via NEW_FREE_COUNT and NEW_PRO_COUNT env vars in CI
 const getEnvNum = (key: string, def: number) => {
   if (typeof process !== 'undefined' && process.env && process.env[key]) {
-    return parseInt(process.env[key] as string, 10);
+    const val = parseInt(process.env[key] as string, 10);
+    return isNaN(val) || val <= 0 ? def : val;
   }
   return def;
 };
