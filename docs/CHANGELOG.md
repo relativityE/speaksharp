@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-18
+**Last Reviewed:** 2025-12-19
 
 # Changelog
 
@@ -9,6 +9,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Fixed (2025-12-19) - Supabase API Key Migration & Soak Test Improvements
+- **Supabase API Key Format:** Resolved `permission denied for schema public` and `Legacy API keys are disabled` errors by migrating to the new Supabase secret key format (`sb_secret_...` instead of legacy JWT keys).
+- **Schema Permissions Migration:** Added `20251219150000_fix_service_role_permissions.sql` to restore `USAGE` on `public` schema for `service_role`, `authenticated`, and `anon` roles.
+- **Soak Test Heartbeat Logging:** Added per-minute progress logs during the 5-minute session loop for better visibility.
+- **Soak Test User Count Overrides:** Added optional `free_count` and `pro_count` inputs to `soak-test.yml` workflow.
+- **TypeScript Fixes:** Fixed method signature mismatches in `user-simulator.ts`.
 
 ### Fixed (2025-12-19) - Phase 6: Reliability & Infrastructure Hardening
 - **Secure Secret Rotation**: Implemented `GH_PAT` powered rotation for the `SOAK_TEST_PASSWORD` secret in `setup-test-users.yml`.

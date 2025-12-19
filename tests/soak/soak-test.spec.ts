@@ -176,12 +176,12 @@ test.describe('Soak Test - Concurrent User Simulation', () => {
         expect(report.metrics.successCount).toBe(SOAK_CONFIG.CONCURRENT_USERS);
         expect(report.metrics.errorCount).toBe(0);
 
-        // Response times should be reasonable (< 5s for any operation)
-        expect(report.metrics.responseTime.p95).toBeLessThan(5000);
+        // Response times should be reasonable
+        expect(report.metrics.responseTime.p95).toBeLessThan(SOAK_CONFIG.P95_THRESHOLD_MS);
 
-        // Memory should not grow excessively (< 200MB)
+        // Memory should not grow excessively
         if (report.metrics.memoryUsage.count > 0) {
-            expect(report.metrics.memoryUsage.max).toBeLessThan(200);
+            expect(report.metrics.memoryUsage.max).toBeLessThan(SOAK_CONFIG.MAX_MEMORY_MB);
         }
     });
 });

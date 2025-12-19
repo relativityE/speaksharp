@@ -1038,21 +1038,23 @@ All users execute their journeys concurrently. The test validates that the appli
 
 #### Configuration
 
-Soak tests have a dedicated Playwright project configuration in `playwright.config.ts`:
+Soak test settings are centralized in `tests/constants.ts`:
 
 ```typescript
-{
-  name: 'soak',
-  testDir: './tests/soak',
-  timeout: 10 * 60 * 1000, // 10 minutes
-  retries: 0, // No retries for soak tests
-  use: {
-    launchOptions: {
-      args: ['--enable-precise-memory-info'], // For Chrome memory tracking
-    },
-  },
-}
+export const SOAK_CONFIG = {
+  CONCURRENT_USERS: 10,         // Default: 7 free + 3 pro
+  SESSION_DURATION_MS: 300000,  // 5 minutes per user
+  P95_THRESHOLD_MS: 10000,      // Max acceptable P95 response time
+  MAX_MEMORY_MB: 200,           // Max acceptable memory per tab
+  USE_NATIVE_MODE: true,        // Use browser STT (saves API credits)
+  TRACK_MEMORY: true,
+  RESULTS_DIR: 'test-results/soak',
+};
 ```
+
+**Override via environment:**
+- `NEW_FREE_COUNT`: Number of free tier users
+- `NEW_PRO_COUNT`: Number of pro tier users
 
 Run soak tests with:
 ```bash
@@ -1062,11 +1064,12 @@ pnpm test:soak
 #### Authentication Strategy
 
 **Real User Authentication**
-Soak tests use real user credentials to authenticate against the running development server. This ensures the entire authentication flow (including Supabase interactions) is validated under load.
+Soak tests use real user credentials to authenticate against the running development server.
 
-- **Test Users:** Pre-created users in the Supabase project (e.g., `test@test.com`, `soak-test-0@example.com`).
-- **Credentials:** Stored securely in the test configuration or environment variables.
-- **Permissions:** Headless browser is configured with microphone permissions and fake media streams to bypass hardware prompts.
+- **Test Users:** Managed via `scripts/setup-test-users.mjs` with pattern `soak-test{N}@test.com`
+- **Credentials:** Shared password via `SOAK_TEST_PASSWORD` GitHub secret
+- **Provisioning:** Run `setup-test-users.yml` workflow to create/sync users
+- **Permissions:** Headless browser is configured with microphone permissions and fake media streams
 
 3.  **Third-Party Service Stubbing:**
     *   To prevent external services like Sentry and PostHog from causing noise or failures in E2E tests, the `stubThirdParties(page)` helper is used. It intercepts and aborts any requests to these services' domains, ensuring tests are isolated and deterministic.

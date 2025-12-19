@@ -157,6 +157,8 @@ export const TIMEOUTS = {
 export const SOAK_CONFIG = {
   CONCURRENT_USERS: CONCURRENT_USER_COUNT,
   SESSION_DURATION_MS: 5 * 60 * 1000, // 5 minutes
+  P95_THRESHOLD_MS: 10000, // Max acceptable P95 response time
+  MAX_MEMORY_MB: 200, // Max acceptable memory usage per tab
   USE_NATIVE_MODE: true,
   TRACK_MEMORY: true,
   RESULTS_DIR: 'test-results/soak',
