@@ -158,7 +158,7 @@ export const SOAK_CONFIG = {
   CONCURRENT_USERS: CONCURRENT_USER_COUNT,
   SESSION_DURATION_MS: 5 * 60 * 1000, // 5 minutes per session
   PLAYWRIGHT_TIMEOUT_MS: 10 * 60 * 1000, // 10 minute Playwright test timeout
-  P95_THRESHOLD_MS: 10000, // Max acceptable P95 response time
+  P95_THRESHOLD_MS: 10000, // Max acceptable P95 response time (Increased for CI variance)
   MAX_MEMORY_MB: 200, // Max acceptable memory per tab
   USE_NATIVE_MODE: true,
   TRACK_MEMORY: true,
