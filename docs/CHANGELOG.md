@@ -19,6 +19,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **E2E Test Helper:** Added `goToPublicRoute()` function to `tests/e2e/helpers.ts` for navigating to public routes without triggering ESLint `no-restricted-syntax` warnings.
   - **Files:** `tests/e2e/helpers.ts`, `tests/e2e/plan-selection.e2e.spec.ts`
 
+- **Core Journey E2E Test Fix (localStorage Key Mismatch):**
+  - **Problem:** `core-journey.e2e.spec.ts` timed out at login. `injectMockSession` used `sb-localhost-auth-token` but `.env.test` has `VITE_SUPABASE_URL=https://mock.supabase.co`, so Supabase expected `sb-mock-auth-token`.
+  - **Fix:** Changed storage key to `sb-mock-auth-token` in `tests/e2e/mock-routes.ts`
+  - Added `sessionStore` state and `create_session_and_update_usage` RPC mock for session persistence verification
+  - **Files:** `tests/e2e/mock-routes.ts`
+
+- **SessionPage Unit Tests (22 tests fixed):**
+  - **Problem:** `SessionPage.test.tsx` and `SessionPage.ui.test.tsx` failed with "useNavigate() may be used only in the context of a `<Router>`"
+  - **Root Cause:** `SessionPage` uses `useNavigate` but tests rendered without Router context
+  - **Fix:** Added `MemoryRouter` wrapper, `renderWithRouter()` helper, and `useSessionManager` mock
+  - **Files:** `frontend/src/pages/__tests__/SessionPage.test.tsx`, `frontend/src/pages/__tests__/SessionPage.ui.test.tsx`
+
+- **TranscriptionService Unit Tests (getTestConfig mock):**
+  - **Problem:** Tests for Cloud/OnDevice modes failed because `getTestConfig()` returns `isTestMode: true` in unit tests (via `VITE_TEST_MODE=true`), forcing Native mode.
+  - **Fix:** Added mock for `@/config/test.config` that returns `isTestMode: false` to allow testing Cloud/OnDevice transcription mode selection.
+  - **Note:** Pro users can select any STT mode (Native, Cloud, OnDevice) - the test verifies Cloud mode *is available* when selected.
+  - **Files:** `frontend/src/services/transcription/__tests__/TranscriptionService.test.ts`
+
 - **Unit Test Fixes:**
   - Fixed AuthPage integration tests (button selector changed from `/create account/i` to `/submit/i`)
   - Fixed useUserProfile tests (mock `profileService` instead of legacy `getSupabaseClient`)

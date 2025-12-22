@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { toast } from 'sonner';
 import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,20 +18,35 @@ import { WeeklyActivityChart } from './analytics/WeeklyActivityChart';
 import { GoalsSection } from './analytics/GoalsSection';
 import { SessionComparisonDialog } from './analytics/SessionComparisonDialog';
 import { TrendChart } from './analytics/TrendChart';
-import { getSupabaseClient } from '@/lib/supabaseClient';
-import logger from '@/lib/logger';
-import { toast } from 'sonner';
+
 import type { PracticeSession } from '@/types/session';
 import type { UserProfile } from '@/types/user';
-import { useAnalytics } from '@/hooks/useAnalytics';
+import type { FillerWordTrends } from '@/types/analytics';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { TEST_IDS } from '@/constants/testIds';
 import { isPro as checkIsPro } from '@/constants/subscriptionTiers';
 
 // --- Prop Interfaces ---
 
+/**
+ * AnalyticsDashboard is a PRESENTATIONAL component.
+ * 
+ * ARCHITECTURE NOTE (Gap Analysis 2025-12-22):
+ * This component follows the Container/Presentational pattern:
+ * - It receives ALL data via props (no internal data fetching)
+ * - AnalyticsPage.tsx is the CONTAINER that fetches data via useAnalytics()
+ * - This separation enables easier testing and clear data flow
+ * 
+ * @see AnalyticsPage.tsx - Container component that fetches and passes data
+ */
 interface AnalyticsDashboardProps {
     profile: UserProfile | null;
+    sessionHistory: PracticeSession[];
+    overallStats: OverallStats;
+    fillerWordTrends: FillerWordTrends;
+    loading: boolean;
+    error: Error | null;
+    onUpgrade: () => void;
 }
 
 interface StatCardProps {
@@ -272,8 +288,17 @@ export const AnalyticsDashboardSkeleton: React.FC = () => (
 
 // --- Main Component ---
 
-export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ profile }) => {
-    const { sessionHistory, overallStats, fillerWordTrends, loading, error } = useAnalytics();
+// --- Main Component ---
+
+export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
+    profile,
+    sessionHistory,
+    overallStats,
+    fillerWordTrends,
+    loading,
+    error,
+    onUpgrade
+}) => {
     const [selectedSessions, setSelectedSessions] = useState<string[]>([]);
     const [showComparison, setShowComparison] = useState(false);
 
@@ -297,24 +322,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ profile 
 
     const isProUser = checkIsPro(profile?.subscription_status);
     const isUpgradeBannerVisible = !isProUser;
-
-
-    const handleUpgrade = async () => {
-        try {
-            const supabase = getSupabaseClient();
-            if (!supabase) throw new Error("Supabase client not available");
-            const { data, error } = await supabase.functions.invoke('stripe-checkout');
-            if (error) throw error;
-            if (data?.checkoutUrl) {
-                window.location.href = data.checkoutUrl;
-            } else {
-                throw new Error("No checkout URL returned");
-            }
-        } catch (err: unknown) {
-            logger.error({ err }, 'Error creating Stripe checkout session:');
-            toast.error('Unable to start upgrade process. Please try again or contact support.');
-        }
-    };
 
     // Stat card selection state with localStorage persistence
     const [selectedStatCards, setSelectedStatCards] = useState<string[]>(() => {
@@ -490,7 +497,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ profile 
                 secondaryAction={!isProUser ? {
                     prefix: "Want unlimited sessions?",
                     label: "Upgrade to Pro",
-                    onClick: handleUpgrade,
+                    onClick: onUpgrade,
                     testId: "analytics-dashboard-upgrade-button"
                 } : undefined}
             />
@@ -520,7 +527,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ profile 
                                 Unlock unlimited sessions coverage, advanced PDF reports, and detailed filler word analysis.
                             </p>
                         </div>
-                        <Button onClick={handleUpgrade} className="w-full sm:w-auto gap-2 shadow-lg">
+                        <Button onClick={onUpgrade} className="w-full sm:w-auto gap-2 shadow-lg">
                             <span className="font-bold">Upgrade Now</span>
                         </Button>
                     </CardContent>
@@ -725,13 +732,15 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ profile 
                 </div>
             </div>
 
-            {selectedSessionData && (
-                <SessionComparisonDialog
-                    open={showComparison}
-                    onOpenChange={setShowComparison}
-                    sessions={selectedSessionData}
-                />
-            )}
-        </div>
+            {
+                selectedSessionData && (
+                    <SessionComparisonDialog
+                        open={showComparison}
+                        onOpenChange={setShowComparison}
+                        sessions={selectedSessionData}
+                    />
+                )
+            }
+        </div >
     );
 };

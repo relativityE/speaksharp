@@ -125,6 +125,11 @@ export const MOCK_GOALS = {
 // Per-test state for custom vocabulary (resets on each setupE2EMocks call)
 let vocabularyStore: Map<string, Array<{ id: string; user_id: string; word: string; created_at: string }>> = new Map();
 
+// Per-test state for sessions (resets on each setupE2EMocks call)
+// Initialize with mock history
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let sessionStore: any[] = [];
+
 // ============================================================================
 // ROUTE HANDLERS
 // ============================================================================
@@ -228,12 +233,50 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
                 body: JSON.stringify([]),
             });
         } else {
+            // Return stateful session store
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
-                body: JSON.stringify(MOCK_SESSION_HISTORY),
+                body: JSON.stringify(sessionStore),
             });
         }
+    });
+
+    // POST /rest/v1/rpc/create_session_and_update_usage
+    await registerRoute(page, '**/rest/v1/rpc/create_session_and_update_usage', async (route) => {
+        const body = JSON.parse(route.request().postData() || '{}');
+        const { p_session_data } = body;
+
+        console.log('[E2E MOCK] RPC create_session called with:', p_session_data);
+
+        // Create new session object
+        const newSession = {
+            id: `session-${Date.now()}`,
+            user_id: p_session_data.user_id || 'test-user-123',
+            created_at: new Date().toISOString(),
+            duration: p_session_data.duration || 0,
+            transcript: p_session_data.transcript || '',
+            title: p_session_data.title || 'New Session',
+            total_words: p_session_data.total_words || 0,
+            engine: p_session_data.engine || 'WebSpeech',
+            clarity_score: p_session_data.clarity_score || 0,
+            wpm: p_session_data.wpm || 0,
+            filler_words: p_session_data.filler_words || {},
+            accuracy: p_session_data.accuracy || 0,
+        };
+
+        // Add to store at the BEGINNING (latest first)
+        sessionStore.unshift(newSession);
+        console.log(`[E2E MOCK] Session created and added to store. Total sessions: ${sessionStore.length}`);
+
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                new_session: newSession,
+                usage_exceeded: false
+            }),
+        });
     });
 
     // GET/POST /rest/v1/custom_vocabulary
@@ -389,6 +432,7 @@ export async function setupE2EMocks(
 
     // Reset per-test state
     vocabularyStore = new Map();
+    sessionStore = [...MOCK_SESSION_HISTORY]; // Reset to default mock history
 
     console.log('[E2E MOCK] Setting up Playwright route interception...');
 
@@ -412,7 +456,7 @@ export async function setupE2EMocks(
 export async function injectMockSession(page: Page): Promise<void> {
     await page.evaluate(({ session }) => {
         // Store in localStorage (Supabase format)
-        const storageKey = 'sb-localhost-auth-token';
+        const storageKey = 'sb-mock-auth-token';
         localStorage.setItem(storageKey, JSON.stringify({
             access_token: session.access_token,
             refresh_token: session.refresh_token,

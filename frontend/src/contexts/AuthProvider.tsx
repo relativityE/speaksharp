@@ -4,6 +4,7 @@ import { getSupabaseClient } from '../lib/supabaseClient';
 import { Session, User } from '@supabase/supabase-js';
 import { UserProfile } from '@/types/user';
 import { fetchWithRetry } from '@/utils/fetchWithRetry';
+import { getTestConfig, setTestFlag, dispatchTestEvent } from '@/config/test.config';
 
 /**
  * P1 TECH DEBT: Auth Context Overreach
@@ -121,10 +122,11 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
             setSessionState(session);
 
             // Test mode notifications
-            if (import.meta.env.MODE === 'test' || import.meta.env.VITE_TEST_MODE === 'true') {
+            const { isTestMode } = getTestConfig();
+            if (isTestMode) {
               console.log(`[E2E DIAGNOSTIC] Profile found for ${data.id}, setting flag and dispatching event.`);
-              (window as Window & { __e2eProfileLoaded?: boolean }).__e2eProfileLoaded = true;
-              document.dispatchEvent(new CustomEvent('e2e-profile-loaded', { detail: data }));
+              setTestFlag('__e2eProfileLoaded', true);
+              dispatchTestEvent('e2e-profile-loaded', data);
             }
           } else {
             console.log('[AuthProvider] Stale fetch discarded:', currentFetchId);
@@ -153,13 +155,6 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, newSession) => {
         console.log(`[Supabase Auth] 🔐 Auth state changed: ${_event}`, newSession?.user?.id ? `User: ${newSession.user.id.slice(0, 8)}...` : 'No user');
-        // In E2E test mode, don't let Supabase auth state changes override the mock session
-        if (import.meta.env.MODE === 'test' || import.meta.env.VITE_TEST_MODE === 'true') {
-          if (initialSession && !newSession) {
-            console.log('[AuthProvider] Ignoring empty session in test mode - keeping mock session');
-            return;
-          }
-        }
         fetchAndSetProfile(newSession);
       }
     );

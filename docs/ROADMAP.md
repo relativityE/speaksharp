@@ -76,6 +76,39 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 | 4 | MEDIUM | ✅ Fixed |
 | 5 | MEDIUM | ✅ Already done |
 
+### 🛡️ Gap Analysis Audit (2025-12-22) - In Progress
+
+> **Source:** Independent codebase review identifying critical gaps for alpha soft launch.
+
+#### 1. Foundational & Strategic Gaps
+
+| Finding | Priority | Status | Notes |
+|---------|----------|--------|-------|
+| **Inverted Testing Pyramid** | CRITICAL | 🟡 IN PROGRESS | Unit test count increased from 410 → 432. Coverage thresholds enforced. |
+| **Documentation Drift & Hallucination** | CRITICAL | 🔄 PERPETUAL | PRD metrics now auto-updated by CI. Manual audit required per OUTLINE.md. |
+
+#### 2. Core Architectural Flaws
+
+| Finding | Priority | Status | Notes |
+|---------|----------|--------|-------|
+| **Brittle Coupling (window.TEST_MODE flags)** | HIGH | ✅ FIXED | Created `test.config.ts` with `getTestConfig()`. `TranscriptionService.ts` now uses centralized config. |
+| **Container/Presentational Violation** | MEDIUM | ✅ FIXED | `AnalyticsPage.tsx` (CONTAINER) fetches all data, `AnalyticsDashboard.tsx` (PRESENTATIONAL) receives via props. JSDoc added. |
+
+#### 3. Workflow & Maintainability Gaps
+
+| Finding | Priority | Status | Notes |
+|---------|----------|--------|-------|
+| **Inefficient CI/CD Pipeline** | MEDIUM | ✅ PARTIAL | Dependencies cached. Full optimization requires single setup job. |
+| **Ambiguous Setup Scripts** | LOW | 🔴 NOT STARTED | `scripts/setup.sh` conflicts with `pnpm run setup`. |
+
+#### 4. Test Infrastructure Fixes (2025-12-22)
+
+| Finding | Status | Notes |
+|---------|--------|-------|
+| **localStorage Key Mismatch** | ✅ FIXED | Changed `sb-localhost-auth-token` → `sb-mock-auth-token` in `mock-routes.ts` |
+| **SessionPage Router Context** | ✅ FIXED | Added `MemoryRouter` wrapper to 22 unit tests |
+| **Session Store for E2E** | ✅ FIXED | Added `sessionStore` and RPC mock for session persistence verification |
+
 ### 🧪 Adversarial Test Suite Hardening (2025-12-19) ✅ P1 Complete
 
 > **Goal:** Increase line coverage from 56% → 75% with integrity-preserving, adversarial validation. Focus on resilience and design invariants over structural coverage.
@@ -153,6 +186,25 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - **Metric:** Initial Chunk (876KB) / Total Source (3.2MB) = 26.48%
   - **Optimizations:** Lazy-load Recharts, lazy-load Whisper model loader, aggressive route-based code splitting
   - **Status:** Acceptable for Alpha, optimize in Beta for performance SLO compliance
+
+- 🟡 **Bundle Chunk Size Warning (2025-12-22):** Vite build emits warning about chunks >500KB.
+  - **Affected Chunks:** `AnalyticsPage-*.js` (877KB), `index-*.js` (902KB)
+  - **Warning Text:** `(!) Some chunks are larger than 500 kB after minification`
+  - **Recommended Fixes:**
+    - Use `dynamic import()` for code-splitting heavy components (Recharts, html2canvas)
+    - Configure `build.rollupOptions.output.manualChunks` for vendor chunking
+    - Consider `build.chunkSizeWarningLimit` as last resort (masks issue, doesn't fix)
+  - **Reference:** https://rollupjs.org/configuration-options/#output-manualchunks
+  - **Status:** P2 - Acceptable for Alpha, optimize in Beta
+
+- 🟡 **E2E Test Console Warnings (2025-12-22):** The following console logs appear during E2E tests and should be addressed:
+  - **Recharts Dimension Warning:** `The width(-1) and height(-1) of chart should be greater than 0` - Chart renders before container has dimensions in headless browser.
+    - **Fix:** Add `minWidth`/`minHeight` props or guard rendering until container is measured.
+  - **Failed to fetch (Supabase signOut):** `TypeError: Failed to fetch` during tests that don't mock the signOut endpoint.
+    - **Fix:** Add signOut mock to `mock-routes.ts`.
+  - **`[FREE] ⚠️ No upgrade button found`:** Expected conditional behavior when upgrade button isn't shown (e.g., session count threshold not met).
+    - **Status:** Expected behavior, not a bug.
+  - **Status:** P3 - Cosmetic warnings only, tests pass.
 
 
 - 🟢 **Vocal Analysis Disabled:** The `useVocalAnalysis` hook exists but is initialized with `false`. Pause detection feature intentionally disabled pending microphone stream integration.

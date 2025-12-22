@@ -56,6 +56,7 @@ To get started with SpeakSharp, you'll need to have Node.js (version 22.12.0 or 
     ```bash
     pnpm run setup
     ```
+    > **Tip:** For a complete development setup (dependencies + Playwright browsers), you can run `./scripts/dev-init.sh`.
 4.  **Configure Environment Variables:**
     
     Create a `.env` file in the project root with these required variables:

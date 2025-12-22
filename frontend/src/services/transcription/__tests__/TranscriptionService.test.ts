@@ -16,6 +16,17 @@ vi.mock('../utils/audioUtils', () => ({
   })
 }));
 
+// Mock getTestConfig to return isTestMode: false so we can test Cloud/OnDevice modes
+// In real tests, VITE_TEST_MODE=true would force Native mode
+vi.mock('@/config/test.config', () => ({
+  getTestConfig: vi.fn(() => ({
+    isTestMode: false,
+    useMockOnDeviceWhisper: false,
+    mockSession: false,
+    shouldSkipMicInit: false,
+  })),
+}));
+
 describe('TranscriptionService', () => {
   let service: TranscriptionService;
   const mockOptions = {

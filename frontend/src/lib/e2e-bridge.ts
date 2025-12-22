@@ -155,6 +155,7 @@ class MockOnDeviceWhisper {
     }
 
     async init() {
+        logger.info('[MockOnDeviceWhisper] init() called - simulating model load');
 
         return new Promise<void>((resolve) => {
             // Simulate model download
@@ -168,6 +169,15 @@ class MockOnDeviceWhisper {
 
             // Simulate ready state after download
             setTimeout(() => {
+                logger.info('[MockOnDeviceWhisper] Model loaded, triggering onReady and toast');
+
+                // Trigger toast to match real OnDeviceWhisper behavior
+                // This is needed for E2E tests that verify toast notification
+                import('sonner').then(({ toast }) => {
+                    toast.success('Model ready! You can now start your session.');
+                    logger.info('[MockOnDeviceWhisper] Toast triggered');
+                });
+
                 if (this.onReady) this.onReady();
                 resolve();
             }, 600);

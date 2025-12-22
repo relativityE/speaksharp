@@ -139,7 +139,9 @@ test.describe('On-Device STT (Whisper)', () => {
         await programmaticLoginWithRoutes(page);
         await navigateToRoute(page, '/session');
 
+        // Clear IndexedDB and set mock flag
         await page.evaluate(() => {
+            window.__E2E_MOCK_LOCAL_WHISPER__ = true;
             return indexedDB.deleteDatabase('whisper-turbo');
         });
 

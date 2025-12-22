@@ -78,6 +78,7 @@ export const saveSession = async (sessionData: Partial<PracticeSession> & { user
   // sessions before the usage check was performed. This has been fixed by delegating
   // the entire operation to a single, atomic RPC function in the database.
   // This function is responsible for both creating the session and updating/checking usage.
+  console.log('[Supabase DB] 💾 Saving session via RPC:', { userId: sessionData.user_id, duration: sessionData.duration });
   const { data, error } = await supabase.rpc('create_session_and_update_usage', {
     p_session_data: sessionData,
     p_is_free_user: isFree(profile.subscription_status),

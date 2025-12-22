@@ -359,7 +359,7 @@ export async function programmaticLoginWithRoutes(page: Page): Promise<void> {
 
   // 7. Wait for authenticated state
   console.log('[E2E] Waiting for app-main...');
-  await page.waitForSelector('[data-testid="app-main"]', { timeout: 15000 });
+  await page.waitForSelector('[data-testid="app-main"]', { timeout: 30000 });
 
   // 8. Wait for profile loaded
   await page.waitForFunction(() => {

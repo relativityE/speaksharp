@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { SessionPage } from '../SessionPage';
 import * as SpeechRecognitionHook from '../../hooks/useSpeechRecognition';
 import * as SessionStore from '../../stores/useSessionStore';
@@ -15,11 +16,21 @@ vi.mock('../../hooks/useVocalAnalysis');
 vi.mock('../../contexts/AuthProvider');
 vi.mock('@/hooks/useUserProfile');
 vi.mock('@/hooks/useUsageLimit');
+vi.mock('@/hooks/useSessionManager', () => ({
+    useSessionManager: () => ({
+        saveSession: vi.fn().mockResolvedValue({ session: null, usageExceeded: false }),
+    }),
+}));
 vi.mock('posthog-js', () => ({
     default: {
         capture: vi.fn(),
     },
 }));
+
+// Helper to render with router
+const renderWithRouter = (ui: React.ReactElement) => {
+    return render(<MemoryRouter>{ui}</MemoryRouter>);
+};
 
 // Mock child components
 vi.mock('@/components/session/PauseMetricsDisplay', () => ({
@@ -95,29 +106,29 @@ describe('SessionPage', () => {
 
     describe('Rendering', () => {
         it('should render the session page title', () => {
-            render(<SessionPage />);
+            renderWithRouter(<SessionPage />);
             expect(screen.getByText('Practice Session')).toBeInTheDocument();
         });
 
         it('should render the live recording card', () => {
-            render(<SessionPage />);
+            renderWithRouter(<SessionPage />);
             expect(screen.getByText('Live Recording')).toBeInTheDocument();
         });
 
         it('should render metrics cards', () => {
-            render(<SessionPage />);
+            renderWithRouter(<SessionPage />);
             expect(screen.getByText('Clarity Score')).toBeInTheDocument();
             expect(screen.getByText('Speaking Rate')).toBeInTheDocument();
             expect(screen.getByText('Filler Words')).toBeInTheDocument();
         });
 
         it('should render pause metrics display', () => {
-            render(<SessionPage />);
+            renderWithRouter(<SessionPage />);
             expect(screen.getByTestId('pause-metrics-display')).toBeInTheDocument();
         });
 
         it('should render settings button', () => {
-            render(<SessionPage />);
+            renderWithRouter(<SessionPage />);
             expect(screen.getByTestId('session-settings-button')).toBeInTheDocument();
         });
     });
@@ -130,7 +141,7 @@ describe('SessionPage', () => {
                 error: null,
             } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
 
-            render(<SessionPage />);
+            renderWithRouter(<SessionPage />);
             expect(screen.getByTestId('session-page-skeleton')).toBeInTheDocument();
         });
 
@@ -141,14 +152,14 @@ describe('SessionPage', () => {
                 error: { message: 'Failed to load' },
             } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
 
-            render(<SessionPage />);
+            renderWithRouter(<SessionPage />);
             expect(screen.getByText('Error Loading Profile')).toBeInTheDocument();
         });
     });
 
     describe('Session Control', () => {
         it('should start listening when start button is clicked', async () => {
-            render(<SessionPage />);
+            renderWithRouter(<SessionPage />);
 
             const startButton = screen.getByTestId('session-start-stop-button');
             fireEvent.click(startButton);
@@ -167,7 +178,7 @@ describe('SessionPage', () => {
                 isListening: true,
             } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
-            render(<SessionPage />);
+            renderWithRouter(<SessionPage />);
 
             const stopButton = screen.getByTestId('session-start-stop-button');
             fireEvent.click(stopButton);
@@ -183,14 +194,14 @@ describe('SessionPage', () => {
                 modelLoadingProgress: null,
             } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
-            render(<SessionPage />);
+            renderWithRouter(<SessionPage />);
 
             const button = screen.getByTestId('session-start-stop-button');
             expect(button).toBeDisabled();
         });
 
         it('should show Ready status when not listening', () => {
-            render(<SessionPage />);
+            renderWithRouter(<SessionPage />);
             expect(screen.getByTestId('session-status-indicator')).toHaveTextContent('Ready');
         });
 
@@ -201,7 +212,7 @@ describe('SessionPage', () => {
                 isListening: true,
             } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
-            render(<SessionPage />);
+            renderWithRouter(<SessionPage />);
             expect(screen.getByTestId('session-status-indicator')).toHaveTextContent('Connecting...');
         });
     });
@@ -213,7 +224,7 @@ describe('SessionPage', () => {
                 isListening: true,
             } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
-            render(<SessionPage />);
+            renderWithRouter(<SessionPage />);
 
             // Advance time by 1 second
             act(() => {
@@ -229,7 +240,7 @@ describe('SessionPage', () => {
                 isListening: false,
             } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
-            render(<SessionPage />);
+            renderWithRouter(<SessionPage />);
 
             expect(mockUpdateElapsedTime).toHaveBeenCalledWith(0);
         });
@@ -242,7 +253,7 @@ describe('SessionPage', () => {
                 updateElapsedTime: mockUpdateElapsedTime,
             } as unknown as ReturnType<typeof SessionStore.useSessionStore>);
 
-            render(<SessionPage />);
+            renderWithRouter(<SessionPage />);
             expect(screen.getByText('01:05')).toBeInTheDocument();
         });
 
@@ -258,7 +269,7 @@ describe('SessionPage', () => {
                 transcript: { transcript: 'one two three four five', confidence: 1, isFinal: true },
             } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
-            render(<SessionPage />);
+            renderWithRouter(<SessionPage />);
             // 5 words in 60 seconds = 5 WPM
             expect(screen.getByText('5')).toBeInTheDocument();
         });
@@ -272,7 +283,7 @@ describe('SessionPage', () => {
                 },
             } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
-            render(<SessionPage />);
+            renderWithRouter(<SessionPage />);
             expect(screen.getByText('5')).toBeInTheDocument(); // Total filler count
             expect(screen.getByText('"um"')).toBeInTheDocument();
             expect(screen.getByText('"uh"')).toBeInTheDocument();
@@ -287,7 +298,7 @@ describe('SessionPage', () => {
                 transcript: { transcript: '', confidence: 0, isFinal: false },
             } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
-            render(<SessionPage />);
+            renderWithRouter(<SessionPage />);
             expect(screen.getByText('Listening...')).toBeInTheDocument();
         });
 
@@ -298,7 +309,7 @@ describe('SessionPage', () => {
                 transcript: { transcript: 'Hello world', confidence: 1, isFinal: true },
             } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
-            render(<SessionPage />);
+            renderWithRouter(<SessionPage />);
             expect(screen.getByText('Hello world')).toBeInTheDocument();
         });
 
@@ -309,7 +320,7 @@ describe('SessionPage', () => {
                 transcript: { transcript: '', confidence: 0, isFinal: false },
             } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
-            render(<SessionPage />);
+            renderWithRouter(<SessionPage />);
             expect(screen.getByText('words appear here...')).toBeInTheDocument();
         });
     });

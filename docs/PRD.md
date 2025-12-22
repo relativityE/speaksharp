@@ -83,7 +83,7 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Filler Word Detection** | 1 | Detects and counts common filler words (um, uh, like, etc.). | ✅ Implemented | ✅ Yes |
 | **Speaking Pace (WPM)** | 2 | Provides real-time words-per-minute analysis. | ✅ Implemented | ✅ Yes |
 | **Clarity Score** | 2 | Score based on filler word usage. | ✅ Implemented | ✅ Yes |
-| **Goal Setting** | 2 | Weekly/Daily targets for practice consistency. | ✅ Implemented | ✅ Yes |
+| **Goal Setting** | 2 | Weekly/Daily targets for practice consistency. | ✅ Implemented | ❌ No (E2E Only) |
 | **User-Friendly Error Handling** | 2 | Specific, user-facing error messages. | ✅ Implemented | ✅ Yes |
 | **Custom Vocabulary** | 2 | Allows users to add custom words to improve accuracy. Free: 10 words max. Pro: 100 words max. | ✅ Implemented | ✅ Yes |
 | **Vocal Variety / Pause Detection** | 2 | Analyzes pause duration and frequency. | ✅ Implemented | ✅ Yes |
@@ -98,14 +98,14 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | :--- | :--- | :--- | :--- | :--- |
 | **AI Suggestions** | 1 | Provides AI-driven feedback on transcripts. | ✅ Implemented | ✅ Yes |
 | **Filler Word Trend** | 1 | Analyzes the trend of filler word usage across sessions. | ✅ Implemented | ✅ Yes |
-| **Session Comparison** | 1 | Compares stats from the 4 most recent sessions. | ✅ Implemented | ✅ Yes |
+| **Session Comparison** | 1 | Compares stats from the 4 most recent sessions. | ✅ Implemented | ❌ No (E2E Only) |
 | **PDF Export** | 1 | Allows users to download a PDF report of their session (FileSaver.js). | ✅ Implemented | ✅ Yes |
 | **STT Accuracy Comparison** | 1 | Rolling average comparison of STT engine accuracy against a ground truth. | ✅ Implemented | ✅ Yes |
 | **Top 2 Filler Words**| 1 | Maintains the top 2 highest filler words for the most recent 4 sessions. | ✅ Implemented | ✅ Yes |
-| **Weekly Activity Chart** | 2 | Visual chart showing practice frequency over the past week. | ✅ Implemented | ✅ Yes |
+| **Weekly Activity Chart** | 2 | Visual chart showing practice frequency over the past week. | ✅ Implemented | ❌ No (E2E Only) |
 | **Premium Loading States** | 2.5 | Skeleton loading UI for premium user experience. | ✅ Implemented | ✅ Yes |
 | **On-Device Model Caching** | 3 | Service Worker caches Whisper model for faster subsequent loads (<5s). | ✅ Implemented | ✅ Yes |
-| **Gamification (Streaks)** | 2 | Tracks daily practice streaks with local storage + toast positive reinforcement. | ✅ Implemented | ✅ Yes |
+| **Gamification (Streaks)** | 2 | Tracks daily practice streaks with local storage + toast positive reinforcement. | ✅ Implemented | ❌ No (E2E Only) |
 | **Design System Showcase** | 2 | `/design` route to visualize and test UI components in isolation. | ✅ Implemented | ✅ Yes |
 
 
@@ -192,7 +192,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Mon, 22 Dec 2025 17:44:13 GMT
+**Last Updated:** Mon, 22 Dec 2025 23:25:30 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -208,14 +208,14 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 477 (426 unit + 51 E2E) |
-| Unit tests              | 426   |
-| E2E tests (Playwright)  | 51  |
-| Passing tests           | 477 (426 unit + 51 E2E)   |
+| Total tests             | 484 (432 unit + 52 E2E) |
+| Unit tests              | 432   |
+| E2E tests (Playwright)  | 52  |
+| Passing tests           | 484 (432 unit + 52 E2E)   |
 | Failing tests           | 0   |
 | Disabled/skipped tests  | 0 (E2E only)   |
-| Passing unit tests      | 426/426 (100.0%)   |
-| Passing E2E tests       | 51/51 (100.0%)   |
+| Passing unit tests      | 432/432 (100.0%)   |
+| Passing E2E tests       | 52/52 (100.0%)   |
 | Total runtime           | See CI logs   |
 
 ---
@@ -224,10 +224,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | 56.61%   |
-| Branches   | 79.13%   |
-| Functions  | 74.06%   |
-| Lines      | 56.61%   |
+| Statements | 57.55%   |
+| Branches   | 78.76%   |
+| Functions  | 73.76%   |
+| Lines      | 57.55%   |
 
 ---
 
@@ -235,11 +235,11 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric              | Value |
 | ------------------- | ----- |
-| Total Source Size   | 3.6M   |
-| Total Project Size  | 1.1G   |
+| Total Source Size   | 3.4M   |
+| Total Project Size  | 1.5G   |
 | Initial Chunk Size  | 884K   |
-| Code Bloat Index    | 24.53%   |
-| Lighthouse Scores   | P: 0, A: 0, BP: 0, SEO: 0 |
+| Code Bloat Index    | 25.76%   |
+| Lighthouse Scores   | P: 100, A: 95, BP: 100, SEO: 92 |
 
 ---
 <!-- SQM:END -->

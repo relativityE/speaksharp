@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { useSessionStore } from '../stores/useSessionStore';
 import { useVocalAnalysis } from '../hooks/useVocalAnalysis';
@@ -14,6 +15,7 @@ import { useSessionMetrics } from '@/hooks/useSessionMetrics';
 import { useUsageLimit, formatRemainingTime } from '@/hooks/useUsageLimit';
 import { useStreak } from '@/hooks/useStreak';
 import { isPro } from '@/constants/subscriptionTiers';
+import { useSessionManager } from '@/hooks/useSessionManager';
 import { PauseMetricsDisplay } from '@/components/session/PauseMetricsDisplay';
 import { toast } from 'sonner';
 
@@ -26,6 +28,7 @@ import { ChevronDown } from 'lucide-react';
 
 export const SessionPage: React.FC = () => {
     const { session } = useAuthProvider();
+    const navigate = useNavigate();
     const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
 
     // Use zustand store for session state
@@ -39,6 +42,7 @@ export const SessionPage: React.FC = () => {
     // Usage limit check for pre-session validation
     const { data: usageLimit } = useUsageLimit();
     const { updateStreak } = useStreak();
+    const { saveSession } = useSessionManager();
 
     const [customWords] = useState<string[]>([]);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -133,6 +137,39 @@ export const SessionPage: React.FC = () => {
                         description: "You're making progress.",
                     });
                 }
+
+                // DATA PERSISTENCE FIX: Save session to database
+                console.log('[SessionPage] 💾 Saving session via useSessionManager...');
+                console.log('[SessionPage] Session Data:', {
+                    duration: elapsedTime,
+                    transcriptLength: transcript.transcript.length,
+                    wpm: metrics.wpm
+                });
+
+                const result = await saveSession({
+                    transcript: transcript.transcript,
+                    duration: elapsedTime,
+                    filler_words: fillerData,
+                    wpm: metrics.wpm,
+                    clarity_score: metrics.clarityScore,
+                    title: `Session ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`
+                });
+                console.log('[SessionPage] Save result received:', result);
+
+                if (result.session) {
+                    console.log('[SessionPage] Session saved successfully. Initiating redirect...');
+                    toast.success("Session saved successfully", {
+                        description: "Redirecting to analysis...",
+                    });
+                    // Short delay to let the toast be seen and ensure state updates
+                    setTimeout(() => {
+                        console.log('[SessionPage] calling navigate(/analytics)');
+                        navigate('/analytics');
+                    }, 1000);
+                } else {
+                    console.error('[SessionPage] Session save failed or returned null session.');
+                }
+
             } catch (error) {
                 console.error('[SessionPage] Error stopping recording:', error);
                 console.error('[SessionPage] Error details:', {

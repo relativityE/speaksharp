@@ -2,6 +2,9 @@ import React from 'react';
 import { NavLink, useNavigate, useParams } from 'react-router-dom';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
 import { useAnalytics } from '../hooks/useAnalytics';
+import { getSupabaseClient } from '@/lib/supabaseClient';
+import logger from '@/lib/logger';
+import { toast } from 'sonner';
 // import { useAuthProvider } from '../contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { isPro } from '@/constants/subscriptionTiers';
@@ -9,6 +12,18 @@ import { Button } from '@/components/ui/button';
 // import { Badge } from '@/components/ui/badge';
 import { Mic, BarChart, User } from 'lucide-react';
 // import { Settings } from 'lucide-react';
+
+/**
+ * AnalyticsPage is the CONTAINER component for the analytics feature.
+ * 
+ * ARCHITECTURE NOTE (Gap Analysis 2025-12-22):
+ * This component follows the Container/Presentational pattern:
+ * - It fetches ALL data (via useAnalytics, useUserProfile)
+ * - It passes ALL data as props to AnalyticsDashboard (PRESENTATIONAL)
+ * - AnalyticsDashboard does NOT fetch its own data
+ * 
+ * @see AnalyticsDashboard.tsx - Presentational component that receives data via props
+ */
 
 // --- Sub-components ---
 
@@ -56,12 +71,29 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string }> = ({ isPro, s
 
 const AuthenticatedAnalyticsView: React.FC = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
-    const { sessionHistory, loading, error } = useAnalytics();
+    const { sessionHistory, overallStats, fillerWordTrends, loading, error } = useAnalytics();
     // const { user } = useAuthProvider();
     const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
 
     console.log('[AnalyticsPage] Rendering. sessionId:', sessionId, 'loading:', loading, 'isProfileLoading:', isProfileLoading);
     console.log('[AnalyticsPage] sessionHistory length:', sessionHistory?.length, 'error:', error, 'profileError:', profileError);
+
+    const handleUpgrade = async () => {
+        try {
+            const supabase = getSupabaseClient();
+            if (!supabase) throw new Error("Supabase client not available");
+            const { data, error } = await supabase.functions.invoke('stripe-checkout');
+            if (error) throw error;
+            if (data?.checkoutUrl) {
+                window.location.href = data.checkoutUrl;
+            } else {
+                throw new Error("No checkout URL returned");
+            }
+        } catch (err: unknown) {
+            logger.error({ err }, 'Error creating Stripe checkout session:');
+            toast.error('Unable to start upgrade process. Please try again or contact support.');
+        }
+    };
 
     const isProUser = isPro(profile?.subscription_status);
 
@@ -112,6 +144,12 @@ const AuthenticatedAnalyticsView: React.FC = () => {
             <PageHeader isPro={isProUser} sessionId={sessionId} />
             <AnalyticsDashboard
                 profile={profile || null}
+                sessionHistory={sessionHistory || []}
+                overallStats={overallStats}
+                fillerWordTrends={fillerWordTrends}
+                loading={loading}
+                error={error}
+                onUpgrade={handleUpgrade}
             />
         </div>
     );

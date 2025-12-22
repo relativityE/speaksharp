@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import { SessionPage } from '../SessionPage';
 import * as UserProfileHook from '@/hooks/useUserProfile';
@@ -16,9 +17,19 @@ vi.mock('../../hooks/useVocalAnalysis');
 vi.mock('../../contexts/AuthProvider');
 vi.mock('@/hooks/useUserProfile');
 vi.mock('@/hooks/useUsageLimit');
+vi.mock('@/hooks/useSessionManager', () => ({
+    useSessionManager: () => ({
+        saveSession: vi.fn().mockResolvedValue({ session: null, usageExceeded: false }),
+    }),
+}));
 vi.mock('posthog-js', () => ({ default: { capture: vi.fn() } }));
 vi.mock('@/components/session/PauseMetricsDisplay', () => ({ PauseMetricsDisplay: () => <div>Pause Metrics</div> }));
 vi.mock('@/components/session/CustomVocabularyManager', () => ({ CustomVocabularyManager: () => <div>Custom Vocabulary</div> }));
+
+// Helper to render with router
+const renderWithRouter = (ui: React.ReactElement) => {
+    return render(<MemoryRouter>{ui}</MemoryRouter>);
+};
 
 const mockUseUserProfile = vi.mocked(UserProfileHook.useUserProfile);
 const mockUseUsageLimit = vi.mocked(UsageLimitHook.useUsageLimit);
@@ -75,7 +86,7 @@ describe('SessionPage - STT Mode Selection UI', () => {
             error: null,
         } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
 
-        render(<SessionPage />);
+        renderWithRouter(<SessionPage />);
 
         // Open dropdown using userEvent
         const trigger = screen.getByText('Native'); // Initial label
@@ -100,7 +111,7 @@ describe('SessionPage - STT Mode Selection UI', () => {
             error: null,
         } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
 
-        render(<SessionPage />);
+        renderWithRouter(<SessionPage />);
 
         const trigger = screen.getByText('Native');
         await user.click(trigger);

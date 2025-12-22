@@ -9,6 +9,7 @@ import { NavigateFunction } from 'react-router-dom';
 import { ITranscriptionMode, TranscriptionModeOptions } from './modes/types';
 import { MicStream } from './utils/types';
 import { isPro } from '@/constants/subscriptionTiers';
+import { getTestConfig } from '@/config/test.config';
 
 export interface TranscriptUpdate {
   transcript: {
@@ -77,15 +78,14 @@ export default class TranscriptionService {
 
   public async init(): Promise<{ success: boolean }> {
     // In E2E test mode, we skip microphone initialization
-    // This is required for tests that use __E2E_MOCK_SESSION__ flag
-    if (typeof window !== 'undefined') {
-      if ((window as Window & { __E2E_MOCK_SESSION__?: boolean }).__E2E_MOCK_SESSION__) {
-        // Initialize a dummy mic object to satisfy checks
-        this.mic = {
-          stop: () => { },
-        } as unknown as MicStream;
-        return { success: true };
-      }
+    // Uses centralized test config instead of direct window access (Gap Analysis fix)
+    const { mockSession } = getTestConfig();
+    if (mockSession) {
+      // Initialize a dummy mic object to satisfy checks
+      this.mic = {
+        stop: () => { },
+      } as unknown as MicStream;
+      return { success: true };
     }
     console.log('[TranscriptionService] Initializing mic stream...');
     try {
@@ -121,9 +121,9 @@ export default class TranscriptionService {
     // CRITICAL FIX: In test mode, ALWAYS fall back to NativeBrowser
     // to prevent silent crashes from the onnxruntime-web library.
     // This MUST be the first check to prevent the dynamic import below.
-    // EXCEPTION: If __E2E_MOCK_LOCAL_WHISPER__ is set, we allow OnDeviceWhisper (mocked) to proceed.
-    const isTestMode = typeof window !== 'undefined' && (window as { TEST_MODE?: boolean }).TEST_MODE;
-    const useMockOnDeviceWhisper = typeof window !== 'undefined' && (window as { __E2E_MOCK_LOCAL_WHISPER__?: boolean }).__E2E_MOCK_LOCAL_WHISPER__;
+    // EXCEPTION: If useMockOnDeviceWhisper is set, we allow OnDeviceWhisper (mocked) to proceed.
+    // Uses centralized test config instead of direct window access (Gap Analysis fix)
+    const { isTestMode, useMockOnDeviceWhisper } = getTestConfig();
 
     if (isTestMode && !useMockOnDeviceWhisper) {
       logger.info('[TEST_MODE] Forcing Native Browser mode.');

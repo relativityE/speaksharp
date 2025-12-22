@@ -38,11 +38,14 @@ export const useSessionManager = (): UseSessionManager => {
       }
 
       // Handle real users
+      console.log('[useSessionManager] 💾 Saving session for user:', user.id);
       const { session: newSession, usageExceeded } = await saveSessionToDb({ ...sessionData, user_id: user.id }, profile);
 
       if (newSession) {
+        console.log('[useSessionManager] ✅ Session saved successfully:', newSession.id);
         return { session: newSession, usageExceeded: usageExceeded || false };
       }
+      console.warn('[useSessionManager] ⚠️ Session save returned null');
       return { session: null, usageExceeded: usageExceeded || false };
     } catch (err: unknown) {
       logger.error({ err }, "Error in useSessionManager -> saveSession:");
@@ -52,9 +55,9 @@ export const useSessionManager = (): UseSessionManager => {
 
   const deleteSession = async (sessionId: string): Promise<boolean> => {
     if (sessionId.startsWith('anonymous-session')) {
-        // This is a client-side only session, nothing to delete on the server.
-        // The context will handle removing it from its state.
-        return true;
+      // This is a client-side only session, nothing to delete on the server.
+      // The context will handle removing it from its state.
+      return true;
     }
     try {
       return await deleteSessionFromDb(sessionId);
