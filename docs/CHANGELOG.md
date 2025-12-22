@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Lint Fixes:** Removed unused `signUpData` variable from `AuthPage.tsx` destructuring.
   - **File:** `frontend/src/pages/AuthPage.tsx`
 
+- **CI Lighthouse Score Fix:** Fixed PRD.md showing Lighthouse scores as 0.
+  - **Root Cause:** The `report` job in CI wasn't restoring the `.lighthouseci/` artifact from the `lighthouse` job
+  - **Fix:** Added "Restore Lighthouse Report" step to copy `artifacts/lighthouse-report` to `.lighthouseci/`
+  - **File:** `.github/workflows/ci.yml`
+
 ### Added (2025-12-22) - Pino-Sentry Logger Integration
 
 - **Gap Identified:** The Pino logger (`frontend/src/lib/logger.ts`) was outputting to console only. 38+ `logger.error()` calls across the codebase (Supabase, Stripe, AssemblyAI, etc.) were **not being reported to Sentry**.
