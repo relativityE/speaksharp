@@ -192,7 +192,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Fri, 19 Dec 2025 22:06:15 GMT
+**Last Updated:** Mon, 22 Dec 2025 15:08:40 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -208,14 +208,14 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 464 (426 unit + 38 E2E) |
+| Total tests             | 477 (426 unit + 51 E2E) |
 | Unit tests              | 426   |
-| E2E tests (Playwright)  | 38  |
-| Passing tests           | 464 (426 unit + 38 E2E)   |
+| E2E tests (Playwright)  | 51  |
+| Passing tests           | 476 (425 unit + 51 E2E)   |
 | Failing tests           | 0   |
 | Disabled/skipped tests  | 0 (E2E only)   |
-| Passing unit tests      | 426/426 (100.0%)   |
-| Passing E2E tests       | 38/38 (100.0%)   |
+| Passing unit tests      | 425/426 (99.8%)   |
+| Passing E2E tests       | 51/51 (100.0%)   |
 | Total runtime           | See CI logs   |
 
 ---
@@ -224,10 +224,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | 57.08%   |
-| Branches   | 79.53%   |
-| Functions  | 74.6%   |
-| Lines      | 57.08%   |
+| Statements | 56.61%   |
+| Branches   | 79.05%   |
+| Functions  | 73.75%   |
+| Lines      | 56.61%   |
 
 ---
 
@@ -235,10 +235,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric              | Value |
 | ------------------- | ----- |
-| Total Source Size   | 3.5M   |
+| Total Source Size   | 3.6M   |
 | Total Project Size  | 1.1G   |
-| Initial Chunk Size  | 876K   |
-| Code Bloat Index    | 24.66%   |
+| Initial Chunk Size  | 884K   |
+| Code Bloat Index    | 24.53%   |
 | Lighthouse Scores   | P: 0, A: 0, BP: 0, SEO: 0 |
 
 ---
