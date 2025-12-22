@@ -1,11 +1,22 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, UseQueryOptions } from "@tanstack/react-query";
 import { useAuthProvider } from "../contexts/AuthProvider";
 import { profileService } from "../services/domainServices";
 import { UserProfile } from "../types/user";
 
-export const useUserProfile = () => {
+export interface UseUserProfileOptions {
+  /** Override retry behavior (default: 3 retries with exponential backoff) */
+  retry?: UseQueryOptions['retry'];
+  /** Override retry delay (default: exponential backoff up to 30s) */
+  retryDelay?: UseQueryOptions['retryDelay'];
+}
+
+export const useUserProfile = (options: UseUserProfileOptions = {}) => {
   const { session } = useAuthProvider();
   const isDevBypass = window.location.search.includes('devBypass=true');
+
+  // Production defaults: 3 retries with exponential backoff
+  const retryConfig = options.retry ?? 3;
+  const retryDelayConfig = options.retryDelay ?? ((attemptIndex: number) => Math.min(1000 * 2 ** attemptIndex, 30000));
 
   const query = useQuery({
     queryKey: ['userProfile', session?.user?.id],
@@ -28,9 +39,9 @@ export const useUserProfile = () => {
       return profile;
     },
     enabled: !!session?.user && !isDevBypass,
-    // Add retry logic for better resilience against transient network/session issues
-    retry: 3,
-    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+    // Injectable retry config for testability
+    retry: retryConfig,
+    retryDelay: retryDelayConfig,
     // Cache profile data for 5 minutes to prevent skeleton flashing during navigation
     staleTime: 5 * 60 * 1000,
   });

@@ -68,9 +68,21 @@ describe('useUserProfile', () => {
         expect(profileService.getById).toHaveBeenCalledWith('test-user-id');
     });
 
-    // TODO: This test requires ~15s wait due to hook's internal retry: 3 with exponential backoff
-    // This is a consequence of the "Transient Profile Loading Failures" code smell documented in ROADMAP.md
-    // Proper fix: Make retry configuration injectable/mockable for testing
-    // Ref: docs/ROADMAP.md - Tech Debt Identified (Code Smells - Dec 2025) #2
-    it.todo('should handle errors gracefully');
+    it('should handle errors gracefully with injectable retry disabled', async () => {
+        const mockUser = { id: 'test-user-id' };
+        const mockError = new Error('Network error');
+
+        (useAuthProvider as any).mockReturnValue({ session: { user: mockUser } });
+        (profileService.getById as any).mockRejectedValue(mockError);
+
+        // Use injectable retry: false to skip retries and make test fast
+        const { result } = renderHook(() => useUserProfile({ retry: false }), { wrapper });
+
+        await waitFor(() => expect(result.current.isError).toBe(true));
+        expect(result.current.error).toEqual(mockError);
+        expect(result.current.data).toBeUndefined();
+        // Verify service was called
+        expect(profileService.getById).toHaveBeenCalledWith('test-user-id');
+    });
 });
+

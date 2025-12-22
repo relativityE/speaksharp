@@ -53,8 +53,11 @@ export default defineConfig({
       // Force garbage collection
       NODE_OPTIONS: '--max-old-space-size=2048'
     },
-    deps: {
-      inline: ["@xenova/transformers", "whisper-turbo", "whisper-webgpu"],
+    // Fix deprecation: "deps.inline" -> "server.deps.inline"
+    server: {
+      deps: {
+        inline: ["@xenova/transformers", "whisper-turbo", "whisper-webgpu"],
+      }
     }
   },
   resolve: {

@@ -504,12 +504,12 @@ The following items are tactical mitigations that work but require structural fi
 | 6 | **devBypass Edge Function 401** | `frontend/src/hooks/useUsageLimit.ts` | P2 MEDIUM | ✅ DOCUMENTED |
 |   | *Problem:* Mock session in devBypass mode doesn't have valid JWT for Edge Function calls. | | | |
 |   | *Resolution:* Proper testing requires real authentication. devBypass is for UI-only testing. | | | |
-| 7 | **Vitest deps.inline Deprecation** | `frontend/vitest.config.mjs` | P3 LOW | ℹ️ KNOWN |
+| 7 | **Vitest deps.inline Deprecation** | `frontend/vitest.config.mjs` | P3 LOW | ✅ FIXED |
 |   | *Problem:* Warning: `"deps.inline" is deprecated. Use "server.deps.inline" or "deps.optimizer.web.include" instead.` | | | |
-|   | *Action:* Update Vitest configuration before next major version upgrade. | | | |
-| 8 | **useUserProfile Error Test Skipped** | `frontend/src/hooks/__tests__/useUserProfile.test.tsx` | P2 MEDIUM | ⏭️ SKIPPED |
+|   | *Resolution:* Updated config to use `server.deps.inline`. Verified warning is gone. | | | |
+| 8 | **useUserProfile Error Test Skipped** | `frontend/src/hooks/__tests__/useUserProfile.test.tsx` | P2 MEDIUM | ✅ FIXED |
 |   | *Problem:* Error handling test skipped due to hook's internal retry: 3 with exponential backoff (~15s wait). | | | |
-|   | *Structural Fix:* Make retry configuration injectable/mockable for testing. | | | |
+|   | *Resolution:* Made retry config injectable. Added `{ retry: false }` to test case. Test now passes in <100ms. | | | |
 
 **Summary:** 8 items identified - 2 mitigated, 3 known limitations, 1 perpetual, 1 documented, 1 test skipped.
 
