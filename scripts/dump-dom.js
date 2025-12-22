@@ -9,6 +9,7 @@
 import 'dotenv/config';
 import fs from 'fs';
 import { chromium } from 'playwright';
+import { PORTS } from './build.config.js';
 
 const LOG_PATH = './logs/auth-dom.json';
 
@@ -20,7 +21,7 @@ const LOG_PATH = './logs/auth-dom.json';
   const page = await context.newPage();
 
   try {
-    const baseUrl = process.env.VITE_BASE_URL || 'http://localhost:5173';
+    const baseUrl = process.env.VITE_BASE_URL || `http://localhost:${PORTS.DEV}`;
     await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     const domContent = await page.evaluate(() => document.documentElement.outerHTML);

@@ -35,37 +35,57 @@ if (!rootElement) {
 }
 
 const root = ReactDOM.createRoot(rootElement);
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000, // 5 minutes
+      retry: 2,
+    },
+  },
+});
+console.log('[React Query] ✅ QueryClient initialized');
+
+// 🔴 CRITICAL: Initialize Sentry FIRST before any async operations
+// This ensures errors during initialization are captured
+if (!IS_TEST_ENVIRONMENT && import.meta.env.VITE_SENTRY_DSN) {
+  try {
+    Sentry.init({
+      dsn: import.meta.env.VITE_SENTRY_DSN,
+      integrations: [
+        Sentry.browserTracingIntegration(),
+        Sentry.replayIntegration(),
+        // Capture console.error and console.warn calls
+        // Since Pino uses pino-pretty which outputs to console, this captures logger.error/warn
+        Sentry.consoleLoggingIntegration({
+          levels: ['error', 'warn'],
+        }),
+      ],
+      environment: import.meta.env.MODE,
+      tracesSampleRate: 1.0,
+      replaysSessionSampleRate: 0.1,
+      replaysOnErrorSampleRate: 1.0,
+      sendDefaultPii: true,
+    });
+    console.log('[Sentry] ✅ Initialized successfully (early init)');
+  } catch (err) {
+    console.warn('[Sentry] ⚠️ Failed to initialize:', err);
+  }
+} else if (IS_TEST_ENVIRONMENT) {
+  console.log('[Sentry] ⏭️ Skipped in test environment');
+} else {
+  console.warn('[Sentry] ⚠️ No DSN provided');
+}
 
 const renderApp = async (initialSession: Session | null = null) => {
   if (rootElement && !window._speakSharpRootInitialized) {
     window._speakSharpRootInitialized = true;
+    console.log('[main.tsx] 🚀 Starting app render...');
 
     if (areEnvVarsPresent()) {
       console.log('[E2E DIAGNOSTIC] ./App imported successfully:', !!App);
-      // 🛑 Skip ALL analytics in test mode
-      if (!IS_TEST_ENVIRONMENT) {
-        if (import.meta.env.VITE_SENTRY_DSN) {
-          try {
-            Sentry.init({
-              dsn: import.meta.env.VITE_SENTRY_DSN,
-              integrations: [
-                Sentry.browserTracingIntegration(),
-                Sentry.replayIntegration(),
-              ],
-              environment: import.meta.env.MODE,
-              tracesSampleRate: 1.0,
-              replaysSessionSampleRate: 0.1,
-              replaysOnErrorSampleRate: 1.0,
-              sendDefaultPii: true,
-            });
-          } catch (err) {
-            console.warn('[Sentry Disabled] Invalid DSN:', err);
-          }
-        } else {
-          console.warn('[Sentry Disabled] No DSN provided');
-        }
 
+      // 🛑 Skip ALL analytics in test mode (Sentry already initialized above)
+      if (!IS_TEST_ENVIRONMENT) {
         // Defer PostHog initialization
         if (import.meta.env.VITE_POSTHOG_KEY && import.meta.env.VITE_POSTHOG_HOST) {
           setTimeout(() => {
@@ -75,6 +95,7 @@ const renderApp = async (initialSession: Session | null = null) => {
                 capture_exceptions: true,
                 debug: import.meta.env.MODE === 'development',
               });
+              console.log('[PostHog] ✅ Initialized successfully');
             } catch (error) {
               logger.warn({ error }, "PostHog failed to initialize:");
             }
@@ -83,7 +104,6 @@ const renderApp = async (initialSession: Session | null = null) => {
       } else {
         console.warn('[E2E MODE] Analytics disabled entirely.');
       }
-
 
       // Defer Stripe loading - create promise but don't await it
       // Stripe will be loaded when Elements component mounts
@@ -129,16 +149,28 @@ const renderApp = async (initialSession: Session | null = null) => {
 };
 
 const initialize = async () => {
-  // Try to register SW in all cases if available
-  if ('serviceWorker' in navigator) {
-    try {
-      const registration = await navigator.serviceWorker.register('/sw.js');
-      console.log('[ServiceWorker] Registered with scope:', registration.scope);
-    } catch (error) {
-      console.error('[ServiceWorker] Registration failed:', error);
-    }
-  }
+  console.log('[main.tsx] 🏁 Initialize started');
 
+  // 🔧 ServiceWorker registration with timeout to prevent indefinite hangs
+  // Fire-and-forget pattern - app continues loading in parallel
+  if ('serviceWorker' in navigator) {
+    const SW_TIMEOUT_MS = 5000;
+    const swRegistration = navigator.serviceWorker.register('/sw.js');
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`SW registration timeout (${SW_TIMEOUT_MS}ms)`)), SW_TIMEOUT_MS)
+    );
+
+    Promise.race([swRegistration, timeout])
+      .then(registration => {
+        if (registration && 'scope' in registration) {
+          console.log('[ServiceWorker] ✅ Registered with scope:', registration.scope);
+        }
+      })
+      .catch(error => {
+        // Log with our enhanced logger so it goes to Sentry
+        logger.error({ error }, '[ServiceWorker] ❌ Registration failed or timed out');
+      });
+  }
 
   if (IS_TEST_ENVIRONMENT) {
     // Check if we should skip MSW (using Playwright routes instead OR using Live DB)

@@ -48,5 +48,6 @@ export function getSupabaseClient(): SupabaseClient {
     },
   });
 
+  console.log('[Supabase] ✅ Real client connected to:', url?.replace(/https?:\/\//, '').split('.')[0] + '...');
   return cachedClient;
 }

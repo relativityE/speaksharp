@@ -43,7 +43,7 @@ export function useUsageLimit() {
                 };
             }
 
-            // Call the Edge Function instead of RPC
+            // Call the Edge Function
             const { data, error } = await supabase.functions.invoke('check-usage-limit', {
                 headers: {
                     Authorization: `Bearer ${session?.access_token}`

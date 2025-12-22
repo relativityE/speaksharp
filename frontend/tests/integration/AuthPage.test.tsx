@@ -168,7 +168,7 @@ describe('AuthPage Integration', () => {
             await user.click(screen.getByText(/create an account/i));
 
             expect(screen.getByText(/create account/i)).toBeInTheDocument();
-            expect(screen.getByRole('button', { name: /create account/i })).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: /submit/i })).toBeInTheDocument();
         });
 
         it('validates password strength for sign-up', async () => {
@@ -188,7 +188,7 @@ describe('AuthPage Integration', () => {
 
             await user.type(emailInput, 'newuser@example.com');
             await user.type(passwordInput, '123'); // Too short
-            await user.click(screen.getByRole('button', { name: /create account/i }));
+            await user.click(screen.getByRole('button', { name: /submit/i }));
 
             // Should show password strength error
             expect(mockSupabaseClient.auth.signUp).not.toHaveBeenCalled();
@@ -213,12 +213,17 @@ describe('AuthPage Integration', () => {
 
             await user.type(screen.getByTestId('email-input'), 'newuser@example.com');
             await user.type(screen.getByTestId('password-input'), 'StrongPass123!');
-            await user.click(screen.getByRole('button', { name: /create account/i }));
+            await user.click(screen.getByRole('button', { name: /submit/i }));
 
             await waitFor(() => {
                 expect(mockSupabaseClient.auth.signUp).toHaveBeenCalledWith({
                     email: 'newuser@example.com',
                     password: 'StrongPass123!',
+                    options: {
+                        data: {
+                            initial_plan: 'free'
+                        }
+                    }
                 });
             });
         });

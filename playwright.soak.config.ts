@@ -8,7 +8,7 @@ import { SOAK_CONFIG } from './tests/constants';
  * Purpose: Run long-running concurrent user simulation tests
  * Usage: pnpm exec playwright test --config=playwright.soak.config.ts
  * 
- * NOTE: Uses dev server (port 5173) with real Supabase credentials.
+ * NOTE: Uses dev server (matching PORTS.DEV) with real Supabase credentials.
  * Assumes dev server is already running: pnpm dev
  */
 

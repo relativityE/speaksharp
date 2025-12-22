@@ -278,9 +278,16 @@ This phase is about confirming the core feature set works as expected and polish
 - ✅ **Custom Vocabulary Tier Limits \u0026 Conversion Nudges (2025-12-11):** Implemented tier-based limits (Free: 10 words, Pro: 100 words) with subtle upgrade nudges when free users approach limit (shown at 8/10 words). Error messages include upgrade CTA. Uses `Math.min(MAX_WORDS_PER_USER, MAX_WORDS_FREE)` pattern for free tier enforcement.
 - ✅ **Contract Rectification (2025-12-19):** Grounded application assumptions in the database. Added `transcript`, `engine`, `clarity_score`, and `wpm` to the `sessions` table. Implemented atomic `create_session_and_update_usage` Ghost RPC. Purged `avatar_url` and `full_name` phantoms.
 - ✅ **Analytics Integrity Fix (2025-12-19):** Resolved regression in clarity score aggregation to correctly use grounded DB fields.
+- ✅ **Plan Selection at Signup (2025-12-21):** Users choose Free or Pro plan during signup. Pro selection redirects to Stripe Checkout after account creation (as Free). Webhook upgrades to Pro on successful payment. Added persistent "Upgrade to Pro" button in Navigation for Free users.
+  - **Files:** `AuthPage.tsx`, `Navigation.tsx`, `App.tsx`, `stripe-checkout/index.ts`
+- ✅ **Port Centralization (2025-12-21):** Eliminated hardcoded port numbers. Created `scripts/build.config.ts` with `PORTS.DEV` (5173) and `PORTS.PREVIEW` (4173). Updated 10+ files.
 - 🔄 **PERPETUAL - Documentation Audit:** Verify PRD Known Issues, ROADMAP, and CHANGELOG match actual codebase state. Run test suite and cross-reference with documented issues to eliminate drift. **Frequency:** Before each release and after major feature work.
 
 ### 🚧 Should-Have (Tech Debt)
+
+- ⚠️ **Stripe Webhook E2E Verification (2025-12-21):** End-to-end test of Pro signup flow completed via CLI simulation. Confirmed: Auth → Select Pro → Stripe Redirect → Webhook Upgrade → Success Toast. Ad-hoc fix implemented for double toasts (see Tech Debt section below).
+- 🟡 **Toast Notification structural fix:** Replace ad-hoc `useRef` de-duplication with a formal flash message system. (See Tech Debt section below)
+- 🟡 **Profile Loading Root Cause Investigation:** Move beyond retries to identify why Supabase fetches intermittently fail on load. (See Tech Debt section below)
 - ✅ **COMPLETED - CVA-Based Design System Refinement:**
   - ✅ Audited all 20 UI components for consistent CVA variant usage (2025-11-28)
   - ✅ Fixed Badge typo, refactored Input to use CVA, replaced Card shadow
@@ -468,6 +475,43 @@ The following items were identified by two independent external code reviews. Mo
 |   | *Fix (2025-12-17):* Created `playwright.base.config.ts` with shared presets. Refactored 4 configs to extend it. | | | |
 
 **Summary:** 8 items identified - 8 FIXED. Alpha-ready. ✅
+
+---
+
+### 🟡 Tech Debt Identified (Code Smells - Dec 2025)
+
+The following items are tactical mitigations that work but require structural fixes for long-term maintainability.
+
+| # | Finding | Location | Priority | Status |
+|---|---------|----------|----------|--------|
+| 1 | **Toast Notification Duplication** | `frontend/src/App.tsx` | P2 MEDIUM | 🟡 MITIGATED |
+|   | *Problem:* Toasts trigger multiple times due to React 18 Strict Mode double-renders and URL parameter persistence. | | | |
+|   | *Current Mitigation:* Uses a `useRef` guard and `navigate({ replace: true })` to clear URL params. | | | |
+|   | *Structural Fix Required:* Implement centralized "Flash Message" system in Zustand or router loader. | | | |
+| 2 | **Transient Profile Loading Failures** | `frontend/src/hooks/useUserProfile.ts` | P2 MEDIUM | 🟡 MITIGATED |
+|   | *Problem:* Initial profile fetches intermittently fail with `TypeError: Failed to fetch`. | | | |
+|   | *Current Mitigation:* 3 retries with exponential backoff in TanStack Query. | | | |
+|   | *Structural Fix Required:* Investigate session synchronization and audit RLS policy latency. | | | |
+| 3 | **Filler Word Regex False Positives** | `frontend/src/utils/fillerWordUtils.ts` | P3 LOW | ℹ️ KNOWN |
+|   | *Problem:* Simple regex patterns for "like" and "so" match legitimate usage (e.g., "I like pizza"). | | | |
+|   | *Beta Fix:* Integrate NLP (e.g., `compromise` or `transformers.js`) for Part-of-Speech tagging. | | | |
+| 4 | **Documentation Drift** | Multiple docs | P3 LOW | 🔄 PERPETUAL |
+|   | *Problem:* Rapid architectural changes can lead to outdated docs. | | | |
+|   | *Process:* "Documentation Audit" required before each major release. | | | |
+| 5 | **React Router v7 Deprecation Warnings** | Console output | P3 LOW | ℹ️ KNOWN |
+|   | *Problem:* Two deprecation warnings: `v7_startTransition` and `v7_relativeSplatPath`. | | | |
+|   | *Action Required:* Before upgrading to React Router v7, add future flags to router configuration. | | | |
+| 6 | **devBypass Edge Function 401** | `frontend/src/hooks/useUsageLimit.ts` | P2 MEDIUM | ✅ DOCUMENTED |
+|   | *Problem:* Mock session in devBypass mode doesn't have valid JWT for Edge Function calls. | | | |
+|   | *Resolution:* Proper testing requires real authentication. devBypass is for UI-only testing. | | | |
+| 7 | **Vitest deps.inline Deprecation** | `frontend/vitest.config.mjs` | P3 LOW | ℹ️ KNOWN |
+|   | *Problem:* Warning: `"deps.inline" is deprecated. Use "server.deps.inline" or "deps.optimizer.web.include" instead.` | | | |
+|   | *Action:* Update Vitest configuration before next major version upgrade. | | | |
+| 8 | **useUserProfile Error Test Skipped** | `frontend/src/hooks/__tests__/useUserProfile.test.tsx` | P2 MEDIUM | ⏭️ SKIPPED |
+|   | *Problem:* Error handling test skipped due to hook's internal retry: 3 with exponential backoff (~15s wait). | | | |
+|   | *Structural Fix:* Make retry configuration injectable/mockable for testing. | | | |
+
+**Summary:** 8 items identified - 2 mitigated, 3 known limitations, 1 perpetual, 1 documented, 1 test skipped.
 
 ---
 

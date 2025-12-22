@@ -1,5 +1,6 @@
 import { defineConfig } from '@playwright/test';
-import { loadEnv, getChromeWithMic, getChromeWithMemoryProfiling, baseConfig } from './playwright.base.config';
+import { loadEnv, getChromeWithMic, baseConfig, urls } from './playwright.base.config';
+import { PORTS } from './scripts/build.config.js';
 
 /**
  * Main E2E Test Configuration
@@ -11,8 +12,7 @@ import { loadEnv, getChromeWithMic, getChromeWithMemoryProfiling, baseConfig } f
 // Load test environment variables
 loadEnv('test');
 
-const PORT = process.env.VITE_PORT || '5173';
-const BASE_URL = `http://localhost:${PORT}`;
+const BASE_URL = urls.preview;
 
 export default defineConfig({
   ...baseConfig,
@@ -45,12 +45,6 @@ export default defineConfig({
       snapshotPathTemplate: '{testDir}/{testFileDir}/{testFileName}-snapshots/{arg}-{projectName}{ext}',
       use: getChromeWithMic(),
     },
-    {
-      name: 'soak',
-      testDir: './tests/soak',
-      timeout: 10 * 60 * 1000, // 10 minutes per test
-      retries: 0,
-      use: getChromeWithMemoryProfiling(),
-    },
+    // Soak tests run separately via: npx playwright test --config=playwright.soak.config.ts
   ],
 });

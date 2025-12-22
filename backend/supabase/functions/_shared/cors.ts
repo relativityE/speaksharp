@@ -13,8 +13,10 @@
  * TODO: Update ALLOWED_ORIGIN to production domain once deployed (e.g., https://speaksharp.vercel.app)
  */
 
+import { PORTS } from "./build.config.js";
+
 // Read from environment, default to localhost for development
-const ALLOWED_ORIGIN = Deno.env.get("ALLOWED_ORIGIN") ?? "http://localhost:5173";
+const ALLOWED_ORIGIN = Deno.env.get("ALLOWED_ORIGIN") ?? `http://localhost:${PORTS.DEV}`;
 
 export const corsHeaders = () => ({
   "Access-Control-Allow-Origin": ALLOWED_ORIGIN,

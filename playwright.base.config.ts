@@ -1,6 +1,7 @@
 import { defineConfig, devices, PlaywrightTestConfig } from '@playwright/test';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
+import { PORTS } from './scripts/build.config.js';
 
 /**
  * Playwright Base Configuration
@@ -17,10 +18,10 @@ const envPaths = {
     development: path.resolve(process.cwd(), '.env.development'),
 };
 
-// Server URLs
+// Server URLs (using centralized port config)
 export const urls = {
-    dev: 'http://localhost:5173',
-    preview: 'http://localhost:4173',
+    dev: `http://localhost:${PORTS.DEV}`,
+    preview: `http://localhost:${PORTS.PREVIEW}`,
 };
 
 /**

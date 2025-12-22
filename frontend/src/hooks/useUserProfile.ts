@@ -5,12 +5,13 @@ import { UserProfile } from "../types/user";
 
 export const useUserProfile = () => {
   const { session } = useAuthProvider();
+  const isDevBypass = window.location.search.includes('devBypass=true');
 
   const query = useQuery({
     queryKey: ['userProfile', session?.user?.id],
     queryFn: async () => {
-      if (!session?.user?.id) {
-        console.log('[useUserProfile] No session or user id, returning null');
+      if (!session?.user?.id || isDevBypass) {
+        console.log('[useUserProfile] No session user or devBypass active, skipping fetch');
         return null;
       }
 
@@ -26,17 +27,20 @@ export const useUserProfile = () => {
 
       return profile;
     },
-    enabled: !!session?.user,
+    enabled: !!session?.user && !isDevBypass,
+    // Add retry logic for better resilience against transient network/session issues
+    retry: 3,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
     // Cache profile data for 5 minutes to prevent skeleton flashing during navigation
     staleTime: 5 * 60 * 1000,
   });
 
   // DEV BYPASS: Return mock profile immediately for UI testing
-  if (window.location.search.includes('devBypass=true')) {
+  if (isDevBypass) {
     return {
       ...query,
       data: {
-        id: 'dev-bypass-user-id',
+        id: '00000000-0000-0000-0000-000000000000',
         subscription_status: 'pro',
         usage_seconds: 0,
         usage_reset_date: new Date(Date.now() + 30 * 86400000).toISOString(),

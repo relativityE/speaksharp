@@ -3,6 +3,7 @@ import { expect, afterEach, beforeAll, afterAll, vi } from 'vitest';
 import { cleanup } from '@testing-library/react';
 import * as matchers from '@testing-library/jest-dom/matchers';
 import { server } from './mocks/server';
+import { PORTS } from '@config/build.config.js';
 
 vi.mock('./lib/logger.js', () => ({
   default: {
@@ -148,7 +149,7 @@ global.AudioContext = vi.fn().mockImplementation(() => ({
   state: 'running',
 }));
 
-// Mock window.location for navigation tests
+// Mock window.location for navigation tests (using centralized port config)
 Object.defineProperty(window, 'location', {
   writable: true,
   value: {
@@ -156,18 +157,18 @@ Object.defineProperty(window, 'location', {
     assign: vi.fn(),
     replace: vi.fn(),
     reload: vi.fn(),
-    href: 'http://localhost:5173',
-    origin: 'http://localhost:5173',
+    href: `http://localhost:${PORTS.DEV}`,
+    origin: `http://localhost:${PORTS.DEV}`,
     ancestorOrigins: {
       length: 0,
       contains: () => false,
       item: () => null
     },
     hash: '',
-    host: 'localhost:5173',
+    host: `localhost:${PORTS.DEV}`,
     hostname: 'localhost',
     pathname: '/',
-    port: '5173',
+    port: String(PORTS.DEV),
     protocol: 'http:',
     search: '',
   },

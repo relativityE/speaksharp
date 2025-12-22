@@ -56,6 +56,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     // DEV BYPASS: Add ?devBypass=true to URL to skip auth for UI testing
     if (import.meta.env.DEV && window.location.search.includes('devBypass=true')) {
       console.log('[AuthProvider] DEV BYPASS ENABLED - using mock session');
+      const devUserId = '00000000-0000-0000-0000-000000000000';
       const mockSession = {
         access_token: 'dev-bypass-token',
         refresh_token: 'dev-bypass-refresh',
@@ -63,7 +64,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
         expires_at: Date.now() / 1000 + 3600,
         token_type: 'bearer',
         user: {
-          id: 'dev-bypass-user-id',
+          id: devUserId,
           email: 'dev@speaksharp.app',
           aud: 'authenticated',
           role: 'authenticated',
@@ -73,7 +74,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
         }
       } as Session;
       setSessionState(mockSession);
-      setProfile({ id: 'dev-bypass-user-id', subscription_status: 'free' } as UserProfile);
+      setProfile({ id: devUserId, subscription_status: 'free' } as UserProfile);
       setLoading(false);
       return;
     }
@@ -151,6 +152,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, newSession) => {
+        console.log(`[Supabase Auth] 🔐 Auth state changed: ${_event}`, newSession?.user?.id ? `User: ${newSession.user.id.slice(0, 8)}...` : 'No user');
         // In E2E test mode, don't let Supabase auth state changes override the mock session
         if (import.meta.env.MODE === 'test' || import.meta.env.VITE_TEST_MODE === 'true') {
           if (initialSession && !newSession) {

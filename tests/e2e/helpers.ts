@@ -381,3 +381,17 @@ export async function liveLogin(page: Page, email: string, password: string): Pr
   await page.getByTestId('sign-in-button').click();
   await page.waitForURL('/', { timeout: 15000 });
 }
+
+/**
+ * Navigate to a public route (no authentication required).
+ * This is the approved pattern for E2E tests navigating to public pages
+ * without triggering the no-restricted-syntax lint rule.
+ * 
+ * @param page - Playwright page object
+ * @param route - Public route to navigate to (e.g., '/auth/signup', '/pricing')
+ */
+export async function goToPublicRoute(page: Page, route: string): Promise<void> {
+  console.log(`[E2E] Navigating to public route: ${route}`);
+  await page.goto(route);
+  await page.waitForLoadState('domcontentloaded');
+}

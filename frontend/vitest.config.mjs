@@ -60,6 +60,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      "@config": path.resolve(__dirname, "../scripts"),
       "tests": path.resolve(__dirname, "./tests"),
       "sharp": path.resolve(__dirname, "./tests/support/mocks/sharp.ts"),
       '@xenova/transformers': path.resolve(__dirname, './tests/__mocks__/transformers.ts'),

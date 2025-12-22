@@ -77,6 +77,7 @@ export default class OnDeviceWhisper implements ITranscriptionMode {
   }
 
   public async init(): Promise<void> {
+    console.log('[Whisper] 🔄 Loading On-Device STT model...');
     logger.info('[OnDeviceWhisper] Initializing model...');
     this.status = 'loading';
 

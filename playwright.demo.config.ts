@@ -1,5 +1,6 @@
 import { defineConfig } from '@playwright/test';
 import { loadEnv, getChromeWithMic, baseConfig, urls } from './playwright.base.config';
+import { PORTS } from './scripts/build.config.js';
 
 /**
  * Demo Recording Configuration
@@ -30,7 +31,7 @@ export default defineConfig({
     },
     webServer: {
         command: 'pnpm preview',
-        port: 4173,
+        port: PORTS.PREVIEW,
         reuseExistingServer: true,
         timeout: 60_000,
     },

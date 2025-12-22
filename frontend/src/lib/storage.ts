@@ -33,8 +33,8 @@ export const getSessionHistory = async (
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const requestUrl = `${supabaseUrl}/rest/v1/sessions`;
 
-  console.log('[DEBUG getSessionHistory] Fetching sessions for user:', userId);
-  console.log('[DEBUG getSessionHistory] Request URL:', requestUrl);
+  console.log('[Supabase DB] 📥 Fetching sessions for user:', userId.slice(0, 8) + '...');
+  console.log('[Supabase DB] Request URL:', requestUrl);
 
   try {
     const { data, error }: { data: PracticeSession[] | null, error: PostgrestError | null } = await supabase
@@ -44,7 +44,7 @@ export const getSessionHistory = async (
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
-    console.log('[DEBUG getSessionHistory] Result:', { dataLength: data?.length, error: error?.message });
+    console.log('[Supabase DB] ✅ Sessions fetched:', data?.length || 0);
 
     if (error) {
       logger.error({ error }, `Error fetching session history from ${requestUrl}:`);

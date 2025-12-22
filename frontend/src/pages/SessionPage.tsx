@@ -32,7 +32,7 @@ export const SessionPage: React.FC = () => {
     const { updateElapsedTime, elapsedTime } = useSessionStore();
 
     console.log('[DEBUG] SessionPage rendered. Session:', session?.user?.id);
-    console.log('[DEBUG] SessionPage profile state:', { isProfileLoading, profileError, profileId: profile?.id });
+    console.log('[DEBUG] SessionPage profile state:', { isProfileLoading, profileError: profileError || 'none', profileId: profile?.id });
 
     const isProUser = isPro(profile?.subscription_status);
 
@@ -240,8 +240,14 @@ export const SessionPage: React.FC = () => {
                                 <Button variant="ghost" size="icon" onClick={() => setIsSettingsOpen(true)} data-testid={TEST_IDS.SESSION_SETTINGS_BUTTON}>
                                     <Settings className="h-5 w-5" />
                                 </Button>
-                                <Badge className="bg-secondary text-white border-secondary" data-testid={TEST_IDS.SESSION_STATUS_INDICATOR}>
-                                    {isReady ? 'READY' : 'LOADING'}
+                                <Badge
+                                    className={`${isListening && isReady ? 'bg-green-600 text-white border-green-600' : 'bg-secondary text-white border-secondary'}`}
+                                    data-testid={TEST_IDS.SESSION_STATUS_INDICATOR}
+                                >
+                                    {isListening
+                                        ? (isReady ? '● Recording' : 'Connecting...')
+                                        : 'Ready'
+                                    }
                                 </Badge>
                             </div>
                         </div>

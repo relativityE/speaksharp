@@ -9,6 +9,7 @@
 import 'dotenv/config';
 import fs from 'fs';
 import { chromium } from 'playwright';
+import { PORTS } from './build.config.js';
 
 const LOG_DIR = './logs';
 const PNG_FILE = `${LOG_DIR}/homepage.png`;
@@ -21,7 +22,7 @@ const BASE64_LOG_FILE = `${LOG_DIR}/homepage-base64.log`;
   const page = await browser.newPage();
 
   try {
-    const baseUrl = process.env.VITE_BASE_URL || 'http://localhost:5173';
+    const baseUrl = process.env.VITE_BASE_URL || `http://localhost:${PORTS.DEV}`;
     await page.goto(baseUrl, { waitUntil: 'networkidle', timeout: 30000 });
 
     // Capture screenshot

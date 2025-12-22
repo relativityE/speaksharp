@@ -76,6 +76,7 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
     this.mic = mic;
 
     try {
+      console.log('[AssemblyAI] 🔄 Starting Cloud STT connection...');
       const token = await this._getAssemblyAIToken();
       if (!token) {
         throw new Error("Failed to retrieve AssemblyAI token.");

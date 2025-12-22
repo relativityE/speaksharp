@@ -19,6 +19,9 @@
       "@/*": [
         "src/*"
       ],
+      "@config/*": [
+        "../scripts/*"
+      ],
       "tests/*": [
         "tests/*"
       ],

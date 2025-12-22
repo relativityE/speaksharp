@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
-import { Mic, BarChart3, Home, LogOut } from "lucide-react";
+import { Mic, BarChart3, Home, LogOut, Zap } from "lucide-react";
+import { useState } from "react";
 import { TEST_IDS } from '@/constants/testIds';
 import { useLocation, Link, useNavigate } from "react-router-dom";
 import { useAuthProvider } from "@/contexts/AuthProvider";
@@ -7,11 +8,35 @@ import { useAuthProvider } from "@/contexts/AuthProvider";
 const Navigation = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { session, signOut } = useAuthProvider();
+  const { session, profile, signOut } = useAuthProvider();
+  const [isUpgrading, setIsUpgrading] = useState(false);
 
   const handleSignOut = async () => {
     await signOut();
     navigate("/", { replace: true });
+  };
+
+  const handleUpgrade = async () => {
+    if (!session) return;
+    setIsUpgrading(true);
+    try {
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/stripe-checkout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+      });
+      const data = await response.json();
+      if (data.checkoutUrl) {
+        window.location.href = data.checkoutUrl;
+      } else {
+        throw new Error('No checkout URL');
+      }
+    } catch (err) {
+      console.error('Upgrade failed:', err);
+      setIsUpgrading(false);
+    }
   };
 
   const navItems = [
@@ -24,7 +49,7 @@ const Navigation = () => {
     {
       path: "/session",
       icon: Mic,
-      label: "Practice",
+      label: "Session",
       testId: TEST_IDS.NAV_SESSION_LINK
     },
     {
@@ -59,6 +84,8 @@ const Navigation = () => {
     </div>
   );
 
+
+  const isFreeUser = session && profile?.subscription_status === 'free';
 
   return (
     <>
@@ -99,6 +126,23 @@ const Navigation = () => {
             <div className="flex items-center space-x-3">
               {session ? (
                 <>
+                  {isFreeUser && (
+                    <Button
+                      onClick={handleUpgrade}
+                      disabled={isUpgrading}
+                      size="sm"
+                      className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-lg shadow-primary/20 animate-pulse-subtle"
+                    >
+                      {isUpgrading ? (
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                      ) : (
+                        <>
+                          <Zap className="h-4 w-4 mr-2" />
+                          Upgrade to Pro
+                        </>
+                      )}
+                    </Button>
+                  )}
                   <span className="hidden md:inline text-sm text-muted-foreground">
                     {session.user?.email}
                   </span>

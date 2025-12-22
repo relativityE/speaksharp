@@ -1,7 +1,7 @@
 import React, { useState, FormEvent, ChangeEvent } from 'react';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { useAuthProvider } from '@/contexts/AuthProvider';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,10 +18,9 @@ const friendlyErrors: Record<string, string> = {
 
 const mapError = (message: string) => {
   try {
-    // Attempt to parse the message as JSON. Supabase often returns JSON errors in the message string.
+    // Handle JSON-formatted Supabase errors
     const parsed = JSON.parse(message);
-    const friendlyMessage = friendlyErrors[parsed.message];
-    if (friendlyMessage) return friendlyMessage;
+    if (parsed.message) return friendlyErrors[parsed.message] || parsed.message;
   } catch {
     // Not a JSON string, fall through to direct mapping.
   }
@@ -30,10 +29,18 @@ const mapError = (message: string) => {
 
 export default function AuthPage() {
   const { session, loading, setSession } = useAuthProvider();
+  const location = useLocation();
 
-  const [view, setView] = useState<AuthView>('sign_in');
+  // Determine initial view from URL path
+  const getInitialView = (): AuthView => {
+    if (location.pathname.includes('signup')) return 'sign_up';
+    return 'sign_in';
+  };
+
+  const [view, setView] = useState<AuthView>(getInitialView());
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [selectedPlan, setSelectedPlan] = useState<'free' | 'pro'>('free'); // Default to free
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -64,14 +71,55 @@ export default function AuthPage() {
         console.log('[AuthPage] Attempting sign_in for:', email);
         authResult = await supabase.auth.signInWithPassword({ email, password });
       } else if (view === 'sign_up') {
-        console.log('[AuthPage] Attempting sign_up for:', email);
-        const { error: signUpError } = await supabase.auth.signUp({ email, password });
+        console.log('[AuthPage] Attempting sign_up for:', email, 'with plan:', selectedPlan);
+        const { error: signUpError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              initial_plan: selectedPlan // Store the intent in user_metadata
+            }
+          }
+        });
+
         if (signUpError) {
           console.error('[AuthPage] Sign-up error:', signUpError.message);
           throw signUpError;
         }
-        // In an E2E test, immediately sign in to create a session
-        authResult = await supabase.auth.signInWithPassword({ email, password });
+
+        // 1. Log the user in to get a session
+        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+        if (signInError) {
+          console.error('[AuthPage] Post-signup sign-in failed:', signInError.message);
+          throw signInError;
+        }
+
+        authResult = { data: signInData, error: null };
+
+        // 2. If Pro was selected, immediately initiate Stripe checkout
+        if (selectedPlan === 'pro' && signInData.session) {
+          console.log('[AuthPage] Pro plan selected, redirecting to Stripe...');
+          try {
+            const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/stripe-checkout`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${signInData.session.access_token}`,
+              },
+            });
+            const data = await response.json();
+            if (data.checkoutUrl) {
+              window.location.href = data.checkoutUrl;
+              return; // Halt logic while redirecting
+            } else {
+              throw new Error('No checkout URL returned');
+            }
+          } catch (stripeErr) {
+            console.error('[AuthPage] Stripe redirect failed:', stripeErr);
+            setError('Account created, but we couldn\'t start the Pro upgrade. You can upgrade later from the dashboard.');
+            // We don't throw here - the account IS created, they are just on the free plan for now.
+          }
+        }
       } else { // forgot_password
         console.log('[AuthPage] Attempting password reset for:', email);
         const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
@@ -132,27 +180,23 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-background p-4 relative overflow-hidden">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-background p-4 pt-20 relative overflow-hidden">
       {/* Background Elements */}
       <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-background to-background z-0" />
       <div className="absolute top-0 left-0 w-full h-full bg-[url('/assets/grid-pattern.svg')] opacity-[0.03] z-0 pointer-events-none" />
 
-      <div className="relative z-10 w-full max-w-md space-y-8">
-        <div className="text-center space-y-2">
-          <h1 className="text-4xl font-extrabold tracking-tight text-foreground">SpeakSharp</h1>
-          <p className="text-muted-foreground text-lg">Master your communication skills.</p>
-        </div>
+      <div className="relative z-10 w-full max-w-md space-y-6">
+        <h2 className="text-center text-2xl font-semibold text-muted-foreground">Master your communication skills</h2>
 
         <Card className="border-border/50 shadow-xl bg-card/95 backdrop-blur-sm">
           <CardHeader className="space-y-1 text-center pb-8">
             <CardTitle className="text-2xl font-bold tracking-tight">
               {view === 'sign_in' && 'Welcome back'}
-              {view === 'sign_up' && 'Create an account'}
+              {view === 'sign_up' && 'Create Account'}
               {view === 'forgot_password' && 'Reset password'}
             </CardTitle>
             <CardDescription className="text-base">
               {view === 'sign_in' && 'Enter your credentials to access your account'}
-              {view === 'sign_up' && 'Enter your email below to create your account'}
               {view === 'forgot_password' && "Enter your email address and we'll send you a reset link"}
             </CardDescription>
           </CardHeader>
@@ -200,6 +244,35 @@ export default function AuthPage() {
                   </div>
                 )}
 
+                {view === 'sign_up' && (
+                  <div className="space-y-3 py-2">
+                    <Label className="text-sm font-semibold">Choose Your Plan</Label>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div
+                        onClick={() => setSelectedPlan('free')}
+                        className={`cursor-pointer rounded-lg border-2 p-3 transition-all ${selectedPlan === 'free' ? 'border-primary bg-primary/5' : 'border-border hover:border-border/80'}`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-bold">Free</span>
+                          {selectedPlan === 'free' && <div className="h-2 w-2 rounded-full bg-primary" />}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground leading-tight">Basic STT, 60s sessions, default speed.</p>
+                      </div>
+                      <div
+                        onClick={() => setSelectedPlan('pro')}
+                        className={`cursor-pointer rounded-lg border-2 p-3 transition-all ${selectedPlan === 'pro' ? 'border-primary bg-primary/5' : 'border-border hover:border-border/80'}`}
+                        data-testid="plan-pro-option"
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-bold text-primary">Pro</span>
+                          {selectedPlan === 'pro' && <div className="h-2 w-2 rounded-full bg-primary" />}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground leading-tight">AssemblyAI, Whisper, unlimited time.</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {error && (
                   <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm font-medium animate-in fade-in-50" data-testid="auth-error-message">
                     {error}
@@ -224,7 +297,7 @@ export default function AuthPage() {
                       {view === 'sign_in' ? 'Signing in...' : view === 'sign_up' ? 'Creating account...' : 'Sending link...'}
                     </span>
                   ) : (
-                    view === 'sign_in' ? 'Sign In' : view === 'sign_up' ? 'Create Account' : 'Send Reset Link'
+                    view === 'sign_in' ? 'Sign In' : view === 'sign_up' ? 'Submit' : 'Send Reset Link'
                   )}
                 </Button>
               </div>

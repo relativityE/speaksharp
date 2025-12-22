@@ -189,19 +189,20 @@ describe('SessionPage', () => {
             expect(button).toBeDisabled();
         });
 
-        it('should show READY status when ready', () => {
+        it('should show Ready status when not listening', () => {
             render(<SessionPage />);
-            expect(screen.getByTestId('session-status-indicator')).toHaveTextContent('READY');
+            expect(screen.getByTestId('session-status-indicator')).toHaveTextContent('Ready');
         });
 
-        it('should show LOADING status when not ready', () => {
+        it('should show Connecting status when listening but not ready', () => {
             mockUseSpeechRecognition.mockReturnValue({
                 ...mockUseSpeechRecognition(),
                 isReady: false,
+                isListening: true,
             } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
             render(<SessionPage />);
-            expect(screen.getByTestId('session-status-indicator')).toHaveTextContent('LOADING');
+            expect(screen.getByTestId('session-status-indicator')).toHaveTextContent('Connecting...');
         });
     });
 

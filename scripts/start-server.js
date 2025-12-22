@@ -6,8 +6,9 @@
  */
 import { spawn } from 'child_process';
 import killPort from 'kill-port';
+import { PORTS } from './build.config.js';
 
-const PORT = process.env.VITE_PORT || '5173';
+const PORT = process.env.VITE_PORT || String(PORTS.DEV);
 
 (async () => {
   try {

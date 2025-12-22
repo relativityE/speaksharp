@@ -5,7 +5,7 @@
 
 # SpeakSharp System Architecture
 
-**Version 3.9** | **Last Updated: 2025-12-18**
+**Version 4.0** | **Last Updated: 2025-12-21**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -157,7 +157,8 @@ The following critical features are fully implemented and production-ready:
 
 | Feature | Status | Implementation | Evidence |
 |---------|--------|----------------|----------|
-| **Sentry Error Tracking** | ✅ Complete | Full initialization with browser tracing, session replay (10% sampling), and 100% error replay | [`main.tsx:50-64`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/main.tsx#L50-L64) |
+| **Sentry Error Tracking** | ✅ Complete | Full initialization with browser tracing, session replay (10% sampling), and 100% error replay | [`main.tsx:50-68`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/main.tsx#L50-L68) |
+| **Console Logging Integration** | ✅ Complete | `consoleLoggingIntegration` captures `console.error`/`warn` → Sentry. Since Pino uses `pino-pretty`, all `logger.error()` calls are now sent to Sentry | [`main.tsx:57-61`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/main.tsx#L57-L61) |
 | **React Error Boundary** | ✅ Complete | `Sentry.ErrorBoundary` wraps entire `<App/>` component with user-friendly fallback | [`main.tsx:111-113`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/main.tsx#L111-L113) |
 | **E2E Test Isolation** | ✅ Complete | Sentry/PostHog disabled in `IS_TEST_ENVIRONMENT` to prevent test pollution | [`main.tsx:47, 83-85`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/main.tsx#L47) |
 
@@ -724,6 +725,113 @@ Hot Module Replacement (HMR): Code changes appear instantly in the browser witho
 Developer-Friendly Tooling: Includes source maps for easier debugging and verbose error messages in the console.
 Flexible Data: It typically connects to a development or local Supabase instance, but can be configured (via .env.local files) to connect to production if needed (though this is generally discouraged). Developer-specific flags like VITE_DEV_USER can be enabled here.
 How it's Launched: This environment is launched using the pnpm dev command. This command runs vite, which starts the Vite development server. By default, Vite runs in development mode, which enables all the features mentioned above.
+
+### Developer Utilities (2025-12-21)
+
+This section documents tools and patterns for local development efficiency.
+
+#### Port Centralization (`scripts/build.config.ts`)
+
+All dev/preview server ports are centralized in a single configuration file:
+
+```typescript
+// scripts/build.config.ts
+export const PORTS = {
+  DEV: 5173,     // Development server (pnpm dev)
+  PREVIEW: 4173  // Preview/E2E test server (pnpm preview, Playwright)
+} as const;
+```
+
+**Files using this config:**
+- Playwright configs (`playwright.config.ts`, `playwright.base.config.ts`)
+- Utility scripts (`record-demo.ts`, `screenshot-homepage.js`)
+- Backend CORS (`backend/supabase/functions/_shared/cors.ts`)
+- Stripe checkout redirects (`stripe-checkout/index.ts`)
+
+**Why:** Eliminates hardcoded port numbers that cause silent failures when ports change.
+
+#### Authentication Bypass (`?devBypass=true`)
+
+For rapid UI development without real authentication:
+
+```bash
+http://localhost:5173/session?devBypass=true
+```
+
+**What it does:**
+1. Injects a mock Pro user with UUID `00000000-0000-0000-0000-000000000000`
+2. Skips real Supabase profile fetch
+3. Provides full Pro-tier access to all features
+
+**Implementation:**
+- [`AuthProvider.tsx:59-77`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/contexts/AuthProvider.tsx#L59-L77) - Creates mock session
+- [`useUserProfile.ts:35-46`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/hooks/useUserProfile.ts#L35-L46) - Returns mock profile, disables fetch
+
+**Important:** Only works in development mode (`import.meta.env.DEV`).
+
+#### Stripe CLI for Local Webhook Testing
+
+Stripe webhooks require a tunnel to reach localhost. The Stripe CLI provides this:
+
+```bash
+# Install (one-time)
+brew install stripe/stripe-cli/stripe
+stripe login
+
+# Forward webhooks to local server
+stripe listen --forward-to localhost:5173/api/webhook
+```
+
+**Why Needed:**
+- Production: Stripe sends webhooks to `https://speaksharp.app/api/webhook`
+- Local: Stripe cannot reach `localhost:5173` directly
+- Solution: CLI creates tunnel: `Stripe Cloud → stripe listen → localhost`
+
+**Testing Flow:**
+1. Start dev server: `pnpm dev`
+2. Start webhook listener: `stripe listen --forward-to localhost:5173/api/webhook`
+3. Create test checkout
+4. CLI forwards `checkout.session.completed` event to your local server
+
+#### Vercel Deployment Configuration
+
+The [`vercel.json`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/vercel.json) configures production deployment:
+
+```json
+{
+  "buildCommand": "pnpm build",
+  "outputDirectory": "frontend/dist",
+  "framework": "vite",
+  "rewrites": [{ "source": "/(.*)", "destination": "/" }],
+  "headers": [
+    { "source": "/assets/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }] },
+    { "source": "/sw.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+  ]
+}
+```
+
+| Setting | Purpose |
+|---------|---------|
+| `rewrites` | SPA routing - all paths serve `index.html` for React Router |
+| `/assets/*` caching | 1-year immutable cache for hashed static files |
+| `/sw.js` no-cache | Service worker must always check for updates |
+
+#### Debug Logging Conventions
+
+For structured debugging, especially with profile loading:
+
+```typescript
+// Good - explicit "none" for healthy state
+console.log('[SessionPage] 📝 Session initialized', {
+  profileError: error ?? "none"  // "none" means no error
+});
+
+// Avoid - null could mean "not set" or "no error"
+profileError: error  // Ambiguous
+```
+
+**Pattern:** Use `"none"` string to explicitly indicate healthy/expected state. Use actual error object when error exists.
+
 3. Test Environment (test)
 Purpose: This is a specialized, automated environment designed exclusively for running tests (especially End-to-End tests with Playwright). Its goal is to create a consistent, isolated, and controllable simulation of the application.
 Key Characteristics:
@@ -1190,7 +1298,7 @@ The frontend is a single-page application (SPA) built with React and Vite.
     *   **Best Practices:** Avoid hardcoded values; use tokens. Ensure accessibility (contrast/focus) via base styles.
 *   **State Management:** See Section 3.1 below.
 *   **Routing:** Client-side routing is handled by `react-router-dom`, with protected routes implemented to secure sensitive user pages.
-*   **Logging:** The application uses `pino` for structured logging.
+*   **Logging:** The application uses `pino` for structured logging. In development, `pino-pretty` outputs to console; Sentry's `consoleLoggingIntegration` automatically captures `console.error` and `console.warn` calls. See [Error Handling & Monitoring](#error-handling--monitoring) for details.
 *   **PDF Generation:** Session reports can be exported as PDF documents using the `jspdf` and `jspdf-autotable` libraries. The `pdfGenerator.ts` utility encapsulates the logic for creating these reports.
 *   **Analytics Components:** The frontend includes several components for displaying analytics, such as `FillerWordTable`, `FillerWordTrend`, `SessionComparison`, `TopFillerWords`, and `AccuracyComparison`.
 *   **AI-Powered Suggestions:** The `AISuggestions` component provides users with feedback on their speech.
@@ -1584,4 +1692,17 @@ This section tracks architectural improvements, tooling refactors, and code heal
 
 - **Update Core Dependencies:** Upgrade React, Vite, Vitest, and Tailwind to latest stable versions.
 
+
+## 6. Technical Debt & Known Issues
+
+SpeakSharp maintains an active tracking document for architectural debt, code smells, and transient issues discovered during development.
+
+**Primary Reference:** [ROADMAP.md - Tech Debt Section](./ROADMAP.md#-tech-debt-identified-code-smells---dec-2025)
+
+**Key Areas of Focus:**
+- **Notification Lifecycle:** Current ad-hoc de-duplication of toasts in `App.tsx`.
+- **Session Synchronization:** Transient failures in initial profile fetching addressed by retries in `useUserProfile.ts`.
+- **STT Accuracy:** Simple regex patterns for filler words (planned replacement with NLP).
+
+Maintainers should consult the ROADMAP.md Tech Debt sections before starting major refactors or if encountering intermittent system behavior.
 

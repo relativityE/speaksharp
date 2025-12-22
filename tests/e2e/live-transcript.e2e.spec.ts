@@ -121,8 +121,8 @@ test.describe('Live Transcript Feature', () => {
     // Verify that the UI updates to show the session is active
     console.log('[TEST DEBUG] Waiting for session status indicator...');
     const sessionActiveIndicator = page.getByTestId('session-status-indicator');
-    await expect(sessionActiveIndicator).toHaveText('READY');
-    console.log('[TEST DEBUG] Session status is READY.');
+    await expect(sessionActiveIndicator).toHaveText('● Recording');
+    console.log('[TEST DEBUG] Session status is Recording.');
 
     // The transcript container should show that we're listening
     console.log('[TEST DEBUG] Waiting for transcript container to show "Listening..."...');

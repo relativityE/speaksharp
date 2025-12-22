@@ -1,4 +1,7 @@
 import { chromium } from '@playwright/test';
+import { PORTS } from './build.config.js';
+
+const BASE_URL = `http://localhost:${PORTS.DEV}`;
 
 (async () => {
     const browser = await chromium.launch({ headless: false });
@@ -14,7 +17,7 @@ import { chromium } from '@playwright/test';
 
     // 1. Landing Page
     console.log('[DEMO] Navigating to landing page...');
-    await page.goto('http://localhost:5173');
+    await page.goto(BASE_URL);
     await page.waitForTimeout(2000);
 
     // 2. Scroll to show features
@@ -24,17 +27,17 @@ import { chromium } from '@playwright/test';
 
     // 3. Navigate to Sign In
     console.log('[DEMO] Navigating to Sign In page...');
-    await page.goto('http://localhost:5173/auth/signin');
+    await page.goto(`${BASE_URL}/auth/signin`);
     await page.waitForTimeout(2000);
 
     // 4. Navigate to Session page (using mock auth)
     console.log('[DEMO] Navigating to Session page...');
-    await page.goto('http://localhost:5173/session');
+    await page.goto(`${BASE_URL}/session`);
     await page.waitForTimeout(3000);
 
     // 5. Navigate to Analytics
     console.log('[DEMO] Navigating to Analytics dashboard...');
-    await page.goto('http://localhost:5173/analytics');
+    await page.goto(`${BASE_URL}/analytics`);
     await page.waitForTimeout(3000);
 
     // 6. Scroll to show more analytics

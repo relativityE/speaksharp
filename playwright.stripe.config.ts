@@ -7,7 +7,7 @@ import { loadEnv, getChromeBasic, baseConfig, urls } from './playwright.base.con
  * Purpose: Run Stripe checkout flow tests against REAL Supabase + Stripe
  * Usage: pnpm exec playwright test --config=playwright.stripe.config.ts
  * 
- * NOTE: Uses dev server (port 5173) with real Supabase credentials.
+ * NOTE: Uses dev server (matching PORTS.DEV) with real Supabase credentials.
  * Assumes dev server is already running: pnpm dev
  */
 
