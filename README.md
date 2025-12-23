@@ -30,15 +30,23 @@ speaksharp/
 │   ├── unit/
 │   ├── fixtures/
 │   └── pom/
-└── ...
 ```
 
-**Note:** Unit and Integration tests are located within `frontend/src` and `frontend/tests` respectively.
+### Test File Locations
 
-    ├── package.json
-    ├── eslint.config.js
-    └── ...
-```
+| Test Type | Location | Pattern |
+|-----------|----------|---------|
+| **Unit Tests** | `frontend/src/**/__tests__/` | `*.test.ts`, `*.test.tsx` |
+| **Integration Tests** | `frontend/tests/integration/` | `*.spec.ts` |
+| **E2E Tests** | `tests/e2e/` | `*.e2e.spec.ts` |
+| **Soak/Canary Tests** | `tests/soak/`, `tests/e2e/` | `*.spec.ts` |
+
+> **Note:** Unit tests are co-located with source files (not in a separate `tests/unit/` directory) following the pattern recommended by Vitest for better maintainability.
+
+**Why `__tests__/`?**
+- Jest/Vitest automatically discover `*.test.ts` files in `__tests__/` directories
+- Double underscores = "this is special/internal" (convention borrowed from Python's `__init__.py`)
+- Bundlers (Vite/Webpack) exclude these directories from production builds
 
 ## Getting Started
 

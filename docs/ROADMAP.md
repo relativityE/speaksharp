@@ -84,7 +84,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 
 | Finding | Priority | Status | Notes |
 |---------|----------|--------|-------|
-| **Inverted Testing Pyramid** | CRITICAL | 🟡 IN PROGRESS | Unit test count increased from 410 → 432. Coverage thresholds enforced. |
+| **Inverted Testing Pyramid** | CRITICAL | 🟡 IN PROGRESS | 89 unit tests across 52 files (verified 2025-12-23). Coverage thresholds enforced. |
 | **Documentation Drift & Hallucination** | CRITICAL | 🔄 PERPETUAL | PRD metrics now auto-updated by CI. Manual audit required per OUTLINE.md. |
 
 #### 2. Core Architectural Flaws
@@ -101,7 +101,23 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 | **Inefficient CI/CD Pipeline** | MEDIUM | ✅ PARTIAL | Dependencies cached. Full optimization requires single setup job. |
 | **Ambiguous Setup Scripts** | LOW | ✅ FIXED | `scripts/setup.sh` deleted, replaced with `dev-init.sh` (2025-12-22). |
 
-#### 4. Test Infrastructure Fixes (2025-12-22)
+#### 4. Security Hardening (2025-12-23)
+
+| Finding | Priority | Status | Notes |
+|---------|----------|--------|-------|
+| **Unauthenticated Token Endpoint** | CRITICAL | ✅ FIXED | `assemblyai-token` now requires JWT auth + Pro subscription check. Returns 401/403 for unauthorized requests. |
+| **Anonymous Sign-In User Table Pollution** | HIGH | ✅ FIXED | Removed `signInAnonymously()` from `useSpeechRecognition`. Dev testing uses `devBypass` instead. |
+
+#### 5. Code Quality Improvements (2025-12-23)
+
+| Finding | Priority | Status | Notes |
+|---------|----------|--------|-------|
+| **Redundant useState+useEffect** | MEDIUM | ✅ FIXED | `useTranscriptState` now uses `useMemo` for derived transcript (React best practice). |
+| **Redundant Vite Env Config** | LOW | ✅ FIXED | Removed manual `VITE_*` exposure loop - Vite handles this automatically. |
+| **Inconsistent Lazy Loading** | LOW | ✅ FIXED | Added `export default` to 3 pages for consistent `React.lazy()` syntax. |
+| **Domain Services Logging** | MEDIUM | ✅ FIXED | Replaced `console.error` with structured `logger` (Pino→Sentry). Added `logger.debug` for "not found" cases. |
+
+#### 6. Test Infrastructure Fixes (2025-12-22)
 
 | Finding | Status | Notes |
 |---------|--------|-------|
@@ -382,7 +398,7 @@ This phase is about confirming the core feature set works as expected and polish
     - **Limitation:** GitHub Actions workflow_dispatch does not support conditional field visibility, greyed-out fields, or dynamic data.
     - **Future Option:** Build custom web UI that queries Supabase for current state and triggers workflow via GitHub API.
 - **✅ COMPLETED - Expand Unit Test Coverage (2025-12-08):**
-  - **Current:** 379 unit tests passing
+  - **Note:** Originally reported as 379 tests; count was inflated. Actual: 89 tests in 52 files (verified 2025-12-23).
   - ✅ Authentication pages: SignInPage (14), SignUpPage (15)
   - ✅ Core pages: AnalyticsPage (14), SessionPage (18)
   - ✅ Utilities: storage.ts (10), utils.ts (8), supabaseClient.ts (5)

@@ -7,8 +7,13 @@
  * Benefits:
  * - Single source of truth for data access patterns
  * - Easier to mock in tests
- * - Consistent error handling
+ * - Consistent error handling via structured logger
  * - Type safety at the boundary
+ * 
+ * Error Handling:
+ * - All errors are logged via the structured Pino logger (captured by Sentry)
+ * - 'Not found' cases (PGRST116) are logged at debug level and return null
+ * - Other errors are logged at error level and re-thrown
  * 
  * Usage:
  * Instead of calling supabase directly in hooks:
@@ -19,6 +24,7 @@
  */
 
 import { getSupabaseClient } from '@/lib/supabaseClient';
+import logger from '@/lib/logger';
 import type { PracticeSession } from '@/types/session';
 import type { UserProfile } from '@/types/user';
 
@@ -43,7 +49,7 @@ export const sessionService = {
             .limit(limit);
 
         if (error) {
-            console.error('[sessionService.getHistory] Error:', error);
+            logger.error({ error }, '[sessionService.getHistory]');
             throw error;
         }
 
@@ -62,7 +68,11 @@ export const sessionService = {
             .single();
 
         if (error) {
-            if (error.code === 'PGRST116') return null; // Not found
+            if (error.code === 'PGRST116') {
+                logger.debug({ sessionId }, '[sessionService.getById] Session not found');
+                return null;
+            }
+            logger.error({ error, sessionId }, '[sessionService.getById]');
             throw error;
         }
 
@@ -81,7 +91,7 @@ export const sessionService = {
             .single();
 
         if (error) {
-            console.error('[sessionService.create] Error:', error);
+            logger.error({ error }, '[sessionService.create]');
             throw error;
         }
 
@@ -101,7 +111,7 @@ export const sessionService = {
             .single();
 
         if (error) {
-            console.error('[sessionService.update] Error:', error);
+            logger.error({ error }, '[sessionService.update]');
             throw error;
         }
 
@@ -119,7 +129,7 @@ export const sessionService = {
             .eq('id', sessionId);
 
         if (error) {
-            console.error('[sessionService.delete] Error:', error);
+            logger.error({ error }, '[sessionService.delete]');
             throw error;
         }
     },
@@ -142,8 +152,11 @@ export const profileService = {
             .single();
 
         if (error) {
-            if (error.code === 'PGRST116') return null; // Not found
-            console.error('[profileService.getById] Error:', error);
+            if (error.code === 'PGRST116') {
+                logger.debug({ userId }, '[profileService.getById] Profile not found');
+                return null;
+            }
+            logger.error({ error, userId }, '[profileService.getById]');
             throw error;
         }
 
@@ -163,7 +176,7 @@ export const profileService = {
             .single();
 
         if (error) {
-            console.error('[profileService.update] Error:', error);
+            logger.error({ error }, '[profileService.update]');
             throw error;
         }
 
@@ -195,7 +208,7 @@ export const vocabularyService = {
             .order('created_at', { ascending: false });
 
         if (error) {
-            console.error('[vocabularyService.getWords] Error:', error);
+            logger.error({ error }, '[vocabularyService.getWords]');
             throw error;
         }
 
@@ -214,7 +227,7 @@ export const vocabularyService = {
             .single();
 
         if (error) {
-            console.error('[vocabularyService.addWord] Error:', error);
+            logger.error({ error }, '[vocabularyService.addWord]');
             throw error;
         }
 
@@ -232,7 +245,7 @@ export const vocabularyService = {
             .eq('id', wordId);
 
         if (error) {
-            console.error('[vocabularyService.removeWord] Error:', error);
+            logger.error({ error }, '[vocabularyService.removeWord]');
             throw error;
         }
     },
@@ -264,8 +277,11 @@ export const goalsService = {
             .single();
 
         if (error) {
-            if (error.code === 'PGRST116') return null;
-            console.error('[goalsService.get] Error:', error);
+            if (error.code === 'PGRST116') {
+                logger.debug({ userId }, '[goalsService.get] Goals not found');
+                return null;
+            }
+            logger.error({ error, userId }, '[goalsService.get]');
             throw error;
         }
 
@@ -284,7 +300,7 @@ export const goalsService = {
             .single();
 
         if (error) {
-            console.error('[goalsService.upsert] Error:', error);
+            logger.error({ error }, '[goalsService.upsert]');
             throw error;
         }
 

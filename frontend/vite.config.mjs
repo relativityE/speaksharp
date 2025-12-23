@@ -54,17 +54,11 @@ export default defineConfig(({ mode }) => {
       },
     },
     define: {
-      // Expose env vars on import.meta.env
+      // Vite automatically exposes VITE_* prefixed env vars on import.meta.env
+      // We only need to override specific values here
       'process.env': {},
       'global': 'globalThis',
       'import.meta.env.VITE_TEST_MODE': JSON.stringify(isTestMode),
-      // Expose all VITE_* vars from loadEnv
-      ...Object.keys(env).reduce((prev, key) => {
-        if (key.startsWith('VITE_')) {
-          prev[`import.meta.env.${key}`] = JSON.stringify(env[key]);
-        }
-        return prev;
-      }, {}),
     },
     optimizeDeps: {
       exclude: [],

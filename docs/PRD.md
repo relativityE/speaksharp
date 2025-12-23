@@ -146,7 +146,7 @@ This section tracks high-level product risks and constraints. For a detailed his
 - **Incomplete Theming:** The application is configured to support both light and dark themes, but only a dark theme is currently implemented. Users will not be able to switch to a light theme, which can be an accessibility issue and ignores user preference.
 - **✅ RESOLVED - Infrastructure - Contract Drift (2025-12-19):** Grounded the `sessions` table by adding missing columns (`transcript`, `engine`, `clarity_score`, `wpm`) and implemented the atomic `create_session_and_update_usage` RPC. Purged `avatar_url` and `full_name` phantoms. **Status:** ✅ Fixed.
 - **✅ RESOLVED - Accessibility (aria-live, 2025-12-11):** Added `aria-live="polite"`, `aria-label`, and `role="log"` to the live transcript container (`SessionPage.tsx:266-272`). Screen readers now announce new transcript text as it appears. **Status:** ✅ Fixed.
-- **Unit Test Coverage:** Current test coverage is 57.03% with 406 unit tests passing (as of 2025-12-19). Continued coverage expansion is tracked in the technical debt backlog.
+- **Unit Test Coverage:** Current coverage is 57.03% with 89 unit tests across 52 test files (as of 2025-12-23). Continued coverage expansion is tracked in the technical debt backlog.
 - **✅ RESOLVED - UX - Layout Shift (CLS, 2025-12-06):** The `SessionPage` transcript container now uses fixed `h-[250px]` to prevent layout instability. **Status:** ✅ Fixed.
 - **✅ RESOLVED - UX - Accessibility (Contrast, 2025-12-07):** Hero text contrast improved with drop-shadow and backdrop-blur for WCAG AA compliance. **Status:** ✅ Fixed.
 - **UX - Mobile Experience:** The controls on `SessionPage` are difficult to access on small screens as they scroll away with the content ("thumb stretch" issue). A sticky footer is required.
@@ -192,7 +192,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Tue, 23 Dec 2025 06:05:38 GMT
+**Last Updated:** Tue, 23 Dec 2025 08:32:23 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -238,8 +238,9 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 | Total Source Size   | 3.6M   |
 | Total Project Size  | 1.1G   |
 | Initial Chunk Size  | 884K   |
-| Code Bloat Index    | 24.23%   |
-| Lighthouse Scores   | P: 0, A: 0, BP: 0, SEO: 0 |
+| Code Bloat Index    | 25.88%   |
+| Lighthouse Scores   | P: 100, A: 95, BP: 100, SEO: 92 |
+
 
 ---
 <!-- SQM:END -->
@@ -394,3 +395,55 @@ This section provides high-level insights into the SpeakSharp project from multi
 *   **Pro User (Authenticated):**
     *   **Price: $7.99/month.**
     *   **Recommendation:** This remains the core paid offering. The value proposition should be clear: "unlimited practice," "Cloud AI transcription," and the key differentiator of "on-device transcription" for enhanced privacy. The fallback to Native Browser is a a good technical resilience feature.
+
+---
+
+## 8. Deployment (Alpha Release)
+
+### Vercel Configuration
+
+The `vercel.json` file is configured for Vite SPA deployment:
+- **Build command:** `pnpm build`
+- **Output directory:** `frontend/dist`
+- **SPA routing:** All routes rewrite to `/` for client-side routing
+- **Cache headers:** 1 year for assets, no-cache for service worker
+
+### Environment Variables (Vercel Dashboard)
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `VITE_SUPABASE_URL` | ✅ | Supabase project URL |
+| `VITE_SUPABASE_ANON_KEY` | ✅ | Supabase anonymous key |
+| `VITE_STRIPE_PUBLISHABLE_KEY` | ✅ | Stripe publishable key |
+| `VITE_SENTRY_DSN` | Optional | Sentry error tracking |
+
+### Deployment Steps
+
+```bash
+# 1. Install Vercel CLI (if needed)
+npm i -g vercel
+
+# 2. Link project (first time only)
+vercel link
+
+# 3. Deploy to preview (staging)
+vercel
+
+# 4. When ready for production
+vercel --prod
+```
+
+### Alpha Release URL Strategy
+
+**Recommended:** Use staging subdomain for alpha release:
+
+| Environment | URL | Purpose |
+|-------------|-----|---------|
+| Preview | `speaksharp-*.vercel.app` | PR previews |
+| Alpha/Staging | `alpha.speaksharp.app` | Soft launch, beta testers |
+| Production | `speaksharp.app` | Public release |
+
+**Custom domain setup:**
+1. Vercel Dashboard → Project → Domains
+2. Add `alpha.speaksharp.app`
+3. Add CNAME record in DNS: `alpha → cname.vercel-dns.com`

@@ -42,13 +42,15 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     try {
       const supabase = getSupabaseClient();
       if (!supabase) throw new Error("Supabase client not available");
-      let userSession = authSession;
-      if (import.meta.env.VITE_DEV_MODE === 'true' && !userSession) {
-        const { data, error } = await supabase.auth.signInAnonymously();
-        if (error) throw new Error(`Anonymous sign-in failed: ${error.message}`);
-        if (!data.session) throw new Error('Anonymous sign-in did not return a session.');
-        userSession = data.session;
+
+      // SECURITY FIX: Removed anonymous sign-in logic that polluted auth.users table
+      // Dev testing should use devBypass query parameter for mock sessions
+      if (!authSession) {
+        logger.warn('[getAssemblyAIToken] No auth session available - cannot fetch token');
+        toast.error('Please sign in to use transcription features');
+        return null;
       }
+
       const { data, error } = await supabase.functions.invoke(API_CONFIG.ASSEMBLYAI_TOKEN_ENDPOINT, { body: {} });
       if (error) throw new Error(`Failed to invoke token function: ${error.message}`);
       if (!data || !data.token) throw new Error("No valid AssemblyAI token returned.");

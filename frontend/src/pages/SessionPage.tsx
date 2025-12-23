@@ -491,3 +491,5 @@ const SpeakingTipCard: React.FC<{ title: string; description: string }> = ({ tit
         <p className="text-xs text-muted-foreground">{description}</p>
     </div>
 );
+
+export default SessionPage;

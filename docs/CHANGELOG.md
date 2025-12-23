@@ -10,6 +10,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security (2025-12-23) - Critical Audit Remediation
+
+- **Unauthenticated Token Endpoint (CRITICAL):**
+  - **Problem:** `assemblyai-token` Edge Function had no authentication - anyone could generate billable tokens.
+  - **Fix:** Added JWT validation via `supabase.auth.getUser()` and Pro subscription check against `user_profiles.subscription_status`.
+  - **Impact:** Returns 401 (no JWT), 403 (not Pro), or 200 with token.
+  - **File:** `backend/supabase/functions/assemblyai-token/index.ts`
+
+- **Anonymous Sign-In User Table Pollution (HIGH):**
+  - **Problem:** `useSpeechRecognition` contained `signInAnonymously()` that created permanent auth.users entries on each call in dev mode.
+  - **Fix:** Removed anonymous sign-in logic. Dev testing uses `devBypass` query parameter for mock sessions.
+  - **File:** `frontend/src/hooks/useSpeechRecognition/index.ts`
+
+### Improved (2025-12-23) - Code Quality Fixes
+
+- **React Anti-Pattern (useState+useEffect for derived state):**
+  - **Problem:** `useTranscriptState` stored transcript in separate state and synced via `useEffect`, creating potential de-sync.
+  - **Fix:** Replaced with `useMemo` to compute derived state inline.
+  - **File:** `frontend/src/hooks/useSpeechRecognition/useTranscriptState.ts`
+
+- **Redundant Vite Config:**
+  - **Problem:** Manual loop to expose `VITE_*` env vars - Vite does this automatically.
+  - **Fix:** Removed redundant `Object.keys(env).reduce()` block.
+  - **File:** `frontend/vite.config.mjs`
+
+- **Inconsistent Lazy Loading Syntax:**
+  - **Problem:** Some pages used `.then(module => ({ default: module.X }))` workaround.
+  - **Fix:** Added `export default` to `AnalyticsPage`, `SessionPage`, `DesignSystemPage` for consistent `React.lazy()` syntax.
+  - **Files:** `frontend/src/pages/AnalyticsPage.tsx`, `SessionPage.tsx`, `DesignSystemPage.tsx`, `App.tsx`
+
+- **Domain Services Logging:**
+  - **Problem:** `console.error` bypassed structured logger; 'not found' cases silently swallowed.
+  - **Fix:** Replaced all `console.error` with `logger.error`. Added `logger.debug` for PGRST116 (not found) cases.
+  - **File:** `frontend/src/services/domainServices.ts`
+
 ### Fixed (2025-12-22) - Documentation Consolidation & Test Fixes
 
 - **Documentation Consolidation:** Moved all content from standalone `KNOWN_ISSUES.md` to `ROADMAP.md` Tech Debt section per `OUTLINE.md` guidelines. Deleted standalone file.

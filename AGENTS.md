@@ -210,6 +210,7 @@ ___
 *   ❌ Never run `./scripts/vm-recovery.sh` without asking first.
 *   ❌ Never exceed the 7-minute runtime per command.
 *   ❌ Never undo or destroy user work without consent.
+*   ❌ Never use `git checkout --theirs/--ours`. Always manually resolve conflict markers.
 *   📄 Documentation first.
 *   🧠 Think like a senior engineer — prioritize evidence-based, long-term stability.
 

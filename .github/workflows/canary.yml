@@ -44,6 +44,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          # Note: CANARY_PASSWORD exists in GitHub Secrets; linter can't verify remote secrets
           CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD }}
         run: node scripts/provision-canary.mjs
 
@@ -53,7 +54,7 @@ jobs:
           VITE_TEST_MODE: "true"
           # Real Supabase auth (skip MSW)
           VITE_USE_LIVE_DB: "true"
-          # Canary credentials
+          # Canary credentials (CANARY_PASSWORD is a GitHub Secret; linter can't verify)
           CANARY_EMAIL: 'canary-user@speaksharp.app'
           CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD }}
         run: |

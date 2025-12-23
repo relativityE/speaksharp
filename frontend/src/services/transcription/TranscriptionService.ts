@@ -233,11 +233,19 @@ export default class TranscriptionService {
 
   public async destroy(): Promise<void> {
     logger.info('[TranscriptionService] Destroying service.');
-    try { await this.stopTranscription(); } catch { /* best effort */ }
+    try {
+      await this.stopTranscription();
+    } catch (error) {
+      // Best effort - service is being destroyed anyway
+      logger.debug({ error }, '[TranscriptionService] Error stopping transcription during destroy');
+    }
     try {
       this.mic?.stop();
       logger.info('[TranscriptionService] Mic stream stopped.');
-    } catch { /* best effort */ }
+    } catch (error) {
+      // Best effort - mic cleanup failure is non-critical during destroy
+      logger.debug({ error }, '[TranscriptionService] Error stopping mic during destroy');
+    }
     this.instance = null;
     this.mic = null;
     logger.info('[TranscriptionService] Service destroyed.');

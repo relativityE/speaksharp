@@ -8,11 +8,11 @@ import { Loader2 } from 'lucide-react';
 
 // Lazy load pages for better performance
 const Index = React.lazy(() => import('./pages/Index'));
-const AnalyticsPage = React.lazy(() => import('./pages/AnalyticsPage').then(module => ({ default: module.AnalyticsPage })));
+const AnalyticsPage = React.lazy(() => import('./pages/AnalyticsPage'));
 const SignInPage = React.lazy(() => import('./pages/SignInPage'));
 const AuthPage = React.lazy(() => import('./pages/AuthPage'));
-const SessionPage = React.lazy(() => import('./pages/SessionPage').then(module => ({ default: module.SessionPage })));
-const DesignSystemPage = React.lazy(() => import('./pages/DesignSystemPage').then(module => ({ default: module.DesignSystemPage })));
+const SessionPage = React.lazy(() => import('./pages/SessionPage'));
+const DesignSystemPage = React.lazy(() => import('./pages/DesignSystemPage'));
 
 const PageLoader = () => (
   <div className="flex h-[50vh] w-full items-center justify-center">

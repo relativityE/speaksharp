@@ -170,6 +170,57 @@ The following critical features are fully implemented and production-ready:
 >
 > A custom `ErrorBoundary.tsx` component also exists for component-level error handling if needed.
 
+#### Error Handling Architecture
+
+```
+                  ┌─────────────────────┐
+User Action ─────▶│ Component catch {} │
+                  └──────────┬──────────┘
+                             │
+                  ┌──────────▼──────────┐
+                  │ Sentry.ErrorBoundary│ ◀── Catches unhandled React errors
+                  └──────────┬──────────┘
+                             │
+                  ┌──────────▼──────────┐
+                  │ Sentry.captureError │ ◀── Centralized remote logging
+                  └─────────────────────┘
+```
+
+**Error Handling Patterns:**
+
+| Pattern | When to Use | Example |
+|---------|-------------|---------|
+| **Re-throw** | Critical failures that should bubble up | Auth failures, API crashes |
+| **Log + Fallback** | Recoverable errors with graceful degradation | Network timeout → retry |
+| **Silent Catch** | Best-effort non-critical operations | Analytics tracking, prefetch |
+
+**Code Standard:** All `catch` blocks in critical paths MUST call `Sentry.captureException()` or `logger.error()`. Empty catches (`catch {}`) are only acceptable for truly non-critical operations with a comment explaining why.
+
+```typescript
+// ✅ GOOD: Critical error with logging
+try {
+  await supabase.from('sessions').insert(data);
+} catch (error) {
+  logger.error('Failed to save session', { error, sessionId });
+  Sentry.captureException(error, { extra: { sessionId } });
+  throw error; // Re-throw for caller to handle
+}
+
+// ✅ GOOD: Non-critical with explanation
+try {
+  posthog.capture('session_saved');
+} catch {
+  // Analytics failure is non-critical; don't block user flow
+}
+
+// ❌ BAD: Silent swallow of critical error
+try {
+  await saveUserProfile(data);
+} catch {
+  // This hides database failures!
+}
+```
+
 #### WebSocket Resilience (CloudAssemblyAI)
 
 | Feature | Status | Implementation | Evidence |
@@ -1501,6 +1552,9 @@ The backend is built entirely on the Supabase platform, leveraging its integrate
 *   **Authentication:** Supabase Auth is used for user registration, login, and session management.
 *   **Serverless Functions:** Deno-based Edge Functions are used for secure, server-side logic.
     *   `assemblyai-token`: Securely generates temporary tokens for the AssemblyAI transcription service.
+        - **Authentication:** Requires valid JWT in `Authorization` header (verified via `supabase.auth.getUser()`)
+        - **Authorization:** User must have `subscription_status: 'pro'` in `user_profiles` table
+        - **Returns:** 401 if no/invalid JWT, 403 if not Pro, 200 with token if authorized
     *   `stripe-checkout`: Handles the creation of Stripe checkout sessions.
     *   `stripe-webhook`: Listens for and processes webhooks from Stripe to update user subscription status.
     *   `create_session_and_update_usage` (RPC): Atomic PL/pgSQL function that persists session data and enforces usage limits in a single transaction.
