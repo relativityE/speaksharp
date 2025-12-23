@@ -192,7 +192,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Tue, 23 Dec 2025 00:36:15 GMT
+**Last Updated:** Tue, 23 Dec 2025 06:05:38 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -212,8 +212,8 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 | Unit tests              | 432   |
 | E2E tests (Playwright)  | 53  |
 | Passing tests           | 484 (432 unit + 52 E2E)   |
-| Failing tests           | 1   |
-| Disabled/skipped tests  | 0 (E2E only)   |
+| Failing tests           | 0   |
+| Disabled/skipped tests  | 1 (E2E only)   |
 | Passing unit tests      | 432/432 (100.0%)   |
 | Passing E2E tests       | 52/53 (98.1%)   |
 | Total runtime           | See CI logs   |
@@ -224,10 +224,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | 57.47%   |
+| Statements | 57.48%   |
 | Branches   | 78.91%   |
 | Functions  | 73.53%   |
-| Lines      | 57.47%   |
+| Lines      | 57.48%   |
 
 ---
 
@@ -235,11 +235,11 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric              | Value |
 | ------------------- | ----- |
-| Total Source Size   | 3.3M   |
-| Total Project Size  | 1.5G   |
+| Total Source Size   | 3.6M   |
+| Total Project Size  | 1.1G   |
 | Initial Chunk Size  | 884K   |
-| Code Bloat Index    | 25.79%   |
-| Lighthouse Scores   | P: 100, A: 95, BP: 100, SEO: 92 |
+| Code Bloat Index    | 24.23%   |
+| Lighthouse Scores   | P: 0, A: 0, BP: 0, SEO: 0 |
 
 ---
 <!-- SQM:END -->
