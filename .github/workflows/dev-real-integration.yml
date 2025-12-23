@@ -1,0 +1,43 @@
+name: Dev Integration (Real Supabase)
+
+on: 
+  workflow_dispatch: # Manual trigger only
+
+jobs:
+  real-db-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          
+      - name: Install Dependencies
+        run: pnpm install
+
+      - name: Install Playwright Browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run Live User Flow Test
+        env:
+          # TOGGLE: This tells our code to use Real Secrets
+          VITE_USE_LIVE_DB: "true"
+          
+          # MAPPING: Inject GitHub Secrets into the App's expected variables
+          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          
+          # Test Credentials
+          E2E_PRO_EMAIL: ${{ secrets.E2E_PRO_EMAIL }}
+          E2E_PRO_PASSWORD: ${{ secrets.E2E_PRO_PASSWORD }}
+        
+        # Run ONLY the specific live integration test
+        run: pnpm exec playwright test frontend/tests/integration/live-user-flow.spec.ts

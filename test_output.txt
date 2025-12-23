@@ -1,0 +1,300 @@
+
+Running 2 tests using 1 worker
+
+[1A[2K[1/2] [chromium] › tests/e2e/analytics-details.e2e.spec.ts:9:5 › Analytics Details › Journey 8: Session Detail View
+[1A[2K[chromium] › tests/e2e/analytics-details.e2e.spec.ts:9:5 › Analytics Details › Journey 8: Session Detail View
+[E2E DEBUG] Starting programmaticLogin
+
+[1A[2K[E2E DEBUG] Setting __E2E_MOCK_SESSION__ flag and MockSpeechRecognition
+
+[1A[2K[E2E DEBUG] Navigating to /
+
+[1A[2K[E2E DEBUG] Waiting for MSW ready signal
+
+[1A[2K[E2E DEBUG] MSW ready signal received
+
+[1A[2K[E2E DEBUG] Waiting for app-main element
+
+[1A[2K[E2E DEBUG] App-main element found
+
+[1A[2K[E2E] MSW ready, user authenticated via network mocking
+
+[1A[2KNo sessions found in analytics list - skipping detail view verification
+
+[1A[2K[2/2] [chromium] › tests/e2e/analytics-details.e2e.spec.ts:33:5 › Analytics Details › Journey 8.3: Invalid Session ID
+[1A[2K[chromium] › tests/e2e/analytics-details.e2e.spec.ts:33:5 › Analytics Details › Journey 8.3: Invalid Session ID
+[E2E DEBUG] Starting programmaticLogin
+
+[1A[2K[E2E DEBUG] Setting __E2E_MOCK_SESSION__ flag and MockSpeechRecognition
+
+[1A[2K[E2E DEBUG] Navigating to /
+
+[1A[2K[E2E DEBUG] Waiting for MSW ready signal
+
+[1A[2K[E2E DEBUG] MSW ready signal received
+
+[1A[2K[E2E DEBUG] Waiting for app-main element
+
+[1A[2K[E2E DEBUG] App-main element found
+
+[1A[2K[E2E] MSW ready, user authenticated via network mocking
+
+[1A[2K[BROWSER] [MSW] 21:53:52 GET https://mock.supabase.co/rest/v1/user_profiles (%c200 OK%c) color:#69AB32 color:inherit
+
+[1A[2K[BROWSER] Request {url: URL, method: GET, headers: Object, body: }
+
+[1A[2K[BROWSER] Handler: ul
+
+[1A[2K[BROWSER] Response {status: 200, statusText: OK, headers: Object, body: {"id":"test-user-123","subscription_status":"pro","preferred_mode":"cloud"}}
+
+[1A[2K[BROWSER] console.groupEnd
+
+[1A[2K[BROWSER] [ProtectedRoute] User authenticated, rendering children
+
+[1A[2K[BROWSER] [DEBUG] useUserProfile hook called. User: mock-user-id
+
+[1A[2K[BROWSER] [DEBUG] SessionPage rendered. Session: mock-user-id
+
+[1A[2K[BROWSER] [DEBUG] SessionPage profile state: {isProfileLoading: true, profileError: null, profileId: undefined}
+
+[1A[2K[BROWSER] [DEBUG] SessionPage speechRecognition state: {isListening: false, isReady: false}
+
+[1A[2K[BROWSER] [DEBUG] SessionPage: Loading profile...
+
+[1A[2K[BROWSER] [DEBUG] useUserProfile queryFn executing for user: mock-user-id
+
+[1A[2K[BROWSER] [DEBUG] useUserProfile hook called. User: mock-user-id
+
+[1A[2K[BROWSER] [DEBUG] SessionPage rendered. Session: mock-user-id
+
+[1A[2K[BROWSER] [DEBUG] SessionPage profile state: {isProfileLoading: true, profileError: null, profileId: undefined}
+
+[1A[2K[BROWSER] [DEBUG] SessionPage speechRecognition state: {isListening: false, isReady: false}
+
+[1A[2K[BROWSER] [DEBUG] SessionPage: Loading profile...
+
+[1A[2K[BROWSER] [DEBUG] useUserProfile hook called. User: mock-user-id
+
+[1A[2K[BROWSER] [DEBUG] SessionPage rendered. Session: mock-user-id
+
+[1A[2K[BROWSER] [DEBUG] SessionPage profile state: {isProfileLoading: true, profileError: null, profileId: undefined}
+
+[1A[2K[BROWSER] [DEBUG] SessionPage speechRecognition state: {isListening: false, isReady: false}
+
+[1A[2K[BROWSER] [DEBUG] SessionPage: Loading profile...
+
+[1A[2K[BROWSER] [MSW DEBUG] Intercepted: GET /rest/v1/user_profiles
+
+[1A[2K[BROWSER] [MSW DEBUG] Returning single user_profile object
+
+[1A[2K[BROWSER] [DEBUG] useUserProfile queryFn result: Found
+
+[1A[2K[BROWSER] [MSW] 21:53:52 GET https://mock.supabase.co/rest/v1/user_profiles (%c200 OK%c) color:#69AB32 color:inherit
+
+[1A[2K[BROWSER] Request {url: URL, method: GET, headers: Object, body: }
+
+[1A[2K[BROWSER] Handler: ul
+
+[1A[2K[BROWSER] Response {status: 200, statusText: OK, headers: Object, body: {"id":"test-user-123","subscription_status":"pro","preferred_mode":"cloud"}}
+
+[1A[2K[BROWSER] console.groupEnd
+
+[1A[2K[BROWSER] [DEBUG] useUserProfile hook called. User: mock-user-id
+
+[1A[2K[BROWSER] [DEBUG] SessionPage rendered. Session: mock-user-id
+
+[1A[2K[BROWSER] [DEBUG] SessionPage profile state: {isProfileLoading: false, profileError: null, profileId: test-user-123}
+
+[1A[2K[BROWSER] [DEBUG] SessionPage speechRecognition state: {isListening: false, isReady: false}
+
+[1A[2K[BROWSER] [DEBUG] Button render. Disabled: false isListening: false isReady: false
+
+[1A[2K[BROWSER] %c[MSW] Mocking enabled. color:orangered;font-weight:bold;
+
+[1A[2K[BROWSER] %cDocumentation: %chttps://mswjs.io/docs font-weight:bold font-weight:normal
+
+[1A[2K[BROWSER] Found an issue? https://github.com/mswjs/msw/issues
+
+[1A[2K[BROWSER] Worker script URL: http://localhost:4173/mockServiceWorker.js
+
+[1A[2K[BROWSER] Worker scope: http://localhost:4173/
+
+[1A[2K[BROWSER] Client ID: %s (%s) f2ccd12c-b253-4422-8c94-fa8b6280156a top-level
+
+[1A[2K[BROWSER] console.groupEnd
+
+[1A[2K[BROWSER] [E2E] Environment ready, now rendering app
+
+[1A[2K[BROWSER] [E2E DIAGNOSTIC] ./App imported successfully: true
+
+[1A[2K[BROWSER] [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[BROWSER] [E2E] App fully mounted
+
+[1A[2K[BROWSER] [AuthProvider] fetchAndSetProfile called with session: mock-user-id
+
+[1A[2K[BROWSER] [AuthProvider] fetchAndSetProfile called with session: undefined
+
+[1A[2K[BROWSER] [AuthProvider] No session user ID, clearing profile
+
+[1A[2K[BROWSER] [MSW DEBUG] Intercepted: GET /rest/v1/user_profiles
+
+[1A[2K[BROWSER] [MSW DEBUG] Returning single user_profile object
+
+[1A[2K[BROWSER] [AuthProvider] Profile loaded: test-user-123
+
+[1A[2K[BROWSER] [E2E DIAGNOSTIC] Profile found for test-user-123, dispatching event.
+
+[1A[2K[BROWSER] [MSW] 21:53:52 GET https://mock.supabase.co/rest/v1/user_profiles (%c200 OK%c) color:#69AB32 color:inherit
+
+[1A[2K[BROWSER] Request {url: URL, method: GET, headers: Object, body: }
+
+[1A[2K[BROWSER] Handler: ul
+
+[1A[2K[BROWSER] Response {status: 200, statusText: OK, headers: Object, body: {"id":"test-user-123","subscription_status":"pro","preferred_mode":"cloud"}}
+
+[1A[2K[BROWSER] console.groupEnd
+
+[1A[2K[3/2] (retries) [chromium] › tests/e2e/analytics-details.e2e.spec.ts:33:5 › Analytics Details › Journey 8.3: Invalid Session ID (retry #1)
+[1A[2K[E2E DEBUG] Starting programmaticLogin
+
+[1A[2K[E2E DEBUG] Setting __E2E_MOCK_SESSION__ flag and MockSpeechRecognition
+
+[1A[2K[E2E DEBUG] Navigating to /
+
+[1A[2K[E2E DEBUG] Waiting for MSW ready signal
+
+[1A[2K[E2E DEBUG] MSW ready signal received
+
+[1A[2K[E2E DEBUG] Waiting for app-main element
+
+[1A[2K[E2E DEBUG] App-main element found
+
+[1A[2K[E2E] MSW ready, user authenticated via network mocking
+
+[1A[2K[BROWSER] %c[MSW] Mocking enabled. color:orangered;font-weight:bold;
+
+[1A[2K[BROWSER] %cDocumentation: %chttps://mswjs.io/docs font-weight:bold font-weight:normal
+
+[1A[2K[BROWSER] Found an issue? https://github.com/mswjs/msw/issues
+
+[1A[2K[BROWSER] Worker script URL: http://localhost:4173/mockServiceWorker.js
+
+[1A[2K[BROWSER] Worker scope: http://localhost:4173/
+
+[1A[2K[BROWSER] Client ID: %s (%s) 4c9dd135-6714-4860-bd37-a3080954e3d2 top-level
+
+[1A[2K[BROWSER] console.groupEnd
+
+[1A[2K[BROWSER] [E2E] Environment ready, now rendering app
+
+[1A[2K[BROWSER] [E2E DIAGNOSTIC] ./App imported successfully: true
+
+[1A[2K[BROWSER] [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[BROWSER] [E2E] App fully mounted
+
+[1A[2K[BROWSER] [AuthProvider] fetchAndSetProfile called with session: mock-user-id
+
+[1A[2K[BROWSER] [AuthProvider] fetchAndSetProfile called with session: undefined
+
+[1A[2K[BROWSER] [AuthProvider] No session user ID, clearing profile
+
+[1A[2K[BROWSER] [MSW DEBUG] Intercepted: GET /rest/v1/user_profiles
+
+[1A[2K[BROWSER] [MSW DEBUG] Returning single user_profile object
+
+[1A[2K[BROWSER] [AuthProvider] Profile loaded: test-user-123
+
+[1A[2K[BROWSER] [E2E DIAGNOSTIC] Profile found for test-user-123, dispatching event.
+
+[1A[2K[BROWSER] [MSW] 21:54:03 GET https://mock.supabase.co/rest/v1/user_profiles (%c200 OK%c) color:#69AB32 color:inherit
+
+[1A[2K[BROWSER] Request {url: URL, method: GET, headers: Object, body: }
+
+[1A[2K[BROWSER] Handler: ul
+
+[1A[2K[BROWSER] Response {status: 200, statusText: OK, headers: Object, body: {"id":"test-user-123","subscription_status":"pro","preferred_mode":"cloud"}}
+
+[1A[2K[BROWSER] console.groupEnd
+
+[1A[2K  1) [chromium] › tests/e2e/analytics-details.e2e.spec.ts:33:5 › Analytics Details › Journey 8.3: Invalid Session ID 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: getByText('Session Not Found')
+    Expected: visible
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 10000ms[22m
+    [2m  - waiting for getByText('Session Not Found')[22m
+
+
+      37 |         // Wait for loading to finish and error state to appear
+      38 |         // The page shows "Session Not Found" when ID doesn't exist
+    > 39 |         await expect(page.getByText('Session Not Found')).toBeVisible({ timeout: 10000 });
+         |                                                           ^
+      40 |
+      41 |         // Verify link back to dashboard
+      42 |         const dashboardLink = page.getByRole('link', { name: /view dashboard/i });
+        at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e/analytics-details.e2e.spec.ts:39:59
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/playwright/analytics-details.e2e-Anal-8ee65-rney-8-3-Invalid-Session-ID-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/playwright/analytics-details.e2e-Anal-8ee65-rney-8-3-Invalid-Session-ID-chromium/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/playwright/analytics-details.e2e-Anal-8ee65-rney-8-3-Invalid-Session-ID-chromium/error-context.md
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: getByText('Session Not Found')
+    Expected: visible
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 10000ms[22m
+    [2m  - waiting for getByText('Session Not Found')[22m
+
+
+      37 |         // Wait for loading to finish and error state to appear
+      38 |         // The page shows "Session Not Found" when ID doesn't exist
+    > 39 |         await expect(page.getByText('Session Not Found')).toBeVisible({ timeout: 10000 });
+         |                                                           ^
+      40 |
+      41 |         // Verify link back to dashboard
+      42 |         const dashboardLink = page.getByRole('link', { name: /view dashboard/i });
+        at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e/analytics-details.e2e.spec.ts:39:59
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/playwright/analytics-details.e2e-Anal-8ee65-rney-8-3-Invalid-Session-ID-chromium-retry1/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/playwright/analytics-details.e2e-Anal-8ee65-rney-8-3-Invalid-Session-ID-chromium-retry1/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/playwright/analytics-details.e2e-Anal-8ee65-rney-8-3-Invalid-Session-ID-chromium-retry1/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/playwright/analytics-details.e2e-Anal-8ee65-rney-8-3-Invalid-Session-ID-chromium-retry1/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/playwright/analytics-details.e2e-Anal-8ee65-rney-8-3-Invalid-Session-ID-chromium-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[1A[2K  1 failed
+    [chromium] › tests/e2e/analytics-details.e2e.spec.ts:33:5 › Analytics Details › Journey 8.3: Invalid Session ID 
+  1 passed (23.4s)
+
+[36m  Serving HTML report at http://localhost:62613. Press Ctrl+C to quit.[39m

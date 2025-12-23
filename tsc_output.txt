@@ -1,0 +1,35 @@
+
+> speaksharp@0.0.0 typecheck /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
+> cd frontend && tsc --build --verbose
+
+4:18:34 AM - Projects in this build: 
+    * tsconfig.node.json
+    * tsconfig.json
+
+4:18:34 AM - Project 'tsconfig.node.json' is up to date because newest input 'tailwind.config.ts' is older than output 'tsconfig.node.tsbuildinfo'
+
+4:18:34 AM - Project 'tsconfig.json' is out of date because buildinfo file 'tsconfig.tsbuildinfo' indicates that program needs to report errors.
+
+4:18:34 AM - Building project '/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tsconfig.json'...
+
+src/hooks/useSpeechRecognition/__tests__/index.test.tsx(105,7): error TS2739: Type '{ id: string; subscription_status: "pro"; }' is missing the following properties from type 'UserProfile': usage_seconds, usage_reset_date, created_at
+src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts(38,1): error TS2578: Unused '@ts-expect-error' directive.
+src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts(83,46): error TS2345: Argument of type '{ code: number; }' is not assignable to parameter of type '{ code: number; reason: string; wasClean: boolean; }'.
+  Type '{ code: number; }' is missing the following properties from type '{ code: number; reason: string; wasClean: boolean; }': reason, wasClean
+src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts(89,46): error TS2345: Argument of type '{ code: number; }' is not assignable to parameter of type '{ code: number; reason: string; wasClean: boolean; }'.
+  Type '{ code: number; }' is missing the following properties from type '{ code: number; reason: string; wasClean: boolean; }': reason, wasClean
+src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts(94,46): error TS2345: Argument of type '{ code: number; }' is not assignable to parameter of type '{ code: number; reason: string; wasClean: boolean; }'.
+  Type '{ code: number; }' is missing the following properties from type '{ code: number; reason: string; wasClean: boolean; }': reason, wasClean
+src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts(110,46): error TS2345: Argument of type '{ code: number; }' is not assignable to parameter of type '{ code: number; reason: string; wasClean: boolean; }'.
+  Type '{ code: number; }' is missing the following properties from type '{ code: number; reason: string; wasClean: boolean; }': reason, wasClean
+src/services/transcription/TranscriptionService.ts(151,75): error TS2339: Property 'preferred_mode' does not exist on type 'UserProfile'.
+tests/integration/SessionSidebar.test.tsx(96,49): error TS2345: Argument of type 'QueryObserverSuccessResult<{ id: string; subscription_status: "free"; }, Error>' is not assignable to parameter of type 'QueryObserverRefetchErrorResult<UserProfile | null, Error> | QueryObserverSuccessResult<UserProfile | null, Error> | ... 4 more ... | { ...; }'.
+  Type 'QueryObserverSuccessResult<{ id: string; subscription_status: "free"; }, Error>' is not assignable to type 'QueryObserverSuccessResult<UserProfile | null, Error>'.
+    Type '{ id: string; subscription_status: "free"; }' is missing the following properties from type 'UserProfile': usage_seconds, usage_reset_date, created_at
+tests/integration/SessionSidebar.test.tsx(133,49): error TS2345: Argument of type 'QueryObserverSuccessResult<{ id: string; subscription_status: "pro"; }, Error>' is not assignable to parameter of type 'QueryObserverRefetchErrorResult<UserProfile | null, Error> | QueryObserverSuccessResult<UserProfile | null, Error> | ... 4 more ... | { ...; }'.
+  Type 'QueryObserverSuccessResult<{ id: string; subscription_status: "pro"; }, Error>' is not assignable to type 'QueryObserverSuccessResult<UserProfile | null, Error>'.
+    Type '{ id: string; subscription_status: "pro"; }' is missing the following properties from type 'UserProfile': usage_seconds, usage_reset_date, created_at
+tests/integration/SessionSidebar.test.tsx(189,49): error TS2345: Argument of type 'QueryObserverSuccessResult<{ id: string; subscription_status: "free"; }, Error>' is not assignable to parameter of type 'QueryObserverRefetchErrorResult<UserProfile | null, Error> | QueryObserverSuccessResult<UserProfile | null, Error> | ... 4 more ... | { ...; }'.
+  Type 'QueryObserverSuccessResult<{ id: string; subscription_status: "free"; }, Error>' is not assignable to type 'QueryObserverSuccessResult<UserProfile | null, Error>'.
+    Type '{ id: string; subscription_status: "free"; }' is missing the following properties from type 'UserProfile': usage_seconds, usage_reset_date, created_at
+ ELIFECYCLE  Command failed with exit code 1.

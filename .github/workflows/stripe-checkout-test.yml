@@ -1,0 +1,67 @@
+name: Stripe Test
+
+on: 
+  workflow_dispatch: # Manual trigger only
+
+jobs:
+  stripe-checkout-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Create .env.development from Secrets
+        run: |
+          cat > .env.development <<EOF
+          VITE_SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          VITE_API_URL=http://localhost:3000
+          VITE_STRIPE_PUBLISHABLE_KEY=${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          STRIPE_PRO_PRICE_ID=${{ secrets.STRIPE_PRO_PRICE_ID }}
+          EOF
+          # Verify file creation (without printing secrets)
+          echo "Created .env.development with $(wc -l < .env.development) lines"
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install chromium --with-deps
+
+      - name: Run Stripe checkout test
+        env:
+          # Real Supabase mode (test uses E2E_FREE_* credentials from secrets)
+          VITE_USE_LIVE_DB: "true"
+          # Test user credentials (FREE tier - created by setup-test-users workflow)
+          E2E_FREE_EMAIL: ${{ secrets.E2E_FREE_EMAIL }}
+          E2E_FREE_PASSWORD: ${{ secrets.E2E_FREE_PASSWORD }}
+        run: |
+          # Using start-server-and-test for clean process lifecycle
+          # (avoids ELIFECYCLE from orphaned node/esbuild processes)
+          npx start-server-and-test \
+            "pnpm dev" \
+            http://localhost:5173 \
+            "pnpm exec playwright test --config=playwright.stripe.config.ts --project=chromium"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stripe-checkout-test-results
+          path: |
+            test-results/stripe/
+            test-results/stripe-report/
+          retention-days: 7

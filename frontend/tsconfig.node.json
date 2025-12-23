@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "skipLibCheck": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler"
+  },
+  "include": [
+    "playwright.config.ts",
+    "tailwind.config.ts",
+    "tests/global-setup.ts",
+    "tests/global-teardown.ts"
+  ]
+}

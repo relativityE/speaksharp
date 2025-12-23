@@ -1,0 +1,108 @@
+name: Setup Test Users
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Target Mode'
+        required: true
+        default: 'e2e'
+        type: choice
+        options:
+          - e2e
+          - soak
+      password_action:
+        description: 'Password Strategy'
+        required: true
+        default: 'use_existing'
+        type: choice
+        options:
+          - use_existing
+          - generate_new_credentials
+      new_free_count:
+        description: 'Free Users'
+        required: false
+        default: '0'
+        type: string
+      new_pro_count:
+        description: 'Pro Users'
+        required: false
+        default: '0'
+        type: string
+
+jobs:
+  setup-test-user:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Generate and set SOAK_TEST_PASSWORD
+        if: ${{ github.event.inputs.password_action == 'generate_new_credentials' }}
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          echo "🔐 Generating new SOAK_TEST_PASSWORD..."
+          
+          # Generate a secure random password
+          NEW_PASSWORD=$(openssl rand -base64 16 | tr -d '/+=' | head -c 20)
+          
+          # Set it as a GitHub secret
+          gh secret set SOAK_TEST_PASSWORD --body "$NEW_PASSWORD"
+          echo "✅ SOAK_TEST_PASSWORD secret created/updated via GitHub API"
+          
+          # Export for use in this workflow run
+          echo "SOAK_TEST_PASSWORD=$NEW_PASSWORD" >> $GITHUB_ENV
+
+      - name: Setup test users
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SOAK_TEST_PASSWORD: ${{ env.SOAK_TEST_PASSWORD || secrets.SOAK_TEST_PASSWORD }}
+          MODE: ${{ github.event.inputs.mode }}
+          NEW_FREE_COUNT: ${{ github.event.inputs.new_free_count }}
+          NEW_PRO_COUNT: ${{ github.event.inputs.new_pro_count }}
+        run: |
+          if [ -z "$SOAK_TEST_PASSWORD" ]; then
+            echo "❌ Error: SOAK_TEST_PASSWORD is not set."
+            echo ""
+            echo "Choose one of these options:"
+            echo "  1. Run workflow with 'generate_new_credentials' password action"
+            echo "  2. Manually create SOAK_TEST_PASSWORD secret in GitHub Settings"
+            exit 1
+          fi
+          
+          node scripts/setup-test-users.mjs
+
+      - name: Summary
+        env:
+          MODE: ${{ github.event.inputs.mode }}
+          PASSWORD_ACTION: ${{ github.event.inputs.password_action }}
+        run: |
+          echo "### Test User Setup Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Mode:** $MODE" >> $GITHUB_STEP_SUMMARY
+          echo "**Password Strategy:** $PASSWORD_ACTION" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "$PASSWORD_ACTION" = "generate_new_credentials" ]; then
+            echo "✅ New SOAK_TEST_PASSWORD generated and saved to GitHub Secrets" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ Registry updated with current SOAK_TEST_PASSWORD" >> $GITHUB_STEP_SUMMARY
+          fi

@@ -1,0 +1,199 @@
+name: "CI - Test Audit"
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+
+      - name: Validate Environment Variables
+        run: node scripts/validate-env.mjs
+
+      - name: Run Prepare Stage
+        run: ./scripts/test-audit.sh prepare
+
+      - name: Upload Prepare Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: all-artifacts
+          path: |
+            frontend/dist
+            frontend/coverage
+            unit-metrics.json
+
+  test:
+    needs: prepare
+    if: success()
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true  # Stop all shards immediately on first failure
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+
+      - name: Download Prepare Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: all-artifacts
+          path: .
+
+      - name: Run E2E Test Shard
+        run: ./scripts/test-audit.sh test ${{ matrix.shard }}
+
+      - name: Upload Shard Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shard-report-${{ matrix.shard }}
+          path: blob-report
+          retention-days: 30
+
+  lighthouse:
+    needs: [prepare, test]
+    if: success()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Verify Artifacts
+        run: ./scripts/verify-artifacts.sh --path artifacts/all-artifacts build metrics
+
+      - name: Restore Build Artifacts
+        run: |
+          mkdir -p frontend
+          cp -r artifacts/all-artifacts/frontend/dist frontend/
+          cp -r artifacts/all-artifacts/frontend/coverage frontend/
+          cp artifacts/all-artifacts/unit-metrics.json .
+          # test-results is only in shard artifacts, not all-artifacts
+          [ -d artifacts/all-artifacts/test-results ] && cp -r artifacts/all-artifacts/test-results . || echo "No test-results in all-artifacts (expected)"
+
+
+
+      - name: Run Lighthouse CI
+        run: |
+          node scripts/generate-lhci-config.js
+          npx lhci autorun --config=lighthouserc.json
+
+      - name: Upload Lighthouse Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-report
+          path: .lighthouseci
+          retention-days: 30
+          if-no-files-found: warn
+
+  report:
+    needs: [prepare, test, lighthouse]
+    if: success()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Verify Artifacts
+        run: ./scripts/verify-artifacts.sh --path artifacts/all-artifacts build metrics
+
+      - name: Restore Build Artifacts
+        run: |
+          mkdir -p frontend
+          cp -r artifacts/all-artifacts/frontend/dist frontend/
+          cp -r artifacts/all-artifacts/frontend/coverage frontend/
+          cp artifacts/all-artifacts/unit-metrics.json .
+          # test-results is only in shard artifacts, not all-artifacts
+          [ -d artifacts/all-artifacts/test-results ] && cp -r artifacts/all-artifacts/test-results . || echo "No test-results in all-artifacts (expected)"
+
+      - name: Restore Lighthouse Report
+        run: |
+          if [ -d "artifacts/lighthouse-report" ]; then
+            cp -r artifacts/lighthouse-report .lighthouseci
+            echo "✅ Restored .lighthouseci from lighthouse job"
+            ls -la .lighthouseci/
+          else
+            echo "⚠️ Warning: No Lighthouse report artifact found"
+          fi
+
+      - name: Merge E2E Reports
+        run: |
+          mkdir -p merged-reports
+          mkdir -p test-results/playwright
+          # Copy all shard blob reports
+          # Blobs are usually named report-*.zip
+          find artifacts -type f -name 'report-*.zip' | while read report; do
+            shard_name=$(basename $(dirname "$report"))
+            cp "$report" "merged-reports/${shard_name}.zip"
+          done
+
+          # List what we found
+          echo "📄 Shard reports found:"
+          ls -la merged-reports/
+
+          # Only merge if we have reports
+          if [ "$(ls -A merged-reports 2>/dev/null)" ]; then
+            # Merge reports. 
+            # JSON to stdout -> captured to file
+            # HTML to playwright-report/ (default)
+            pnpm exec playwright merge-reports --reporter json,html merged-reports > test-results/playwright/results.json
+            
+            echo "✅ Merged E2E report saved to test-results/playwright/results.json"
+          else
+            echo "⚠️ No E2E reports to merge (tests may have been skipped)"
+          fi
+
+      - name: Generate Final Report
+        run: ./scripts/test-audit.sh report
+
+      - name: Upload HTML Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 30
+
+      - name: Commit Documentation Updates
+        if: success() && github.event_name == 'push'
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "docs(sqm): Update test audit metrics"
+          branch: ${{ github.head_ref || github.ref_name }}
+          file_pattern: 'docs/PRD.md'

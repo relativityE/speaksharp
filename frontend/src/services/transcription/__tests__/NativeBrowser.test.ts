@@ -1,0 +1,122 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+// Mock IS_TEST_ENVIRONMENT to false so tests can run normally
+// This must be before the import to be hoisted
+vi.mock('@/config/env', () => ({
+  IS_TEST_ENVIRONMENT: false,
+}));
+
+import NativeBrowser from '../modes/NativeBrowser';
+
+// Mock the SpeechRecognition API
+const mockRecognition = {
+  start: vi.fn(),
+  stop: vi.fn(),
+  abort: vi.fn(),
+  onresult: null,
+  onerror: null,
+  onend: null,
+  continuous: false,
+  interimResults: false,
+};
+
+const SpeechRecognitionMock = vi.fn(() => mockRecognition);
+
+vi.stubGlobal('window', {
+  SpeechRecognition: SpeechRecognitionMock,
+  webkitSpeechRecognition: SpeechRecognitionMock,
+});
+
+
+describe('NativeBrowser Transcription Mode', () => {
+  let nativeBrowser: NativeBrowser;
+  const onTranscriptUpdate = vi.fn();
+  const onReady = vi.fn();
+
+  beforeEach(() => {
+    // Use resetAllMocks instead of clearAllMocks to preserve module mocks
+    vi.resetAllMocks();
+
+    // Reset the mock before each test
+    Object.assign(mockRecognition, {
+      start: vi.fn(),
+      stop: vi.fn(),
+      abort: vi.fn(),
+      onresult: null,
+      onerror: null,
+      onend: null,
+      continuous: false,
+      interimResults: false,
+    });
+    SpeechRecognitionMock.mockClear();
+
+    nativeBrowser = new NativeBrowser({
+      onTranscriptUpdate,
+      onReady,
+      onModelLoadProgress: vi.fn(),
+      session: null,
+      navigate: vi.fn(),
+      getAssemblyAIToken: vi.fn(),
+    });
+  });
+
+  it('should initialize and set up recognition properties', async () => {
+    await nativeBrowser.init();
+    expect(SpeechRecognitionMock).toHaveBeenCalled();
+    expect(mockRecognition.continuous).toBe(true);
+    expect(mockRecognition.interimResults).toBe(true);
+  });
+
+  it('should call start on the recognition object when startTranscription is called', async () => {
+    await nativeBrowser.init();
+    await nativeBrowser.startTranscription();
+    expect(mockRecognition.start).toHaveBeenCalledTimes(1);
+  });
+
+  it('should call stop on the recognition object when stopTranscription is called', async () => {
+    await nativeBrowser.init();
+    await nativeBrowser.startTranscription();
+    await nativeBrowser.stopTranscription();
+    expect(mockRecognition.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('should handle final transcript results correctly', async () => {
+    await nativeBrowser.init();
+    const event = {
+      results: [[{ transcript: 'hello world' }]],
+      resultIndex: 0,
+    };
+    // @ts-expect-error - Manually setting isFinal for test purposes
+    event.results[0].isFinal = true;
+
+    // Simulate the onresult event
+    if (mockRecognition.onresult) {
+      // @ts-expect-error - Simulating event type
+      mockRecognition.onresult(event);
+    }
+
+    expect(onTranscriptUpdate).toHaveBeenCalledExactlyOnceWith({
+      transcript: { final: 'hello world' },
+    });
+  });
+
+  it('should handle interim transcript results correctly', async () => {
+    await nativeBrowser.init();
+    const event = {
+      results: [[{ transcript: 'hello' }]],
+      resultIndex: 0,
+    };
+    // @ts-expect-error - Manually setting isFinal for test purposes
+    event.results[0].isFinal = false;
+
+    // Simulate the onresult event
+    if (mockRecognition.onresult) {
+      // @ts-expect-error - Simulating event type
+      mockRecognition.onresult(event);
+    }
+
+    expect(onTranscriptUpdate).toHaveBeenCalledExactlyOnceWith({
+      transcript: { partial: 'hello' },
+    });
+  });
+});

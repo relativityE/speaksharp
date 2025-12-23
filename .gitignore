@@ -1,0 +1,49 @@
+# Node / Build Artifacts
+node_modules/
+dist/
+*.tsbuildinfo
+*.log
+
+# Test & Build Artifacts
+playwright.config.js
+tailwind.config.js
+/test-support/
+coverage/
+/screenshots/
+/test-results/
+/playwright-report/
+blob-report/
+/unit-metrics.json
+/e2e-metrics.json
+/playwright/.cache/
+*.bak
+*.tmp
+*.patch
+*.orig
+
+# Debug artifacts
+*.png
+*.html
+debug*
+html/assets/index-*
+*.gz
+
+# Playwright Trace Artifacts
+resources/
+*trace*
+
+# OS / Editor Files
+.DS_Store
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Local Environment
+.env
+.env*.local
+.vite.pid
+merged-reports/
+.lighthouseci/
+speaksharp-review.zip
+repomix-output.xml
