@@ -104,6 +104,7 @@ export default function SignInPage() {
                                     placeholder="name@example.com"
                                     required
                                     value={email}
+                                    data-testid="email-input"
                                     onChange={(e: ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
                                 />
                             </div>
@@ -114,6 +115,7 @@ export default function SignInPage() {
                                     type="password"
                                     required
                                     value={password}
+                                    data-testid="password-input"
                                     onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
                                 />
                             </div>
