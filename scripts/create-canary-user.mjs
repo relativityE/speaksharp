@@ -67,6 +67,21 @@ async function main() {
         process.exit(1);
     }
 
+    // 3. Verify Login
+    console.log(`   Verifying login...`);
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: CANARY_EMAIL,
+        password: CANARY_PASSWORD
+    });
+
+    if (signInError) {
+        console.error('❌ Login Verification Failed:', signInError.message);
+        process.exit(1);
+    }
+
+    // Sign out to clean up
+    await supabase.auth.signOut();
+
     console.log(`\n✅ Canary User Ready:`);
     console.log(`   Email:    ${CANARY_EMAIL}`);
     console.log(`   Password: ${CANARY_PASSWORD}`);

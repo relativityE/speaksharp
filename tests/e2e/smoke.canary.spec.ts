@@ -1,5 +1,30 @@
-import { test, expect } from '@playwright/test';
-import { programmaticLoginPro, navigateToRoute } from './helpers';
+import { test, expect, Page } from '@playwright/test';
+import { navigateToRoute } from './helpers';
+
+/**
+ * Specialized login helper for Canary tests running against 'vite preview'.
+ * Uses client-side navigation to avoid server-side 404s on deep links.
+ */
+async function canaryLogin(page: Page) {
+    const email = process.env.E2E_PRO_EMAIL;
+    const password = process.env.E2E_PRO_PASSWORD;
+
+    if (!email || !password) throw new Error('Missing Canary credentials');
+
+    console.log('[CANARY] Navigating to Sign In via Home...');
+    await page.goto('/');
+    await page.getByRole('link', { name: /sign in/i }).click();
+
+    await page.waitForLoadState('domcontentloaded');
+    await page.getByTestId('email-input').fill(email);
+    await page.getByTestId('password-input').fill(password);
+    await page.getByTestId('sign-in-submit').click();
+
+    // Wait for redirect and authenticated state
+    await page.waitForURL(/\/session/, { timeout: 15000 });
+    await page.waitForSelector('[data-testid="app-main"]', { timeout: 10000 });
+    console.log('[CANARY] Login successful.');
+}
 
 /**
  * 🚨 CANARY SMOKE TEST 🚨
@@ -27,7 +52,7 @@ test.describe('Production Smoke Canary @canary', () => {
     test('should complete a full session cycle on real infrastructure', async ({ page }) => {
         // 1. Real Login
         console.log('[CANARY] logging in with real credentials...');
-        await programmaticLoginPro(page);
+        await canaryLogin(page);
 
         // 2. Navigate to Session Page
         await navigateToRoute(page, '/session');
