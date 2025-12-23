@@ -132,9 +132,9 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 | **Canary Test Isolation** | ✅ FIXED | Moved `smoke.canary.spec.ts` to `tests/e2e/canary/`, excluded from default runs via `testIgnore` |
 | **Network Error Shielding** | ✅ FIXED | Added LIFO-ordered catch-all handler for `mock.supabase.co` to prevent `ERR_NAME_NOT_RESOLVED` |
 | **Logout Mock Pattern** | ✅ FIXED | Updated pattern from `**/auth/v1/logout` to `**/auth/v1/logout*` to match query params |
+| **PORTS Import Coupling** | ✅ FIXED | Removed unused `PORTS` import from `playwright.config.ts` (Finding 4/5) |
+| **On-Device Fallback** | ✅ FIXED | Added try-catch with Native Browser fallback if On-Device init fails (Finding 7) |
 | **Deferred: Playwright Config Coupling** | ⏸️ DEFERRED | Remove unused `PORTS` import from `playwright.config.ts` (post-alpha) |
-| **Deferred: On-Device Fallback** | ⏸️ DEFERRED | Add try-catch for On-Device initialization failure (post-alpha) |
-| **Deferred: Mega-Component (SessionPage)** | ⏸️ DEFERRED | Decompose `SessionPage` into smaller components and hooks (post-alpha) |
 
 ### 🧪 Adversarial Test Suite Hardening (2025-12-19) ✅ P1 Complete
 

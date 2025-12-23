@@ -822,6 +822,28 @@ http://localhost:5173/session?devBypass=true
 
 **Important:** Only works in development mode (`import.meta.env.DEV`).
 
+#### ⚠️ Landing Page Redirect Delay (2025-12-23)
+
+> **CONFIGURABLE:** `LANDING_PAGE_DISPLAY_MS` in [`Index.tsx`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/Index.tsx)
+
+When an **authenticated user** navigates to the **landing page** (`/`), the app displays the landing page for a configurable delay before auto-redirecting to `/session`.
+
+| Condition | Behavior |
+|-----------|----------|
+| User is **logged out** | Landing page displayed indefinitely (no redirect) |
+| User is **logged in** and visits `/` | Landing page shown for 4 seconds, then redirects to `/session` |
+| User is **logged in** and visits `/session` directly | No delay (normal load) |
+| User is **logged in** and refreshes any other page | No delay (normal load) |
+
+**Configuration:**
+```typescript
+// frontend/src/pages/Index.tsx
+const LANDING_PAGE_DISPLAY_MS = 4000; // 4 seconds - adjust as needed
+// Set to 0 for immediate redirect (original behavior)
+```
+
+**Rationale:** Provides a smoother UX transition and allows users to briefly see the marketing page, reducing the jarring instant redirect.
+
 #### Stripe CLI for Local Webhook Testing
 
 Stripe webhooks require a tunnel to reach localhost. The Stripe CLI provides this:
@@ -1071,19 +1093,19 @@ This --mode test flag is the key. It instructs Vite to automatically look for an
 So, the framework itself ensures the correct .env file is used based on the mode it's running in. The fix I implemented to the package.json was essential to restore this intended behavior, ensuring pnpm dev uses development mode and leaves the test mode to be used exclusively by the testing framework.
 
 
-### Smoke Test: Comprehensive Health Check
+### Canonical Health Check: Core User Journey
 
-Our E2E testing strategy includes a **smoke test** (`tests/e2e/smoke.e2e.spec.ts`) that serves as the canonical health check for the application. This test verifies all critical user journeys in a single, comprehensive pass:
+Our E2E testing strategy includes a **health check** (`tests/e2e/core-journey.e2e.spec.ts`) that serves as the canonical verification of the application's integrity. This test verifies the complete end-to-end data flow in a single pass:
 
-**Smoke Test Coverage:**
-1. **Boot Check:** Verifies the app boots and renders DOM
-2. **Unauthenticated Homepage:** Confirms public landing page loads correctly (Sign In button visible)
-3. **Authentication:** Tests programmatic login flow using MSW network mocking
-4. **Session Page (Authenticated):** Verifies practice session UI loads and start/stop button is functional
-5. **Analytics Page (Authenticated):** Confirms analytics dashboard renders with data visualization
-6. **Logout:** Tests sign-out flow and return to unauthenticated state
+**Health Check Coverage:**
+1. **Unauthenticated Homepage:** Confirms public landing page loads correctly.
+2. **Authentication:** Tests programmatic login flow using MSW network mocking.
+3. **Home -> Session Flow:** Verifies clicking "Start Session" from the dashboard navigates correctly.
+4. **Session Operation (Authenticated):** Records a mock transcript and verifies live updates.
+5. **Session -> Analytics Flow:** Verifies the auto-redirect to the analytics dashboard upon stopping.
+6. **Data Persistence:** Confirms the new session appears in the history list with correct stats.
 
-**Purpose:** This smoke test is run as part of `pnpm test:health-check` and provides a fast, reliable signal that core features (homepage, auth, session, analytics) are working after every commit.
+**Purpose:** This test is triggered by `pnpm test:health-check`. It is optimized for speed by bypassing the full unit test suite and focusing purely on this high-level "Critical Path" verification. It provides a fast, reliable signal after every commit.
 
 **Visual Documentation:** A separate test (`tests/e2e/capture-states.e2e.spec.ts`) handles screenshot generation for visual documentation. This decoupled architecture ensures that purely visual changes (e.g., CSS refactors) do not break the critical functional health check.
 
@@ -1147,7 +1169,7 @@ The E2E test environment is designed for stability and isolation. Several key ar
     ```ascii
     +---------------------------------+
     |        Playwright Test          |
-    |  (e.g., health-check.spec.ts)   |
+    | (e.g., core-journey.e2e.spec.ts)|
     +--------------- | ---------------+
                     |
     (1) Calls programmaticLogin(page)

@@ -26,6 +26,7 @@ const ConfigurationNeededPage: React.FC = () => {
             <li>VITE_SUPABASE_URL</li>
             <li>VITE_SUPABASE_ANON_KEY</li>
             <li>VITE_STRIPE_PUBLISHABLE_KEY</li>
+            <li>VITE_SENTRY_DSN</li>
           </ul>
         </div>
         <Button

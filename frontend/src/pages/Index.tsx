@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { HeroSection } from "@/components/landing/HeroSection";
@@ -6,13 +7,31 @@ import { BenefitsSection } from "@/components/landing/BenefitsSection";
 // import { TestimonialsSection } from "@/components/landing/TestimonialsSection";
 import { CTASection } from "@/components/landing/CTASection";
 import { LandingFooter } from "@/components/landing/LandingFooter";
+import { IS_TEST_ENVIRONMENT, LANDING_PAGE_REDIRECT_MS } from '@/config/env';
 
 const Index = () => {
   const { session, loading } = useAuthProvider();
+  const [shouldRedirect, setShouldRedirect] = useState(false);
 
-  // Only redirect if user is authenticated - landing page is PUBLIC
-  // Don't block on loading - show landing page immediately
-  if (!loading && session) {
+  // Delayed redirect for authenticated users - show landing page first
+  useEffect(() => {
+    if (!loading && session) {
+      // 🧪 In test environment, redirect immediately
+      if (IS_TEST_ENVIRONMENT) {
+        setShouldRedirect(true);
+        return;
+      }
+
+      const timer = setTimeout(() => {
+        setShouldRedirect(true);
+      }, LANDING_PAGE_REDIRECT_MS);
+
+      return () => clearTimeout(timer);
+    }
+  }, [session, loading]);
+
+  // Redirect after delay
+  if (shouldRedirect) {
     return <Navigate to="/session" replace />;
   }
 

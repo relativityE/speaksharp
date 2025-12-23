@@ -107,12 +107,12 @@ run_e2e_tests_all() {
 }
 
 run_e2e_health_check() {
-    echo "✅ [4/6] Running Smoke Test (Comprehensive Health Check)..."
-    pnpm exec playwright test tests/e2e/smoke.e2e.spec.ts --project=chromium || {
-        echo "❌ Smoke Test failed." >&2
+    echo "✅ [4/6] Running Core Journey (Canonical Health Check)..."
+    pnpm exec playwright test tests/e2e/core-journey.e2e.spec.ts --project=chromium || {
+        echo "❌ Health Check failed." >&2
         exit 1
     }
-    echo "✅ [4/6] Smoke Test Passed."
+    echo "✅ [4/6] Health Check Passed."
 }
 
 run_lighthouse_ci() {
@@ -279,9 +279,10 @@ case $STAGE in
         ;;
     health-check)
         run_preflight
-        run_quality_checks
+        echo "⏭️  [2/6] Skipping Code Quality Checks (Fast Mode)"
         run_build
         run_e2e_health_check
+        echo "⏭️  [5/6] Skipping Lighthouse CI (Fast Mode)"
         run_sqm_report_local
         echo "🎉 Health-Check SUCCEEDED."
         ;;

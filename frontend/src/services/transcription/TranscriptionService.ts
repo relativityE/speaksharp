@@ -166,13 +166,23 @@ export default class TranscriptionService {
         OnDeviceWhisperClass = module.default;
       }
 
-      this.instance = new OnDeviceWhisperClass(providerConfig);
-      if (this.instance) {
-        await this.instance.init();
+      try {
+        this.instance = new OnDeviceWhisperClass(providerConfig);
+        if (this.instance) {
+          await this.instance.init();
+          await this.instance.startTranscription(this.mic);
+        }
+        this.mode = 'on-device';
+        return;
+      } catch (error) {
+        logger.warn({ error }, '[TranscriptionService] On-Device init failed, falling back to Native Browser.');
+        // Fallback to Native Browser
+        this.instance = new NativeBrowser(providerConfig);
         await this.instance.startTranscription(this.mic);
+        logger.info('[TranscriptionService] NativeBrowser started successfully (On-Device fallback).');
+        this.mode = 'native';
+        return;
       }
-      this.mode = 'on-device';
-      return;
     }
 
     const useCloud = this.forceCloud || isProUser;

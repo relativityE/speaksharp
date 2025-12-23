@@ -131,6 +131,7 @@ The project's testing strategy prioritizes stability, reliability, and a tight a
 *   **Unit & Integration Tests (Vitest):** These form the foundation of our testing pyramid. They are fast, focused, and verify the correctness of individual components and hooks in isolation. **Target: ≥75% line coverage with integrity-preserving validation (avoiding implementation coupling).**
 *   **End-to-End Tests (Playwright):** E2E tests validate complete user flows from start to finish. To combat the flakiness often associated with UI-driven tests, we have adopted a critical strategic decision:
     *   **Programmatic Login Only:** All E2E tests that require an authenticated state **must** use the `programmaticLogin` helper. This method directly injects a session into `localStorage`, bypassing the UI for sign-up and login. This approach is significantly faster and more reliable than attempting to simulate user input in the auth form.
+    *   **Canonical Health Check:** The `pnpm test:health-check` command is the primary quality gate for daily development. It focuses exclusively on the canonical `core-journey.e2e.spec.ts`, verifying the full data flow (Home -> Session -> Analytics) without the overhead of the full unit test suite.
     *   **No UI-Driven Auth Tests:** Tests that attempt to validate the sign-up or login forms via UI interaction have been removed. The stability and speed gained by using programmatic login are considered a higher priority than testing the auth form itself in the E2E suite.
     *   **Canary Deployment Tests:** A subset of E2E tests (marked `@canary`) are designed to hit real staging endpoints periodically to detect API contract drift and production-specific failures that mocks might hide.
 *   **API Mocking (MSW & Playwright Routes):** External services and backend APIs are mocked for deterministic testing. However, mocks are audited against real production response shapes to prevent "Green Illusion" (tests passing while production is broken).
@@ -192,7 +193,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Tue, 23 Dec 2025 15:12:45 GMT
+**Last Updated:** Tue, 23 Dec 2025 15:48:45 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -224,10 +225,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | 57.51%   |
-| Branches   | 78.91%   |
-| Functions  | 73.53%   |
-| Lines      | 57.51%   |
+| Statements | 58.16%   |
+| Branches   | 78.93%   |
+| Functions  | 74.17%   |
+| Lines      | 58.16%   |
 
 ---
 
@@ -235,11 +236,11 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric              | Value |
 | ------------------- | ----- |
-| Total Source Size   | 3.6M   |
-| Total Project Size  | 1.1G   |
+| Total Source Size   | 3.4M   |
+| Total Project Size  | 1.5G   |
 | Initial Chunk Size  | 884K   |
-| Code Bloat Index    | 24.29%   |
-| Lighthouse Scores   | P: 0, A: 0, BP: 0, SEO: 0 |
+| Code Bloat Index    | 25.64%   |
+| Lighthouse Scores   | P: 100, A: 95, BP: 100, SEO: 92 |
 
 ---
 <!-- SQM:END -->

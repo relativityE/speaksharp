@@ -151,11 +151,11 @@ For all local testing and validation, use the following `pnpm` scripts. They are
     ```
     **Why?** This is the canonical command for a full local quality check. It runs the same sequence as the CI `prepare` stage (Preflight, Lint, Typecheck, Unit Tests, Build) and then runs the **entire** End-to-End (E2E) test suite. It is the best way to guarantee your changes will pass CI.
 
-*   **Run a fast \"health check\" of the application:**
+*   **Run a fast "health check" of the application:**
     ```bash
     pnpm test:health-check
     ```
-    **Why?** This is your go-to command during active development. It runs the full suite of pre-flight and quality checks but only executes the small, critical E2E \"health check\" suite instead of the full E2E suite. This provides a much faster feedback loop.
+    **Why?** This is your go-to command during active development. It skips the time-consuming unit test suite and focuses purely on the canonical E2E "health check" journey (Home -> Session -> Analytics). This provides an instant, high-level verification of the app's critical path.
 
 *   **Run only the unit tests:**
     ```bash
@@ -196,11 +196,11 @@ pnpm run ci:local
 ```bash
 pnpm test:health-check
 ```
-- Runs preflight, lint, typecheck, unit tests, build, **smoke E2E test**
-- **Note:** The `test:health-check` script executes the test suite defined in `tests/e2e/smoke.e2e.spec.ts`.
-- **Smoke test verifies:** Homepage (unauth/auth), Session page, Analytics page
-- Faster than full CI simulation
-- **Use for:** Quick feedback loops
+- Runs preflight, build, and the **canonical Core Journey E2E test**
+- **Note:** The `test:health-check` script executes the test suite defined in `tests/e2e/core-journey.e2e.spec.ts`.
+- **Core journey verifies:** Homepage, Session Flow, Transcription, and Analytics persistence.
+- Optimized for speed by bypassing unit tests and code quality checks.
+- **Use for:** Rapid "critical path" verification.
 
 **⚡ Want the fastest local feedback (unit tests only)?**
 ```bash

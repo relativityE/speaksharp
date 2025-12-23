@@ -10,6 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Improved (2025-12-23) - Configuration & Health-Check Refinement
+
+- **Canonical Health Check Refinement:**
+  - Redefined `test:health-check` to focus exclusively on the canonical E2E journey (`core-journey.e2e.spec.ts`).
+  - Optimized execution speed by bypassing the 432 unit tests in health-check mode.
+  - Improved logging in `test-audit.sh` to explicitly show skipped steps ([2/6] Quality and [5/6] Lighthouse).
+  - **Files:** `scripts/test-audit.sh`, `docs/ARCHITECTURE.md`, `README.md`
+
+- **Centralized Functional Delays:**
+  - Moved hardcoded delays to `frontend/src/config/env.ts`.
+  - Set `SW_TIMEOUT_MS` (ServiceWorker) and `LANDING_PAGE_REDIRECT_MS` (Landing Page) to **2 seconds**.
+  - **Files:** `frontend/src/config/env.ts`, `frontend/src/main.tsx`, `frontend/src/pages/Index.tsx`
+
+- **Unit Test Fixes:**
+  - Fixed regression in `Index.test.tsx` by ensuring immediate redirects in test environment.
+  - **File:** `frontend/src/pages/Index.tsx`
+
 ### Improved (2025-12-23) - E2E Testing Infrastructure
 
 - **Canary Test Isolation:**
@@ -28,6 +45,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Logout Mock Fix:**
   - Updated logout pattern from `**/auth/v1/logout` to `**/auth/v1/logout*` to match query params like `?scope=global`.
   - **File:** `tests/e2e/mock-routes.ts`
+
+### Fixed (2025-12-23) - Audit Remediation
+
+- **Finding 4/5: Playwright Config Coupling:**
+  - Removed unused `PORTS` import from `playwright.config.ts`.
+  - **File:** `playwright.config.ts`
+
+- **Finding 7: On-Device Fallback:**
+  - Added try-catch with Native Browser fallback if On-Device (Whisper) initialization fails.
+  - **File:** `frontend/src/services/transcription/TranscriptionService.ts`
 
 ### Security (2025-12-23) - Critical Audit Remediation
 

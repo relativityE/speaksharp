@@ -13,12 +13,13 @@ import { Session } from '@supabase/supabase-js';
 import * as Sentry from "@sentry/react";
 import ConfigurationNeededPage from "./pages/ConfigurationNeededPage";
 import App from './App';
-import { IS_TEST_ENVIRONMENT } from '@/config/env';
+import { IS_TEST_ENVIRONMENT, SW_TIMEOUT_MS } from '@/config/env';
 
 const REQUIRED_ENV_VARS: string[] = [
   'VITE_SUPABASE_URL',
   'VITE_SUPABASE_ANON_KEY',
   'VITE_STRIPE_PUBLISHABLE_KEY',
+  'VITE_SENTRY_DSN',
 ];
 
 const areEnvVarsPresent = (): boolean => {
@@ -154,7 +155,6 @@ const initialize = async () => {
   // 🔧 ServiceWorker registration with timeout to prevent indefinite hangs
   // Fire-and-forget pattern - app continues loading in parallel
   if ('serviceWorker' in navigator) {
-    const SW_TIMEOUT_MS = 5000;
     const swRegistration = navigator.serviceWorker.register('/sw.js');
     const timeout = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error(`SW registration timeout (${SW_TIMEOUT_MS}ms)`)), SW_TIMEOUT_MS)

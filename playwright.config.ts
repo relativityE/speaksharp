@@ -1,6 +1,5 @@
 import { defineConfig } from '@playwright/test';
 import { loadEnv, getChromeWithMic, baseConfig, urls } from './playwright.base.config';
-import { PORTS } from './scripts/build.config.js';
 
 /**
  * Main E2E Test Configuration
