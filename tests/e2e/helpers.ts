@@ -205,7 +205,7 @@ export async function programmaticLoginAs(page: Page, userType: UserType): Promi
   console.log(`[${userType.toUpperCase()} Login] Authenticating with:`, email);
 
   // Navigate to sign-in
-  await page.goto('/sign-in');
+  await page.goto('/auth/signin');
   await page.waitForLoadState('domcontentloaded');
 
   // Fill credentials
