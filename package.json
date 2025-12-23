@@ -37,6 +37,7 @@
     "test:e2e:debug": "cross-env DEBUG=pw:api DOTENV_CONFIG_PATH=.env.test playwright test --headed --trace on --project=chromium",
     "// Soak test (5-min concurrent user simulation)": "",
     "test:soak": "playwright test --config=playwright.soak.config.ts --project=chromium",
+    "test:canary": "playwright test --grep @canary --project=chromium",
     "// ============ Git Hooks ============": "",
     "prepare": "HUSKY=0 husky install"
   },

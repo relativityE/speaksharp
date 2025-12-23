@@ -1,0 +1,53 @@
+name: Production Canary Smoke Test
+
+on:
+  workflow_dispatch: # Manual trigger
+  schedule:
+    - cron: '0 8 * * *' # Daily at 8am UTC
+
+jobs:
+  canary-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Install Playwright browsers
+        # Minimum install for speed
+        run: pnpm exec playwright install chromium
+
+      - name: Create .env.development from Secrets
+        # Required for client-side keys during build/test
+        run: |
+          cat > .env.development <<EOF
+          VITE_SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          EOF
+
+      - name: Provision Canary User
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD || 'CanaryTest123!' }}
+        run: node scripts/create-canary-user.mjs
+
+      - name: Run Smoke Test
+        env:
+          E2E_PRO_EMAIL: 'canary-user@speaksharp.app'
+          E2E_PRO_PASSWORD: ${{ secrets.CANARY_PASSWORD || 'CanaryTest123!' }}
+        run: pnpm test:canary
