@@ -49,13 +49,16 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD || 'CanaryTest123!' }}
-        run: node scripts/create-canary-user.mjs
+          SOAK_TEST_PASSWORD: ${{ secrets.CANARY_PASSWORD }}
+          MODE: 'e2e'
+          NEW_PRO_COUNT: '1'
+          NEW_FREE_COUNT: '0'
+        run: node scripts/setup-test-users.mjs
 
       - name: Run Smoke Test
         env:
-          E2E_PRO_EMAIL: 'canary-user@speaksharp.app'
-          E2E_PRO_PASSWORD: ${{ secrets.CANARY_PASSWORD || 'CanaryTest123!' }}
+          E2E_PRO_EMAIL: 'soak-test0@test.com'
+          E2E_PRO_PASSWORD: ${{ secrets.CANARY_PASSWORD }}
         run: pnpm test:canary
 
       - name: Upload Test Results
