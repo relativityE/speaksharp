@@ -1706,3 +1706,49 @@ SpeakSharp maintains an active tracking document for architectural debt, code sm
 
 Maintainers should consult the ROADMAP.md Tech Debt sections before starting major refactors or if encountering intermittent system behavior.
 
+
+#### 3.7 Canary Smoke Test (`canary.yml`)
+
+**Purpose:** Validates the "Critical Path" (Login → Record → Save) against **real staging infrastructure** to catch production outages and configuration issues that unit/mock tests miss.
+
+**Supabase Mode:** Real (uses "Canary User" credential)
+
+**Architecture:** Modeled after soak test pattern:
+- Uses `playwright.canary.config.ts` (loads `.env.development`, not `.env.test`)
+- Uses `start-server-and-test` for clean process lifecycle
+- Uses `VITE_USE_LIVE_DB=true` to bypass MSW mocks
+
+**What it does:**
+1. **Provisioning:** Runs `scripts/provision-canary.mjs` (derived from `setup-test-users.mjs`) which:
+     - Idempotently creates/updates `canary-user@speaksharp.app`
+     - Enforces PRO tier (`subscription_status: 'pro'`)
+     - Verifies login capability before test runs
+2. **Execution:** Runs `smoke.canary.spec.ts` using `CANARY_EMAIL`/`CANARY_PASSWORD` env vars.
+3. **Verification:**
+   - **Navigation:** Uses `goToPublicRoute()` for sign-in, `navigateToRoute()` after auth
+   - **Functionality:** Validates "Critical Path" (Login → Start Session → Record → Stop → Analytics)
+   - **Infrastructure:** Verifies real Supabase DB writes and native browser STT integration
+
+**Trigger:**
+- Manual (UI): Actions Tab -> Select Workflow -> "Run workflow"
+- Manual (CLI): `gh workflow run canary.yml --ref main`
+- Scheduled: Daily at 8am UTC (commented out until stable)
+
+**Required Secrets:**
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_KEY` (For provisioning)
+- `CANARY_PASSWORD` (**Required** - no default)
+
+**Environment Variables (Hardcoded Defaults):**
+- `CANARY_EMAIL`: `canary-user@speaksharp.app` (default, not a secret)
+
+**Troubleshooting:**
+```bash
+# Check workflow status
+gh run list --workflow canary.yml --limit 1
+
+# View logs for failed run
+gh run view $(gh run list --workflow canary.yml --limit 1 --json databaseId --jq '.[0].databaseId') --log-failed
+```
+
