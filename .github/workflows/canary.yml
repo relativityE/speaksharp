@@ -40,6 +40,9 @@ jobs:
           EOF
 
       - name: Build Application
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: pnpm build
 
       - name: Provision Canary User
