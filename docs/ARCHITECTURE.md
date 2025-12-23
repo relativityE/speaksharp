@@ -1752,3 +1752,54 @@ gh run list --workflow canary.yml --limit 1
 gh run view $(gh run list --workflow canary.yml --limit 1 --json databaseId --jq '.[0].databaseId') --log-failed
 ```
 
+**Testing Approach:**
+
+> [!IMPORTANT]
+> The canary test is designed to run **remotely via CI only** - it requires real Supabase credentials and GitHub secrets that are not available locally.
+
+**✅ Correct: Test via GitHub CLI (`gh`)**
+```bash
+# Trigger workflow
+gh workflow run canary.yml --ref main
+
+# Watch live progress
+RUN_ID=$(gh run list --workflow=canary.yml --limit=1 --json databaseId --jq '.[0].databaseId')
+gh run watch $RUN_ID --exit-status
+
+# View failure logs
+gh run view $RUN_ID --log-failed
+```
+
+**❌ Incorrect: Local `pnpm test:canary`**
+- Will fail with "Missing CANARY_PASSWORD"
+- Even with credentials, `.env.test` has mock Supabase URLs
+- Use `gh` commands instead for canary validation
+
+**Known Issue / Tech Debt:**
+- `CANARY_EMAIL` is hardcoded as `canary-user@speaksharp.app` (not configurable via secret)
+- Schedule trigger is commented out pending stability validation
+
+**Design Origins:**
+
+The canary test was architected by combining patterns from two proven systems:
+
+| Component | Source | What was borrowed |
+|-----------|--------|-------------------|
+| `provision-canary.mjs` | `setup-test-users.mjs` | User creation/update logic, password sync, tier enforcement, login verification |
+| `playwright.canary.config.ts` | `playwright.soak.config.ts` | `loadEnv('development')`, no webServer (uses `start-server-and-test`), Chrome with mic permissions |
+| `canary.yml` workflow | `soak-test.yml` | `.env.development` creation, `start-server-and-test` pattern, `VITE_USE_LIVE_DB=true` |
+| `smoke.canary.spec.ts` | `soak-test.spec.ts` | Real form-based auth via `setupAuthenticatedUser()` pattern, session verification flow |
+
+**Required GitHub Secret:**
+
+> [!CAUTION]
+> `CANARY_PASSWORD` is the **lynchpin secret** required for canary tests. Without it, both provisioning and testing will fail immediately.
+
+The secret is used in two places:
+1. **Provisioning:** Sets/updates the password for `canary-user@speaksharp.app` in Supabase
+2. **Testing:** Logs in as the canary user to validate the critical path
+
+To add the secret: **Settings → Secrets and variables → Actions → New repository secret** → Name: `CANARY_PASSWORD`
+
+
+
