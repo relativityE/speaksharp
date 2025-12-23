@@ -1,13 +1,13 @@
 import { test, expect, type Page } from '@playwright/test';
 import { goToPublicRoute, navigateToRoute } from './helpers';
-import { ROUTES, TEST_IDS } from '../constants';
+import { ROUTES, TEST_IDS, CANARY_USER } from '../constants';
 
 /**
- * Canary test credentials from environment
- * Uses dedicated CANARY_* env vars (not E2E_PRO_*)
+ * Canary test credentials from constants
+ * Password is provided via CANARY_PASSWORD secret in GitHub Actions
  */
-const CANARY_EMAIL = process.env.CANARY_EMAIL || 'canary-user@speaksharp.app';
-const CANARY_PASSWORD = process.env.CANARY_PASSWORD;
+const CANARY_EMAIL = CANARY_USER.email;
+const CANARY_PASSWORD = CANARY_USER.password;
 
 /**
  * Login helper for Canary tests - modeled after soak test's setupAuthenticatedUser()

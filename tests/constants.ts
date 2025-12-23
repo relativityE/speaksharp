@@ -28,6 +28,13 @@ export const SOAK_TEST_USER = {
   password: process.env.SOAK_TEST_PASSWORD || 'speaksharp1',
 };
 
+// Canary test user for production smoke tests
+// Password is shared via CANARY_PASSWORD secret in GitHub Actions
+export const CANARY_USER = {
+  email: 'canary-user@speaksharp.app',
+  password: process.env.CANARY_PASSWORD || '',
+};
+
 // Array of soak test users for concurrent testing
 // Emails follow pattern: soak-test{N}@test.com (0-indexed)
 // Password is shared via SOAK_TEST_PASSWORD env var
