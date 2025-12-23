@@ -345,6 +345,18 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
  * Setup Edge Function endpoint mocks
  */
 export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
+    // Register catch-all FIRST so it is checked LAST (Playwright checks in reverse order)
+    // Catch-all for other functions to prevent net::ERR_NAME_NOT_RESOLVED
+    await registerRoute(page, '**/functions/v1/*', async (route) => {
+        // Fallback only if no other specific route matched
+        console.log(`[E2E MOCK] Catch-all intercepted function call: ${route.request().url()}`);
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ success: true, mocked: true }),
+        });
+    });
+
     // POST /functions/v1/create-checkout-session
     await registerRoute(page, '**/functions/v1/create-checkout-session', async (route) => {
         await route.fulfill({
@@ -360,6 +372,30 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
             status: 200,
             contentType: 'application/json',
             body: JSON.stringify({ token: 'mock-deepgram-token' }),
+        });
+    });
+
+    // POST /functions/v1/check-usage-limit
+    await registerRoute(page, '**/functions/v1/check-usage-limit', async (route) => {
+        // Determine subscription status from mock profile injection
+        const profileOverride = await route.request().frame()?.page()?.evaluate(() => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            return (window as any).__E2E_MOCK_PROFILE__ as { id: string; subscription_status: string } | undefined;
+        }).catch(() => undefined);
+
+        const isPro = profileOverride?.subscription_status === 'pro';
+
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                can_start: true,
+                remaining_seconds: isPro ? -1 : 900, // 15 mins for free
+                limit_seconds: isPro ? -1 : 1800,
+                used_seconds: 900,
+                subscription_status: isPro ? 'pro' : 'free',
+                is_pro: isPro
+            }),
         });
     });
 }

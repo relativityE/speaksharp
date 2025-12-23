@@ -388,11 +388,11 @@ ls -lh frontend/public/models/
     *   **End-to-End Testing Architecture (The "Three Pillars"):**
     To ensure stability and speed, our E2E tests rely on three distinct layers of abstraction:
 
-    1.  **Network Layer (Playwright Route Interception):**
+    1.  **Network Layer (Playwright Route Interception & Shielding):**
         *   **Role:** Intercepts all network requests (`fetch`, `XHR`) at the Playwright browser level.
         *   **File:** `tests/e2e/mock-routes.ts`
+        *   **Wildcard Shielding:** Uses a catch-all pattern (`**/functions/v1/*`) to prevent any requests from leaking to the real internet, ensuring that tests are fully hermetic and avoiding `net::ERR_NAME_NOT_RESOLVED` errors.
         *   **Responsibility:** Uses `page.route()` API to return mock JSON responses for Supabase Auth and Database queries. Per-page isolation prevents race conditions in parallel CI.
-        *   **Note:** This replaces the previous MSW (Mock Service Worker) approach which had browser-global scope issues causing flaky tests in parallel execution.
 
     2.  **Runtime Layer (E2E Bridge):**
         *   **Role:** Injects mock implementations of *browser APIs* that don't exist or behave differently in a headless environment.
@@ -406,6 +406,7 @@ ls -lh frontend/public/models/
     3.  **Orchestration Layer (Helpers):**
         *   **Role:** The "Consumer" that Playwright tests actually call.
         *   **File:** `tests/e2e/helpers.ts`
+        *   **Test Mode Injection:** Explicitly overrides environment detection by injecting `window.TEST_MODE = true` via `page.addInitScript`, making tests robust against build configuration drift.
         *   **Responsibility:**
             *   `programmaticLoginWithRoutes()`: Sets up Playwright routes, injects mock session, navigates with full route isolation.
             *   `mockLiveTranscript()`: Tells the Bridge to simulate speech events.

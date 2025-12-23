@@ -95,12 +95,12 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
         await navigateToRoute(page, '/analytics');
 
         // Free users should see upgrade options
+        // Wait for dashboard to load (past skeleton state)
+        await expect(page.getByTestId('analytics-dashboard')).toBeVisible();
+
+        // Free users should see upgrade options
         const upgradeButton = page.getByTestId('analytics-dashboard-upgrade-button');
-        if (await upgradeButton.count() > 0) {
-            await expect(upgradeButton).toBeVisible();
-            console.log('[FREE] ✅ Upgrade button visible for free user');
-        } else {
-            console.log('[FREE] ⚠️ No upgrade button found (may be conditional on session count)');
-        }
+        await expect(upgradeButton).toBeVisible();
+        console.log('[FREE] ✅ Upgrade button visible for free user');
     });
 });

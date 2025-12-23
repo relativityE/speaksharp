@@ -58,7 +58,7 @@ export default defineConfig(({ mode }) => {
       // We only need to override specific values here
       'process.env': {},
       'global': 'globalThis',
-      'import.meta.env.VITE_TEST_MODE': JSON.stringify(isTestMode),
+      'import.meta.env.VITE_TEST_MODE': JSON.stringify(String(isTestMode)),
     },
     optimizeDeps: {
       exclude: [],

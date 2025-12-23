@@ -544,6 +544,18 @@ The following items were identified by two independent external code reviews. Mo
 
 **Summary:** 8 items identified - 8 FIXED. Alpha-ready. ✅
 
+### ⏸️ Deferred Audit Remediation (Dec 2025)
+
+The following items were identified during the audit but deferred to post-alpha to prioritize stability.
+
+| Finding | Priority | Status | Notes |
+|---------|----------|--------|-------|
+| **3. Dependency Alias** | MEDIUM | ⏸️ DEFERRED | Refactor `@config` alias in `vite.config.ts`. |
+| **4. Playwright Config Coupling** | MEDIUM | ⏸️ DEFERRED | Remove unused `PORTS` import in `playwright.config.ts`. |
+| **5. Base Config Coupling** | MEDIUM | ⏸️ DEFERRED | Extract `PORTS` to root-level config to decouple base config. |
+| **7. On-Device Fallback** | HIGH | ⏸️ DEFERRED | Add try-catch block for On-Device initialization failure. |
+| **11. Mega Component** | HIGH | ⏸️ DEFERRED | Decompose `SessionPage` into smaller sub-components. |
+
 ---
 
 ### 🟡 Tech Debt Identified (Code Smells - Dec 2025)

@@ -9,6 +9,17 @@ import {
   MOCK_TRANSCRIPTS,
 } from './fixtures/mockData';
 
+// Global window augmentation for E2E bridge
+declare global {
+  interface Window {
+    mswReady?: boolean;
+    __e2eProfileLoaded?: boolean;
+    dispatchMockTranscript?: (text: string, isFinal?: boolean) => void;
+    __E2E_MOCK_SESSION__?: boolean;
+    TEST_MODE?: boolean;
+  }
+}
+
 /**
  * ANSI color codes for terminal output
  */
@@ -338,9 +349,15 @@ export async function programmaticLoginWithRoutes(page: Page): Promise<void> {
   await setupE2EMocks(page);
   console.log('[E2E] Playwright routes configured');
 
-  // 2. Set mock session flag
+  // 2. Set mock session flag and force TEST_MODE
   await page.addInitScript(() => {
-    (window as unknown as { __E2E_MOCK_SESSION__: boolean }).__E2E_MOCK_SESSION__ = true;
+    interface CustomWindow extends Window {
+      __E2E_MOCK_SESSION__: boolean;
+      TEST_MODE: boolean;
+    }
+    const win = window as unknown as CustomWindow;
+    win.__E2E_MOCK_SESSION__ = true;
+    win.TEST_MODE = true; // Force test mode regardless of Vite config
   });
 
   // 3. Navigate to app
