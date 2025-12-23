@@ -166,7 +166,7 @@ This section tracks high-level product risks and constraints. For a detailed his
 - **✅ RESOLVED - Custom Vocabulary E2E Test (2025-12-08):** Previously flagged React Query cache issue is now resolved. MSW handlers working correctly, test is active and passing. **Status:** ✅ Fixed.
 - **✅ RESOLVED - PDF Export E2E Test (2025-12-08):** Test was passing but not actually testing due to sessions not loading. Fixed by waiting for `session-history-item` before checking buttons, and using click verification (jsPDF blob doesn't trigger Playwright download event). Now verifies 5 download buttons for 5 mock sessions. **Status:** ✅ Fixed.
 - **✅ RESOLVED - Analytics Invalid Session ID E2E Test Failure (2025-12-05):** The `analytics-details.e2e.spec.ts` test failure has been resolved by fixing race conditions in loading state assertions. **Status:** ✅ Fixed.
-- **✅ RESOLVED - AuthProvider Race Condition (Finding 2.1, 2025-12-07):** The `AuthProvider` had a race condition in E2E tests where Supabase `onAuthStateChange` would fire with `undefined` after mock session was set, clearing the authenticated state. **Fix:** AuthProvider now ignores empty session updates in test mode when initial session exists (`import.meta.env.VITE_TEST_MODE === 'true'`). **Impact:** All 35 E2E tests now pass. **Location:** `frontend/src/contexts/AuthProvider.tsx:77-84` **Previous Status (2025-11-30):** Originally flagged as HIGH risk, later downgraded to LOW upon code review. Now fully resolved for E2E testing.
+- **✅ RESOLVED - AuthProvider Race Condition (Finding 2.1, 2025-12-22):** The `AuthProvider` profile loading logic was structurally refactored to use standard React effect synchronization, splitting session and profile state management. This replaced the previous "ignore empty session" patch with a robust architectural fix while preserving retry logic for cold starts. **Status:** ✅ Fixed.
 - **✅ RESOLVED - CI Sharded E2E Metrics (2025-12-10):** The `ci:local` command was incorrectly reporting only 8 E2E tests instead of 35 due to Playwright blob reports being overwritten per shard. **Fix:** Implemented `PLAYWRIGHT_BLOB_OUTPUT_DIR` per shard with JSONL extraction for accurate aggregation in `test-audit.sh`. Now correctly reports 35 E2E tests. **Status:** ✅ Fixed.
 - **✅ STABILIZED - Soak Test "Empty Body" (2025-12-15):** Soak test failed due to hydration race conditions. **Mitigation:** Implemented `browser.newContext()` isolation and strict `expect().toBeVisible()` state guards. **Status:** Stabilized (Guardrail enforced), though shared process risk remains.
 - **✅ RESOLVED - Stripe Configuration Error (2025-12-15):** The `stripe-checkout` Edge Function was failing with generic 400 errors in CI. **Fix:** Added diagnostic logging and "Negative Verification" to test (`stripe-checkout.spec.ts`) to prove configuration state safely without exposing secrets. **Status:** ✅ Fixed.
@@ -192,7 +192,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Mon, 22 Dec 2025 23:25:30 GMT
+**Last Updated:** Tue, 23 Dec 2025 00:36:15 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -208,14 +208,14 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 484 (432 unit + 52 E2E) |
+| Total tests             | 485 (432 unit + 53 E2E) |
 | Unit tests              | 432   |
-| E2E tests (Playwright)  | 52  |
+| E2E tests (Playwright)  | 53  |
 | Passing tests           | 484 (432 unit + 52 E2E)   |
-| Failing tests           | 0   |
+| Failing tests           | 1   |
 | Disabled/skipped tests  | 0 (E2E only)   |
 | Passing unit tests      | 432/432 (100.0%)   |
-| Passing E2E tests       | 52/52 (100.0%)   |
+| Passing E2E tests       | 52/53 (98.1%)   |
 | Total runtime           | See CI logs   |
 
 ---
@@ -224,10 +224,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | 57.55%   |
-| Branches   | 78.76%   |
-| Functions  | 73.76%   |
-| Lines      | 57.55%   |
+| Statements | 57.47%   |
+| Branches   | 78.91%   |
+| Functions  | 73.53%   |
+| Lines      | 57.47%   |
 
 ---
 
@@ -235,10 +235,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric              | Value |
 | ------------------- | ----- |
-| Total Source Size   | 3.4M   |
+| Total Source Size   | 3.3M   |
 | Total Project Size  | 1.5G   |
 | Initial Chunk Size  | 884K   |
-| Code Bloat Index    | 25.76%   |
+| Code Bloat Index    | 25.79%   |
 | Lighthouse Scores   | P: 100, A: 95, BP: 100, SEO: 92 |
 
 ---

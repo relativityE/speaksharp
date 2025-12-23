@@ -99,7 +99,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 | Finding | Priority | Status | Notes |
 |---------|----------|--------|-------|
 | **Inefficient CI/CD Pipeline** | MEDIUM | ✅ PARTIAL | Dependencies cached. Full optimization requires single setup job. |
-| **Ambiguous Setup Scripts** | LOW | 🔴 NOT STARTED | `scripts/setup.sh` conflicts with `pnpm run setup`. |
+| **Ambiguous Setup Scripts** | LOW | ✅ FIXED | `scripts/setup.sh` deleted, replaced with `dev-init.sh` (2025-12-22). |
 
 #### 4. Test Infrastructure Fixes (2025-12-22)
 
@@ -536,14 +536,12 @@ The following items are tactical mitigations that work but require structural fi
 
 | # | Finding | Location | Priority | Status |
 |---|---------|----------|----------|--------|
-| 1 | **Toast Notification Duplication** | `frontend/src/App.tsx` | P2 MEDIUM | 🟡 MITIGATED |
-|   | *Problem:* Toasts trigger multiple times due to React 18 Strict Mode double-renders and URL parameter persistence. | | | |
-|   | *Current Mitigation:* Uses a `useRef` guard and `navigate({ replace: true })` to clear URL params. | | | |
-|   | *Structural Fix Required:* Implement centralized "Flash Message" system in Zustand or router loader. | | | |
-| 2 | **Transient Profile Loading Failures** | `frontend/src/hooks/useUserProfile.ts` | P2 MEDIUM | 🟡 MITIGATED |
-|   | *Problem:* Initial profile fetches intermittently fail with `TypeError: Failed to fetch`. | | | |
-|   | *Current Mitigation:* 3 retries with exponential backoff in TanStack Query. | | | |
-|   | *Structural Fix Required:* Investigate session synchronization and audit RLS policy latency. | | | |
+| 1 | **Toast Notification Duplication** | `frontend/src/App.tsx` | P2 MEDIUM | ✅ FIXED |
+|   | *Problem:* Toasts triggered multiple times due to React Strict Mode. | | | |
+|   | *Fix (2025-12-22):* Logic extracted to `useCheckoutNotifications` hook. Deduplicated with `useRef`. | | | |
+| 2 | **Transient Profile Loading Failures** | `frontend/src/hooks/useUserProfile.ts` | P2 MEDIUM | ✅ FIXED |
+|   | *Problem:* Initial profile fetches intermittently fail. | | | |
+|   | *Fix (2025-12-22):* `AuthProvider.tsx` refactored to use standard React synchronization. Retries preserved. | | | |
 | 3 | **Filler Word Regex False Positives** | `frontend/src/utils/fillerWordUtils.ts` | P3 LOW | ℹ️ KNOWN |
 |   | *Problem:* Simple regex patterns for "like" and "so" match legitimate usage (e.g., "I like pizza"). | | | |
 |   | *Beta Fix:* Integrate NLP (e.g., `compromise` or `transformers.js`) for Part-of-Speech tagging. | | | |

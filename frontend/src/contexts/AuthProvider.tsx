@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import React, { useState, useEffect, ReactNode, useMemo, useCallback, useContext, createContext, useRef } from 'react';
+import React, { useState, useEffect, ReactNode, useMemo, useCallback, useContext, createContext } from 'react';
 import { getSupabaseClient } from '../lib/supabaseClient';
 import { Session, User } from '@supabase/supabase-js';
 import { UserProfile } from '@/types/user';
@@ -47,9 +47,6 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // P1 FIX: Track in-flight profile fetch to prevent race conditions
-  const pendingProfileFetch = useRef<string | null>(null);
-  const fetchIdCounter = useRef(0);
 
   const supabase = getSupabaseClient();
 
@@ -86,102 +83,90 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       return;
     }
 
-    const fetchAndSetProfile = async (session: Session | null) => {
-      const userId = session?.user?.id;
-      console.log('[AuthProvider] fetchAndSetProfile called with session:', userId);
-
-      // P1 FIX: Generate unique fetch ID and track it
-      fetchIdCounter.current += 1;
-      const currentFetchId = `fetch-${fetchIdCounter.current}`;
-
-      if (userId) {
-        // P1 FIX: If there's already a pending fetch for this user, skip
-        if (pendingProfileFetch.current === userId) {
-          console.log('[AuthProvider] Profile fetch already in progress for:', userId);
-          return;
+    // Initialize session
+    if (initialSession) {
+      setSessionState(initialSession);
+    } else {
+      supabase.auth.getSession().then(({ data: { session }, error }) => {
+        if (error) {
+          console.error('[AuthProvider] Error getting initial session:', error);
         }
-
-        pendingProfileFetch.current = userId;
-
-        try {
-          // Use fetchWithRetry to handle cold starts and transient network failures
-          const data = await fetchWithRetry(async () => {
-            const { data, error } = await supabase
-              .from('user_profiles')
-              .select('*')
-              .eq('id', userId)
-              .single();
-            if (error) throw error;
-            return data;
-          }, 5, 100); // 5 retries, starting at 100ms with exponential backoff
-
-          // P1 FIX: Only update state if this is still the current fetch
-          if (pendingProfileFetch.current === userId) {
-            console.log('[AuthProvider] Profile loaded:', data.id);
-            setProfile(data as UserProfile);
-            setSessionState(session);
-
-            // Test mode notifications
-            const { isTestMode } = getTestConfig();
-            if (isTestMode) {
-              console.log(`[E2E DIAGNOSTIC] Profile found for ${data.id}, setting flag and dispatching event.`);
-              setTestFlag('__e2eProfileLoaded', true);
-              dispatchTestEvent('e2e-profile-loaded', data);
-            }
-          } else {
-            console.log('[AuthProvider] Stale fetch discarded:', currentFetchId);
-          }
-        } catch (e) {
-          console.error('[AuthProvider] Failed to fetch profile after retries:', e);
-          if (pendingProfileFetch.current === userId) {
-            setProfile(null);
-            setSessionState(session);
-          }
-        } finally {
-          // P1 FIX: Clear pending fetch only if it was ours
-          if (pendingProfileFetch.current === userId) {
-            pendingProfileFetch.current = null;
-          }
-        }
-      } else {
-        console.log('[AuthProvider] No session user ID, clearing profile');
-        pendingProfileFetch.current = null;
-        setProfile(null);
         setSessionState(session);
-      }
-      setLoading(false);
-    };
+        // If no session, loading is done. If session exists, profile fetch will handle loading.
+        if (!session) setLoading(false);
+      });
+    }
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, newSession) => {
         console.log(`[Supabase Auth] 🔐 Auth state changed: ${_event}`, newSession?.user?.id ? `User: ${newSession.user.id.slice(0, 8)}...` : 'No user');
-        fetchAndSetProfile(newSession);
+        setSessionState(newSession);
+        if (!newSession) {
+          setProfile(null);
+          setLoading(false);
+        }
       }
     );
-
-    // Handle initial session if provided (e.g., from E2E tests)
-    if (initialSession) {
-      fetchAndSetProfile(initialSession);
-    } else {
-      // CRITICAL FIX: Fetch initial session to properly set loading state
-      supabase.auth.getSession().then(({ data: { session }, error }) => {
-        if (error) {
-          console.error('[AuthProvider] Error getting initial session:', error);
-          setLoading(false);
-        } else {
-          fetchAndSetProfile(session);
-        }
-      });
-    }
 
     return () => {
       subscription?.unsubscribe();
     };
   }, [initialSession, supabase]);
 
+  // Effect to fetch profile when session changes
+  useEffect(() => {
+    const userId = sessionState?.user?.id;
+    if (!userId || !supabase) {
+      setProfile(null);
+      return;
+    }
+
+    let active = true;
+
+    const fetchProfile = async () => {
+      try {
+        console.log('[AuthProvider] Fetching profile for:', userId);
+        const data = await fetchWithRetry(async () => {
+          const { data, error } = await supabase
+            .from('user_profiles')
+            .select('*')
+            .eq('id', userId)
+            .single();
+          if (error) throw error;
+          return data;
+        }, 5, 100);
+
+        if (active) {
+          console.log('[AuthProvider] Profile loaded:', data.id);
+          setProfile(data as UserProfile);
+          setLoading(false);
+
+          // Test mode notifications
+          const { isTestMode } = getTestConfig();
+          if (isTestMode) {
+            console.log(`[E2E DIAGNOSTIC] Profile found for ${data.id}, setting flag and dispatching event.`);
+            setTestFlag('__e2eProfileLoaded', true);
+            dispatchTestEvent('e2e-profile-loaded', data);
+          }
+        }
+      } catch (e) {
+        console.error('[AuthProvider] Failed to fetch profile after retries:', e);
+        if (active) {
+          setProfile(null); // Valid session but failed profile fetch
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchProfile();
+
+    return () => {
+      active = false;
+    };
+  }, [sessionState?.user?.id, supabase]);
+
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
-    pendingProfileFetch.current = null;
     setSessionState(null);
     setProfile(null);
   }, [supabase]);
