@@ -125,6 +125,17 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 | **SessionPage Router Context** | ✅ FIXED | Added `MemoryRouter` wrapper to 22 unit tests |
 | **Session Store for E2E** | ✅ FIXED | Added `sessionStore` and RPC mock for session persistence verification |
 
+#### 7. E2E Infrastructure Fixes (2025-12-23)
+
+| Finding | Status | Notes |
+|---------|--------|-------|
+| **Canary Test Isolation** | ✅ FIXED | Moved `smoke.canary.spec.ts` to `tests/e2e/canary/`, excluded from default runs via `testIgnore` |
+| **Network Error Shielding** | ✅ FIXED | Added LIFO-ordered catch-all handler for `mock.supabase.co` to prevent `ERR_NAME_NOT_RESOLVED` |
+| **Logout Mock Pattern** | ✅ FIXED | Updated pattern from `**/auth/v1/logout` to `**/auth/v1/logout*` to match query params |
+| **Deferred: Playwright Config Coupling** | ⏸️ DEFERRED | Remove unused `PORTS` import from `playwright.config.ts` (post-alpha) |
+| **Deferred: On-Device Fallback** | ⏸️ DEFERRED | Add try-catch for On-Device initialization failure (post-alpha) |
+| **Deferred: Mega-Component (SessionPage)** | ⏸️ DEFERRED | Decompose `SessionPage` into smaller components and hooks (post-alpha) |
+
 ### 🧪 Adversarial Test Suite Hardening (2025-12-19) ✅ P1 Complete
 
 > **Goal:** Increase line coverage from 56% → 75% with integrity-preserving, adversarial validation. Focus on resilience and design invariants over structural coverage.

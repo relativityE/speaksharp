@@ -10,6 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Improved (2025-12-23) - E2E Testing Infrastructure
+
+- **Canary Test Isolation:**
+  - Moved `smoke.canary.spec.ts` to `tests/e2e/canary/` directory.
+  - Updated `playwright.config.ts` with `testIgnore: '**/canary/**'` to exclude from default runs.
+  - Updated `playwright.canary.config.ts` to point to new location.
+  - **Files:** `tests/e2e/canary/smoke.canary.spec.ts`, `playwright.config.ts`, `playwright.canary.config.ts`
+
+- **Network Error Shielding:**
+  - Added global catch-all route handler to `setupE2EMocks()` for `mock.supabase.co` requests.
+  - Prevents `ERR_NAME_NOT_RESOLVED` errors for unhandled mock endpoints.
+  - Route order: Catch-all registered FIRST (checked last), specific handlers registered LAST (checked first).
+  - **Pattern:** Playwright routes use LIFO evaluation order.
+  - **File:** `tests/e2e/mock-routes.ts`
+
+- **Logout Mock Fix:**
+  - Updated logout pattern from `**/auth/v1/logout` to `**/auth/v1/logout*` to match query params like `?scope=global`.
+  - **File:** `tests/e2e/mock-routes.ts`
+
 ### Security (2025-12-23) - Critical Audit Remediation
 
 - **Unauthenticated Token Endpoint (CRITICAL):**

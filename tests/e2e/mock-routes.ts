@@ -179,8 +179,8 @@ export async function setupSupabaseAuthMocks(page: Page): Promise<void> {
         });
     });
 
-    // POST /auth/v1/logout
-    await registerRoute(page, '**/auth/v1/logout', async (route) => {
+    // POST /auth/v1/logout (with or without query params like ?scope=global)
+    await registerRoute(page, '**/auth/v1/logout*', async (route) => {
         await route.fulfill({ status: 204 });
     });
 }
@@ -472,12 +472,30 @@ export async function setupE2EMocks(
 
     console.log('[E2E MOCK] Setting up Playwright route interception...');
 
+    // GLOBAL FALLBACK: Register this FIRST so it is checked LAST
+    // Catches any unhandled requests to mock.supabase.co to prevent DNS errors
+    await page.route('**', async (route) => {
+        const url = route.request().url();
+        if (url.includes('mock.supabase.co')) {
+            console.warn(`[E2E MOCK] ⚠️ Unhandled request to mock domain: ${route.request().method()} ${url}`);
+            // Return 404 instead of failing with network error
+            await route.fulfill({
+                status: 404,
+                contentType: 'application/json',
+                body: JSON.stringify({ error: 'Mock route not found', path: url }),
+            });
+            return;
+        }
+        // Allow other requests (assets, localhost, etc.) to proceed
+        await route.continue();
+    });
+
     // Optionally enable strict mode (catches unhandled requests)
     if (strictMode) {
         await setupStrictAllowList(page);
     }
 
-    // Setup all mock handlers
+    // Setup all mock handlers (These are registered LATER, so they run EARLIER)
     await setupSupabaseAuthMocks(page);
     await setupSupabaseDatabaseMocks(page);
     await setupEdgeFunctionMocks(page);

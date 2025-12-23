@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
-import { goToPublicRoute, navigateToRoute } from './helpers';
-import { ROUTES, TEST_IDS, CANARY_USER } from '../constants';
+import { goToPublicRoute, navigateToRoute } from '../helpers';
+import { ROUTES, TEST_IDS, CANARY_USER } from '../../constants';
 
 /**
  * Canary test credentials from constants
@@ -67,7 +67,6 @@ test.describe('Production Smoke Canary @canary', () => {
     test.beforeAll(() => {
         if (!CANARY_PASSWORD) {
             console.warn('⚠️ Skipping Canary test: Missing CANARY_PASSWORD');
-            test.skip();
         }
     });
 

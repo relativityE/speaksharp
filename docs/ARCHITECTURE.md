@@ -391,7 +391,8 @@ ls -lh frontend/public/models/
     1.  **Network Layer (Playwright Route Interception & Shielding):**
         *   **Role:** Intercepts all network requests (`fetch`, `XHR`) at the Playwright browser level.
         *   **File:** `tests/e2e/mock-routes.ts`
-        *   **Wildcard Shielding:** Uses a catch-all pattern (`**/functions/v1/*`) to prevent any requests from leaking to the real internet, ensuring that tests are fully hermetic and avoiding `net::ERR_NAME_NOT_RESOLVED` errors.
+        *   **LIFO Route Ordering:** Playwright evaluates routes in **LIFO order** (Last-In-First-Out). The catch-all (`**`) is registered FIRST (checked last), and specific handlers are registered LAST (checked first). This ensures specific mocks take precedence while the fallback catches any unhandled `mock.supabase.co` requests.
+        *   **Wildcard Shielding:** A global catch-all handler returns 404 for unhandled `mock.supabase.co` requests instead of allowing them to hit the network (which would cause `ERR_NAME_NOT_RESOLVED`).
         *   **Responsibility:** Uses `page.route()` API to return mock JSON responses for Supabase Auth and Database queries. Per-page isolation prevents race conditions in parallel CI.
 
     2.  **Runtime Layer (E2E Bridge):**
@@ -1778,7 +1779,7 @@ Maintainers should consult the ROADMAP.md Tech Debt sections before starting maj
      - Idempotently creates/updates `canary-user@speaksharp.app`
      - Enforces PRO tier (`subscription_status: 'pro'`)
      - Verifies login capability before test runs
-2. **Execution:** Runs `smoke.canary.spec.ts` using `CANARY_EMAIL`/`CANARY_PASSWORD` env vars.
+2. **Execution:** Runs `tests/e2e/canary/smoke.canary.spec.ts` using `CANARY_EMAIL`/`CANARY_PASSWORD` env vars.
 3. **Verification:**
    - **Navigation:** Uses `goToPublicRoute()` for sign-in, `navigateToRoute()` after auth
    - **Functionality:** Validates "Critical Path" (Login → Start Session → Record → Stop → Analytics)
@@ -1843,7 +1844,7 @@ The canary test was architected by combining patterns from two proven systems:
 | `provision-canary.mjs` | `setup-test-users.mjs` | User creation/update logic, password sync, tier enforcement, login verification |
 | `playwright.canary.config.ts` | `playwright.soak.config.ts` | `loadEnv('development')`, no webServer (uses `start-server-and-test`), Chrome with mic permissions |
 | `canary.yml` workflow | `soak-test.yml` | `.env.development` creation, `start-server-and-test` pattern, `VITE_USE_LIVE_DB=true` |
-| `smoke.canary.spec.ts` | `soak-test.spec.ts` | Real form-based auth via `setupAuthenticatedUser()` pattern, session verification flow |
+| `tests/e2e/canary/smoke.canary.spec.ts` | `soak-test.spec.ts` | Real form-based auth via `setupAuthenticatedUser()` pattern, session verification flow |
 
 **Required GitHub Secret:**
 

@@ -17,6 +17,7 @@ const BASE_URL = urls.preview;
 export default defineConfig({
   ...baseConfig,
   testDir: './tests/e2e',
+  testIgnore: '**/canary/**',
   outputDir: './test-results/playwright',
   timeout: 120_000, // 2-minute global timeout
   expect: { timeout: 30_000 },

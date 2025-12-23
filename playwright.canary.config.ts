@@ -20,7 +20,7 @@ loadEnv('development');
 
 export default defineConfig({
     ...baseConfig,
-    testDir: './tests/e2e',
+    testDir: './tests/e2e/canary',
     testMatch: 'smoke.canary.spec.ts',
     outputDir: './test-results/canary',
     timeout: 60000,
