@@ -21,6 +21,8 @@ export default defineConfig(({ mode }) => {
     server: {
       port: PORTS.DEV,
       host: true,
+      // Note: COOP/COEP headers removed - they block Stripe.js and other third-party resources
+      // The whisper-turbo web worker needs a different approach (copy worker to public/)
       watch: {
         usePolling: true,
         ignored: [

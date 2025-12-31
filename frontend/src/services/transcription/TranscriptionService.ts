@@ -188,23 +188,22 @@ export default class TranscriptionService {
     const useCloud = this.forceCloud || isProUser;
     if (useCloud) {
       logger.info('[TranscriptionService] Attempting to use Cloud (AssemblyAI) mode for Pro user.');
-      logger.info('[TranscriptionService] Fetching AssemblyAI token...');
-      const token = await this.getAssemblyAIToken();
-      logger.info({ tokenReceived: !!token }, '[TranscriptionService] Token fetch complete.');
-      if (token) {
-        logger.info('[TranscriptionService] Creating CloudAssemblyAI instance...');
-        this.instance = new CloudAssemblyAI(providerConfig);
-        logger.info('[TranscriptionService] Initializing CloudAssemblyAI...');
-        await this.instance.init();
-        logger.info('[TranscriptionService] Starting CloudAssemblyAI transcription...');
+      // Note: CloudAssemblyAI handles token fetching internally in startTranscription()
+      // We don't pre-fetch here to avoid triggering the rate limiter twice
+      logger.info('[TranscriptionService] Creating CloudAssemblyAI instance...');
+      this.instance = new CloudAssemblyAI(providerConfig);
+      logger.info('[TranscriptionService] Initializing CloudAssemblyAI...');
+      await this.instance.init();
+      logger.info('[TranscriptionService] Starting CloudAssemblyAI transcription...');
+      try {
         await this.instance.startTranscription(this.mic);
         logger.info('[TranscriptionService] CloudAssemblyAI transcription started successfully.');
         this.mode = 'cloud';
         return;
-      } else {
-        logger.warn('[TranscriptionService] Failed to get AssemblyAI token for Pro user.');
+      } catch (error) {
+        logger.warn({ error }, '[TranscriptionService] Cloud mode failed to start.');
         if (this.forceCloud) {
-          throw new Error('Failed to get AssemblyAI token in forceCloud mode.');
+          throw error; // Re-throw if forced
         }
         logger.warn('[TranscriptionService] Proceeding with native fallback for Pro user.');
       }
