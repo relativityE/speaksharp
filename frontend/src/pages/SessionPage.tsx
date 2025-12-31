@@ -126,21 +126,8 @@ export const SessionPage: React.FC = () => {
                     filler_count: metrics.fillerCount
                 });
 
-                // Update Streak & Show Positive Reinforcement
+                // Update Streak for positive reinforcement
                 const { currentStreak, isNewDay } = updateStreak();
-                if (isNewDay) {
-                    toast.success(`🔥 ${currentStreak} Day Streak!`, {
-                        id: 'session-feedback',
-                        description: "Consistency is key. Great job!",
-                        duration: 5000,
-                    });
-                } else {
-                    toast.success("Great practice session!", {
-                        id: 'session-feedback',
-                        description: "You're making progress.",
-                        duration: 3000,
-                    });
-                }
 
                 // DATA PERSISTENCE FIX: Save session to database
                 console.log('[SessionPage] 💾 Saving session via useSessionManager...');
@@ -162,10 +149,15 @@ export const SessionPage: React.FC = () => {
 
                 if (result.session) {
                     console.log('[SessionPage] Session saved successfully. Initiating redirect...');
-                    toast.success("Session saved! Redirecting to analysis...", {
+
+                    // Show single consolidated toast with streak + save confirmation
+                    const streakText = isNewDay ? `🔥 ${currentStreak} Day Streak!` : '✓ Great practice!';
+                    toast.success(streakText, {
                         id: 'session-feedback',
-                        duration: 2000,
+                        description: 'Session saved • Redirecting to analysis...',
+                        duration: 3000,
                     });
+
                     // Short delay to let the toast be seen and ensure state updates
                     setTimeout(() => {
                         console.log('[SessionPage] calling navigate(/analytics)');
