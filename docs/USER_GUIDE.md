@@ -73,13 +73,15 @@ A: Navigate to your **Settings** or click the **"Upgrade to Pro"** button in the
 
 ## 🧪 Special Instructions for Alpha Testers
 
-If you've been provided with an **Alpha Bypass Code**, follow these steps to unlock Pro features immediately:
+If you've been provided with a **One-Time Code**, follow these steps to activate your account:
 
 1.  Navigate to the [Sign Up page](https://speaksharp.app/auth/signup).
 2.  Click the **"Pro Plan"** card.
-3.  Click the link that says **"Have a bypass code?"** below the password field.
-4.  Enter your 7-digit numeric code into the **"Promo/Bypass Code"** field.
-5.  Complete your account creation. You will be automatically upgraded to Pro without needing to enter any payment information.
+3.  Click the link that says **"Have a one-time 'pro' user promo code?"** below the password field.
+4.  Enter your 7-digit numeric code into the field.
+5.  Complete your account creation.
+
+> **Note:** One-time 'pro' user promo codes grant **30 minutes of Pro features** without requiring payment. After the 30 minutes are used, you'll be prompted to upgrade to continue with unlimited access.
 
 ---
 

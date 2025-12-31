@@ -12,14 +12,21 @@ serve(async (req) => {
     }
 
     try {
-        const supabaseClient = createClient(
+        // Client for authenticating the user from their JWT
+        const authClient = createClient(
             Deno.env.get('SUPABASE_URL') ?? '',
-            Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+            Deno.env.get('SUPABASE_ANON_KEY') ?? '',
             { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
         )
 
-        // Get the user from the JWT
-        const { data: { user }, error: authError } = await supabaseClient.auth.getUser()
+        // Service role client for database operations (bypasses RLS)
+        const adminClient = createClient(
+            Deno.env.get('SUPABASE_URL') ?? '',
+            Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+        )
+
+        // Get the user from the JWT using auth client
+        const { data: { user }, error: authError } = await authClient.auth.getUser()
         if (authError || !user) {
             throw new Error('Unauthorized')
         }
@@ -41,9 +48,8 @@ serve(async (req) => {
                 { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             )
         }
-
-        // Upgrade the user
-        const { error: updateError } = await supabaseClient
+        // Promo code is valid - upgrade user to 'pro' tier using admin client (bypasses RLS)
+        const { error: updateError } = await adminClient
             .from('user_profiles')
             .update({ subscription_status: 'pro' })
             .eq('id', user.id)
@@ -52,8 +58,14 @@ serve(async (req) => {
             throw updateError
         }
 
+        console.log(`[apply-promo] User ${user.id} upgraded to pro via promo code`);
+
         return new Response(
-            JSON.stringify({ success: true, message: 'Upgraded to Pro!' }),
+            JSON.stringify({
+                success: true,
+                message: 'Promo code applied! You have 30 minutes of Pro features.',
+                proFeatureMinutes: 30
+            }),
             { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
 

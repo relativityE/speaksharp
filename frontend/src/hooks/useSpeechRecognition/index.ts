@@ -108,7 +108,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         setTimeout(() => {
           if (toastIdRef.current) {
             toast.dismiss(toastIdRef.current);
-            toast.success('Model loaded successfully!');
+            toast.success('Model loaded successfully!', { id: 'model-loaded' });
             toastIdRef.current = null;
           }
           setModelLoadingProgress(null);
@@ -117,7 +117,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         setTimeout(() => {
           if (toastIdRef.current) {
             toast.dismiss(toastIdRef.current);
-            toast.success('Model loaded successfully!');
+            toast.success('Model loaded successfully!', { id: 'model-loaded' });
             toastIdRef.current = null;
           }
           setModelLoadingProgress(null);

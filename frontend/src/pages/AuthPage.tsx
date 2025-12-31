@@ -123,7 +123,7 @@ export default function AuthPage() {
 
                   // If successful, redirect to dashboard immediately as Pro
                   console.log('[AuthPage] Alpha upgrade successful!');
-                  toast.success('Alpha Code accepted! Welcome to SpeakSharp Pro.');
+                  toast.success('🎉 Promo code applied! You have 30 minutes of Pro features.', { id: 'promo-success' });
                   window.location.href = '/session';
                   return;
                 } catch (pe) {
@@ -301,7 +301,7 @@ export default function AuthPage() {
                         onClick={() => setShowPromoField(!showPromoField)}
                         className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
                       >
-                        {showPromoField ? 'Remove promo code' : 'Have a bypass code?'}
+                        {showPromoField ? 'Remove code' : "Have a one-time 'pro' user promo code?"}
                       </button>
 
                       {showPromoField && (
