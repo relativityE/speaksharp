@@ -103,7 +103,11 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
                                 }`}
                             data-testid={TEST_IDS.SESSION_STATUS_INDICATOR}
                         >
-                            {isListening ? (isReady ? '● Recording' : 'Connecting...') : 'Ready'}
+                            {modelLoadingProgress !== null
+                                ? 'Downloading...'
+                                : isListening
+                                    ? (isReady ? '● Recording' : 'Connecting...')
+                                    : 'Ready'}
                         </Badge>
                     </div>
                 </div>
@@ -142,7 +146,11 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
                     {/* Timer */}
                     <div className="text-3xl font-medium text-foreground mb-2">{formattedTime}</div>
                     <p className="text-muted-foreground" data-testid={TEST_IDS.TRANSCRIPT_DISPLAY}>
-                        {isListening ? 'Recording in progress...' : 'Click start to begin recording'}
+                        {modelLoadingProgress !== null
+                            ? 'Preparing AI model...'
+                            : isListening
+                                ? 'Recording in progress...'
+                                : 'Click start to begin recording'}
                     </p>
                 </div>
 
@@ -159,7 +167,7 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
                         {modelLoadingProgress !== null ? (
                             <>
                                 <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
-                                Initializing...
+                                Downloading...
                             </>
                         ) : isListening ? (
                             <>
