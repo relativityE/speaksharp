@@ -89,6 +89,30 @@ export default class OnDeviceWhisper implements ITranscriptionMode {
         this.onModelLoadProgress(0);
       }
 
+      // Pre-fetch model from local files to prime the browser cache
+      // This helps when the service worker isn't intercepting CDN requests
+      try {
+        const localModelUrl = '/models/tiny-q8g16.bin';
+        const localTokenizerUrl = '/models/tokenizer.json';
+
+        console.log('[Whisper] 📦 Pre-caching model from local files...');
+
+        const modelResponse = await fetch(localModelUrl, { method: 'HEAD' });
+        if (modelResponse.ok) {
+          console.log('[Whisper] ✅ Local model file available, pre-caching...');
+          // Trigger a full fetch to prime the cache
+          const modelFetch = fetch(localModelUrl);
+          const tokenizerFetch = fetch(localTokenizerUrl);
+
+          // Don't await - let it run in background while whisper-turbo also tries
+          Promise.all([modelFetch, tokenizerFetch]).catch(e =>
+            console.warn('[Whisper] Pre-cache in background failed:', e)
+          );
+        }
+      } catch (preCacheError) {
+        console.warn('[Whisper] Pre-cache check failed, continuing with CDN:', preCacheError);
+      }
+
       const result = await this.manager.loadModel(
         AvailableModels.WHISPER_TINY,
         () => {
@@ -119,6 +143,7 @@ export default class OnDeviceWhisper implements ITranscriptionMode {
     } catch (error) {
       logger.error({ err: error }, '[OnDeviceWhisper] Failed to load model.');
       this.status = 'error';
+      toast.error('Failed to load On-Device model. Please try again or use Native mode.');
       throw error;
     }
   }

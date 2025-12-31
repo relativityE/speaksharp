@@ -218,7 +218,13 @@ export const SessionPage: React.FC = () => {
     };
 
     const isButtonDisabled = isListening && !isReady;
-    console.log('[DEBUG] Button render. Disabled:', isButtonDisabled, 'isListening:', isListening, 'isReady:', isReady);
+
+    // Rate-limited debug canary - only log when state changes
+    const prevStateRef = useRef({ isListening: false, isReady: false });
+    if (prevStateRef.current.isListening !== isListening || prevStateRef.current.isReady !== isReady) {
+        console.log('[DEBUG] Button state changed:', { isButtonDisabled, isListening, isReady });
+        prevStateRef.current = { isListening, isReady };
+    }
 
     return (
         <div className="min-h-screen bg-gradient-subtle pt-20">
