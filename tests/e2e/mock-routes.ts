@@ -19,6 +19,7 @@
  */
 
 import { Page, Route } from '@playwright/test';
+import { ALPHA_BYPASS_CODE } from '../../frontend/src/config/alpha-bypass';
 
 // ============================================================================
 // MOCK DATA (mirrored from frontend/src/mocks/handlers.ts)
@@ -357,13 +358,33 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
         });
     });
 
-    // POST /functions/v1/create-checkout-session
-    await registerRoute(page, '**/functions/v1/create-checkout-session', async (route) => {
+    // POST /functions/v1/stripe-checkout
+    await registerRoute(page, '**/functions/v1/stripe-checkout', async (route) => {
+        console.log('[E2E MOCK] Specific Handler: stripe-checkout');
         await route.fulfill({
             status: 200,
             contentType: 'application/json',
-            body: JSON.stringify({ url: 'https://checkout.stripe.com/test' }),
+            body: JSON.stringify({ checkoutUrl: 'https://checkout.stripe.com/test' }),
         });
+    });
+
+    // POST /functions/v1/apply-promo
+    await registerRoute(page, '**/functions/v1/apply-promo', async (route) => {
+        console.log('[E2E MOCK] Specific Handler: apply-promo');
+        const body = await route.request().postDataJSON();
+        if (body?.promoCode === ALPHA_BYPASS_CODE) {
+            return route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ success: true, message: 'Upgraded to Pro!' })
+            });
+        } else {
+            await route.fulfill({
+                status: 400,
+                contentType: 'application/json',
+                body: JSON.stringify({ success: false, error: 'Invalid code' }),
+            });
+        }
     });
 
     // POST /functions/v1/get-deepgram-token
@@ -471,6 +492,11 @@ export async function setupE2EMocks(
     sessionStore = [...MOCK_SESSION_HISTORY]; // Reset to default mock history
 
     console.log('[E2E MOCK] Setting up Playwright route interception...');
+
+    // Set flag to tell e2e-bridge to skip MSW
+    await page.addInitScript(() => {
+        (window as unknown as { __E2E_PLAYWRIGHT__: boolean }).__E2E_PLAYWRIGHT__ = true;
+    });
 
     // GLOBAL FALLBACK: Register this FIRST so it is checked LAST
     // Catches any unhandled requests to mock.supabase.co to prevent DNS errors

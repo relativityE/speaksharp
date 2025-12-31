@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CheckCircle2 } from 'lucide-react';
+import { HeroStatsDashboard } from './HeroStatsDashboard';
 
 
 export const HeroSection = () => {
@@ -48,33 +49,9 @@ export const HeroSection = () => {
           </div>
         </div>
 
-        {/* Speaker Image - Below, full width */}
-        <div className="mt-12 w-full relative">
-          <img
-            src="/assets/hero-speaker.jpg"
-            alt="Confident Speaker"
-            width="1280"
-            height="720"
-            fetchPriority="high"
-            loading="eager"
-            className="rounded-2xl shadow-2xl border border-white/10 w-full object-cover aspect-[16/9]"
-            onError={(e) => {
-              e.currentTarget.style.display = 'none';
-              e.currentTarget.parentElement!.innerHTML += '<div class="rounded-2xl shadow-2xl border border-white/10 w-full aspect-[16/9] bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center"><span class="text-gray-500 font-medium">Speaker Image</span></div>';
-            }}
-          />
-          {/* Floating clarity badge */}
-          <div className="absolute bottom-4 right-4 bg-card/90 backdrop-blur-sm rounded-xl px-4 py-3 flex items-center gap-3 border border-border">
-            <div className="w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center">
-              <svg className="w-5 h-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-              </svg>
-            </div>
-            <div>
-              <div className="text-lg font-bold text-foreground">85% Clarity</div>
-              <div className="text-sm text-muted-foreground">Real-time analysis</div>
-            </div>
-          </div>
+        {/* Animated Stats Dashboard - Replaces hero-speaker.jpg */}
+        <div className="mt-12 w-full flex justify-center">
+          <HeroStatsDashboard className="w-full max-w-2xl" />
         </div>
       </div>
     </section>

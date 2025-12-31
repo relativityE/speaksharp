@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-19
+**Last Reviewed:** 2025-12-31
 
 # Changelog
 
@@ -9,6 +9,64 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Added (2025-12-31) - Analytics Restoration & Alpha Bypass
+
+- **Alpha Bypass Enhancement:** Implemented a secure, secret-driven 7-digit numeric upgrade format. Validation is now handled via Supabase Vault secrets rather than hardcoded client-side values. Added `scripts/generate-alpha-code.ts` for automated rotation and local testing orchestration.
+- **New User Documentation:** Created `docs/USER_GUIDE.md` for end-user onboarding.
+- **Redirect Optimization:** Authenticated users now redirect directly to `/session` to improve startup speed.
+  - Created `apply-promo` Edge Function to handle server-side upgrades via promo codes.
+  - **Files:** `frontend/src/pages/AuthPage.tsx`, `backend/supabase/functions/apply-promo/index.ts`
+
+- **Analytics UI Restoration:**
+  - Resolved `net::ERR_NAME_NOT_RESOLVED` errors for `mock.supabase.co` by restoring MSW initialization in `initializeE2EEnvironment`.
+  - Consolidated the orange "Free Plan" oval with the upgrade description for a cleaner layout.
+  - Removed redundant upgrade CTAs from the Analytics dashboard.
+  - **Files:** `frontend/src/lib/e2e-bridge.ts`, `frontend/src/pages/AnalyticsPage.tsx`, `frontend/src/components/AnalyticsDashboard.tsx`
+
+- **Infrastructure & Testing:**
+  - Created `TROUBLESHOOTING.md` with instructions on environment synchronization (`pnpm build:test`).
+  - **E2E State Preservation**: Updated `bypass-journey.e2e.spec.ts` to use `goToPublicRoute` and `navigateToRoute` to mirror production SPA behavior and maintain MSW context.
+  - Added `bypass-journey.e2e.spec.ts` for end-to-end verification of the alpha bypass flow.
+  - Fixed a redirect race condition in `AuthPage.tsx` where authenticated users were sent to `/` instead of `/session`.
+  - Switched to Playwright route interception for the `apply-promo` and `stripe-checkout` functions in E2E tests.
+  - **Asset Modernization**: Permanently removed redundant static JPEGs (`hero-speaker.jpg`, `analytics-visual.jpg`) across `frontend/public/assets` and `frontend/src/assets`.
+  - **Files:** `TROUBLESHOOTING.md`, `tests/e2e/bypass-journey.e2e.spec.ts`, `tests/e2e/mock-routes.ts`, `HeroSection.tsx`
+
+- **Lint & Code Quality Cleanup**: 
+  - Resolved all unused variable and import errors in `AnalyticsDashboard.tsx` and `AnalyticsPage.tsx`.
+  - Repaired corrupted file structure in `AnalyticsDashboard.tsx` and restored missing `trendData` memoization logic.
+  - Standardized `data-testid` templates (removed stray spaces) in `AnalyticsDashboard.tsx` to fix unit test failures.
+  - **Branch Management**: Restored the `main_backup` branch (`ae64977`) after requested deletion to maintain repo history.
+  - **Files:** `AnalyticsDashboard.tsx`, `AnalyticsPage.tsx`, `bypass-journey.e2e.spec.ts`
+
+### Added (2025-12-30) - Hero Stats Dashboard & Deployment Readiness
+
+- **Animated Stats Dashboard (Hero CTA):**
+  - Created `HeroStatsDashboard.tsx` component with framer-motion animations
+  - Replaces static `hero-speaker.jpg` with animated glassmorphic stats card
+  - Features: Count-up animations for clarity %, fillers, WPM, duration
+  - Mini bar visualization with staggered fade-in
+  - Two-column responsive layout in `HeroSection.tsx`
+  - **Files:** `frontend/src/components/landing/HeroStatsDashboard.tsx`, `HeroSection.tsx`
+  - **Dependency:** Added `framer-motion ^12.23.26`
+
+- **E2E Test Coverage (Independent Review):**
+  - Added `upgrade-journey.e2e.spec.ts` with 3 tests for monetization path
+  - Added On-Device STT session test to `pro-user-journey.e2e.spec.ts`
+  - **Files:** `tests/e2e/upgrade-journey.e2e.spec.ts`, `pro-user-journey.e2e.spec.ts`
+
+- **Deployment Documentation:**
+  - Comprehensive 7-step Vercel deployment guide in `PRD.md` Section 8
+  - Deployment architecture diagram in `ARCHITECTURE.md`
+  - Environment variable configuration tables for Vercel and Supabase
+  - Stripe webhook setup instructions
+  - **Files:** `docs/PRD.md`, `docs/ARCHITECTURE.md`
+
+- **Light Theme Prioritized:**
+  - Moved from P3 (red) to Nice-to-Have (acceptable for alpha launch)
+  - **File:** `docs/ROADMAP.md`
+
 
 ### Improved (2025-12-23) - Configuration & Health-Check Refinement
 
@@ -93,7 +151,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed (2025-12-22) - Documentation Consolidation & Test Fixes
 
-- **Documentation Consolidation:** Moved all content from standalone `KNOWN_ISSUES.md` to `ROADMAP.md` Tech Debt section per `OUTLINE.md` guidelines. Deleted standalone file.
+- **Documentation Consolidation:** Moved all content from standalone `KNOWN_ISSUES.md` to `ROADMAP.md` Tech Debt guidelines. Deleted standalone file.
   - Updated `ARCHITECTURE.md` and `ROADMAP.md` to remove broken links to deleted file
   - **Files:** `docs/KNOWN_ISSUES.md` (deleted), `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`
 

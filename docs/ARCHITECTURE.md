@@ -127,7 +127,16 @@ Data Flow:
   Browser → Hooks → TranscriptionService → AssemblyAI (WebSocket)
   Hooks ↔ Supabase DB (RPC)
   Edge Functions ↔ Stripe (Webhooks)
+  Edge Functions (apply-promo) ↔ Alpha Tester (Bypass Code)
 ```
+
+### Alpha Bypass Mechanism
+For alpha testing, we provide a secure, secret-driven upgrade path:
+- **Client-Side**: A hidden numeric input field in `AuthPage.tsx` allows testers to enter a 7-digit bypass code.
+- **Validation**: The frontend sends this code to the `apply-promo` Edge Function.
+- **Backend**: The function validates the code against the `ALPHA_BYPASS_CODE` secret stored in Supabase Vault (not in code).
+- **Automation**: The `scripts/generate-alpha-code.ts` utility rotates codes and synchronizes them with the local E2E environment.
+Flow: AuthPage (Bypass toggle) → Signup/Login → `apply-promo` function → Profile Upgrade ('pro') → Redirect to `/session`.
 
 ## 2. Technology Stack
 
@@ -237,6 +246,9 @@ try {
 |---------|--------|----------------|----------|
 | **fetchWithRetry Utility** | ✅ Complete | Generic retry wrapper with exponential backoff (100ms → 200ms → 400ms → 800ms → 1600ms) | [`utils/fetchWithRetry.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/utils/fetchWithRetry.ts) |
 | **AuthProvider Integration** | ✅ Complete | Profile fetch wrapped with 5 retries to handle cold starts | [`AuthProvider.tsx:65-92`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/contexts/AuthProvider.tsx#L65-L92) |
+
+### 🧪 E2E Mock Integrity
+External services (Supabase, Edge Functions) are mocked via Playwright routes in `mock-routes.ts`. To distinguish between automated tests and manual browser checks (which use MSW), a `window.__E2E_PLAYWRIGHT__` flag is injected. For infrastructure-level debugging, refer to [tests/TROUBLESHOOTING.md](../tests/TROUBLESHOOTING.md).
 
 > **Why This Matters:**
 > Supabase Edge Functions and DB connections experience cold starts in CI/serverless environments. The first fetch may timeout, but subsequent retries succeed once the connection is warm. This pattern eliminates transient "Failed to fetch" errors without requiring infrastructure changes.
@@ -391,6 +403,7 @@ ls -lh frontend/public/models/
     1.  **Network Layer (Playwright Route Interception & Shielding):**
         *   **Role:** Intercepts all network requests (`fetch`, `XHR`) at the Playwright browser level.
         *   **File:** `tests/e2e/mock-routes.ts`
+        *   **MSW vs Playwright:** To prevent race conditions in parallel CI, **MSW is skipped during Playwright runs**. This is controlled via the `window.__E2E_PLAYWRIGHT__` flag, which `initializeE2EEnvironment` checks before starting the worker.
         *   **LIFO Route Ordering:** Playwright evaluates routes in **LIFO order** (Last-In-First-Out). The catch-all (`**`) is registered FIRST (checked last), and specific handlers are registered LAST (checked first). This ensures specific mocks take precedence while the fallback catches any unhandled `mock.supabase.co` requests.
         *   **Wildcard Shielding:** A global catch-all handler returns 404 for unhandled `mock.supabase.co` requests instead of allowing them to hit the network (which would cause `ERR_NAME_NOT_RESOLVED`).
         *   **Responsibility:** Uses `page.route()` API to return mock JSON responses for Supabase Auth and Database queries. Per-page isolation prevents race conditions in parallel CI.
@@ -891,6 +904,55 @@ The [`vercel.json`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/ve
 | `/assets/*` caching | 1-year immutable cache for hashed static files |
 | `/sw.js` no-cache | Service worker must always check for updates |
 
+#### Deployment Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        VERCEL DEPLOYMENT                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  frontend/dist/ (Static SPA)                                            │
+│  ├── index.html                                                         │
+│  ├── assets/ (JS bundles, CSS, images)                                  │
+│  └── models/ (Whisper: tiny-q8g16.bin, tokenizer.json)                  │
+└───────────────────────────────┬─────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        SUPABASE (BaaS)                                  │
+├─────────────────────────────────────────────────────────────────────────┤
+│  Auth          │ Database        │ Edge Functions                       │
+│  ───────────── │ ─────────────── │ ────────────────────────────────     │
+│  Email/Password│ user_profiles   │ assemblyai-token (Pro only)          │
+│  Magic Link    │ sessions        │ check-usage-limit                    │
+│  OAuth         │ user_goals      │ stripe-checkout                      │
+│                │ custom_vocab    │ stripe-webhook                       │
+└─────────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        THIRD-PARTY SERVICES                             │
+├─────────────────────────────────────────────────────────────────────────┤
+│  AssemblyAI (Cloud STT)  │  Stripe (Payments)  │  Sentry (Errors)       │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Required Environment Configuration:**
+
+| Service | Variable / Secret | Location |
+|---------|------------------|----------|
+| **Vercel Dashboard** | `VITE_SUPABASE_URL` | Project Settings → Environment Variables |
+| **Vercel Dashboard** | `VITE_SUPABASE_ANON_KEY` | Project Settings → Environment Variables |
+| **Vercel Dashboard** | `VITE_STRIPE_PUBLISHABLE_KEY` | Project Settings → Environment Variables |
+| **Vercel Dashboard** | `VITE_SENTRY_DSN` | Project Settings → Environment Variables |
+| **Supabase** | `SITE_URL` | Edge Functions → Secrets |
+| **Supabase** | `STRIPE_SECRET_KEY` | Edge Functions → Secrets |
+| **Supabase** | `STRIPE_PRO_PRICE_ID` | Edge Functions → Secrets |
+| **Supabase** | `STRIPE_WEBHOOK_SECRET` | Edge Functions → Secrets |
+| **Supabase** | `ASSEMBLYAI_API_KEY` | Edge Functions → Secrets |
+| **Supabase** | `ALLOWED_ORIGIN` | Edge Functions → Secrets |
+
+> **Note:** `STRIPE_WEBHOOK_SECRET` is obtained from Stripe Dashboard when creating the webhook endpoint. It's used to verify webhook signatures in `stripe-webhook/index.ts:184`.
+
 #### Debug Logging Conventions
 
 For structured debugging, especially with profile loading:
@@ -921,6 +983,22 @@ How it's Launched: The test environment's dev server is not launched by you dire
 
 - **Mock SpeechRecognition API**: Polyfills browser `SpeechRecognition` and `webkitSpeechRecognition` with `MockSpeechRecognition` class
 - **dispatchMockTranscript()**: Helper function callable from Playwright tests via `page.evaluate()` to simulate transcription events
+
+#### 🧪 Audited E2E Global Flags
+To avoid conflicts and ensure predictable testing, we maintain a strict list of `window` level flags. These are deconflicted to ensure MSW and Playwright work in harmony.
+
+| Flag | Purpose | Source/Usage |
+| :--- | :--- | :--- |
+| `window.__E2E_PLAYWRIGHT__` | Standardize on PW routes. | Injected by Playwright; skips MSW init. |
+| `window.TEST_MODE` | E2E Environment Signal. | Skips heavy WASM dynamic imports (stops browser crashes). |
+| `window.__E2E_MODE__` | Test Environment check. | Used globally in `testEnv.ts`. |
+| `window.mswReady` | Mock Readiness. | Set by `e2e-bridge.ts`; tests wait for this before starting. |
+| `window.__E2E_EMPTY_SESSIONS__` | Edge Case Testing. | Tells MSW to return an empty session array. |
+| `window.__E2E_MOCK_SESSION__` | Session Injection. | Injects a pre-built mock user session for `programmaticLogin`. |
+| `window.__E2E_MOCK_LOCAL_WHISPER__` | Perf Optimization. | Substitutes real heavy Whisper model for a fast mock. |
+| `window.dispatchMockTranscript` | Mock Input. | Allows tests to "speak" text into the live transcript stream. |
+| `window._speakSharpRootInitialized` | Anti-Double Mount. | Prevents React root from re-initializing in unstable dev setups. |
+| `window.supabase` | Singleton Registry. | Stores the active Supabase client instance. |
 
 #### Centralized Test IDs (2025-12-10)
 

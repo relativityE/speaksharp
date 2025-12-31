@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { toast } from 'sonner';
 
 // --- Types ---
 type AuthView = 'sign_in' | 'sign_up' | 'forgot_password';
@@ -43,6 +44,8 @@ export default function AuthPage() {
   const [selectedPlan, setSelectedPlan] = useState<'free' | 'pro'>('free'); // Default to free
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [promoCode, setPromoCode] = useState('');
+  const [showPromoField, setShowPromoField] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
@@ -109,6 +112,27 @@ export default function AuthPage() {
             });
             const data = await response.json();
             if (data.checkoutUrl) {
+              // 3. Handle Alpha Bypass Code if provided
+              if (promoCode) {
+                console.log('[AuthPage] Applying alpha bypass code:', promoCode);
+                try {
+                  const { error: promoError } = await supabase.functions.invoke('apply-promo', {
+                    body: { promoCode }
+                  });
+                  if (promoError) throw promoError;
+
+                  // If successful, redirect to dashboard immediately as Pro
+                  console.log('[AuthPage] Alpha upgrade successful!');
+                  toast.success('Alpha Code accepted! Welcome to SpeakSharp Pro.');
+                  window.location.href = '/session';
+                  return;
+                } catch (pe) {
+                  console.error('[AuthPage] Alpha bypass failed:', pe);
+                  setError('Invalid alpha code or upgrade failed. Redirecting to standard Pro checkout...');
+                  // Fallback: proceed to checkout
+                }
+              }
+
               window.location.href = data.checkoutUrl;
               return; // Halt logic while redirecting
             } else {
@@ -169,7 +193,7 @@ export default function AuthPage() {
   }
 
   if (session) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/session" replace />;
   }
 
   const handleViewChange = (newView: AuthView) => {
@@ -269,6 +293,30 @@ export default function AuthPage() {
                         </div>
                         <p className="text-[10px] text-muted-foreground leading-tight">AssemblyAI, Whisper, unlimited time.</p>
                       </div>
+                    </div>
+
+                    <div className="space-y-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowPromoField(!showPromoField)}
+                        className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
+                      >
+                        {showPromoField ? 'Remove promo code' : 'Have a bypass code?'}
+                      </button>
+
+                      {showPromoField && (
+                        <div className="space-y-2 animate-in slide-in-from-top-1 duration-200">
+                          <Label htmlFor="promo" className="text-xs">Bypass Code</Label>
+                          <Input
+                            id="promo"
+                            placeholder="Enter alpha code"
+                            value={promoCode}
+                            onChange={(e) => setPromoCode(e.target.value)}
+                            className="h-9 text-sm"
+                            data-testid="promo-code-input"
+                          />
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

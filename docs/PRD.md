@@ -142,7 +142,7 @@ The project's testing strategy prioritizes stability, reliability, and a tight a
 
 ## 4. Known Issues & Risks
 
-This section tracks high-level product risks and constraints. For a detailed history of resolved issues, see the [Changelog](./CHANGELOG.md).
+This section tracks high-level product risks and constraints. For a detailed guide on troubleshooting E2E infrastructure, see [tests/TROUBLESHOOTING.md](../tests/TROUBLESHOOTING.md).
 
 - **Incomplete Theming:** The application is configured to support both light and dark themes, but only a dark theme is currently implemented. Users will not be able to switch to a light theme, which can be an accessibility issue and ignores user preference.
 - **✅ RESOLVED - Infrastructure - Contract Drift (2025-12-19):** Grounded the `sessions` table by adding missing columns (`transcript`, `engine`, `clarity_score`, `wpm`) and implemented the atomic `create_session_and_update_usage` RPC. Purged `avatar_url` and `full_name` phantoms. **Status:** ✅ Fixed.
@@ -171,6 +171,7 @@ This section tracks high-level product risks and constraints. For a detailed his
 - **✅ RESOLVED - CI Sharded E2E Metrics (2025-12-10):** The `ci:local` command was incorrectly reporting only 8 E2E tests instead of 35 due to Playwright blob reports being overwritten per shard. **Fix:** Implemented `PLAYWRIGHT_BLOB_OUTPUT_DIR` per shard with JSONL extraction for accurate aggregation in `test-audit.sh`. Now correctly reports 35 E2E tests. **Status:** ✅ Fixed.
 - **✅ STABILIZED - Soak Test "Empty Body" (2025-12-15):** Soak test failed due to hydration race conditions. **Mitigation:** Implemented `browser.newContext()` isolation and strict `expect().toBeVisible()` state guards. **Status:** Stabilized (Guardrail enforced), though shared process risk remains.
 - **✅ RESOLVED - Stripe Configuration Error (2025-12-15):** The `stripe-checkout` Edge Function was failing with generic 400 errors in CI. **Fix:** Added diagnostic logging and "Negative Verification" to test (`stripe-checkout.spec.ts`) to prove configuration state safely without exposing secrets. **Status:** ✅ Fixed.
+- **✅ RESOLVED - Infrastructure - Analytics UI Regression (2025-12-31):** Fixed the `net::ERR_NAME_NOT_RESOLVED` error by restoring MSW initialization in the E2E bridge and consolidated redundant upgrade prompts. **Status:** ✅ Fixed.
 - **ℹ️ INFO - Soak Test Environment (2025-12-19):** Optimized the `soak-test` workflow to support **10 concurrent users** (7 Free, 3 Pro) by default. Implemented automated registry synchronization via `setup-test-users.yml`, which uses a shared `SOAK_TEST_PASSWORD` secret (programmatically rotated via `GH_PAT`). Full execution requires the CI/Staging environment with real Supabase secrets.
 
 ### Gap Analysis: Alpha Launch Blockers (AI Detective v5 - 2025-12-09)
@@ -182,6 +183,7 @@ This section tracks high-level product risks and constraints. For a detailed his
 | ~~Error Reporting~~ | ~~No Sentry for Web Audio/Worker errors~~ | ~~Production debugging impossible~~ | ✅ **RESOLVED 2025-12-09** - Added `Sentry.captureException` to TranscriptionService |
 | ~~Documentation Drift~~ | ~~ARCHITECTURE.md needs update~~ | ~~Maintainability risk~~ | ✅ **RESOLVED 2025-12-09** - Added Section 3.2 documenting hook decomposition, clean ASCII diagram |
 | ~~E2E Error States Coverage~~ | ~~Missing tests for: mic denied, usage exceeded, network failure during save~~ | ~~Resilience gap~~ | ✅ **RESOLVED 2025-12-09** - Added `error-states.e2e.spec.ts` with 4 tests (session stability, network errors) |
+| ~~Alpha Bypass Mechanism~~ | ~~No way for alpha testers to upgrade without Stripe~~ | ~~Blocked alpha launch~~ | ✅ **RESOLVED 2025-12-31** - Implemented `apply-promo` Edge Function and periodic secret-driven code validation in `AuthPage.tsx`. See [User Guide](./USER_GUIDE.md) |
 
 ---
 
@@ -193,7 +195,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Tue, 23 Dec 2025 21:22:40 GMT
+**Last Updated:** Wed, 31 Dec 2025 10:06:04 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -209,14 +211,14 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 484 (432 unit + 52 E2E) |
+| Total tests             | 489 (432 unit + 57 E2E) |
 | Unit tests              | 432   |
-| E2E tests (Playwright)  | 52  |
-| Passing tests           | 484 (432 unit + 52 E2E)   |
+| E2E tests (Playwright)  | 57  |
+| Passing tests           | 489 (432 unit + 57 E2E)   |
 | Failing tests           | 0   |
 | Disabled/skipped tests  | 0 (E2E only)   |
 | Passing unit tests      | 432/432 (100.0%)   |
-| Passing E2E tests       | 52/52 (100.0%)   |
+| Passing E2E tests       | 57/57 (100.0%)   |
 | Total runtime           | See CI logs   |
 
 ---
@@ -225,10 +227,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | 58.26%   |
-| Branches   | 78.71%   |
-| Functions  | 74.17%   |
-| Lines      | 58.26%   |
+| Statements | 57.51%   |
+| Branches   | 78.55%   |
+| Functions  | 73.8%   |
+| Lines      | 57.51%   |
 
 ---
 
@@ -236,11 +238,11 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric              | Value |
 | ------------------- | ----- |
-| Total Source Size   | 3.6M   |
-| Total Project Size  | 1.1G   |
+| Total Source Size   | 3.4M   |
+| Total Project Size  | 1.4G   |
 | Initial Chunk Size  | 884K   |
-| Code Bloat Index    | 24.13%   |
-| Lighthouse Scores   | P: 0, A: 0, BP: 0, SEO: 0 |
+| Code Bloat Index    | 25.23%   |
+| Lighthouse Scores   | P: 100, A: 94, BP: 100, SEO: 91 |
 
 ---
 <!-- SQM:END -->
@@ -400,42 +402,128 @@ This section provides high-level insights into the SpeakSharp project from multi
 
 ## 8. Deployment (Alpha Release)
 
-### Vercel Configuration
+This section provides a complete step-by-step guide to deploy SpeakSharp to Vercel for alpha testing with new users.
 
-The `vercel.json` file is configured for Vite SPA deployment:
-- **Build command:** `pnpm build`
-- **Output directory:** `frontend/dist`
-- **SPA routing:** All routes rewrite to `/` for client-side routing
-- **Cache headers:** 1 year for assets, no-cache for service worker
+### Pre-Deployment Checklist
 
-### Environment Variables (Vercel Dashboard)
+Before deploying, verify:
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `VITE_SUPABASE_URL` | ✅ | Supabase project URL |
-| `VITE_SUPABASE_ANON_KEY` | ✅ | Supabase anonymous key |
-| `VITE_STRIPE_PUBLISHABLE_KEY` | ✅ | Stripe publishable key |
-| `VITE_SENTRY_DSN` | Optional | Sentry error tracking |
+| Item | Command | Expected Result |
+|------|---------|-----------------|
+| Whisper model files | `ls -lh frontend/public/models/` | `tiny-q8g16.bin` (~30MB), `tokenizer.json` (~2MB) |
+| Full test suite | `pnpm test:all` | All 484+ tests passing |
+| Production build | `pnpm build` | Builds successfully |
+| Database migrations | Check Supabase Dashboard → SQL Editor | 14 migrations applied |
 
-### Deployment Steps
+### Step 1: Vercel Project Setup
+
+1. **Create Vercel Project:**
+   - Go to [vercel.com](https://vercel.com) → "New Project"
+   - Import from GitHub: `your-org/speaksharp`
+   - Framework Preset: **Vite** (auto-detected)
+
+2. **Configure Build Settings (auto-populated from vercel.json):**
+   - Build Command: `pnpm build`
+   - Output Directory: `frontend/dist`
+   - Install Command: `pnpm install --frozen-lockfile`
+
+### Step 2: Vercel Environment Variables
+
+Go to **Project Settings → Environment Variables** and add:
+
+| Variable | Value | Environments |
+|----------|-------|--------------|
+| `VITE_SUPABASE_URL` | `https://yxlapjuovrsvjswkwnrk.supabase.co` | Production, Preview, Development |
+| `VITE_SUPABASE_ANON_KEY` | Your Supabase anon key (starts with `sb_publishable_`) | Production, Preview, Development |
+| `VITE_STRIPE_PUBLISHABLE_KEY` | Your Stripe publishable key (starts with `pk_live_` or `pk_test_`) | Production, Preview, Development |
+| `VITE_SENTRY_DSN` | Your Sentry DSN (optional) | Production, Preview |
+
+> **Finding Your Keys:**
+> - **Supabase:** Dashboard → Project Settings → API → `anon` public key
+> - **Stripe:** Dashboard → Developers → API keys → Publishable key
+
+### Step 3: Supabase Edge Functions Secrets
+
+Go to **Supabase Dashboard → Edge Functions → Secrets** and add:
+
+| Secret | Description | How to Get |
+|--------|-------------|------------|
+| `SITE_URL` | Your Vercel production URL (e.g., `https://speaksharp.vercel.app`) | Vercel Dashboard after first deploy |
+| `STRIPE_SECRET_KEY` | Stripe secret key (starts with `sk_live_` or `sk_test_`) | Stripe Dashboard → Developers → API keys |
+| `STRIPE_PRO_PRICE_ID` | Price ID for Pro subscription (e.g., `price_1Sdiu075Lp2WYe28gYDhJokR`) | Stripe Dashboard → Products → Pro plan → Price ID |
+| `STRIPE_WEBHOOK_SECRET` | Webhook signing secret (starts with `whsec_`) | Created in Step 5 |
+| `ASSEMBLYAI_API_KEY` | AssemblyAI API key for Cloud STT | [AssemblyAI Dashboard](https://www.assemblyai.com/app) → API Keys |
+| `ALLOWED_ORIGIN` | Vercel production URL for CORS (e.g., `https://speaksharp.vercel.app`) | Same as SITE_URL |
+
+### Step 4: Supabase Authentication Configuration
+
+Go to **Supabase Dashboard → Authentication → URL Configuration**:
+
+1. **Site URL:** `https://speaksharp.vercel.app` (your Vercel URL)
+2. **Redirect URLs:** Add:
+   - `https://speaksharp.vercel.app/*`
+   - `https://speaksharp-*.vercel.app/*` (for PR previews)
+
+### Step 5: Stripe Webhook Configuration
+
+Go to **Stripe Dashboard → Developers → Webhooks**:
+
+1. **Add Endpoint:**
+   - URL: `https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/stripe-webhook`
+   - Events to send:
+     - `checkout.session.completed`
+     - `customer.subscription.created`
+     - `customer.subscription.updated`
+     - `customer.subscription.deleted`
+     - `invoice.payment_failed`
+
+2. **Copy Signing Secret:**
+   - After creating, click "Reveal" on signing secret
+   - Copy the `whsec_...` value
+   - Add as `STRIPE_WEBHOOK_SECRET` in Supabase (Step 3)
+
+### Step 6: Deploy to Vercel
 
 ```bash
-# 1. Install Vercel CLI (if needed)
+# Option A: Via CLI
 npm i -g vercel
-
-# 2. Link project (first time only)
 vercel link
+vercel              # Preview deploy
+vercel --prod       # Production deploy
 
-# 3. Deploy to preview (staging)
-vercel
-
-# 4. When ready for production
-vercel --prod
+# Option B: Via Dashboard
+# Push to main branch - auto-deploys to production
+# Push to any other branch - auto-deploys to preview
 ```
 
-### Alpha Release URL Strategy
+### Step 7: Verify Deployment
 
-**Recommended:** Use staging subdomain for alpha release:
+After deployment, verify the complete user journey:
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Visit `https://your-app.vercel.app` | Landing page loads |
+| 2 | Click "Get Started" → Sign Up | Signup form with Free/Pro options |
+| 3 | Create account (Free) | Redirects to `/session` |
+| 4 | Start a session | Native Browser STT works |
+| 5 | Check Analytics | Session appears in history |
+| 6 | Upgrade to Pro | Redirects to Stripe checkout |
+| 7 | Complete payment | Pro features unlocked |
+| 8 | Test Cloud STT | AssemblyAI transcription works |
+| 9 | Test On-Device STT | Whisper model downloads and works |
+
+### Troubleshooting
+
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| Build fails | Missing env vars | Verify all `VITE_*` vars are set in Vercel |
+| Auth redirect fails | Wrong redirect URL | Add Vercel URL to Supabase redirect URLs |
+| Stripe checkout fails | Missing `SITE_URL` | Set `SITE_URL` in Supabase secrets |
+| Webhook not working | Wrong URL or secret | Verify webhook URL and `STRIPE_WEBHOOK_SECRET` |
+| Cloud STT fails | Missing API key | Set `ASSEMBLYAI_API_KEY` in Supabase secrets |
+| CORS errors | Missing `ALLOWED_ORIGIN` | Set `ALLOWED_ORIGIN` to Vercel URL in Supabase |
+
+### Alpha Release URL Strategy
 
 | Environment | URL | Purpose |
 |-------------|-----|---------|

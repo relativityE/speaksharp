@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-18
+**Last Reviewed:** 2025-12-31
 
 # SpeakSharp
 
@@ -88,7 +88,10 @@ To get started with SpeakSharp, you'll need to have Node.js (version 22.12.0 or 
     STRIPE_SECRET_KEY=sk_test_your-key        # For payment processing
     STRIPE_WEBHOOK_SECRET=whsec_your-secret   # For webhook verification
     SUPABASE_SERVICE_ROLE_KEY=your-role-key   # For admin DB operations
+    ALPHA_BYPASS_CODE=1234567                 # For alpha tester bypass (secret-driven)
     ```
+
+    > **Alpha Testing:** We use a secret-driven bypass mechanism for alpha testers. You can rotate this code at any time using `pnpm exec tsx scripts/generate-alpha-code.ts`, which will update the local test configuration and provide the new code to set in the Supabase Dashboard.
 
 5.  **Run the development server:**
     ```bash
@@ -112,11 +115,8 @@ This project uses a hybrid approach for managing image assets:
 
 ### Source Assets (`frontend/src/assets/`)
 - **Build-optimized assets** that go through Vite's import pipeline
-- JPEG images (`analytics-visual.jpg`, `hero-speaker.jpg`) are **symlinked** from `frontend/public/assets/`
-  - Actual files: `frontend/public/assets/*.jpg`
-  - Symlinks: `frontend/src/assets/*.jpg` → `../public/assets/*.jpg`
-- This allows components to use standard ES imports while keeping the source files in one location
 - SVG assets (`react.svg`) are stored directly in `frontend/src/assets/`
+- Complex UI visualizations (like the Hero and Analytics dashboards) are implemented as **code-driven components** (e.g., `HeroStatsDashboard.tsx`) rather than static images, ensuring high performance and rich interactivity.
 
 ### Stabilizing the Environment by Enforcing the Lockfile
 

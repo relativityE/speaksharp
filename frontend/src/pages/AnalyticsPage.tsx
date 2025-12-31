@@ -1,34 +1,30 @@
 import React from 'react';
-import { NavLink, useNavigate, useParams } from 'react-router-dom';
+import { NavLink, useParams } from 'react-router-dom';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
 import { useAnalytics } from '../hooks/useAnalytics';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '@/lib/logger';
 import { toast } from 'sonner';
-// import { useAuthProvider } from '../contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { isPro } from '@/constants/subscriptionTiers';
 import { Button } from '@/components/ui/button';
-// import { Badge } from '@/components/ui/badge';
-import { Mic, BarChart, User } from 'lucide-react';
-// import { Settings } from 'lucide-react';
+import { Mic, BarChart } from 'lucide-react';
 
 /**
  * AnalyticsPage is the CONTAINER component for the analytics feature.
- * 
+ *
  * ARCHITECTURE NOTE (Gap Analysis 2025-12-22):
  * This component follows the Container/Presentational pattern:
  * - It fetches ALL data (via useAnalytics, useUserProfile)
  * - It passes ALL data as props to AnalyticsDashboard (PRESENTATIONAL)
  * - AnalyticsDashboard does NOT fetch its own data
- * 
+ *
  * @see AnalyticsDashboard.tsx - Presentational component that receives data via props
  */
 
 // --- Sub-components ---
 
-const PageHeader: React.FC<{ isPro: boolean; sessionId?: string }> = ({ isPro, sessionId }) => {
-    const navigate = useNavigate();
+const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; onUpgrade: () => void }> = ({ isPro, sessionId, onUpgrade }) => {
 
     // Different heading and description based on whether viewing a specific session
     const isSessionView = !!sessionId;
@@ -45,7 +41,7 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string }> = ({ isPro, s
             {/* Plan Banner - Only show on dashboard view, not session view */}
             {!isSessionView && !isPro && (
                 <button
-                    onClick={() => navigate('/#pricing')}
+                    onClick={onUpgrade}
                     className="w-full flex items-center justify-between bg-secondary hover:bg-secondary/90 text-white px-6 py-3 rounded-full transition-colors"
                     data-testid="analytics-page-upgrade-button"
                 >
@@ -56,7 +52,7 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string }> = ({ isPro, s
                         <span className="text-sm text-white/90 hidden sm:inline">Upgrade to Pro for unlimited practice, PDF exports, and detailed analytics</span>
                     </div>
                     <div className="flex items-center gap-2 font-medium">
-                        Upgrade to Pro <User className="w-4 h-4" />
+                        Upgrade to Pro
                     </div>
                 </button>
             )}
@@ -138,10 +134,9 @@ const AuthenticatedAnalyticsView: React.FC = () => {
             </div>
         );
     }
-
     return (
         <div>
-            <PageHeader isPro={isProUser} sessionId={sessionId} />
+            <PageHeader isPro={isProUser} sessionId={sessionId} onUpgrade={handleUpgrade} />
             <AnalyticsDashboard
                 profile={profile || null}
                 sessionHistory={sessionHistory || []}

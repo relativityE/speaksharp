@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-18
+**Last Reviewed:** 2025-12-31
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -335,8 +335,13 @@ This phase is about confirming the core feature set works as expected and polish
   - ✅ `EditGoalsDialog` modal (1-20 sessions, 50-100% clarity)
   - ✅ `user_goals` table with RLS
   - ✅ Migrations deployed to production
-- � **Deploy & confirm live transcript UI works:** (MANUAL VERIFICATION) Ensure text appears within 2 seconds of speech in a live environment. Test with Cloud (AssemblyAI) and On-Device (Whisper) modes.
+-  **Deploy & confirm live transcript UI works:** (MANUAL VERIFICATION) Ensure text appears within 2 seconds of speech in a live environment. Test with Cloud (AssemblyAI) and On-Device (Whisper) modes.
 - ✅ **Remove all temporary console.logs:** Clean up the codebase for production.\
+- [ ] **Alpha Deployment Checklist**
+    - [ ] Deploy `apply-promo` Edge Function (`supabase functions deploy apply-promo`)
+    - ✅ **Set `ALPHA_BYPASS_CODE` secret in Supabase Dashboard (2025-12-31):** Implemented secret-driven validation in `apply-promo` Edge Function. Code is no longer hardcoded in frontend.
+    - [ ] Verify 7-digit numeric rotation via `scripts/generate-alpha-code.ts`
+- [ ] **Infrastructure Cleanup**
 - ✅ **Restructure Codebase:** Reorganize the project structure for better maintainability before alpha soft launch.\
   - **Implemented Structure:**\
     - `frontend/`: React application code\
@@ -359,6 +364,8 @@ This phase is about confirming the core feature set works as expected and polish
 - ✅ **Analytics Integrity Fix (2025-12-19):** Resolved regression in clarity score aggregation to correctly use grounded DB fields.
 - ✅ **Plan Selection at Signup (2025-12-21):** Users choose Free or Pro plan during signup. Pro selection redirects to Stripe Checkout after account creation (as Free). Webhook upgrades to Pro on successful payment. Added persistent "Upgrade to Pro" button in Navigation for Free users.
   - **Files:** `AuthPage.tsx`, `Navigation.tsx`, `App.tsx`, `stripe-checkout/index.ts`
+- ✅ **Alpha Bypass Mechanism (2025-12-31):** Implemented secure, secret-driven upgrade path using Supabase Vault. Removed legacy hardcoded codes and updated E2E suite to use automated code generation.
+- ✅ **Analytics UI Restoration & Consolidation (2025-12-31):** Resolved MSW initialization regression. Consolidated redundant upgrade prompts and merged plan status indicators for a cleaner Analytics dashboard.
 - ✅ **Port Centralization (2025-12-21):** Eliminated hardcoded port numbers. Created `scripts/build.config.ts` with `PORTS.DEV` (5173) and `PORTS.PREVIEW` (4173). Updated 10+ files.
 - 🔄 **PERPETUAL - Documentation Audit:** Verify PRD Known Issues, ROADMAP, and CHANGELOG match actual codebase state. Run test suite and cross-reference with documented issues to eliminate drift. **Frequency:** Before each release and after major feature work.
 
@@ -417,7 +424,7 @@ This phase is about confirming the core feature set works as expected and polish
   - **Target:** 70% coverage (currently 54.8%)
   - **✅ COMPLETED (2025-12-10) - Refactor Test Organization:**
   - Moved `auth-real.e2e.spec.ts` to `frontend/tests/integration/` to isolate real-backend tests from local E2E suite
-- 🔴 **Light Theme Implementation:** Add CSS or disable toggle
+- ⚪ **Light Theme Implementation (Nice-to-Have):** Add CSS or disable toggle. Dark theme only is acceptable for alpha launch.
 - **✅ COMPLETED - Refactor E2E Test Infrastructure (2025-12-07):**
   - ✅ Fix `analytics-empty-state.e2e.spec.ts` timeout (empty state not rendering)
   - ✅ Fix `metrics.e2e.spec.ts` WPM calculation timing issue

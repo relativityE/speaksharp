@@ -43,10 +43,22 @@ import logger from '@/lib/logger';
  */
 export const initializeE2EEnvironment = async (): Promise<void> => {
     try {
-        console.log('[E2E Bridge] Initializing E2E environment (MSW Removed)');
+        console.log('[E2E Bridge] Initializing E2E environment');
 
-        // We strictly use Playwright's route capabilities or Live DB now.
-        // MSW Service Worker is no longer started here.
+        // 🛑 Skip MSW if we're in a Playwright test (standardizing on PW routes)
+        // This allows manual browser preview to use MSW mocks while tests stay isolated
+        const isPlaywright = (window as unknown as { __E2E_PLAYWRIGHT__?: boolean }).__E2E_PLAYWRIGHT__;
+
+        if (!isPlaywright) {
+            console.log('[E2E Bridge] Starting MSW worker for manual preview...');
+            const { worker } = await import('../mocks/browser');
+            await worker.start({
+                onUnhandledRequest: 'bypass',
+            });
+            console.log('[E2E Bridge] MSW worker started successfully');
+        } else {
+            console.log('[E2E Bridge] Playwright detected - skipping MSW worker');
+        }
 
         setupSpeechRecognitionMock();
 

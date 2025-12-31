@@ -234,7 +234,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro,
                         aria-label={`Select session for comparison`}
                     />
                     <div>
-                        <p className="font-semibold text-foreground text-base">{session.title || `Session from ${formatDate(session.created_at)} `}</p>
+                        <p className="font-semibold text-foreground text-base">{session.title || `Session from ${formatDate(session.created_at)}`}</p>
                         <p className="text-xs text-muted-foreground">
                             {formatDateTime(session.created_at)}
                         </p>
@@ -247,7 +247,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro,
                     </div>
                     <div>
                         <p className="text-xs text-muted-foreground">Accuracy</p>
-                        <p className="font-bold text-base text-foreground">{clarity ? `${clarity.toFixed(1)}% ` : 'N/A'}</p>
+                        <p className="font-bold text-base text-foreground">{clarity ? `${clarity.toFixed(1)}%` : 'N/A'}</p>
                     </div>
                     <div>
                         <p className="text-xs text-muted-foreground">Fillers</p>
@@ -285,8 +285,6 @@ export const AnalyticsDashboardSkeleton: React.FC = () => (
         <Card><CardHeader><Skeleton className="h-6 w-1/4" /></CardHeader><CardContent className="space-y-4"><div className="flex justify-between items-center"><div className="space-y-2"><Skeleton className="h-5 w-48" /><Skeleton className="h-4 w-32" /></div><div className="space-y-2 text-right"><Skeleton className="h-5 w-24" /><Skeleton className="h-4 w-20" /></div></div><div className="flex justify-between items-center"><div className="space-y-2"><Skeleton className="h-5 w-48" /><Skeleton className="h-4 w-32" /></div><div className="space-y-2 text-right"><Skeleton className="h-5 w-24" /><Skeleton className="h-4 w-20" /></div></div></CardContent></Card>
     </div>
 );
-
-// --- Main Component ---
 
 // --- Main Component ---
 

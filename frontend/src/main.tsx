@@ -73,8 +73,9 @@ if (!IS_TEST_ENVIRONMENT && import.meta.env.VITE_SENTRY_DSN) {
   }
 } else if (IS_TEST_ENVIRONMENT) {
   console.log('[Sentry] ⏭️ Skipped in test environment');
+  console.warn('[Sentry] ⚠️ No DSN provided (expected in test mode)');
 } else {
-  console.warn('[Sentry] ⚠️ No DSN provided');
+  console.warn('[Sentry] ⚠️ No DSN provided - error tracking disabled');
 }
 
 const renderApp = async (initialSession: Session | null = null) => {
