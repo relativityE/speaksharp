@@ -145,6 +145,9 @@
   "pnpm": {
     "overrides": {
       "glob": ">=10.5.0"
+    },
+    "patchedDependencies": {
+      "whisper-turbo@0.11.0": "patches/whisper-turbo@0.11.0.patch"
     }
   }
 }

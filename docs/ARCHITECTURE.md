@@ -1553,16 +1553,19 @@ To enable a performant "On-Device" transcription mode without repeated 30MB+ dow
 | `tiny-q8g16.bin` | ~30MB | rmbl.us/whisper-turbo | Quantized Whisper Tiny model (English) |
 | `tokenizer.json` | ~2MB | HuggingFace | Text encoding/decoding configuration |
 
-#### URL Mappings (sw.js)
+#### Patched Local Loading (sw.js Bypass)
 
-The Service Worker maps remote CDN URLs to local bundled paths:
+A `pnpm patch` has been applied to `whisper-turbo@0.11.0` to override its hardcoded CDN URL (`https://rmbl.us`). 
 
-```javascript
-const URL_MAPPINGS = {
-  'https://rmbl.us/whisper-turbo/tiny-q8g16.bin': '/models/tiny-q8g16.bin',
-  'https://huggingface.co/.../tokenizer.json': '/models/tokenizer.json',
-};
-```
+- **Why:** The library's hardcoded CDN URL prevented reliably loading local model files in development, and the Service Worker interception was flaky.
+- **How:** The patch modifies `ModelDB.js` within the package to set `remoteUrl = ""` and use relative paths (e.g., `/models/tiny-q8g16.bin`).
+- **Result:**
+  1. `OnDeviceWhisper` requests the model via `fetch()`
+  2. The patched library requests `/models/tiny-q8g16.bin` (same origin)
+  3. Vite (dev) or Nginx (prod) serves the file directly from the `/public/models/` directory
+  4. The browser's standard HTTP cache handles caching efficiently without complex SW logic
+
+This approach is simpler, more robust, and ensures true offline capability after the initial load.
 
 #### Caching Strategy
 

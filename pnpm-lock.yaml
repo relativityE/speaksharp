@@ -7,6 +7,11 @@ settings:
 overrides:
   glob: '>=10.5.0'
 
+patchedDependencies:
+  whisper-turbo@0.11.0:
+    hash: d7cda33c1bacd2cdf2ac27e0399d04faf6283244ad88b7cf9fdb97f74f6e4525
+    path: patches/whisper-turbo@0.11.0.patch
+
 importers:
 
   .:
@@ -103,7 +108,7 @@ importers:
         version: 1.1.2(@types/react-dom@18.3.7(@types/react@18.3.26))(@types/react@18.3.26)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       whisper-turbo:
         specifier: ^0.11.0
-        version: 0.11.0
+        version: 0.11.0(patch_hash=d7cda33c1bacd2cdf2ac27e0399d04faf6283244ad88b7cf9fdb97f74f6e4525)
       whisper-webgpu:
         specifier: ^0.10.0
         version: 0.10.0
@@ -10356,7 +10361,7 @@ snapshots:
     dependencies:
       isexe: 2.0.0
 
-  whisper-turbo@0.11.0:
+  whisper-turbo@0.11.0(patch_hash=d7cda33c1bacd2cdf2ac27e0399d04faf6283244ad88b7cf9fdb97f74f6e4525):
     dependencies:
       comlink: 4.3.1
       fix-webm-duration: 1.0.6
