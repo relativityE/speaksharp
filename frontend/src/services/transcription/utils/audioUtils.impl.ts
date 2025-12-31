@@ -4,29 +4,22 @@ import { MicStream, MicStreamOptions } from './types';
 // This file contains the actual implementation for creating a microphone stream
 // and is dynamically imported by the 'safe' wrapper file (audioUtils.ts).
 
-// Lazy-load worklet URL only in browser environments
-let workletUrlPromise: Promise<string | null> | null = null;
-
+// Return worklet URL from public/ directory
+// AudioWorklets MUST be loaded from real HTTP URLs, not bundled data URLs
+// This is a platform constraint - Vite's ?url inlining breaks AudioWorklet.addModule()
 const getWorkletUrl = (audioContext: AudioContext): Promise<string | null> => {
-  if (!workletUrlPromise) {
-    // Check if we're in a browser environment with audio worklet support
-    if (typeof window !== 'undefined' && audioContext && audioContext.audioWorklet) {
-      workletUrlPromise = import('./audio-processor.worklet.ts?url')
-        .then(module => module.default)
-        .catch(error => {
-          logger.error({ error }, 'Failed to load audio worklet:');
-          return null;
-        });
-    } else {
-      // Node.js/test environment - return rejected promise
-      workletUrlPromise = Promise.reject(new Error('Audio worklets not supported in this environment'));
-    }
+  // Check if we're in a browser environment with audio worklet support
+  if (typeof window !== 'undefined' && audioContext && audioContext.audioWorklet) {
+    // Return path to static worklet in public/ directory
+    return Promise.resolve('/audio/audio-processor.worklet.js');
+  } else {
+    // Node.js/test environment - return rejected promise
+    return Promise.reject(new Error('Audio worklets not supported in this environment'));
   }
-  return workletUrlPromise;
 };
 
 interface WindowWithwebkitAudioContext extends Window {
-    webkitAudioContext: typeof AudioContext;
+  webkitAudioContext: typeof AudioContext;
 }
 
 export async function createMicStreamImpl(
@@ -37,10 +30,10 @@ export async function createMicStreamImpl(
     logger.info('Mocking microphone stream for TEST_MODE');
     return {
       sampleRate,
-      onFrame: () => {},
-      offFrame: () => {},
-      stop: () => {},
-      close: () => {},
+      onFrame: () => { },
+      offFrame: () => { },
+      stop: () => { },
+      close: () => { },
       _mediaStream: new MediaStream(),
     };
   }

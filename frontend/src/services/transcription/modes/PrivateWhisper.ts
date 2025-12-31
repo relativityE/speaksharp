@@ -41,6 +41,7 @@
 
 import logger from '../../../lib/logger';
 import { SessionManager, AvailableModels, InferenceSession } from 'whisper-turbo';
+import { Result } from 'true-myth';
 import { ITranscriptionMode, TranscriptionModeOptions } from './types';
 import { MicStream } from '../utils/types';
 import { floatToWav, concatenateFloat32Arrays } from '../utils/AudioProcessor';
@@ -49,11 +50,30 @@ import { toast } from 'sonner';
 
 type Status = 'idle' | 'loading' | 'transcribing' | 'stopped' | 'error';
 
+/**
+ * Utility to clear the Whisper model cache from IndexedDB.
+ * Used for self-repair when browser locks occur.
+ */
+export async function clearPrivateSTTCache(): Promise<void> {
+  return new Promise((resolve) => {
+    logger.info('[PrivateSTT] Attempting to clear model cache...');
+    const request = indexedDB.deleteDatabase('whisper-turbo');
+    request.onsuccess = () => {
+      logger.info('[PrivateSTT] IndexedDB cleared successfully.');
+      resolve();
+    };
+    request.onerror = () => {
+      logger.error('[PrivateSTT] Failed to clear IndexedDB.');
+      resolve();
+    };
+  });
+}
+
 // ...
 // ...
 export default class PrivateWhisper implements ITranscriptionMode {
   private onTranscriptUpdate: (update: TranscriptUpdate) => void;
-  private onModelLoadProgress?: (progress: number) => void;
+  private onModelLoadProgress?: (progress: number | null) => void;
   private onReady?: () => void;
   private status: Status;
   private transcript: string;
@@ -79,33 +99,47 @@ export default class PrivateWhisper implements ITranscriptionMode {
   }
 
   public async init(): Promise<void> {
+    console.log('[PrivateWhisper] 🔄 init() START');
     console.log('[Whisper] 🔄 Loading Private STT model...');
     logger.info('[PrivateWhisper] Initializing model...');
     this.status = 'loading';
 
     try {
+      console.log(`[PrivateWhisper] 📦 About to call loadModel(${AvailableModels.WHISPER_TINY})`);
       logger.info(`[PrivateWhisper] Loading model: ${AvailableModels.WHISPER_TINY}`);
 
-      // Trigger initial progress to ensure UI shows "Downloading..." immediately
+      // Trigger initial progress to ensure UI shows "Loading..." immediately
       if (this.onModelLoadProgress) {
+        console.log('[PrivateWhisper] 📊 Triggering initial progress (0)');
         this.onModelLoadProgress(0);
       }
 
+      console.log('[PrivateWhisper] ⏳ Calling manager.loadModel() with 10s timeout...');
 
-
-      const result = await this.manager.loadModel(
-        AvailableModels.WHISPER_TINY,
-        () => {
-          logger.info('[PrivateWhisper] Model loaded callback triggered.');
-        },
-        (progress: number) => {
-          if (this.onModelLoadProgress) {
-            this.onModelLoadProgress(progress);
+      // Use Promise.race to implement a timeout
+      const result = await Promise.race([
+        this.manager.loadModel(
+          AvailableModels.WHISPER_TINY,
+          () => {
+            console.log('[PrivateWhisper] ✅ Model loaded callback triggered!');
+            logger.info('[PrivateWhisper] Model loaded callback triggered.');
+          },
+          (progress: number) => {
+            console.log(`[PrivateWhisper] 📊 Progress callback: ${progress}`);
+            if (this.onModelLoadProgress) {
+              this.onModelLoadProgress(progress);
+            }
           }
-        }
-      );
+        ),
+        new Promise<Result<InferenceSession, Error>>((_, reject) =>
+          setTimeout(() => reject(new Error('Model loading timed out (10s). Your browser might have a database lock.')), 10000)
+        )
+      ]);
+
+      console.log('[PrivateWhisper] ✅ loadModel returned or timed out');
 
       if (result.isErr) {
+        console.error('[PrivateWhisper] ❌ loadModel returned error:', result.error);
         throw result.error;
       }
 
@@ -120,10 +154,23 @@ export default class PrivateWhisper implements ITranscriptionMode {
       if (this.onReady) {
         this.onReady();
       }
-    } catch (error) {
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err : new Error(String(err));
       logger.error({ err: error }, '[PrivateWhisper] Failed to load model.');
       this.status = 'error';
-      toast.error('Failed to load Private model. Please try again or use Native mode.');
+
+      // Provide a proactive fix for the 0% hang (browser lock)
+      toast.error('Private model hung or failed. This is usually a browser lock issue.', {
+        duration: 15000,
+        action: {
+          label: 'Clear Cache & Reload',
+          onClick: async () => {
+            await clearPrivateSTTCache();
+            window.location.reload();
+          }
+        }
+      });
+
       throw error;
     }
   }
@@ -202,8 +249,9 @@ export default class PrivateWhisper implements ITranscriptionMode {
       // CRITICAL FIX: Clear the buffer to prevent quadratic growth
       this.audioChunks = [];
 
-    } catch (err) {
-      logger.error({ err }, '[PrivateWhisper] Transcription processing failed.');
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error({ err: error }, '[PrivateWhisper] Transcription processing failed.');
     } finally {
       this.isProcessing = false;
     }

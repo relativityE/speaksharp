@@ -104,7 +104,7 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
                             data-testid={TEST_IDS.SESSION_STATUS_INDICATOR}
                         >
                             {modelLoadingProgress !== null
-                                ? 'Loading...'
+                                ? 'Initializing...'
                                 : isListening
                                     ? (isReady ? '● Recording' : 'Connecting...')
                                     : 'Ready'}
@@ -129,7 +129,7 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
                     {modelLoadingProgress !== null && (
                         <div className="mb-6 w-full max-w-md" data-testid={TEST_IDS.MODEL_LOADING_INDICATOR}>
                             <div className="flex justify-between text-sm mb-2">
-                                <span className="text-muted-foreground">Loading model...</span>
+                                <span className="text-muted-foreground">Downloading model...</span>
                                 <span className="text-primary font-medium">
                                     {Math.round(modelLoadingProgress * 100)}%
                                 </span>
@@ -167,7 +167,7 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
                         {modelLoadingProgress !== null ? (
                             <>
                                 <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
-                                Loading...
+                                Initializing...
                             </>
                         ) : isListening ? (
                             <>

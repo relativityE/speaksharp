@@ -63,6 +63,14 @@ export default defineConfig(({ mode }) => {
       'import.meta.env.VITE_TEST_MODE': JSON.stringify(String(isTestMode)),
     },
     optimizeDeps: {
+      include: [
+        // Pre-bundle whisper-turbo and its dependencies for worker support
+        'whisper-turbo',
+        'whisper-webgpu',
+        'comlink',
+        'true-myth',
+        'idb/with-async-ittr'
+      ],
       exclude: [],
     },
     ssr: {

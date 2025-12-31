@@ -126,7 +126,7 @@ const renderApp = async (initialSession: Session | null = null) => {
       root.render(
         <StrictMode>
           <QueryClientProvider client={queryClient}>
-            <BrowserRouter>
+            <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
               <PostHogProvider client={posthog}>
                 <AuthProvider initialSession={sessionToUse}>
                   <Elements stripe={stripePromise}>

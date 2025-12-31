@@ -441,13 +441,21 @@ ls -lh frontend/public/models/
 **Known Issues & Fixes:**
 
 > [!IMPORTANT]
-> **P1 Bug Fix (2025-12-18):** Button showing "Initializing..." after clicking Stop
+> **STT Stability & Self-Healing (2025-12-31):**
 > 
-> **Root Cause:** `modelLoadingProgress` state was not reset when stopping/resetting session
+> **1. Two-Stage Fallback Architecture:**
+> Both Cloud (AssemblyAI) and Private (Whisper) modes now feature a reliable fallback to **Native Browser STT**.
+> - **Cloud -> Native**: If token generation or initialization fails, the service instantly reverts to Native mode.
+> - **Private -> Native**: If the WASM model fails to load or experiences an IndexedDB lock, the system triggers an automatic fallback.
 > 
-> **Fix:** Added `setModelLoadingProgress(null)` in both `stopListening` and `reset` functions in [`useSpeechRecognition/index.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/hooks/useSpeechRecognition/index.ts)
+> **2. 10-Second Safety Timeout:**
+> Implemented a hard 10s timeout in `PrivateWhisper.ts` to detect the "0% hang" caused by browser-level IndexedDB locks.
 > 
-> **Regression Test:** [`ondevice-stt.e2e.spec.ts` - P1 Regression Test](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e/ondevice-stt.e2e.spec.ts)
+> **3. "Clear Cache & Reload" Mechanism:**
+> When a lock is detected, users are provided with a one-click repair action that wipes the `whisper-turbo` IndexedDB cache and reloads the page, resolving browser contention issues instantly.
+> 
+> **4. Navigation Flicker Resolution:**
+> The `SessionPage` is eager-loaded and prioritized in the React Router tree, eliminating Suspense-driven flickering during navigation.
 
 **Troubleshooting:**
 | Issue | Solution |

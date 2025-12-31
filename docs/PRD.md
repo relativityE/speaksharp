@@ -6,7 +6,7 @@
 
 # SpeakSharp Product Requirements Document
 
-**Version 8.4** | **Last Updated:** 2025-12-18
+**Version 8.5** | **Last Updated:** 2025-12-31
 
 ## 1. Executive Summary
 
@@ -76,8 +76,8 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | :--- | :--- | :--- | :--- | :--- |
 | **Transcription** | 1 | The core service that converts speech to text. | ✅ Implemented | ✅ Yes |
 | **Cloud Server STT** | 1 | High-accuracy transcription via AssemblyAI. (Pro) | ✅ Implemented | ✅ Yes |
-| **On-Device STT** | 1 | Privacy-first transcription using `whisper-turbo` (local Whisper model). (Pro) | ✅ Implemented | ✅ Yes |
-| **Fallback STT** | 1 | Standard transcription using the native browser API. (Free) | ✅ Implemented | ✅ Yes |
+| **On-Device STT** | 1 | Privacy-first transcription using `whisper-turbo` (local Whisper model). Includes **Self-Healing** (10s timeout + Cache Clear). (Pro) | ✅ Fully Functional | ✅ Yes |
+| **Fallback STT** | 1 | Reliable fallback to native browser API for Free users and as an **auto-recovery mode** for Cloud/Private STT. | ✅ Fully Functional | ✅ Yes |
 | **UI Mode Selector** | 1 | Allows users to select their preferred transcription engine. | ✅ Implemented | ✅ Yes |
 | **Session History** | 1 | Users can view and analyze their past practice sessions. | ✅ Implemented | ✅ Yes |
 | **Filler Word Detection** | 1 | Detects and counts common filler words (um, uh, like, etc.). | ✅ Implemented | ✅ Yes |

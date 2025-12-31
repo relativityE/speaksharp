@@ -21,7 +21,7 @@ export interface TranscriptUpdate {
 
 export interface TranscriptionServiceOptions {
   onTranscriptUpdate: (update: TranscriptUpdate) => void;
-  onModelLoadProgress: (progress: number) => void;
+  onModelLoadProgress: (progress: number | null) => void;
   onReady: () => void;
   profile: UserProfile | null;
   session: Session | null;
@@ -31,13 +31,15 @@ export interface TranscriptionServiceOptions {
   forceCloud?: boolean;
   forceOnDevice?: boolean;
   forceNative?: boolean;
+  onModeChange?: (mode: 'native' | 'cloud' | 'on-device' | null) => void;
 }
 
 export default class TranscriptionService {
   private mode: 'native' | 'cloud' | 'on-device' | null = null;
   private onTranscriptUpdate: (update: TranscriptUpdate) => void;
-  private onModelLoadProgress: (progress: number) => void;
+  private onModelLoadProgress: (progress: number | null) => void;
   private onReady: () => void;
+  private onModeChange?: (mode: 'native' | 'cloud' | 'on-device' | null) => void;
   private profile: UserProfile | null;
   private session: Session | null;
   private navigate: NavigateFunction;
@@ -61,11 +63,13 @@ export default class TranscriptionService {
     session,
     navigate,
     getAssemblyAIToken,
+    onModeChange,
   }: TranscriptionServiceOptions) {
     logger.info({ forceCloud, forceOnDevice, forceNative }, `[TranscriptionService] Constructor called`);
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onModelLoadProgress = onModelLoadProgress;
     this.onReady = onReady;
+    this.onModeChange = onModeChange;
     this.profile = profile;
     this.session = session;
     this.navigate = navigate;
@@ -77,11 +81,8 @@ export default class TranscriptionService {
   }
 
   public async init(): Promise<{ success: boolean }> {
-    // In E2E test mode, we skip microphone initialization
-    // Uses centralized test config instead of direct window access (Gap Analysis fix)
     const { mockSession } = getTestConfig();
     if (mockSession) {
-      // Initialize a dummy mic object to satisfy checks
       this.mic = {
         stop: () => { },
       } as unknown as MicStream;
@@ -116,13 +117,6 @@ export default class TranscriptionService {
       customVocabulary: this.customVocabulary,
     };
 
-    // --- Provider Selection Logic ---
-
-    // CRITICAL FIX: In test mode, ALWAYS fall back to NativeBrowser
-    // to prevent silent crashes from the onnxruntime-web library.
-    // This MUST be the first check to prevent the dynamic import below.
-    // EXCEPTION: If useMockOnDeviceWhisper is set, we allow OnDeviceWhisper (mocked) to proceed.
-    // Uses centralized test config instead of direct window access (Gap Analysis fix)
     const { isTestMode, useMockOnDeviceWhisper } = getTestConfig();
 
     if (isTestMode && !useMockOnDeviceWhisper) {
@@ -131,19 +125,17 @@ export default class TranscriptionService {
       await this.instance.init();
       await this.instance.startTranscription(this.mic);
       this.mode = 'native';
+      this.onModeChange?.(this.mode);
       return;
     }
 
     if (this.forceNative) {
-      logger.info('[TranscriptionService] Dev Toggle: Forcing Native Browser mode.');
       logger.info('[TranscriptionService] Creating NativeBrowser instance (forceNative)...');
       this.instance = new NativeBrowser(providerConfig);
-      logger.info('[TranscriptionService] Initializing NativeBrowser (forceNative)...');
       await this.instance.init();
-      logger.info('[TranscriptionService] Starting NativeBrowser transcription (forceNative)...');
       await this.instance.startTranscription(this.mic);
-      logger.info('[TranscriptionService] NativeBrowser started successfully (forceNative).');
       this.mode = 'native';
+      this.onModeChange?.(this.mode);
       return;
     }
 
@@ -155,13 +147,11 @@ export default class TranscriptionService {
 
       let PrivateWhisperClass;
       if (useMockOnDeviceWhisper) {
-        logger.info('[TranscriptionService] Using MockPrivateWhisper for E2E test.');
         PrivateWhisperClass = (window as Window & { MockPrivateWhisper?: typeof import('./modes/PrivateWhisper').default }).MockPrivateWhisper;
         if (!PrivateWhisperClass) {
           throw new Error('MockPrivateWhisper not found on window - E2E test setup incomplete');
         }
       } else {
-        // Dynamic import to avoid loading whisper-turbo on initial load
         const module = await import('./modes/PrivateWhisper');
         PrivateWhisperClass = module.default;
       }
@@ -173,61 +163,55 @@ export default class TranscriptionService {
           await this.instance.startTranscription(this.mic);
         }
         this.mode = 'on-device';
+        this.onModeChange?.(this.mode);
         return;
       } catch (error) {
         logger.warn({ error }, '[TranscriptionService] Private init failed, falling back to Native Browser.');
-        // Fallback to Native Browser
+        this.onModelLoadProgress(null);
+
         this.instance = new NativeBrowser(providerConfig);
-        await this.instance.startTranscription(this.mic);
-        logger.info('[TranscriptionService] NativeBrowser started successfully (Private fallback).');
-        this.mode = 'native';
-        return;
+        try {
+          await this.instance.init();
+          await this.instance.startTranscription(this.mic);
+          this.mode = 'native';
+          this.onModeChange?.(this.mode);
+          return;
+        } catch (fallbackError) {
+          logger.error({ error: fallbackError }, '[TranscriptionService] Native fallback also failed.');
+          throw fallbackError;
+        }
       }
     }
 
     const useCloud = this.forceCloud || isProUser;
     if (useCloud) {
       logger.info('[TranscriptionService] Attempting to use Cloud (AssemblyAI) mode for Pro user.');
-      // Note: CloudAssemblyAI handles token fetching internally in startTranscription()
-      // We don't pre-fetch here to avoid triggering the rate limiter twice
-      logger.info('[TranscriptionService] Creating CloudAssemblyAI instance...');
       this.instance = new CloudAssemblyAI(providerConfig);
-      logger.info('[TranscriptionService] Initializing CloudAssemblyAI...');
-      await this.instance.init();
-      logger.info('[TranscriptionService] Starting CloudAssemblyAI transcription...');
       try {
+        await this.instance.init();
         await this.instance.startTranscription(this.mic);
-        logger.info('[TranscriptionService] CloudAssemblyAI transcription started successfully.');
         this.mode = 'cloud';
+        this.onModeChange?.(this.mode);
         return;
       } catch (error) {
         logger.warn({ error }, '[TranscriptionService] Cloud mode failed to start.');
-        if (this.forceCloud) {
-          throw error; // Re-throw if forced
-        }
+        if (this.forceCloud) throw error;
         logger.warn('[TranscriptionService] Proceeding with native fallback for Pro user.');
       }
     }
 
     logger.info('[TranscriptionService] Starting Native Browser mode as default or fallback.');
-    logger.info('[TranscriptionService] Creating NativeBrowser instance...');
     this.instance = new NativeBrowser(providerConfig);
-    logger.info('[TranscriptionService] Initializing NativeBrowser...');
     await this.instance.init();
-    logger.info('[TranscriptionService] Starting NativeBrowser transcription...');
     await this.instance.startTranscription(this.mic);
-    logger.info('[TranscriptionService] NativeBrowser transcription started successfully.');
     this.mode = 'native';
+    this.onModeChange?.(this.mode);
   }
 
   public async stopTranscription(): Promise<string> {
     logger.info('[TranscriptionService] Stopping transcription.');
-    if (!this.instance) {
-      logger.warn('[TranscriptionService] No instance to stop.');
-      return '';
-    }
+    if (!this.instance) return '';
     const result = await this.instance.stopTranscription();
-    logger.info('[TranscriptionService] Transcription stopped.');
     return result;
   }
 
@@ -245,18 +229,14 @@ export default class TranscriptionService {
     try {
       await this.stopTranscription();
     } catch (error) {
-      // Best effort - service is being destroyed anyway
       logger.debug({ error }, '[TranscriptionService] Error stopping transcription during destroy');
     }
     try {
       this.mic?.stop();
-      logger.info('[TranscriptionService] Mic stream stopped.');
     } catch (error) {
-      // Best effort - mic cleanup failure is non-critical during destroy
       logger.debug({ error }, '[TranscriptionService] Error stopping mic during destroy');
     }
     this.instance = null;
     this.mic = null;
-    logger.info('[TranscriptionService] Service destroyed.');
   }
 }

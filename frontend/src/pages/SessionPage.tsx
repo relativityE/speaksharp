@@ -29,9 +29,14 @@ import { MobileActionBar } from '@/components/session/MobileActionBar';
 import { PromoExpiredDialog } from '@/components/PromoExpiredDialog';
 
 export const SessionPage: React.FC = () => {
-    const { session } = useAuthProvider();
+    const { session, profile: authProfile } = useAuthProvider();
     const navigate = useNavigate();
-    const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
+    const { data: queryProfile, isLoading: isQueryLoading, error: profileError } = useUserProfile();
+
+    // STABILITY FIX: Combine Auth profile (fast) with Query profile (canonical)
+    // This eliminates the navigation "flicker" because AuthProvider already has the profile
+    const profile = authProfile || queryProfile;
+    const isProfileLoading = isQueryLoading && !authProfile;
 
     // Use zustand store for session state
     const { updateElapsedTime, elapsedTime } = useSessionStore();
@@ -59,8 +64,16 @@ export const SessionPage: React.FC = () => {
         profile
     });
 
-    const { transcript, fillerData, startListening, stopListening, isListening, isReady, modelLoadingProgress } = speechRecognition;
+    const { transcript, fillerData, startListening, stopListening, isListening, isReady, modelLoadingProgress, mode: activeMode } = speechRecognition;
     const { pauseMetrics } = useVocalAnalysis(isListening);
+
+    // Sync local mode state if the service falls back (e.g. Private -> Native)
+    useEffect(() => {
+        if (activeMode && activeMode !== mode) {
+            console.log(`[SessionPage] Syncing mode state to active transcription mode: ${activeMode}`);
+            setMode(activeMode as 'cloud' | 'native' | 'on-device');
+        }
+    }, [activeMode, mode]);
 
     // AUDIT FIX: Extract metrics calculation to custom hook
     // Must be called before early returns to comply with React Hooks rules

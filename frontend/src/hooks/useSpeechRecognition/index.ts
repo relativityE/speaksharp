@@ -86,12 +86,22 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
       }
       setModelLoadingProgress(null);
     },
-    onModelLoadProgress: (progress: number) => {
+    onModelLoadProgress: (progress: number | null) => {
       logger.info({ progress }, '[useSpeechRecognition] onModelLoadProgress called');
+
+      if (progress === null) {
+        if (toastIdRef.current) {
+          toast.dismiss(toastIdRef.current);
+          toastIdRef.current = null;
+        }
+        setModelLoadingProgress(null);
+        return;
+      }
+
       setModelLoadingProgress(progress);
 
       // Handle both fraction (0-1) and percentage (0-100+) inputs
-      // whisper-turbo may send values > 1 as percentages already
+      // ... (rest of the logic)
       const percentage = progress > 1
         ? Math.min(Math.round(progress), 100)  // Already a percentage, clamp to 100
         : Math.round(progress * 100);           // Fraction, convert to percentage
@@ -108,7 +118,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         setTimeout(() => {
           if (toastIdRef.current) {
             toast.dismiss(toastIdRef.current);
-            toast.success('Model loaded successfully!', { id: 'model-loaded' });
+            toast.success('Model loaded successfully!', { id: 'model-loaded', duration: 10000 });
             toastIdRef.current = null;
           }
           setModelLoadingProgress(null);
@@ -117,7 +127,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         setTimeout(() => {
           if (toastIdRef.current) {
             toast.dismiss(toastIdRef.current);
-            toast.success('Model loaded successfully!', { id: 'model-loaded' });
+            toast.success('Model loaded successfully!', { id: 'model-loaded', duration: 10000 });
             toastIdRef.current = null;
           }
           setModelLoadingProgress(null);

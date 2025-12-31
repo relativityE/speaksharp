@@ -6,9 +6,37 @@ import TranscriptionService from '../TranscriptionService';
 import { UserProfile } from '../../../types/user';
 
 // Mock the modes
-vi.mock('../modes/NativeBrowser');
-vi.mock('../modes/CloudAssemblyAI');
-vi.mock('../modes/OnDeviceWhisper');
+vi.mock('../modes/NativeBrowser', () => ({
+  default: vi.fn().mockImplementation(() => ({
+    init: vi.fn().mockResolvedValue(undefined),
+    startTranscription: vi.fn().mockResolvedValue(undefined),
+    stopTranscription: vi.fn().mockResolvedValue(""),
+    getTranscript: vi.fn().mockResolvedValue(""),
+  }))
+}));
+
+vi.mock('../modes/CloudAssemblyAI', () => ({
+  default: vi.fn().mockImplementation((options) => ({
+    init: vi.fn().mockResolvedValue(undefined),
+    startTranscription: vi.fn().mockImplementation(async () => {
+      if (options.getAssemblyAIToken) {
+        const token = await options.getAssemblyAIToken();
+        if (!token) throw new Error("Mock token failure");
+      }
+    }),
+    stopTranscription: vi.fn().mockResolvedValue(""),
+    getTranscript: vi.fn().mockResolvedValue(""),
+  }))
+}));
+
+vi.mock('../modes/PrivateWhisper', () => ({
+  default: vi.fn().mockImplementation(() => ({
+    init: vi.fn().mockResolvedValue(undefined),
+    startTranscription: vi.fn().mockResolvedValue(undefined),
+    stopTranscription: vi.fn().mockResolvedValue(""),
+    getTranscript: vi.fn().mockResolvedValue(""),
+  }))
+}));
 vi.mock('../utils/audioUtils', () => ({
   createMicStream: vi.fn().mockResolvedValue({
     stop: vi.fn(),
@@ -85,14 +113,11 @@ describe('TranscriptionService', () => {
     expect(service.getMode()).toBe('native');
   });
 
-  it('should use On-Device for Pro users with preference', async () => {
-    // Mock dynamic import
-    vi.mock('../modes/OnDeviceWhisper', () => ({
-      default: vi.fn().mockImplementation(() => ({
-        init: vi.fn(),
-        startTranscription: vi.fn(),
-        stopTranscription: vi.fn(),
-      })),
+  it('should fallback to NativeBrowser if Private model fails to load', async () => {
+    // Force PrivateWhisper.init to fail
+    const { default: PrivateWhisperClass } = await import('../modes/PrivateWhisper');
+    (PrivateWhisperClass as any).mockImplementationOnce(() => ({
+      init: vi.fn().mockRejectedValue(new Error("Model load failed")),
     }));
 
     service = new TranscriptionService({
@@ -100,12 +125,9 @@ describe('TranscriptionService', () => {
       profile: { subscription_status: 'pro', preferred_mode: 'on-device' } as any,
     });
 
-    // Override TEST_MODE check for this specific test
-    // Note: This is tricky because TEST_MODE is usually global. 
-    // We might need to rely on the fact that the service checks import.meta.env.VITE_TEST_MODE
-    // which we can't easily mock in vitest without setup file changes.
-    // So we'll skip this specific test if we can't easily mock the env, 
-    // or we accept that in test environment it falls back to native.
+    await service.init();
+    await service.startTranscription();
+    expect(service.getMode()).toBe('native');
   });
 
   it('should throw error if mic not initialized', async () => {

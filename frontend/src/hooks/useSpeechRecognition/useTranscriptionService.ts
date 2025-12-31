@@ -47,6 +47,7 @@ export const useTranscriptionService = (options: TranscriptionServiceOptions) =>
             // Also call the user-provided onReady callback
             optionsRef.current.onReady();
           },
+          onModeChange: setCurrentMode,
         };
 
         const service = new TranscriptionService({
@@ -143,7 +144,7 @@ function handleTranscriptionError(
   }
 
   logger.error({ err: originalError }, 'An error occurred during speech recognition setup');
-  toast.error(friendlyMessage);
+  toast.error(friendlyMessage, { duration: 10000 });
   setError(new Error(friendlyMessage));
   setIsListening(false);
 }

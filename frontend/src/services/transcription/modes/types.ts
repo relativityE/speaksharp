@@ -52,7 +52,7 @@ export class TranscriptionError extends Error {
 
 export interface TranscriptionModeOptions {
   onTranscriptUpdate: (update: { transcript: Transcript }) => void;
-  onModelLoadProgress?: (progress: number) => void;
+  onModelLoadProgress?: (progress: number | null) => void;
   onReady: () => void;
   onError?: (error: TranscriptionError) => void;
   session?: Session | null;
