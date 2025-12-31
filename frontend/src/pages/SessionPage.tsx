@@ -130,12 +130,15 @@ export const SessionPage: React.FC = () => {
                 const { currentStreak, isNewDay } = updateStreak();
                 if (isNewDay) {
                     toast.success(`🔥 ${currentStreak} Day Streak!`, {
+                        id: 'session-feedback',
                         description: "Consistency is key. Great job!",
                         duration: 5000,
                     });
                 } else {
                     toast.success("Great practice session!", {
+                        id: 'session-feedback',
                         description: "You're making progress.",
+                        duration: 3000,
                     });
                 }
 
@@ -159,8 +162,9 @@ export const SessionPage: React.FC = () => {
 
                 if (result.session) {
                     console.log('[SessionPage] Session saved successfully. Initiating redirect...');
-                    toast.success("Session saved successfully", {
-                        description: "Redirecting to analysis...",
+                    toast.success("Session saved! Redirecting to analysis...", {
+                        id: 'session-feedback',
+                        duration: 2000,
                     });
                     // Short delay to let the toast be seen and ensure state updates
                     setTimeout(() => {

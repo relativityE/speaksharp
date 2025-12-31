@@ -189,7 +189,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
 
         // Note: authenticated sessions are now saved immediately in endSessionAndSave
         if (!user || user.is_anonymous) {
-            toast.info("Session complete. View your results below.");
+            toast.info("Session complete. View your results below.", { id: 'session-feedback' });
             navigate('/analytics', { state: { sessionHistory: completedSessions } });
         } else {
             navigate(`/analytics`);
