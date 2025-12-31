@@ -112,9 +112,9 @@ export default function AuthPage() {
             });
             const data = await response.json();
             if (data.checkoutUrl) {
-              // 3. Handle Alpha Bypass Code if provided
+              // 3. Handle Promo Bypass Code if provided
               if (promoCode) {
-                console.log('[AuthPage] Applying alpha bypass code:', promoCode);
+                console.log('[AuthPage] Applying promo bypass code:', promoCode);
                 try {
                   const { error: promoError } = await supabase.functions.invoke('apply-promo', {
                     body: { promoCode }
@@ -122,13 +122,13 @@ export default function AuthPage() {
                   if (promoError) throw promoError;
 
                   // If successful, redirect to dashboard immediately as Pro
-                  console.log('[AuthPage] Alpha upgrade successful!');
+                  console.log('[AuthPage] Promo upgrade successful!');
                   toast.success('🎉 Promo code applied! You have 30 minutes of Pro features.', { id: 'promo-success' });
                   window.location.href = '/session';
                   return;
                 } catch (pe) {
-                  console.error('[AuthPage] Alpha bypass failed:', pe);
-                  setError('Invalid alpha code or upgrade failed. Redirecting to standard Pro checkout...');
+                  console.error('[AuthPage] Promo bypass failed:', pe);
+                  setError('Invalid promo code or upgrade failed. Redirecting to standard Pro checkout...');
                   // Fallback: proceed to checkout
                 }
               }
@@ -280,7 +280,7 @@ export default function AuthPage() {
                           <span className="font-bold">Free</span>
                           {selectedPlan === 'free' && <div className="h-2 w-2 rounded-full bg-primary" />}
                         </div>
-                        <p className="text-[10px] text-muted-foreground leading-tight">Basic STT, 60s sessions, default speed.</p>
+                        <p className="text-[10px] text-muted-foreground leading-tight">Native Browser</p>
                       </div>
                       <div
                         onClick={() => setSelectedPlan('pro')}
@@ -291,7 +291,7 @@ export default function AuthPage() {
                           <span className="font-bold text-primary">Pro</span>
                           {selectedPlan === 'pro' && <div className="h-2 w-2 rounded-full bg-primary" />}
                         </div>
-                        <p className="text-[10px] text-muted-foreground leading-tight">AssemblyAI, Whisper, unlimited time.</p>
+                        <p className="text-[10px] text-muted-foreground leading-tight">Cloud and Private options</p>
                       </div>
                     </div>
 
@@ -309,7 +309,7 @@ export default function AuthPage() {
                           <Label htmlFor="promo" className="text-xs">Bypass Code</Label>
                           <Input
                             id="promo"
-                            placeholder="Enter alpha code"
+                            placeholder="Enter promo code"
                             value={promoCode}
                             onChange={(e) => setPromoCode(e.target.value)}
                             className="h-9 text-sm"

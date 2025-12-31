@@ -71,7 +71,7 @@ describe('PricingPage', () => {
             expect(screen.getByText('Advanced analytics')).toBeInTheDocument();
             expect(screen.getByText('Save all sessions')).toBeInTheDocument();
             expect(screen.getByText('Export data as PDF')).toBeInTheDocument();
-            expect(screen.getByText('On-device transcription for privacy')).toBeInTheDocument();
+            expect(screen.getByText('Private transcription')).toBeInTheDocument();
             expect(screen.getByText('AI-powered feedback (coming soon)')).toBeInTheDocument();
         });
 

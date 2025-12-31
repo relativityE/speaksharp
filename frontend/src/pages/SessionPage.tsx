@@ -46,6 +46,8 @@ export const SessionPage: React.FC = () => {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [mode, setMode] = useState<'cloud' | 'native' | 'on-device'>('native');
     const startTimeRef = useRef<number | null>(null);
+    // Rate-limited debug canary ref
+    const prevStateRef = useRef({ isListening: false, isReady: false });
     const transcriptContainerRef = useRef<HTMLDivElement>(null);
 
     const speechRecognition = useSpeechRecognition({
@@ -220,7 +222,6 @@ export const SessionPage: React.FC = () => {
     const isButtonDisabled = isListening && !isReady;
 
     // Rate-limited debug canary - only log when state changes
-    const prevStateRef = useRef({ isListening: false, isReady: false });
     if (prevStateRef.current.isListening !== isListening || prevStateRef.current.isReady !== isReady) {
         console.log('[DEBUG] Button state changed:', { isButtonDisabled, isListening, isReady });
         prevStateRef.current = { isListening, isReady };

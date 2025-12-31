@@ -29,9 +29,9 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
         await navigateToRoute(page, '/session');
         await expect(page.getByText('Practice Session')).toBeVisible();
 
-        // Verify the mode dropdown shows "Native" for Free users (not Cloud/On-Device)
+        // Verify the mode dropdown shows "Native" for Free users (not Cloud/Private)
         // The dropdown button displays the current mode selection
-        const modeDropdownButton = page.getByRole('button', { name: /Native|Cloud|On-Device/i });
+        const modeDropdownButton = page.getByRole('button', { name: /Native|Cloud|Private|On-Device/i });
         await expect(modeDropdownButton).toBeVisible({ timeout: 5000 });
 
         // Get the button text - should be "Native" for free users

@@ -112,8 +112,8 @@ This section contains a high-level block diagram of the SpeakSharp full-stack ar
 │  ┌───────────────────┐  │     │   Stripe (Payments)     │
 │  │TranscriptionSvc   │──┼─────┼─▶ Sentry (Errors)       │
 │  │ NativeBrowser     │  │     │   PostHog (Analytics)   │
-│  │ CloudAssemblyAI   │  │     │                         │
-│  │ OnDeviceWhisper      │  │     └─────────────────────────┘
+│  │ CloudAssemblyAI   │  │     │   PostHog (Analytics)   │
+│  │ PrivateWhisper    │  │     └─────────────────────────┘
 │  └───────────────────┘  │
 │           │             │
 │           ▼             │
@@ -130,8 +130,8 @@ Data Flow:
   Edge Functions (apply-promo) ↔ Alpha Tester (Bypass Code)
 ```
 
-### Alpha Bypass Mechanism
-For alpha testing, we provide a secure, secret-driven upgrade path:
+### Promo Bypass Mechanism
+For promo/internal testing, we provide a secure, secret-driven upgrade path:
 - **Client-Side**: A hidden numeric input field in `AuthPage.tsx` allows testers to enter a 7-digit bypass code.
 - **Validation**: The frontend sends this code to the `apply-promo` Edge Function.
 - **Backend**: The function validates the code against the `ALPHA_BYPASS_CODE` secret stored in Supabase Vault (not in code).
@@ -290,7 +290,7 @@ The On-Device transcription mode runs the Whisper AI model locally in the browse
 │                    User's Browser                           │
 │                                                             │
 │  ┌─────────────────┐    ┌─────────────────────────────────┐ │
-│  │   SessionPage   │───▶│     OnDeviceWhisper.ts          │ │
+│  │   SessionPage   │───▶│     PrivateWhisper.ts           │ │
 │  └─────────────────┘    │  (whisper-turbo npm package)    │ │
 │                         └──────────────┬──────────────────┘ │
 │                                        │                    │
@@ -333,7 +333,7 @@ The On-Device transcription mode runs the Whisper AI model locally in the browse
 **Cache Flow:**
 ```
 1. User selects "On-Device" mode
-2. OnDeviceWhisper.ts initializes whisper-turbo
+2. PrivateWhisper.ts initializes whisper-turbo
 3. whisper-turbo checks IndexedDB for compiled WASM (Layer 2)
 4. If miss, requests model files from CDN URL
 5. Service Worker intercepts request (Layer 1)
@@ -389,9 +389,9 @@ ls -lh frontend/public/models/
 - [`frontend/public/sw.js`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/public/sw.js) - Service Worker with cache logic
 - [`scripts/download-whisper-model.sh`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/scripts/download-whisper-model.sh) - Model downloader
 - [`scripts/check-whisper-update.sh`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/scripts/check-whisper-update.sh) - Model update checker
-- [`OnDeviceWhisper.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/modes/OnDeviceWhisper.ts) - Uses cached models
+- [`PrivateWhisper.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/modes/PrivateWhisper.ts) - Uses cached models
 - [`useSpeechRecognition/index.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/hooks/useSpeechRecognition/index.ts) - Manages loading state
-- [`e2e-bridge.ts` (MockOnDeviceWhisper)](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/lib/e2e-bridge.ts) - Fake Whisper service for fast E2E tests (simulates 600ms load)
+- [`e2e-bridge.ts` (MockPrivateWhisper)](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/lib/e2e-bridge.ts) - Fake Whisper service for fast E2E tests (simulates 600ms load)
 
 
 *   **Testing:**
@@ -1612,10 +1612,10 @@ The main `index.ts` contains only:
 
 - **`SessionSidebar.tsx`**: This component serves as the main control panel for a user's practice session. It contains the start/stop controls, a digital timer, and the transcription mode selector.
   - **Mode Selector**: A segmented button group allows users to choose their desired transcription mode before starting a session. The options are:
-    - **Cloud AI**: Utilizes the high-accuracy AssemblyAI cloud service.
-    - **On-Device**: Uses a local Whisper model for privacy-focused transcription.
-    - **Native**: Falls back to the browser's built-in speech recognition engine.
-  - **Access Control**: Access to the "Cloud AI" and "On-Device" modes is restricted. These modes are enabled for users with a "pro" subscription status or for developers when the `VITE_DEV_USER` environment variable is set to `true`. Free users are restricted to the "Native" mode.
+    - **Cloud**: Utilizes the high-accuracy AssemblyAI cloud service. (Internal: `cloud`)
+    - **Private**: Uses a local Whisper model for privacy-focused transcription. (Internal: `on-device`. **Note:** UI uses "Private" label to emphasize privacy, while DB/code retains `on-device` to avoid migration issues.)
+    - **Native**: Falls back to the browser's built-in speech recognition engine. (Internal: `native`)
+  - **Access Control**: Access to the "Cloud" and "Private" modes is restricted. These modes are enabled for users with a "pro" subscription status or for developers when the `VITE_DEV_USER` environment variable is set to `true`. Free users are restricted to the "Native" mode.
 
 ### Homepage Routing Logic
 The application's homepage (`/`) has special routing logic to handle different user states. This logic is located directly within the `HomePage.tsx` component.

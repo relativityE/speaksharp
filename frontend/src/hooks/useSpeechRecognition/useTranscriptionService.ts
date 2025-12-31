@@ -135,7 +135,7 @@ function handleTranscriptionError(
   } else if (message.includes('assemblyai token')) {
     friendlyMessage = 'Could not connect to the cloud transcription service. Please check your internet connection and try again.';
   } else if (message.includes('failed to load model')) {
-    friendlyMessage = 'Failed to load the on-device model. Please check your internet connection or try a different transcription mode.';
+    friendlyMessage = 'Failed to load the Private model. Please check your internet connection or try a different transcription mode.';
   } else if (message.includes('not initialized')) {
     friendlyMessage = 'The transcription service could not be started. Please try refreshing the page.';
   } else {

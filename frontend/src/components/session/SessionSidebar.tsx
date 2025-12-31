@@ -221,7 +221,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
 
     const ModeIndicator = () => {
         if (!actualMode) return null;
-        const modeText = actualMode === 'cloud' ? 'Cloud' : (actualMode === 'native' ? 'Native Browser' : 'On-Device');
+        const modeText = actualMode === 'cloud' ? 'Cloud' : (actualMode === 'native' ? 'Native Browser' : 'Private');
         const Icon = actualMode === 'cloud' ? Cloud : Computer;
         return (
             <Badge variant="outline" className="flex items-center gap-2 py-1 px-3">
@@ -249,13 +249,13 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                                 <Button variant="outline" className="w-full" disabled={isListening || isModelLoading || isConnecting}>
-                                    {selectedMode === 'cloud' ? 'Cloud' : selectedMode === 'on-device' ? 'On-Device' : 'Native'}
+                                    {selectedMode === 'cloud' ? 'Cloud' : selectedMode === 'on-device' ? 'Private' : 'Native'}
                                 </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent className="w-56">
                                 <DropdownMenuRadioGroup value={selectedMode} onValueChange={(value) => setSelectedMode(value as Mode)}>
                                     <DropdownMenuRadioItem value="cloud" disabled={!canAccessAdvancedModes}>Cloud</DropdownMenuRadioItem>
-                                    <DropdownMenuRadioItem value="on-device" disabled={!canAccessAdvancedModes}>On-Device</DropdownMenuRadioItem>
+                                    <DropdownMenuRadioItem value="on-device" disabled={!canAccessAdvancedModes}>Private</DropdownMenuRadioItem>
                                     <DropdownMenuRadioItem value="native">Native</DropdownMenuRadioItem>
                                 </DropdownMenuRadioGroup>
                             </DropdownMenuContent>

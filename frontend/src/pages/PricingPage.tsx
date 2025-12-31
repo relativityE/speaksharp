@@ -32,7 +32,7 @@ const tiers: Tier[] = [
       'Advanced analytics',
       'Save all sessions',
       'Export data as PDF',
-      'On-device transcription for privacy',
+      'Private transcription',
       'AI-powered feedback (coming soon)',
     ],
     cta: 'Upgrade to Pro',

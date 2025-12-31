@@ -52,7 +52,7 @@ export const STTAccuracyComparison: React.FC = () => {
                             <YAxis stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} domain={[0, 100]} unit="%" />
                             <Tooltip cursor={{ fill: 'hsla(var(--secondary))' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
                             {engines.map((engine, i) => (
-                                <Line key={engine} type="monotone" dataKey="accuracy" data={accuracyData.filter(d => d.engine === engine)} name={engine} stroke={colors[i % colors.length]} strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                                <Line key={engine} type="monotone" dataKey="accuracy" data={accuracyData.filter(d => d.engine === engine)} name={engine === 'On-Device' ? 'Private' : engine} stroke={colors[i % colors.length]} strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
                             ))}
                         </LineChart>
                     </ResponsiveContainer>

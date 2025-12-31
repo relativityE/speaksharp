@@ -36,10 +36,10 @@ declare global {
  * - frontend/src/hooks/useSpeechRecognition/index.ts - P1 bug fix location
  * - frontend/public/sw.js - Service Worker cache logic
  * 
- * @see docs/ARCHITECTURE.md - "On-Device STT (Whisper) & Service Worker Caching"
+ * @see docs/ARCHITECTURE.md - "Private STT (Whisper) & Service Worker Caching"
  */
 
-test.describe('On-Device STT (Whisper)', () => {
+test.describe('Private STT (Whisper)', () => {
 
     test('should show download progress on first use', async ({ page }) => {
         await programmaticLoginWithRoutes(page);
@@ -56,9 +56,9 @@ test.describe('On-Device STT (Whisper)', () => {
             });
         });
 
-        // Select On-Device mode
-        await page.getByRole('button', { name: /cloud ai|on-device|native/i }).click();
-        await page.getByRole('menuitemradio', { name: /on-device/i }).click();
+        // Select Private mode
+        await page.getByRole('button', { name: /cloud|private|native/i }).click();
+        await page.getByRole('menuitemradio', { name: /private/i }).click();
 
         // Click Start - triggers model download
         await page.getByTestId('session-start-stop-button').click();
@@ -96,8 +96,8 @@ test.describe('On-Device STT (Whisper)', () => {
             window.__E2E_MOCK_LOCAL_WHISPER__ = true;
         });
 
-        await page.getByRole('button', { name: /cloud ai|on-device|native/i }).click();
-        await page.getByRole('menuitemradio', { name: /on-device/i }).click();
+        await page.getByRole('button', { name: /cloud|private|native/i }).click();
+        await page.getByRole('menuitemradio', { name: /private/i }).click();
 
         const startButton = page.getByTestId('session-start-stop-button');
         const loadingIndicator = page.getByTestId('model-loading-indicator');
@@ -118,20 +118,20 @@ test.describe('On-Device STT (Whisper)', () => {
         console.log('[TEST] ✅ Cached load verified - no progress indicator');
     });
 
-    test('should show On-Device option in mode selector for Pro users', async ({ page }) => {
+    test('should show Private option in mode selector for Pro users', async ({ page }) => {
         await programmaticLoginWithRoutes(page);
         await navigateToRoute(page, '/session');
 
-        await page.getByRole('button', { name: /cloud ai|on-device|native/i }).click();
+        await page.getByRole('button', { name: /cloud|private|native/i }).click();
 
-        const onDeviceOption = page.getByRole('menuitemradio', { name: /on-device/i });
-        await expect(onDeviceOption).toBeVisible();
+        const privateOption = page.getByRole('menuitemradio', { name: /private/i });
+        await expect(privateOption).toBeVisible();
 
-        const isDisabled = await onDeviceOption.getAttribute('data-disabled');
+        const isDisabled = await privateOption.getAttribute('data-disabled');
         if (isDisabled === 'true') {
-            console.log('[TEST] ✅ On-Device mode disabled for free user');
+            console.log('[TEST] ✅ Private mode disabled for free user');
         } else {
-            console.log('[TEST] ✅ On-Device mode enabled for Pro user');
+            console.log('[TEST] ✅ Private mode enabled for Pro user');
         }
     });
 
@@ -145,8 +145,8 @@ test.describe('On-Device STT (Whisper)', () => {
             return indexedDB.deleteDatabase('whisper-turbo');
         });
 
-        await page.getByRole('button', { name: /cloud ai|on-device|native/i }).click();
-        await page.getByRole('menuitemradio', { name: /on-device/i }).click();
+        await page.getByRole('button', { name: /cloud|private|native/i }).click();
+        await page.getByRole('menuitemradio', { name: /private/i }).click();
         await page.getByTestId('session-start-stop-button').click();
 
         // Wait for model to load
@@ -177,8 +177,8 @@ test.describe('On-Device STT (Whisper)', () => {
             window.__E2E_MOCK_LOCAL_WHISPER__ = true;
         });
 
-        await page.getByRole('button', { name: /cloud ai|on-device|native/i }).click();
-        await page.getByRole('menuitemradio', { name: /on-device/i }).click();
+        await page.getByRole('button', { name: /cloud|private|native/i }).click();
+        await page.getByRole('menuitemradio', { name: /private/i }).click();
 
         const startButton = page.getByTestId('session-start-stop-button');
 

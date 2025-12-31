@@ -94,7 +94,7 @@ describe('SessionPage - STT Mode Selection UI', () => {
 
         // Radix UI renders content in a specific way, userEvent should handle it.
         // Wait for items to appear
-        const onDeviceItem = await screen.findByText(/On-Device.*\(Pro\)/);
+        const onDeviceItem = await screen.findByText(/Private.*\(Whisper\)/);
         const cloudItem = await screen.findByText(/Cloud.*\(Pro\)/);
 
         expect(onDeviceItem).toHaveAttribute('aria-disabled', 'true');
@@ -116,8 +116,8 @@ describe('SessionPage - STT Mode Selection UI', () => {
         const trigger = screen.getByText('Native');
         await user.click(trigger);
 
-        // Note: When enabled, the text matches exactly "On-Device (Whisper)"
-        const onDeviceItem = await screen.findByText('On-Device (Whisper)');
+        // Note: When enabled, the text matches exactly "Private (Whisper)"
+        const onDeviceItem = await screen.findByText('Private (Whisper)');
         const cloudItem = await screen.findByText('Cloud (AssemblyAI)');
 
         expect(onDeviceItem).not.toHaveAttribute('aria-disabled', 'true');

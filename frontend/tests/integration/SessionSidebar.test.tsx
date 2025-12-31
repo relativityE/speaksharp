@@ -112,7 +112,7 @@ describe('SessionSidebar', () => {
 
       await user.click(screen.getByRole('button', { name: 'Native' }));
       expect(await screen.findByRole('menuitemradio', { name: 'Cloud' })).toHaveAttribute('aria-disabled', 'true');
-      expect(await screen.findByRole('menuitemradio', { name: 'On-Device' })).toHaveAttribute('aria-disabled', 'true');
+      expect(await screen.findByRole('menuitemradio', { name: 'Private' })).toHaveAttribute('aria-disabled', 'true');
       expect(await screen.findByRole('menuitemradio', { name: 'Native' })).not.toHaveAttribute('aria-disabled', 'true');
     });
 
@@ -155,7 +155,7 @@ describe('SessionSidebar', () => {
 
       await user.click(screen.getByRole('button', { name: 'Cloud' }));
       expect(await screen.findByRole('menuitemradio', { name: 'Cloud' })).toBeEnabled();
-      expect(await screen.findByRole('menuitemradio', { name: 'On-Device' })).toBeEnabled();
+      expect(await screen.findByRole('menuitemradio', { name: 'Private' })).toBeEnabled();
       expect(await screen.findByRole('menuitemradio', { name: 'Native' })).toBeEnabled();
     });
 
@@ -184,7 +184,7 @@ describe('SessionSidebar', () => {
       );
 
       await user.click(screen.getByRole('button', { name: 'Cloud' }));
-      await user.click(await screen.findByRole('menuitemradio', { name: 'On-Device' }));
+      await user.click(await screen.findByRole('menuitemradio', { name: 'Private' }));
       await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenCalledExactlyOnceWith({
         forceCloud: false,
@@ -218,7 +218,7 @@ describe('SessionSidebar', () => {
 
       await user.click(screen.getByRole('button', { name: 'Cloud' }));
       expect(await screen.findByRole('menuitemradio', { name: 'Cloud' })).toBeEnabled();
-      expect(await screen.findByRole('menuitemradio', { name: 'On-Device' })).toBeEnabled();
+      expect(await screen.findByRole('menuitemradio', { name: 'Private' })).toBeEnabled();
       expect(await screen.findByRole('menuitemradio', { name: 'Native' })).toBeEnabled();
     });
 
@@ -238,9 +238,9 @@ describe('SessionSidebar', () => {
         forceNative: false
       });
 
-      // Switch to on-device
+      // Switch to Private
       await user.click(screen.getByRole('button', { name: 'Cloud' }));
-      await user.click(await screen.findByRole('menuitemradio', { name: 'On-Device' }));
+      await user.click(await screen.findByRole('menuitemradio', { name: 'Private' }));
       await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenLastCalledWith({
         forceCloud: false,
@@ -249,7 +249,7 @@ describe('SessionSidebar', () => {
       });
 
       // Switch to native
-      await user.click(screen.getByRole('button', { name: 'On-Device' }));
+      await user.click(screen.getByRole('button', { name: 'Private' }));
       await user.click(await screen.findByRole('menuitemradio', { name: 'Native' }));
       await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenLastCalledWith({

@@ -15,22 +15,22 @@
  * 2. dispatchE2EEvent() - Sends custom events for test synchronization
  * 3. getInitialSession() - Returns mock session when __E2E_MOCK_SESSION__ set
  * 4. dispatchMockTranscript() - Simulates speech recognition output
- * 5. MockOnDeviceWhisper - FAKE Whisper service for fast E2E tests
+ * 5. MockPrivateWhisper - FAKE Whisper service for fast E2E tests
  *    - Simulates 600ms model load (vs real 2-5 seconds)
  *    - Used when __E2E_MOCK_LOCAL_WHISPER__ flag is set
  * 
  * RELATED FILES:
  * --------------
- * - tests/e2e/ondevice-stt.e2e.spec.ts - Uses MockOnDeviceWhisper
+ * - tests/e2e/private-stt.e2e.spec.ts - Uses MockPrivateWhisper
  * - frontend/src/services/transcription/TranscriptionService.ts - Checks for mock
  * - frontend/src/main.tsx - Calls initializeE2EEnvironment()
  * 
  * USAGE IN TESTS:
  * ---------------
- * To use MockOnDeviceWhisper in E2E tests:
+ * To use MockPrivateWhisper in E2E tests:
  *   await page.evaluate(() => { (window as any).__E2E_MOCK_LOCAL_WHISPER__ = true; });
  * 
- * @see docs/ARCHITECTURE.md - "On-Device STT (Whisper) & Service Worker Caching"
+ * @see docs/ARCHITECTURE.md - "Private STT (Whisper) & Service Worker Caching"
  */
 
 import { Session } from '@supabase/supabase-js';
@@ -132,14 +132,14 @@ export class MockSpeechRecognition {
     abort() { }
 }
 
-interface MockOnDeviceWhisperOptions {
+interface MockPrivateWhisperOptions {
     onModelLoadProgress?: (progress: number) => void;
     onReady?: () => void;
     onTranscriptUpdate?: (update: unknown) => void;
 }
 
 /**
- * Mock implementation of OnDeviceWhisper for E2E tests.
+ * Mock implementation of PrivateWhisper for E2E tests.
  * 
  * PURPOSE:
  * Provides a fake Whisper service with predictable timing for E2E tests.
@@ -150,24 +150,24 @@ interface MockOnDeviceWhisperOptions {
  * 
  * USAGE:
  * Set `window.__E2E_MOCK_LOCAL_WHISPER__ = true` before starting session.
- * TranscriptionService will use this mock instead of real OnDeviceWhisper.
+ * TranscriptionService will use this mock instead of real PrivateWhisper.
  * 
- * @see frontend/src/services/transcription/modes/OnDeviceWhisper.ts - Real implementation
- * @see tests/e2e/ondevice-stt.e2e.spec.ts - Uses this mock
+ * @see frontend/src/services/transcription/modes/PrivateWhisper.ts - Real implementation
+ * @see tests/e2e/private-stt.e2e.spec.ts - Uses this mock
  */
-class MockOnDeviceWhisper {
+class MockPrivateWhisper {
     private onModelLoadProgress: ((progress: number) => void) | undefined;
     private onReady: (() => void) | undefined;
     private onTranscriptUpdate: ((update: unknown) => void) | undefined;
 
-    constructor(options: MockOnDeviceWhisperOptions) {
+    constructor(options: MockPrivateWhisperOptions) {
         this.onModelLoadProgress = options.onModelLoadProgress;
         this.onReady = options.onReady;
         this.onTranscriptUpdate = options.onTranscriptUpdate;
     }
 
     async init() {
-        logger.info('[MockOnDeviceWhisper] init() called - simulating model load');
+        logger.info('[MockPrivateWhisper] init() called - simulating model load');
 
         return new Promise<void>((resolve) => {
             // Simulate model download
@@ -181,13 +181,13 @@ class MockOnDeviceWhisper {
 
             // Simulate ready state after download
             setTimeout(() => {
-                logger.info('[MockOnDeviceWhisper] Model loaded, triggering onReady and toast');
+                logger.info('[MockPrivateWhisper] Model loaded, triggering onReady and toast');
 
-                // Trigger toast to match real OnDeviceWhisper behavior
+                // Trigger toast to match real PrivateWhisper behavior
                 // This is needed for E2E tests that verify toast notification
                 import('sonner').then(({ toast }) => {
                     toast.success('Model ready! You can now start your session.');
-                    logger.info('[MockOnDeviceWhisper] Toast triggered');
+                    logger.info('[MockPrivateWhisper] Toast triggered');
                 });
 
                 if (this.onReady) this.onReady();
@@ -197,11 +197,11 @@ class MockOnDeviceWhisper {
     }
 
     async startTranscription() {
-        logger.info('[MockOnDeviceWhisper] startTranscription() called');
+        logger.info('[MockPrivateWhisper] startTranscription() called');
     }
 
     async stopTranscription() {
-        logger.info('[MockOnDeviceWhisper] stopTranscription() called');
+        logger.info('[MockPrivateWhisper] stopTranscription() called');
         return '';
     }
 
@@ -219,9 +219,9 @@ export const setupSpeechRecognitionMock = () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (window as any).webkitSpeechRecognition = MockSpeechRecognition;
 
-        // Setup MockOnDeviceWhisper
+        // Setup MockPrivateWhisper
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (window as any).MockOnDeviceWhisper = MockOnDeviceWhisper;
+        (window as any).MockPrivateWhisper = MockPrivateWhisper;
 
         // Helper to dispatch events from Playwright
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -151,23 +151,23 @@ export default class TranscriptionService {
     const useOnDevice = this.forceOnDevice || (isProUser && this.profile?.preferred_mode === 'on-device');
 
     if (useOnDevice) {
-      logger.info('[TranscriptionService] Attempting to use On-Device (OnDeviceWhisper) mode for Pro user.');
+      logger.info('[TranscriptionService] Attempting to use Private (PrivateWhisper) mode for Pro user.');
 
-      let OnDeviceWhisperClass;
+      let PrivateWhisperClass;
       if (useMockOnDeviceWhisper) {
-        logger.info('[TranscriptionService] Using MockOnDeviceWhisper for E2E test.');
-        OnDeviceWhisperClass = (window as Window & { MockOnDeviceWhisper?: typeof import('./modes/OnDeviceWhisper').default }).MockOnDeviceWhisper;
-        if (!OnDeviceWhisperClass) {
-          throw new Error('MockOnDeviceWhisper not found on window - E2E test setup incomplete');
+        logger.info('[TranscriptionService] Using MockPrivateWhisper for E2E test.');
+        PrivateWhisperClass = (window as Window & { MockPrivateWhisper?: typeof import('./modes/PrivateWhisper').default }).MockPrivateWhisper;
+        if (!PrivateWhisperClass) {
+          throw new Error('MockPrivateWhisper not found on window - E2E test setup incomplete');
         }
       } else {
         // Dynamic import to avoid loading whisper-turbo on initial load
-        const module = await import('./modes/OnDeviceWhisper');
-        OnDeviceWhisperClass = module.default;
+        const module = await import('./modes/PrivateWhisper');
+        PrivateWhisperClass = module.default;
       }
 
       try {
-        this.instance = new OnDeviceWhisperClass(providerConfig);
+        this.instance = new PrivateWhisperClass(providerConfig);
         if (this.instance) {
           await this.instance.init();
           await this.instance.startTranscription(this.mic);
@@ -175,11 +175,11 @@ export default class TranscriptionService {
         this.mode = 'on-device';
         return;
       } catch (error) {
-        logger.warn({ error }, '[TranscriptionService] On-Device init failed, falling back to Native Browser.');
+        logger.warn({ error }, '[TranscriptionService] Private init failed, falling back to Native Browser.');
         // Fallback to Native Browser
         this.instance = new NativeBrowser(providerConfig);
         await this.instance.startTranscription(this.mic);
-        logger.info('[TranscriptionService] NativeBrowser started successfully (On-Device fallback).');
+        logger.info('[TranscriptionService] NativeBrowser started successfully (Private fallback).');
         this.mode = 'native';
         return;
       }

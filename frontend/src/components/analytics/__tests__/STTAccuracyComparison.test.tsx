@@ -50,7 +50,7 @@ describe('STTAccuracyComparison', () => {
             ...defaultMockData,
             accuracyData: [
                 { date: '2023-10-27', accuracy: 95, engine: 'Cloud AI' },
-                { date: '2023-10-26', accuracy: 90, engine: 'On-Device' },
+                { date: '2023-10-26', accuracy: 90, engine: 'Private' },
             ],
             loading: false,
             error: null,

@@ -3,7 +3,7 @@
  * 
  * Complete lifecycle test for PRO tier users:
  * 1. Login as Pro user
- * 2. Test all 3 STT modes: Native, Cloud (AssemblyAI), On-Device (Whisper)
+ * 2. Test all 3 STT modes: Native, Cloud (AssemblyAI), Private (Whisper)
  * 3. Custom vocabulary
  * 4. All 15 analytics verification
  * 5. Logout/relogin persistence
@@ -31,12 +31,12 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
             // Check for all three options
             const nativeOption = page.getByText('Native Browser');
             const cloudOption = page.getByText(/Cloud|AssemblyAI/i);
-            const onDeviceOption = page.getByText(/On-Device|Whisper/i);
+            const privateOption = page.getByText(/Private|Whisper/i);
 
             console.log('[PRO] Checking STT mode options...');
             if (await nativeOption.count() > 0) console.log('[PRO] ✅ Native Browser available');
             if (await cloudOption.count() > 0) console.log('[PRO] ✅ Cloud (AssemblyAI) available');
-            if (await onDeviceOption.count() > 0) console.log('[PRO] ✅ On-Device (Whisper) available');
+            if (await privateOption.count() > 0) console.log('[PRO] ✅ Private (Whisper) available');
         } else {
             console.log('[PRO] ⚠️ STT mode selector not found, checking default mode');
         }
@@ -86,29 +86,29 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
     });
 
     /**
-     * On-Device STT Session Test
+     * Private STT Session Test
      * Added to address Independent Review Gap #2:
-     * "Incomplete Test Coverage for On-Device STT Session"
+     * "Incomplete Test Coverage for Private STT Session"
      * 
-     * This test complements the detailed caching tests in ondevice-stt.e2e.spec.ts
-     * by verifying the complete session lifecycle with On-Device mode.
+     * This test complements the detailed caching tests in private-stt.e2e.spec.ts
+     * by verifying the complete session lifecycle with Private mode.
      */
-    test('should complete session with On-Device STT', async ({ page }) => {
+    test('should complete session with Private STT', async ({ page }) => {
         await navigateToRoute(page, '/session');
 
-        // Select On-Device mode
+        // Select Private mode
         const modeSelector = page.getByTestId('stt-mode-selector');
         if (await modeSelector.count() > 0) {
             await modeSelector.click();
-            const onDeviceOption = page.getByText(/On-Device|Whisper/i).first();
-            if (await onDeviceOption.count() > 0) {
-                await onDeviceOption.click();
-                console.log('[PRO] ✅ On-Device STT mode selected');
+            const privateOption = page.getByText(/Private|Whisper/i).first();
+            if (await privateOption.count() > 0) {
+                await privateOption.click();
+                console.log('[PRO] ✅ Private STT mode selected');
 
                 // Wait for model to initialize (mock loads quickly)
                 await page.waitForTimeout(1000);
             } else {
-                console.log('[PRO] ⚠️ On-Device option not found, skipping');
+                console.log('[PRO] ⚠️ Private option not found, skipping');
                 return;
             }
         } else {
@@ -118,10 +118,10 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
         const startButton = page.getByTestId('session-start-stop-button').first();
         await expect(startButton).toBeVisible();
 
-        // Start session - On-Device may need extra time for model initialization
+        // Start session - Private may need extra time for model initialization
         await startButton.click();
         await expect(page.getByText('Stop').first()).toBeVisible({ timeout: 20000 });
-        console.log('[PRO] ✅ Session started with On-Device STT');
+        console.log('[PRO] ✅ Session started with Private STT');
 
         // Verify session is running
         await expect(page.getByText('Clarity Score')).toBeVisible();
@@ -129,7 +129,7 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
         // Stop session
         await startButton.click();
         await expect(page.getByText('Start').first()).toBeVisible({ timeout: 5000 });
-        console.log('[PRO] ✅ On-Device STT session completed');
+        console.log('[PRO] ✅ Private STT session completed');
     });
 
     test('should add and persist custom vocabulary', async ({ page }) => {

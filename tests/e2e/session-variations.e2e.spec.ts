@@ -9,7 +9,7 @@ test.describe('Session Variations', () => {
 
     test('Journey 4 & 5: Switch STT Modes', async ({ page }) => {
         // The mode selector is a DropdownMenu button next to "Live Recording"
-        const modeButton = page.getByRole('button', { name: /Native|On-Device|Cloud/ });
+        const modeButton = page.getByRole('button', { name: /Native|Private|Cloud/ });
 
         await modeButton.waitFor({ state: 'visible', timeout: 5000 });
 
@@ -26,9 +26,9 @@ test.describe('Session Variations', () => {
         // Open dropdown again
         await modeButton.click();
 
-        // Switch to On-Device
-        await page.getByRole('menuitemradio', { name: /On-Device \(Whisper\)/ }).click();
-        await expect(modeButton).toContainText(/On-Device/);
+        // Switch to Private
+        await page.getByRole('menuitemradio', { name: /Private \(Whisper\)/ }).click();
+        await expect(modeButton).toContainText(/Private/);
 
         // Switch back to Native
         await modeButton.click();

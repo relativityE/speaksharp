@@ -93,12 +93,12 @@ test.describe('Free User Tier Restrictions', () => {
         await navigateToRoute(page, '/session');
         await expect(page.getByText('Practice Session')).toBeVisible();
 
-        // Free users should NOT see Cloud AI or On-Device as selectable options
+        // Free users should NOT see Cloud AI or Private as selectable options
         // They should only see Native Browser mode is active
         const nativeBrowserIndicator = page.getByText('Native Browser');
 
         // The mode should default to Native Browser for free users
-        // Cloud AI and On-Device should not be selectable or show upgrade prompt
+        // Cloud AI and Private should not be selectable or show upgrade prompt
         if (await nativeBrowserIndicator.count() > 0) {
             console.log('[TEST] ✅ Free user defaults to Native Browser mode');
         }

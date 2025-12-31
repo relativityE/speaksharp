@@ -3,13 +3,13 @@ import { setupE2EMocks } from './mock-routes';
 import { ALPHA_BYPASS_CODE } from '../../frontend/src/config/alpha-bypass';
 import { goToPublicRoute, navigateToRoute } from './helpers';
 
-test.describe('Alpha Bypass Code Journey', () => {
+test.describe('Bypass Code Journey', () => {
     test.beforeEach(async ({ page }) => {
         // 1. Setup global mocks (Playwright-native interceptors)
         await setupE2EMocks(page);
     });
 
-    test('should allow an alpha tester to bypass Stripe via promo code', async ({ page }) => {
+    test('should allow a promo user to bypass Stripe via promo code', async ({ page }) => {
         // 1. Navigate to signup
         await goToPublicRoute(page, '/auth/signup');
 
@@ -21,7 +21,7 @@ test.describe('Alpha Bypass Code Journey', () => {
         await page.fill('[data-testid="password-input"]', 'password123');
 
         // 4. Reveal and enter bypass code
-        await page.click('text=Have a bypass code?');
+        await page.click('text=Have a one-time \'pro\' user promo code?');
         await page.fill('[data-testid="promo-code-input"]', ALPHA_BYPASS_CODE);
 
         // 5. Submit signup
@@ -32,10 +32,10 @@ test.describe('Alpha Bypass Code Journey', () => {
         await expect(page).toHaveURL(/\/session/);
 
         // 7. Verify Pro features are visible
-        // We can check if "On-Device" mode is available (not disabled)
+        // We can check if "Private" mode is available (not disabled)
         await page.click('button:has-text("Native")'); // Open mode selector
-        const onDeviceOption = page.locator('role=menuitemradio[name*="On-Device"]');
-        await expect(onDeviceOption).not.toHaveAttribute('disabled', '');
+        const privateOption = page.locator('role=menuitemradio[name*="Private"]');
+        await expect(privateOption).not.toHaveAttribute('disabled', '');
 
         // 8. Navigate to Analytics and verify the Pro status
         await navigateToRoute(page, '/analytics');
@@ -54,10 +54,10 @@ test.describe('Alpha Bypass Code Journey', () => {
     test('should fallback to Stripe if bypass code is invalid', async ({ page }) => {
         await goToPublicRoute(page, '/auth/signup');
         await page.click('[data-testid="plan-pro-option"]');
-        await page.fill('[data-testid="email-input"]', 'badalpha@example.com');
+        await page.fill('[data-testid="email-input"]', 'badpromo@example.com');
         await page.fill('[data-testid="password-input"]', 'password123');
 
-        await page.click('text=Have a bypass code?');
+        await page.click('text=Have a one-time \'pro\' user promo code?');
         await page.fill('[data-testid="promo-code-input"]', 'WRONG_CODE');
 
         await page.click('[data-testid="sign-up-submit"]');

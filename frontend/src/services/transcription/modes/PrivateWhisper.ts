@@ -49,7 +49,9 @@ import { toast } from 'sonner';
 
 type Status = 'idle' | 'loading' | 'transcribing' | 'stopped' | 'error';
 
-export default class OnDeviceWhisper implements ITranscriptionMode {
+// ...
+// ...
+export default class PrivateWhisper implements ITranscriptionMode {
   private onTranscriptUpdate: (update: TranscriptUpdate) => void;
   private onModelLoadProgress?: (progress: number) => void;
   private onReady?: () => void;
@@ -64,7 +66,7 @@ export default class OnDeviceWhisper implements ITranscriptionMode {
 
   constructor({ onTranscriptUpdate, onModelLoadProgress, onReady }: TranscriptionModeOptions) {
     if (!onTranscriptUpdate) {
-      throw new Error("onTranscriptUpdate callback is required for OnDeviceWhisper.");
+      throw new Error("onTranscriptUpdate callback is required for PrivateWhisper.");
     }
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onModelLoadProgress = onModelLoadProgress;
@@ -73,31 +75,28 @@ export default class OnDeviceWhisper implements ITranscriptionMode {
     this.transcript = '';
     this.session = null;
     this.manager = new SessionManager();
-    logger.info('[OnDeviceWhisper] Initialized (whisper-turbo backend).');
+    logger.info('[PrivateWhisper] Initialized (whisper-turbo backend).');
   }
 
   public async init(): Promise<void> {
-    console.log('[Whisper] 🔄 Loading On-Device STT model...');
-    logger.info('[OnDeviceWhisper] Initializing model...');
+    console.log('[Whisper] 🔄 Loading Private STT model...');
+    logger.info('[PrivateWhisper] Initializing model...');
     this.status = 'loading';
 
     try {
-      logger.info(`[OnDeviceWhisper] Loading model: ${AvailableModels.WHISPER_TINY}`);
+      logger.info(`[PrivateWhisper] Loading model: ${AvailableModels.WHISPER_TINY}`);
 
       // Trigger initial progress to ensure UI shows "Downloading..." immediately
       if (this.onModelLoadProgress) {
         this.onModelLoadProgress(0);
       }
 
-      // Trigger initial progress to ensure UI shows "Downloading..." immediately
-      if (this.onModelLoadProgress) {
-        this.onModelLoadProgress(0);
-      }
+
 
       const result = await this.manager.loadModel(
         AvailableModels.WHISPER_TINY,
         () => {
-          logger.info('[OnDeviceWhisper] Model loaded callback triggered.');
+          logger.info('[PrivateWhisper] Model loaded callback triggered.');
         },
         (progress: number) => {
           if (this.onModelLoadProgress) {
@@ -112,7 +111,7 @@ export default class OnDeviceWhisper implements ITranscriptionMode {
 
       this.session = result.value;
       this.status = 'idle';
-      logger.info('[OnDeviceWhisper] Model loaded successfully.');
+      logger.info('[PrivateWhisper] Model loaded successfully.');
 
       // Show toast notification
       toast.success('Model ready! You can now start your session.');
@@ -122,30 +121,30 @@ export default class OnDeviceWhisper implements ITranscriptionMode {
         this.onReady();
       }
     } catch (error) {
-      logger.error({ err: error }, '[OnDeviceWhisper] Failed to load model.');
+      logger.error({ err: error }, '[PrivateWhisper] Failed to load model.');
       this.status = 'error';
-      toast.error('Failed to load On-Device model. Please try again or use Native mode.');
+      toast.error('Failed to load Private model. Please try again or use Native mode.');
       throw error;
     }
   }
 
   public async startTranscription(mic: MicStream): Promise<void> {
     if (!mic) {
-      logger.error('[OnDeviceWhisper CRITICAL] startTranscription called with null/undefined mic!');
-      throw new Error('MicStream is required for OnDeviceWhisper');
+      logger.error('[PrivateWhisper CRITICAL] startTranscription called with null/undefined mic!');
+      throw new Error('MicStream is required for PrivateWhisper');
     }
     if (typeof mic.onFrame !== 'function') {
-      logger.error('[OnDeviceWhisper CRITICAL] MicStream missing onFrame method!');
+      logger.error('[PrivateWhisper CRITICAL] MicStream missing onFrame method!');
       throw new Error('Invalid MicStream: missing onFrame method');
     }
     this.mic = mic;
-    logger.info('[OnDeviceWhisper] startTranscription() called.');
+    logger.info('[PrivateWhisper] startTranscription() called.');
     if (this.status !== 'idle') {
-      logger.warn(`[OnDeviceWhisper] Unexpected status: ${this.status}, expected 'idle'`);
+      logger.warn(`[PrivateWhisper] Unexpected status: ${this.status}, expected 'idle'`);
     }
     if (!this.session) {
-      logger.error('[OnDeviceWhisper] session is null - model may not have loaded. Call init() first.');
-      throw new Error('OnDeviceWhisper session not initialized. Call init() first.');
+      logger.error('[PrivateWhisper] session is null - model may not have loaded. Call init() first.');
+      throw new Error('PrivateWhisper session not initialized. Call init() first.');
     }
     this.status = 'transcribing';
     this.audioChunks = [];
@@ -162,7 +161,7 @@ export default class OnDeviceWhisper implements ITranscriptionMode {
       this.processAudio();
     }, 1000);
 
-    logger.info('[OnDeviceWhisper] Streaming started.');
+    logger.info('[PrivateWhisper] Streaming started.');
   }
 
   private async processAudio(): Promise<void> {
@@ -170,7 +169,7 @@ export default class OnDeviceWhisper implements ITranscriptionMode {
       return; // Already processing, skip
     }
     if (!this.session) {
-      logger.error('[OnDeviceWhisper] processAudio called but session is null!');
+      logger.error('[PrivateWhisper] processAudio called but session is null!');
       return;
     }
     if (this.audioChunks.length === 0) {
@@ -204,14 +203,14 @@ export default class OnDeviceWhisper implements ITranscriptionMode {
       this.audioChunks = [];
 
     } catch (err) {
-      logger.error({ err }, '[OnDeviceWhisper] Transcription processing failed.');
+      logger.error({ err }, '[PrivateWhisper] Transcription processing failed.');
     } finally {
       this.isProcessing = false;
     }
   }
 
   public async stopTranscription(): Promise<string> {
-    logger.info('[OnDeviceWhisper] stopTranscription() called.');
+    logger.info('[PrivateWhisper] stopTranscription() called.');
 
     if (this.processingInterval) {
       clearInterval(this.processingInterval);

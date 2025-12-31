@@ -50,7 +50,7 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
             case 'native':
                 return 'Native';
             case 'on-device':
-                return 'On-Device';
+                return 'Private';
             case 'cloud':
                 return 'Cloud';
         }
@@ -78,7 +78,7 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
                                         Native (Browser)
                                     </DropdownMenuRadioItem>
                                     <DropdownMenuRadioItem value="on-device" disabled={!isProUser}>
-                                        On-Device (Whisper) {!isProUser && '(Pro)'}
+                                        Private (Whisper) {!isProUser && '(Pro)'}
                                     </DropdownMenuRadioItem>
                                     <DropdownMenuRadioItem value="cloud" disabled={!isProUser}>
                                         Cloud (AssemblyAI) {!isProUser && '(Pro)'}
@@ -98,8 +98,8 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
                         </Button>
                         <Badge
                             className={`${isListening && isReady
-                                    ? 'bg-green-600 text-white border-green-600'
-                                    : 'bg-secondary text-white border-secondary'
+                                ? 'bg-green-600 text-white border-green-600'
+                                : 'bg-secondary text-white border-secondary'
                                 }`}
                             data-testid={TEST_IDS.SESSION_STATUS_INDICATOR}
                         >

@@ -80,7 +80,7 @@ test.describe('Production Smoke Canary @canary', () => {
 
         // 3. Configure for Native STT (Free/Low Risk)
         console.log('[CANARY] Configuring Native STT mode...');
-        await page.getByRole('button', { name: /Native|Cloud AI|On-Device/i }).click();
+        await page.getByRole('button', { name: /Native|Cloud AI|Private|On-Device/i }).click();
         await page.getByRole('menuitemradio', { name: /Native/i }).click();
 
         // 4. Start Session
