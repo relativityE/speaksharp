@@ -35,9 +35,6 @@ export const SessionPage: React.FC = () => {
     // Use zustand store for session state
     const { updateElapsedTime, elapsedTime } = useSessionStore();
 
-    console.log('[DEBUG] SessionPage rendered. Session:', session?.user?.id);
-    console.log('[DEBUG] SessionPage profile state:', { isProfileLoading, profileError: profileError || 'none', profileId: profile?.id });
-
     const isProUser = isPro(profile?.subscription_status);
 
     // Usage limit check for pre-session validation
@@ -60,7 +57,6 @@ export const SessionPage: React.FC = () => {
 
     const { transcript, fillerData, startListening, stopListening, isListening, isReady, modelLoadingProgress } = speechRecognition;
     const { pauseMetrics } = useVocalAnalysis(isListening);
-    console.log('[DEBUG] SessionPage speechRecognition state:', { isListening, isReady });
 
     // AUDIT FIX: Extract metrics calculation to custom hook
     // Must be called before early returns to comply with React Hooks rules

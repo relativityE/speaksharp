@@ -67,8 +67,8 @@ export function useUsageLimit() {
             return data as UsageLimitCheck;
         },
         enabled: !!user && !!session, // Only run when user is authenticated with session
-        staleTime: 30 * 1000, // Revalidate every 30 seconds
-        refetchOnWindowFocus: true,
+        staleTime: 60 * 1000, // Revalidate every 60 seconds (was 30s, causing frequent refetches)
+        refetchOnWindowFocus: false, // Disable to prevent flickering on tab switch
     });
 }
 
