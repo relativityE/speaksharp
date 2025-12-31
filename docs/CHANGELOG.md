@@ -22,7 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Resolved `net::ERR_NAME_NOT_RESOLVED` errors for `mock.supabase.co` by restoring MSW initialization in `initializeE2EEnvironment`.
   - Consolidated the orange "Free Plan" oval with the upgrade description for a cleaner layout.
   - Removed redundant upgrade CTAs from the Analytics dashboard.
-  - **Files:** `frontend/src/lib/e2e-bridge.ts`, `frontend/src/pages/AnalyticsPage.tsx`, `frontend/src/components/AnalyticsDashboard.tsx`
+  - **Supabase Deployment Fix**: Renamed `_shared/build.config.ts` to `_shared/constants.ts` and updated imports to resolve Deno/bundler import resolution failure.
+  - **Files:** `frontend/src/lib/e2e-bridge.ts`, `frontend/src/pages/AnalyticsPage.tsx`, `frontend/src/components/AnalyticsDashboard.tsx`, `backend/supabase/functions/_shared/cors.ts`
 
 - **Infrastructure & Testing:**
   - Created `TROUBLESHOOTING.md` with instructions on environment synchronization (`pnpm build:test`).
