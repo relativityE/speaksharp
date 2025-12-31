@@ -49,9 +49,16 @@ serve(async (req) => {
             )
         }
         // Promo code is valid - upgrade user to 'pro' tier using admin client (bypasses RLS)
+        // Calculate expiry (30 minutes from now)
+        const expiryDate = new Date();
+        expiryDate.setMinutes(expiryDate.getMinutes() + 30);
+
         const { error: updateError } = await adminClient
             .from('user_profiles')
-            .update({ subscription_status: 'pro' })
+            .update({
+                subscription_status: 'pro',
+                promo_expires_at: expiryDate.toISOString()
+            })
             .eq('id', user.id)
 
         if (updateError) {

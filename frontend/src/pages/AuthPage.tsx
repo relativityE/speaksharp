@@ -5,6 +5,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Session } from '@supabase/supabase-js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 
@@ -47,6 +48,52 @@ export default function AuthPage() {
   const [promoCode, setPromoCode] = useState('');
   const [showPromoField, setShowPromoField] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleProUpgrade = async (currentSession: Session) => {
+    // 1. Priority Check: Handle Promo Bypass Code if provided
+    if (promoCode) {
+      console.log('[AuthPage] Applying promo bypass code:', promoCode);
+      try {
+        const { error: promoError, data: promoData } = await getSupabaseClient()!.functions.invoke('apply-promo', {
+          body: { promoCode }
+        });
+        if (promoError) throw promoError;
+
+        // If successful, redirect to dashboard immediately as Pro
+        console.log('[AuthPage] Promo upgrade successful!');
+        const expiryMsg = promoData?.proFeatureMinutes ? ` for ${promoData.proFeatureMinutes} minutes` : '';
+        toast.success(`🎉 Promo code applied! You have Pro features${expiryMsg}.`, { id: 'promo-success' });
+        window.location.href = '/session';
+        return;
+      } catch (pe) {
+        console.error('[AuthPage] Promo bypass failed:', pe);
+        setError('Invalid promo code or upgrade failed. Redirecting to standard Pro checkout...');
+        // Fallback: proceed to checkout
+      }
+    }
+
+    // 2. Fallback: Stripe Checkout
+    console.log('[AuthPage] Pro plan selected, redirecting to Stripe...');
+    try {
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/stripe-checkout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${currentSession.access_token}`,
+        },
+      });
+      const data = await response.json();
+      if (data.checkoutUrl) {
+        window.location.href = data.checkoutUrl;
+        return; // Halt logic while redirecting
+      } else {
+        throw new Error('No checkout URL returned');
+      }
+    } catch (stripeErr) {
+      console.error('[AuthPage] Stripe redirect failed:', stripeErr);
+      setError('Account created, but we couldn\'t start the Pro upgrade. You can upgrade later from the dashboard.');
+    }
+  };
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -99,50 +146,11 @@ export default function AuthPage() {
 
         authResult = { data: signInData, error: null };
 
-        // 2. If Pro was selected, immediately initiate Stripe checkout
+        // 2. If Pro was selected...
         if (selectedPlan === 'pro' && signInData.session) {
-          console.log('[AuthPage] Pro plan selected, redirecting to Stripe...');
-          try {
-            const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/stripe-checkout`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${signInData.session.access_token}`,
-              },
-            });
-            const data = await response.json();
-            if (data.checkoutUrl) {
-              // 3. Handle Promo Bypass Code if provided
-              if (promoCode) {
-                console.log('[AuthPage] Applying promo bypass code:', promoCode);
-                try {
-                  const { error: promoError } = await supabase.functions.invoke('apply-promo', {
-                    body: { promoCode }
-                  });
-                  if (promoError) throw promoError;
-
-                  // If successful, redirect to dashboard immediately as Pro
-                  console.log('[AuthPage] Promo upgrade successful!');
-                  toast.success('🎉 Promo code applied! You have 30 minutes of Pro features.', { id: 'promo-success' });
-                  window.location.href = '/session';
-                  return;
-                } catch (pe) {
-                  console.error('[AuthPage] Promo bypass failed:', pe);
-                  setError('Invalid promo code or upgrade failed. Redirecting to standard Pro checkout...');
-                  // Fallback: proceed to checkout
-                }
-              }
-
-              window.location.href = data.checkoutUrl;
-              return; // Halt logic while redirecting
-            } else {
-              throw new Error('No checkout URL returned');
-            }
-          } catch (stripeErr) {
-            console.error('[AuthPage] Stripe redirect failed:', stripeErr);
-            setError('Account created, but we couldn\'t start the Pro upgrade. You can upgrade later from the dashboard.');
-            // We don't throw here - the account IS created, they are just on the free plan for now.
-          }
+          await handleProUpgrade(signInData.session);
+          // If handleProUpgrade redirects, we return early. 
+          // If it fails but doesn't throw (just sets error), we continue to setSession
         }
       } else { // forgot_password
         console.log('[AuthPage] Attempting password reset for:', email);

@@ -45,7 +45,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
         // Get user profile with usage data
         const { data: profile, error: profileError } = await supabaseClient
             .from('user_profiles')
-            .select('usage_seconds, usage_reset_date, subscription_status')
+            .select('usage_seconds, usage_reset_date, subscription_status, promo_expires_at')
             .eq('id', user.id)
             .single();
 
@@ -100,17 +100,47 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
             }
         }
 
-        // Pro users have unlimited usage
+        // Pro users have unlimited usage (unless promo expired)
         if (isPro) {
-            const response: UsageLimitResponse = {
-                can_start: true,
-                remaining_seconds: -1,
-                limit_seconds: -1,
-                used_seconds: usedSeconds,
-                subscription_status: profile.subscription_status,
-                is_pro: true,
-            };
-            return createSuccessResponse(response, corsHeaders);
+            // Check for promo expiration
+            if (profile.promo_expires_at) {
+                const expiry = new Date(profile.promo_expires_at);
+                if (expiry < new Date()) {
+                    console.log(`[check-usage-limit] Promo expired for user ${user.id} at ${expiry.toISOString()}`);
+
+                    // Downgrade user back to free (and potentially let them fall through to free tier logic)
+                    // Note: In a real app we might want to do this async/lazily, but here we enforce "no start" or "revert"
+                    // Ideally we update the DB to reflect 'free' again so the UI updates
+                    await supabaseClient.from('user_profiles').update({ subscription_status: 'free' }).eq('id', user.id);
+
+                    // Return response as if they are free (limit reached or not)
+                    // Recursive call or just fall through? 
+                    // Simpler: just fall through to free logic below by treating isPro as false
+                    // We need to re-fetch/re-eval? No, just fall through.
+                } else {
+                    // Promo active
+                    const response: UsageLimitResponse = {
+                        can_start: true,
+                        remaining_seconds: -1,
+                        limit_seconds: -1,
+                        used_seconds: usedSeconds,
+                        subscription_status: 'pro',
+                        is_pro: true,
+                    };
+                    return createSuccessResponse(response, corsHeaders);
+                }
+            } else {
+                // Permanent Pro
+                const response: UsageLimitResponse = {
+                    can_start: true,
+                    remaining_seconds: -1,
+                    limit_seconds: -1,
+                    used_seconds: usedSeconds,
+                    subscription_status: profile.subscription_status,
+                    is_pro: true,
+                };
+                return createSuccessResponse(response, corsHeaders);
+            }
         }
 
         // Calculate remaining for free users

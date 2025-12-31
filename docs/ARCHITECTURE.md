@@ -134,9 +134,12 @@ Data Flow:
 For promo/internal testing, we provide a secure, secret-driven upgrade path:
 - **Client-Side**: A hidden numeric input field in `AuthPage.tsx` allows testers to enter a 7-digit bypass code.
 - **Validation**: The frontend sends this code to the `apply-promo` Edge Function.
+- **No Stripe Redirect**: If a valid promo code is provided, the Stripe checkout flow is strictly skipped.
+- **Time Limit**: The backend (`apply-promo`) grants Pro access with a `promo_expires_at` timestamp set to **30 minutes** in the future.
+- **Enforcement**: The `check-usage-limit` function verifies this timestamp on every usage attempt. Once expired, the user is **immediately downgraded to Free** and loses access to Pro features (cloud transcription, unlimited usage).
 - **Backend**: The function validates the code against the `ALPHA_BYPASS_CODE` secret stored in Supabase Vault (not in code).
 - **Automation**: The `scripts/generate-alpha-code.ts` utility rotates codes and synchronizes them with the local E2E environment.
-Flow: AuthPage (Bypass toggle) → Signup/Login → `apply-promo` function → Profile Upgrade ('pro') → Redirect to `/session`.
+Flow: AuthPage (Bypass toggle) → Signup/Login → `apply-promo` function → Profile Upgrade ('pro') → (30 min timer starts) → Redirect to `/session`.
 
 ## 2. Technology Stack
 

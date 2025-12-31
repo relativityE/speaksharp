@@ -376,7 +376,11 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
             return route.fulfill({
                 status: 200,
                 contentType: 'application/json',
-                body: JSON.stringify({ success: true, message: 'Upgraded to Pro!' })
+                body: JSON.stringify({
+                    success: true,
+                    message: 'Upgraded to Pro!',
+                    proFeatureMinutes: 30
+                })
             });
         } else {
             await route.fulfill({
