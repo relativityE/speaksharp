@@ -2,7 +2,9 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import Stripe from "https://esm.sh/stripe@16.2.0?target=deno"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.44.2"
 import { ErrorCodes, createErrorResponse, createSuccessResponse } from "../_shared/errors.ts"
-import { PORTS } from "../_shared/constants.ts";
+
+// Port configuration for local development fallback (inlined to avoid bundler issues)
+const DEV_PORT = 5173;
 
 // Defensive Stripe initialization - validate env before crash
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY");
@@ -116,8 +118,8 @@ serve(async (req) => {
           },
         ],
         mode: "subscription",
-        success_url: `${Deno.env.get("SITE_URL") ?? `http://localhost:${PORTS.DEV}`}/session?checkout=success`,
-        cancel_url: `${Deno.env.get("SITE_URL") ?? `http://localhost:${PORTS.DEV}`}/pricing?checkout=cancelled`,
+        success_url: `${Deno.env.get("SITE_URL") ?? `http://localhost:${DEV_PORT}`}/session?checkout=success`,
+        cancel_url: `${Deno.env.get("SITE_URL") ?? `http://localhost:${DEV_PORT}`}/pricing?checkout=cancelled`,
         customer_email: user.email,
         metadata: {
           userId: user.id,
