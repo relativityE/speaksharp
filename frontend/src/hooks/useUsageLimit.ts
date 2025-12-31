@@ -12,6 +12,7 @@ export interface UsageLimitCheck {
     used_seconds?: number;
     subscription_status: string;
     is_pro: boolean;
+    promo_just_expired?: boolean; // True if promo expired during this check
     error?: string;
 }
 

@@ -26,6 +26,7 @@ import { LiveTranscriptPanel } from '@/components/session/LiveTranscriptPanel';
 import { SpeakingTipsCard } from '@/components/session/SpeakingTipsCard';
 import { LiveRecordingCard } from '@/components/session/LiveRecordingCard';
 import { MobileActionBar } from '@/components/session/MobileActionBar';
+import { PromoExpiredDialog } from '@/components/PromoExpiredDialog';
 
 export const SessionPage: React.FC = () => {
     const { session } = useAuthProvider();
@@ -45,6 +46,7 @@ export const SessionPage: React.FC = () => {
     const [customWords] = useState<string[]>([]);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [mode, setMode] = useState<'cloud' | 'native' | 'on-device'>('native');
+    const [showPromoExpiredDialog, setShowPromoExpiredDialog] = useState(false);
     const startTimeRef = useRef<number | null>(null);
     // Rate-limited debug canary ref
     const prevStateRef = useRef({ isListening: false, isReady: false });
@@ -92,6 +94,13 @@ export const SessionPage: React.FC = () => {
             transcriptContainerRef.current.scrollTop = transcriptContainerRef.current.scrollHeight;
         }
     }, [transcript.transcript]);
+
+    // Show promo expiry dialog when backend signals promo has expired
+    useEffect(() => {
+        if (usageLimit?.promo_just_expired) {
+            setShowPromoExpiredDialog(true);
+        }
+    }, [usageLimit?.promo_just_expired]);
 
     if (isProfileLoading) {
         console.log('[DEBUG] SessionPage: Loading profile...');
@@ -305,6 +314,12 @@ export const SessionPage: React.FC = () => {
                 isButtonDisabled={isButtonDisabled}
                 modelLoadingProgress={modelLoadingProgress}
                 onStartStop={handleStartStop}
+            />
+
+            {/* Promo Expired Dialog */}
+            <PromoExpiredDialog
+                open={showPromoExpiredDialog}
+                onOpenChange={setShowPromoExpiredDialog}
             />
         </div>
 

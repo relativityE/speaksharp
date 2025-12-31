@@ -19,7 +19,6 @@
  */
 
 import { Page, Route } from '@playwright/test';
-import { ALPHA_BYPASS_CODE } from '../../frontend/src/config/alpha-bypass';
 
 // ============================================================================
 // MOCK DATA (mirrored from frontend/src/mocks/handlers.ts)
@@ -372,7 +371,8 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
     await registerRoute(page, '**/functions/v1/apply-promo', async (route) => {
         console.log('[E2E MOCK] Specific Handler: apply-promo');
         const body = await route.request().postDataJSON();
-        if (body?.promoCode === ALPHA_BYPASS_CODE) {
+        // Accept our standard E2E mock code
+        if (body?.promoCode === 'MOCK-PROMO-123') {
             return route.fulfill({
                 status: 200,
                 contentType: 'application/json',

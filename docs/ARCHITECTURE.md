@@ -127,19 +127,88 @@ Data Flow:
   Browser → Hooks → TranscriptionService → AssemblyAI (WebSocket)
   Hooks ↔ Supabase DB (RPC)
   Edge Functions ↔ Stripe (Webhooks)
-  Edge Functions (apply-promo) ↔ Alpha Tester (Bypass Code)
+  CLI (generate-promo) → apply-promo/generate → promo_codes TABLE
+  AuthPage → apply-promo → promo_redemptions / user_profiles
+  SessionPage → check-usage-limit → Expiry Modal (if promo expired)
 ```
 
 ### Promo Bypass Mechanism
-For promo/internal testing, we provide a secure, secret-driven upgrade path:
-- **Client-Side**: A hidden numeric input field in `AuthPage.tsx` allows testers to enter a 7-digit bypass code.
-- **Validation**: The frontend sends this code to the `apply-promo` Edge Function.
-- **No Stripe Redirect**: If a valid promo code is provided, the Stripe checkout flow is strictly skipped.
-- **Time Limit**: The backend (`apply-promo`) grants Pro access with a `promo_expires_at` timestamp set to **30 minutes** in the future.
-- **Enforcement**: The `check-usage-limit` function verifies this timestamp on every usage attempt. Once expired, the user is **immediately downgraded to Free** and loses access to Pro features (cloud transcription, unlimited usage).
-- **Backend**: The function validates the code against the `ALPHA_BYPASS_CODE` secret stored in Supabase Vault (not in code).
-- **Automation**: The `scripts/generate-alpha-code.ts` utility rotates codes and synchronizes them with the local E2E environment.
-Flow: AuthPage (Bypass toggle) → Signup/Login → `apply-promo` function → Profile Upgrade ('pro') → (30 min timer starts) → Redirect to `/session`.
+We prioritize a secure, dynamic promo code system for internal access/testing.
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                         DYNAMIC PROMO CODE FLOW                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+  STEP 1: GENERATE CODE (Admin/Tester)
+  ════════════════════════════════════
+  ┌─────────────────┐      POST /generate       ┌──────────────────────────┐
+  │  Terminal       │ ────────────────────────▶ │  apply-promo Edge Func   │
+  │  pnpm generate- │                           │  (Uses Service Role Key) │
+  │  promo          │ ◀──────────────────────── │                          │
+  └─────────────────┘   { code: "7423974" }     └──────────────────────────┘
+                                                           │
+                                                           ▼
+                                                ┌──────────────────────────┐
+                                                │  promo_codes TABLE       │
+                                                │  ─────────────────────   │
+                                                │  code: "7423974"         │
+                                                │  max_uses: 1             │
+                                                │  duration_minutes: 30    │
+                                                │  used_count: 0           │
+                                                └──────────────────────────┘
+
+  STEP 2: REDEEM CODE (User in App)
+  ═════════════════════════════════
+  ┌─────────────────┐   POST /apply-promo       ┌──────────────────────────┐
+  │  AuthPage.tsx   │ ────────────────────────▶ │  apply-promo Edge Func   │
+  │  (User enters   │   { promoCode: "7423974" }│                          │
+  │   code at       │ ◀──────────────────────── │  1. Lookup code in DB    │
+  │   signup)       │   { success: true,        │  2. Check promo_redemp-  │
+  └─────────────────┘     proFeatureMinutes:30 }│     tions for user       │
+                                                │  3. Insert redemption    │
+                                                │  4. Update user_profiles │
+                                                │     (pro, expires_at)    │
+                                                └──────────────────────────┘
+                                                           │
+                                                           ▼
+                                                ┌──────────────────────────┐
+                                                │  user_profiles TABLE     │
+                                                │  ─────────────────────   │
+                                                │  subscription_status:pro │
+                                                │  promo_expires_at:       │
+                                                │    [NOW + 30 min]        │
+                                                └──────────────────────────┘
+
+  STEP 3: EXPIRY ENFORCEMENT (On Session Start)
+  ═════════════════════════════════════════════
+  ┌─────────────────┐   POST /check-usage-limit ┌──────────────────────────┐
+  │  SessionPage    │ ────────────────────────▶ │  check-usage-limit Func  │
+  │                 │                           │                          │
+  │  (User starts   │                           │  IF promo_expires_at     │
+  │   a session)    │                           │     < NOW:               │
+  │                 │                           │    ─────────────────     │
+  │                 │ ◀──────────────────────── │    1. Update user to     │
+  │                 │   { is_pro: false,        │       'free'             │
+  │                 │     promo_just_expired:   │    2. Return flag to     │
+  └─────────────────┘     true }                │       show modal         │
+         │                                      └──────────────────────────┘
+         ▼
+  ┌─────────────────────────────────────────┐
+  │  Expiry Modal                           │
+  │  ────────────────────────────────────── │
+  │  "Your Pro Trial Has Ended"             │
+  │                                         │
+  │  [Upgrade to Pro]   [Continue as Free]  │
+  └─────────────────────────────────────────┘
+```
+
+**Key Components:**
+- **Storage**: Codes in `promo_codes` table; redemptions tracked in `promo_redemptions`.
+- **Generation**: CLI (`pnpm generate-promo`) → Edge Function → DB.
+- **Validation**: `apply-promo` checks DB, enforces single-use, sets 30-min expiry.
+- **Enforcement**: `check-usage-limit` downgrades expired users and triggers UI notification.
+
 
 ## 2. Technology Stack
 

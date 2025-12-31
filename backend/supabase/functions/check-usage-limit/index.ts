@@ -17,6 +17,7 @@ interface UsageLimitResponse {
     used_seconds: number;
     subscription_status: string;
     is_pro: boolean;
+    promo_just_expired?: boolean; // True if promo expired during this check
     error?: string;
 }
 
@@ -108,15 +109,20 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
                 if (expiry < new Date()) {
                     console.log(`[check-usage-limit] Promo expired for user ${user.id} at ${expiry.toISOString()}`);
 
-                    // Downgrade user back to free (and potentially let them fall through to free tier logic)
-                    // Note: In a real app we might want to do this async/lazily, but here we enforce "no start" or "revert"
-                    // Ideally we update the DB to reflect 'free' again so the UI updates
+                    // Downgrade user back to free
                     await supabaseClient.from('user_profiles').update({ subscription_status: 'free' }).eq('id', user.id);
 
-                    // Return response as if they are free (limit reached or not)
-                    // Recursive call or just fall through? 
-                    // Simpler: just fall through to free logic below by treating isPro as false
-                    // We need to re-fetch/re-eval? No, just fall through.
+                    // Return response with promo_just_expired flag so frontend can show modal
+                    const response: UsageLimitResponse = {
+                        can_start: true, // Still allow them to start as free user
+                        remaining_seconds: Math.max(0, FREE_TIER_LIMIT_SECONDS - usedSeconds),
+                        limit_seconds: FREE_TIER_LIMIT_SECONDS,
+                        used_seconds: usedSeconds,
+                        subscription_status: 'free',
+                        is_pro: false,
+                        promo_just_expired: true,
+                    };
+                    return createSuccessResponse(response, corsHeaders);
                 } else {
                     // Promo active
                     const response: UsageLimitResponse = {

@@ -9,6 +9,7 @@
   "scripts": {
     "// ============ Development ============": "",
     "setup": "pnpm install --frozen-lockfile",
+    "generate-promo": "tsx scripts/generate-promo.ts",
     "dev": "cd frontend && vite",
     "// ============ Build ============": "",
     "prebuild": "node scripts/validate-env.mjs",
