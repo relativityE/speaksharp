@@ -76,7 +76,7 @@ describe('SessionPage - STT Mode Selection UI', () => {
         } as unknown as ReturnType<typeof UsageLimitHook.useUsageLimit>);
     });
 
-    it('should disable Pro options (On-Device, Cloud) for Free users', async () => {
+    it('should disable Pro options (Private, Cloud) for Free users', async () => {
         const user = userEvent.setup();
 
         // Mock Free User

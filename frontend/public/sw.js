@@ -5,7 +5,7 @@
  * 
  * PURPOSE:
  * --------
- * This service worker dramatically improves load times for the On-Device 
+ * This service worker dramatically improves load times for the Private 
  * Whisper transcription mode by caching the 30MB Whisper model locally.
  * 
  * WITHOUT THIS SERVICE WORKER:
@@ -64,9 +64,9 @@
  * TESTING:
  * --------
  * 1. Clear cache: DevTools > Application > Clear site data
- * 2. Open app, go to Session page, select "On-Device" mode
+ * 2. Open app, go to Session page, select "Private" mode
  * 3. First load: Check Network tab, should see CDN request (~30s)
- * 4. Refresh page, try On-Device again
+ * 4. Refresh page, try Private again
  * 5. Second load: Network tab shows 0 bytes transferred, instant load!
  * 
  * VERSIONING:
@@ -89,16 +89,16 @@
  * --------------
  * - scripts/download-whisper-model.sh: Downloads models to /public/models/
  * - scripts/check-whisper-update.sh: Checks for model updates from CDN
- * - frontend/src/services/transcription/modes/OnDeviceWhisper.ts: Uses the cached models
+ * - frontend/src/services/transcription/modes/PrivateWhisper.ts: Uses the cached models
  * - frontend/src/hooks/useSpeechRecognition/index.ts: Manages loading state
  * 
  * E2E TESTS:
  * ----------
- * - tests/e2e/ondevice-stt.e2e.spec.ts: UX flow, caching, P1 regression
+ * - tests/e2e/private-stt.e2e.spec.ts: UX flow, caching, P1 regression
  * 
  * DOCUMENTATION:
  * --------------
- * See docs/ARCHITECTURE.md > "On-Device STT (Whisper) & Service Worker Caching"
+ * See docs/ARCHITECTURE.md > "Private STT (Whisper) & Service Worker Caching"
  * 
  * ============================================================================
  */
@@ -123,38 +123,51 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
     const url = event.request.url;
+    const path = new URL(url).pathname;
 
-    // Check if the URL matches any of our mapped remote URLs
-    if (URL_MAPPINGS[url]) {
-        const localPath = URL_MAPPINGS[url];
-        console.log(`[ServiceWorker] Intercepting ${url} -> Checking cache / fallback to local: ${localPath}`);
+    // 1. Check if this is a remote model URL we should intercept
+    const isRemoteModel = !!URL_MAPPINGS[url] || (url.includes('whisper-tiny') && url.endsWith('tokenizer.json'));
+
+    // 2. Check if this is a local request to our model directory
+    const isLocalModelRequest = path.startsWith('/models/') && (path.endsWith('.bin') || path.endsWith('.json'));
+
+    // 3. Bypass for internal SW fetches to avoid infinite recursion
+    const isInternalFetch = url.includes('sw-internal=true');
+
+    if ((isRemoteModel || isLocalModelRequest) && !isInternalFetch) {
+        const localPath = isRemoteModel ? (URL_MAPPINGS[url] || '/models/tokenizer.json') : path;
+        console.log(`[ServiceWorker] 🔍 Intercepting: ${url} -> ${localPath}`);
 
         event.respondWith(
-            caches.open(MODEL_CACHE_NAME).then((cache) => {
-                // 1. Check cache for the ORIGINAL request (Remote URL)
-                return cache.match(event.request).then((cachedResponse) => {
-                    if (cachedResponse) {
-                        console.log(`[ServiceWorker] Serving from cache: ${url}`);
-                        return cachedResponse;
-                    }
+            caches.open(MODEL_CACHE_NAME).then(async (cache) => {
+                const cachedResponse = await cache.match(localPath);
+                if (cachedResponse) {
+                    console.log(`[ServiceWorker] ✅ Serving from cache: ${localPath}`);
+                    return cachedResponse;
+                }
 
-                    // 2. If miss, fetch from LOCAL path (bundled assets)
-                    console.log(`[ServiceWorker] Cache miss. Fetching local asset: ${localPath}`);
-                    return fetch(localPath).then((response) => {
-                        if (!response.ok) {
-                            console.warn(`[ServiceWorker] Local asset missing: ${localPath}. Falling back to network.`);
-                            // 3. Fallback: Fetch original remote URL
+                console.log(`[ServiceWorker] ❌ Cache miss. Fetching from network: ${localPath}`);
+                try {
+                    // Add bypass param to avoid re-interception
+                    const bypassUrl = `${localPath}${localPath.includes('?') ? '&' : '?'}sw-internal=true`;
+                    const response = await fetch(bypassUrl);
+
+                    if (!response.ok) {
+                        if (isRemoteModel) {
+                            console.warn(`[ServiceWorker] Local ${localPath} failed, falling back to remote CDN: ${url}`);
                             return fetch(event.request);
                         }
-
-                        // 4. Store the response in cache under the ORIGINAL request key
-                        cache.put(event.request, response.clone());
                         return response;
-                    }).catch((err) => {
-                        console.error(`[ServiceWorker] Error fetching local asset: ${err}`);
-                        return fetch(event.request);
-                    });
-                });
+                    }
+
+                    console.log(`[ServiceWorker] 💾 Caching and serving: ${localPath}`);
+                    cache.put(localPath, response.clone());
+                    return response;
+                } catch (err) {
+                    console.error(`[ServiceWorker] Fetch error for ${localPath}:`, err);
+                    if (isRemoteModel) return fetch(event.request);
+                    throw err;
+                }
             })
         );
     }

@@ -8,12 +8,12 @@ interface ITranscriptionService {
   startTranscription: () => Promise<void>;
   stopTranscription: () => Promise<string>;
   destroy: () => Promise<void>;
-  getMode: () => 'native' | 'cloud' | 'on-device' | null;
+  getMode: () => 'native' | 'cloud' | 'private' | null;
 }
 
 interface ForceOptions {
   forceCloud?: boolean;
-  forceOnDevice?: boolean;
+  forcePrivate?: boolean;
   forceNative?: boolean;
 }
 
@@ -50,6 +50,7 @@ export const useTranscriptionService = (options: TranscriptionServiceOptions) =>
           onModeChange: setCurrentMode,
         };
 
+        console.log('[useTranscriptionService] Creating new service with forceOptions:', forceOptionsRef.current);
         const service = new TranscriptionService({
           ...wrappedOptions,
           ...forceOptionsRef.current,

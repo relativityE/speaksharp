@@ -29,23 +29,23 @@ export interface TranscriptionServiceOptions {
   getAssemblyAIToken: () => Promise<string | null>;
   customVocabulary?: string[];
   forceCloud?: boolean;
-  forceOnDevice?: boolean;
+  forcePrivate?: boolean;
   forceNative?: boolean;
-  onModeChange?: (mode: 'native' | 'cloud' | 'on-device' | null) => void;
+  onModeChange?: (mode: 'native' | 'cloud' | 'private' | null) => void;
 }
 
 export default class TranscriptionService {
-  private mode: 'native' | 'cloud' | 'on-device' | null = null;
+  private mode: 'native' | 'cloud' | 'private' | null = null;
   private onTranscriptUpdate: (update: TranscriptUpdate) => void;
   private onModelLoadProgress: (progress: number | null) => void;
   private onReady: () => void;
-  private onModeChange?: (mode: 'native' | 'cloud' | 'on-device' | null) => void;
+  private onModeChange?: (mode: 'native' | 'cloud' | 'private' | null) => void;
   private profile: UserProfile | null;
   private session: Session | null;
   private navigate: NavigateFunction;
   private getAssemblyAIToken: () => Promise<string | null>;
   private forceCloud: boolean;
-  private forceOnDevice: boolean;
+  private forcePrivate: boolean;
   private forceNative: boolean;
   private customVocabulary: string[];
   private instance: ITranscriptionMode | null = null;
@@ -57,7 +57,7 @@ export default class TranscriptionService {
     onReady,
     profile,
     forceCloud = false,
-    forceOnDevice = false,
+    forcePrivate = false,
     forceNative = false,
     customVocabulary = [],
     session,
@@ -65,7 +65,8 @@ export default class TranscriptionService {
     getAssemblyAIToken,
     onModeChange,
   }: TranscriptionServiceOptions) {
-    logger.info({ forceCloud, forceOnDevice, forceNative }, `[TranscriptionService] Constructor called`);
+    logger.info({ forceCloud, forcePrivate, forceNative }, `[TranscriptionService] Constructor called`);
+    console.log('[TranscriptionService] Constructor options:', { forceCloud, forcePrivate, forceNative });
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onModelLoadProgress = onModelLoadProgress;
     this.onReady = onReady;
@@ -76,7 +77,7 @@ export default class TranscriptionService {
     this.getAssemblyAIToken = getAssemblyAIToken;
     this.customVocabulary = customVocabulary;
     this.forceCloud = forceCloud;
-    this.forceOnDevice = forceOnDevice;
+    this.forcePrivate = forcePrivate;
     this.forceNative = forceNative;
   }
 
@@ -117,9 +118,9 @@ export default class TranscriptionService {
       customVocabulary: this.customVocabulary,
     };
 
-    const { isTestMode, useMockOnDeviceWhisper } = getTestConfig();
+    const { isTestMode, useMockPrivateWhisper } = getTestConfig();
 
-    if (isTestMode && !useMockOnDeviceWhisper) {
+    if (isTestMode && !useMockPrivateWhisper && !this.forcePrivate) {
       logger.info('[TEST_MODE] Forcing Native Browser mode.');
       this.instance = new NativeBrowser(providerConfig);
       await this.instance.init();
@@ -140,13 +141,16 @@ export default class TranscriptionService {
     }
 
     const isProUser = isPro(this.profile?.subscription_status);
-    const useOnDevice = this.forceOnDevice || (isProUser && this.profile?.preferred_mode === 'on-device');
+    const usePrivate = this.forcePrivate || (isProUser && this.profile?.preferred_mode === 'private');
 
-    if (useOnDevice) {
+    console.log('[TranscriptionService] Decision logic:', { isProUser, usePrivate, forcePrivate: this.forcePrivate, preferred_mode: this.profile?.preferred_mode });
+
+    if (usePrivate) {
+      console.log('[TranscriptionService] Entering Private block');
       logger.info('[TranscriptionService] Attempting to use Private (PrivateWhisper) mode for Pro user.');
 
       let PrivateWhisperClass;
-      if (useMockOnDeviceWhisper) {
+      if (useMockPrivateWhisper) {
         PrivateWhisperClass = (window as Window & { MockPrivateWhisper?: typeof import('./modes/PrivateWhisper').default }).MockPrivateWhisper;
         if (!PrivateWhisperClass) {
           throw new Error('MockPrivateWhisper not found on window - E2E test setup incomplete');
@@ -162,7 +166,7 @@ export default class TranscriptionService {
           await this.instance.init();
           await this.instance.startTranscription(this.mic);
         }
-        this.mode = 'on-device';
+        this.mode = 'private';
         this.onModeChange?.(this.mode);
         return;
       } catch (error) {
@@ -220,7 +224,7 @@ export default class TranscriptionService {
     return this.instance.getTranscript();
   }
 
-  public getMode(): 'native' | 'cloud' | 'on-device' | null {
+  public getMode(): 'native' | 'cloud' | 'private' | null {
     return this.mode;
   }
 

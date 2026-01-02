@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 // Mock IS_TEST_ENVIRONMENT to false so tests can run normally

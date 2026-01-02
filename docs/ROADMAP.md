@@ -15,7 +15,7 @@ Status Key: 🟡 In Progress | 🔴 Not Started | ✅ Complete
 This phase focuses on fixing critical bugs, addressing code health, and ensuring the existing features are reliable and robust.
 
 ### 🚧 Should-Have (Tech Debt)
-- ✅ **Strategic Error Logging (2025-12-11):** Added defensive error logging to OnDeviceWhisper.ts, SessionPage.tsx, AuthPage.tsx. Comprehensive coverage in critical paths.
+- ✅ **Strategic Error Logging (2025-12-11):** Added defensive error logging to PrivateWhisper.ts, SessionPage.tsx, AuthPage.tsx. Comprehensive coverage in critical paths.
 - ✅ **Usage Limit Pre-Check (2025-12-11):** P0 UX fix. New Edge Function `check-usage-limit` validates usage BEFORE session start. Shows toast with Upgrade button if exceeded.
 - ✅ **Screen Reader Accessibility (2025-12-11):** Added `aria-live="polite"` to live transcript for screen reader announcements.
 - ✅ **PDF Export Fix (2025-12-11):** Replaced manual download with FileSaver.js industry standard.
@@ -133,7 +133,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 | **Network Error Shielding** | ✅ FIXED | Added LIFO-ordered catch-all handler for `mock.supabase.co` to prevent `ERR_NAME_NOT_RESOLVED` |
 | **Logout Mock Pattern** | ✅ FIXED | Updated pattern from `**/auth/v1/logout` to `**/auth/v1/logout*` to match query params |
 | **PORTS Import Coupling** | ✅ FIXED | Removed unused `PORTS` import from `playwright.config.ts` (Finding 4/5) |
-| **On-Device Fallback** | ✅ FIXED | Added try-catch with Native Browser fallback if On-Device init fails (Finding 7) |
+| **Private Fallback** | ✅ FIXED | Added try-catch with Native Browser fallback if Private init fails (Finding 7) |
 | **Deferred: Playwright Config Coupling** | ⏸️ DEFERRED | Remove unused `PORTS` import from `playwright.config.ts` (post-alpha) |
 
 ### 🧪 Adversarial Test Suite Hardening (2025-12-19) ✅ P1 Complete
@@ -335,7 +335,7 @@ This phase is about confirming the core feature set works as expected and polish
   - ✅ `EditGoalsDialog` modal (1-20 sessions, 50-100% clarity)
   - ✅ `user_goals` table with RLS
   - ✅ Migrations deployed to production
--  **Deploy & confirm live transcript UI works:** (MANUAL VERIFICATION) Ensure text appears within 2 seconds of speech in a live environment. Test with Cloud (AssemblyAI) and On-Device (Whisper) modes.
+-  **Deploy & confirm live transcript UI works:** (MANUAL VERIFICATION) Ensure text appears within 2 seconds of speech in a live environment. Test with Cloud (AssemblyAI) and Private (Whisper) modes.
 - ✅ **Remove all temporary console.logs:** Clean up the codebase for production.\
 - [ ] **Alpha Deployment Checklist**
     - [ ] Deploy `apply-promo` Edge Function (`supabase functions deploy apply-promo`)
@@ -370,6 +370,8 @@ This phase is about confirming the core feature set works as expected and polish
 - 🔄 **PERPETUAL - Documentation Audit:** Verify PRD Known Issues, ROADMAP, and CHANGELOG match actual codebase state. Run test suite and cross-reference with documented issues to eliminate drift. **Frequency:** Before each release and after major feature work.
 
 ### 🚧 Should-Have (Tech Debt)
+
+- ✅ **Private STT CI Stability (2026-01-01):** Resolved WASM deadlocks and flaky integration tests using Triple-Engine Architecture and MockEngine strategy.
 
 - ⚠️ **Stripe Webhook E2E Verification (2025-12-21):** End-to-end test of Pro signup flow completed via CLI simulation. Confirmed: Auth → Select Pro → Stripe Redirect → Webhook Upgrade → Success Toast. Ad-hoc fix implemented for double toasts (see Tech Debt section below).
 - 🟡 **Toast Notification structural fix:** Replace ad-hoc `useRef` de-duplication with a formal flash message system. (See Tech Debt section below)
@@ -571,7 +573,7 @@ The following items were identified during the audit but deferred to post-alpha 
 | **3. Dependency Alias** | MEDIUM | ⏸️ DEFERRED | Refactor `@config` alias in `vite.config.ts`. |
 | **4. Playwright Config Coupling** | MEDIUM | ⏸️ DEFERRED | Remove unused `PORTS` import in `playwright.config.ts`. |
 | **5. Base Config Coupling** | MEDIUM | ⏸️ DEFERRED | Extract `PORTS` to root-level config to decouple base config. |
-| **7. On-Device Fallback** | HIGH | ⏸️ DEFERRED | Add try-catch block for On-Device initialization failure. |
+| **7. Private Fallback** | HIGH | ⏸️ DEFERRED | Add try-catch block for Private initialization failure. |
 | **11. Mega Component** | HIGH | ⏸️ DEFERRED | Decompose `SessionPage` into smaller sub-components. |
 
 ---
@@ -646,9 +648,9 @@ This phase focuses on hardening the interface between frontend and backend and e
   - *Status:* Partially Implemented. `UpgradePromptDialog` and `PricingPage` exist, but the backend "Pro Mode" flag and full checkout flow are incomplete.
 - ✅ **COMPLETED - Whisper Model Caching & Auto-Update:**
   - ✅ **Script & SW:** `download-whisper-model.sh` and `sw.js` (2025-12-10). Load time: >30s → <5s.
-  - ✅ **Terminology:** Renamed "Local" to "On-Device" (2025-12-11).
+  - ✅ **Terminology:** Renamed "Local" to "Private" (2025-12-11).
   - ✅ **Internal Refactor:** `OnDeviceWhisper` class with 36 references updated (2025-12-11).
-  - ✅ **Documentation (2025-12-15):** Added On-Device STT section to ARCHITECTURE.md with full cache flow, URL mappings, and setup instructions.
+  - ✅ **Documentation (2025-12-15):** Added Private STT section to ARCHITECTURE.md with full cache flow, URL mappings, and setup instructions.
   - ✅ **Cache WASM Model:** Service Worker caches `.bin` and `.wasm` via Cache Storage API.
   - ✅ **Offline Support:** Model loads from cache when offline.
 - 🔴 **Add Platform Integrations (e.g., Zoom, Google Meet):** Allow SpeakSharp to connect to and analyze audio from third-party meeting platforms.

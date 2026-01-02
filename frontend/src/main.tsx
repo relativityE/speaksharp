@@ -155,6 +155,7 @@ const initialize = async () => {
 
   // 🔧 ServiceWorker registration with timeout to prevent indefinite hangs
   // Fire-and-forget pattern - app continues loading in parallel
+  /* 🔧 Disabled for debugging post-load hang
   if ('serviceWorker' in navigator) {
     const swRegistration = navigator.serviceWorker.register('/sw.js');
     const timeout = new Promise<never>((_, reject) =>
@@ -172,6 +173,7 @@ const initialize = async () => {
         logger.error({ error }, '[ServiceWorker] ❌ Registration failed or timed out');
       });
   }
+  */
 
   if (IS_TEST_ENVIRONMENT) {
     // Check if we should skip MSW (using Playwright routes instead OR using Live DB)

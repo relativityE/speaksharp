@@ -35,7 +35,12 @@ export default defineConfig(({ mode }) => {
     },
     preview: {
       host: '127.0.0.1',
-      port: PORTS.PREVIEW
+      port: PORTS.PREVIEW,
+      strictPort: true, // Fail fast if port is taken by a zombie
+      headers: {
+        'Cross-Origin-Opener-Policy': 'same-origin',
+        'Cross-Origin-Embedder-Policy': 'require-corp',
+      }
     },
     build: {
       target: 'esnext',

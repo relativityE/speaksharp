@@ -50,7 +50,7 @@ export const SessionPage: React.FC = () => {
 
     const [customWords] = useState<string[]>([]);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-    const [mode, setMode] = useState<'cloud' | 'native' | 'on-device'>('native');
+    const [mode, setMode] = useState<'cloud' | 'native' | 'private'>('native');
     const [showPromoExpiredDialog, setShowPromoExpiredDialog] = useState(false);
     const startTimeRef = useRef<number | null>(null);
     // Rate-limited debug canary ref
@@ -71,7 +71,7 @@ export const SessionPage: React.FC = () => {
     useEffect(() => {
         if (activeMode && activeMode !== mode) {
             console.log(`[SessionPage] Syncing mode state to active transcription mode: ${activeMode}`);
-            setMode(activeMode as 'cloud' | 'native' | 'on-device');
+            setMode(activeMode as 'cloud' | 'native' | 'private');
         }
     }, [activeMode, mode]);
 
@@ -224,7 +224,7 @@ export const SessionPage: React.FC = () => {
                 console.log('[SessionPage] Starting session with mode:', mode);
                 await startListening({
                     forceNative: mode === 'native',
-                    forceOnDevice: mode === 'on-device',
+                    forcePrivate: mode === 'private',
                     forceCloud: mode === 'cloud'
                 });
                 // Track session start

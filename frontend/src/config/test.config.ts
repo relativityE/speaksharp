@@ -7,7 +7,7 @@ export const getTestConfig = () => {
 
     return {
         isTestMode: !!(win.TEST_MODE || import.meta.env.VITE_TEST_MODE === 'true'),
-        useMockOnDeviceWhisper: !!win.__E2E_MOCK_LOCAL_WHISPER__,
+        useMockPrivateWhisper: !!win.__E2E_MOCK_LOCAL_WHISPER__,
         mockSession: !!win.__E2E_MOCK_SESSION__,
         // Helper to check if we should skip heavy inits
         shouldSkipMicInit: !!win.__E2E_MOCK_SESSION__,

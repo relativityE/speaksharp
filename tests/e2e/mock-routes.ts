@@ -85,7 +85,7 @@ export const MOCK_SESSION_HISTORY = [
         duration: 300,
         title: 'DevOps Vocabulary Practice',
         total_words: 165,
-        engine: 'On-Device',
+        engine: 'Private',
         clarity_score: 85.0,
         wpm: 33.0,
         filler_words: { um: { count: 3 }, uh: { count: 2 }, total: { count: 5 } },
@@ -109,7 +109,7 @@ export const MOCK_SESSION_HISTORY = [
         duration: 540,
         title: 'System Design Presentation',
         total_words: 320,
-        engine: 'On-Device',
+        engine: 'Private',
         clarity_score: 94.0,
         wpm: 35.5,
         filler_words: { um: { count: 1 }, total: { count: 1 } },
@@ -154,6 +154,7 @@ async function registerRoute(
 export async function setupSupabaseAuthMocks(page: Page): Promise<void> {
     // GET /auth/v1/user
     await registerRoute(page, '**/auth/v1/user', async (route) => {
+        console.log('[E2E MOCK] Fulfilling auth/v1/user');
         await route.fulfill({
             status: 200,
             contentType: 'application/json',
@@ -207,6 +208,8 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
             profile = { ...MOCK_USER_PROFILE, ...profileOverride };
         }
 
+        const userId = 'test-user-123';
+        console.log(`[E2E MOCK] Fulfilling user_profiles for: ${userId}`);
         await route.fulfill({
             status: 200,
             contentType: 'application/json',

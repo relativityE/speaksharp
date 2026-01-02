@@ -40,7 +40,7 @@ export interface SessionSidebarProps {
     isListening: boolean;
     isReady: boolean;
     error: Error | null;
-    startListening: (options: { forceCloud?: boolean; forceOnDevice?: boolean; forceNative?: boolean }) => Promise<void>;
+    startListening: (options: { forceCloud?: boolean; forcePrivate?: boolean; forceNative?: boolean }) => Promise<void>;
     stopListening: () => Promise<Partial<PracticeSession> | null>;
     reset: () => void;
     actualMode: string | null;
@@ -115,7 +115,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
     const isProUser = checkIsPro(profile?.subscription_status);
     const canAccessAdvancedModes = isProUser || isDevUser;
 
-    type Mode = 'cloud' | 'on-device' | 'native';
+    type Mode = 'cloud' | 'private' | 'native';
     const [selectedMode, setSelectedMode] = useState<Mode>(canAccessAdvancedModes ? 'cloud' : 'native');
 
     const [showEndSessionDialog, setShowEndSessionDialog] = useState(false);
@@ -213,7 +213,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
             const finalMode = canAccessAdvancedModes ? selectedMode : 'native';
             await startListening({
                 forceCloud: finalMode === 'cloud',
-                forceOnDevice: finalMode === 'on-device',
+                forcePrivate: finalMode === 'private',
                 forceNative: finalMode === 'native',
             });
         }
@@ -249,13 +249,13 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                                 <Button variant="outline" className="w-full" disabled={isListening || isModelLoading || isConnecting}>
-                                    {selectedMode === 'cloud' ? 'Cloud' : selectedMode === 'on-device' ? 'Private' : 'Native'}
+                                    {selectedMode === 'cloud' ? 'Cloud' : selectedMode === 'private' ? 'Private' : 'Native'}
                                 </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent className="w-56">
                                 <DropdownMenuRadioGroup value={selectedMode} onValueChange={(value) => setSelectedMode(value as Mode)}>
                                     <DropdownMenuRadioItem value="cloud" disabled={!canAccessAdvancedModes}>Cloud</DropdownMenuRadioItem>
-                                    <DropdownMenuRadioItem value="on-device" disabled={!canAccessAdvancedModes}>Private</DropdownMenuRadioItem>
+                                    <DropdownMenuRadioItem value="private" disabled={!canAccessAdvancedModes}>Private</DropdownMenuRadioItem>
                                     <DropdownMenuRadioItem value="native">Native</DropdownMenuRadioItem>
                                 </DropdownMenuRadioGroup>
                             </DropdownMenuContent>

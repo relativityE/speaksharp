@@ -8,5 +8,5 @@ export interface UserProfile {
   subscription_id?: string;
   created_at: string;
   updated_at?: string;
-  preferred_mode?: 'native' | 'cloud' | 'on-device';
+  preferred_mode?: 'native' | 'cloud' | 'private';
 }

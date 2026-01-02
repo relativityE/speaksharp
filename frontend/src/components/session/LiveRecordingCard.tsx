@@ -11,7 +11,8 @@ import {
     DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu';
 
-export type RecordingMode = 'cloud' | 'native' | 'on-device';
+const VERSION_ID = 'RUN_2026_01_02_10AM'; // Execution Proof
+export type RecordingMode = 'cloud' | 'native' | 'private';
 
 interface LiveRecordingCardProps {
     // State
@@ -49,15 +50,16 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
         switch (m) {
             case 'native':
                 return 'Native';
-            case 'on-device':
+            case 'private':
                 return 'Private';
             case 'cloud':
                 return 'Cloud';
         }
     };
 
+    console.log(`[LiveRecordingCard] 🚀 VERSION: ${VERSION_ID} | Mode: ${mode}`);
     return (
-        <div className="bg-card border border-border rounded-lg shadow-elegant">
+        <div className="bg-card border border-border rounded-lg shadow-elegant" data-testid="live-recording-card">
             <div className="p-8">
                 <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-4">
@@ -77,7 +79,7 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
                                     <DropdownMenuRadioItem value="native">
                                         Native (Browser)
                                     </DropdownMenuRadioItem>
-                                    <DropdownMenuRadioItem value="on-device" disabled={!isProUser}>
+                                    <DropdownMenuRadioItem value="private" disabled={!isProUser}>
                                         Private (Whisper) {!isProUser && '(Pro)'}
                                     </DropdownMenuRadioItem>
                                     <DropdownMenuRadioItem value="cloud" disabled={!isProUser}>

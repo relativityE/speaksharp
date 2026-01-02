@@ -29,6 +29,6 @@ export interface TranscriptStats {
 
 export interface ForceOptions {
   forceCloud?: boolean;
-  forceOnDevice?: boolean;
+  forcePrivate?: boolean;
   forceNative?: boolean;
 }

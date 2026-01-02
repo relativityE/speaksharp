@@ -44,7 +44,7 @@ vi.mock('../utils/audioUtils', () => ({
   })
 }));
 
-// Mock getTestConfig to return isTestMode: false so we can test Cloud/OnDevice modes
+// Mock getTestConfig to return isTestMode: false so we can test Cloud/Private modes
 // In real tests, VITE_TEST_MODE=true would force Native mode
 vi.mock('@/config/test.config', () => ({
   getTestConfig: vi.fn(() => ({
@@ -122,7 +122,7 @@ describe('TranscriptionService', () => {
 
     service = new TranscriptionService({
       ...mockOptions,
-      profile: { subscription_status: 'pro', preferred_mode: 'on-device' } as any,
+      profile: { subscription_status: 'pro', preferred_mode: 'private' } as any,
     });
 
     await service.init();

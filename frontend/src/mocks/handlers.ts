@@ -154,7 +154,7 @@ export const handlers: RequestHandler[] = [
         transcript: 'In this session I focused on explaining Kubernetes orchestration and CI/CD pipelines.',
         title: 'DevOps Vocabulary Practice',
         total_words: 165,
-        engine: 'On-Device',
+        engine: 'Private',
         clarity_score: 85.0,
         wpm: 33.0,
         filler_words: {
@@ -190,7 +190,7 @@ export const handlers: RequestHandler[] = [
         transcript: 'This was my most fluent session yet! I discussed cloud architecture, serverless computing, and how SpeakSharp has helped me become a more confident speaker.',
         title: 'Cloud Architecture Deep Dive',
         total_words: 320,
-        engine: 'On-Device',
+        engine: 'Private',
         clarity_score: 95.8,
         wpm: 40.0,
         filler_words: {
