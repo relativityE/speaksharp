@@ -1699,7 +1699,7 @@ The database schema is designed for performance and reliability, ensuring that a
 
 ## 5. Feature Architecture
 
-### 5.1 Custom Vocabulary
+### 5.1 User Filler Words
 *   **Definition:** User's personalized filler words to track, in addition to default filler words ("um", "uh", "like", "you know"). For example, a user might add "basically" or "literally" as words they want to track and reduce in their speech.
 *   **Purpose:** Allows Pro users to add domain-specific terms to improve transcription accuracy and personalize filler word detection.
 *   **Data Model:** `custom_vocabulary` table in Supabase (linked to `users`).
@@ -1731,7 +1731,7 @@ The Domain Services Layer centralizes all Supabase database access, providing a 
 |---------|---------|---------|
 | `sessionService` | Practice session CRUD | `getHistory()`, `getById()`, `create()`, `update()`, `delete()` |
 | `profileService` | User profile management | `getById()`, `update()` |
-| `vocabularyService` | Custom vocabulary | `getWords()`, `addWord()`, `removeWord()` |
+| `userFillerWordsService` | User filler words | `getWords()`, `addWord()`, `removeWord()` |
 | `goalsService` | User goals | `get()`, `upsert()` |
 
 **Design Benefits:**

@@ -475,7 +475,7 @@ This phase is about confirming the core feature set works as expected and polish
   - Snapshots committed to repository for CI comparison
 - **✅ COMPLETED - UX/UI Test Plan Execution:**
   - **Scope**: 14 complete user journeys covering all features
-  - **Coverage**: All 3 STT modes (Local Device, Native, Cloud), authentication, session recording, analytics, custom vocabulary, accessibility, mobile responsiveness
+  - **Coverage**: All 3 STT modes (Local Device, Native, Cloud), authentication, session recording, analytics, user filler words, accessibility, mobile responsiveness
   - **Deliverables**: 
     - Visual regression baseline snapshots (generated)
     - Bug reports documented in ROADMAP Tech Debt section
