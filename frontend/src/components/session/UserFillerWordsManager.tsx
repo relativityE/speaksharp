@@ -3,20 +3,20 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Plus, X } from 'lucide-react';
-import { useCustomVocabulary } from '@/hooks/useCustomVocabulary';
+import { useUserFillerWords } from '@/hooks/useUserFillerWords';
 import { VOCABULARY_LIMITS } from '@/config';
 
-export const CustomVocabularyManager: React.FC = () => {
+export const UserFillerWordsManager: React.FC = () => {
     const [newWord, setNewWord] = useState('');
     const {
-        vocabulary,
+        fullVocabularyObjects: vocabulary, // Renamed in hook, mapping here
         isLoading,
         addWord,
         removeWord,
         isAdding,
         isRemoving,
-        addError
-    } = useCustomVocabulary();
+        error: addError // Hook returns error as 'error', mapping to addError
+    } = useUserFillerWords();
 
     // Simplified dynamic capacity: Start at 100, expand in 100-word increments as needed
     const currentCount = vocabulary.length;
@@ -28,42 +28,40 @@ export const CustomVocabularyManager: React.FC = () => {
 
     const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
-        console.log('[CustomVocabularyManager] handleSubmit called, newWord:', newWord);
+        console.log('[UserFillerWordsManager] handleSubmit called, newWord:', newWord);
 
         if (newWord.trim()) {
-            console.log('[CustomVocabularyManager] Calling addWord mutation with:', newWord.trim());
+            console.log('[UserFillerWordsManager] Calling addWord mutation with:', newWord.trim());
             try {
                 addWord(newWord.trim(), {
                     onSuccess: () => {
-                        console.log('[CustomVocabularyManager] onSuccess callback - clearing input');
+                        console.log('[UserFillerWordsManager] onSuccess callback - clearing input');
                         setNewWord('');
                     },
                     onError: (error) => {
-                        console.error('[CustomVocabularyManager] onError callback:', error);
+                        console.error('[UserFillerWordsManager] onError callback:', error);
                     }
                 });
             } catch (error) {
-                console.error('[CustomVocabularyManager] Error calling addWord:', error);
+                console.error('[UserFillerWordsManager] Error calling addWord:', error);
             }
         } else {
-            console.log('[CustomVocabularyManager] newWord is empty after trim, not submitting');
+            console.log('[UserFillerWordsManager] newWord is empty after trim, not submitting');
         }
     };
-
-
 
     return (
         <Card>
             <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                    Custom Vocabulary
+                    User Filler Words
                     <span className={`text-sm font-normal ${isAtLimit ? 'text-destructive' : 'text-muted-foreground'}`}>
                         ({vocabulary.length}/{maxWords})
                     </span>
                 </CardTitle>
                 <CardDescription>
-                    Add technical terms, jargon, or names to improve transcription accuracy.
-                    Capacity expands automatically in 100-word increments.
+                    Add words you frequently use as fillers so SpeakSharp can detect and count them.
+                    Includes technical terms, names, or specific phrases.
                 </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -73,7 +71,7 @@ export const CustomVocabularyManager: React.FC = () => {
                         type="text"
                         value={newWord}
                         onChange={(e) => setNewWord(e.target.value)}
-                        placeholder="e.g., SpeakSharp, AI-powered"
+                        placeholder="e.g., literally, basic, essentially"
                         disabled={isAdding || isAtLimit}
                         className="flex-1"
                     />
@@ -124,7 +122,7 @@ export const CustomVocabularyManager: React.FC = () => {
                     </div>
                 ) : (
                     <p className="text-sm text-muted-foreground text-center py-4">
-                        No custom words yet. Add your first word above!
+                        No custom filler words yet. Add your first word above!
                     </p>
                 )}
             </CardContent>

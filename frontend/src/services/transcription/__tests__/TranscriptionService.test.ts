@@ -82,10 +82,10 @@ describe('TranscriptionService', () => {
     expect(service.getMode()).toBe('native');
   });
 
-  it('should use CloudAssemblyAI for Pro policy', async () => {
+  it('should use CloudAssemblyAI for Pro policy with cloud preference', async () => {
     service = new TranscriptionService({
       ...mockOptions,
-      policy: PROD_PRO_POLICY,
+      policy: { ...PROD_PRO_POLICY, preferredMode: 'cloud' },
     });
     await service.init();
     await service.startTranscription();

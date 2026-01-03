@@ -78,10 +78,11 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
 
         try {
             // transformers.js expects audio samples at 16kHz
-            // Note: Float32Array is accepted at runtime but the pipeline has
-            // overly complex typing. Use explicit any to bypass.
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const result = await (this.transcriber as any)(audio, {
+            // The pipeline's call signature is complex; use a typed result interface
+            interface TranscriptionResult {
+                text?: string;
+            }
+            const result = await (this.transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(audio, {
                 chunk_length_s: 30,
                 stride_length_s: 5,
                 return_timestamps: false,
@@ -90,7 +91,7 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
             // Extract text from result
             const text = typeof result === 'string'
                 ? result
-                : (result as { text?: string }).text ?? '';
+                : (result as TranscriptionResult).text ?? '';
 
             return Result.ok(text);
         } catch (error) {

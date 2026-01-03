@@ -286,8 +286,8 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
         });
     });
 
-    // GET/POST /rest/v1/custom_vocabulary
-    await registerRoute(page, '**/rest/v1/custom_vocabulary*', async (route) => {
+    // GET/POST /rest/v1/user_filler_words
+    await registerRoute(page, '**/rest/v1/user_filler_words*', async (route) => {
         const method = route.request().method();
 
         if (method === 'GET') {
@@ -300,7 +300,11 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
                 body: JSON.stringify(words),
             });
         } else if (method === 'POST') {
-            const body = JSON.parse(route.request().postData() || '{}');
+            let body = JSON.parse(route.request().postData() || '{}');
+            // Handle array payload (Supabase insert sends array)
+            if (Array.isArray(body)) {
+                body = body[0] || {};
+            }
             const userId = body.user_id || 'test-user-123';
 
             const newWord = {

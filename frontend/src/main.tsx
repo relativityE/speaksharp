@@ -191,8 +191,7 @@ const initialize = async () => {
       console.log('[E2E] Mock speech recognition and dispatchMockTranscript configured');
 
       // Set mswReady immediately since we're not using MSW
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (window as any).mswReady = true;
+      (window as unknown as { mswReady: boolean }).mswReady = true;
       window.dispatchEvent(new CustomEvent('e2e:msw-ready'));
 
       await renderApp();

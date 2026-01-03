@@ -53,7 +53,7 @@ We track "um", "uh", "like", "so", and "you know". Our **Top 2 Filler Words** in
 | **Session Length** | Max 20 Minutes | **Unlimited** |
 | **Cloud AI Transcription** | ❌ No | ✅ **High Accuracy** |
 | **On-Device (Privacy) Mode** | ❌ No | ✅ **Enabled** |
-| **Custom Vocabulary** | 10 Words | **100 Words** |
+| **User Filler Words** | 10 Words | **100 Words** |
 | **PDF Exports** | ✅ Yes | ✅ **Priority Support** |
 
 ---

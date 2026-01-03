@@ -202,7 +202,7 @@ export const vocabularyService = {
     async getWords(userId: string): Promise<CustomWord[]> {
         const supabase = getClient();
         const { data, error } = await supabase
-            .from('custom_vocabulary')
+            .from('user_filler_words')
             .select('*')
             .eq('user_id', userId)
             .order('created_at', { ascending: false });
@@ -221,7 +221,7 @@ export const vocabularyService = {
     async addWord(userId: string, word: string): Promise<CustomWord> {
         const supabase = getClient();
         const { data, error } = await supabase
-            .from('custom_vocabulary')
+            .from('user_filler_words')
             .insert({ user_id: userId, word: word.toLowerCase().trim() })
             .select()
             .single();
@@ -240,7 +240,7 @@ export const vocabularyService = {
     async removeWord(wordId: string): Promise<void> {
         const supabase = getClient();
         const { error } = await supabase
-            .from('custom_vocabulary')
+            .from('user_filler_words')
             .delete()
             .eq('id', wordId);
 

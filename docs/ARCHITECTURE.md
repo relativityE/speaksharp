@@ -102,7 +102,7 @@ This section contains a high-level block diagram of the SpeakSharp full-stack ar
 │  │useSpeechRecognit* │  │  │  │  │  assemblyai-token │  │
 │  │ (DECOMPOSED)      │  │  │  │  │  stripe-checkout  │  │
 │  │ ├─useTranscript   │  │  │  │  └───────────────────┘  │
-│  │ ├─useFillerWords  │  │  │  │                         │
+│  │ ├─useUserFillerWords│  │  │  │                         │
 │  │ ├─useTranscSvc    │  │  │  └─────────────────────────┘
 │  │ ├─useSessionTimer │  │  │
 │  │ └─useVocalAnalys  │  │  │  ┌─────────────────────────┐

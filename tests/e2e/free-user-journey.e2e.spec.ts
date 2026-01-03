@@ -73,7 +73,7 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
         await expect(page.getByText('Session Settings')).toBeVisible();
 
         // 2. Add word
-        const customWordInput = page.getByPlaceholder(/e.g., SpeakSharp, AI-powered/i);
+        const customWordInput = page.getByPlaceholder(/literally/i);
         await customWordInput.fill('Antigravity');
         const addButton = page.getByRole('button', { name: /add/i }).first();
         await addButton.click();

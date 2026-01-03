@@ -26,6 +26,8 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
   const toastIdRef = useRef<string | number | null>(null);
 
   const transcript = useTranscriptState();
+  // Extract stable method references to avoid object identity issues in useMemo deps
+  const { setInterimTranscript, addChunk } = transcript;
   const fillerWords = useFillerWords(transcript.finalChunks, transcript.interimTranscript, customWords);
   const vocalAnalysis = useVocalAnalysis(false); // We'll enable this when we have mic access
 
@@ -68,12 +70,12 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
       logger.info({ data }, '[useSpeechRecognition] onTranscriptUpdate received data');
       if (data.transcript?.partial && !data.transcript.partial.startsWith('Downloading model')) {
         logger.info({ partial: data.transcript.partial }, '[useSpeechRecognition] Setting interim transcript');
-        transcript.setInterimTranscript(data.transcript.partial);
+        setInterimTranscript(data.transcript.partial);
       }
       if (data.transcript?.final) {
         logger.info({ final: data.transcript.final }, '[useSpeechRecognition] Adding final chunk');
-        transcript.addChunk(data.transcript.final, data.speaker);
-        transcript.setInterimTranscript('');
+        addChunk(data.transcript.final, data.speaker);
+        setInterimTranscript('');
       }
     },
     onReady: () => {
@@ -139,8 +141,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     navigate,
     getAssemblyAIToken,
     customVocabulary,
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- transcript methods are stable, but object reference changes frequently
-  }), [session, navigate, getAssemblyAIToken, customVocabulary]);
+  }), [profile, session, navigate, getAssemblyAIToken, customVocabulary, setInterimTranscript, addChunk]);
 
   const service = useTranscriptionService(serviceOptions);
   const sessionTimer = useSessionTimer(service.isListening);

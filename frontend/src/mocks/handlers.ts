@@ -202,8 +202,8 @@ export const handlers: RequestHandler[] = [
     return HttpResponse.json(mockSessionHistory);
   }),
 
-  // Custom Vocabulary endpoints (STATEFUL with PostgREST parsing)
-  http.get('*/rest/v1/custom_vocabulary*', ({ request }) => {
+  // User Filler Words endpoints (STATEFUL with PostgREST parsing)
+  http.get('*/rest/v1/user_filler_words*', ({ request }) => {
     const url = new URL(request.url);
 
     // PostgREST format: ?user_id=eq.test-user-123
@@ -225,8 +225,8 @@ export const handlers: RequestHandler[] = [
     return HttpResponse.json(userWords);
   }),
 
-  http.post('*/rest/v1/custom_vocabulary*', async ({ request }) => {
-    console.log('[MSW POST] Intercepted: POST /rest/v1/custom_vocabulary');
+  http.post('*/rest/v1/user_filler_words*', async ({ request }) => {
+    console.log('[MSW POST] Intercepted: POST /rest/v1/user_filler_words');
     const body = await request.json() as { word: string; user_id?: string };
     const userId = body.user_id || 'test-user-123';
 
@@ -249,8 +249,8 @@ export const handlers: RequestHandler[] = [
     return HttpResponse.json(newWord);
   }),
 
-  http.delete('*/rest/v1/custom_vocabulary*', ({ request }) => {
-    console.log('[MSW DELETE] Intercepted: DELETE /rest/v1/custom_vocabulary');
+  http.delete('*/rest/v1/user_filler_words*', ({ request }) => {
+    console.log('[MSW DELETE] Intercepted: DELETE /rest/v1/user_filler_words');
     const url = new URL(request.url);
 
     // PostgREST format: ?id=eq.mock-word-123
