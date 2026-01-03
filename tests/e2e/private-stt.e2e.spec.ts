@@ -42,7 +42,7 @@ declare global {
 test.describe('Private STT (Whisper)', () => {
 
     test('should show download progress on first use', async ({ page }) => {
-        await programmaticLoginWithRoutes(page);
+        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
         await navigateToRoute(page, '/session');
         await page.waitForSelector('[data-testid="app-main"]');
 
@@ -89,7 +89,7 @@ test.describe('Private STT (Whisper)', () => {
     });
 
     test('should load instantly from cache (no progress indicator)', async ({ page }) => {
-        await programmaticLoginWithRoutes(page);
+        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
         await navigateToRoute(page, '/session');
 
         await page.evaluate(() => {
@@ -119,7 +119,7 @@ test.describe('Private STT (Whisper)', () => {
     });
 
     test('should show Private option in mode selector for Pro users', async ({ page }) => {
-        await programmaticLoginWithRoutes(page);
+        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
         await navigateToRoute(page, '/session');
 
         await page.getByRole('button', { name: /cloud|private|native/i }).click();
@@ -136,7 +136,7 @@ test.describe('Private STT (Whisper)', () => {
     });
 
     test('should show toast notification when model loads', async ({ page }) => {
-        await programmaticLoginWithRoutes(page);
+        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
         await navigateToRoute(page, '/session');
 
         // Clear IndexedDB and set mock flag
@@ -169,7 +169,7 @@ test.describe('Private STT (Whisper)', () => {
          * Root Cause: modelLoadingProgress wasn't reset on stop/reset
          * This test ensures the bug doesn't regress.
          */
-        await programmaticLoginWithRoutes(page);
+        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
         await navigateToRoute(page, '/session');
         await page.waitForSelector('[data-testid="app-main"]');
 

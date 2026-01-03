@@ -2,25 +2,25 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import PrivateWhisper from '../modes/PrivateWhisper';
 import { MicStream } from '../utils/types';
 
-// Mock the whisper-turbo library
-vi.mock('whisper-turbo', () => {
-  return {
-    SessionManager: vi.fn().mockImplementation(() => ({
-      loadModel: vi.fn().mockResolvedValue({
-        isErr: false,
-        value: {
-          transcribe: vi.fn().mockResolvedValue({
-            isErr: false,
-            value: { text: 'Test transcript' }
-          })
-        }
-      })
-    })),
-    AvailableModels: {
-      WHISPER_TINY: 'tiny'
-    }
-  };
+// Mock the PrivateSTT facade
+const mockTranscribe = vi.fn().mockResolvedValue({
+  isOk: true,
+  value: 'Test transcript'
 });
+
+const mockInit = vi.fn().mockResolvedValue({
+  isOk: true,
+  value: 'mock-engine'
+});
+
+vi.mock('../engines', () => ({
+  createPrivateSTT: vi.fn().mockImplementation(() => ({
+    init: mockInit,
+    transcribe: mockTranscribe,
+    getEngineType: vi.fn().mockReturnValue('mock-engine'),
+    destroy: vi.fn().mockResolvedValue(undefined)
+  }))
+}));
 
 describe('PrivateWhisper (whisper-turbo backend)', () => {
   let privateWhisper: PrivateWhisper;

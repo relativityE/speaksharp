@@ -2,8 +2,16 @@
   "compilerOptions": {
     "module": "esnext",
     "target": "esnext",
-    "types": [],
-    "isolatedModules": true
+    "moduleResolution": "node",
+    "types": [
+      "node"
+    ],
+    "isolatedModules": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true
   },
-  "include": ["tests/e2e"]
+  "include": [
+    "tests",
+    "playwright.*.config.ts"
+  ]
 }

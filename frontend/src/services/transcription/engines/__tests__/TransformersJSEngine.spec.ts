@@ -43,9 +43,8 @@ describe('TransformersJSEngine (Safe Path)', () => {
         const result = await engine.transcribe(float32Audio);
 
         expect(result.isOk).toBe(true);
-        if (result.isOk) {
-            expect(result.value).toBe("Hello CPU");
-        }
+        // Assert result.isOk is true to satisfy type narrowing
+        expect((result as { isOk: true; value: string }).value).toBe("Hello CPU");
         expect(mockPipe).toHaveBeenCalledWith(
             float32Audio,
             expect.objectContaining({

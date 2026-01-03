@@ -13,7 +13,7 @@ import { Session } from '@supabase/supabase-js';
 import * as Sentry from "@sentry/react";
 import ConfigurationNeededPage from "./pages/ConfigurationNeededPage";
 import App from './App';
-import { IS_TEST_ENVIRONMENT, SW_TIMEOUT_MS } from '@/config/env';
+import { IS_TEST_ENVIRONMENT } from '@/config/env';
 
 const REQUIRED_ENV_VARS: string[] = [
   'VITE_SUPABASE_URL',

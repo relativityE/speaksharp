@@ -2,15 +2,12 @@ import React, { useState, FormEvent } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Plus, X, Crown } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 import { useCustomVocabulary } from '@/hooks/useCustomVocabulary';
-import { useUserProfile } from '@/hooks/useUserProfile';
 import { VOCABULARY_LIMITS } from '@/config';
-import { isPro as checkIsPro } from '@/constants/subscriptionTiers';
 
 export const CustomVocabularyManager: React.FC = () => {
     const [newWord, setNewWord] = useState('');
-    const { data: profile } = useUserProfile();
     const {
         vocabulary,
         isLoading,
@@ -21,12 +18,13 @@ export const CustomVocabularyManager: React.FC = () => {
         addError
     } = useCustomVocabulary();
 
-    const isProUser = checkIsPro(profile?.subscription_status);
-    const maxWords = isProUser
-        ? VOCABULARY_LIMITS.MAX_WORDS_PER_USER
-        : Math.min(VOCABULARY_LIMITS.MAX_WORDS_PER_USER, VOCABULARY_LIMITS.MAX_WORDS_FREE);
-    const isAtLimit = vocabulary.length >= maxWords;
-    const isNearLimit = !isProUser && vocabulary.length >= maxWords - 2; // Show nudge at 8/10 words
+    // Simplified dynamic capacity: Start at 100, expand in 100-word increments as needed
+    const currentCount = vocabulary.length;
+    const maxWords = Math.max(
+        VOCABULARY_LIMITS.BASE_CAPACITY,
+        (Math.floor(currentCount / 100) + 1) * 100
+    );
+    const isAtLimit = currentCount >= maxWords;
 
     const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
@@ -52,21 +50,7 @@ export const CustomVocabularyManager: React.FC = () => {
         }
     };
 
-    if (!isProUser) {
-        return (
-            <Card className="border-primary/50">
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <Crown className="h-5 w-5 text-primary" />
-                        Custom Vocabulary (Pro)
-                    </CardTitle>
-                    <CardDescription>
-                        Upgrade to Pro to add custom words and improve transcription accuracy for technical terms, jargon, and names.
-                    </CardDescription>
-                </CardHeader>
-            </Card>
-        );
-    }
+
 
     return (
         <Card>
@@ -79,11 +63,7 @@ export const CustomVocabularyManager: React.FC = () => {
                 </CardTitle>
                 <CardDescription>
                     Add technical terms, jargon, or names to improve transcription accuracy.
-                    {isNearLimit && !isAtLimit && (
-                        <span className="block mt-1 text-xs text-primary">
-                            💡 Pro users get 100 custom words
-                        </span>
-                    )}
+                    Capacity expands automatically in 100-word increments.
                 </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">

@@ -65,9 +65,8 @@ describe('WhisperTurboEngine (Fast Path)', () => {
         const result = await engine.transcribe(float32Audio);
 
         expect(result.isOk).toBe(true);
-        if (result.isOk) {
-            expect(result.value).toBe("Hello WebGPU");
-        }
+        // Assert result.isOk is true to satisfy type narrowing
+        expect((result as { isOk: true; value: string }).value).toBe("Hello WebGPU");
 
         // Check if transcribe was called
         // Note: implementation calls this.session.transcribe(wavData, ...)

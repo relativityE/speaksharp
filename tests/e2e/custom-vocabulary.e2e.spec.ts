@@ -76,4 +76,63 @@ test.describe('Custom Vocabulary - Debugging with console logs', () => {
         console.log('[TEST DEBUG] Verifying word is removed');
         await expect(page.getByText('antigravity')).not.toBeVisible({ timeout: 5000 });
     });
+
+    /**
+     * HIGH-FIDELITY TEST: Verify custom words are passed to Cloud STT.
+     * 
+     * DEFINITION: Custom vocabulary = user's personalized filler words to track
+     * (in addition to defaults like "um", "uh"). Stored in Supabase, passed to 
+     * Cloud STT via `word_boost` param for improved recognition.
+     * 
+     * Requires: Cloud API keys in .env.test or .env.development
+     */
+    test('should pass custom words to Cloud STT engine (High Fidelity)', async ({ page }) => {
+        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
+        await navigateToRoute(page, '/session');
+
+        // 1. Add "PayloadCheck" word
+        const settingsBtn = page.getByTestId('session-settings-button');
+        await settingsBtn.click();
+        await page.getByPlaceholder('e.g., SpeakSharp, AI-powered').fill('PayloadCheck');
+        await page.getByRole('button', { name: /add word/i }).click();
+        await expect(page.getByText(/payloadcheck/i)).toBeVisible();
+
+        // Close sheet to return to main session page
+        // Use an explicit click on the close button if possible, otherwise Escape
+        const closeButton = page.getByRole('button', { name: /close/i });
+        if (await closeButton.count() > 0 && await closeButton.isVisible()) {
+            await closeButton.click();
+        } else {
+            await page.keyboard.press('Escape');
+        }
+        await expect(page.getByText('Session Settings')).toBeHidden();
+
+        // 2. Select Cloud Mode (to verify AssemblyAI param)
+        const modeButton = page.getByRole('button', { name: /Native|Cloud AI|On-Device/ });
+        await modeButton.click();
+        await page.getByRole('menuitemradio', { name: /Cloud/i }).click();
+
+        // 3. Intercept WebSocket (AssemblyAI)
+        // Note: Playwright can't easily intercept WSS handshake headers, but URL params yes.
+        const wsPromise = page.waitForEvent('websocket', ws => {
+            const url = ws.url();
+            return url.includes('streaming.assemblyai.com') && url.includes('boost_param');
+        });
+
+        // 4. Start Session
+        await page.getByTestId('session-start-stop-button').click();
+
+        // 5. Verify Payload
+        const ws = await wsPromise;
+        const url = ws.url();
+        console.log(`[TEST] 📡 Captured Cloud STT WebSocket: ${url}`);
+
+        // URL encoded JSON
+        expect(url).toContain('word_boost');
+        // "PayloadCheck" might be encoded. decodeURIComponent(url)
+        const decodedUrl = decodeURIComponent(url);
+        expect(decodedUrl).toContain('PayloadCheck');
+
+        console.log('✅ Custom Vocabulary payload verified in Cloud STT request');
+    });
 });

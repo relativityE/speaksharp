@@ -1,5 +1,11 @@
-// tests/e2e/testEnv.ts
 import { test as base } from '@playwright/test';
+
+declare global {
+  interface Window {
+    TEST_MODE?: boolean;
+    __E2E_MODE__?: boolean;
+  }
+}
 
 // Extend the base test fixture to include our custom setup.
 export const test = base.extend({

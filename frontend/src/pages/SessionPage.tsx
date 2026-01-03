@@ -12,6 +12,7 @@ import { useSessionMetrics } from '@/hooks/useSessionMetrics';
 import { useUsageLimit, formatRemainingTime } from '@/hooks/useUsageLimit';
 import { useStreak } from '@/hooks/useStreak';
 import { isPro } from '@/constants/subscriptionTiers';
+import { buildPolicyForUser } from '@/services/transcription/TranscriptionPolicy';
 import { useSessionManager } from '@/hooks/useSessionManager';
 import { PauseMetricsDisplay } from '@/components/session/PauseMetricsDisplay';
 import { toast } from 'sonner';
@@ -222,11 +223,9 @@ export const SessionPage: React.FC = () => {
                 }
 
                 console.log('[SessionPage] Starting session with mode:', mode);
-                await startListening({
-                    forceNative: mode === 'native',
-                    forcePrivate: mode === 'private',
-                    forceCloud: mode === 'cloud'
-                });
+                // Build policy based on user tier and selected mode
+                const policy = buildPolicyForUser(isProUser, mode as 'native' | 'cloud' | 'private');
+                await startListening(policy);
                 // Track session start
                 posthog.capture('session_started', { mode });
             } catch (error) {

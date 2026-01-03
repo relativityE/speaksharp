@@ -1,9 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { useAuthProvider } from '@/contexts/AuthProvider';
-import { useUserProfile } from '@/hooks/useUserProfile';
 import { VOCABULARY_LIMITS } from '@/config';
-import { isPro, getTierLabel } from '@/constants/subscriptionTiers';
 
 interface CustomWord {
     id: string;
@@ -14,7 +12,6 @@ interface CustomWord {
 
 export const useCustomVocabulary = () => {
     const { user } = useAuthProvider();
-    const { data: profile } = useUserProfile();
     const queryClient = useQueryClient();
     const supabase = getSupabaseClient();
 
@@ -47,7 +44,7 @@ export const useCustomVocabulary = () => {
         mutationFn: async (word: string) => {
             console.log('[useCustomVocabulary] ADD MUTATION STARTED for word:', word);
             console.log('[useCustomVocabulary] Current vocabulary length:', vocabulary.length);
-            console.log('[useCustomVocabulary] User:', user?.id, 'Profile:', profile?.subscription_status);
+            console.log('[useCustomVocabulary] User:', user?.id);
 
             if (!supabase || !user) throw new Error('Not authenticated');
 
@@ -67,15 +64,17 @@ export const useCustomVocabulary = () => {
                 throw new Error('Word already in vocabulary');
             }
 
-            // Check word limit (tier-based)
-            const maxWords = isPro(profile?.subscription_status)
-                ? VOCABULARY_LIMITS.MAX_WORDS_PER_USER
-                : Math.min(VOCABULARY_LIMITS.MAX_WORDS_PER_USER, VOCABULARY_LIMITS.MAX_WORDS_FREE);
+            // Check word limit (dynamic baseline)
+            const currentCount = vocabulary.length;
+            const maxWords = Math.max(
+                VOCABULARY_LIMITS.BASE_CAPACITY,
+                (Math.floor(currentCount / 100) + 1) * 100
+            );
 
-            console.log('[useCustomVocabulary] Max words for tier:', maxWords, 'Current:', vocabulary.length);
-            if (vocabulary.length >= maxWords) {
-                const tier = getTierLabel(profile?.subscription_status);
-                throw new Error(`${tier} tier limit: ${maxWords} words. ${tier === 'Free' ? 'Upgrade to Pro for 100 words!' : ''}`);
+            console.log('[useCustomVocabulary] Dynamic limit reached:', maxWords, 'Current:', currentCount);
+            if (currentCount >= maxWords) {
+                // This shouldn't happen with the automated expansion UI, but we keep it for server-side parity
+                throw new Error(`Vocabulary capacity reached (${maxWords} words).`);
             }
 
             console.log('[useCustomVocabulary] Validation passed, making POST request...');

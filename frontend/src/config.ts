@@ -26,11 +26,10 @@ export const PAUSE_DETECTION = {
   MIN_PAUSE_DURATION_MS: 500,   // Minimum pause duration in milliseconds
 } as const;
 
-// Custom vocabulary limits (tier-based)
+// Custom vocabulary limits (dynamic baseline)
 export const VOCABULARY_LIMITS = {
   MAX_WORD_LENGTH: 50,          // Maximum characters per word
-  MAX_WORDS_PER_USER: 100,      // Maximum words for pro users
-  MAX_WORDS_FREE: 10,            // Maximum words for free tier users
+  BASE_CAPACITY: 100,           // Initial capacity (expands in 100-word increments)
 } as const;
 
 // Audio processing configuration

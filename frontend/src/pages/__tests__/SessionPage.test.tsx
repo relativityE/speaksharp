@@ -167,7 +167,7 @@ describe('SessionPage', () => {
             // Default mode is 'native', so it should call with forceNative: true
             expect(mockStartListening).toHaveBeenCalledWith({
                 forceNative: true,
-                forceOnDevice: false,
+                forcePrivate: false,
                 forceCloud: false
             });
         });

@@ -85,7 +85,7 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Clarity Score** | 2 | Score based on filler word usage. | ✅ Implemented | ✅ Yes |
 | **Goal Setting** | 2 | Weekly/Daily targets for practice consistency. | ✅ Implemented | ❌ No (E2E Only) |
 | **User-Friendly Error Handling** | 2 | Specific, user-facing error messages. | ✅ Implemented | ✅ Yes |
-| **Custom Vocabulary** | 2 | Allows users to add custom words to improve accuracy. Free: 10 words max. Pro: 100 words max. | ✅ Implemented | ✅ Yes |
+| **Custom Vocabulary** | 2 | User's personalized filler words to track (in addition to defaults like "um", "uh"). Stored in Supabase, passed to Cloud STT for improved recognition. Free: 10 words max. Pro: 100 words max. | ✅ Implemented | ✅ Yes |
 | **Vocal Variety / Pause Detection** | 2 | Analyzes pause duration and frequency. | ✅ Implemented | ✅ Yes |
 | **Session Hardening** | 3 | Prevents saving empty or 0-second sessions to preserve usage and data quality. | ✅ Implemented | ✅ Yes |
 | **Speaker Identification**| 4 | Distinguishes between multiple speakers in a transcript. | 📅 Planned | ❌ No |
@@ -174,6 +174,10 @@ This section tracks high-level product risks and constraints. For a detailed gui
 - **✅ RESOLVED - Stripe Configuration Error (2025-12-15):** The `stripe-checkout` Edge Function was failing with generic 400 errors in CI. **Fix:** Added diagnostic logging and "Negative Verification" to test (`stripe-checkout.spec.ts`) to prove configuration state safely without exposing secrets. **Status:** ✅ Fixed.
 - **✅ RESOLVED - Infrastructure - Analytics UI Regression (2025-12-31):** Fixed the `net::ERR_NAME_NOT_RESOLVED` error by restoring MSW initialization in the E2E bridge and consolidated redundant upgrade prompts. **Status:** ✅ Fixed.
 - **ℹ️ INFO - Soak Test Environment (2025-12-19):** Optimized the `soak-test` workflow to support **10 concurrent users** (7 Free, 3 Pro) by default. Implemented automated registry synchronization via `setup-test-users.yml`, which uses a shared `SOAK_TEST_PASSWORD` secret (programmatically rotated via `GH_PAT`). Full execution requires the CI/Staging environment with real Supabase secrets.
+- **🟡 TECH DEBT - Native STT Headless Test (2026-01-02):** `live-transcript-real.e2e.spec.ts` cannot run in headless CI because Web Speech API is unavailable in headless Chrome. **Workaround:** Marked `test.fixme()`. **Manual Verification:** Run with `--headed` flag. **Resolution Path:** Use mock SpeechRecognition polyfill (reduces fidelity).
+- **🟡 TECH DEBT - PDF Content Text Extraction (2026-01-02):** `pdf-export.e2e.spec.ts` cannot parse PDF text content because `pdf-parse` requires `DOMMatrix` (browser-only). **Workaround:** Validates PDF structure (header, size, catalog markers). **Resolution Path:** Run parsing in browser context via `page.evaluate()` or add unit test for `pdfGenerator.ts`.
+- **🟡 TECH DEBT - Cloud STT Mode E2E Test (2026-01-02):** `custom-vocabulary.e2e.spec.ts` Cloud STT payload test was previously marked `fixme` due to mode selector issue. **Status:** Investigating - Cloud API keys ARE available in `.env.test` and `.env.development`.
+- **ℹ️ CAVEAT - Custom Vocabulary Native STT (2026-01-02):** Native STT (Web Speech API) does **NOT** support custom vocabulary - it's entirely browser-controlled. Only Cloud STT (`word_boost` param via AssemblyAI) supports this feature. **Testing Impact:** Custom vocabulary E2E verification can only be done with Cloud STT, which requires API keys.
 
 ### Gap Analysis: Alpha Launch Blockers (AI Detective v5 - 2025-12-09)
 

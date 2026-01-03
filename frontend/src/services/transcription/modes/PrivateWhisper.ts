@@ -38,6 +38,15 @@ import { ITranscriptionMode, TranscriptionModeOptions } from './types';
 import { MicStream } from '../utils/types';
 import { concatenateFloat32Arrays } from '../utils/AudioProcessor';
 import { TranscriptUpdate } from '../TranscriptionService';
+
+// Extend Window interface for E2E test flags
+declare global {
+  interface Window {
+    __E2E_PLAYWRIGHT__?: boolean;
+    TEST_MODE?: boolean;
+    __PrivateWhisper_INT_TEST__?: PrivateWhisper;
+  }
+}
 import { toast } from 'sonner';
 
 type Status = 'idle' | 'loading' | 'transcribing' | 'stopped' | 'error';
@@ -93,11 +102,11 @@ export default class PrivateWhisper implements ITranscriptionMode {
 
     // Check for test environment and expose instance for E2E verification
     if (typeof window !== 'undefined' && (
-      (window as any).__E2E_PLAYWRIGHT__ ||
-      (window as any).TEST_MODE
+      window.__E2E_PLAYWRIGHT__ ||
+      window.TEST_MODE
     )) {
       console.log('[PrivateWhisper] 🧪 Exposing instance for E2E testing as window.__PrivateWhisper_INT_TEST__');
-      (window as any).__PrivateWhisper_INT_TEST__ = this;
+      window.__PrivateWhisper_INT_TEST__ = this;
     }
 
     logger.info('[PrivateWhisper] Initialized (dual-engine facade).');

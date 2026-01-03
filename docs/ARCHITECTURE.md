@@ -1700,7 +1700,8 @@ The database schema is designed for performance and reliability, ensuring that a
 ## 5. Feature Architecture
 
 ### 5.1 Custom Vocabulary
-*   **Purpose:** Allows Pro users to add domain-specific terms to improve transcription accuracy.
+*   **Definition:** User's personalized filler words to track, in addition to default filler words ("um", "uh", "like", "you know"). For example, a user might add "basically" or "literally" as words they want to track and reduce in their speech.
+*   **Purpose:** Allows Pro users to add domain-specific terms to improve transcription accuracy and personalize filler word detection.
 *   **Data Model:** `custom_vocabulary` table in Supabase (linked to `users`).
 *   **Logic:** `useCustomVocabulary` hook manages CRUD operations via React Query.
 *   **Integration:** The `TranscriptionService` fetches the vocabulary and passes it to the AssemblyAI API via the `boost_param` and `word_boost` parameters during session initialization.
@@ -1751,6 +1752,51 @@ const data = await profileService.getById(id);
 ## 6. Transcription Service (`frontend/src/services/transcription`)
 
 The `TranscriptionService.ts` provides a unified abstraction layer over multiple transcription providers.
+
+### Policy-Driven Strategy Pattern (2025-01-03)
+
+The service uses a **Policy-Driven Strategy Pattern** to separate environment/tier policy from execution strategy. This eliminates `isTestMode` checks from business logic and enables deterministic E2E testing.
+
+```
+┌──────────────────────────────┐
+│           CALLER             │
+│   SessionPage / E2E Test     │
+└──────────────┬───────────────┘
+               │ Injects Policy
+               ▼
+┌──────────────────────────────┐
+│       POLICY LAYER           │
+│    TranscriptionPolicy       │
+│  (resolves allowed modes)    │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│       SERVICE LAYER          │
+│    TranscriptionService      │
+└──────────────┬───────────────┘
+               │ Executes Strategy
+       ┌───────┼───────┐
+       ▼       ▼       ▼
+┌──────────┐ ┌──────────┐ ┌──────────────┐
+│  Native  │ │  Cloud   │ │   Private    │
+│ Browser  │ │AssemblyAI│ │   Whisper    │
+└──────────┘ └──────────┘ └──────────────┘
+```
+
+**Pre-Built Policies:**
+
+| Policy | Allowed Modes | Use Case |
+|--------|---------------|----------|
+| `PROD_FREE_POLICY` | Native only | Free tier users |
+| `PROD_PRO_POLICY` | Native, Cloud, Private | Pro tier users |
+| `E2E_DETERMINISTIC_NATIVE` | Native only | E2E tests (default) |
+| `E2E_DETERMINISTIC_CLOUD` | Cloud only | E2E tests (Cloud validation) |
+| `E2E_DETERMINISTIC_PRIVATE` | Private only | E2E tests (Whisper validation) |
+
+**Key Files:**
+- [`TranscriptionPolicy.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionPolicy.ts) - Policy interface and helpers
+- [`TranscriptionService.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionService.ts) - Unified service layer
 
 *   **Modes:**
     *   **`CloudAssemblyAI`:** Uses the AssemblyAI v3 streaming API for high-accuracy cloud-based transcription. This is one of the modes available to Pro users.

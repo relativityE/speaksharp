@@ -36,7 +36,7 @@ export const MOCK_USER = {
 
 export const MOCK_USER_PROFILE = {
     id: 'test-user-123',
-    subscription_status: 'pro',
+    subscription_status: 'free',
     usage_seconds: 1250,
     usage_reset_date: new Date(Date.now() + 15 * 86400000).toISOString(),
     created_at: new Date().toISOString(),
@@ -123,6 +123,8 @@ export const MOCK_GOALS = {
 };
 
 // Per-test state for custom vocabulary (resets on each setupE2EMocks call)
+// Stateful mocks to allow dynamic changes during a test (e.g. promo code)
+let statefulProfile = { ...MOCK_USER_PROFILE };
 let vocabularyStore: Map<string, Array<{ id: string; user_id: string; word: string; created_at: string }>> = new Map();
 
 // Per-test state for sessions (resets on each setupE2EMocks call)
@@ -197,19 +199,21 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
         const isSingleObject = acceptHeader === 'application/vnd.pgrst.object+json';
 
         // Check if profile override flag is set (for free user testing)
+        // Read override from window flag (set by setupE2EMocks or test)
         const profileOverride = await route.request().frame()?.page()?.evaluate(() => {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             return (window as any).__E2E_MOCK_PROFILE__ as { id: string; subscription_status: string } | undefined;
         }).catch(() => undefined);
 
-        let profile = MOCK_USER_PROFILE;
+        // Merge: MOCK_USER_PROFILE (base) -> statefulProfile (state) -> profileOverride (hard override)
+        let profile = { ...statefulProfile };
         if (profileOverride) {
             console.log(`[E2E MOCK] Profile override detected: ${JSON.stringify(profileOverride)} `);
-            profile = { ...MOCK_USER_PROFILE, ...profileOverride };
+            profile = { ...profile, ...profileOverride };
         }
 
-        const userId = 'test-user-123';
-        console.log(`[E2E MOCK] Fulfilling user_profiles for: ${userId}`);
+        const userId = profile.id || 'test-user-123';
+        console.log(`[E2E MOCK] Fulfilling user_profiles for: ${userId} (${profile.subscription_status})`);
         await route.fulfill({
             status: 200,
             contentType: 'application/json',
@@ -376,6 +380,10 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
         const body = await route.request().postDataJSON();
         // Accept our standard E2E mock code
         if (body?.promoCode === 'MOCK-PROMO-123') {
+            // Update stateful profile to Pro
+            statefulProfile.subscription_status = 'pro';
+            console.log('[E2E MOCK] Promo code applied: statefulProfile updated to PRO');
+
             return route.fulfill({
                 status: 200,
                 contentType: 'application/json',
@@ -486,15 +494,27 @@ export async function setupE2EMocks(
     options: {
         strictMode?: boolean;
         emptySessions?: boolean;
+        /** Hard override status. If not set, uses base statefulProfile (defaults to 'free'). */
+        subscriptionStatus?: 'free' | 'pro';
     } = {}
 ): Promise<void> {
-    const { strictMode = false, emptySessions: _emptySessions = false } = options;
+    const { strictMode = false, emptySessions: _emptySessions = false, subscriptionStatus } = options;
 
     // TODO: Implement emptySessions option to return empty session history
     // Currently unused but kept for future implementation
     void _emptySessions;
 
+    // Inject profile override if subscriptionStatus is explicitly set
+    // This must happen BEFORE navigation so it's available when routes are intercepted
+    if (subscriptionStatus) {
+        await page.addInitScript((status: string) => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (window as any).__E2E_MOCK_PROFILE__ = { subscription_status: status };
+        }, subscriptionStatus);
+    }
+
     // Reset per-test state
+    statefulProfile = { ...MOCK_USER_PROFILE };
     vocabularyStore = new Map();
     sessionStore = [...MOCK_SESSION_HISTORY]; // Reset to default mock history
 

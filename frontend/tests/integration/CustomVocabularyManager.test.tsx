@@ -85,9 +85,9 @@ describe('CustomVocabularyManager Integration', () => {
         }
     });
 
-    describe('Anonymous User', () => {
+    describe('Free User', () => {
         beforeEach(() => {
-            mockAuthContextValue.user = null;
+            mockAuthContextValue.user = { id: 'free-user' } as any;
 
             // Mock non-Pro user
             vi.mocked(useUserProfile).mockReturnValue({
@@ -110,27 +110,27 @@ describe('CustomVocabularyManager Integration', () => {
             });
         });
 
-        it('shows sign-in message for anonymous users', () => {
+        it('shows custom vocabulary manager for free users', () => {
             render(
                 <MockAuthProvider value={mockAuthContextValue}>
                     <CustomVocabularyManager />
                 </MockAuthProvider>
             );
 
-            // Should show Pro upgrade prompt for non-Pro users
-            expect(screen.getByText(/Custom Vocabulary \(Pro\)/i)).toBeInTheDocument();
-            expect(screen.getByText(/upgrade to pro/i)).toBeInTheDocument();
+            // Should show normal Custom Vocabulary title, not restricted Pro version
+            expect(screen.getByText(/^Custom Vocabulary$/i)).toBeInTheDocument();
+            expect(screen.queryByText(/upgrade to pro/i)).not.toBeInTheDocument();
         });
 
-        it('does not allow adding words when not signed in', () => {
+        it('allows adding words for free users', () => {
             render(
                 <MockAuthProvider value={mockAuthContextValue}>
                     <CustomVocabularyManager />
                 </MockAuthProvider>
             );
 
-            const addButton = screen.queryByRole('button', { name: /add word/i });
-            expect(addButton).toBeNull();
+            const addButton = screen.getByRole('button', { name: /add word/i });
+            expect(addButton).toBeInTheDocument();
         });
     });
 

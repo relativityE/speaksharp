@@ -127,7 +127,7 @@ describe('SessionSidebar', () => {
       await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenCalledExactlyOnceWith({
         forceCloud: false,
-        forceOnDevice: false,
+        forcePrivate: false,
         forceNative: true,
       });
     });
@@ -170,7 +170,7 @@ describe('SessionSidebar', () => {
       await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenCalledExactlyOnceWith({
         forceCloud: true,
-        forceOnDevice: false,
+        forcePrivate: false,
         forceNative: false,
       });
     });
@@ -188,7 +188,7 @@ describe('SessionSidebar', () => {
       await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenCalledExactlyOnceWith({
         forceCloud: false,
-        forceOnDevice: true,
+        forcePrivate: true,
         forceNative: false,
       });
     });
@@ -234,7 +234,7 @@ describe('SessionSidebar', () => {
       await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenLastCalledWith({
         forceCloud: true,
-        forceOnDevice: false,
+        forcePrivate: false,
         forceNative: false
       });
 
@@ -244,7 +244,7 @@ describe('SessionSidebar', () => {
       await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenLastCalledWith({
         forceCloud: false,
-        forceOnDevice: true,
+        forcePrivate: true,
         forceNative: false
       });
 
@@ -254,7 +254,7 @@ describe('SessionSidebar', () => {
       await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenLastCalledWith({
         forceCloud: false,
-        forceOnDevice: false,
+        forcePrivate: false,
         forceNative: true
       });
     });

@@ -9,8 +9,8 @@
  *   - `window.__E2E_PLAYWRIGHT__` -> MockEngine (Reliable Path)
  */
 // @vitest-environment happy-dom
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createPrivateSTT, PrivateSTT } from '../PrivateSTT';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createPrivateSTT } from '../PrivateSTT';
 import { WhisperTurboEngine } from '../WhisperTurboEngine';
 import { TransformersJSEngine } from '../TransformersJSEngine';
 import { MockEngine } from '../MockEngine';
@@ -45,19 +45,16 @@ vi.mock('@xenova/transformers', () => ({}));
 describe('PrivateSTT (Routing Logic)', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        // Reset window flags
-        // @ts-ignore
+        // Reset window flags - properties are now typed via PrivateWhisper.ts declare global
         delete window.__E2E_PLAYWRIGHT__;
-        // @ts-ignore
         delete window.TEST_MODE;
 
         // Reset navigator.gpu
-        // @ts-ignore
+        // @ts-expect-error - delete readonly property for test mock
         delete navigator.gpu;
     });
 
     it('selects MockEngine when window.__E2E_PLAYWRIGHT__ is true', async () => {
-        // @ts-ignore
         window.__E2E_PLAYWRIGHT__ = true;
 
         const pstt = createPrivateSTT();
@@ -68,7 +65,6 @@ describe('PrivateSTT (Routing Logic)', () => {
     });
 
     it('selects MockEngine when window.TEST_MODE is true', async () => {
-        // @ts-ignore
         window.TEST_MODE = true;
 
         const pstt = createPrivateSTT();

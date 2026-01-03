@@ -13,9 +13,9 @@ import { useTranscriptionService } from './useTranscriptionService';
 import { useSessionTimer } from './useSessionTimer';
 import { useVocalAnalysis } from '../useVocalAnalysis';
 import { API_CONFIG } from '../../config';
-import type { UseSpeechRecognitionProps, TranscriptStats } from './types';
+import type { UseSpeechRecognitionProps, TranscriptStats, TranscriptionPolicy } from './types';
+import { E2E_DETERMINISTIC_NATIVE } from './types';
 import type { FillerCounts } from '../../utils/fillerWordUtils';
-import { ForceOptions } from './types';
 
 export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {}) => {
   const { customWords = [], customVocabulary = [], session, profile } = props;
@@ -140,7 +140,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     getAssemblyAIToken,
     customVocabulary,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- transcript methods are stable, but object reference changes frequently
-  }), [profile, session, navigate, getAssemblyAIToken, customVocabulary]);
+  }), [session, navigate, getAssemblyAIToken, customVocabulary]);
 
   const service = useTranscriptionService(serviceOptions);
   const sessionTimer = useSessionTimer(service.isListening);
@@ -158,9 +158,9 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     }
   }, [transcript, fillerWords, sessionTimer, service]);
 
-  const startListening = useCallback(async (forceOptions: ForceOptions = {}) => {
+  const startListening = useCallback(async (policy: TranscriptionPolicy = E2E_DETERMINISTIC_NATIVE) => {
     reset();
-    await service.startListening(forceOptions);
+    await service.startListening(policy);
   }, [service, reset]);
 
   const stopListening = useCallback(async (): Promise<(TranscriptStats & { filler_words: FillerCounts }) | null> => {

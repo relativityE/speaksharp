@@ -25,7 +25,7 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
     });
 
     test('should verify only Native Browser STT is available', async ({ page }) => {
-        await programmaticLoginWithRoutes(page);
+        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
         await navigateToRoute(page, '/session');
         await expect(page.getByText('Practice Session')).toBeVisible();
 
@@ -41,7 +41,7 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
     });
 
     test('should complete session with Native Browser STT', async ({ page }) => {
-        await programmaticLoginWithRoutes(page);
+        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
         await navigateToRoute(page, '/session');
 
         const startButton = page.getByTestId('session-start-stop-button').first();
@@ -63,23 +63,31 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
     });
 
     test('should add custom vocabulary word', async ({ page }) => {
-        await programmaticLoginWithRoutes(page);
+        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
         await navigateToRoute(page, '/session');
 
-        // Look for custom vocabulary input
-        const customWordInput = page.getByPlaceholder(/basically|custom/i);
-        if (await customWordInput.count() > 0) {
-            await customWordInput.fill('Antigravity');
-            const addButton = page.getByRole('button', { name: /add/i }).first();
-            await addButton.click();
-            console.log('[FREE] ✅ Custom word "Antigravity" added');
-        } else {
-            console.log('[FREE] ⚠️ Custom vocabulary input not found on session page');
-        }
+        // 1. Open Session Settings sheet
+        const settingsBtn = page.getByTestId('session-settings-button');
+        await expect(settingsBtn).toBeVisible();
+        await settingsBtn.click();
+        await expect(page.getByText('Session Settings')).toBeVisible();
+
+        // 2. Add word
+        const customWordInput = page.getByPlaceholder(/e.g., SpeakSharp, AI-powered/i);
+        await customWordInput.fill('Antigravity');
+        const addButton = page.getByRole('button', { name: /add/i }).first();
+        await addButton.click();
+
+        // 3. Verify word is added
+        await expect(page.getByText(/antigravity/i)).toBeVisible();
+        console.log('[FREE] ✅ Custom word "Antigravity" added and verified in sheet');
+
+        // 4. Close sheet
+        await page.keyboard.press('Escape');
     });
 
     test('should display analytics after session', async ({ page }) => {
-        await programmaticLoginWithRoutes(page);
+        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
         await navigateToRoute(page, '/analytics');
 
         await expect(page.getByTestId('dashboard-heading')).toBeVisible();
@@ -91,7 +99,7 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
     });
 
     test('should show upgrade prompts for free users', async ({ page }) => {
-        await programmaticLoginWithRoutes(page);
+        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
         await navigateToRoute(page, '/analytics');
 
         // Free users should see upgrade options

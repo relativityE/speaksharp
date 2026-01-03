@@ -14,8 +14,8 @@ import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
 
 test.describe('Pro User Journey - Complete Lifecycle', () => {
     test.beforeEach(async ({ page }) => {
-        // Pro user is the default mock profile
-        await programmaticLoginWithRoutes(page);
+        // Explicitly set pro status for pro journey tests
+        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
     });
 
     test('should have all 3 STT modes available', async ({ page }) => {
@@ -135,19 +135,24 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
     test('should add and persist custom vocabulary', async ({ page }) => {
         await navigateToRoute(page, '/session');
 
-        const customWordInput = page.getByPlaceholder(/basically|custom/i);
-        if (await customWordInput.count() > 0) {
-            await customWordInput.fill('Antigravity');
-            const addButton = page.getByRole('button', { name: /add/i }).first();
-            await addButton.click();
-            console.log('[PRO] ✅ Custom word "Antigravity" added');
+        // 1. Open Session Settings sheet
+        const settingsBtn = page.getByTestId('session-settings-button');
+        await expect(settingsBtn).toBeVisible();
+        await settingsBtn.click();
+        await expect(page.getByText('Session Settings')).toBeVisible();
 
-            // Verify word appears in the list
-            await expect(page.getByText('Antigravity')).toBeVisible({ timeout: 3000 });
-            console.log('[PRO] ✅ Custom word visible in vocabulary list');
-        } else {
-            console.log('[PRO] ⚠️ Custom vocabulary input not found');
-        }
+        // 2. Add word
+        const customWordInput = page.getByPlaceholder(/e.g., SpeakSharp, AI-powered/i);
+        await customWordInput.fill('Antigravity');
+        const addButton = page.getByRole('button', { name: /add/i }).first();
+        await addButton.click();
+
+        // 3. Verify word appears in the list
+        await expect(page.getByText('Antigravity')).toBeVisible({ timeout: 3000 });
+        console.log('[PRO] ✅ Custom word visible in vocabulary list');
+
+        // 4. Close sheet
+        await page.keyboard.press('Escape');
     });
 
     test('should display all analytics metrics', async ({ page }) => {

@@ -13,8 +13,8 @@ import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
 
 test.describe('User Journey - Full Onboarding to Trend Analysis', () => {
     test('should complete full user journey with session and analytics', async ({ page }) => {
-        // Step 1: Login as pro user (default mock profile is pro)
-        await programmaticLoginWithRoutes(page);
+        // Step 1: Login as pro user (explicitly requested)
+        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
 
         // Step 2: Navigate to session page and verify it loads
         await navigateToRoute(page, '/session');
@@ -59,8 +59,8 @@ test.describe('User Journey - Full Onboarding to Trend Analysis', () => {
     });
 
     test('should allow pro users to start session with default cloud mode', async ({ page }) => {
-        // Login as pro user (default mock profile is pro with subscription_status: 'pro')
-        await programmaticLoginWithRoutes(page);
+        // Login as pro user (explicitly requested)
+        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
         await navigateToRoute(page, '/session');
         await expect(page.locator('[data-testid="app-main"]')).toBeVisible();
 
@@ -87,7 +87,7 @@ test.describe('Free User Tier Restrictions', () => {
         });
 
         // Use programmaticLoginWithRoutes to set up Playwright route interception
-        await programmaticLoginWithRoutes(page);
+        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
 
         // Navigate to session page
         await navigateToRoute(page, '/session');

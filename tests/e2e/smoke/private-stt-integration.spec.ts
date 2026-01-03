@@ -18,14 +18,19 @@ declare global {
         __E2E_MOCK_LOCAL_WHISPER__?: boolean;
         __E2E_PLAYWRIGHT__?: boolean;
         TEST_MODE?: boolean;
+        __PrivateWhisper_INT_TEST__?: {
+            engineType?: string;
+            status?: string;
+            transcript?: string;
+        };
     }
 }
 
 // Inject E2E playwright flag BEFORE page loads (forces transformers.js engine)
 test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
-        (window as any).__E2E_PLAYWRIGHT__ = true;
-        (window as any).TEST_MODE = true;
+        window.__E2E_PLAYWRIGHT__ = true;
+        window.TEST_MODE = true;
     });
 });
 
@@ -51,7 +56,7 @@ test.describe('Private STT Integration (Unmocked)', () => {
 
     test('should initialize real Whisper engine and intercept with Service Worker', async ({ page }) => {
         // 1. Setup: Direct login as Pro
-        await page.goto('/');
+        await navigateToRoute(page, '/');
 
         // 🧹 NUCLEAR TEARDOWN: Kill SW, clear caches, and RELOAD to get fresh assets
         await page.evaluate(async () => {
@@ -241,12 +246,12 @@ test.describe('Private STT Integration (Unmocked)', () => {
         // 14. Deep Verification of Internal State (Unmasked)
         // Verify that the PrivateWhisper instance was actually exposed and used correctly
         const internalState = await page.evaluate(() => {
-            const pw = (window as any).__PrivateWhisper_INT_TEST__;
+            const pw = window.__PrivateWhisper_INT_TEST__;
             if (!pw) return null;
             return {
                 engineType: pw.engineType,
                 status: pw.status,
-                hasTranscript: pw.transcript.length > 0
+                hasTranscript: (pw.transcript?.length ?? 0) > 0
             };
         });
 

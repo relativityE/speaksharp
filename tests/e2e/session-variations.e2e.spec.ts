@@ -3,7 +3,7 @@ import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
 
 test.describe('Session Variations', () => {
     test.beforeEach(async ({ page }) => {
-        await programmaticLoginWithRoutes(page);
+        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
         await navigateToRoute(page, '/session');
     });
 
