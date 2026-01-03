@@ -579,6 +579,25 @@ The project uses **two distinct Supabase configurations** depending on the execu
 
 ##### Hybrid Testing Strategy
 
+The project uses a layered testing approach:
+
+1. **Unit Tests** (`pnpm test`): Fast, isolated component/function tests
+2. **Integration Tests** (`pnpm test`): Component integration with mocked services  
+3. **Mock E2E** (`pnpm test:e2e`): Full user flows with MSW mocks
+4. **Canary E2E** (`pnpm test:canary`): Real infrastructure validation
+
+> [!CAUTION]
+> **CANARY TESTS REQUIRE CI ENVIRONMENT**
+> 
+> Canary tests (`tests/e2e/canary/*.canary.spec.ts`) **CANNOT** run locally without `CANARY_PASSWORD` from GitHub Secrets.
+> 
+> **DO NOT waste time debugging local canary failures** - they are designed for CI/staging only.
+> 
+> For local testing:
+> - Mock E2E: `pnpm test:e2e` 
+> - Integration: `pnpm test`
+> - Unit: `pnpm test`
+
 | Feature | Local Development | CI/CD (Soak Test) |
 | :--- | :--- | :--- |
 | **Database** | Mock (`mock.supabase.co`) | **Real Production DB** |

@@ -3,6 +3,21 @@ import { goToPublicRoute, navigateToRoute } from '../helpers';
 import { ROUTES, TEST_IDS, CANARY_USER } from '../../constants';
 
 /**
+ * ⚠️ CANARY TESTS - CI/STAGING ONLY ⚠️
+ * 
+ * These tests require CANARY_PASSWORD from GitHub Secrets.
+ * DO NOT attempt to run locally - they will always fail without the secret.
+ * 
+ * Purpose: Validate against REAL production Supabase + AssemblyAI
+ * Runs in: GitHub Actions (automated on PR/merge)
+ * 
+ * For local testing, use:
+ * - Mock E2E: `pnpm test:e2e` (tests/e2e/user-filler-words.e2e.spec.ts)
+ * - Integration: `pnpm test` (frontend/tests/integration/)
+ * - Unit: `pnpm test` (frontend/src tests)
+ */
+
+/**
  * Canary test credentials from constants
  * Password is provided via CANARY_PASSWORD secret in GitHub Actions
  */
