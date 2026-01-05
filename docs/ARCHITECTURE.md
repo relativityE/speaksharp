@@ -385,7 +385,46 @@ To ensure high performance for capable devices while maintaining 99.9% reliabili
 ```
 
 **Caching Strategy (WhisperTurbo):**
-The `whisper-turbo` engine uses a two-layer cache (Service Worker + IndexedDB) to avoid re-downloading the ~30MB model file.
+The `whisper-turbo` engine uses a two-layer cache (Service Worker + IndexedDB) to avoid re-downloading the ~50MB model file.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    User's Browser                           │
+│                                                             │
+│  ┌─────────────────┐    ┌─────────────────────────────────┐ │
+│  │   SessionPage   │───▶│        PrivateSTT Facade        │ │
+│  └─────────────────┘    └──────────────┬──────────────────┘ │
+│                                        │                    │
+│              ┌─────────────────────────┼───────────────────┐│
+│              │ WebGPU available?       │                   ││
+│              │     ┌───────────────────┴───────────────┐   ││
+│              │     │                                   │   ││
+│              │     ▼                                   ▼   ││
+│              │  ┌────────────────┐  ┌────────────────────┐ ││
+│              │  │ WhisperTurbo   │  │ TransformersJS     │ ││
+│              │  │ [FAST PATH]    │  │ [SAFE FALLBACK]    │ ││
+│              │  │ WebGPU/WASM    │  │ ONNX Runtime       │ ││
+│              │  └───────┬────────┘  └─────────┬──────────┘ ││
+│              │          │ (5s timeout)        │            ││
+│              │          │ ◀── Fail ──────────▶│            ││
+│              └──────────┼─────────────────────┼────────────┘│
+│                         │                     │             │
+│    ┌────────────────────▼─────────────────────▼───────────┐ │
+│    │            Layer 2: IndexedDB Cache                  │ │
+│    │   (whisper-turbo: compiled WASM, device-specific)    │ │
+│    └────────────────────┬─────────────────────────────────┘ │
+│                         │ (cache miss)                      │
+│    ┌────────────────────▼─────────────────────────────────┐ │
+│    │         Layer 1: Service Worker (sw.js)              │ │
+│    │    Intercepts CDN requests for /models/ files        │ │
+│    └────────────────────┬─────────────────────────────────┘ │
+│                         │ (cache miss)                      │
+│    ┌────────────────────▼─────────────────────────────────┐ │
+│    │              /models/ directory                      │ │
+│    │   tiny-q8g16.bin (~50MB), tokenizer.json (2MB)       │ │
+│    └──────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
 
 | Layer | Technology | Content |
 |-------|------------|---------|
