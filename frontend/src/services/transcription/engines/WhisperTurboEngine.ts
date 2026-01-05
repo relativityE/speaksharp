@@ -77,6 +77,18 @@ export class WhisperTurboEngine implements IPrivateSTTEngine {
         } catch (error) {
             const e = error instanceof Error ? error : new Error(String(error));
             logger.error({ err: e }, '[WhisperTurbo] Failed to initialize engine.');
+
+            // Self-healing: Clear IndexedDB cache on failure to prevent permanent hang
+            try {
+                logger.info('[WhisperTurbo] Attempting self-healing cache clear...');
+                const deleteRequest = indexedDB.deleteDatabase('whisper-turbo');
+                deleteRequest.onsuccess = () => {
+                    logger.info('[WhisperTurbo] Cache cleared successfully. Retry may succeed.');
+                };
+            } catch (cacheError) {
+                logger.warn({ err: cacheError }, '[WhisperTurbo] Failed to clear cache.');
+            }
+
             return Result.err(e);
         }
     }

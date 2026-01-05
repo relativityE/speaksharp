@@ -377,7 +377,9 @@ export async function programmaticLoginWithRoutes(
   // 5. Inject mock session
   await injectMockSession(page);
 
-  // 6. Reload to pick up the session
+  // 6. Reload to pick up the session from localStorage
+  // NOTE: This reload is REQUIRED because Supabase reads auth state from localStorage
+  // only on app initialization. The MSW mocks are re-established via Playwright routes.
   await page.reload();
 
   // 7. Wait for authenticated state

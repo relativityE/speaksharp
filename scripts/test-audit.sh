@@ -24,19 +24,32 @@ run_preflight() {
 }
 
 run_quality_checks() {
-    echo "✅ [2/6] Running Code Quality Checks Sequentially..."
+    echo "✅ [2/6] Running Code Quality Checks..."
     
-    echo "Running Lint..."
-    if ! pnpm lint; then
+    # Run lint and typecheck in parallel for speed
+    echo "Running Lint & Typecheck in parallel..."
+    pnpm lint &
+    LINT_PID=$!
+    pnpm typecheck &
+    TC_PID=$!
+    
+    # Wait for both and capture exit codes
+    LINT_EXIT=0
+    TC_EXIT=0
+    wait $LINT_PID || LINT_EXIT=$?
+    wait $TC_PID || TC_EXIT=$?
+    
+    if [ $LINT_EXIT -ne 0 ]; then
         echo "❌ Lint failed." >&2
         exit 1
     fi
-
-    echo "Running Typecheck..."
-    if ! pnpm typecheck; then
+    
+    if [ $TC_EXIT -ne 0 ]; then
         echo "❌ Typecheck failed." >&2
         exit 1
     fi
+    
+    echo "✅ Lint & Typecheck passed."
 
     echo "Running Unit Tests..."
     if ! pnpm test; then
@@ -52,7 +65,7 @@ run_quality_checks() {
         echo "⚠️ Warning: frontend/unit-metrics.json not found."
     fi
     
-    echo "ℹ️ Lint/Typecheck/Test completed successfully."
+    echo "ℹ️ Quality checks completed successfully."
     echo "✅ [2/6] Code Quality Checks Passed."
 }
 
