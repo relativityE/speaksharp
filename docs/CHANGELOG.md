@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CI/Playwright Compatibility**: Resolved persistent WASM deadlock in headless testing by introducing `MockEngine` strategy.
 - **Test Suite Rigor**: Achieved 100% unit test pass rate for all Private STT components including legacy service tests.
 
+### Tech Debt Resolved (Jan 2026)
+- **23 items closed** from 4 independent code reviews (Dec 2025 - Jan 2026):
+  - Auth race conditions, hook decomposition, coverage enforcement, Stripe webhook idempotency
+  - Domain service layer, error taxonomy, Playwright config consolidation
+  - Toast deduplication, profile loading, test retry injection
+- **Details:** See `ROADMAP.md` history or git log for full breakdown.
+
 ## 0.1.0 - 2026-01-01
 
 - **STT Self-Healing & Fallbacks:**

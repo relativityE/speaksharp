@@ -493,149 +493,31 @@ This phase is about confirming the core feature set works as expected and polish
   - **Phase 2 Should-Have (Tech Debt):** In Progress (7 new items from Dec 2025 Code Review)
   - **Production Readiness:** READY - Prior P0 blockers verified as implemented
 
-### ✅ Tech Debt Resolved (Code Review - Dec 2025)
+### ✅ Tech Debt Resolved (Summary)
 
-The following items were identified in an independent code review and triaged as P1 (High Priority):
-
-| # | Finding | Location | Status | Notes |
-|---|---------|----------|--------|-------|
-| 1 | Code duplication across STT modes | `modes/*.ts` | ✅ **FIXED 2025-12-08** | Created `AudioProcessor.ts` with shared utilities |
-| 2 | Cache invalidation race condition | `useUserFillerWords.ts` | ✅ **PRE-EXISTING FIX** | Already uses `refetchQueries` (lines 82-85, 106-109) |
-| 3 | Missing ARIA labels | `Navigation.tsx`, `SessionPage.tsx` | ✅ **FIXED 2025-12-08** | Added `aria-label` and `aria-hidden` |
-| 4 | Missing loading states | `SessionPage.tsx` | ✅ **PRE-EXISTING FIX** | Already has `SessionPageSkeleton` + model download indicator |
-| 5 | Critical paths under-tested | Coverage report | ✅ **FIXED 2025-12-08** | Added 25 tests for AudioProcessor, TranscriptionError |
-| 6 | Business logic in UI | `SessionPage.tsx` | ✅ **FIXED** | `useSessionMetrics` hook extracts all metric calculations |
-| 7 | No query pagination | `storage.ts` | ✅ **FIXED 2025-12-08** | Added `PaginationOptions` with limit/offset, default 50 |
-
-**Summary:** 7/7 items resolved (4 fixed this session, 3 pre-existing).
-
-### 🔴 Tech Debt Identified (AI Detective v5 - Dec 2025)
-
-The following items were identified by AI Detective Full-Spectrum Analysis v5 as critical for Alpha Soft Launch:
-
-| # | Finding | Location | Priority | Status |
-|---|---------|----------|----------|--------|
-| 1 | **Live Transcript E2E Race Condition** | `live-transcript.e2e.spec.ts:96-105` | **P0 BLOCKER** | ✅ FIXED |
-|   | *Problem:* Test hung waiting for `startButton` to be enabled. Race between `programmaticLogin` completing and SessionPage profile loading. | | | |
-|   | *Solution:* Added `__e2eProfileLoaded` window flag in `AuthProvider.tsx` and wait in `programmaticLogin` helper. | | | |
-| 2 | **Hook Architecture (Was "God Hook")** | `useSpeechRecognition/` | **P1 HIGH** | ✅ FIXED |
-|   | *Original Problem:* Hook aggregated 5+ responsibilities. | | | |
-|   | *Solution:* Now decomposed into: `useTranscriptState`, `useFillerWords`, `useTranscriptionService`, `useSessionTimer`, `useVocalAnalysis`. Main hook is composition layer only. | | | |
-| 3 | **Test Pattern (PDF Export)** | `pdf-export.e2e.spec.ts` | **P2 MEDIUM** | ✅ FIXED |
-|   | *Original Problem:* try/catch silently passed when mock data absent. | | | |
-|   | *Solution:* Replaced with explicit `expect()` assertions. MSW mock data must exist - failures indicate broken setup. | | | |
-| 4 | **Coverage Threshold Enforcement** | `vitest.config.mjs` | **P1 HIGH** | ✅ FIXED |
-|   | *Original Problem:* Coverage reported but no enforcement. CI didn't fail on drops. | | | |
-|   | *Solution:* Added `thresholds: { lines: 50, functions: 70, branches: 75, statements: 50 }`. CI now fails if coverage regresses. | | | |
+**23 items resolved** from Dec 2025 - Jan 2026 independent code reviews. Details moved to `CHANGELOG.md`.
 
 ---
 
-### 🔧 Tech Debt Identified (Independent Reviews - Dec 2025)
+### ⏸️ Pending Tech Debt (Post-Alpha)
 
-The following items were identified by two independent external code reviews. Most have been addressed for Alpha launch.
+| # | Finding | Location | Priority | Notes |
+|---|---------|----------|----------|-------|
+| 1 | **TranscriptionService SRP Violation** | `TranscriptionService.ts` | P2 | Split into `TranscriptionCoordinator` + mode Providers |
+| 2 | **UI State Boolean Flags** | `RecordingControls.tsx` | P2 | Implement XState or reducer with enumerated states |
+| 3 | **Migration Idempotency** | `supabase/migrations/*` | P3 | Add `IF NOT EXISTS` guards before public launch |
+| 4 | **Filler Word Regex False Positives** | `fillerWordUtils.ts` | P3 | Integrate NLP for Part-of-Speech tagging |
+| 5 | **React Router v7 Deprecation** | Console output | P3 | Add future flags before upgrading |
+| 6 | **SessionPage Mega Component** | `SessionPage.tsx` | P2 | Decompose into smaller sub-components |
 
-| # | Finding | Location | Priority | Status |
-|---|---------|----------|----------|--------|
-| 1 | **Auth Context Overreach (SRP Violation)** | `AuthProvider.tsx` | P1 HIGH | ✅ DOCUMENTED |
-|   | *Problem:* AuthProvider handles session + profile + loading + refresh in one context. | | | |
-|   | *Resolution:* Documented migration path in AuthProvider.tsx. Acceptable for alpha. | | | |
-| 2 | **Auth Race Condition (Dual Fetch)** | `AuthProvider.tsx` | P1 HIGH | ✅ FIXED |
-|   | *Problem:* `onAuthStateChange` + `getSession()` both call `fetchAndSetProfile`. | | | |
-|   | *Fix (2025-12-17):* Added `pendingProfileFetch` ref to deduplicate concurrent fetches. | | | |
-| 3 | **Plan String Comparison** | Multiple frontend files | P2 MEDIUM | ✅ FIXED |
-|   | *Problem:* `profile?.subscription_status === 'pro'` hardcoded throughout. | | | |
-|   | *Fix (2025-12-17):* Created `constants/subscriptionTiers.ts` with `isPro()`, `isFree()` helpers. Updated 8 files. | | | |
-| 4 | **No Domain Boundary Enforcement** | `services/domainServices.ts` | P2 MEDIUM | ✅ FIXED |
-|   | *Observation:* Hooks call Supabase directly. No domain service layer. | | | |
-|   | *Fix (2025-12-17):* Created `domainServices.ts` with sessionService, profileService, vocabularyService, goalsService. Updated hooks. | | | |
-| 5 | **Stripe Webhook Idempotency** | `stripe-webhook/index.ts` | P0 CRITICAL | ✅ FIXED |
-|   | *Problem:* No `event.id` deduplication. Replay attacks could cause duplicate upgrades. | | | |
-|   | *Fix (2025-12-17):* Added `processed_webhook_events` table. Migration at `migrations/20251217_add_webhook_idempotency.sql`. | | | |
-| 6 | **Client-side Aggregation Scalability** | `analyticsUtils.ts` | P1 HIGH | ✅ OPTIMIZED |
-|   | *Problem:* Entire session history pulled and aggregated client-side. | | | |
-|   | *Fix (2025-12-17):* Optimized to single-pass loop, limited chart to 10 sessions, documented RPC migration path. | | | |
-| 7 | **Edge Function Error Taxonomy** | `backend/supabase/functions/_shared/errors.ts` | P2 MEDIUM | ✅ FIXED |
-|   | *Problem:* Errors thrown as generic `Error` with string messages. | | | |
-|   | *Fix (2025-12-17):* Created `_shared/errors.ts` with error codes + response helpers. Updated 3 Edge Functions. | | | |
-| 8 | **Playwright Config Fragmentation** | `playwright.base.config.ts` | P2 MEDIUM | ✅ FIXED |
-|   | *Problem:* Multiple configs with overlapping settings. | | | |
-|   | *Fix (2025-12-17):* Created `playwright.base.config.ts` with shared presets. Refactored 4 configs to extend it. | | | |
+### ℹ️ Known Limitations (Accepted)
 
-**Summary:** 8 items identified - 8 FIXED. Alpha-ready. ✅
-
-### ⏸️ Deferred Audit Remediation (Dec 2025)
-
-The following items were identified during the audit but deferred to post-alpha to prioritize stability.
-
-| Finding | Priority | Status | Notes |
-|---------|----------|--------|-------|
-| **3. Dependency Alias** | MEDIUM | ⏸️ DEFERRED | Refactor `@config` alias in `vite.config.ts`. |
-| **4. Playwright Config Coupling** | MEDIUM | ⏸️ DEFERRED | Remove unused `PORTS` import in `playwright.config.ts`. |
-| **5. Base Config Coupling** | MEDIUM | ⏸️ DEFERRED | Extract `PORTS` to root-level config to decouple base config. |
-| **7. Private Fallback** | HIGH | ⏸️ DEFERRED | Add try-catch block for Private initialization failure. |
-| **11. Mega Component** | HIGH | ⏸️ DEFERRED | Decompose `SessionPage` into smaller sub-components. |
-
----
-
-### 🟡 Tech Debt Identified (Code Smells - Dec 2025)
-
-The following items are tactical mitigations that work but require structural fixes for long-term maintainability.
-
-| # | Finding | Location | Priority | Status |
-|---|---------|----------|----------|--------|
-| 1 | **Toast Notification Duplication** | `frontend/src/App.tsx` | P2 MEDIUM | ✅ FIXED |
-|   | *Problem:* Toasts triggered multiple times due to React Strict Mode. | | | |
-|   | *Fix (2025-12-22):* Logic extracted to `useCheckoutNotifications` hook. Deduplicated with `useRef`. | | | |
-| 2 | **Transient Profile Loading Failures** | `frontend/src/hooks/useUserProfile.ts` | P2 MEDIUM | ✅ FIXED |
-|   | *Problem:* Initial profile fetches intermittently fail. | | | |
-|   | *Fix (2025-12-22):* `AuthProvider.tsx` refactored to use standard React synchronization. Retries preserved. | | | |
-| 3 | **Filler Word Regex False Positives** | `frontend/src/utils/fillerWordUtils.ts` | P3 LOW | ℹ️ KNOWN |
-|   | *Problem:* Simple regex patterns for "like" and "so" match legitimate usage (e.g., "I like pizza"). | | | |
-|   | *Beta Fix:* Integrate NLP (e.g., `compromise` or `transformers.js`) for Part-of-Speech tagging. | | | |
-| 4 | **Documentation Drift** | Multiple docs | P3 LOW | 🔄 PERPETUAL |
-|   | *Problem:* Rapid architectural changes can lead to outdated docs. | | | |
-|   | *Process:* "Documentation Audit" required before each major release. | | | |
-| 5 | **React Router v7 Deprecation Warnings** | Console output | P3 LOW | ℹ️ KNOWN |
-|   | *Problem:* Two deprecation warnings: `v7_startTransition` and `v7_relativeSplatPath`. | | | |
-|   | *Action Required:* Before upgrading to React Router v7, add future flags to router configuration. | | | |
-| 6 | **devBypass Edge Function 401** | `frontend/src/hooks/useUsageLimit.ts` | P2 MEDIUM | ✅ DOCUMENTED |
-|   | *Problem:* Mock session in devBypass mode doesn't have valid JWT for Edge Function calls. | | | |
-|   | *Resolution:* Proper testing requires real authentication. devBypass is for UI-only testing. | | | |
-| 7 | **Vitest deps.inline Deprecation** | `frontend/vitest.config.mjs` | P3 LOW | ✅ FIXED |
-|   | *Problem:* Warning: `"deps.inline" is deprecated. Use "server.deps.inline" or "deps.optimizer.web.include" instead.` | | | |
-|   | *Resolution:* Updated config to use `server.deps.inline`. Verified warning is gone. | | | |
-| 8 | **useUserProfile Error Test Skipped** | `frontend/src/hooks/__tests__/useUserProfile.test.tsx` | P2 MEDIUM | ✅ FIXED |
-|   | *Problem:* Error handling test skipped due to hook's internal retry: 3 with exponential backoff (~15s wait). | | | |
-|   | *Resolution:* Made retry config injectable. Added `{ retry: false }` to test case. Test now passes in <100ms. | | | |
-
-**Summary:** 8 items identified - 2 mitigated, 3 known limitations, 1 perpetual, 1 documented, 1 test skipped.
-
----
-
-### 🔵 Tech Debt Identified (Gap Analysis - Jan 2026)
-
-The following items were identified by independent code review for Alpha soft launch readiness.
-
-| # | Finding | Location | Priority | Status |
-|---|---------|----------|----------|--------|
-| 1 | **TranscriptionService SRP Violation** | `TranscriptionService.ts` | P2 MEDIUM | ⏸️ DEFERRED |
-|   | *Problem:* Service handles mode selection, WebSocket lifecycle, mic subscription, quota checks, and error translation. | | | |
-|   | *Post-Alpha Fix:* Split into `TranscriptionCoordinator` + mode-specific Providers. | | | |
-| 2 | **TranscriptionService Mode Coupling** | `TranscriptionService.ts:40-140` | P3 LOW | ✅ BY DESIGN |
-|   | *Finding:* Mode selection uses ambient flags (`isTestMode`, `forceCloud`). | | | |
-|   | *Resolution:* This is Policy-Driven Strategy Pattern - forces `native` in test to bypass WebSocket. | | | |
-|   | *Post-Alpha:* Consider DI container for explicit policy injection. | | | |
-| 3 | **UI State Boolean Flags** | `RecordingControls.tsx` | P2 MEDIUM | ⏸️ DEFERRED |
-|   | *Problem:* UI uses `isRecording` boolean instead of explicit state machine. | | | |
-|   | *Post-Alpha Fix:* Implement XState or reducer with enumerated states (Initializing, PermissionDenied, etc). | | | |
-| 4 | **Migration Idempotency** | `supabase/migrations/*` | P3 LOW | ⏸️ DEFERRED |
-|   | *Problem:* No `IF NOT EXISTS` guards in migrations. | | | |
-|   | *Post-Alpha Fix:* Add idempotent guards before public launch. Single-user alpha is acceptable. | | | |
-| 5 | **CI ≠ Local Dev Parity** | `.github/workflows/*.yml` | P2 MEDIUM | ✅ ACCEPTABLE |
-|   | *Finding:* Local dev doesn't exercise migration push, RLS validation, or Edge Function deployment. | | | |
-|   | *Resolution:* Edge Functions are tested in CI. For Alpha, this gap is acceptable. | | | |
-
-**Summary:** 5 items from Jan 2026 review - 2 by design/acceptable, 3 deferred to post-alpha.
+| Finding | Status |
+|---------|--------|
+| Documentation Drift | 🔄 PERPETUAL - Audit before each release |
+| devBypass Edge Function 401 | ✅ BY DESIGN - UI-only testing |
+| TranscriptionService Mode Coupling | ✅ BY DESIGN - Policy-Driven Strategy |
+| CI ≠ Local Dev Parity | ✅ ACCEPTABLE - Edge Functions tested in CI |
 
 ---
 
