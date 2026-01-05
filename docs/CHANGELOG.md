@@ -26,6 +26,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Toast deduplication, profile loading, test retry injection
 - **Details:** See `ROADMAP.md` history or git log for full breakdown.
 
+### Known Issues Resolved (Jan 2026)
+- **30+ issues closed** from Nov 2025 - Jan 2026:
+  - E2E test failures (analytics, navigation, live-transcript, smoke, PDF, goals, sessions)
+  - UX improvements (usage limit pre-check, WCAG contrast, layout shift, accessibility)
+  - Infrastructure (Stripe config, CI sharding, soak test stabilization, contract drift)
+- **Details:** See git log for full breakdown.
+
 ## 0.1.0 - 2026-01-01
 
 - **STT Self-Healing & Fallbacks:**

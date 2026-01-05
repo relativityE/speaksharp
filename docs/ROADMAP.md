@@ -247,75 +247,22 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 
 ### ⚠️ Known Issues
 
-- **✅ RESOLVED - Usage Limit Pre-Check UX (2025-12-11)**
-  - **Problem:** Usage check happened AFTER session save, leading to frustrating UX where users recorded for minutes only to find they couldn't save.
-  - **Solution:** Created `check-usage-limit` Edge Function for pre-session validation. Frontend shows toast with Upgrade button if limit exceeded, warns when <5min remaining.
-  - **Status:** ✅ Fixed - P0 UX improvement for free tier users.
+**12 issues resolved** (Nov 2025 - Jan 2026). Details moved to `CHANGELOG.md`.
 
-- **✅ RESOLVED - Screen Reader Accessibility (2025-12-11)**
-  - **Problem:** Live transcript lacked ARIA live region (`aria-live="polite"`), screen readers didn't announce new text.
-  - **Solution:** Added `aria-live="polite"`, `aria-label`, and `role="log"` to transcript container in SessionPage.tsx.
-  - **Status:** ✅ Fixed - Critical accessibility improvement.
+#### Active Issues
 
-- **✅ RESOLVED - PDF Filename Inconsistency (2025-12-11)**
-  - **Problem:** `jsPDF.save()` did not reliably set the filename across all browsers in `devBypass` mode (resulted in UUID names instead of `session_YYYYMMDD_User.pdf`).
-  - **Solution:** Implemented FileSaver.js (`file-saver@^2.0.5`) - the industry standard for cross-browser file downloads. Uses `saveAs(blob, filename)` API (`pdfGenerator.ts:76`).
-  - **Status:** ✅ Fixed - Industry-standard solution provides reliable cross-browser support.
+- **ℹ️ INFO - Node.js Punycode Deprecation Warning**
+  - Cosmetic warning from transitive dependency chain. Suppressed via `NODE_NO_WARNINGS=1`.
+  - **Status:** Safe to ignore
 
-- **✅ RESOLVED - HeroSection WCAG Contrast (2025-12-07)**
-  - **Problem:** White text on complex gradient failed WCAG AA 4.5:1 contrast ratio
-  - **Solution:** Added drop-shadow and backdrop-blur background to hero text
-  - **Status:** ✅ Fixed
+#### Parked
 
-- **✅ RESOLVED - Analytics E2E Test Failures (2025-12-07)**
-  - **Problem:** 12 E2E tests failing - analytics pages not rendering correctly
-  - **Root Cause 1:** AuthProvider race condition - Supabase `onAuthStateChange` cleared mock session
-  - **Root Cause 2:** `page.goto()` caused protected route loading state issues
-  - **Solution:** AuthProvider ignores empty sessions; Added `navigateToRoute()` helper; **Fixed Supabase table name mismatch (`profiles` vs `user_profiles`)**
-  - **Status:** ✅ Fixed - **All E2E tests now pass** (no skips)
-
-- **✅ RESOLVED - Flaky E2E Tests (live-transcript, smoke) (2025-12-11)**
-  - **Problem 1:** `live-transcript.e2e.spec.ts` flaky - `session-start-stop-button` not visible
-  - **Problem 2:** `smoke.e2e.spec.ts` timed out in `waitForE2EEvent` (120s timeout)
-  - **Root Cause 1:** `SessionPage.pom.ts` used `page.goto()` after auth, destroying MSW context
-  - **Root Cause 2:** Smoke test called `page.goto('/')` before `programmaticLogin`, causing MSW ready event race
-  - **Solution:** `SessionPage.pom` now uses `navigateToRoute()`; Smoke test restructured to call `programmaticLogin` first
-  - **Bonus:** Added MSW catch-all handlers that log `[MSW ⚠️ UNMOCKED]` for debugging unmocked endpoints
-  - **Status:** ✅ Fixed - Both tests pass reliably (38/38 E2E tests green)
-
-- **✅ RESOLVED - Navigation E2E Test Failure (2025-12-02)**
-  - **Problem:** `navigation.e2e.spec.ts` failed due to overlapping headers
-  - **Solution:** Removed redundant `LandingHeader` and unused `Header.tsx`
-  - **Status:** ✅ Fixed
-
-- **✅ RESOLVED - Live Transcript E2E Test Fixed (2025-12-01)**
-  - **Problem:** Test timed out waiting for session status to change from "LOADING" to "READY"
-  - **Root Cause:** `NativeBrowser.onReady()` was called in `startTranscription()` instead of `init()`, causing UI to wait indefinitely
-  - **Solution:** Moved `onReady()` callback to end of `init()` method in `NativeBrowser.ts`
-  - **Impact:** Test now passes consistently (verified with 3 consecutive runs)
-  - **Status:** ✅ Fixed and unskipped
-
-- **✅ RESOLVED - Lighthouse Performance Optimization Complete (2025-11-28)**
-  - **Solution:** Achieved Performance 95%, Accessibility 95%, SEO 100%, Best Practices 78%
-  - **Impact:** Production-ready performance metrics, SEO-optimized
-  - **Note:** Best Practices limited to 78% by Stripe cookies (unavoidable, set to warn level)
-
-- **ℹ️ INFO - Node.js Punycode Deprecation Warning (2025-12-01)**
-  - **Warning:** `DeprecationWarning: The punycode module is deprecated` appears during Lighthouse CI runs
-  - **Root Cause:** Transitive dependency chain: `eslint` → `ajv@6.12.6` → `uri-js@4.4.1` → `punycode@2.3.1`
-  - **Impact:** None - cosmetic warning only. Dependencies use the userland `punycode` npm package (v2.3.1), not Node's deprecated built-in module
-  - **Resolution:** Warning suppressed via `NODE_NO_WARNINGS=1` in `test-audit.sh`. Upstream fix requires `ajv` v7+ adoption by eslint ecosystem
-  - **Status:** Safe to ignore - not a functional issue
-
-- **⏸️ PARKED - Metrics E2E Test MockSpeechRecognition Loading Issue (2025-12-01)**
-  - **Problem:** Test hangs waiting for WPM to update from "0". `MockSpeechRecognition` diagnostic logs never appear
-  - **Root Cause:** Unknown - mock class may not be loading via `addInitScript`, or console logs aren't captured
-  - **Solution:** Implemented event buffering in `MockSpeechRecognition`, fixed test assertions, added diagnostic logging
-  - **Impact:** Test infrastructure only (NOT a production bug). Event buffering complete but root cause unidentified
-  - **Status:** ✅ Fixed (aligned with `e2e-bridge.ts`)
+- **⏸️ PARKED - Metrics E2E MockSpeechRecognition Loading Issue**
+  - Mock class may not load via `addInitScript`. Event buffering implemented.
+  - **Status:** Test infrastructure only (not production bug)
 
 ### Gating Check
-- 🟡 **Gap Analysis:** See high priority items in Phase 1 Tech Debt section above.
+- ✅ **All P0/P1 blockers resolved.** See Tech Debt summary above.
 
 ---
 ## Phase 2: User Validation & Polish

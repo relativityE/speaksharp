@@ -143,52 +143,36 @@ The project's testing strategy prioritizes stability, reliability, and a tight a
 
 ## 4. Known Issues & Risks
 
-This section tracks high-level product risks and constraints. For a detailed guide on troubleshooting E2E infrastructure, see [tests/TROUBLESHOOTING.md](../tests/TROUBLESHOOTING.md).
+This section tracks **active** product risks and constraints only. Resolved issues are documented in `CHANGELOG.md`.
 
-- **Incomplete Theming:** The application is configured to support both light and dark themes, but only a dark theme is currently implemented. Users will not be able to switch to a light theme, which can be an accessibility issue and ignores user preference.
-- **✅ RESOLVED - Infrastructure - Contract Drift (2025-12-19):** Grounded the `sessions` table by adding missing columns (`transcript`, `engine`, `clarity_score`, `wpm`) and implemented the atomic `create_session_and_update_usage` RPC. Purged `avatar_url` and `full_name` phantoms. **Status:** ✅ Fixed.
-- **✅ RESOLVED - Accessibility (aria-live, 2025-12-11):** Added `aria-live="polite"`, `aria-label`, and `role="log"` to the live transcript container (`SessionPage.tsx:266-272`). Screen readers now announce new transcript text as it appears. **Status:** ✅ Fixed.
-- **Unit Test Coverage:** Current coverage is 57.03% with 89 unit tests across 52 test files (as of 2025-12-23). Continued coverage expansion is tracked in the technical debt backlog.
-- **✅ RESOLVED - UX - Layout Shift (CLS, 2025-12-06):** The `SessionPage` transcript container now uses fixed `h-[250px]` to prevent layout instability. **Status:** ✅ Fixed.
-- **✅ RESOLVED - UX - Accessibility (Contrast, 2025-12-07):** Hero text contrast improved with drop-shadow and backdrop-blur for WCAG AA compliance. **Status:** ✅ Fixed.
-- **UX - Mobile Experience:** The controls on `SessionPage` are difficult to access on small screens as they scroll away with the content ("thumb stretch" issue). A sticky footer is required.
-- **🟡 IN PROGRESS - Testimonials:** `TestimonialsSection` component exists but contains "TBD for now" placeholder content and is commented out in `MainPage.tsx` and `Index.tsx`. Needs real user testimonials before enabling.
-- **Test Quality (Partially Addressed 2025-12-10):** A comprehensive audit of the test suite is ongoing. Test ID centralization completed (eliminated magic strings). Refactored brittle `.first()` selectors. Remaining: identify low-value tests.
-- **✅ RESOLVED - Session Comparison & Progress Tracking (2025-12-06):** Implemented full feature with side-by-side comparison, trend charts, and progress indicators. Users can select 2 sessions to compare, view WPM/Clarity/Fillers trends over time, and see improvement/regression indicators. **Status:** ✅ Implemented. **Files:** `ProgressIndicator.tsx`, `TrendChart.tsx`, `SessionComparisonDialog.tsx`, `AnalyticsDashboard.tsx`
-- **✅ RESOLVED - Goal Setting Implementation (2025-12-07):** Supabase sync implemented, and GoalsSection now calculates actual progress from `useAnalytics` hook (weekly session count and average clarity score). **Files:** `GoalsSection.tsx`, `useGoals.ts`. **Status:** ✅ Complete.
-- **✅ RESOLVED - Goal Setting E2E Test Failure (2025-12-05):** The `goal-setting.e2e.spec.ts` test failure caused by stale build artifacts has been fixed. **Status:** ✅ Fixed.
-- **✅ RESOLVED - Analytics Empty State E2E Test (2025-12-06):** Test is now passing. The `__E2E_EMPTY_SESSIONS__` flag works correctly with MSW handlers. **Status:** ✅ Fixed.
-- **✅ RESOLVED - Navigation E2E Test Failure (2025-12-02):** The `navigation.e2e.spec.ts` test failure due to overlapping headers has been fixed. **Status:** ✅ Fixed.
-- **✅ RESOLVED - Analytics E2E Test Failures (2025-12-07):** All 12 failing analytics tests fixed. Root causes: (1) AuthProvider race condition - Supabase `onAuthStateChange` cleared mock session, (2) `page.goto()` caused protected route loading issues. Solutions: AuthProvider now ignores empty sessions in test mode; added `navigateToRoute()` helper for client-side navigation. **Status:** ✅ Fixed.
-- **✅ RESOLVED - Metrics E2E Test Timing Issue (2025-12-06):** Fixed by removing duplicate MockSpeechRecognition from `programmaticLogin()`. Test now passing (WPM: 120, Clarity: 87%, Fillers: 6). **Status:** ✅ Fixed.
-- **✅ RESOLVED - Local STT E2E Tests (2025-12-06):** Fixed 3 test failures in `local-stt-caching.e2e.spec.ts`: (1) Progress percentage bug (8534% → 0-100%), (2) Button text mismatch, (3) Toast notification strict mode violation. **Status:** ✅ Fixed and pushed.
-- **✅ RESOLVED - Local STT Download Progress Tests (2025-12-06):** Three tests previously skipped due to Pro subscription requirement are now passing with Pro test account. **Tests:** (1) Download progress indicator, (2) Cache loading performance, (3) Toast notification. **Status:** ✅ Fixed.
-- **✅ RESOLVED - Goal Setting Tests (2025-12-07):** Goal Setting feature fully implemented with Supabase sync and UI complete. **Status:** ✅ All tests passing.
-- **✅ RESOLVED - Session Comparison Tests (2025-12-06):** Feature fully implemented with E2E tests passing. **Components:** `ProgressIndicator.tsx`, `TrendChart.tsx`, `SessionComparisonDialog.tsx`. **Features:** Side-by-side comparison with progress indicators (↑/↓), WPM and Clarity trend charts. **Status:** ✅ Complete.
-- **✅ RESOLVED - Custom Vocabulary E2E Test (2025-12-08):** Previously flagged React Query cache issue is now resolved. MSW handlers working correctly, test is active and passing. **Status:** ✅ Fixed.
-- **✅ RESOLVED - PDF Export E2E Test (2025-12-08):** Test was passing but not actually testing due to sessions not loading. Fixed by waiting for `session-history-item` before checking buttons, and using click verification (jsPDF blob doesn't trigger Playwright download event). Now verifies 5 download buttons for 5 mock sessions. **Status:** ✅ Fixed.
-- **✅ RESOLVED - Analytics Invalid Session ID E2E Test Failure (2025-12-05):** The `analytics-details.e2e.spec.ts` test failure has been resolved by fixing race conditions in loading state assertions. **Status:** ✅ Fixed.
-- **✅ RESOLVED - AuthProvider Race Condition (Finding 2.1, 2025-12-22):** The `AuthProvider` profile loading logic was structurally refactored to use standard React effect synchronization, splitting session and profile state management. This replaced the previous "ignore empty session" patch with a robust architectural fix while preserving retry logic for cold starts. **Status:** ✅ Fixed.
-- **✅ RESOLVED - CI Sharded E2E Metrics (2025-12-10):** The `ci:local` command was incorrectly reporting only 8 E2E tests instead of 35 due to Playwright blob reports being overwritten per shard. **Fix:** Implemented `PLAYWRIGHT_BLOB_OUTPUT_DIR` per shard with JSONL extraction for accurate aggregation in `test-audit.sh`. Now correctly reports 35 E2E tests. **Status:** ✅ Fixed.
-- **✅ STABILIZED - Soak Test "Empty Body" (2025-12-15):** Soak test failed due to hydration race conditions. **Mitigation:** Implemented `browser.newContext()` isolation and strict `expect().toBeVisible()` state guards. **Status:** Stabilized (Guardrail enforced), though shared process risk remains.
-- **✅ RESOLVED - Stripe Configuration Error (2025-12-15):** The `stripe-checkout` Edge Function was failing with generic 400 errors in CI. **Fix:** Added diagnostic logging and "Negative Verification" to test (`stripe-checkout.spec.ts`) to prove configuration state safely without exposing secrets. **Status:** ✅ Fixed.
-- **✅ RESOLVED - Infrastructure - Analytics UI Regression (2025-12-31):** Fixed the `net::ERR_NAME_NOT_RESOLVED` error by restoring MSW initialization in the E2E bridge and consolidated redundant upgrade prompts. **Status:** ✅ Fixed.
-- **ℹ️ INFO - Soak Test Environment (2025-12-19):** Optimized the `soak-test` workflow to support **10 concurrent users** (7 Free, 3 Pro) by default. Implemented automated registry synchronization via `setup-test-users.yml`, which uses a shared `SOAK_TEST_PASSWORD` secret (programmatically rotated via `GH_PAT`). Full execution requires the CI/Staging environment with real Supabase secrets.
-- **🟡 TECH DEBT - Native STT Headless Test (2026-01-02):** `live-transcript-real.e2e.spec.ts` cannot run in headless CI because Web Speech API is unavailable in headless Chrome. **Workaround:** Marked `test.fixme()`. **Manual Verification:** Run with `--headed` flag. **Resolution Path:** Use mock SpeechRecognition polyfill (reduces fidelity).
-- **🟡 TECH DEBT - PDF Content Text Extraction (2026-01-02):** `pdf-export.e2e.spec.ts` cannot parse PDF text content because `pdf-parse` requires `DOMMatrix` (browser-only). **Workaround:** Validates PDF structure (header, size, catalog markers). **Resolution Path:** Run parsing in browser context via `page.evaluate()` or add unit test for `pdfGenerator.ts`.
-- **🟡 TECH DEBT - Cloud STT Mode E2E Test (2026-01-02):** `custom-vocabulary.e2e.spec.ts` Cloud STT payload test was previously marked `fixme` due to mode selector issue. **Status:** Investigating - Cloud API keys ARE available in `.env.test` and `.env.development`.
-- **ℹ️ CAVEAT - User Filler Words Native STT (2026-01-02):** Native STT (Web Speech API) does **NOT** support user filler words - it's entirely browser-controlled. Only Cloud STT (`word_boost` param via AssemblyAI) supports this feature. **Testing Impact:** User filler words E2E verification can only be done with Cloud STT, which requires API keys.
+For E2E infrastructure troubleshooting, see [tests/TROUBLESHOOTING.md](../tests/TROUBLESHOOTING.md).
 
-### Gap Analysis: Alpha Launch Blockers (AI Detective v5 - 2025-12-09)
+### Active Constraints
 
-| Issue | Details | Impact | Priority |
-|-------|---------|--------|----------|
-| Rate Limiting | AssemblyAI token endpoint no rate limiting | Cost overruns, abuse risk | ✅ **RESOLVED 2025-12-09** - Added client-side `rateLimiter.ts` (5 calls/min, 5s interval) |
-| Usage Limit UX (Incomplete) | Frontend doesn't prevent session start if usage exceeded | Frustrating UX when session fails to save | ✅ **RESOLVED 2025-12-11** - Added `check-usage-limit` Edge Function with `useUsageLimit` hook. Shows toast with Upgrade button pre-session |
-| Error Reporting | No Sentry for Web Audio/Worker errors | Production debugging impossible | ✅ **RESOLVED 2025-12-09** - Added `Sentry.captureException` to TranscriptionService |
-| Documentation Drift | ARCHITECTURE.md needs update | Maintainability risk | ✅ **RESOLVED 2025-12-09** - Added Section 3.2 documenting hook decomposition, clean ASCII diagram |
-| E2E Error States Coverage | Missing tests for: mic denied, usage exceeded, network failure during save | Resilience gap | ✅ **RESOLVED 2025-12-09** - Added `error-states.e2e.spec.ts` with 4 tests (session stability, network errors) |
-| Alpha Bypass Mechanism | No way for alpha testers to upgrade without Stripe | Blocked alpha launch | ✅ **RESOLVED 2025-12-31** - Implemented `apply-promo` Edge Function and periodic secret-driven code validation in `AuthPage.tsx`. See [User Guide](./USER_GUIDE.md) |
+- **Incomplete Theming:** Only dark theme implemented. Light theme a11y constraint.
+- **Unit Test Coverage:** 57.03% (89 tests, 52 files). Expansion tracked in tech debt.
+- **UX - Mobile Experience:** Controls on `SessionPage` scroll away ("thumb stretch" issue). Sticky footer required.
+- **🟡 Testimonials:** `TestimonialsSection` has placeholder content. Needs real user testimonials.
+
+### Tech Debt (Testing)
+
+- **🟡 Native STT Headless Test:** Web Speech API unavailable in headless Chrome. Use `--headed` for manual verification.
+- **🟡 PDF Content Extraction:** `pdf-parse` requires `DOMMatrix`. PDF structure validated only.
+- **🟡 Cloud STT E2E:** Mode selector issue under investigation.
+- **ℹ️ User Filler Words Native STT:** Native STT doesn't support user filler words (browser-controlled). Only Cloud STT (`word_boost`) supports this.
+
+### Gap Analysis: Alpha Launch Blockers
+
+| Issue | Status |
+|-------|--------|
+| Rate Limiting | ✅ RESOLVED - `rateLimiter.ts` |
+| Usage Limit UX | ✅ RESOLVED - `check-usage-limit` Edge Function |
+| Error Reporting | ✅ RESOLVED - Sentry integration |
+| Documentation Drift | ✅ RESOLVED - ARCHITECTURE.md updated |
+| E2E Error States | ✅ RESOLVED - `error-states.e2e.spec.ts` |
+| Alpha Bypass | ✅ RESOLVED - `apply-promo` Edge Function |
+
+**All P0/P1 blockers resolved.** See `CHANGELOG.md` for details.
 
 ---
 
