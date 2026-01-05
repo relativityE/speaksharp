@@ -612,6 +612,33 @@ The following items are tactical mitigations that work but require structural fi
 
 ---
 
+### 🔵 Tech Debt Identified (Gap Analysis - Jan 2026)
+
+The following items were identified by independent code review for Alpha soft launch readiness.
+
+| # | Finding | Location | Priority | Status |
+|---|---------|----------|----------|--------|
+| 1 | **TranscriptionService SRP Violation** | `TranscriptionService.ts` | P2 MEDIUM | ⏸️ DEFERRED |
+|   | *Problem:* Service handles mode selection, WebSocket lifecycle, mic subscription, quota checks, and error translation. | | | |
+|   | *Post-Alpha Fix:* Split into `TranscriptionCoordinator` + mode-specific Providers. | | | |
+| 2 | **TranscriptionService Mode Coupling** | `TranscriptionService.ts:40-140` | P3 LOW | ✅ BY DESIGN |
+|   | *Finding:* Mode selection uses ambient flags (`isTestMode`, `forceCloud`). | | | |
+|   | *Resolution:* This is Policy-Driven Strategy Pattern - forces `native` in test to bypass WebSocket. | | | |
+|   | *Post-Alpha:* Consider DI container for explicit policy injection. | | | |
+| 3 | **UI State Boolean Flags** | `RecordingControls.tsx` | P2 MEDIUM | ⏸️ DEFERRED |
+|   | *Problem:* UI uses `isRecording` boolean instead of explicit state machine. | | | |
+|   | *Post-Alpha Fix:* Implement XState or reducer with enumerated states (Initializing, PermissionDenied, etc). | | | |
+| 4 | **Migration Idempotency** | `supabase/migrations/*` | P3 LOW | ⏸️ DEFERRED |
+|   | *Problem:* No `IF NOT EXISTS` guards in migrations. | | | |
+|   | *Post-Alpha Fix:* Add idempotent guards before public launch. Single-user alpha is acceptable. | | | |
+| 5 | **CI ≠ Local Dev Parity** | `.github/workflows/*.yml` | P2 MEDIUM | ✅ ACCEPTABLE |
+|   | *Finding:* Local dev doesn't exercise migration push, RLS validation, or Edge Function deployment. | | | |
+|   | *Resolution:* Edge Functions are tested in CI. For Alpha, this gap is acceptable. | | | |
+
+**Summary:** 5 items from Jan 2026 review - 2 by design/acceptable, 3 deferred to post-alpha.
+
+---
+
 ## Phase 2.5: UI/UX & Design Polish
 This phase addresses findings from the December 2025 UX Audit (`ux_audit.md`) to align the product with "Premium" design standards.
 
