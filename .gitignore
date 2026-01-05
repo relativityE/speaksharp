@@ -16,6 +16,12 @@ blob-report/
 /unit-metrics.json
 /e2e-metrics.json
 /playwright/.cache/
+
+# Test logs and output files
+*-logs.txt
+test_output.txt
+smoke-*.txt
+
 *.bak
 *.tmp
 *.patch

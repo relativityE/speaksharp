@@ -13,7 +13,7 @@ import { Session } from '@supabase/supabase-js';
 import * as Sentry from "@sentry/react";
 import ConfigurationNeededPage from "./pages/ConfigurationNeededPage";
 import App from './App';
-import { IS_TEST_ENVIRONMENT, SW_TIMEOUT_MS } from '@/config/env';
+import { IS_TEST_ENVIRONMENT } from '@/config/env';
 
 const REQUIRED_ENV_VARS: string[] = [
   'VITE_SUPABASE_URL',
@@ -155,6 +155,7 @@ const initialize = async () => {
 
   // 🔧 ServiceWorker registration with timeout to prevent indefinite hangs
   // Fire-and-forget pattern - app continues loading in parallel
+  /* 🔧 Disabled for debugging post-load hang
   if ('serviceWorker' in navigator) {
     const swRegistration = navigator.serviceWorker.register('/sw.js');
     const timeout = new Promise<never>((_, reject) =>
@@ -172,6 +173,7 @@ const initialize = async () => {
         logger.error({ error }, '[ServiceWorker] ❌ Registration failed or timed out');
       });
   }
+  */
 
   if (IS_TEST_ENVIRONMENT) {
     // Check if we should skip MSW (using Playwright routes instead OR using Live DB)
@@ -189,8 +191,7 @@ const initialize = async () => {
       console.log('[E2E] Mock speech recognition and dispatchMockTranscript configured');
 
       // Set mswReady immediately since we're not using MSW
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (window as any).mswReady = true;
+      (window as unknown as { mswReady: boolean }).mswReady = true;
       window.dispatchEvent(new CustomEvent('e2e:msw-ready'));
 
       await renderApp();

@@ -15,7 +15,7 @@ Status Key: 🟡 In Progress | 🔴 Not Started | ✅ Complete
 This phase focuses on fixing critical bugs, addressing code health, and ensuring the existing features are reliable and robust.
 
 ### 🚧 Should-Have (Tech Debt)
-- ✅ **Strategic Error Logging (2025-12-11):** Added defensive error logging to OnDeviceWhisper.ts, SessionPage.tsx, AuthPage.tsx. Comprehensive coverage in critical paths.
+- ✅ **Strategic Error Logging (2025-12-11):** Added defensive error logging to PrivateWhisper.ts, SessionPage.tsx, AuthPage.tsx. Comprehensive coverage in critical paths.
 - ✅ **Usage Limit Pre-Check (2025-12-11):** P0 UX fix. New Edge Function `check-usage-limit` validates usage BEFORE session start. Shows toast with Upgrade button if exceeded.
 - ✅ **Screen Reader Accessibility (2025-12-11):** Added `aria-live="polite"` to live transcript for screen reader announcements.
 - ✅ **PDF Export Fix (2025-12-11):** Replaced manual download with FileSaver.js industry standard.
@@ -133,7 +133,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 | **Network Error Shielding** | ✅ FIXED | Added LIFO-ordered catch-all handler for `mock.supabase.co` to prevent `ERR_NAME_NOT_RESOLVED` |
 | **Logout Mock Pattern** | ✅ FIXED | Updated pattern from `**/auth/v1/logout` to `**/auth/v1/logout*` to match query params |
 | **PORTS Import Coupling** | ✅ FIXED | Removed unused `PORTS` import from `playwright.config.ts` (Finding 4/5) |
-| **On-Device Fallback** | ✅ FIXED | Added try-catch with Native Browser fallback if On-Device init fails (Finding 7) |
+| **Private Fallback** | ✅ FIXED | Added try-catch with Native Browser fallback if Private init fails (Finding 7) |
 | **Deferred: Playwright Config Coupling** | ⏸️ DEFERRED | Remove unused `PORTS` import from `playwright.config.ts` (post-alpha) |
 
 ### 🧪 Adversarial Test Suite Hardening (2025-12-19) ✅ P1 Complete
@@ -323,7 +323,7 @@ This phase is about confirming the core feature set works as expected and polish
 
 ### 🎯 Must-Have
 - ✅ **Implement Speaking Pace Analysis:** Add real-time feedback on words per minute to the core analytics.
-- ✅ **Implement Custom Vocabulary:** Allow Pro users to add custom words (jargon, names) to improve transcription accuracy.
+- ✅ **Implement User Filler Words:** Allow Pro users to add custom words (jargon, names) to improve transcription accuracy.
 - ✅ **Implement Vocal Variety / Pause Detection:** Add a new Pro-tier feature to analyze vocal variety or pause duration.
   - ✅ **Pause Detection UI**: Integrate `PauseMetricsDisplay` into SessionPage (Completed 2025-11-30)
 - ✅ **CI Stability**: Fix Lighthouse CI timeouts and ensure local/remote parity (Completed 2025-11-30)
@@ -335,8 +335,7 @@ This phase is about confirming the core feature set works as expected and polish
   - ✅ `EditGoalsDialog` modal (1-20 sessions, 50-100% clarity)
   - ✅ `user_goals` table with RLS
   - ✅ Migrations deployed to production
--  **Deploy & confirm live transcript UI works:** (MANUAL VERIFICATION) Ensure text appears within 2 seconds of speech in a live environment. Test with Cloud (AssemblyAI) and On-Device (Whisper) modes.
-- ✅ **Remove all temporary console.logs:** Clean up the codebase for production.\
+-  **ℹ️ CAVEAT - User Filler Words Native STT (2026-01-02):** Native STT (Web Speech API) does **NOT** support user filler words - it's entirely browser-controlled. Only Cloud STT (`word_boost` param via AssemblyAI) supports this feature. **Testing Impact:** User filler words E2E verification can only be done with Cloud STT, which requires API keys.
 - [ ] **Alpha Deployment Checklist**
     - [ ] Deploy `apply-promo` Edge Function (`supabase functions deploy apply-promo`)
     - ✅ **Set `ALPHA_BYPASS_CODE` secret in Supabase Dashboard (2025-12-31):** Implemented secret-driven validation in `apply-promo` Edge Function. Code is no longer hardcoded in frontend.
@@ -350,7 +349,7 @@ This phase is about confirming the core feature set works as expected and polish
     - `docs/`: Documentation\
     - `tests/`: E2E and integration tests\
 - ✅ **Audit and Fix UX States:** Standardized loading/error states across SessionPage, SignInPage, SignUpPage, WeeklyActivityChart, GoalsSection (2025-11-27)
-- ✅ **Apply Supabase Migration:** `custom_vocabulary` migration applied to production
+- ✅ **Apply Supabase Migration:** `user_filler_words` migration applied to production
 - ✅ **Implement Lighthouse CI:** Lighthouse stage added to CI pipeline with performance thresholds (2025-11-22)
 - ✅ **Hide "TBD" Placeholders:** Remove or hide "TBD" sections (e.g., testimonials) for the Alpha launch.\
 - ⏸️ **Harden Supabase Security:** BLOCKED - OTP/password features require Supabase Pro account (deferred to production launch)\
@@ -359,7 +358,7 @@ This phase is about confirming the core feature set works as expected and polish
 - ✅ **Implement WebSocket Reconnect Logic:** Added heartbeat and exponential backoff (1s, 2s, 4s, 8s, max 30s) logic to `CloudAssemblyAI.ts`.
 - ✅ **Session Comparison & Progress Tracking (2025-12-06):** Users can now select 2 sessions to compare side-by-side with progress indicators (green ↑ for improvement, red ↓ for regression). Added WPM and Clarity trend charts showing progress over last 10 sessions. **Components:** `ProgressIndicator.tsx`, `TrendChart.tsx`, `SessionComparisonDialog.tsx`. **Status:** ✅ Complete.
 - ✅ **Implement Local STT Toast Notification:** Show user feedback when Whisper model download completes.
-- ✅ **Custom Vocabulary Tier Limits \u0026 Conversion Nudges (2025-12-11):** Implemented tier-based limits (Free: 10 words, Pro: 100 words) with subtle upgrade nudges when free users approach limit (shown at 8/10 words). Error messages include upgrade CTA. Uses `Math.min(MAX_WORDS_PER_USER, MAX_WORDS_FREE)` pattern for free tier enforcement.
+- ✅ **User Filler Words Tier Limits \u0026 Conversion Nudges (2025-12-11):** Implemented tier-based limits (Free: 10 words, Pro: 100 words) with subtle upgrade nudges when free users approach limit (shown at 8/10 words). Error messages include upgrade CTA. Uses `Math.min(MAX_WORDS_PER_USER, MAX_WORDS_FREE)` pattern for free tier enforcement.
 - ✅ **Contract Rectification (2025-12-19):** Grounded application assumptions in the database. Added `transcript`, `engine`, `clarity_score`, and `wpm` to the `sessions` table. Implemented atomic `create_session_and_update_usage` Ghost RPC. Purged `avatar_url` and `full_name` phantoms.
 - ✅ **Analytics Integrity Fix (2025-12-19):** Resolved regression in clarity score aggregation to correctly use grounded DB fields.
 - ✅ **Plan Selection at Signup (2025-12-21):** Users choose Free or Pro plan during signup. Pro selection redirects to Stripe Checkout after account creation (as Free). Webhook upgrades to Pro on successful payment. Added persistent "Upgrade to Pro" button in Navigation for Free users.
@@ -370,6 +369,8 @@ This phase is about confirming the core feature set works as expected and polish
 - 🔄 **PERPETUAL - Documentation Audit:** Verify PRD Known Issues, ROADMAP, and CHANGELOG match actual codebase state. Run test suite and cross-reference with documented issues to eliminate drift. **Frequency:** Before each release and after major feature work.
 
 ### 🚧 Should-Have (Tech Debt)
+
+- ✅ **Private STT CI Stability (2026-01-01):** Resolved WASM deadlocks and flaky integration tests using Triple-Engine Architecture and MockEngine strategy.
 
 - ⚠️ **Stripe Webhook E2E Verification (2025-12-21):** End-to-end test of Pro signup flow completed via CLI simulation. Confirmed: Auth → Select Pro → Stripe Redirect → Webhook Upgrade → Success Toast. Ad-hoc fix implemented for double toasts (see Tech Debt section below).
 - 🟡 **Toast Notification structural fix:** Replace ad-hoc `useRef` de-duplication with a formal flash message system. (See Tech Debt section below)
@@ -474,7 +475,7 @@ This phase is about confirming the core feature set works as expected and polish
   - Snapshots committed to repository for CI comparison
 - **✅ COMPLETED - UX/UI Test Plan Execution:**
   - **Scope**: 14 complete user journeys covering all features
-  - **Coverage**: All 3 STT modes (Local Device, Native, Cloud), authentication, session recording, analytics, custom vocabulary, accessibility, mobile responsiveness
+  - **Coverage**: All 3 STT modes (Local Device, Native, Cloud), authentication, session recording, analytics, user filler words, accessibility, mobile responsiveness
   - **Deliverables**: 
     - Visual regression baseline snapshots (generated)
     - Bug reports documented in ROADMAP Tech Debt section
@@ -499,7 +500,7 @@ The following items were identified in an independent code review and triaged as
 | # | Finding | Location | Status | Notes |
 |---|---------|----------|--------|-------|
 | 1 | Code duplication across STT modes | `modes/*.ts` | ✅ **FIXED 2025-12-08** | Created `AudioProcessor.ts` with shared utilities |
-| 2 | Cache invalidation race condition | `useCustomVocabulary.ts` | ✅ **PRE-EXISTING FIX** | Already uses `refetchQueries` (lines 82-85, 106-109) |
+| 2 | Cache invalidation race condition | `useUserFillerWords.ts` | ✅ **PRE-EXISTING FIX** | Already uses `refetchQueries` (lines 82-85, 106-109) |
 | 3 | Missing ARIA labels | `Navigation.tsx`, `SessionPage.tsx` | ✅ **FIXED 2025-12-08** | Added `aria-label` and `aria-hidden` |
 | 4 | Missing loading states | `SessionPage.tsx` | ✅ **PRE-EXISTING FIX** | Already has `SessionPageSkeleton` + model download indicator |
 | 5 | Critical paths under-tested | Coverage report | ✅ **FIXED 2025-12-08** | Added 25 tests for AudioProcessor, TranscriptionError |
@@ -571,7 +572,7 @@ The following items were identified during the audit but deferred to post-alpha 
 | **3. Dependency Alias** | MEDIUM | ⏸️ DEFERRED | Refactor `@config` alias in `vite.config.ts`. |
 | **4. Playwright Config Coupling** | MEDIUM | ⏸️ DEFERRED | Remove unused `PORTS` import in `playwright.config.ts`. |
 | **5. Base Config Coupling** | MEDIUM | ⏸️ DEFERRED | Extract `PORTS` to root-level config to decouple base config. |
-| **7. On-Device Fallback** | HIGH | ⏸️ DEFERRED | Add try-catch block for On-Device initialization failure. |
+| **7. Private Fallback** | HIGH | ⏸️ DEFERRED | Add try-catch block for Private initialization failure. |
 | **11. Mega Component** | HIGH | ⏸️ DEFERRED | Decompose `SessionPage` into smaller sub-components. |
 
 ---
@@ -646,9 +647,9 @@ This phase focuses on hardening the interface between frontend and backend and e
   - *Status:* Partially Implemented. `UpgradePromptDialog` and `PricingPage` exist, but the backend "Pro Mode" flag and full checkout flow are incomplete.
 - ✅ **COMPLETED - Whisper Model Caching & Auto-Update:**
   - ✅ **Script & SW:** `download-whisper-model.sh` and `sw.js` (2025-12-10). Load time: >30s → <5s.
-  - ✅ **Terminology:** Renamed "Local" to "On-Device" (2025-12-11).
+  - ✅ **Terminology:** Renamed "Local" to "Private" (2025-12-11).
   - ✅ **Internal Refactor:** `OnDeviceWhisper` class with 36 references updated (2025-12-11).
-  - ✅ **Documentation (2025-12-15):** Added On-Device STT section to ARCHITECTURE.md with full cache flow, URL mappings, and setup instructions.
+  - ✅ **Documentation (2025-12-15):** Added Private STT section to ARCHITECTURE.md with full cache flow, URL mappings, and setup instructions.
   - ✅ **Cache WASM Model:** Service Worker caches `.bin` and `.wasm` via Cache Storage API.
   - ✅ **Offline Support:** Model loads from cache when offline.
 - 🔴 **Add Platform Integrations (e.g., Zoom, Google Meet):** Allow SpeakSharp to connect to and analyze audio from third-party meeting platforms.

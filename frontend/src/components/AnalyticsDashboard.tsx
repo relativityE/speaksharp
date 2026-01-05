@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '@/components/ui/carousel';
+import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious, type CarouselApi } from '@/components/ui/carousel';
 import { ErrorDisplay } from './ErrorDisplay';
 import { generateSessionPdf } from '../lib/pdfGenerator';
 import { formatDate, formatDateTime } from '../lib/dateUtils';
@@ -69,14 +69,19 @@ interface SessionHistoryItemProps {
 // Exhaustive list of all available stat cards for user customization
 // Add new stat cards here for future analytics features
 
+type ChartDataPoint = {
+    date: string;
+    'FW/min': string | number;
+    [key: string]: string | number;
+};
+
 type OverallStats = {
     totalSessions: number;
     totalPracticeTime: number;
     avgWpm: number;
     avgFillerWordsPerMin: string | number;
     avgAccuracy: string | number;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    chartData: any[];
+    chartData: ChartDataPoint[];
 };
 
 type StatCardConfig = {
@@ -351,8 +356,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
 
     // Carousel API state
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const [api, setApi] = useState<any>();
+    const [api, setApi] = useState<CarouselApi>();
     const [current, setCurrent] = useState(0);
     const [count, setCount] = useState(0);
 

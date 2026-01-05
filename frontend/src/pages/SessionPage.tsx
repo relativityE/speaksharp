@@ -12,12 +12,14 @@ import { useSessionMetrics } from '@/hooks/useSessionMetrics';
 import { useUsageLimit, formatRemainingTime } from '@/hooks/useUsageLimit';
 import { useStreak } from '@/hooks/useStreak';
 import { isPro } from '@/constants/subscriptionTiers';
+import { buildPolicyForUser } from '@/services/transcription/TranscriptionPolicy';
 import { useSessionManager } from '@/hooks/useSessionManager';
 import { PauseMetricsDisplay } from '@/components/session/PauseMetricsDisplay';
 import { toast } from 'sonner';
+import { useUserFillerWords } from '@/hooks/useUserFillerWords';
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { CustomVocabularyManager } from '@/components/session/CustomVocabularyManager';
+import { UserFillerWordsManager } from '@/components/session/UserFillerWordsManager';
 import { SessionPageSkeleton } from '@/components/session/SessionPageSkeleton';
 import { ClarityScoreCard } from '@/components/session/ClarityScoreCard';
 import { SpeakingRateCard } from '@/components/session/SpeakingRateCard';
@@ -48,9 +50,11 @@ export const SessionPage: React.FC = () => {
     const { updateStreak } = useStreak();
     const { saveSession } = useSessionManager();
 
-    const [customWords] = useState<string[]>([]);
+    // Renaming for clarity: Custom Vocabulary = User Defined Filler Words
+    // These are used for 1. Analysis (finding them in transcript) and 2. Boosting (helping Cloud STT hear them)
+    const { vocabularyWords: userFillerWords } = useUserFillerWords();
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-    const [mode, setMode] = useState<'cloud' | 'native' | 'on-device'>('native');
+    const [mode, setMode] = useState<'cloud' | 'native' | 'private'>('native');
     const [showPromoExpiredDialog, setShowPromoExpiredDialog] = useState(false);
     const startTimeRef = useRef<number | null>(null);
     // Rate-limited debug canary ref
@@ -58,8 +62,8 @@ export const SessionPage: React.FC = () => {
     const transcriptContainerRef = useRef<HTMLDivElement>(null);
 
     const speechRecognition = useSpeechRecognition({
-        customWords,
-        customVocabulary: [],
+        customWords: userFillerWords, // Pass for local filler word detection (Native/Private)
+        customVocabulary: userFillerWords, // Pass for boosting (Cloud STT)
         session,
         profile
     });
@@ -71,7 +75,7 @@ export const SessionPage: React.FC = () => {
     useEffect(() => {
         if (activeMode && activeMode !== mode) {
             console.log(`[SessionPage] Syncing mode state to active transcription mode: ${activeMode}`);
-            setMode(activeMode as 'cloud' | 'native' | 'on-device');
+            setMode(activeMode as 'cloud' | 'native' | 'private');
         }
     }, [activeMode, mode]);
 
@@ -222,11 +226,9 @@ export const SessionPage: React.FC = () => {
                 }
 
                 console.log('[SessionPage] Starting session with mode:', mode);
-                await startListening({
-                    forceNative: mode === 'native',
-                    forceOnDevice: mode === 'on-device',
-                    forceCloud: mode === 'cloud'
-                });
+                // Build policy based on user tier and selected mode
+                const policy = buildPolicyForUser(isProUser, mode as 'native' | 'cloud' | 'private');
+                await startListening(policy);
                 // Track session start
                 posthog.capture('session_started', { mode });
             } catch (error) {
@@ -263,7 +265,7 @@ export const SessionPage: React.FC = () => {
                         <SheetTitle>Session Settings</SheetTitle>
                     </SheetHeader>
                     <div className="mt-6">
-                        <CustomVocabularyManager />
+                        <UserFillerWordsManager />
                     </div>
                 </SheetContent>
             </Sheet>

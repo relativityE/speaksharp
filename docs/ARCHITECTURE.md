@@ -102,7 +102,7 @@ This section contains a high-level block diagram of the SpeakSharp full-stack ar
 │  │useSpeechRecognit* │  │  │  │  │  assemblyai-token │  │
 │  │ (DECOMPOSED)      │  │  │  │  │  stripe-checkout  │  │
 │  │ ├─useTranscript   │  │  │  │  └───────────────────┘  │
-│  │ ├─useFillerWords  │  │  │  │                         │
+│  │ ├─useUserFillerWords│  │  │  │                         │
 │  │ ├─useTranscSvc    │  │  │  └─────────────────────────┘
 │  │ ├─useSessionTimer │  │  │
 │  │ └─useVocalAnalys  │  │  │  ┌─────────────────────────┐
@@ -351,127 +351,52 @@ External services (Supabase, Edge Functions) are mocked via Playwright routes in
 
 > **Note for Reviewers:** These features were implemented as part of Phase 2 hardening. If conducting a code review, please verify against the file references above before flagging as missing.
 
-#### On-Device STT (Whisper) & Service Worker Caching
+#### Private STT (Triple-Engine Architecture)
 
-The On-Device transcription mode runs the Whisper AI model locally in the browser using WebAssembly via the `whisper-turbo` npm package. This eliminates the need for cloud API calls but requires a ~30MB model download on first use.
+To ensure high performance for capable devices while maintaining 99.9% reliability for older hardware and CI environments, SpeakSharp uses a **Triple-Engine Strategy** orchestrated by the `PrivateSTT` facade.
 
-**Two-Layer Caching Architecture:**
+**The Three Engines:**
+
+| Engine | Role | Technology | When Used |
+|--------|------|------------|-----------|
+| **WhisperTurbo** | **Fast Path** | WebGPU + WASM | Default for users with GPU acceleration (Fastest) |
+| **TransformersJS** | **Safe Path** | ONNX + WASM (CPU) | Fallback if WebGPU init fails or crashes (Universal) |
+| **MockEngine** | **Reliable Path** | Simulation | CI/Test environments (`window.__E2E_PLAYWRIGHT__`) |
+
+**Architecture Diagram:**
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    User's Browser                           │
-│                                                             │
-│  ┌─────────────────┐    ┌─────────────────────────────────┐ │
-│  │   SessionPage   │───▶│     PrivateWhisper.ts           │ │
-│  └─────────────────┘    │  (whisper-turbo npm package)    │ │
-│                         └──────────────┬──────────────────┘ │
-│                                        │                    │
-│              ┌─────────────────────────┼───────────────┐    │
-│              │                         ▼               │    │
-│              │    ┌────────────────────────────┐       │    │
-│              │    │ Layer 2: whisper-turbo     │       │    │
-│              │    │ IndexedDB (internal cache) │       │    │
-│              │    │ Caches compiled WASM model │       │    │
-│              │    └─────────────┬──────────────┘       │    │
-│              │                  │ (cache miss)         │    │
-│              │                  ▼                      │    │
-│              │    ┌────────────────────────────┐       │    │
-│              │    │ Layer 1: Service Worker    │       │    │
-│              │    │ CacheStorage (sw.js)       │       │    │
-│              │    │ Intercepts CDN requests    │       │    │
-│              │    │ Serves from /models/       │       │    │
-│              │    └─────────────┬──────────────┘       │    │
-│              │                  │ (cache miss)         │    │
-│              └──────────────────┼──────────────────────┘    │
-│                                 ▼                           │
-│                    ┌────────────────────────┐               │
-│                    │  /models/ directory    │               │
-│                    │  (pre-downloaded)      │               │
-│                    │  tiny-q8g16.bin (30MB) │               │
-│                    │  tokenizer.json (2MB)  │               │
-│                    └────────────────────────┘               │
-└─────────────────────────────────────────────────────────────┘
+│                    PrivateSTT Facade                        │
+│             (Orchestrator & Capability Detection)           │
+└──────────┬─────────────────────────┬────────────────────────┘
+           │ (WebGPU Available?)     │ (Init Failed?)
+           ▼                         ▼
+┌──────────────────────┐  ┌──────────────────────┐  ┌──────────────────────┐
+│   WhisperTurbo       │  │   TransformersJS     │  │     MockEngine       │
+│   (whisper-turbo)    │  │ (@xenova/transformers│  │   (Simulated)        │
+│   [FAST PATH]        │  │   [SAFE PATH]        │  │   [TEST PATH]        │
+└──────────┬───────────┘  └──────────┬───────────┘  └──────────┬───────────┘
+           │                         │                         │
+           ▼                         ▼                         ▼
+    ┌─────────────┐           ┌─────────────┐           ┌─────────────┐
+    │ WebGPU Backend│         │ ONNX Runtime │          │ Fixed Buffer │
+    └─────────────┘           └─────────────┘           └─────────────┘
 ```
 
-| Feature | Status | Implementation | Evidence |
-|---------|--------|----------------|----------|
-| **Service Worker Cache** | ✅ Complete | Intercepts model requests, serves from Cache Storage API | [`sw.js:100-155`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/public/sw.js#L100-L155) |
-| **Model Download Script** | ✅ Complete | Downloads `tiny-q8g16.bin` (30MB) and `tokenizer.json` to `/public/models/` | [`download-whisper-model.sh`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/scripts/download-whisper-model.sh) |
-| **Model Update Checker** | ✅ Complete | Checks for model version updates from CDN | [`check-whisper-update.sh`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/scripts/check-whisper-update.sh) |
-| **URL Mapping** | ✅ Complete | Maps CDN URLs to local paths for offline support | [`sw.js:103-106`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/public/sw.js#L103-L106) |
-| **Cache-First Strategy** | ✅ Complete | Local cache checked before network fallback | [`sw.js:127-152`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/public/sw.js#L127-L152) |
-| **E2E Tests** | ✅ Complete | Download progress, caching, mode selector, toast, P1 regression | [ondevice-stt.e2e.spec.ts](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e/ondevice-stt.e2e.spec.ts) |
+**Caching Strategy (WhisperTurbo):**
+The `whisper-turbo` engine uses a two-layer cache (Service Worker + IndexedDB) to avoid re-downloading the ~30MB model file.
 
-**Cache Flow:**
-```
-1. User selects "On-Device" mode
-2. PrivateWhisper.ts initializes whisper-turbo
-3. whisper-turbo checks IndexedDB for compiled WASM (Layer 2)
-4. If miss, requests model files from CDN URL
-5. Service Worker intercepts request (Layer 1)
-6. First load: Fetches from /models/, caches with Cache Storage API
-7. Subsequent loads: Serves directly from cache (<1 second!)
-```
-
-**URL Mappings:**
-| Remote URL (CDN) | Local Path |
-|------------------|------------|
-| `https://rmbl.us/whisper-turbo/tiny-q8g16.bin` | `/models/tiny-q8g16.bin` |
-| `https://huggingface.co/.../tokenizer.json` | `/models/tokenizer.json` |
-
-**Performance Impact:**
-- First Load: ~2-5 seconds (local file I/O + WASM compilation)
-- Subsequent Loads: <1 second (served from IndexedDB cache)
-- Network savings: 30MB per session after first load
-
-**Setup:**
-```bash
-# Download model files (one-time setup)
-./scripts/download-whisper-model.sh
-
-# Verify model files exist
-ls -lh frontend/public/models/
-# Should show: tiny-q8g16.bin (~30MB), tokenizer.json (~2MB)
-
-# Check for model updates (run periodically)
-./scripts/check-whisper-update.sh
-# If updates found, bump MODEL_CACHE_NAME in sw.js
-```
-
-**Known Issues & Fixes:**
-
-> [!IMPORTANT]
-> **STT Stability & Self-Healing (2025-12-31):**
-> 
-> **1. Two-Stage Fallback Architecture:**
-> Both Cloud (AssemblyAI) and Private (Whisper) modes now feature a reliable fallback to **Native Browser STT**.
-> - **Cloud -> Native**: If token generation or initialization fails, the service instantly reverts to Native mode.
-> - **Private -> Native**: If the WASM model fails to load or experiences an IndexedDB lock, the system triggers an automatic fallback.
-> 
-> **2. 10-Second Safety Timeout:**
-> Implemented a hard 10s timeout in `PrivateWhisper.ts` to detect the "0% hang" caused by browser-level IndexedDB locks.
-> 
-> **3. "Clear Cache & Reload" Mechanism:**
-> When a lock is detected, users are provided with a one-click repair action that wipes the `whisper-turbo` IndexedDB cache and reloads the page, resolving browser contention issues instantly.
-> 
-> **4. Navigation Flicker Resolution:**
-> The `SessionPage` is eager-loaded and prioritized in the React Router tree, eliminating Suspense-driven flickering during navigation.
-
-**Troubleshooting:**
-| Issue | Solution |
-|-------|----------|
-| Model not loading | Run `./scripts/download-whisper-model.sh` |
-| Stale model version | Run `./scripts/check-whisper-update.sh`, bump `MODEL_CACHE_NAME` in sw.js |
-| Cache not working | Clear site data in DevTools, reload |
-| "Initializing..." stuck | This is P1 bug - verify fix is deployed |
+| Layer | Technology | Content |
+|-------|------------|---------|
+| **L1** | Service Worker Cache | Raw `.bin` model files from CDN |
+| **L2** | IndexedDB | Compiled WASM module (device-specific) |
 
 **Related Files:**
-- [`frontend/public/sw.js`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/public/sw.js) - Service Worker with cache logic
-- [`scripts/download-whisper-model.sh`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/scripts/download-whisper-model.sh) - Model downloader
-- [`scripts/check-whisper-update.sh`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/scripts/check-whisper-update.sh) - Model update checker
-- [`PrivateWhisper.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/modes/PrivateWhisper.ts) - Uses cached models
-- [`useSpeechRecognition/index.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/hooks/useSpeechRecognition/index.ts) - Manages loading state
-- [`e2e-bridge.ts` (MockPrivateWhisper)](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/lib/e2e-bridge.ts) - Fake Whisper service for fast E2E tests (simulates 600ms load)
+- [`PrivateSTT.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/PrivateSTT.ts) - Facade & Selector
+- [`WhisperTurboEngine.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/WhisperTurboEngine.ts) - Fast Path Adapter
+- [`TransformersJSEngine.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/TransformersJSEngine.ts) - Safe Path Adapter
+- [`MockEngine.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/MockEngine.ts) - Reliable Test Adapter
 
 
 *   **Testing:**
@@ -653,6 +578,25 @@ The project uses **two distinct Supabase configurations** depending on the execu
 **Purpose:** Validates application behavior under sustained concurrent load against real Supabase infrastructure to identify memory leaks, resource contention, and API quota issues.
 
 ##### Hybrid Testing Strategy
+
+The project uses a layered testing approach:
+
+1. **Unit Tests** (`pnpm test`): Fast, isolated component/function tests
+2. **Integration Tests** (`pnpm test`): Component integration with mocked services
+3. **Mock E2E** (`pnpm test:e2e`): Full user flows with MSW mocks
+4. **Canary E2E** (`pnpm test:canary`): Real infrastructure validation
+
+> [!CAUTION]
+> **CANARY TESTS REQUIRE CI ENVIRONMENT**
+>
+> Canary tests (`tests/e2e/canary/*.canary.spec.ts`) **CANNOT** run locally without `CANARY_PASSWORD` from GitHub Secrets.
+>
+> **DO NOT waste time debugging local canary failures** - they are designed for CI/staging only.
+>
+> For local testing:
+> - Mock E2E: `pnpm test:e2e`
+> - Integration: `pnpm test`
+> - Unit: `pnpm test`
 
 | Feature | Local Development | CI/CD (Soak Test) |
 | :--- | :--- | :--- |
@@ -1302,7 +1246,7 @@ Together, these utilities form the canonical pattern for testing any component t
 The E2E test environment is designed for stability and isolation. Several key architectural patterns have been implemented to address sources of test flakiness and instability.
 
 1.  **Build-Time Conditional for Incompatible Libraries:**
-    *   **Problem:** Certain heavy WASM-based speech recognition libraries (used for on-device transcription) are fundamentally incompatible with the Playwright/Node.js test environment and cause untraceable browser crashes.
+    *   **Problem:** Certain heavy WASM-based speech recognition libraries (used for private transcription) are fundamentally incompatible with the Playwright/Node.js test environment and cause untraceable browser crashes.
     *   **Architecture:** The build process now uses a dedicated Vite build mode (`--mode test`). This sets a build-time variable, `import.meta.env.VITE_TEST_MODE`. The application's source code uses this variable to create a compile-time conditional (`if (import.meta.env.VITE_TEST_MODE)`) that completely removes the problematic `import()` statements from the test build. This is a robust solution that prevents the incompatible code from ever being loaded.
 
 2.  **Explicit E2E Hooks for Authentication:**
@@ -1461,7 +1405,7 @@ Soak tests use real user credentials to authenticate against the running develop
     *   **Barrel Exports:** A barrel file (`tests/pom/index.ts`) is used to export all POMs from this central location. This provides a single, clean import path for all test files (e.g., `import { SessionPage } from '../pom';`), which improves maintainability and prevents module resolution issues in the test runner.
 
 5.  **Source-Code-Level Guard for Incompatible Libraries:**
-    *   **Problem:** The on-device transcription feature uses heavy WASM-based speech recognition libraries which rely on WebAssembly. These libraries are fundamentally incompatible with the Playwright test environment and cause a silent, catastrophic browser crash that is untraceable with standard debugging tools.
+    *   **Problem:** The private transcription feature uses heavy WASM-based speech recognition libraries which rely on WebAssembly. These libraries are fundamentally incompatible with the Playwright test environment and cause a silent, catastrophic browser crash that is untraceable with standard debugging tools.
     *   **Solution:** A test-aware guard has been implemented directly in the application's source code.
         *   **Flag Injection:** The `programmaticLogin` helper in `tests/e2e/helpers.ts` uses `page.addInitScript()` to inject a global `window.TEST_MODE = true;` flag before any application code runs.
         *   **Conditional Import:** The `TranscriptionService.ts` checks for the presence of `window.TEST_MODE`. If the flag is true, it completely skips the dynamic import of the `OnDeviceWhisper` module that would have loaded the crashing library. Instead, it gracefully falls back to the safe, native browser transcription engine.
@@ -1582,16 +1526,16 @@ useSpeechRecognition (index.ts)
 Returns unified API: { transcript, startListening, stopListening, ... }
 ```
 
-### 3.2.1 On-Device Model Caching Strategy
+### 3.2.1 Private STT Model Caching Strategy
 
-To enable a performant "On-Device" transcription mode without repeated 30MB+ downloads, an aggressive two-layer caching strategy is implemented.
+To enable a performant "Private" transcription mode without repeated 30MB+ downloads, an aggressive two-layer caching strategy is implemented.
 
 #### Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         User Starts Session                              │
-│                    (Selects "On-Device" Mode)                           │
+│                    (Selects "Private" Mode)                              │
 └───────────────────────────────┬─────────────────────────────────────────┘
                                 │
                                 ▼
@@ -1624,7 +1568,7 @@ To enable a performant "On-Device" transcription mode without repeated 30MB+ dow
 |-----------|------|---------|
 | **Service Worker** | `frontend/public/sw.js` | Intercepts and caches model requests |
 | **Model Downloader** | `scripts/download-whisper-model.sh` | Pre-downloads models to `/public/models/` |
-| **OnDeviceWhisper** | `frontend/src/services/transcription/modes/OnDeviceWhisper.ts` | Loads and runs Whisper model |
+| **PrivateWhisper** | `frontend/src/services/transcription/modes/PrivateWhisper.ts` | Loads and runs Whisper model |
 
 #### Model Files
 
@@ -1640,7 +1584,7 @@ A `pnpm patch` has been applied to `whisper-turbo@0.11.0` to override its hardco
 - **Why:** The library's hardcoded CDN URL prevented reliably loading local model files in development, and the Service Worker interception was flaky.
 - **How:** The patch modifies `ModelDB.js` within the package to set `remoteUrl = ""` and use relative paths (e.g., `/models/tiny-q8g16.bin`).
 - **Result:**
-  1. `OnDeviceWhisper` requests the model via `fetch()`
+  1. `PrivateWhisper` requests the model via `fetch()`
   2. The patched library requests `/models/tiny-q8g16.bin` (same origin)
   3. Vite (dev) or Nginx (prod) serves the file directly from the `/public/models/` directory
   4. The browser's standard HTTP cache handles caching efficiently without complex SW logic
@@ -1693,7 +1637,7 @@ The main `index.ts` contains only:
 - **`SessionSidebar.tsx`**: This component serves as the main control panel for a user's practice session. It contains the start/stop controls, a digital timer, and the transcription mode selector.
   - **Mode Selector**: A segmented button group allows users to choose their desired transcription mode before starting a session. The options are:
     - **Cloud**: Utilizes the high-accuracy AssemblyAI cloud service. (Internal: `cloud`)
-    - **Private**: Uses a local Whisper model for privacy-focused transcription. (Internal: `on-device`. **Note:** UI uses "Private" label to emphasize privacy, while DB/code retains `on-device` to avoid migration issues.)
+    - **Private**: Uses a local Whisper model for privacy-focused transcription. (Internal: `private`. **Note:** UI and code have been fully migrated to "Private".)
     - **Native**: Falls back to the browser's built-in speech recognition engine. (Internal: `native`)
   - **Access Control**: Access to the "Cloud" and "Private" modes is restricted. These modes are enabled for users with a "pro" subscription status or for developers when the `VITE_DEV_USER` environment variable is set to `true`. Free users are restricted to the "Native" mode.
 
@@ -1754,7 +1698,7 @@ The database schema is designed for performance and reliability, ensuring that a
 | `id` | `UUID` | Primary key |
 | `user_id` | `UUID` | Foreign key to `auth.users` |
 | `transcript` | `TEXT` | The full transcribed text of the session |
-| `engine` | `TEXT` | The STT engine used (Cloud, On-Device, Native) |
+| `engine` | `TEXT` | The STT engine used (Cloud, Private, Native) |
 | `duration` | `INT` | Session duration in seconds |
 | `total_words`| `INT` | Total word count |
 | `filler_words`| `INT` | Filler word count |
@@ -1774,8 +1718,9 @@ The database schema is designed for performance and reliability, ensuring that a
 
 ## 5. Feature Architecture
 
-### 5.1 Custom Vocabulary
-*   **Purpose:** Allows Pro users to add domain-specific terms to improve transcription accuracy.
+### 5.1 User Filler Words
+*   **Definition:** User's personalized filler words to track, in addition to default filler words ("um", "uh", "like", "you know"). For example, a user might add "basically" or "literally" as words they want to track and reduce in their speech.
+*   **Purpose:** Allows Pro users to add domain-specific terms to improve transcription accuracy and personalize filler word detection.
 *   **Data Model:** `custom_vocabulary` table in Supabase (linked to `users`).
 *   **Logic:** `useCustomVocabulary` hook manages CRUD operations via React Query.
 *   **Integration:** The `TranscriptionService` fetches the vocabulary and passes it to the AssemblyAI API via the `boost_param` and `word_boost` parameters during session initialization.
@@ -1793,7 +1738,7 @@ The database schema is designed for performance and reliability, ensuring that a
 The application's user tiers have been consolidated into the following structure:
 
 *   **Free User (Authenticated):** A user who has created an account but does not have an active Pro subscription. This is the entry-level tier for all users.
-*   **Pro User (Authenticated):** A user with an active, paid subscription via Stripe. This tier includes all features, such as unlimited practice time, cloud-based AI transcription, and privacy-preserving on-device transcription.
+*   **Pro User (Authenticated):** A user with an active, paid subscription via Stripe. This tier includes all features, such as unlimited practice time, cloud-based AI transcription, and privacy-preserving private transcription.
 
 ## 5.5 Domain Services Layer (`frontend/src/services/domainServices.ts`)
 
@@ -1805,7 +1750,7 @@ The Domain Services Layer centralizes all Supabase database access, providing a 
 |---------|---------|---------|
 | `sessionService` | Practice session CRUD | `getHistory()`, `getById()`, `create()`, `update()`, `delete()` |
 | `profileService` | User profile management | `getById()`, `update()` |
-| `vocabularyService` | Custom vocabulary | `getWords()`, `addWord()`, `removeWord()` |
+| `userFillerWordsService` | User filler words | `getWords()`, `addWord()`, `removeWord()` |
 | `goalsService` | User goals | `get()`, `upsert()` |
 
 **Design Benefits:**
@@ -1827,21 +1772,66 @@ const data = await profileService.getById(id);
 
 The `TranscriptionService.ts` provides a unified abstraction layer over multiple transcription providers.
 
+### Policy-Driven Strategy Pattern (2025-01-03)
+
+The service uses a **Policy-Driven Strategy Pattern** to separate environment/tier policy from execution strategy. This eliminates `isTestMode` checks from business logic and enables deterministic E2E testing.
+
+```
+┌──────────────────────────────┐
+│           CALLER             │
+│   SessionPage / E2E Test     │
+└──────────────┬───────────────┘
+               │ Injects Policy
+               ▼
+┌──────────────────────────────┐
+│       POLICY LAYER           │
+│    TranscriptionPolicy       │
+│  (resolves allowed modes)    │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│       SERVICE LAYER          │
+│    TranscriptionService      │
+└──────────────┬───────────────┘
+               │ Executes Strategy
+       ┌───────┼───────┐
+       ▼       ▼       ▼
+┌──────────┐ ┌──────────┐ ┌──────────────┐
+│  Native  │ │  Cloud   │ │   Private    │
+│ Browser  │ │AssemblyAI│ │   Whisper    │
+└──────────┘ └──────────┘ └──────────────┘
+```
+
+**Pre-Built Policies:**
+
+| Policy | Allowed Modes | Use Case |
+|--------|---------------|----------|
+| `PROD_FREE_POLICY` | Native only | Free tier users |
+| `PROD_PRO_POLICY` | Native, Cloud, Private | Pro tier users |
+| `E2E_DETERMINISTIC_NATIVE` | Native only | E2E tests (default) |
+| `E2E_DETERMINISTIC_CLOUD` | Cloud only | E2E tests (Cloud validation) |
+| `E2E_DETERMINISTIC_PRIVATE` | Private only | E2E tests (Whisper validation) |
+
+**Key Files:**
+- [`TranscriptionPolicy.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionPolicy.ts) - Policy interface and helpers
+- [`TranscriptionService.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionService.ts) - Unified service layer
+
 *   **Modes:**
     *   **`CloudAssemblyAI`:** Uses the AssemblyAI v3 streaming API for high-accuracy cloud-based transcription. This is one of the modes available to Pro users.
     *   **`NativeBrowser`:** Uses the browser's built-in `SpeechRecognition` API. This is the primary mode for Free users and a fallback for Pro users.
-    *   **`OnDeviceWhisper`:** An on-device, privacy-first transcription mode for Pro users, powered by `@xenova/transformers` running a Whisper model directly in the browser.
+    *   **`PrivateWhisper`:** A private, privacy-first transcription mode for Pro users, powered by `@xenova/transformers` running a Whisper model directly in the browser.
 *   **Audio Processing:** `audioUtils.ts`, `audioUtils.impl.ts`, and `audio-processor.worklet.js` are responsible for capturing and resampling microphone input. A critical bug in the resampling logic that was degrading AI quality has been fixed.
 
-### On-Device STT Implementation Details
+### Private STT Implementation Details
  
- The `OnDeviceWhisper` provider uses the [`whisper-turbo`](https://github.com/xenova/whisper-turbo) library to run the `whisper-tiny.en` model directly in the user's browser using WebAssembly.
+ The `PrivateWhisper` provider uses the [`whisper-turbo`](https://github.com/xenova/whisper-turbo) library to run the `whisper-tiny.en` model directly in the user's browser using WebAssembly.
  
  *   **How it Works:**
-     1.  **Dynamic Loading:** The `OnDeviceWhisper` module is dynamically imported via `import()` only when the user explicitly selects "On-Device" mode. This prevents the heavy WebAssembly (WASM) dependencies from loading during the initial application render, significantly improving startup performance.
+     1.  **Dynamic Loading:** The `PrivateWhisper` module is dynamically imported via `import()` only when the user explicitly selects "Private" mode. This prevents the heavy WebAssembly (WASM) dependencies from loading during the initial application render, significantly improving startup performance.
      2.  **Model Loading:** The application downloads the quantized `whisper-tiny` model (~40MB). Progress is reported to the UI via a toast notification. On an average broadband connection, this takes 5-10 seconds.
      3.  **Caching:** Once downloaded, the model files are automatically cached in the browser's `CacheStorage` (specifically in the `transformers-cache` namespace). Subsequent loads are nearly instant as they are served directly from this local cache.
-     4.  **True Streaming Architecture (Refactored 2025-11-26):** OnDeviceWhisper now uses continuous 1-second audio buffering instead of the legacy 5-second batch processing. This provides near-real-time transcript updates:
+     4.  **True Streaming Architecture (Refactored 2025-11-26):** `PrivateWhisper` now uses continuous 1-second audio buffering instead of the legacy 5-second batch processing. This provides near-real-time transcript updates:
          - Audio is continuously recorded into a circular buffer
          - Every 1 second, the buffer is processed by Whisper
          - A concurrency lock (`isProcessing`) ensures only one inference runs at a time

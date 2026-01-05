@@ -42,6 +42,11 @@ export function getChromeWithMic() {
             args: [
                 '--use-fake-ui-for-media-stream',
                 '--use-fake-device-for-media-stream',
+                // SwiftShader: CPU-based GPU backend (final escape hatch)
+                '--enable-unsafe-webgpu',
+                '--disable-vulkan',
+                '--use-angle=swiftshader',
+                '--use-gl=swiftshader',
             ],
         },
     };

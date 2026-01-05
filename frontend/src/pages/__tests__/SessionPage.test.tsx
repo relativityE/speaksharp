@@ -16,6 +16,21 @@ vi.mock('../../hooks/useVocalAnalysis');
 vi.mock('../../contexts/AuthProvider');
 vi.mock('@/hooks/useUserProfile');
 vi.mock('@/hooks/useUsageLimit');
+vi.mock('@/hooks/useUserFillerWords', () => ({
+    useUserFillerWords: () => ({
+        vocabularyWords: ['mock-word'],
+        fullVocabularyObjects: [{ id: '1', word: 'mock-word', user_id: 'test', created_at: new Date().toISOString() }],
+        isLoading: false,
+        error: null,
+        addWord: vi.fn(),
+        removeWord: vi.fn(),
+        isAdding: false,
+        isRemoving: false,
+        count: 1,
+        maxWords: 100,
+        isPro: false,
+    }),
+}));
 vi.mock('@/hooks/useSessionManager', () => ({
     useSessionManager: () => ({
         saveSession: vi.fn().mockResolvedValue({ session: null, usageExceeded: false }),
@@ -36,8 +51,8 @@ const renderWithRouter = (ui: React.ReactElement) => {
 vi.mock('@/components/session/PauseMetricsDisplay', () => ({
     PauseMetricsDisplay: () => <div data-testid="pause-metrics-display">Pause Metrics</div>,
 }));
-vi.mock('@/components/session/CustomVocabularyManager', () => ({
-    CustomVocabularyManager: () => <div data-testid="custom-vocabulary-manager">Custom Vocabulary Manager</div>,
+vi.mock('@/components/session/UserFillerWordsManager', () => ({
+    UserFillerWordsManager: () => <div data-testid="user-filler-words-manager">User Filler Words Manager</div>,
 }));
 
 const mockUseSpeechRecognition = vi.mocked(SpeechRecognitionHook.useSpeechRecognition);
@@ -164,11 +179,14 @@ describe('SessionPage', () => {
             const startButton = screen.getByTestId('session-start-stop-button');
             fireEvent.click(startButton);
 
-            // Default mode is 'native', so it should call with forceNative: true
+            // Default mode is 'native', so it should call with policy for free user + native mode
             expect(mockStartListening).toHaveBeenCalledWith({
-                forceNative: true,
-                forceOnDevice: false,
-                forceCloud: false
+                allowNative: true,
+                allowCloud: false,
+                allowPrivate: false,
+                preferredMode: 'native',
+                allowFallback: false,
+                executionIntent: 'prod-free-native',
             });
         });
 

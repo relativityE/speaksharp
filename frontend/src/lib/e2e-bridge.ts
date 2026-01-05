@@ -37,6 +37,26 @@ import { Session } from '@supabase/supabase-js';
 import logger from '@/lib/logger';
 
 /**
+ * E2E Window interface - extends Window with all E2E-specific properties.
+ * This eliminates the need for eslint-disable @typescript-eslint/no-explicit-any.
+ */
+interface E2EWindow extends Window {
+    __E2E_PLAYWRIGHT__?: boolean;
+    __E2E_MOCK_SESSION__?: Session;
+    __activeSpeechRecognition?: MockSpeechRecognition;
+    SpeechRecognition?: typeof MockSpeechRecognition;
+    webkitSpeechRecognition?: typeof MockSpeechRecognition;
+    MockPrivateWhisper?: typeof MockPrivateWhisper;
+    dispatchMockTranscript?: (text: string, isFinal?: boolean) => void;
+    mswReady?: boolean;
+}
+
+/** Type for speech recognition result with isFinal flag */
+interface MockSpeechResult extends Array<{ transcript: string; confidence: number }> {
+    isFinal?: boolean;
+}
+
+/**
  * Initializes the E2E test environment
  * - Starts MSW for network request mocking
  * - Sets window.mswReady flag for test synchronization
@@ -122,8 +142,7 @@ export class MockSpeechRecognition {
     start() {
         logger.info('[MockSpeechRecognition] start() called');
         // Register this instance as the active one so we can dispatch events to it
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (window as any).__activeSpeechRecognition = this;
+        (window as unknown as E2EWindow).__activeSpeechRecognition = this;
         dispatchE2EEvent('e2e:speech-recognition-ready');
     }
     stop() {
@@ -214,31 +233,23 @@ class MockPrivateWhisper {
 export const setupSpeechRecognitionMock = () => {
     if (typeof window !== 'undefined') {
         logger.info('[E2E Bridge] Setting up MockSpeechRecognition');
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (window as any).SpeechRecognition = MockSpeechRecognition;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (window as any).webkitSpeechRecognition = MockSpeechRecognition;
+        const e2eWindow = window as unknown as E2EWindow;
+        e2eWindow.SpeechRecognition = MockSpeechRecognition;
+        e2eWindow.webkitSpeechRecognition = MockSpeechRecognition;
 
         // Setup MockPrivateWhisper
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (window as any).MockPrivateWhisper = MockPrivateWhisper;
+        e2eWindow.MockPrivateWhisper = MockPrivateWhisper;
 
         // Helper to dispatch events from Playwright
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (window as any).dispatchMockTranscript = (text: string, isFinal: boolean = false) => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const instance = (window as any).__activeSpeechRecognition;
+        e2eWindow.dispatchMockTranscript = (text: string, isFinal: boolean = false) => {
+            const instance = e2eWindow.__activeSpeechRecognition;
             if (instance && instance.onresult) {
                 logger.info({ text, isFinal }, '[E2E Bridge] Dispatching mock transcript');
 
                 // Construct event matching SpeechRecognitionEvent structure
-                // results is a SpeechRecognitionResultList (array-like)
-                // item is SpeechRecognitionResult (array-like of alternatives) + isFinal
-
                 const alternative = { transcript: text, confidence: 1 };
-                const result = [alternative];
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (result as any).isFinal = isFinal;
+                const result: MockSpeechResult = [alternative];
+                result.isFinal = isFinal;
 
                 const results = [result];
 

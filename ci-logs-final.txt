@@ -1,0 +1,54 @@
+
+> speaksharp@0.0.0 ci:local /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
+> ./scripts/test-audit.sh ci-simulate
+
+🚀 Starting Test Audit (Stage: ci-simulate)...
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 SpeakSharp Test Audit Pipeline
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🤖 Running Full CI Simulation...
+🔧 CI Setup: Installing dependencies...
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 0, reused 1, downloaded 0, added 0
+Packages: -77
+-----------------------------------------------------------------------------
+Progress: resolved 0, reused 77, downloaded 0, added 0, done
+
+. prepare$ HUSKY=0 husky install
+. prepare: husky - HUSKY env variable is set to 0, skipping install
+. prepare: Done
+Done in 1.2s using pnpm v10.12.2
+🔧 CI Setup: Installing Playwright browsers...
+🔐 Validating environment variables...
+✅ All required environment variables are set
+✅ [1/6] Running Preflight Checks...
+🔍 Running preflight checks...
+✅ Preflight checks passed
+✅ [1/6] Preflight Checks Passed.
+✅ [2/6] Running Code Quality Checks Sequentially...
+Running Lint...
+
+> speaksharp@0.0.0 lint /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
+> eslint 'frontend/src/**/*.{js,jsx,ts,tsx}' 'tests/**/*.{js,jsx,ts,tsx}' --report-unused-disable-directives --max-warnings 0
+
+Running Typecheck...
+
+> speaksharp@0.0.0 typecheck /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
+> cd frontend && tsc --build --verbose
+
+5:37:49 PM - Projects in this build:
+    * tsconfig.node.json
+    * tsconfig.json
+
+5:37:49 PM - Project 'tsconfig.node.json' is up to date because newest input 'tailwind.config.ts' is older than output 'tsconfig.node.tsbuildinfo'
+
+5:37:49 PM - Project 'tsconfig.json' is out of date because output 'tsconfig.tsbuildinfo' is older than input 'tests/integration/SessionSidebar.test.tsx'
+
+5:37:49 PM - Building project '/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tsconfig.json'...
+
+tests/integration/SessionSidebar.test.tsx(246,20): error TS1005: ';' expected.
+tests/integration/SessionSidebar.test.tsx(277,1): error TS1128: Declaration or statement expected.
+tests/integration/SessionSidebar.test.tsx(277,2): error TS1128: Declaration or statement expected.
+ ELIFECYCLE  Command failed with exit code 1.
+❌ Typecheck failed.
+ ELIFECYCLE  Command failed with exit code 1.

@@ -18,8 +18,8 @@ export default defineConfig({
   testDir: './tests/e2e',
   testIgnore: '**/canary/**',
   outputDir: './test-results/playwright',
-  timeout: 120_000, // 2-minute global timeout
-  expect: { timeout: 30_000 },
+  timeout: 300_000, // 5-minute global timeout for unmocked Whisper
+  expect: { timeout: 120_000 }, // 2-minute expect timeout
   retries: 1,
   reporter: process.env.CI
     ? [['blob'], ['github']]

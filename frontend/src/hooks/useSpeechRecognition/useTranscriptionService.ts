@@ -1,31 +1,43 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import TranscriptionService from '../../services/transcription/TranscriptionService';
 import type { TranscriptionServiceOptions } from '../../services/transcription/TranscriptionService';
+import {
+  TranscriptionPolicy,
+  TranscriptionMode,
+  E2E_DETERMINISTIC_NATIVE,
+} from '../../services/transcription/TranscriptionPolicy';
+import { MicStream } from '../../services/transcription/utils/types';
 import logger from '../../lib/logger';
+import { toast } from 'sonner';
 
 interface ITranscriptionService {
   init: () => Promise<{ success: boolean }>;
   startTranscription: () => Promise<void>;
   stopTranscription: () => Promise<string>;
   destroy: () => Promise<void>;
-  getMode: () => 'native' | 'cloud' | 'on-device' | null;
+  getMode: () => TranscriptionMode | null;
 }
 
-interface ForceOptions {
-  forceCloud?: boolean;
-  forceOnDevice?: boolean;
-  forceNative?: boolean;
+export interface UseTranscriptionServiceOptions {
+  onTranscriptUpdate: TranscriptionServiceOptions['onTranscriptUpdate'];
+  onModelLoadProgress: TranscriptionServiceOptions['onModelLoadProgress'];
+  onReady: TranscriptionServiceOptions['onReady'];
+  session: TranscriptionServiceOptions['session'];
+  navigate: TranscriptionServiceOptions['navigate'];
+  getAssemblyAIToken: TranscriptionServiceOptions['getAssemblyAIToken'];
+  customVocabulary?: string[];
 }
 
-export const useTranscriptionService = (options: TranscriptionServiceOptions) => {
+export const useTranscriptionService = (options: UseTranscriptionServiceOptions) => {
   const [isListening, setIsListening] = useState<boolean>(false);
   const [isReady, setIsReady] = useState<boolean>(false);
   const [error, setError] = useState<Error | null>(null);
   const [isSupported, setIsSupported] = useState<boolean>(true);
-  const [currentMode, setCurrentMode] = useState<string | null>(null);
+  const [currentMode, setCurrentMode] = useState<TranscriptionMode | null>(null);
 
   const serviceRef = useRef<ITranscriptionService | null>(null);
-  const forceOptionsRef = useRef<ForceOptions>({});
+  const policyRef = useRef<TranscriptionPolicy>(E2E_DETERMINISTIC_NATIVE);
+  const mockMicRef = useRef<MicStream | null>(null);
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
@@ -40,7 +52,7 @@ export const useTranscriptionService = (options: TranscriptionServiceOptions) =>
         setIsSupported(true);
 
         // Wrap the onReady callback to set our internal isReady state
-        const wrappedOptions = {
+        const wrappedOptions: TranscriptionServiceOptions = {
           ...optionsRef.current,
           onReady: () => {
             setIsReady(true);
@@ -48,12 +60,12 @@ export const useTranscriptionService = (options: TranscriptionServiceOptions) =>
             optionsRef.current.onReady();
           },
           onModeChange: setCurrentMode,
+          policy: policyRef.current,
+          mockMic: mockMicRef.current ?? undefined,
         };
 
-        const service = new TranscriptionService({
-          ...wrappedOptions,
-          ...forceOptionsRef.current,
-        });
+        console.log('[useTranscriptionService] Creating new service with policy:', policyRef.current.executionIntent);
+        const service = new TranscriptionService(wrappedOptions);
         serviceRef.current = service as unknown as ITranscriptionService;
 
         try {
@@ -86,9 +98,19 @@ export const useTranscriptionService = (options: TranscriptionServiceOptions) =>
     };
   }, [isListening]);
 
-  const startListening = useCallback(async (forceOptions: ForceOptions = {}) => {
+  /**
+   * Start listening with the given policy.
+   *
+   * @param policy - The TranscriptionPolicy to use for this session
+   * @param mockMic - Optional mock microphone for E2E testing
+   */
+  const startListening = useCallback(async (
+    policy: TranscriptionPolicy,
+    mockMic?: MicStream
+  ) => {
     if (isListening) return;
-    forceOptionsRef.current = forceOptions;
+    policyRef.current = policy;
+    mockMicRef.current = mockMic ?? null;
     setIsListening(true);
   }, [isListening]);
 
@@ -116,8 +138,6 @@ export const useTranscriptionService = (options: TranscriptionServiceOptions) =>
     setIsReady,
   };
 };
-
-import { toast } from 'sonner';
 
 // Error handling extracted from original hook
 function handleTranscriptionError(

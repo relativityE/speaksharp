@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { isPro as checkIsPro } from '@/constants/subscriptionTiers';
+import { buildPolicyForUser, TranscriptionPolicy, TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import logger from '@/lib/logger';
 import { Mic, Square, Loader2, Zap, Cloud, Computer } from 'lucide-react';
 import { toast } from 'sonner';
@@ -40,7 +41,7 @@ export interface SessionSidebarProps {
     isListening: boolean;
     isReady: boolean;
     error: Error | null;
-    startListening: (options: { forceCloud?: boolean; forceOnDevice?: boolean; forceNative?: boolean }) => Promise<void>;
+    startListening: (policy: TranscriptionPolicy) => Promise<void>;
     stopListening: () => Promise<Partial<PracticeSession> | null>;
     reset: () => void;
     actualMode: string | null;
@@ -115,7 +116,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
     const isProUser = checkIsPro(profile?.subscription_status);
     const canAccessAdvancedModes = isProUser || isDevUser;
 
-    type Mode = 'cloud' | 'on-device' | 'native';
+    type Mode = 'cloud' | 'private' | 'native';
     const [selectedMode, setSelectedMode] = useState<Mode>(canAccessAdvancedModes ? 'cloud' : 'native');
 
     const [showEndSessionDialog, setShowEndSessionDialog] = useState(false);
@@ -209,13 +210,10 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
             await endSessionAndSave();
         } else {
             reset();
-            // Defensively ensure free users can only use native mode
+            // Build policy based on user tier and selected mode
             const finalMode = canAccessAdvancedModes ? selectedMode : 'native';
-            await startListening({
-                forceCloud: finalMode === 'cloud',
-                forceOnDevice: finalMode === 'on-device',
-                forceNative: finalMode === 'native',
-            });
+            const policy = buildPolicyForUser(isProUser, finalMode as TranscriptionMode);
+            await startListening(policy);
         }
     };
 
@@ -249,13 +247,13 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                                 <Button variant="outline" className="w-full" disabled={isListening || isModelLoading || isConnecting}>
-                                    {selectedMode === 'cloud' ? 'Cloud' : selectedMode === 'on-device' ? 'Private' : 'Native'}
+                                    {selectedMode === 'cloud' ? 'Cloud' : selectedMode === 'private' ? 'Private' : 'Native'}
                                 </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent className="w-56">
                                 <DropdownMenuRadioGroup value={selectedMode} onValueChange={(value) => setSelectedMode(value as Mode)}>
                                     <DropdownMenuRadioItem value="cloud" disabled={!canAccessAdvancedModes}>Cloud</DropdownMenuRadioItem>
-                                    <DropdownMenuRadioItem value="on-device" disabled={!canAccessAdvancedModes}>Private</DropdownMenuRadioItem>
+                                    <DropdownMenuRadioItem value="private" disabled={!canAccessAdvancedModes}>Private</DropdownMenuRadioItem>
                                     <DropdownMenuRadioItem value="native">Native</DropdownMenuRadioItem>
                                 </DropdownMenuRadioGroup>
                             </DropdownMenuContent>

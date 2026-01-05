@@ -342,11 +342,17 @@ import { setupE2EMocks, injectMockSession } from './mock-routes';
  * 2. Routes intercept at browser network layer (higher priority than SW)
  * 3. No dependency on service worker registration
  */
-export async function programmaticLoginWithRoutes(page: Page): Promise<void> {
+export async function programmaticLoginWithRoutes(
+  page: Page,
+  options: {
+    /** Defaults to 'free'. Set to 'pro' for pro feature tests. */
+    subscriptionStatus?: 'free' | 'pro';
+  } = {}
+): Promise<void> {
   console.log('[E2E] Starting programmaticLoginWithRoutes (no MSW dependency)');
 
   // 1. Setup Playwright routes BEFORE navigation
-  await setupE2EMocks(page);
+  await setupE2EMocks(page, { subscriptionStatus: options.subscriptionStatus });
   console.log('[E2E] Playwright routes configured');
 
   // 2. Set mock session flag and force TEST_MODE

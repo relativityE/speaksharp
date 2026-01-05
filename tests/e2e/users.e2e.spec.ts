@@ -3,8 +3,8 @@ import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
 
 test.describe('User Tier Flows', () => {
   test('should not show the upgrade banner for a pro user', async ({ page }) => {
-    // The default programmaticLoginWithRoutes logs in a 'pro' user.
-    await programmaticLoginWithRoutes(page);
+    // Explicitly log in a 'pro' user.
+    await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
 
     // Wait for the app to be fully loaded and on the home page before navigating
     await expect(page.getByTestId('app-main')).toBeVisible();

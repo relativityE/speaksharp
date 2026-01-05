@@ -3,13 +3,16 @@ import * as Sentry from '@sentry/react';
 import CloudAssemblyAI from './modes/CloudAssemblyAI';
 import NativeBrowser from './modes/NativeBrowser';
 import { createMicStream } from './utils/audioUtils';
-import { UserProfile } from '../../types/user';
 import { Session } from '@supabase/supabase-js';
 import { NavigateFunction } from 'react-router-dom';
 import { ITranscriptionMode, TranscriptionModeOptions } from './modes/types';
 import { MicStream } from './utils/types';
-import { isPro } from '@/constants/subscriptionTiers';
-import { getTestConfig } from '@/config/test.config';
+import {
+  TranscriptionPolicy,
+  TranscriptionMode,
+  resolveMode,
+  PROD_FREE_POLICY,
+} from './TranscriptionPolicy';
 
 export interface TranscriptUpdate {
   transcript: {
@@ -23,31 +26,35 @@ export interface TranscriptionServiceOptions {
   onTranscriptUpdate: (update: TranscriptUpdate) => void;
   onModelLoadProgress: (progress: number | null) => void;
   onReady: () => void;
-  profile: UserProfile | null;
   session: Session | null;
   navigate: NavigateFunction;
   getAssemblyAIToken: () => Promise<string | null>;
   customVocabulary?: string[];
-  forceCloud?: boolean;
-  forceOnDevice?: boolean;
-  forceNative?: boolean;
-  onModeChange?: (mode: 'native' | 'cloud' | 'on-device' | null) => void;
+  /**
+   * The policy that controls which modes are allowed and preferred.
+   * Defaults to PROD_FREE_POLICY if not provided.
+   */
+  policy?: TranscriptionPolicy;
+  /**
+   * Optional: Inject a mock microphone for E2E testing.
+   * If provided, the service will use this instead of creating a real mic.
+   */
+  mockMic?: MicStream;
+  onModeChange?: (mode: TranscriptionMode | null) => void;
 }
 
 export default class TranscriptionService {
-  private mode: 'native' | 'cloud' | 'on-device' | null = null;
+  private mode: TranscriptionMode | null = null;
   private onTranscriptUpdate: (update: TranscriptUpdate) => void;
   private onModelLoadProgress: (progress: number | null) => void;
   private onReady: () => void;
-  private onModeChange?: (mode: 'native' | 'cloud' | 'on-device' | null) => void;
-  private profile: UserProfile | null;
+  private onModeChange?: (mode: TranscriptionMode | null) => void;
   private session: Session | null;
   private navigate: NavigateFunction;
   private getAssemblyAIToken: () => Promise<string | null>;
-  private forceCloud: boolean;
-  private forceOnDevice: boolean;
-  private forceNative: boolean;
   private customVocabulary: string[];
+  private policy: TranscriptionPolicy;
+  private mockMic: MicStream | null;
   private instance: ITranscriptionMode | null = null;
   private mic: MicStream | null = null;
 
@@ -55,39 +62,38 @@ export default class TranscriptionService {
     onTranscriptUpdate,
     onModelLoadProgress,
     onReady,
-    profile,
-    forceCloud = false,
-    forceOnDevice = false,
-    forceNative = false,
     customVocabulary = [],
     session,
     navigate,
     getAssemblyAIToken,
+    policy = PROD_FREE_POLICY,
+    mockMic,
     onModeChange,
   }: TranscriptionServiceOptions) {
-    logger.info({ forceCloud, forceOnDevice, forceNative }, `[TranscriptionService] Constructor called`);
+    logger.info(
+      { policy: policy.executionIntent },
+      `[TranscriptionService] Constructor called with policy: ${policy.executionIntent}`
+    );
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onModelLoadProgress = onModelLoadProgress;
     this.onReady = onReady;
     this.onModeChange = onModeChange;
-    this.profile = profile;
     this.session = session;
     this.navigate = navigate;
     this.getAssemblyAIToken = getAssemblyAIToken;
     this.customVocabulary = customVocabulary;
-    this.forceCloud = forceCloud;
-    this.forceOnDevice = forceOnDevice;
-    this.forceNative = forceNative;
+    this.policy = policy;
+    this.mockMic = mockMic ?? null;
   }
 
   public async init(): Promise<{ success: boolean }> {
-    const { mockSession } = getTestConfig();
-    if (mockSession) {
-      this.mic = {
-        stop: () => { },
-      } as unknown as MicStream;
+    // If a mock mic was injected (for E2E), use it directly
+    if (this.mockMic) {
+      logger.info('[TranscriptionService] Using injected mock microphone');
+      this.mic = this.mockMic;
       return { success: true };
     }
+
     console.log('[TranscriptionService] Initializing mic stream...');
     try {
       this.mic = await createMicStream({ sampleRate: 16000, frameSize: 1024 });
@@ -117,95 +123,99 @@ export default class TranscriptionService {
       customVocabulary: this.customVocabulary,
     };
 
-    const { isTestMode, useMockOnDeviceWhisper } = getTestConfig();
+    // Resolve the mode using the injected policy
+    const resolvedMode = resolveMode(this.policy);
+    logger.info(
+      { resolvedMode, policy: this.policy.executionIntent },
+      `[TranscriptionService] Resolved mode: ${resolvedMode}`
+    );
 
-    if (isTestMode && !useMockOnDeviceWhisper) {
-      logger.info('[TEST_MODE] Forcing Native Browser mode.');
-      this.instance = new NativeBrowser(providerConfig);
-      await this.instance.init();
-      await this.instance.startTranscription(this.mic);
-      this.mode = 'native';
-      this.onModeChange?.(this.mode);
-      return;
-    }
-
-    if (this.forceNative) {
-      logger.info('[TranscriptionService] Creating NativeBrowser instance (forceNative)...');
-      this.instance = new NativeBrowser(providerConfig);
-      await this.instance.init();
-      await this.instance.startTranscription(this.mic);
-      this.mode = 'native';
-      this.onModeChange?.(this.mode);
-      return;
-    }
-
-    const isProUser = isPro(this.profile?.subscription_status);
-    const useOnDevice = this.forceOnDevice || (isProUser && this.profile?.preferred_mode === 'on-device');
-
-    if (useOnDevice) {
-      logger.info('[TranscriptionService] Attempting to use Private (PrivateWhisper) mode for Pro user.');
-
-      let PrivateWhisperClass;
-      if (useMockOnDeviceWhisper) {
-        PrivateWhisperClass = (window as Window & { MockPrivateWhisper?: typeof import('./modes/PrivateWhisper').default }).MockPrivateWhisper;
-        if (!PrivateWhisperClass) {
-          throw new Error('MockPrivateWhisper not found on window - E2E test setup incomplete');
-        }
+    try {
+      await this.executeMode(resolvedMode, providerConfig);
+    } catch (error) {
+      // If fallback is allowed, try alternatives
+      if (this.policy.allowFallback) {
+        logger.warn({ error }, `[TranscriptionService] ${resolvedMode} failed, attempting fallback`);
+        await this.executeFallback(resolvedMode, providerConfig);
       } else {
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * Execute transcription for the given mode.
+   */
+  private async executeMode(
+    mode: TranscriptionMode,
+    config: TranscriptionModeOptions
+  ): Promise<void> {
+    switch (mode) {
+      case 'native':
+        logger.info('[TranscriptionService] Starting Native Browser mode');
+        this.instance = new NativeBrowser(config);
+        break;
+
+      case 'cloud':
+        logger.info('[TranscriptionService] Starting Cloud (AssemblyAI) mode');
+        this.instance = new CloudAssemblyAI(config);
+        break;
+
+      case 'private': {
+        logger.info('[TranscriptionService] Starting Private (Whisper) mode');
         const module = await import('./modes/PrivateWhisper');
-        PrivateWhisperClass = module.default;
+        this.instance = new module.default(config);
+        break;
       }
 
-      try {
-        this.instance = new PrivateWhisperClass(providerConfig);
-        if (this.instance) {
-          await this.instance.init();
-          await this.instance.startTranscription(this.mic);
-        }
-        this.mode = 'on-device';
-        this.onModeChange?.(this.mode);
-        return;
-      } catch (error) {
-        logger.warn({ error }, '[TranscriptionService] Private init failed, falling back to Native Browser.');
-        this.onModelLoadProgress(null);
-
-        this.instance = new NativeBrowser(providerConfig);
-        try {
-          await this.instance.init();
-          await this.instance.startTranscription(this.mic);
-          this.mode = 'native';
-          this.onModeChange?.(this.mode);
-          return;
-        } catch (fallbackError) {
-          logger.error({ error: fallbackError }, '[TranscriptionService] Native fallback also failed.');
-          throw fallbackError;
-        }
-      }
+      default:
+        throw new Error(`Unknown transcription mode: ${mode}`);
     }
 
-    const useCloud = this.forceCloud || isProUser;
-    if (useCloud) {
-      logger.info('[TranscriptionService] Attempting to use Cloud (AssemblyAI) mode for Pro user.');
-      this.instance = new CloudAssemblyAI(providerConfig);
-      try {
-        await this.instance.init();
-        await this.instance.startTranscription(this.mic);
-        this.mode = 'cloud';
-        this.onModeChange?.(this.mode);
-        return;
-      } catch (error) {
-        logger.warn({ error }, '[TranscriptionService] Cloud mode failed to start.');
-        if (this.forceCloud) throw error;
-        logger.warn('[TranscriptionService] Proceeding with native fallback for Pro user.');
-      }
-    }
-
-    logger.info('[TranscriptionService] Starting Native Browser mode as default or fallback.');
-    this.instance = new NativeBrowser(providerConfig);
     await this.instance.init();
-    await this.instance.startTranscription(this.mic);
-    this.mode = 'native';
+    await this.instance.startTranscription(this.mic!);
+    this.mode = mode;
     this.onModeChange?.(this.mode);
+  }
+
+  /**
+   * Attempt fallback to an alternative mode after failure.
+   */
+  private async executeFallback(
+    failedMode: TranscriptionMode,
+    config: TranscriptionModeOptions
+  ): Promise<void> {
+    this.onModelLoadProgress(null); // Clear any loading state
+
+    // Fallback priority: native is always safest
+    const fallbackOrder: TranscriptionMode[] = ['native', 'cloud', 'private'];
+
+    for (const fallbackMode of fallbackOrder) {
+      if (fallbackMode === failedMode) continue; // Skip the mode that failed
+      if (!this.isModeAllowedByPolicy(fallbackMode)) continue; // Skip disallowed modes
+
+      try {
+        logger.info(`[TranscriptionService] Attempting fallback to ${fallbackMode}`);
+        await this.executeMode(fallbackMode, config);
+        return;
+      } catch (fallbackError) {
+        logger.warn({ error: fallbackError }, `[TranscriptionService] Fallback ${fallbackMode} also failed`);
+      }
+    }
+
+    throw new Error('[TranscriptionService] All fallback modes failed');
+  }
+
+  /**
+   * Check if a mode is allowed by the current policy.
+   */
+  private isModeAllowedByPolicy(mode: TranscriptionMode): boolean {
+    switch (mode) {
+      case 'native': return this.policy.allowNative;
+      case 'cloud': return this.policy.allowCloud;
+      case 'private': return this.policy.allowPrivate;
+      default: return false;
+    }
   }
 
   public async stopTranscription(): Promise<string> {
@@ -220,7 +230,7 @@ export default class TranscriptionService {
     return this.instance.getTranscript();
   }
 
-  public getMode(): 'native' | 'cloud' | 'on-device' | null {
+  public getMode(): TranscriptionMode | null {
     return this.mode;
   }
 

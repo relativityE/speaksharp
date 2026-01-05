@@ -3,8 +3,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 import * as React from "react"
 
-// eslint-disable-next-line react-refresh/only-export-components
-export const toastVariants = cva(
+const toastVariants = cva(
   "flex items-start gap-3 rounded-lg shadow-md transition-all",
   {
     variants: {
@@ -32,7 +31,7 @@ export const toastVariants = cva(
 
 export interface ToastProps
   extends React.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof toastVariants> {}
+  VariantProps<typeof toastVariants> { }
 
 export const Toast = React.forwardRef<HTMLDivElement, ToastProps>(
   ({ className, variant, size, responsive, ...props }, ref) => {

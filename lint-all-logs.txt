@@ -1,0 +1,3 @@
+
+> speaksharp@0.0.0 lint /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
+> eslint 'frontend/src/**/*.{js,jsx,ts,tsx}' 'tests/**/*.{js,jsx,ts,tsx}' --report-unused-disable-directives --max-warnings 0

@@ -27,7 +27,7 @@ const alertVariants = cva(
 
 export interface AlertProps
   extends React.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof alertVariants> {}
+  VariantProps<typeof alertVariants> { }
 
 const Alert = React.forwardRef<HTMLDivElement, AlertProps>(
   ({ className, variant, size, ...props }, ref) => {
@@ -43,5 +43,4 @@ const Alert = React.forwardRef<HTMLDivElement, AlertProps>(
 );
 Alert.displayName = 'Alert';
 
-// eslint-disable-next-line react-refresh/only-export-components
 export { Alert, alertVariants };

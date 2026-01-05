@@ -27,8 +27,14 @@ export interface TranscriptStats {
   duration: number;
 }
 
-export interface ForceOptions {
-  forceCloud?: boolean;
-  forceOnDevice?: boolean;
-  forceNative?: boolean;
-}
+// Re-export policy types for convenience
+export {
+  TranscriptionPolicy,
+  TranscriptionMode,
+  buildPolicyForUser,
+  PROD_FREE_POLICY,
+  PROD_PRO_POLICY,
+  E2E_DETERMINISTIC_NATIVE,
+  E2E_DETERMINISTIC_CLOUD,
+  E2E_DETERMINISTIC_PRIVATE,
+} from '../../services/transcription/TranscriptionPolicy';

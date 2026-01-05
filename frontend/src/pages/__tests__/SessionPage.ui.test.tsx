@@ -17,6 +17,21 @@ vi.mock('../../hooks/useVocalAnalysis');
 vi.mock('../../contexts/AuthProvider');
 vi.mock('@/hooks/useUserProfile');
 vi.mock('@/hooks/useUsageLimit');
+vi.mock('@/hooks/useUserFillerWords', () => ({
+    useUserFillerWords: () => ({
+        vocabularyWords: ['mock-word'],
+        fullVocabularyObjects: [{ id: '1', word: 'mock-word', user_id: 'test', created_at: new Date().toISOString() }],
+        isLoading: false,
+        error: null,
+        addWord: vi.fn(),
+        removeWord: vi.fn(),
+        isAdding: false,
+        isRemoving: false,
+        count: 1,
+        maxWords: 100,
+        isPro: false,
+    }),
+}));
 vi.mock('@/hooks/useSessionManager', () => ({
     useSessionManager: () => ({
         saveSession: vi.fn().mockResolvedValue({ session: null, usageExceeded: false }),
@@ -24,7 +39,7 @@ vi.mock('@/hooks/useSessionManager', () => ({
 }));
 vi.mock('posthog-js', () => ({ default: { capture: vi.fn() } }));
 vi.mock('@/components/session/PauseMetricsDisplay', () => ({ PauseMetricsDisplay: () => <div>Pause Metrics</div> }));
-vi.mock('@/components/session/CustomVocabularyManager', () => ({ CustomVocabularyManager: () => <div>Custom Vocabulary</div> }));
+vi.mock('@/components/session/UserFillerWordsManager', () => ({ UserFillerWordsManager: () => <div>User Filler Words</div> }));
 
 // Helper to render with router
 const renderWithRouter = (ui: React.ReactElement) => {
@@ -76,7 +91,7 @@ describe('SessionPage - STT Mode Selection UI', () => {
         } as unknown as ReturnType<typeof UsageLimitHook.useUsageLimit>);
     });
 
-    it('should disable Pro options (On-Device, Cloud) for Free users', async () => {
+    it('should disable Pro options (Private, Cloud) for Free users', async () => {
         const user = userEvent.setup();
 
         // Mock Free User

@@ -2,9 +2,9 @@ import React from 'react';
 import { render, screen, cleanup, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { CustomVocabularyManager } from '@/components/session/CustomVocabularyManager';
+import { UserFillerWordsManager } from '@/components/session/UserFillerWordsManager';
 import { AuthContext, AuthContextType } from '@/contexts/AuthProvider';
-import { useCustomVocabulary } from '@/hooks/useCustomVocabulary';
+import { useUserFillerWords } from '@/hooks/useUserFillerWords';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -22,6 +22,7 @@ const mockAuthContextValue: Partial<AuthContextType> = {
     signOut: vi.fn(),
     loading: false,
     session: null,
+
 };
 
 const MockAuthProvider: React.FC<{ children: React.ReactNode; value: Partial<AuthContextType> }> = ({
@@ -44,7 +45,7 @@ vi.mock('@/contexts/AuthProvider', async () => {
     };
 });
 
-vi.mock('@/hooks/useCustomVocabulary');
+vi.mock('@/hooks/useUserFillerWords');
 
 vi.mock('@/hooks/useUserProfile', () => ({
     useUserProfile: vi.fn(),
@@ -67,15 +68,13 @@ vi.mock('sonner', () => ({
 }));
 
 const mockAddWord = vi.fn().mockResolvedValue(undefined);
-const mockValidateWord = vi.fn();
 const mockRemoveWord = vi.fn().mockResolvedValue(undefined);
 
-describe('CustomVocabularyManager Integration', () => {
+describe('UserFillerWordsManager Integration', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         queryClient.clear();
         mockAuthContextValue.user = null;
-        mockValidateWord.mockReturnValue(null); // No error by default
     });
 
     afterEach(() => {
@@ -85,9 +84,9 @@ describe('CustomVocabularyManager Integration', () => {
         }
     });
 
-    describe('Anonymous User', () => {
+    describe('Free User', () => {
         beforeEach(() => {
-            mockAuthContextValue.user = null;
+            mockAuthContextValue.user = { id: 'free-user' } as any;
 
             // Mock non-Pro user
             vi.mocked(useUserProfile).mockReturnValue({
@@ -96,8 +95,8 @@ describe('CustomVocabularyManager Integration', () => {
                 error: null,
             } as any);
 
-            vi.mocked(useCustomVocabulary).mockReturnValue({
-                vocabulary: [],
+            vi.mocked(useUserFillerWords).mockReturnValue({
+                fullVocabularyObjects: [],
                 vocabularyWords: [],
                 isLoading: false,
                 error: null,
@@ -105,32 +104,33 @@ describe('CustomVocabularyManager Integration', () => {
                 removeWord: mockRemoveWord,
                 isAdding: false,
                 isRemoving: false,
-                addError: null,
-                removeError: null,
+                count: 0,
+                maxWords: 10,
+                isPro: false
             });
         });
 
-        it('shows sign-in message for anonymous users', () => {
+        it('shows user filler words manager for free users', () => {
             render(
                 <MockAuthProvider value={mockAuthContextValue}>
-                    <CustomVocabularyManager />
+                    <UserFillerWordsManager />
                 </MockAuthProvider>
             );
 
-            // Should show Pro upgrade prompt for non-Pro users
-            expect(screen.getByText(/Custom Vocabulary \(Pro\)/i)).toBeInTheDocument();
-            expect(screen.getByText(/upgrade to pro/i)).toBeInTheDocument();
+            // Should show renamed title: 'User Filler Words'
+            expect(screen.getByText(/^User Filler Words$/i)).toBeInTheDocument();
+            expect(screen.queryByText(/upgrade to pro/i)).not.toBeInTheDocument();
         });
 
-        it('does not allow adding words when not signed in', () => {
+        it('allows adding words for free users', () => {
             render(
                 <MockAuthProvider value={mockAuthContextValue}>
-                    <CustomVocabularyManager />
+                    <UserFillerWordsManager />
                 </MockAuthProvider>
             );
 
-            const addButton = screen.queryByRole('button', { name: /add word/i });
-            expect(addButton).toBeNull();
+            const addButton = screen.getByRole('button', { name: /add word/i });
+            expect(addButton).toBeInTheDocument();
         });
     });
 
@@ -145,8 +145,8 @@ describe('CustomVocabularyManager Integration', () => {
                 error: null,
             } as any);
 
-            vi.mocked(useCustomVocabulary).mockReturnValue({
-                vocabulary: [
+            vi.mocked(useUserFillerWords).mockReturnValue({
+                fullVocabularyObjects: [
                     { id: '1', word: 'blockchain', user_id: 'test-user', created_at: new Date().toISOString() },
                     { id: '2', word: 'kubernetes', user_id: 'test-user', created_at: new Date().toISOString() },
                 ],
@@ -157,15 +157,16 @@ describe('CustomVocabularyManager Integration', () => {
                 removeWord: mockRemoveWord,
                 isAdding: false,
                 isRemoving: false,
-                addError: null,
-                removeError: null,
+                count: 2,
+                maxWords: 100,
+                isPro: true
             });
         });
 
-        it('displays existing vocabulary words', () => {
+        it('displays existing filler words', () => {
             render(
                 <MockAuthProvider value={mockAuthContextValue}>
-                    <CustomVocabularyManager />
+                    <UserFillerWordsManager />
                 </MockAuthProvider>
             );
 
@@ -173,16 +174,16 @@ describe('CustomVocabularyManager Integration', () => {
             expect(screen.getByText('kubernetes')).toBeInTheDocument();
         });
 
-        it('allows adding a new custom word', async () => {
+        it('allows adding a new user filler word', async () => {
             const user = userEvent.setup();
 
             render(
                 <MockAuthProvider value={mockAuthContextValue}>
-                    <CustomVocabularyManager />
+                    <UserFillerWordsManager />
                 </MockAuthProvider>
             );
 
-            const input = screen.getByPlaceholderText(/SpeakSharp/i);
+            const input = screen.getByPlaceholderText(/literally/i); // Matches new placeholder
             await user.type(input, 'microservices');
 
             const addButton = screen.getByRole('button', { name: /add word/i });
@@ -193,55 +194,14 @@ describe('CustomVocabularyManager Integration', () => {
             });
         });
 
-        it('validates word before adding', async () => {
-            const user = userEvent.setup();
-            mockValidateWord.mockReturnValue('Word must be at least 2 characters');
 
-            vi.mocked(useCustomVocabulary).mockReturnValue({
-                vocabulary: [{ id: '1', word: 'blockchain', user_id: 'test-user', created_at: new Date().toISOString() }],
-                vocabularyWords: ['blockchain'],
-                isLoading: false,
-                error: null,
-                addWord: mockAddWord,
-                removeWord: mockRemoveWord,
-                isAdding: false,
-                isRemoving: false,
-                addError: new Error('Word must be at least 2 characters'),
-                removeError: null,
-            });
 
-            render(
-                <MockAuthProvider value={mockAuthContextValue}>
-                    <CustomVocabularyManager />
-                </MockAuthProvider>
-            );
-
-            const input = screen.getByPlaceholderText(/SpeakSharp/i);
-            await user.type(input, 'a');
-
-            const addButton = screen.getByRole('button', { name: /add word/i });
-            await user.click(addButton);
-
-            // Should call addWord (validation happens in the hook/backend usually, or if client-side, we need to mock that behavior)
-            // If the component relies on the hook to validate and return error, it WILL call addWord.
-            // Let's check if the component has local validation.
-            // Looking at the component code (if available), it seems to rely on `addError` from hook.
-            // If so, it calls addWord, then displays error.
-
-            // Actually, looking at previous failure, it WAS called.
-            // So we should expect it to be called, but then show error.
-            expect(mockAddWord).toHaveBeenCalled();
-
-            // Should show error message
-            expect(screen.getByText(/must be at least 2 characters/i)).toBeInTheDocument();
-        });
-
-        it('allows removing a custom word', async () => {
+        it('allows removing a word', async () => {
             const user = userEvent.setup();
 
             render(
                 <MockAuthProvider value={mockAuthContextValue}>
-                    <CustomVocabularyManager />
+                    <UserFillerWordsManager />
                 </MockAuthProvider>
             );
 
@@ -259,11 +219,11 @@ describe('CustomVocabularyManager Integration', () => {
 
             render(
                 <MockAuthProvider value={mockAuthContextValue}>
-                    <CustomVocabularyManager />
+                    <UserFillerWordsManager />
                 </MockAuthProvider>
             );
 
-            const input = screen.getByPlaceholderText(/SpeakSharp/i) as HTMLInputElement;
+            const input = screen.getByPlaceholderText(/literally/i) as HTMLInputElement;
             await user.type(input, 'devops');
 
             const addButton = screen.getByRole('button', { name: /add word/i });
@@ -285,10 +245,10 @@ describe('CustomVocabularyManager Integration', () => {
     });
 
     describe('Loading State', () => {
-        it('shows loading skeleton while fetching vocabulary', () => {
+        it('shows loading skeleton while fetching', () => {
             mockAuthContextValue.user = { id: 'test-user' } as any;
-            vi.mocked(useCustomVocabulary).mockReturnValue({
-                vocabulary: [],
+            vi.mocked(useUserFillerWords).mockReturnValue({
+                fullVocabularyObjects: [],
                 vocabularyWords: [],
                 isLoading: true,
                 error: null,
@@ -296,17 +256,18 @@ describe('CustomVocabularyManager Integration', () => {
                 removeWord: mockRemoveWord,
                 isAdding: false,
                 isRemoving: false,
-                addError: null,
-                removeError: null,
+                count: 0,
+                maxWords: 100,
+                isPro: true
             });
 
             render(
                 <MockAuthProvider value={mockAuthContextValue}>
-                    <CustomVocabularyManager />
+                    <UserFillerWordsManager />
                 </MockAuthProvider>
             );
 
-            // Should show loading indicator (pulse animations)
+            // Should show loading indicator (pulse animations) and not list items
             expect(screen.queryByText('blockchain')).not.toBeInTheDocument();
         });
     });

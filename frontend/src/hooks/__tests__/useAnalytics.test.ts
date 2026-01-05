@@ -38,7 +38,7 @@ describe('useAnalytics', () => {
                 filler_words: { um: { count: 10 }, like: { count: 5 }, total: { count: 15 } },
                 transcript: 'um like hi there',
                 ground_truth: 'hi there',
-                engine: 'On-Device',
+                engine: 'Private',
             },
         ];
 

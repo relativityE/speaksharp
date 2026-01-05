@@ -1,6 +1,7 @@
 import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useTranscriptionService } from '../useTranscriptionService';
+import { E2E_DETERMINISTIC_NATIVE } from '../types';
 
 // Mock the TranscriptionService
 const mockService = {
@@ -24,7 +25,6 @@ describe('useTranscriptionService', () => {
     onTranscriptUpdate: vi.fn(),
     onModelLoadProgress: vi.fn(),
     onReady: vi.fn(),
-    profile: null,
     session: null,
     navigate: vi.fn(),
     getAssemblyAIToken: vi.fn().mockResolvedValue('token')
@@ -48,7 +48,7 @@ describe('useTranscriptionService', () => {
     const { result } = renderHook(() => useTranscriptionService(mockOptions));
 
     await act(async () => {
-      await result.current.startListening();
+      await result.current.startListening(E2E_DETERMINISTIC_NATIVE);
     });
 
     expect(mockService.init).toHaveBeenCalled();
@@ -62,7 +62,7 @@ describe('useTranscriptionService', () => {
 
     // Start listening
     await act(async () => {
-      await result.current.startListening();
+      await result.current.startListening(E2E_DETERMINISTIC_NATIVE);
     });
     expect(result.current.isListening).toBe(true);
 
@@ -86,7 +86,7 @@ describe('useTranscriptionService', () => {
     const { result } = renderHook(() => useTranscriptionService(mockOptions));
 
     await act(async () => {
-      await result.current.startListening();
+      await result.current.startListening(E2E_DETERMINISTIC_NATIVE);
     });
 
     expect(result.current.error).toBeTruthy();
@@ -99,7 +99,7 @@ describe('useTranscriptionService', () => {
     const { result, unmount } = renderHook(() => useTranscriptionService(mockOptions));
 
     await act(async () => {
-      await result.current.startListening();
+      await result.current.startListening(E2E_DETERMINISTIC_NATIVE);
     });
 
     unmount();

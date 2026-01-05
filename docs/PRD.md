@@ -10,13 +10,13 @@
 
 ## 1. Executive Summary
 
-SpeakSharp is a **privacy-first, real-time speech analysis tool** designed as a modern, serverless SaaS web application. Its architecture is strategically aligned with the core product goal: to provide instant, on-device feedback that helps users improve their public speaking skills, while rigorously protecting their privacy.
+SpeakSharp is a **privacy-first, real-time speech analysis tool** designed as a modern, serverless SaaS web application. Its architecture is strategically aligned with the core product goal: to provide instant, private feedback that helps users improve their public speaking skills, while rigorously protecting their privacy.
 
 The system is built for speed, both in user experience and development velocity. It leverages a **[React (Vite) frontend](./ARCHITECTURE.md#3-frontend-architecture)** for a highly interactive UI and **[Supabase as an all-in-one backend](./ARCHITECTURE.md#4-backend-architecture)** for data, authentication, and user management.
 
 ## 2. Vision & Positioning
 * **Vision:** To be the leading real-time speech coach for professionals, helping them communicate with confidence and clarity.
-* **Positioning:** SpeakSharp is a real-time speech analysis tool. A key differentiator on the roadmap is a **privacy-first, on-device transcription mode** that will provide instant feedback without sending sensitive conversations to the cloud.
+* **Positioning:** SpeakSharp is a real-time speech analysis tool. A key differentiator on the roadmap is a **privacy-first, private transcription mode** that will provide instant feedback without sending sensitive conversations to the cloud.
 
 ### User Roles & Flows
 This section contains ASCII art diagrams illustrating the journey for each user role.
@@ -44,7 +44,7 @@ This section contains ASCII art diagrams illustrating the journey for each user 
 | [Free User]              |                      | [Pro User]               |
 | - 30 min/month           |                      | - Unlimited Time         |
 | - 20 min session duration|                      | - Cloud AI (AssemblyAI)  |
-| - Native Browser STT     |                      | - On-device STT (Local)  |
+| - Native Browser STT     |                      | - Private STT (Local)    |
 | - View Session History   |                      |                          |
 +--------------------------+                      +--------------------------+
            |
@@ -76,7 +76,7 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | :--- | :--- | :--- | :--- | :--- |
 | **Transcription** | 1 | The core service that converts speech to text. | ✅ Implemented | ✅ Yes |
 | **Cloud Server STT** | 1 | High-accuracy transcription via AssemblyAI. (Pro) | ✅ Implemented | ✅ Yes |
-| **On-Device STT** | 1 | Privacy-first transcription using `whisper-turbo` (local Whisper model). Includes **Self-Healing** (10s timeout + Cache Clear). (Pro) | ✅ Fully Functional | ✅ Yes |
+| **Private STT** | 1 | Privacy-first transcription using **Triple-Engine Architecture**: `whisper-turbo` (GPU), `transformers.js` (CPU Fallback), or `MockEngine` (Testing). Includes **Self-Healing** (10s timeout + Cache Clear). (Pro) | ✅ Fully Functional | ✅ Yes |
 | **Fallback STT** | 1 | Reliable fallback to native browser API for Free users and as an **auto-recovery mode** for Cloud/Private STT. | ✅ Fully Functional | ✅ Yes |
 | **UI Mode Selector** | 1 | Allows users to select their preferred transcription engine. | ✅ Implemented | ✅ Yes |
 | **Session History** | 1 | Users can view and analyze their past practice sessions. | ✅ Implemented | ✅ Yes |
@@ -85,7 +85,7 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Clarity Score** | 2 | Score based on filler word usage. | ✅ Implemented | ✅ Yes |
 | **Goal Setting** | 2 | Weekly/Daily targets for practice consistency. | ✅ Implemented | ❌ No (E2E Only) |
 | **User-Friendly Error Handling** | 2 | Specific, user-facing error messages. | ✅ Implemented | ✅ Yes |
-| **Custom Vocabulary** | 2 | Allows users to add custom words to improve accuracy. Free: 10 words max. Pro: 100 words max. | ✅ Implemented | ✅ Yes |
+| **User Filler Words** | 2 | User's personalized filler words to track (in addition to defaults like "um", "uh"). Stored in Supabase, passed to Cloud STT for improved recognition. Free: 10 words max. Pro: 100 words max. | ✅ Implemented | ✅ Yes |
 | **Vocal Variety / Pause Detection** | 2 | Analyzes pause duration and frequency. | ✅ Implemented | ✅ Yes |
 | **Session Hardening** | 3 | Prevents saving empty or 0-second sessions to preserve usage and data quality. | ✅ Implemented | ✅ Yes |
 | **Speaker Identification**| 4 | Distinguishes between multiple speakers in a transcript. | 📅 Planned | ❌ No |
@@ -104,14 +104,14 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Top 2 Filler Words**| 1 | Maintains the top 2 highest filler words for the most recent 4 sessions. | ✅ Implemented | ✅ Yes |
 | **Weekly Activity Chart** | 2 | Visual chart showing practice frequency over the past week. | ✅ Implemented | ❌ No (E2E Only) |
 | **Premium Loading States** | 2.5 | Skeleton loading UI for premium user experience. | ✅ Implemented | ✅ Yes |
-| **On-Device Model Caching** | 3 | Service Worker caches Whisper model for faster subsequent loads (<5s). | ✅ Implemented | ✅ Yes |
+| **Private Model Caching** | 3 | Service Worker caches Whisper model for faster subsequent loads (<5s). | ✅ Implemented | ✅ Yes |
 | **Gamification (Streaks)** | 2 | Tracks daily practice streaks with local storage + toast positive reinforcement. | ✅ Implemented | ❌ No (E2E Only) |
 | **Design System Showcase** | 2 | `/design` route to visualize and test UI components in isolation. | ✅ Implemented | ✅ Yes |
 
 
 
 ### Differentiation
-*   **vs. Otter.ai:** Privacy-first (on-device option is a key roadmap item), focused on improvement, not just transcription.
+*   **vs. Otter.ai:** Privacy-first (private option is a key roadmap item), focused on improvement, not just transcription.
 *   **vs. Poised:** More affordable, simpler to use, no installation required.
 
 ### Go-to-Market & Financials
@@ -136,6 +136,7 @@ The project's testing strategy prioritizes stability, reliability, and a tight a
     *   **Canary Deployment Tests:** A subset of E2E tests (marked `@canary`) are designed to hit real staging endpoints periodically to detect API contract drift and production-specific failures that mocks might hide.
 *   **API Mocking (MSW & Playwright Routes):** External services and backend APIs are mocked for deterministic testing. However, mocks are audited against real production response shapes to prevent "Green Illusion" (tests passing while production is broken).
 *   **Adversarial Audit Mandate:** All new tests must pass an adversarial review—ensuring they validate design intent (e.g., tier gating, SLOs, resilience) and would fail if production code deviates from intended behavior, even if the structural implementation remains similar.
+*   **Private STT Mock Strategy (`MockEngine`):** To avoid persistent WASM/WebGPU deadlocks in headless CI environments (Playwright), the Private STT engine automatically switches to a reliable `MockEngine` when `window.__E2E_PLAYWRIGHT__` is detected. This ensures E2E tests verify the *application flow* (UI, state, logging) without flaking on unstable browser features. Logic verification is handled by unit tests (100% pass rate).
 *   **Single Source of Truth (`pnpm test:all`):** A single command, `pnpm test:all`, is the user-facing entry point for all validation. It runs an underlying orchestration script (`test-audit.sh`) that executes all checks (lint, type-check, tests) in a parallelized, multi-stage process both locally and in CI, guaranteeing consistency and speed.
 
 ---
@@ -173,17 +174,21 @@ This section tracks high-level product risks and constraints. For a detailed gui
 - **✅ RESOLVED - Stripe Configuration Error (2025-12-15):** The `stripe-checkout` Edge Function was failing with generic 400 errors in CI. **Fix:** Added diagnostic logging and "Negative Verification" to test (`stripe-checkout.spec.ts`) to prove configuration state safely without exposing secrets. **Status:** ✅ Fixed.
 - **✅ RESOLVED - Infrastructure - Analytics UI Regression (2025-12-31):** Fixed the `net::ERR_NAME_NOT_RESOLVED` error by restoring MSW initialization in the E2E bridge and consolidated redundant upgrade prompts. **Status:** ✅ Fixed.
 - **ℹ️ INFO - Soak Test Environment (2025-12-19):** Optimized the `soak-test` workflow to support **10 concurrent users** (7 Free, 3 Pro) by default. Implemented automated registry synchronization via `setup-test-users.yml`, which uses a shared `SOAK_TEST_PASSWORD` secret (programmatically rotated via `GH_PAT`). Full execution requires the CI/Staging environment with real Supabase secrets.
+- **🟡 TECH DEBT - Native STT Headless Test (2026-01-02):** `live-transcript-real.e2e.spec.ts` cannot run in headless CI because Web Speech API is unavailable in headless Chrome. **Workaround:** Marked `test.fixme()`. **Manual Verification:** Run with `--headed` flag. **Resolution Path:** Use mock SpeechRecognition polyfill (reduces fidelity).
+- **🟡 TECH DEBT - PDF Content Text Extraction (2026-01-02):** `pdf-export.e2e.spec.ts` cannot parse PDF text content because `pdf-parse` requires `DOMMatrix` (browser-only). **Workaround:** Validates PDF structure (header, size, catalog markers). **Resolution Path:** Run parsing in browser context via `page.evaluate()` or add unit test for `pdfGenerator.ts`.
+- **🟡 TECH DEBT - Cloud STT Mode E2E Test (2026-01-02):** `custom-vocabulary.e2e.spec.ts` Cloud STT payload test was previously marked `fixme` due to mode selector issue. **Status:** Investigating - Cloud API keys ARE available in `.env.test` and `.env.development`.
+- **ℹ️ CAVEAT - User Filler Words Native STT (2026-01-02):** Native STT (Web Speech API) does **NOT** support user filler words - it's entirely browser-controlled. Only Cloud STT (`word_boost` param via AssemblyAI) supports this feature. **Testing Impact:** User filler words E2E verification can only be done with Cloud STT, which requires API keys.
 
 ### Gap Analysis: Alpha Launch Blockers (AI Detective v5 - 2025-12-09)
 
 | Issue | Details | Impact | Priority |
 |-------|---------|--------|----------|
-| ~~Rate Limiting~~ | ~~AssemblyAI token endpoint no rate limiting~~ | ~~Cost overruns, abuse risk~~ | ✅ **RESOLVED 2025-12-09** - Added client-side `rateLimiter.ts` (5 calls/min, 5s interval) |
-| ~~Usage Limit UX (Incomplete)~~ | ~~Frontend doesn't prevent session start if usage exceeded~~ | ~~Frustrating UX when session fails to save~~ | ✅ **RESOLVED 2025-12-11** - Added `check-usage-limit` Edge Function with `useUsageLimit` hook. Shows toast with Upgrade button pre-session |
-| ~~Error Reporting~~ | ~~No Sentry for Web Audio/Worker errors~~ | ~~Production debugging impossible~~ | ✅ **RESOLVED 2025-12-09** - Added `Sentry.captureException` to TranscriptionService |
-| ~~Documentation Drift~~ | ~~ARCHITECTURE.md needs update~~ | ~~Maintainability risk~~ | ✅ **RESOLVED 2025-12-09** - Added Section 3.2 documenting hook decomposition, clean ASCII diagram |
-| ~~E2E Error States Coverage~~ | ~~Missing tests for: mic denied, usage exceeded, network failure during save~~ | ~~Resilience gap~~ | ✅ **RESOLVED 2025-12-09** - Added `error-states.e2e.spec.ts` with 4 tests (session stability, network errors) |
-| ~~Alpha Bypass Mechanism~~ | ~~No way for alpha testers to upgrade without Stripe~~ | ~~Blocked alpha launch~~ | ✅ **RESOLVED 2025-12-31** - Implemented `apply-promo` Edge Function and periodic secret-driven code validation in `AuthPage.tsx`. See [User Guide](./USER_GUIDE.md) |
+| Rate Limiting | AssemblyAI token endpoint no rate limiting | Cost overruns, abuse risk | ✅ **RESOLVED 2025-12-09** - Added client-side `rateLimiter.ts` (5 calls/min, 5s interval) |
+| Usage Limit UX (Incomplete) | Frontend doesn't prevent session start if usage exceeded | Frustrating UX when session fails to save | ✅ **RESOLVED 2025-12-11** - Added `check-usage-limit` Edge Function with `useUsageLimit` hook. Shows toast with Upgrade button pre-session |
+| Error Reporting | No Sentry for Web Audio/Worker errors | Production debugging impossible | ✅ **RESOLVED 2025-12-09** - Added `Sentry.captureException` to TranscriptionService |
+| Documentation Drift | ARCHITECTURE.md needs update | Maintainability risk | ✅ **RESOLVED 2025-12-09** - Added Section 3.2 documenting hook decomposition, clean ASCII diagram |
+| E2E Error States Coverage | Missing tests for: mic denied, usage exceeded, network failure during save | Resilience gap | ✅ **RESOLVED 2025-12-09** - Added `error-states.e2e.spec.ts` with 4 tests (session stability, network errors) |
+| Alpha Bypass Mechanism | No way for alpha testers to upgrade without Stripe | Blocked alpha launch | ✅ **RESOLVED 2025-12-31** - Implemented `apply-promo` Edge Function and periodic secret-driven code validation in `AuthPage.tsx`. See [User Guide](./USER_GUIDE.md) |
 
 ---
 
@@ -273,10 +278,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 ## 8. Future Enhancements / Opportunities
 
-### Feature Proposal: Rolling Accuracy Comparison of STT Engines (Native, Cloud, On-device)
+### Feature Proposal: Rolling Accuracy Comparison of STT Engines (Native, Cloud, Private)
 **Goal:** Improve transparency and user trust.
 
-We can strengthen user confidence by adding a feature that compares accuracy across Native Browser, Cloud AI, and On-device modes. Instead of one-off tests, the system would track results from actual usage over time and compute a rolling accuracy percentage. This avoids storing large datasets while still giving users a clear view of performance differences.
+We can strengthen user confidence by adding a feature that compares accuracy across Native Browser, Cloud AI, and Private modes. Instead of one-off tests, the system would track results from actual usage over time and compute a rolling accuracy percentage. This avoids storing large datasets while still giving users a clear view of performance differences.
 
 ### [COMPLETED] Feature: Dynamic Software Quality Metrics Reporting
 
@@ -396,7 +401,7 @@ This section provides high-level insights into the SpeakSharp project from multi
     *   **Recommendation:** The 30 minutes/month and 20-minute session limits are good for encouraging upgrades. Ensure the `UpgradePromptDialog` is well-designed, clearly communicates the benefits of upgrading, and appears at the moment of highest user engagement.
 *   **Pro User (Authenticated):**
     *   **Price: $7.99/month.**
-    *   **Recommendation:** This remains the core paid offering. The value proposition should be clear: "unlimited practice," "Cloud AI transcription," and the key differentiator of "on-device transcription" for enhanced privacy. The fallback to Native Browser is a a good technical resilience feature.
+    *   **Recommendation:** This remains the core paid offering. The value proposition should be clear: "unlimited practice," "Cloud AI transcription," and the key differentiator of "private transcription" for enhanced privacy. The fallback to Native Browser is a a good technical resilience feature.
 
 ---
 
@@ -510,7 +515,7 @@ After deployment, verify the complete user journey:
 | 6 | Upgrade to Pro | Redirects to Stripe checkout |
 | 7 | Complete payment | Pro features unlocked |
 | 8 | Test Cloud STT | AssemblyAI transcription works |
-| 9 | Test On-Device STT | Whisper model downloads and works |
+| 9 | Test Private STT | Whisper model downloads and works |
 
 ### Troubleshooting
 

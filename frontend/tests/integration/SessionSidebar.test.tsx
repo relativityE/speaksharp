@@ -126,9 +126,12 @@ describe('SessionSidebar', () => {
 
       await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenCalledExactlyOnceWith({
-        forceCloud: false,
-        forceOnDevice: false,
-        forceNative: true,
+        allowNative: true,
+        allowCloud: false,
+        allowPrivate: false,
+        preferredMode: 'native',
+        allowFallback: false,
+        executionIntent: 'prod-free-native',
       });
     });
   });
@@ -169,9 +172,12 @@ describe('SessionSidebar', () => {
 
       await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenCalledExactlyOnceWith({
-        forceCloud: true,
-        forceOnDevice: false,
-        forceNative: false,
+        allowNative: true,
+        allowCloud: true,
+        allowPrivate: true,
+        preferredMode: 'cloud',
+        allowFallback: true,
+        executionIntent: 'prod-pro-cloud',
       });
     });
 
@@ -187,9 +193,12 @@ describe('SessionSidebar', () => {
       await user.click(await screen.findByRole('menuitemradio', { name: 'Private' }));
       await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenCalledExactlyOnceWith({
-        forceCloud: false,
-        forceOnDevice: true,
-        forceNative: false,
+        allowNative: true,
+        allowCloud: true,
+        allowPrivate: true,
+        preferredMode: 'private',
+        allowFallback: true,
+        executionIntent: 'prod-pro-private',
       });
     });
   });
@@ -230,12 +239,15 @@ describe('SessionSidebar', () => {
         </MockAuthProvider>
       );
 
-      // Starts in cloud by default
+      // Starts in cloud by default (but as free user, Cloud is not allowed)
       await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenLastCalledWith({
-        forceCloud: true,
-        forceOnDevice: false,
-        forceNative: false
+        allowNative: true,
+        allowCloud: false,
+        allowPrivate: false,
+        preferredMode: 'cloud',  // UI selection, but Cloud is not allowed for free
+        allowFallback: false,
+        executionIntent: 'prod-free-cloud',
       });
 
       // Switch to Private
@@ -243,9 +255,12 @@ describe('SessionSidebar', () => {
       await user.click(await screen.findByRole('menuitemradio', { name: 'Private' }));
       await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenLastCalledWith({
-        forceCloud: false,
-        forceOnDevice: true,
-        forceNative: false
+        allowNative: true,
+        allowCloud: false,
+        allowPrivate: false,
+        preferredMode: 'private',
+        allowFallback: false,
+        executionIntent: 'prod-free-private',
       });
 
       // Switch to native
@@ -253,9 +268,12 @@ describe('SessionSidebar', () => {
       await user.click(await screen.findByRole('menuitemradio', { name: 'Native' }));
       await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenLastCalledWith({
-        forceCloud: false,
-        forceOnDevice: false,
-        forceNative: true
+        allowNative: true,
+        allowCloud: false,
+        allowPrivate: false,
+        preferredMode: 'native',
+        allowFallback: false,
+        executionIntent: 'prod-free-native',
       });
     });
   });

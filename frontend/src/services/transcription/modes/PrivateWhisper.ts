@@ -1,51 +1,52 @@
 /**
  * ============================================================================
- * ON-DEVICE WHISPER TRANSCRIPTION SERVICE
+ * PRIVATE WHISPER TRANSCRIPTION SERVICE
  * ============================================================================
  * 
  * PURPOSE:
  * --------
- * Provides client-side speech-to-text using the Whisper AI model running
- * locally in the browser via WebAssembly (whisper-turbo npm package).
+ * Provides client-side speech-to-text using the PrivateSTT dual-engine facade.
+ * Automatically selects the best engine:
+ * - whisper-turbo (fast) when WebGPU is available
+ * - transformers.js (safe) as fallback or in CI
  * 
  * ARCHITECTURE:
  * -------------
- * This service is part of a two-layer caching architecture:
- * 
- * Layer 1 (Service Worker): sw.js intercepts CDN requests for model files
- *   and serves them from /models/ directory (CacheStorage API)
- * 
- * Layer 2 (whisper-turbo): The npm package internally caches compiled WASM
- *   in IndexedDB for faster subsequent loads
+ * This service uses the PrivateSTT facade which:
+ * 1. Detects available hardware capabilities
+ * 2. Tries whisper-turbo first (5s timeout)
+ * 3. Falls back to transformers.js on failure
+ * 4. Forces transformers.js in CI/test environments
  * 
  * PERFORMANCE:
  * ------------
- * - First load: ~2-5 seconds (file I/O + WASM compilation)
- * - Subsequent loads: <1 second (served from IndexedDB cache)
- * - Model size: ~30MB (tiny-q8g16.bin) + ~2MB (tokenizer.json)
+ * - whisper-turbo: Very fast on GPU-capable hardware
+ * - transformers.js: Slower but reliable on all hardware
  * 
  * RELATED FILES:
  * --------------
+ * - frontend/src/services/transcription/engines/ - Engine implementations
  * - frontend/public/sw.js - Service Worker cache logic
- * - scripts/download-whisper-model.sh - Model pre-download script
- * - scripts/check-whisper-update.sh - Model version checker
  * - frontend/src/hooks/useSpeechRecognition/index.ts - Manages loading state
- * - frontend/src/lib/e2e-bridge.ts - MockOnDeviceWhisper for E2E tests
  * 
- * E2E TESTS:
- * ----------
- * - tests/e2e/ondevice-stt.e2e.spec.ts (download progress, caching, P1 regression)
- * 
- * @see docs/ARCHITECTURE.md - "On-Device STT (Whisper) & Service Worker Caching"
+ * @see docs/ARCHITECTURE.md - "Dual-Engine Private STT"
  */
 
 import logger from '../../../lib/logger';
-import { SessionManager, AvailableModels, InferenceSession } from 'whisper-turbo';
-import { Result } from 'true-myth';
+import { PrivateSTT, createPrivateSTT, EngineType } from '../engines';
 import { ITranscriptionMode, TranscriptionModeOptions } from './types';
 import { MicStream } from '../utils/types';
-import { floatToWav, concatenateFloat32Arrays } from '../utils/AudioProcessor';
+import { concatenateFloat32Arrays } from '../utils/AudioProcessor';
 import { TranscriptUpdate } from '../TranscriptionService';
+
+// Extend Window interface for E2E test flags
+declare global {
+  interface Window {
+    __E2E_PLAYWRIGHT__?: boolean;
+    TEST_MODE?: boolean;
+    __PrivateWhisper_INT_TEST__?: PrivateWhisper;
+  }
+}
 import { toast } from 'sonner';
 
 type Status = 'idle' | 'loading' | 'transcribing' | 'stopped' | 'error';
@@ -57,29 +58,33 @@ type Status = 'idle' | 'loading' | 'transcribing' | 'stopped' | 'error';
 export async function clearPrivateSTTCache(): Promise<void> {
   return new Promise((resolve) => {
     logger.info('[PrivateSTT] Attempting to clear model cache...');
-    const request = indexedDB.deleteDatabase('whisper-turbo');
-    request.onsuccess = () => {
-      logger.info('[PrivateSTT] IndexedDB cleared successfully.');
-      resolve();
+
+    // Clear whisper-turbo cache
+    const request1 = indexedDB.deleteDatabase('whisper-turbo');
+    request1.onsuccess = () => {
+      logger.info('[PrivateSTT] whisper-turbo IndexedDB cleared.');
     };
-    request.onerror = () => {
-      logger.error('[PrivateSTT] Failed to clear IndexedDB.');
-      resolve();
+
+    // Clear transformers cache
+    const request2 = indexedDB.deleteDatabase('transformers-cache');
+    request2.onsuccess = () => {
+      logger.info('[PrivateSTT] transformers-cache IndexedDB cleared.');
     };
+
+    // Resolve after a short delay to allow both operations
+    setTimeout(resolve, 100);
   });
 }
 
-// ...
-// ...
 export default class PrivateWhisper implements ITranscriptionMode {
   private onTranscriptUpdate: (update: TranscriptUpdate) => void;
   private onModelLoadProgress?: (progress: number | null) => void;
   private onReady?: () => void;
   private status: Status;
   private transcript: string;
-  private session: InferenceSession | null;
+  private privateSTT: PrivateSTT;
+  private engineType: EngineType | null = null;
   private mic: MicStream | null = null;
-  private manager: SessionManager;
   private audioChunks: Float32Array[] = [];
   private isProcessing: boolean = false;
   private processingInterval: NodeJS.Timeout | null = null;
@@ -93,62 +98,55 @@ export default class PrivateWhisper implements ITranscriptionMode {
     this.onReady = onReady;
     this.status = 'idle';
     this.transcript = '';
-    this.session = null;
-    this.manager = new SessionManager();
-    logger.info('[PrivateWhisper] Initialized (whisper-turbo backend).');
+    this.privateSTT = createPrivateSTT();
+
+    // Check for test environment and expose instance for E2E verification
+    if (typeof window !== 'undefined' && (
+      window.__E2E_PLAYWRIGHT__ ||
+      window.TEST_MODE
+    )) {
+      console.log('[PrivateWhisper] 🧪 Exposing instance for E2E testing as window.__PrivateWhisper_INT_TEST__');
+      window.__PrivateWhisper_INT_TEST__ = this;
+    }
+
+    logger.info('[PrivateWhisper] Initialized (dual-engine facade).');
   }
 
   public async init(): Promise<void> {
-    console.log('[PrivateWhisper] 🔄 init() START');
-    console.log('[Whisper] 🔄 Loading Private STT model...');
-    logger.info('[PrivateWhisper] Initializing model...');
+    console.log('[PrivateWhisper] 🔄 init() START - Dual-Engine Mode');
+    logger.info('[PrivateWhisper] Initializing PrivateSTT facade...');
     this.status = 'loading';
 
     try {
-      console.log(`[PrivateWhisper] 📦 About to call loadModel(${AvailableModels.WHISPER_TINY})`);
-      logger.info(`[PrivateWhisper] Loading model: ${AvailableModels.WHISPER_TINY}`);
-
-      // Trigger initial progress to ensure UI shows "Loading..." immediately
+      // Trigger initial progress
       if (this.onModelLoadProgress) {
-        console.log('[PrivateWhisper] 📊 Triggering initial progress (0)');
         this.onModelLoadProgress(0);
       }
 
-      console.log('[PrivateWhisper] ⏳ Calling manager.loadModel() with 10s timeout...');
-
-      // Use Promise.race to implement a timeout
-      const result = await Promise.race([
-        this.manager.loadModel(
-          AvailableModels.WHISPER_TINY,
-          () => {
-            console.log('[PrivateWhisper] ✅ Model loaded callback triggered!');
-            logger.info('[PrivateWhisper] Model loaded callback triggered.');
-          },
-          (progress: number) => {
-            console.log(`[PrivateWhisper] 📊 Progress callback: ${progress}`);
-            if (this.onModelLoadProgress) {
-              this.onModelLoadProgress(progress);
-            }
+      // Initialize the PrivateSTT facade (auto-selects best engine)
+      const result = await this.privateSTT.init({
+        onModelLoadProgress: (progress) => {
+          console.log(`[PrivateWhisper] 📊 Progress: ${progress}%`);
+          if (this.onModelLoadProgress) {
+            this.onModelLoadProgress(progress);
           }
-        ),
-        new Promise<Result<InferenceSession, Error>>((_, reject) =>
-          setTimeout(() => reject(new Error('Model loading timed out (10s). Your browser might have a database lock.')), 10000)
-        )
-      ]);
-
-      console.log('[PrivateWhisper] ✅ loadModel returned or timed out');
+        },
+        onReady: () => {
+          logger.info('[PrivateWhisper] Engine ready callback triggered.');
+        }
+      });
 
       if (result.isErr) {
-        console.error('[PrivateWhisper] ❌ loadModel returned error:', result.error);
         throw result.error;
       }
 
-      this.session = result.value;
+      this.engineType = result.value;
       this.status = 'idle';
-      logger.info('[PrivateWhisper] Model loaded successfully.');
+      console.log(`[PrivateWhisper] ✅ Engine initialized: ${this.engineType}`);
+      logger.info(`[PrivateWhisper] Engine initialized: ${this.engineType}`);
 
-      // Show toast notification
-      toast.success('Model ready! You can now start your session.');
+      // Show toast notification with engine type
+      toast.success(`Model ready! Using ${this.engineType === 'whisper-turbo' ? 'GPU acceleration' : 'CPU mode'}.`);
 
       // Notify that the service is ready
       if (this.onReady) {
@@ -156,11 +154,11 @@ export default class PrivateWhisper implements ITranscriptionMode {
       }
     } catch (err: unknown) {
       const error = err instanceof Error ? err : new Error(String(err));
-      logger.error({ err: error }, '[PrivateWhisper] Failed to load model.');
+      logger.error({ err: error }, '[PrivateWhisper] Failed to initialize.');
       this.status = 'error';
 
-      // Provide a proactive fix for the 0% hang (browser lock)
-      toast.error('Private model hung or failed. This is usually a browser lock issue.', {
+      // Provide a proactive fix for failures
+      toast.error('Private STT initialization failed.', {
         duration: 15000,
         action: {
           label: 'Clear Cache & Reload',
@@ -189,10 +187,6 @@ export default class PrivateWhisper implements ITranscriptionMode {
     if (this.status !== 'idle') {
       logger.warn(`[PrivateWhisper] Unexpected status: ${this.status}, expected 'idle'`);
     }
-    if (!this.session) {
-      logger.error('[PrivateWhisper] session is null - model may not have loaded. Call init() first.');
-      throw new Error('PrivateWhisper session not initialized. Call init() first.');
-    }
     this.status = 'transcribing';
     this.audioChunks = [];
     this.transcript = '';
@@ -208,16 +202,13 @@ export default class PrivateWhisper implements ITranscriptionMode {
       this.processAudio();
     }, 1000);
 
+    console.log('[PrivateWhisper] Streaming started.');
     logger.info('[PrivateWhisper] Streaming started.');
   }
 
   private async processAudio(): Promise<void> {
     if (this.isProcessing) {
       return; // Already processing, skip
-    }
-    if (!this.session) {
-      logger.error('[PrivateWhisper] processAudio called but session is null!');
-      return;
     }
     if (this.audioChunks.length === 0) {
       return; // No audio to process
@@ -229,17 +220,21 @@ export default class PrivateWhisper implements ITranscriptionMode {
       // Concatenate all chunks using shared utility
       const concatenated = concatenateFloat32Arrays(this.audioChunks);
 
-      const wavData = floatToWav(concatenated);
+      // Log first successful processing to prove data flow
+      if (this.transcript.length === 0 && concatenated.length > 0) {
+        console.log(`[PrivateWhisper] 🎤 Processing first audio chunk: ${concatenated.length} samples`);
+        logger.info(`[PrivateWhisper] Processing audio chunk size=${concatenated.length}`);
+      }
 
-      // Perform transcription on NEW audio only
-      const result = await this.session.transcribe(wavData, false, {});
+      // Perform transcription using the PrivateSTT facade
+      const result = await this.privateSTT.transcribe(concatenated);
 
       if (result.isErr) {
         throw result.error;
       }
 
       // Append new text to transcript (incremental)
-      const newText = result.value.text || '';
+      const newText = result.value || '';
       if (newText.trim()) {
         // Append with space if transcript already has content
         this.transcript = this.transcript ? `${this.transcript} ${newText}` : newText;
@@ -266,8 +261,6 @@ export default class PrivateWhisper implements ITranscriptionMode {
     }
 
     if (this.mic) {
-      // We don't need to explicitly unsubscribe as mic.stop() usually handles it,
-      // but good practice to clear references.
       this.mic = null;
     }
 

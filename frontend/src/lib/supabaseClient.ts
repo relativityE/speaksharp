@@ -32,8 +32,7 @@ export function getSupabaseClient(): SupabaseClient {
   if (useMock) {
     console.log('⚠️ Using MOCK Supabase client for development');
     console.log('[supabaseClient] Creating mock Supabase client');
-    // @ts-expect-error - Mock supabase client for testing
-    return (cachedClient = createMockSupabase());
+    return (cachedClient = createMockSupabase() as unknown as SupabaseClient);
   }
 
   if (!url || !anonKey) {
