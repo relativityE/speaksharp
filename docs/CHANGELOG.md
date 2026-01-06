@@ -36,6 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Live E2E Test Fixes (2026-01-06):**
   - `auth-real.e2e.spec.ts`: Changed to `goToPublicRoute` helper for signin navigation per architecture guidelines
   - Fixed incorrect testid (`user-profile-menu` → `nav-sign-out-button`)
+- **Filler Words/Min Calculation (2026-01-06):**
+  - Fixed rounding bug in `analyticsUtils.ts` that caused inaccurate filler rates for short sessions
+  - Now uses industry-standard formula: `Filler Rate = Total Fillers / Total Speaking Time (precise minutes)`
+  - Previously used `Math.round()` which caused divide-by-zero for sessions under 30 seconds
 
 ### Tech Debt Resolved (Jan 2026)
 - **23 items closed** from 4 independent code reviews (Dec 2025 - Jan 2026):

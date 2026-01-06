@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-31
+**Last Reviewed:** 2026-01-06
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -274,6 +274,24 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - Cosmetic warning from transitive dependency chain. Suppressed via `NODE_NO_WARNINGS=1`.
   - **Status:** Safe to ignore
 
+- **ℹ️ INFO - STT Comparison Not Integrated (2026-01-06)**
+  - `STTAccuracyComparison.tsx` component exists (renamed from `AccuracyComparison.tsx`) but is not currently rendered in Analytics UI.
+  - **Status:** Deferred feature - requires sessions with `ground_truth`, `transcript`, and `engine` fields populated.
+  - **Priority:** P3 - Nice-to-have for beta
+
+- **✅ FIXED - Filler Words/Min Edge Case (2026-01-06)**
+  - `avgFillerWordsPerMin` in `analyticsUtils.ts` was using `Math.round(totalDurationSeconds / 60)` for rate calculation.
+  - **Fix Applied:** Now uses precise minutes (`totalDurationSeconds / 60`) for industry-standard filler rate calculation.
+  - **Formula:** `Filler Rate = Total Fillers / Total Speaking Time (precise minutes)`
+  - **Status:** ✅ RESOLVED - Unit tests passing
+
+- **🟡 Minimum Session Duration Warning Missing (2026-01-06)**
+  - No toast/warning shown to users when sessions are too short to save or analyze meaningfully.
+  - Sessions under ~5 seconds may not generate useful metrics.
+  - **UX Impact:** Users unaware their session wasn't saved or has unreliable data.
+  - **Recommended Fix:** Add toast notification when session < 5 sec explaining minimum duration required.
+  - **Status:** P2 - UX improvement for beta
+
 #### Parked
 
 - **⏸️ PARKED - Metrics E2E MockSpeechRecognition Loading Issue**
@@ -475,6 +493,8 @@ This phase is about confirming the core feature set works as expected and polish
 | 4 | **Filler Word Regex False Positives** | `fillerWordUtils.ts` | P3 | Integrate NLP for Part-of-Speech tagging |
 | 5 | **React Router v7 Deprecation** | Console output | P3 | Add future flags before upgrading |
 | 6 | **SessionPage Mega Component** | `SessionPage.tsx` | P2 | Decompose into smaller sub-components |
+| ~~7~~ | ~~**Filler/Min Rounding Edge Case**~~ | ~~`analyticsUtils.ts:61`~~ | ~~P3~~ | ✅ FIXED 2026-01-06 - Now uses precise minutes |
+| 8 | **Minimum Session Duration UX** | `SessionPage.tsx` | P2 | Add toast warning when session < 5 sec |
 
 ### ℹ️ Known Limitations (Accepted)
 

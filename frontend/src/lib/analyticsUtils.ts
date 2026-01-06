@@ -57,9 +57,16 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
         totalClarity += sessionClarity;
     }
 
+    // totalPracticeTime: rounded for display (e.g., "1 min")
     const totalPracticeTime = Math.round(totalDurationSeconds / 60);
+    // totalPracticeTimeMinutes: precise for rate calculations (industry standard)
+    const totalPracticeTimeMinutes = totalDurationSeconds / 60;
+
     const avgWpm = Math.round(sumWpm / totalSessions);
-    const avgFillerWordsPerMin = totalPracticeTime > 0 ? (totalFillerWords / totalPracticeTime).toFixed(1) : "0.0";
+    // Industry standard: Filler Rate = Total Fillers / Total Speaking Time (precise minutes)
+    const avgFillerWordsPerMin = totalPracticeTimeMinutes > 0
+        ? (totalFillerWords / totalPracticeTimeMinutes).toFixed(1)
+        : "0.0";
     const avgAccuracy = totalSessions > 0 ? (totalClarity / totalSessions).toFixed(1) : "0.0";
 
     // Chart data - limit to last 10 sessions
