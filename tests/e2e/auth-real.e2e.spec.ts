@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { navigateToRoute } from './helpers';
+import { goToPublicRoute } from './helpers';
 
 // Skip this test if running against a mock backend
 const isMockSupabase = !process.env.VITE_SUPABASE_URL || process.env.VITE_SUPABASE_URL.includes('mock.supabase.co');
@@ -14,8 +14,8 @@ test.describe('Real Authentication Flow', () => {
     test('should sign in with real credentials and establish session', async ({ page }) => {
         console.log('🔐 Running High-Fidelity AUTH test against real Supabase');
 
-        // 1. Navigate to Sign In
-        await navigateToRoute(page, '/auth/signin');
+        // 1. Navigate to Sign In (public route - uses goToPublicRoute per architecture)
+        await goToPublicRoute(page, '/auth/signin');
         await expect(page.getByTestId('auth-form')).toBeVisible();
 
         // 2. Interact with Real Form

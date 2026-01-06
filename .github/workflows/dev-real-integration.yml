@@ -46,5 +46,6 @@ jobs:
           E2E_FREE_EMAIL: ${{ secrets.E2E_FREE_EMAIL }}
           E2E_FREE_PASSWORD: ${{ secrets.E2E_FREE_PASSWORD }}
         
-        # Run all live integration tests
-        run: pnpm test:e2e:live
+        # Run only tests that require real Supabase auth (not mocked)
+        # Note: upgrade-real and stt-resilience use route mocks, they run in normal E2E
+        run: pnpm exec playwright test tests/e2e/auth-real.e2e.spec.ts --project=chromium
