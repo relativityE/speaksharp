@@ -37,7 +37,7 @@ test.describe('Real Authentication Flow', () => {
 
         // 5. Verify Redirect and Session State
         await page.waitForURL('/session');
-        await expect(page.getByTestId('user-profile-menu')).toBeVisible();
+        await expect(page.getByTestId('nav-sign-out-button')).toBeVisible();
 
         console.log('✅ Real Authentication successful');
     });
