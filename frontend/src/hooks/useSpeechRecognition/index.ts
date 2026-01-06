@@ -18,7 +18,10 @@ import { E2E_DETERMINISTIC_NATIVE } from './types';
 import type { FillerCounts } from '../../utils/fillerWordUtils';
 
 export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {}) => {
-  const { customWords = [], customVocabulary = [], session, profile } = props;
+  // Memoize defaults to ensure stable references and prevent infinite loops
+  const customWords = useMemo(() => props.customWords || [], [props.customWords]);
+  const customVocabulary = useMemo(() => props.customVocabulary || [], [props.customVocabulary]);
+  const { session, profile } = props;
   const { session: authSession } = useAuthProvider();
   const navigate = useNavigate();
 
@@ -67,13 +70,10 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
 
   const serviceOptions = useMemo(() => ({
     onTranscriptUpdate: (data: { transcript: { partial?: string; final?: string }; speaker?: string }) => {
-      logger.info({ data }, '[useSpeechRecognition] onTranscriptUpdate received data');
       if (data.transcript?.partial && !data.transcript.partial.startsWith('Downloading model')) {
-        logger.info({ partial: data.transcript.partial }, '[useSpeechRecognition] Setting interim transcript');
         setInterimTranscript(data.transcript.partial);
       }
       if (data.transcript?.final) {
-        logger.info({ final: data.transcript.final }, '[useSpeechRecognition] Adding final chunk');
         addChunk(data.transcript.final, data.speaker);
         setInterimTranscript('');
       }

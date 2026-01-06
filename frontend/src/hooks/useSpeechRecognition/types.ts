@@ -27,10 +27,14 @@ export interface TranscriptStats {
   duration: number;
 }
 
-// Re-export policy types for convenience
-export {
+// Re-export policy types
+export type {
   TranscriptionPolicy,
   TranscriptionMode,
+} from '../../services/transcription/TranscriptionPolicy';
+
+// Re-export policy values
+export {
   buildPolicyForUser,
   PROD_FREE_POLICY,
   PROD_PRO_POLICY,

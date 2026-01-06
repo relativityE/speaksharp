@@ -38,13 +38,13 @@ export function getTierLabel(subscriptionStatus: string | undefined | null): str
  */
 export const TIER_LIMITS = {
     [SUBSCRIPTION_TIERS.FREE]: {
-        maxCustomWords: 10,
-        monthlyMinutes: 30,
-        maxSessionDuration: 20, // minutes
+        dailySeconds: 3600, // 1 hour per day
+        maxCustomWords: 100, // Matched with Pro
+        maxSessionDuration: Infinity, // No session-level cap, only daily
     },
     [SUBSCRIPTION_TIERS.PRO]: {
+        dailySeconds: Infinity,
         maxCustomWords: 100,
-        monthlyMinutes: Infinity,
         maxSessionDuration: Infinity,
     },
 } as const;
@@ -56,3 +56,12 @@ export function getTierLimits(subscriptionStatus: string | undefined | null) {
     const tier = isPro(subscriptionStatus) ? SUBSCRIPTION_TIERS.PRO : SUBSCRIPTION_TIERS.FREE;
     return TIER_LIMITS[tier];
 }
+
+/**
+ * Get specific limit getters for centralized access
+ */
+export const getDailyLimit = (subscriptionStatus: string | undefined | null) =>
+    getTierLimits(subscriptionStatus).dailySeconds;
+
+export const getMaxFillerWords = (subscriptionStatus: string | undefined | null) =>
+    getTierLimits(subscriptionStatus).maxCustomWords;

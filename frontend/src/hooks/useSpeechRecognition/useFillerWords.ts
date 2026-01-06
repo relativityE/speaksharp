@@ -26,7 +26,8 @@ export const useFillerWords = (
     const finalText = finalChunks.map(c => c.text).join(' ');
     if (finalText.trim()) {
       try {
-        setFinalFillerData(countFillerWords(finalText, customWords));
+        const counts = countFillerWords(finalText, customWords);
+        setFinalFillerData(counts);
       } catch (err) {
         console.error('Error counting final filler words:', err);
       }
@@ -41,7 +42,8 @@ export const useFillerWords = (
       const fullText = createFullTranscript(finalChunks, interimTranscript);
       if (fullText.trim()) {
         try {
-          setFillerData(countFillerWords(fullText, customWords));
+          const counts = countFillerWords(fullText, customWords);
+          setFillerData(counts);
         } catch (err) {
           console.error('Error counting live filler words:', err);
         }

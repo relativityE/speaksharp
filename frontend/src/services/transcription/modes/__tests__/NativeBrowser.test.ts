@@ -8,75 +8,103 @@ vi.mock('@/config/env', () => ({
 
 import NativeBrowser from '../NativeBrowser';
 
-// Mock the global SpeechRecognition object
-const mockSpeechRecognition = {
+// Move SpeechRecognition mock outside to share instance control
+const mockRecognition = {
   start: vi.fn(),
   stop: vi.fn(),
   abort: vi.fn(),
   onresult: null as ((event: Event) => void) | null,
   onerror: vi.fn(),
   onend: vi.fn(),
+  continuous: false,
+  interimResults: false,
 };
 
-// Define a mock constructor for the SpeechRecognition API
-const mockSpeechRecognitionStatic = vi.fn(() => mockSpeechRecognition);
-
+const mockSpeechRecognitionStatic = vi.fn(() => mockRecognition);
 vi.stubGlobal('SpeechRecognition', mockSpeechRecognitionStatic);
 vi.stubGlobal('webkitSpeechRecognition', mockSpeechRecognitionStatic);
 
 describe('NativeBrowser Transcription Mode', () => {
   let nativeBrowser: NativeBrowser;
   const onTranscriptUpdate = vi.fn();
+  const onReady = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Reset mutable properties
+    mockRecognition.continuous = false;
+    mockRecognition.interimResults = false;
+    mockRecognition.onresult = null;
+
     nativeBrowser = new NativeBrowser({
       onTranscriptUpdate,
-      onReady: vi.fn(),
+      onReady,
+      onModelLoadProgress: vi.fn(),
+      session: null,
+      navigate: vi.fn(),
+      getAssemblyAIToken: vi.fn(),
     });
   });
 
-  it('should initialize correctly', async () => {
-    await nativeBrowser.init();
-    expect(mockSpeechRecognitionStatic).toHaveBeenCalled();
+  describe('Lifecycle Management', () => {
+    it('should initialize and set up recognition properties', async () => {
+      await nativeBrowser.init();
+      expect(mockSpeechRecognitionStatic).toHaveBeenCalled();
+      expect(mockRecognition.continuous).toBe(true);
+      expect(mockRecognition.interimResults).toBe(true);
+    });
+
+    it('should call start on the recognition object when startTranscription is called', async () => {
+      await nativeBrowser.init();
+      await nativeBrowser.startTranscription();
+      expect(mockRecognition.start).toHaveBeenCalledTimes(1);
+    });
+
+    it('should call stop on the recognition object when stopTranscription is called', async () => {
+      await nativeBrowser.init();
+      await nativeBrowser.startTranscription();
+      await nativeBrowser.stopTranscription();
+      expect(mockRecognition.stop).toHaveBeenCalledTimes(1);
+    });
   });
 
-  it('should start transcription', async () => {
-    await nativeBrowser.init();
-    await nativeBrowser.startTranscription();
-    expect(mockSpeechRecognition.start).toHaveBeenCalled();
-  });
+  describe('Result Handling', () => {
+    it('should handle final transcript results correctly', async () => {
+      await nativeBrowser.init();
+      const event = {
+        results: [[{ transcript: 'hello world', confidence: 0.9 }]],
+        resultIndex: 0,
+      };
+      // @ts-expect-error - Manually setting isFinal for test purposes
+      event.results[0].isFinal = true;
 
-  it('should stop transcription', async () => {
-    await nativeBrowser.init();
-    await nativeBrowser.startTranscription();
-    await nativeBrowser.stopTranscription();
-    expect(mockSpeechRecognition.stop).toHaveBeenCalled();
-  });
+      // Simulate the onresult event
+      if (mockRecognition.onresult) {
+        mockRecognition.onresult(event as unknown as Event);
+      }
 
-  it('should handle transcript updates', async () => {
-    await nativeBrowser.init();
-    const mockResult = {
-      results: [
-        [
-          {
-            transcript: 'hello world',
-            confidence: 0.9,
-          },
-        ],
-      ],
-      resultIndex: 0,
-    };
-    // Simulate a final result
-    (mockResult.results[0] as { isFinal?: boolean }).isFinal = true;
+      expect(onTranscriptUpdate).toHaveBeenCalledWith({
+        transcript: { final: 'hello world' },
+      });
+    });
 
-    // Ensure the onresult handler is assigned before calling it
-    if (mockSpeechRecognition.onresult) {
-      mockSpeechRecognition.onresult(mockResult as unknown as Event);
-    }
+    it('should handle interim transcript results correctly', async () => {
+      await nativeBrowser.init();
+      const event = {
+        results: [[{ transcript: 'hello', confidence: 0.8 }]],
+        resultIndex: 0,
+      };
+      // @ts-expect-error - Manually setting isFinal for test purposes
+      event.results[0].isFinal = false;
 
-    expect(onTranscriptUpdate).toHaveBeenCalledWith({
-      transcript: { final: 'hello world' },
+      // Simulate the onresult event
+      if (mockRecognition.onresult) {
+        mockRecognition.onresult(event as unknown as Event);
+      }
+
+      expect(onTranscriptUpdate).toHaveBeenCalledWith({
+        transcript: { partial: 'hello' },
+      });
     });
   });
 });

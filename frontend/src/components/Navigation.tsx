@@ -4,11 +4,13 @@ import { useState } from "react";
 import { TEST_IDS } from '@/constants/testIds';
 import { useLocation, Link, useNavigate } from "react-router-dom";
 import { useAuthProvider } from "@/contexts/AuthProvider";
+import { useUserProfile } from "@/hooks/useUserProfile";
 
 const Navigation = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { session, profile, signOut } = useAuthProvider();
+  const { session, signOut } = useAuthProvider();
+  const { data: profile } = useUserProfile();
   const [isUpgrading, setIsUpgrading] = useState(false);
 
   const handleSignOut = async () => {

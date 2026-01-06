@@ -42,8 +42,8 @@ This section contains ASCII art diagrams illustrating the journey for each user 
   v                                                 v
 +--------------------------+                      +--------------------------+
 | [Free User]              |                      | [Pro User]               |
-| - 30 min/month           |                      | - Unlimited Time         |
-| - 20 min session duration|                      | - Cloud AI (AssemblyAI)  |
+| - 1 Hour / Day           |                      | - Unlimited Time         |
+| - Unlimited Sessions     |                      | - Cloud AI (AssemblyAI)  |
 | - Native Browser STT     |                      | - Private STT (Local)    |
 | - View Session History   |                      |                          |
 +--------------------------+                      +--------------------------+
@@ -85,7 +85,7 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Clarity Score** | 2 | Score based on filler word usage. | ✅ Implemented | ✅ Yes |
 | **Goal Setting** | 2 | Weekly/Daily targets for practice consistency. | ✅ Implemented | ❌ No (E2E Only) |
 | **User-Friendly Error Handling** | 2 | Specific, user-facing error messages. | ✅ Implemented | ✅ Yes |
-| **User Filler Words** | 2 | User's personalized filler words to track (in addition to defaults like "um", "uh"). Stored in Supabase, passed to Cloud STT for improved recognition. Free: 10 words max. Pro: 100 words max. | ✅ Implemented | ✅ Yes |
+| **User Filler Words** | 2 | User's personalized filler words to track (in addition to defaults like "um", "uh"). Stored in Supabase, passed to Cloud STT for improved recognition. Free: 100 words max. Pro: 100 words max. | ✅ Implemented | ✅ Yes |
 | **Vocal Variety / Pause Detection** | 2 | Analyzes pause duration and frequency. | ✅ Implemented | ✅ Yes |
 | **Session Hardening** | 3 | Prevents saving empty or 0-second sessions to preserve usage and data quality. | ✅ Implemented | ✅ Yes |
 | **Speaker Identification**| 4 | Distinguishes between multiple speakers in a transcript. | 📅 Planned | ❌ No |
@@ -136,7 +136,7 @@ The project's testing strategy prioritizes stability, reliability, and a tight a
     *   **Canary Deployment Tests:** A subset of E2E tests (marked `@canary`) are designed to hit real staging endpoints periodically to detect API contract drift and production-specific failures that mocks might hide.
 *   **API Mocking (MSW & Playwright Routes):** External services and backend APIs are mocked for deterministic testing. However, mocks are audited against real production response shapes to prevent "Green Illusion" (tests passing while production is broken).
 *   **Adversarial Audit Mandate:** All new tests must pass an adversarial review—ensuring they validate design intent (e.g., tier gating, SLOs, resilience) and would fail if production code deviates from intended behavior, even if the structural implementation remains similar.
-*   **Private STT Mock Strategy (`MockEngine`):** To avoid persistent WASM/WebGPU deadlocks in headless CI environments (Playwright), the Private STT engine automatically switches to a reliable `MockEngine` when `window.__E2E_PLAYWRIGHT__` is detected. This ensures E2E tests verify the *application flow* (UI, state, logging) without flaking on unstable browser features. Logic verification is handled by unit tests (100% pass rate).
+*   **Private STT Integration Strategy:** To ensure high-fidelity verification of the triple-engine architecture, `PrivateSTT.integration.test.ts` validates engine selection, WebGPU detection, and fallback logic. For headless CI environments, the engine automatically switches to a reliable `MockEngine` when `window.__E2E_PLAYWRIGHT__` is detected.
 *   **Single Source of Truth (`pnpm test:all`):** A single command, `pnpm test:all`, is the user-facing entry point for all validation. It runs an underlying orchestration script (`test-audit.sh`) that executes all checks (lint, type-check, tests) in a parallelized, multi-stage process both locally and in CI, guaranteeing consistency and speed.
 
 ---
@@ -171,6 +171,8 @@ For E2E infrastructure troubleshooting, see [tests/TROUBLESHOOTING.md](../tests/
 | Documentation Drift | ✅ RESOLVED - ARCHITECTURE.md updated |
 | E2E Error States | ✅ RESOLVED - `error-states.e2e.spec.ts` |
 | Alpha Bypass | ✅ RESOLVED - `apply-promo` Edge Function |
+| **C1-C3, H2, H3**| ✅ RESOLVED - Jan 2026 Audit Complete |
+| **Performance (1.1, 2.1)**| ✅ RESOLVED - Bundle & CI Optimized |
 
 **All P0/P1 blockers resolved.** See `CHANGELOG.md` for details.
 
@@ -382,7 +384,7 @@ This section provides high-level insights into the SpeakSharp project from multi
 ### 💰 Updated Pricing Tiers & Recommendations
 
 *   **Free User (Authenticated):**
-    *   **Recommendation:** The 30 minutes/month and 20-minute session limits are good for encouraging upgrades. Ensure the `UpgradePromptDialog` is well-designed, clearly communicates the benefits of upgrading, and appears at the moment of highest user engagement.
+    *   **Recommendation:** The 1 hour/day limit is generous but encourages upgrades for serious practitioners. Ensure the `UpgradePromptDialog` is well-designed, clearly communicates the benefits of upgrading, and appears at the moment of highest user engagement.
 *   **Pro User (Authenticated):**
     *   **Price: $7.99/month.**
     *   **Recommendation:** This remains the core paid offering. The value proposition should be clear: "unlimited practice," "Cloud AI transcription," and the key differentiator of "private transcription" for enhanced privacy. The fallback to Native Browser is a a good technical resilience feature.

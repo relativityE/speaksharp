@@ -3,7 +3,6 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { AuthProvider, AuthContext } from '../AuthProvider';
 import React, { useContext } from 'react';
 import * as supabaseClient from '../../lib/supabaseClient';
-import * as testConfig from '../../config/test.config';
 
 // Mock dependencies
 vi.mock('../../lib/supabaseClient', () => ({
@@ -12,12 +11,6 @@ vi.mock('../../lib/supabaseClient', () => ({
 
 vi.mock('../../utils/fetchWithRetry', () => ({
     fetchWithRetry: vi.fn((fn) => fn()),
-}));
-
-vi.mock('../../config/test.config', () => ({
-    getTestConfig: vi.fn(() => ({ isTestMode: false })),
-    setTestFlag: vi.fn(),
-    dispatchTestEvent: vi.fn(),
 }));
 
 // Test consumer component
@@ -30,7 +23,6 @@ const TestConsumer = () => {
     return (
         <div>
             <div data-testid="user-id">{context.session.user.id}</div>
-            <div data-testid="profile-status">{context.profile?.subscription_status || 'no-profile'}</div>
             <button onClick={() => context.signOut()}>Sign Out</button>
         </div>
     );
@@ -64,15 +56,6 @@ describe('AuthProvider', () => {
         (supabaseClient.getSupabaseClient as unknown as Mock).mockReturnValue(mockSupabase);
     });
 
-    it('renders loading state initially', () => {
-        mockSupabase.auth.getSession.mockReturnValue(new Promise(() => { })); // Never resolves
-        render(
-            <AuthProvider>
-                <TestConsumer />
-            </AuthProvider>
-        );
-        expect(screen.getByText('Loading...')).toBeInTheDocument();
-    });
 
     it('renders unauthenticated when no session exists', async () => {
         mockSupabase.auth.getSession.mockResolvedValue({ data: { session: null }, error: null });
@@ -86,17 +69,10 @@ describe('AuthProvider', () => {
         await waitFor(() => expect(screen.getByText('Unauthenticated')).toBeInTheDocument());
     });
 
-    it('renders authenticated user and fetches profile', async () => {
+    it('renders authenticated user', async () => {
         const mockSession = { user: { id: 'user-123' } };
-        const mockProfile = { id: 'user-123', subscription_status: 'pro' };
 
         mockSupabase.auth.getSession.mockResolvedValue({ data: { session: mockSession }, error: null });
-
-        // Mock Profile Fetch
-        mockSupabase.from.mockReturnValue(mockSupabase);
-        mockSupabase.select.mockReturnValue(mockSupabase);
-        mockSupabase.eq.mockReturnValue(mockSupabase);
-        mockSupabase.single.mockResolvedValue({ data: mockProfile, error: null });
 
         render(
             <AuthProvider>
@@ -105,17 +81,11 @@ describe('AuthProvider', () => {
         );
 
         await waitFor(() => expect(screen.getByTestId('user-id')).toHaveTextContent('user-123'));
-        await waitFor(() => expect(screen.getByTestId('profile-status')).toHaveTextContent('pro'));
-
-        expect(mockSupabase.from).toHaveBeenCalledWith('user_profiles');
-        expect(mockSupabase.eq).toHaveBeenCalledWith('id', 'user-123');
     });
 
     it('handles sign out', async () => {
         const mockSession = { user: { id: 'user-123' } };
         mockSupabase.auth.getSession.mockResolvedValue({ data: { session: mockSession }, error: null });
-        mockSupabase.from.mockReturnValue(mockSupabase);
-        mockSupabase.single.mockResolvedValue({ data: null, error: null });
 
         render(
             <AuthProvider>
@@ -128,26 +98,5 @@ describe('AuthProvider', () => {
         screen.getByText('Sign Out').click();
 
         await waitFor(() => expect(mockSupabase.auth.signOut).toHaveBeenCalled());
-    });
-
-    it('sets test flags when in test mode', async () => {
-        (testConfig.getTestConfig as unknown as Mock).mockReturnValue({ isTestMode: true });
-
-        const mockSession = { user: { id: 'test-user' } };
-        const mockProfile = { id: 'test-user', subscription_status: 'free' };
-
-        mockSupabase.auth.getSession.mockResolvedValue({ data: { session: mockSession }, error: null });
-        mockSupabase.single.mockResolvedValue({ data: mockProfile, error: null });
-
-        render(
-            <AuthProvider>
-                <TestConsumer />
-            </AuthProvider>
-        );
-
-        await waitFor(() => expect(screen.getByTestId('user-id')).toHaveTextContent('test-user'));
-
-        expect(testConfig.setTestFlag).toHaveBeenCalledWith('__e2eProfileLoaded', true);
-        expect(testConfig.dispatchTestEvent).toHaveBeenCalledWith('e2e-profile-loaded', mockProfile);
     });
 });

@@ -378,19 +378,15 @@ export async function programmaticLoginWithRoutes(
   await injectMockSession(page);
 
   // 6. Reload to pick up the session from localStorage
-  // NOTE: This reload is REQUIRED because Supabase reads auth state from localStorage
-  // only on app initialization. The MSW mocks are re-established via Playwright routes.
+  // NOTE: page.reload() is required because Supabase Auth initializes synchronously on page load
+  // and won't detect localStorage changes via storage events after initialization.
+  // Route interceptors (setupE2EMocks) persist across reload in Playwright.
   await page.reload();
 
   // 7. Wait for authenticated state
+  // Note: app-main confirms auth is complete. Profile is now fetched via useUserProfile hook (C2 refactor).
   console.log('[E2E] Waiting for app-main...');
   await page.waitForSelector('[data-testid="app-main"]', { timeout: 30000 });
-
-  // 8. Wait for profile loaded
-  await page.waitForFunction(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return !!(window as any).__e2eProfileLoaded;
-  }, null, { timeout: 15000 });
 
   console.log('[E2E] ✅ Logged in via Playwright routes');
 }

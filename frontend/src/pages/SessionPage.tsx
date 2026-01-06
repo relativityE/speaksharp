@@ -3,9 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { useSessionStore } from '../stores/useSessionStore';
 import { useVocalAnalysis } from '../hooks/useVocalAnalysis';
+import { useQueryClient } from '@tanstack/react-query';
 
 import posthog from 'posthog-js';
 import { Button } from '@/components/ui/button';
+import { Square } from 'lucide-react';
 import { useAuthProvider } from '../contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { useSessionMetrics } from '@/hooks/useSessionMetrics';
@@ -31,14 +33,9 @@ import { MobileActionBar } from '@/components/session/MobileActionBar';
 import { PromoExpiredDialog } from '@/components/PromoExpiredDialog';
 
 export const SessionPage: React.FC = () => {
-    const { session, profile: authProfile } = useAuthProvider();
+    const { session } = useAuthProvider();
     const navigate = useNavigate();
-    const { data: queryProfile, isLoading: isQueryLoading, error: profileError } = useUserProfile();
-
-    // STABILITY FIX: Combine Auth profile (fast) with Query profile (canonical)
-    // This eliminates the navigation "flicker" because AuthProvider already has the profile
-    const profile = authProfile || queryProfile;
-    const isProfileLoading = isQueryLoading && !authProfile;
+    const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
 
     // Use zustand store for session state
     const { updateElapsedTime, elapsedTime } = useSessionStore();
@@ -49,10 +46,11 @@ export const SessionPage: React.FC = () => {
     const { data: usageLimit } = useUsageLimit();
     const { updateStreak } = useStreak();
     const { saveSession } = useSessionManager();
+    const queryClient = useQueryClient();
 
     // Renaming for clarity: Custom Vocabulary = User Defined Filler Words
     // These are used for 1. Analysis (finding them in transcript) and 2. Boosting (helping Cloud STT hear them)
-    const { vocabularyWords: userFillerWords } = useUserFillerWords();
+    const { userFillerWords } = useUserFillerWords();
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [mode, setMode] = useState<'cloud' | 'native' | 'private'>('native');
     const [showPromoExpiredDialog, setShowPromoExpiredDialog] = useState(false);
@@ -61,12 +59,14 @@ export const SessionPage: React.FC = () => {
     const prevStateRef = useRef({ isListening: false, isReady: false });
     const transcriptContainerRef = useRef<HTMLDivElement>(null);
 
-    const speechRecognition = useSpeechRecognition({
-        customWords: userFillerWords, // Pass for local filler word detection (Native/Private)
-        customVocabulary: userFillerWords, // Pass for boosting (Cloud STT)
+    const speechConfig = React.useMemo(() => ({
+        customWords: userFillerWords,
+        customVocabulary: userFillerWords,
         session,
         profile
-    });
+    }), [userFillerWords, session, profile]);
+
+    const speechRecognition = useSpeechRecognition(speechConfig);
 
     const { transcript, fillerData, startListening, stopListening, isListening, isReady, modelLoadingProgress, mode: activeMode } = speechRecognition;
     const { pauseMetrics } = useVocalAnalysis(isListening);
@@ -89,7 +89,12 @@ export const SessionPage: React.FC = () => {
 
     useEffect(() => {
         posthog.capture('session_page_viewed');
-    }, []);
+        // Reset timer ONLY ON MOUNT to ensure fresh state for new sessions
+        // This prevents resetting immediately after an auto-stop (when isListening transitions to false)
+        if (!isListening) {
+            updateElapsedTime(0);
+        }
+    }, []); // Run ONLY on mount
 
     useEffect(() => {
         if (isListening) {
@@ -100,8 +105,6 @@ export const SessionPage: React.FC = () => {
                 }
             }, 1000);
             return () => clearInterval(interval);
-        } else {
-            updateElapsedTime(0);
         }
     }, [isListening, updateElapsedTime]);
 
@@ -112,6 +115,11 @@ export const SessionPage: React.FC = () => {
         }
     }, [transcript.transcript]);
 
+    // Derived state for usage limit enforcement
+    // A user is over limit if they have 0 or less seconds remaining and are NOT currently listening
+    const sessionRemainingSeconds = (usageLimit?.remaining_seconds ?? 0) - elapsedTime;
+    const isActuallyOverLimit = !isProUser && sessionRemainingSeconds <= 0 && elapsedTime > 0;
+
     // Show promo expiry dialog when backend signals promo has expired
     useEffect(() => {
         if (usageLimit?.promo_just_expired) {
@@ -119,10 +127,59 @@ export const SessionPage: React.FC = () => {
         }
     }, [usageLimit?.promo_just_expired]);
 
+    // TIER ENFORCEMENT: Auto-stop session when daily limit is reached
+    useEffect(() => {
+        // Strategic log to debug E2E timing issues
+        if (isListening) {
+            console.log('[TIER] Auto-stop check:', {
+                isProUser,
+                isListening,
+                elapsedTime,
+                remaining: usageLimit?.remaining_seconds,
+                wouldTrigger: !isProUser && usageLimit && elapsedTime >= (usageLimit?.remaining_seconds ?? 0)
+            });
+        }
+
+        if (!isProUser && isListening && usageLimit && usageLimit.remaining_seconds > 0) {
+            if (elapsedTime >= usageLimit.remaining_seconds) {
+                console.log('[TIER] ⚠️ AUTO-STOPPING: elapsedTime >= remaining_seconds');
+                handleStartStop({ skipRedirect: true });
+            }
+        }
+    }, [elapsedTime, isListening, usageLimit, isProUser]);
+
     if (isProfileLoading) {
         console.log('[DEBUG] SessionPage: Loading profile...');
 
         return <SessionPageSkeleton />;
+    }
+
+    if (usageLimit && (!usageLimit.can_start || isActuallyOverLimit) && !isListening) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[calc(100vh-200px)] px-6">
+                <div className="max-w-md w-full p-8 bg-card rounded-xl border border-border shadow-elegant text-center">
+                    <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <Square className="h-8 w-8 text-primary" />
+                    </div>
+                    <h2 className="text-2xl font-bold mb-4">Daily Limit Reached</h2>
+                    <p className="text-muted-foreground mb-8">
+                        You've reached your 1-hour practice limit for today. Upgrade to Pro for unlimited practice sessions and advanced metrics.
+                    </p>
+                    <div className="space-y-3">
+                        <Button onClick={() => window.location.href = '/#pricing'} className="w-full py-6 text-lg">
+                            Upgrade to Pro
+                        </Button>
+                        <Button
+                            variant="outline"
+                            onClick={() => navigate('/analytics')}
+                            className="w-full py-6 text-lg"
+                        >
+                            View Session History
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        );
     }
 
     if (profileError) {
@@ -138,7 +195,7 @@ export const SessionPage: React.FC = () => {
         );
     }
 
-    const handleStartStop = async () => {
+    const handleStartStop = async (options?: { skipRedirect?: boolean }) => {
         if (isListening) {
             try {
                 await stopListening();
@@ -153,14 +210,6 @@ export const SessionPage: React.FC = () => {
                 // Update Streak for positive reinforcement
                 const { currentStreak, isNewDay } = updateStreak();
 
-                // DATA PERSISTENCE FIX: Save session to database
-                console.log('[SessionPage] 💾 Saving session via useSessionManager...');
-                console.log('[SessionPage] Session Data:', {
-                    duration: elapsedTime,
-                    transcriptLength: transcript.transcript.length,
-                    wpm: metrics.wpm
-                });
-
                 const result = await saveSession({
                     transcript: transcript.transcript,
                     duration: elapsedTime,
@@ -169,10 +218,8 @@ export const SessionPage: React.FC = () => {
                     clarity_score: metrics.clarityScore,
                     title: `Session ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`
                 });
-                console.log('[SessionPage] Save result received:', result);
 
                 if (result.session) {
-                    console.log('[SessionPage] Session saved successfully. Initiating redirect...');
 
                     // Show single consolidated toast with streak + save confirmation
                     const streakText = isNewDay ? `🔥 ${currentStreak} Day Streak!` : '✓ Great practice!';
@@ -182,10 +229,14 @@ export const SessionPage: React.FC = () => {
                         duration: 3000,
                     });
 
+                    // Refetch usage limit to reflect new session duration
+                    queryClient.invalidateQueries({ queryKey: ['usageLimit'] });
+
                     // Short delay to let the toast be seen and ensure state updates
                     setTimeout(() => {
-                        console.log('[SessionPage] calling navigate(/analytics)');
-                        navigate('/analytics');
+                        if (!options?.skipRedirect) {
+                            navigate('/analytics');
+                        }
                     }, 1000);
                 } else {
                     console.error('[SessionPage] Session save failed or returned null session.');
@@ -225,7 +276,8 @@ export const SessionPage: React.FC = () => {
                     );
                 }
 
-                console.log('[SessionPage] Starting session with mode:', mode);
+                // Reset timer for new session
+                updateElapsedTime(0);
                 // Build policy based on user tier and selected mode
                 const policy = buildPolicyForUser(isProUser, mode as 'native' | 'cloud' | 'private');
                 await startListening(policy);

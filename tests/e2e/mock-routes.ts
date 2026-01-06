@@ -125,7 +125,7 @@ export const MOCK_GOALS = {
 // Per-test state for custom vocabulary (resets on each setupE2EMocks call)
 // Stateful mocks to allow dynamic changes during a test (e.g. promo code)
 let statefulProfile = { ...MOCK_USER_PROFILE };
-let vocabularyStore: Map<string, Array<{ id: string; user_id: string; word: string; created_at: string }>> = new Map();
+let userWordStore: Map<string, Array<{ id: string; user_id: string; word: string; created_at: string }>> = new Map();
 
 // Per-test state for sessions (resets on each setupE2EMocks call)
 // Initialize with mock history
@@ -292,7 +292,7 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
 
         if (method === 'GET') {
             const userId = 'test-user-123';
-            const words = vocabularyStore.get(userId) || [];
+            const words = userWordStore.get(userId) || [];
 
             await route.fulfill({
                 status: 200,
@@ -314,9 +314,9 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
                 created_at: new Date().toISOString(),
             };
 
-            const userWords = vocabularyStore.get(userId) || [];
+            const userWords = userWordStore.get(userId) || [];
             userWords.push(newWord);
-            vocabularyStore.set(userId, userWords);
+            userWordStore.set(userId, userWords);
 
             await route.fulfill({
                 status: 201,
@@ -331,9 +331,9 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
             const userId = 'test-user-123';
 
             // Actually remove the word from the store
-            const userWords = vocabularyStore.get(userId) || [];
+            const userWords = userWordStore.get(userId) || [];
             const filteredWords = userWords.filter(w => w.id !== wordId);
-            vocabularyStore.set(userId, filteredWords);
+            userWordStore.set(userId, filteredWords);
 
             console.log(`[E2E MOCK] Deleted word ${wordId}, remaining: ${filteredWords.length} `);
             await route.fulfill({ status: 204 });
@@ -394,7 +394,7 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
                 body: JSON.stringify({
                     success: true,
                     message: 'Upgraded to Pro!',
-                    proFeatureMinutes: 30
+                    proFeatureMinutes: 60
                 })
             });
         } else {
@@ -430,12 +430,36 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
             contentType: 'application/json',
             body: JSON.stringify({
                 can_start: true,
-                remaining_seconds: isPro ? -1 : 900, // 15 mins for free
-                limit_seconds: isPro ? -1 : 1800,
-                used_seconds: 900,
+                remaining_seconds: isPro ? -1 : 3600,
+                limit_seconds: isPro ? -1 : 3600,
+                used_seconds: 0,
                 subscription_status: isPro ? 'pro' : 'free',
                 is_pro: isPro
             }),
+        });
+    });
+}
+
+/**
+ * Helper to register a specific edge function mock override.
+ * LIFO ordering in Playwright means specific handlers registered LATER take precedence.
+ */
+export async function registerEdgeFunctionMock(
+    page: Page,
+    functionName: string,
+    response: { status?: number; contentType?: string; body: any } | any
+): Promise<void> {
+    const isFullResponse = response && typeof response === 'object' && ('body' in response || 'status' in response);
+    const status = isFullResponse ? (response.status || 200) : 200;
+    const contentType = isFullResponse ? (response.contentType || 'application/json') : 'application/json';
+    const body = isFullResponse ? response.body : response;
+
+    await page.route(`**/functions/v1/${functionName}`, async (route) => {
+        console.log(`[E2E MOCK OVERRIDE] Fulfilling ${functionName} with custom mock`);
+        await route.fulfill({
+            status,
+            contentType,
+            body: JSON.stringify(body),
         });
     });
 }
@@ -519,7 +543,7 @@ export async function setupE2EMocks(
 
     // Reset per-test state
     statefulProfile = { ...MOCK_USER_PROFILE };
-    vocabularyStore = new Map();
+    userWordStore = new Map();
     sessionStore = [...MOCK_SESSION_HISTORY]; // Reset to default mock history
 
     console.log('[E2E MOCK] Setting up Playwright route interception...');

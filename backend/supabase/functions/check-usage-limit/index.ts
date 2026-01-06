@@ -8,7 +8,7 @@ const corsHeaders = {
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const FREE_TIER_LIMIT_SECONDS = 1800; // 30 minutes
+const FREE_TIER_LIMIT_SECONDS = 3600; // 1 hour per day (Alpha Launch Refactor)
 
 interface UsageLimitResponse {
     can_start: boolean;
@@ -52,7 +52,6 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
 
         if (profileError) {
             console.error('Profile fetch error:', profileError);
-            // Default to allowing start if profile not found
             const response: UsageLimitResponse = {
                 can_start: true,
                 remaining_seconds: FREE_TIER_LIMIT_SECONDS,
@@ -68,23 +67,14 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
         const isPro = profile.subscription_status === 'pro';
         let usedSeconds = profile.usage_seconds || 0;
 
-        // Reset usage if a new month has started
+        // DAILY RESET LOGIC: Reset usage if more than 24 hours have passed since last reset
         const resetDate = profile.usage_reset_date ? new Date(profile.usage_reset_date) : null;
+        const now = new Date();
+        const DayInMs = 24 * 60 * 60 * 1000;
 
-        // Robust "one month ago" logic that handles varying month lengths correctly in JS
-        const oneMonthAgo = new Date();
-        const currentMonth = oneMonthAgo.getMonth();
-        oneMonthAgo.setMonth(currentMonth - 1);
-
-        // If JS rolls forward (e.g. March 31 -> March 3), cap it at the last day of the target month
-        if (oneMonthAgo.getMonth() === currentMonth) {
-            oneMonthAgo.setDate(0);
-        }
-
-        if (!resetDate || resetDate <= oneMonthAgo) {
+        if (!resetDate || (now.getTime() - resetDate.getTime()) >= DayInMs) {
             usedSeconds = 0;
-            // P0 FIX: Actually persist the reset to the database
-            const newResetDate = new Date().toISOString();
+            const newResetDate = now.toISOString();
             const { error: resetError } = await supabaseClient
                 .from('user_profiles')
                 .update({
@@ -94,27 +84,22 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
                 .eq('id', user.id);
 
             if (resetError) {
-                console.error('Failed to reset usage in database:', resetError);
-                // Continue with local reset value - user experience is still correct
+                console.error('Failed to reset daily usage:', resetError);
             } else {
-                console.log(`✅ Monthly usage reset for user ${user.id}, new reset date: ${newResetDate}`);
+                console.log(`✅ Daily usage reset for user ${user.id}, new reset date: ${newResetDate}`);
             }
         }
 
-        // Pro users have unlimited usage (unless promo expired)
+        // Pro users have unlimited usage
         if (isPro) {
-            // Check for promo expiration
             if (profile.promo_expires_at) {
                 const expiry = new Date(profile.promo_expires_at);
-                if (expiry < new Date()) {
-                    console.log(`[check-usage-limit] Promo expired for user ${user.id} at ${expiry.toISOString()}`);
-
-                    // Downgrade user back to free
+                if (expiry < now) {
+                    console.log(`[check-usage-limit] Promo expired for user ${user.id}`);
                     await supabaseClient.from('user_profiles').update({ subscription_status: 'free' }).eq('id', user.id);
 
-                    // Return response with promo_just_expired flag so frontend can show modal
                     const response: UsageLimitResponse = {
-                        can_start: true, // Still allow them to start as free user
+                        can_start: true,
                         remaining_seconds: Math.max(0, FREE_TIER_LIMIT_SECONDS - usedSeconds),
                         limit_seconds: FREE_TIER_LIMIT_SECONDS,
                         used_seconds: usedSeconds,
@@ -124,7 +109,6 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
                     };
                     return createSuccessResponse(response, corsHeaders);
                 } else {
-                    // Promo active
                     const response: UsageLimitResponse = {
                         can_start: true,
                         remaining_seconds: -1,
@@ -136,7 +120,6 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
                     return createSuccessResponse(response, corsHeaders);
                 }
             } else {
-                // Permanent Pro
                 const response: UsageLimitResponse = {
                     can_start: true,
                     remaining_seconds: -1,
@@ -149,7 +132,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
             }
         }
 
-        // Calculate remaining for free users
+        // Calculate daily remaining for free users
         const remainingSeconds = Math.max(0, FREE_TIER_LIMIT_SECONDS - usedSeconds);
         const canStart = remainingSeconds > 0;
 
@@ -162,8 +145,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
             is_pro: false,
         };
 
-        console.log(`✅ Usage check for user ${user.id}: ${remainingSeconds}s remaining, can_start: ${canStart}`);
-
+        console.log(`✅ Daily usage check (1hr limit) for user ${user.id}: ${remainingSeconds}s remaining`);
         return createSuccessResponse(response, corsHeaders);
 
     } catch (error) {

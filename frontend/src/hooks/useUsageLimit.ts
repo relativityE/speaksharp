@@ -37,7 +37,7 @@ export function useUsageLimit() {
                 return {
                     can_start: false,
                     remaining_seconds: 0,
-                    limit_seconds: 1800,
+                    limit_seconds: 3600,
                     subscription_status: 'unknown',
                     is_pro: false,
                     error: 'Supabase client not available'
@@ -56,8 +56,8 @@ export function useUsageLimit() {
                 // Default to allowing start on error to not block users
                 return {
                     can_start: true,
-                    remaining_seconds: 1800,
-                    limit_seconds: 1800,
+                    remaining_seconds: 3600,
+                    limit_seconds: 3600,
                     subscription_status: 'unknown',
                     is_pro: false,
                     error: error.message
@@ -68,8 +68,8 @@ export function useUsageLimit() {
             return data as UsageLimitCheck;
         },
         enabled: !!user && !!session, // Only run when user is authenticated with session
-        staleTime: 60 * 1000, // Revalidate every 60 seconds (was 30s, causing frequent refetches)
-        refetchOnWindowFocus: false, // Disable to prevent flickering on tab switch
+        staleTime: 0, // Always revalidate to ensure accurate enforcement (usage can change in other tabs)
+        refetchOnWindowFocus: true, // Re-check when user returns to tab
     });
 }
 

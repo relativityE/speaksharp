@@ -6,6 +6,8 @@ import {
     isFree,
     getTierLabel,
     getTierLimits,
+    getDailyLimit,
+    getMaxFillerWords,
 } from '../subscriptionTiers';
 
 describe('subscriptionTiers', () => {
@@ -76,27 +78,40 @@ describe('subscriptionTiers', () => {
             expect(limits).toBe(TIER_LIMITS[SUBSCRIPTION_TIERS.PRO]);
         });
 
-        it('PRO limits have Infinity for unbounded values', () => {
+        it('Limits have Infinity where appropriate', () => {
             const proLimits = TIER_LIMITS[SUBSCRIPTION_TIERS.PRO];
-            expect(proLimits.monthlyMinutes).toBe(Infinity);
+            expect(proLimits.dailySeconds).toBe(Infinity);
             expect(proLimits.maxSessionDuration).toBe(Infinity);
+
+            const freeLimits = TIER_LIMITS[SUBSCRIPTION_TIERS.FREE];
+            expect(freeLimits.maxSessionDuration).toBe(Infinity);
+        });
+    });
+
+    describe('getters', () => {
+        it('getDailyLimit returns correct values', () => {
+            expect(getDailyLimit('free')).toBe(3600);
+            expect(getDailyLimit('pro')).toBe(Infinity);
+        });
+
+        it('getMaxFillerWords returns 100 for both', () => {
+            expect(getMaxFillerWords('free')).toBe(100);
+            expect(getMaxFillerWords('pro')).toBe(100);
         });
     });
 
     describe('TIER_LIMITS', () => {
-        it('FREE tier has correct limits', () => {
+        it('FREE tier has correct alpha launch limits', () => {
             const freeLimits = TIER_LIMITS[SUBSCRIPTION_TIERS.FREE];
-            expect(freeLimits.maxCustomWords).toBe(10);
-            expect(freeLimits.monthlyMinutes).toBe(30);
-            expect(freeLimits.maxSessionDuration).toBe(20);
+            expect(freeLimits.maxCustomWords).toBe(100);
+            expect(freeLimits.dailySeconds).toBe(3600);
+            expect(freeLimits.maxSessionDuration).toBe(Infinity);
         });
 
-        it('PRO tier has higher limits', () => {
+        it('PRO tier has correct alpha launch limits', () => {
             const proLimits = TIER_LIMITS[SUBSCRIPTION_TIERS.PRO];
             expect(proLimits.maxCustomWords).toBe(100);
-            expect(proLimits.maxCustomWords).toBeGreaterThan(
-                TIER_LIMITS[SUBSCRIPTION_TIERS.FREE].maxCustomWords
-            );
+            expect(proLimits.dailySeconds).toBe(Infinity);
         });
     });
 });

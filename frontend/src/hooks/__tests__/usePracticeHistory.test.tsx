@@ -53,6 +53,6 @@ describe('usePracticeHistory', () => {
 
         await waitFor(() => expect(result.current.isSuccess).toBe(true));
         expect(result.current.data).toEqual(mockHistory);
-        expect(getSessionHistory).toHaveBeenCalledWith('test-user-id');
+        expect(getSessionHistory).toHaveBeenCalledWith('test-user-id', {});
     });
 });

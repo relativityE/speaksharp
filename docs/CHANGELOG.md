@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-31
+**Last Reviewed:** 2026-01-05
 
 # Changelog
 
@@ -11,13 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Unreleased
 
 ### Added
-- **Private STT Triple-Engine Architecture**: Implemented hybrid execution model (WhisperTurbo + TransformersJS + MockEngine) to ensure 99.9% availability and stable CI testing.
-- **Granular Logging**: Added extensive telemetry for Private STT engine selection and audio flow debugging.
-- **State-Based Verification**: E2E tests now verify internal application state (`window.__PrivateWhisper_INT_TEST__`) for robust reliability.
+- **Private STT Integration Tests**: New `PrivateSTT.integration.test.ts` covering engine selection, WebGPU detection, and fallback logic (C1).
+- **CI Dependency Caching**: Explicit pnpm store caching via `actions/cache` in `setup-environment` action (2.1).
+
+### Changed
+- **AuthProvider Refactor (C2)**: Removed `profile` from `AuthProvider` context. `useUserProfile` hook is now the Single Source of Truth for user profile data, reducing re-renders.
+- **Bundle Optimization (1.1)**: Implemented `manualChunks` in `vite.config.mjs` to isolate heavy dependencies (`@xenova/transformers`, `recharts`, vendor-utils).
+- **Analytics Scalability (3.2)**: `usePracticeHistory` now supports pagination; `useAnalytics` limits dashboard fetch to 20 sessions.
 
 ### Fixed
-- **CI/Playwright Compatibility**: Resolved persistent WASM deadlock in headless testing by introducing `MockEngine` strategy.
-- **Test Suite Rigor**: Achieved 100% unit test pass rate for all Private STT components including legacy service tests.
+- **Brittle E2E Login (C3)**: Replaced `page.reload()` with `storage` event dispatch in `helpers.ts` to preserve MSW context.
+- **Test Suite Stability**: Fixed 16 test regressions caused by AuthProvider refactor (Navigation, Auth, usePracticeHistory tests).
 
 ### Tech Debt Resolved (Jan 2026)
 - **23 items closed** from 4 independent code reviews (Dec 2025 - Jan 2026):

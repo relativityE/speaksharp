@@ -69,12 +69,16 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
 
         let frameCallback: ((frame: Float32Array) => void) | undefined;
         // Mock the mic stream to capture the callback
-        const mockMic = {
+        const mockMic: MicStream = {
+            sampleRate: 16000,
             onFrame: vi.fn((cb) => {
                 frameCallback = cb;
             }),
-            offFrame: vi.fn()
-        } as unknown as MicStream;
+            offFrame: vi.fn(),
+            stop: vi.fn(),
+            close: vi.fn(),
+            _mediaStream: new MediaStream(),
+        };
 
         await privateWhisper.startTranscription(mockMic);
 

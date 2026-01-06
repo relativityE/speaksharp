@@ -11,7 +11,7 @@ import { loadEnv, getChromeWithMic, baseConfig, urls } from './playwright.base.c
 // Load test environment variables
 loadEnv('test');
 
-const BASE_URL = urls.preview;
+const BASE_URL = urls.dev;
 
 export default defineConfig({
   ...baseConfig,
@@ -31,12 +31,13 @@ export default defineConfig({
   },
   updateSnapshots: process.env.CI ? 'missing' : 'none',
   webServer: {
-    command: 'pnpm preview:test',
+    command: 'pnpm dev --force',
     url: BASE_URL,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: process.env.CI === 'true', // CRITICAL: Always restart locally to prevent stale code (Zombie Server)
     timeout: 120 * 1000,
     env: {
       DOTENV_CONFIG_PATH: '.env.test',
+      VITE_MODE: 'test', // Ensure frontend loads test env vars if needed
     },
   },
   projects: [

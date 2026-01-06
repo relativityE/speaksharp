@@ -30,7 +30,6 @@ describe('Index', () => {
                 loading: true,
                 setSession: vi.fn(),
                 user: null,
-                profile: null,
                 signOut: vi.fn(),
             });
 
@@ -53,7 +52,6 @@ describe('Index', () => {
                 loading: false,
                 setSession: vi.fn(),
                 user: { id: 'test-user' } as AuthProvider.AuthContextType['user'],
-                profile: { id: 'test-user', subscription_status: 'free' } as AuthProvider.AuthContextType['profile'],
                 signOut: vi.fn(),
             });
 
@@ -76,7 +74,6 @@ describe('Index', () => {
                 loading: false,
                 setSession: vi.fn(),
                 user: null,
-                profile: null,
                 signOut: vi.fn(),
             });
         });

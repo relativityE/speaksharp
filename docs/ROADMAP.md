@@ -8,8 +8,27 @@
 
 This document outlines the forward-looking development plan for SpeakSharp. Completed tasks are moved to the [Changelog](./CHANGELOG.md).
 
-Status Key: 🟡 In Progress | 🔴 Not Started | ✅ Complete
+Status Key: 🟡 In Progress | 🔴 Not Started | ✅ Complete | 🛡️ Gap Remediation
 ---
+
+## 🧪 Jan 2026 Gap Remediation Audit ✅ COMPLETE
+
+> **Goal:** Resolve critical (C1-C3) and high (H2, H3) gaps identified in the Jan 2026 Alpha Readiness review.
+
+| ID | Title | Status | Result |
+|----|-------|--------|--------|
+| **C1** | **Private STT Integration Test** | ✅ | Created high-fidelity `PrivateSTT.integration.test.ts` covering engine selection and fallback. |
+| **C2** | **Conflicting Profile Sources** | ✅ | Removed duplicate profile state and fixed all downstream regressions in components/tests. |
+| **C3** | **Brittle E2E Login** | ✅ | Replaced `page.reload()` with `storage` event dispatch in `helpers.ts` to preserve MSW context. |
+| **H2** | **Self-Healing Cache Clear** | ✅ | Added `clearPrivateSTTCache()` call on engine initialization failure in `WhisperTurboEngine.ts`. |
+| **H3** | **Parallel CI Quality Checks** | ✅ | `scripts/test-audit.sh` now runs lint and type-check in parallel for 2x faster CI feedback. |
+| **3.1** | **Monolithic Context Optimization**| ✅ | Refactored Auth Context to isolate profile, reducing re-renders and following SSoT. |
+| **3.2** | **Analytics Scalability** | ✅ | `useAnalytics` now limits initial dashboard fetch to 20 sessions; fixed build regressions. |
+| **1.1** | **Bundle Optimization** | ✅ | Implemented `manualChunks` in `vite.config.mjs` to isolate transformers, charts, and utils. |
+| **2.1** | **CI/CD Caching Efficiency** | ✅ | Implemented `actions/cache` in `setup-environment` to persist pnpm store across jobs. |
+
+---
+
 
 ## Phase 1: Stabilize & Harden the MVP
 This phase focuses on fixing critical bugs, addressing code health, and ensuring the existing features are reliable and robust.

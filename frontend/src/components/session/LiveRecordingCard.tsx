@@ -57,7 +57,6 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
         }
     };
 
-    console.log(`[LiveRecordingCard] 🚀 VERSION: ${VERSION_ID} | Mode: ${mode}`);
     return (
         <div className="bg-card border border-border rounded-lg shadow-elegant" data-testid="live-recording-card">
             <div className="p-8">

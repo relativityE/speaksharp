@@ -27,7 +27,6 @@ describe('SignUpPage', () => {
             loading: false,
             setSession: mockSetSession,
             user: null,
-            profile: null,
             signOut: vi.fn(),
         });
 
@@ -65,7 +64,6 @@ describe('SignUpPage', () => {
                 loading: true,
                 setSession: mockSetSession,
                 user: null,
-                profile: null,
                 signOut: vi.fn(),
             });
 
@@ -81,7 +79,6 @@ describe('SignUpPage', () => {
                 loading: false,
                 setSession: mockSetSession,
                 user: { id: 'test-user' } as unknown as AuthProvider.AuthContextType['user'],
-                profile: { id: 'test-profile' } as unknown as AuthProvider.AuthContextType['profile'],
                 signOut: vi.fn(),
             });
 

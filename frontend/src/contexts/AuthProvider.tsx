@@ -1,33 +1,23 @@
 import React, { useState, useEffect, ReactNode, useMemo, useCallback, useContext, createContext } from 'react';
 import { getSupabaseClient } from '../lib/supabaseClient';
 import { Session, User } from '@supabase/supabase-js';
-import { UserProfile } from '@/types/user';
-import { fetchWithRetry } from '@/utils/fetchWithRetry';
-import { getTestConfig, setTestFlag, dispatchTestEvent } from '@/config/test.config';
 
 /**
- * P1 TECH DEBT: Auth Context Overreach
+ * AUTHENTICATION PROVIDER
  * 
- * Current implementation: Single context provides both session AND profile
- * - All consumers re-render when either changes
- * - Acceptable for alpha with limited component tree
+ * Provides session management and authentication state.
  * 
- * Future optimization:
- * - Split into SessionContext (auth state) and ProfileContext (user data)
- * - Use useSyncExternalStore for fine-grained subscriptions
- * - Memoize context values more granularly
- * 
- * Migration path:
- * 1. Create separate SessionProvider and ProfileProvider
- * 2. Update consumers to import from appropriate context
- * 3. Use React DevTools profiler to verify reduced re-renders
+ * NOTE (Gap Remediation 2026-01-05):
+ * This provider has been refactored to focus exclusively on session management.
+ * The User Profile state (formerly part of this context) is now managed by the 
+ * `useUserProfile` hook, reducing unnecessary re-renders in components that 
+ * only need auth status (like Navigation).
  */
 
 // Define the context value type right inside the provider file
 export interface AuthContextType {
   session: Session | null;
   user: User | null;
-  profile: UserProfile | null;
   loading: boolean;
   signOut: () => Promise<void>;
   setSession: (s: Session | null) => void;
@@ -43,7 +33,6 @@ interface AuthProviderProps {
 
 export function AuthProvider({ children, initialSession = null }: AuthProviderProps) {
   const [sessionState, setSessionState] = useState<Session | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
 
@@ -71,7 +60,6 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
         }
       } as Session;
       setSessionState(mockSession);
-      setProfile({ id: devUserId, subscription_status: 'free' } as UserProfile);
       setLoading(false);
       return;
     }
@@ -101,7 +89,6 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
         console.log(`[Supabase Auth] 🔐 Auth state changed: ${_event}`, newSession?.user?.id ? `User: ${newSession.user.id.slice(0, 8)}...` : 'No user');
         setSessionState(newSession);
         if (!newSession) {
-          setProfile(null);
           setLoading(false);
         }
       }
@@ -112,72 +99,25 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     };
   }, [initialSession, supabase]);
 
-  // Effect to fetch profile when session changes
+  // Loading state management
   useEffect(() => {
-    const userId = sessionState?.user?.id;
-    if (!userId || !supabase) {
-      setProfile(null);
-      return;
+    if (sessionState !== undefined) {
+      setLoading(false);
     }
-
-    let active = true;
-
-    const fetchProfile = async () => {
-      try {
-        console.log('[AuthProvider] Fetching profile for:', userId);
-        const data = await fetchWithRetry(async () => {
-          const { data, error } = await supabase
-            .from('user_profiles')
-            .select('*')
-            .eq('id', userId)
-            .single();
-          if (error) throw error;
-          return data;
-        }, 5, 100);
-
-        if (active) {
-          console.log('[AuthProvider] Profile loaded:', data.id);
-          setProfile(data as UserProfile);
-          setLoading(false);
-
-          // Test mode notifications
-          const { isTestMode } = getTestConfig();
-          if (isTestMode) {
-            console.log(`[E2E DIAGNOSTIC] Profile found for ${data.id}, setting flag and dispatching event.`);
-            setTestFlag('__e2eProfileLoaded', true);
-            dispatchTestEvent('e2e-profile-loaded', data);
-          }
-        }
-      } catch (e) {
-        console.error('[AuthProvider] Failed to fetch profile after retries:', e);
-        if (active) {
-          setProfile(null); // Valid session but failed profile fetch
-          setLoading(false);
-        }
-      }
-    };
-
-    fetchProfile();
-
-    return () => {
-      active = false;
-    };
-  }, [sessionState?.user?.id, supabase]);
+  }, [sessionState]);
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
     setSessionState(null);
-    setProfile(null);
   }, [supabase]);
 
   const value = useMemo((): AuthContextType => ({
     session: sessionState,
     user: sessionState?.user ?? null,
-    profile,
     loading,
     signOut,
     setSession: setSessionState,
-  }), [sessionState, profile, loading, signOut]);
+  }), [sessionState, loading, signOut]);
 
   // Don't block app rendering while loading - landing page is PUBLIC
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SessionPage } from '../SessionPage';
 import * as SpeechRecognitionHook from '../../hooks/useSpeechRecognition';
 import * as SessionStore from '../../stores/useSessionStore';
@@ -18,7 +19,7 @@ vi.mock('@/hooks/useUserProfile');
 vi.mock('@/hooks/useUsageLimit');
 vi.mock('@/hooks/useUserFillerWords', () => ({
     useUserFillerWords: () => ({
-        vocabularyWords: ['mock-word'],
+        userFillerWords: ['mock-word'],
         fullVocabularyObjects: [{ id: '1', word: 'mock-word', user_id: 'test', created_at: new Date().toISOString() }],
         isLoading: false,
         error: null,
@@ -43,8 +44,20 @@ vi.mock('posthog-js', () => ({
 }));
 
 // Helper to render with router
+// Helper to render with router
 const renderWithRouter = (ui: React.ReactElement) => {
-    return render(<MemoryRouter>{ui}</MemoryRouter>);
+    const queryClient = new QueryClient({
+        defaultOptions: {
+            queries: {
+                retry: false,
+            },
+        },
+    });
+    return render(
+        <QueryClientProvider client={queryClient}>
+            <MemoryRouter>{ui}</MemoryRouter>
+        </QueryClientProvider>
+    );
 };
 
 // Mock child components

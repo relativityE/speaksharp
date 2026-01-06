@@ -26,7 +26,6 @@ export const AllTheProviders = ({ children, authMock, route = '/', path }: AllTh
   const defaultAuthMock: AuthContextType = {
     session: null,
     user: null,
-    profile: null,
     loading: false,
     signOut: vi.fn().mockResolvedValue(undefined),
     setSession: vi.fn(),

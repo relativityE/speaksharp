@@ -7,6 +7,11 @@ import * as AuthProvider from '../../contexts/AuthProvider';
 // Mock modules
 vi.mock('../../contexts/AuthProvider');
 
+// Mock useUserProfile hook to avoid QueryClient dependency
+vi.mock('../../hooks/useUserProfile', () => ({
+    useUserProfile: () => ({ data: null, isLoading: false, error: null }),
+}));
+
 // Mock react-router-dom
 vi.mock('react-router-dom', async () => {
     const actual = await vi.importActual('react-router-dom');

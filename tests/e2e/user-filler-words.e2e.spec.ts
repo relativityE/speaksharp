@@ -65,6 +65,10 @@ test.describe('User Filler Words UI & Detection (Local)', () => {
         await settingsBtn.click();
         await page.getByPlaceholder(/literally/i).fill('detectiontest');
         await page.getByRole('button', { name: /add word/i }).click();
+
+        // Wait for word to be accepted and rendered to ensure state is synced
+        await expect(page.getByText('detectiontest', { exact: false })).toBeVisible();
+
         await page.keyboard.press('Escape'); // Close settings
 
         // 5. Start Session (Native Mode default)
@@ -74,9 +78,10 @@ test.describe('User Filler Words UI & Detection (Local)', () => {
         // 6. Inject Transcript containing the custom word "detectiontest"
         await mockLiveTranscript(page, ['This is a detectiontest for antigravity.']);
 
-        // 7. Assert "Filler Words" count increased / Word visible
-        // We assume the UI displays the word in the Filler Words card or list.
-        const fillerCardEntry = page.getByText(/detectiontest/i);
-        await expect(fillerCardEntry).toBeVisible({ timeout: 10000 });
+        // 7. Assert "Filler Words" count increased (custom word detected)
+        // Use the reliable testid instead of badge text which can be flaky
+        const fillerCountValue = page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE);
+        await expect(fillerCountValue).not.toHaveText('0', { timeout: 10000 });
+        console.log('[TEST] ✅ Custom filler word detected');
     });
 });

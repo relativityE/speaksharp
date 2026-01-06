@@ -39,6 +39,8 @@
     "// Soak test (5-min concurrent user simulation)": "",
     "test:soak": "playwright test --config=playwright.soak.config.ts --project=chromium",
     "test:canary": "playwright test --config=playwright.canary.config.ts",
+    "// Live E2E tests against real APIs (requires credentials)": "",
+    "test:e2e:live": "cross-env VITE_USE_LIVE_DB=true REAL_WHISPER_TEST=true playwright test tests/e2e/*-real*.spec.ts tests/e2e/smoke/*.spec.ts --project=chromium",
     "// ============ Git Hooks ============": "",
     "prepare": "HUSKY=0 husky install"
   },

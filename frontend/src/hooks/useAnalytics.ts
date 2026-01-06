@@ -10,7 +10,13 @@ import {
 
 export const useAnalytics = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
-    const { data: allSessions = [], isLoading, error } = usePracticeHistory();
+
+    // 3.2 SCALABILITY FIX: Limit fetch to 20 sessions for dashboard/trends.
+    // This prevents performance bottlenecks for users with many sessions.
+    // In a future update, this could be expanded to full pagination.
+    const { data: allSessions = [], isLoading, error } = usePracticeHistory({
+        limit: sessionId ? 50 : 20
+    });
 
     // DEV BYPASS: Add mock session data for UI testing
     const isDevBypass = import.meta.env.DEV && window.location.search.includes('devBypass=true');

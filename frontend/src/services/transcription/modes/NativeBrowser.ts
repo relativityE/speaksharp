@@ -75,6 +75,7 @@ export default class NativeBrowser implements ITranscriptionMode {
         let finalTranscript = '';
 
         for (let i = event.resultIndex; i < event.results.length; ++i) {
+          console.log(`[NativeBrowser] Processing result ${i}. isFinal: ${event.results[i].isFinal}`); // DEBUG LOG
           if (event.results[i].isFinal) {
             finalTranscript += event.results[i][0].transcript;
             logger.info({ finalTranscript }, '[NativeBrowser] Final transcript received');

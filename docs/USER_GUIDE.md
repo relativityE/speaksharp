@@ -49,11 +49,10 @@ We track "um", "uh", "like", "so", and "you know". Our **Top 2 Filler Words** in
 
 | Feature | Free | Pro |
 | :--- | :--- | :--- |
-| **Monthly Limit** | 30 Minutes | **Unlimited** |
-| **Session Length** | Max 20 Minutes | **Unlimited** |
+| **Daily Practice** | 1 Hour | **Unlimited** |
 | **Cloud AI Transcription** | ❌ No | ✅ **High Accuracy** |
 | **On-Device (Privacy) Mode** | ❌ No | ✅ **Enabled** |
-| **User Filler Words** | 10 Words | **100 Words** |
+| **User Filler Words** | 100 Words | **100 Words** |
 | **PDF Exports** | ✅ Yes | ✅ **Priority Support** |
 
 ---
@@ -81,7 +80,7 @@ If you've been provided with a **One-Time Code**, follow these steps to activate
 4.  Enter your 7-digit numeric code into the field.
 5.  Complete your account creation.
 
-> **Note:** One-time 'pro' user promo codes grant **30 minutes of Pro features** without requiring payment. After the 30 minutes are used, you'll be prompted to upgrade to continue with unlimited access.
+> **Note:** One-time 'pro' user promo codes grant **initial access to Pro features**. Once consumed or expired, your account will follow the standard Free tier limits (1 hour of practice per day).
 
 ---
 

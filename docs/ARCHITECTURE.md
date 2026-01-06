@@ -154,7 +154,7 @@ We prioritize a secure, dynamic promo code system for internal access/testing.
                                                 │  ─────────────────────   │
                                                 │  code: "7423974"         │
                                                 │  max_uses: 1             │
-                                                │  duration_minutes: 30    │
+                                                │  duration_minutes: 60    │
                                                 │  used_count: 0           │
                                                 └──────────────────────────┘
 
@@ -177,7 +177,7 @@ We prioritize a secure, dynamic promo code system for internal access/testing.
                                                 │  ─────────────────────   │
                                                 │  subscription_status:pro │
                                                 │  promo_expires_at:       │
-                                                │    [NOW + 30 min]        │
+                                                │    [NOW + 60 min]        │
                                                 └──────────────────────────┘
 
   STEP 3: EXPIRY ENFORCEMENT (On Session Start)
@@ -206,7 +206,7 @@ We prioritize a secure, dynamic promo code system for internal access/testing.
 **Key Components:**
 - **Storage**: Codes in `promo_codes` table; redemptions tracked in `promo_redemptions`.
 - **Generation**: CLI (`pnpm generate-promo`) → Edge Function → DB.
-- **Validation**: `apply-promo` checks DB, enforces single-use, sets 30-min expiry.
+- **Validation**: `apply-promo` checks DB, enforces single-use, sets 60-min expiry.
 - **Enforcement**: `check-usage-limit` downgrades expired users and triggers UI notification.
 
 
@@ -436,6 +436,11 @@ The `whisper-turbo` engine uses a two-layer cache (Service Worker + IndexedDB) t
 - [`WhisperTurboEngine.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/WhisperTurboEngine.ts) - Fast Path Adapter
 - [`TransformersJSEngine.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/TransformersJSEngine.ts) - Safe Path Adapter
 - [`MockEngine.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/MockEngine.ts) - Reliable Test Adapter
+
+**Testing Note:**
+> WhisperTurbo requires COOP/COEP headers (`crossOriginIsolated === true`) and cannot be validated in dev E2E.  
+> The production-only smoke test (`smoke/private-stt-integration.spec.ts`) validates this capability under explicit opt-in: `REAL_WHISPER_TEST=true`.  
+> Standard dev E2E uses MockEngine via `private-stt.e2e.spec.ts`.
 
 
 *   **Testing:**

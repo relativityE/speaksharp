@@ -48,7 +48,13 @@ export default defineConfig(({ mode }) => {
       outDir: 'dist',
       rollupOptions: {
         output: {
-          // manualChunks removed to allow Vite's automatic splitting
+          manualChunks: {
+            'vendor-transformers': ['@xenova/transformers'],
+            'vendor-charts': ['recharts'],
+            'vendor-utils': ['html2canvas', 'jspdf', 'lucide-react', 'clsx', 'tailwind-merge'],
+            'vendor-react': ['react', 'react-dom', 'react-router-dom', '@tanstack/react-query'],
+            'vendor-supabase': ['@supabase/supabase-js'],
+          }
         }
       },
       treeshake: {
@@ -66,6 +72,7 @@ export default defineConfig(({ mode }) => {
       'process.env': {},
       'global': 'globalThis',
       'import.meta.env.VITE_TEST_MODE': JSON.stringify(String(isTestMode)),
+      '__BUILD_ID__': JSON.stringify(process.env.BUILD_ID ?? new Date().toISOString()),
     },
     optimizeDeps: {
       include: [

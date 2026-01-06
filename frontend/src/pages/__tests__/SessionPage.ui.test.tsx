@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import userEvent from '@testing-library/user-event';
 import { SessionPage } from '../SessionPage';
 import * as UserProfileHook from '@/hooks/useUserProfile';
@@ -19,7 +20,7 @@ vi.mock('@/hooks/useUserProfile');
 vi.mock('@/hooks/useUsageLimit');
 vi.mock('@/hooks/useUserFillerWords', () => ({
     useUserFillerWords: () => ({
-        vocabularyWords: ['mock-word'],
+        userFillerWords: ['mock-word'],
         fullVocabularyObjects: [{ id: '1', word: 'mock-word', user_id: 'test', created_at: new Date().toISOString() }],
         isLoading: false,
         error: null,
@@ -42,8 +43,14 @@ vi.mock('@/components/session/PauseMetricsDisplay', () => ({ PauseMetricsDisplay
 vi.mock('@/components/session/UserFillerWordsManager', () => ({ UserFillerWordsManager: () => <div>User Filler Words</div> }));
 
 // Helper to render with router
+// Helper to render with router
 const renderWithRouter = (ui: React.ReactElement) => {
-    return render(<MemoryRouter>{ui}</MemoryRouter>);
+    const queryClient = new QueryClient();
+    return render(
+        <QueryClientProvider client={queryClient}>
+            <MemoryRouter>{ui}</MemoryRouter>
+        </QueryClientProvider>
+    );
 };
 
 const mockUseUserProfile = vi.mocked(UserProfileHook.useUserProfile);

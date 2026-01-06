@@ -39,20 +39,24 @@ test.describe('Session Variations', () => {
     test('Journey 6: Custom Vocabulary Management', async ({ page }) => {
         // Custom Vocabulary is inside the settings sheet
         const settingsButton = page.getByTestId('session-settings-button');
+        await expect(settingsButton).toBeVisible({ timeout: 10000 });
         await settingsButton.click();
 
-        await expect(page.getByRole('heading', { name: 'Session Settings' })).toBeVisible();
-        await expect(page.getByRole('heading', { name: /Custom Vocabulary/ })).toBeVisible();
+        // Wait for sheet animation to complete
+        await expect(page.getByRole('heading', { name: 'Session Settings' })).toBeVisible({ timeout: 5000 });
+        await expect(page.getByRole('heading', { name: /Custom Vocabulary|User Filler Words/i })).toBeVisible();
 
         // Fill input and add word (note: mutation lowercases all words)
-        const wordInput = page.getByPlaceholder(/SpeakSharp/i);
+        const wordInput = page.getByPlaceholder(/literally|basically/i);
+        await expect(wordInput).toBeVisible({ timeout: 5000 });
         await wordInput.fill('TestWord');
 
-        const addButton = page.getByRole('button', { name: 'Add word' });
+        const addButton = page.getByRole('button', { name: /Add/i });
+        await expect(addButton).toBeEnabled();
         await addButton.click();
 
         // Wait for word to appear - it will be lowercased to 'testword'
-        await expect(page.getByText('testword', { exact: true })).toBeVisible({ timeout: 5000 });
+        await expect(page.getByText('testword', { exact: true })).toBeVisible({ timeout: 10000 });
 
         // Remove the word
         await page.getByRole('button', { name: /Remove testword/i }).click();

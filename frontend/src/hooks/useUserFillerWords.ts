@@ -1,9 +1,10 @@
-// hooks/useUserFillerWords.ts
+import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getSupabaseClient } from '../lib/supabaseClient';
 import { useAuthProvider } from '../contexts/AuthProvider';
-import { useUsageLimit } from './useUsageLimit'; // Import the hook
+import { useUsageLimit } from './useUsageLimit';
 import { toast } from 'sonner';
+import { getMaxFillerWords } from '../constants/subscriptionTiers';
 
 interface CustomWord {
     id: string;
@@ -19,16 +20,15 @@ export const useUserFillerWords = () => {
     const isPro = usageData?.is_pro ?? false;
     const supabase = getSupabaseClient();
 
-    // Use usage limits from hook or fallback to defaults (10 for Free, 100 for Pro)
-    const MAX_WORDS = isPro ? 100 : 10;
+    // Use usage limits from hook or fallback to centralized config
+    const MAX_WORDS = getMaxFillerWords(usageData?.subscription_status);
 
-    const { data: vocabularyWords = [], isLoading, error } = useQuery({
-        queryKey: ['user-filler-words', session?.user?.id], // Renamed key to match feature
+    const { data: userFillerWords = [], isLoading, error } = useQuery({
+        queryKey: ['user-filler-words', session?.user?.id],
         queryFn: async () => {
             if (!session?.user?.id) return [];
-            console.log('[useUserFillerWords] Fetching words for user:', session.user.id);
             const { data, error } = await supabase
-                .from('user_filler_words') // Table name renamed to 'user_filler_words'
+                .from('user_filler_words')
                 .select('*')
                 .eq('user_id', session.user.id);
 
@@ -48,15 +48,15 @@ export const useUserFillerWords = () => {
             if (!session?.user?.id) throw new Error('No user logged in');
 
             // 1. Validation (Clean word)
-            const cleanedWord = word.trim();
+            const cleanedWord = word.trim().toLowerCase();
             if (!cleanedWord) throw new Error('Word cannot be empty');
 
             // 2. Check duplicates (Case insensitive)
-            const exists = vocabularyWords.some(w => w.word.toLowerCase() === cleanedWord.toLowerCase());
+            const exists = userFillerWords.some(w => w.word.toLowerCase() === cleanedWord.toLowerCase());
             if (exists) throw new Error('Word already in list');
 
             // 3. Limit Check
-            if (vocabularyWords.length >= MAX_WORDS) {
+            if (userFillerWords.length >= MAX_WORDS) {
                 throw new Error(isPro
                     ? `Pro limit reached (${MAX_WORDS} words).`
                     : `Free limit reached (${MAX_WORDS} words). Upgrade to Pro to add more.`
@@ -103,16 +103,20 @@ export const useUserFillerWords = () => {
         }
     });
 
+    // Memoize the mapped array to ensure referential stability
+    // This prevents infinite render loops in consumers like SessionPage
+    const simpleWords = useMemo(() => userFillerWords.map(v => v.word), [userFillerWords]);
+
     return {
-        vocabularyWords: vocabularyWords.map(v => v.word), // Return just strings for consumption
-        fullVocabularyObjects: vocabularyWords, // Return full objects for UI (Need IDs for delete)
+        userFillerWords: simpleWords, // Return stable reference
+        fullVocabularyObjects: userFillerWords, // Return full objects for UI (Need IDs for delete)
         isLoading,
         error,
         addWord: addWordMutation.mutate,
         removeWord: removeWordMutation.mutate,
         isAdding: addWordMutation.isPending,
         isRemoving: removeWordMutation.isPending,
-        count: vocabularyWords.length,
+        count: userFillerWords.length,
         maxWords: MAX_WORDS,
         isPro
     };
