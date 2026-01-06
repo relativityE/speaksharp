@@ -623,12 +623,41 @@ The project uses **two distinct Supabase configurations** depending on the execu
 
 ##### Hybrid Testing Strategy
 
-The project uses a layered testing approach:
+The project uses a layered testing approach with six distinct categories:
 
-1. **Unit Tests** (`pnpm test`): Fast, isolated component/function tests
-2. **Integration Tests** (`pnpm test`): Component integration with mocked services  
-3. **Mock E2E** (`pnpm test:e2e`): Full user flows with MSW mocks
-4. **Canary E2E** (`pnpm test:canary`): Real infrastructure validation
+| Category | Command | Description |
+|----------|---------|-------------|
+| **Unit Tests** | `pnpm test` | Fast, isolated component/function tests |
+| **Integration Tests** | `pnpm test` | Component integration with mocked services |
+| **Mock E2E** | `pnpm test:e2e` | Full user flows with MSW mocks (64 tests) |
+| **Live E2E** | `pnpm test:e2e:live` | Real API tests against Supabase/Stripe (auth-real) |
+| **Canary E2E** | `pnpm test:canary` | Real infrastructure validation (CI only) |
+| **Smoke Tests** | (via mock E2E) | Production capability validation (`REAL_WHISPER_TEST=true`) |
+| **Soak Tests** | `pnpm test:soak` | 5-min concurrent user simulation |
+
+##### Test Category Details
+
+**1. Unit Tests** (`frontend/src/**/*.test.{ts,tsx}`)
+- Run with Vitest in happy-dom environment
+- Uses `createQueryWrapper` for React Query isolation
+- ~376 tests across 51 files
+
+**2. Mock E2E Tests** (`tests/e2e/*.e2e.spec.ts`)
+- Uses Playwright with MSW (Mock Service Worker)
+- `programmaticLoginWithRoutes()` sets up mock auth/routes
+- `navigateToRoute()` for client-side navigation (preserves mock context)
+- `goToPublicRoute()` for public pages like signin
+
+**3. Live E2E Tests** (`tests/e2e/*-real*.spec.ts`)
+- Runs against real Supabase with GitHub Secrets
+- Uses `liveLogin()` helper for real authentication
+- CI workflow: `Dev Integration (Real Supabase)` (`dev-real-integration.yml`)
+- Required secrets: `E2E_FREE_EMAIL`, `E2E_FREE_PASSWORD`, `SUPABASE_URL`, etc.
+
+**4. Production Smoke Tests** (`tests/e2e/smoke/*.spec.ts`)
+- `private-stt-integration.spec.ts` validates WhisperTurbo in COOP/COEP environment
+- Skipped in dev (requires `REAL_WHISPER_TEST=true`)
+- Tests production-only capabilities (SharedArrayBuffer, WebGPU)
 
 > [!CAUTION]
 > **CANARY TESTS REQUIRE CI ENVIRONMENT**

@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-01-05
+**Last Reviewed:** 2026-01-06
 
 # Changelog
 
@@ -13,15 +13,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Private STT Integration Tests**: New `PrivateSTT.integration.test.ts` covering engine selection, WebGPU detection, and fallback logic (C1).
 - **CI Dependency Caching**: Explicit pnpm store caching via `actions/cache` in `setup-environment` action (2.1).
+- **Live E2E Test Infrastructure (2026-01-06):**
+  - New `pnpm test:e2e:live` script for running tests against real Supabase/Stripe APIs
+  - Updated `dev-real-integration.yml` CI workflow to run `auth-real.e2e.spec.ts` with GitHub Secrets
+  - Required secrets: `E2E_FREE_EMAIL`, `E2E_FREE_PASSWORD`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, etc.
+  - Added `patches/whisper-turbo@0.11.0.patch` to git (was previously gitignored)
+  - **Files:** `package.json`, `.github/workflows/dev-real-integration.yml`, `tests/e2e/auth-real.e2e.spec.ts`
 
 ### Changed
 - **AuthProvider Refactor (C2)**: Removed `profile` from `AuthProvider` context. `useUserProfile` hook is now the Single Source of Truth for user profile data, reducing re-renders.
 - **Bundle Optimization (1.1)**: Implemented `manualChunks` in `vite.config.mjs` to isolate heavy dependencies (`@xenova/transformers`, `recharts`, vendor-utils).
 - **Analytics Scalability (3.2)**: `usePracticeHistory` now supports pagination; `useAnalytics` limits dashboard fetch to 20 sessions.
+- **Testing Strategy Documentation (2026-01-06):** Updated `ARCHITECTURE.md` Hybrid Testing Strategy section with comprehensive test categories (Unit, Mock E2E, Live E2E, Canary, Smoke, Soak) and npm script reference.
 
 ### Fixed
 - **Brittle E2E Login (C3)**: Replaced `page.reload()` with `storage` event dispatch in `helpers.ts` to preserve MSW context.
 - **Test Suite Stability**: Fixed 16 test regressions caused by AuthProvider refactor (Navigation, Auth, usePracticeHistory tests).
+- **Flaky E2E Tests (2026-01-06):**
+  - `metrics.e2e.spec.ts`: Replaced `waitForTimeout(2000)` with `expect.poll()` deterministic polling for WPM and filler word updates
+  - `schema-canary.e2e.spec.ts`: Replaced route interception with context-level UI state evaluation (fixes route handler collision from `programmaticLoginWithRoutes`)
+  - `smoke/private-stt-integration.spec.ts`: Reclassified as production-only smoke test, skipped without `REAL_WHISPER_TEST=true`
+- **Live E2E Test Fixes (2026-01-06):**
+  - `auth-real.e2e.spec.ts`: Changed to `goToPublicRoute` helper for signin navigation per architecture guidelines
+  - Fixed incorrect testid (`user-profile-menu` → `nav-sign-out-button`)
 
 ### Tech Debt Resolved (Jan 2026)
 - **23 items closed** from 4 independent code reviews (Dec 2025 - Jan 2026):
