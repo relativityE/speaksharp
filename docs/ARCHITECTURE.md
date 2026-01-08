@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-18
+**Last Reviewed:** 2026-01-07
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -1971,6 +1971,15 @@ Performance quality gates are enforced via Lighthouse CI:
 - **SEO: 100%**
 - Best Practices: 78% (limited by Stripe third-party cookies)
 
+> [!NOTE]
+> **`⚠️ GitHub token not set` Warning**
+> This warning from `lhci autorun` is informational, not an error. Lighthouse CI works correctly without it:
+> - **Without `LHCI_GITHUB_TOKEN`:** Audits run and reports are generated ✅
+> - **With `LHCI_GITHUB_TOKEN`:** Additionally posts status checks to GitHub PRs (optional)
+>
+> The token is only needed if you want PR status check integration. All audit functionality works regardless.
+
+
 ## 8. Technical Debt & Improvements
 
 This section tracks architectural improvements, tooling refactors, and code health initiatives. These items are distinct from product features (tracked in [ROADMAP.md](./ROADMAP.md)) and are prioritized based on their impact on developer velocity and system stability.
@@ -2105,3 +2114,25 @@ To add the secret: **Settings → Secrets and variables → Actions → New repo
 
 
 
+
+## 9. UI/UX Implementation Standards
+
+Technical specifications for maintaining UI consistency and data integrity.
+
+### 9.1 Feedback Implementation
+
+| Pattern | Component/Example | Implementation |
+|---------|-------------------|----------------|
+| **Inline Warning** | `LiveRecordingCard.tsx` | `AlertCircle` icon + amber text; conditional on `elapsedSeconds < 5`. |
+| **Notification Toast** | `SessionPage.tsx` | `toast.warning()` from `sonner`; intercepted in `handleStartStop`. |
+| **Upgrade Prompt** | `UpgradePromptDialog.tsx` | Radix-based Dialog; blocks session start if tier limit exceeded. |
+
+### 9.2 Analytics Precision
+
+*   **Logic Location:** `frontend/src/lib/analyticsUtils.ts`
+*   **Precision Rule:** All rate calculations (FW/min, WPM) MUST use precise floating point minutes (`totalSeconds / 60`) to prevent rounding errors in short sessions.
+*   **Display:** Presentation layer rounds to 1 decimal place using `.toFixed(1)`.
+
+### 9.3 Configuration
+
+*   **Minimum Session Length:** `MIN_SESSION_DURATION_SECONDS = 5` defined in `frontend/src/config/env.ts`.

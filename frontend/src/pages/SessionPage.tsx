@@ -19,6 +19,7 @@ import { useSessionManager } from '@/hooks/useSessionManager';
 import { PauseMetricsDisplay } from '@/components/session/PauseMetricsDisplay';
 import { toast } from 'sonner';
 import { useUserFillerWords } from '@/hooks/useUserFillerWords';
+import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { UserFillerWordsManager } from '@/components/session/UserFillerWordsManager';
@@ -94,6 +95,7 @@ export const SessionPage: React.FC = () => {
         if (!isListening) {
             updateElapsedTime(0);
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []); // Run ONLY on mount
 
     useEffect(() => {
@@ -146,6 +148,7 @@ export const SessionPage: React.FC = () => {
                 handleStartStop({ skipRedirect: true });
             }
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [elapsedTime, isListening, usageLimit, isProUser]);
 
     if (isProfileLoading) {
@@ -197,6 +200,17 @@ export const SessionPage: React.FC = () => {
 
     const handleStartStop = async (options?: { skipRedirect?: boolean }) => {
         if (isListening) {
+            // Check minimum session duration before saving
+            if (elapsedTime < MIN_SESSION_DURATION_SECONDS) {
+                // Stop recording but don't save - show inline warning already visible
+                await stopListening();
+                toast.warning(`Session too short (${elapsedTime}s). Minimum ${MIN_SESSION_DURATION_SECONDS}s required for accurate metrics.`, {
+                    id: 'short-session',
+                    duration: 4000
+                });
+                return;
+            }
+
             try {
                 await stopListening();
                 // Track session end with metrics
@@ -331,6 +345,7 @@ export const SessionPage: React.FC = () => {
                     isProUser={isProUser}
                     modelLoadingProgress={modelLoadingProgress}
                     formattedTime={metrics.formattedTime}
+                    elapsedSeconds={elapsedTime}
                     isButtonDisabled={isButtonDisabled}
                     onModeChange={setMode}
                     onSettingsOpen={() => setIsSettingsOpen(true)}

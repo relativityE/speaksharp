@@ -36,11 +36,11 @@ async function canaryLogin(page: Page): Promise<void> {
     const start = Date.now();
 
     await goToPublicRoute(page, ROUTES.SIGN_IN);
-    await page.waitForSelector('input[type="email"]', { timeout: 10000 });
+    await page.waitForSelector('[data-testid="email-input"]', { timeout: 10000 });
 
-    await page.fill('input[type="email"]', CANARY_EMAIL);
-    await page.fill('input[type="password"]', CANARY_PASSWORD);
-    await page.getByRole('button', { name: /sign in/i }).click();
+    await page.getByTestId('email-input').fill(CANARY_EMAIL);
+    await page.getByTestId('password-input').fill(CANARY_PASSWORD);
+    await page.getByTestId('sign-in-submit').click();
 
     await page.waitForURL((url) =>
         url.pathname === '/session' || url.pathname === '/'

@@ -37,7 +37,8 @@ test.describe('Schema Canary: Database Contract Validation', () => {
         // evaluate what the UI actually received by checking DOM state that reflects profile data.
 
         // Navigate to session page where profile is loaded
-        await page.goto('/session');
+        const { navigateToRoute } = await import('../../tests/e2e/helpers');
+        await navigateToRoute(page, '/session');
         await page.waitForLoadState('networkidle');
 
         // The profile is used by AuthContext. Verify it loaded by checking:

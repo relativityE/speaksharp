@@ -54,6 +54,8 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
 
         await expect(page.getByText('Clarity Score')).toBeVisible();
 
+        // Wait to comply with 5s minimum session duration
+        await page.waitForTimeout(6000);
         await startButton.click();
         await expect(page.getByText('Start').first()).toBeVisible({ timeout: 5000 });
         console.log('[PRO] ✅ Native Browser session completed');
@@ -78,8 +80,8 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
 
         await startButton.click();
         await expect(page.getByText('Stop').first()).toBeVisible({ timeout: 15000 });
-        console.log('[PRO] ✅ Session started with Cloud STT');
-
+        // Wait to comply with 5s minimum session duration
+        await page.waitForTimeout(6000);
         await startButton.click();
         await expect(page.getByText('Start').first()).toBeVisible({ timeout: 5000 });
         console.log('[PRO] ✅ Cloud STT session completed');
@@ -126,6 +128,8 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
         // Verify session is running
         await expect(page.getByText('Clarity Score')).toBeVisible();
 
+        // Wait to comply with 5s minimum session duration
+        await page.waitForTimeout(6000);
         // Stop session
         await startButton.click();
         await expect(page.getByText('Start').first()).toBeVisible({ timeout: 5000 });
@@ -196,6 +200,8 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
         const startButton = page.getByTestId('session-start-stop-button').first();
         await startButton.click();
         await expect(page.getByText('Stop').first()).toBeVisible({ timeout: 10000 });
+        // Wait to comply with 5s minimum session duration
+        await page.waitForTimeout(6000);
         await startButton.click();
         await expect(page.getByText('Start').first()).toBeVisible({ timeout: 5000 });
         console.log('[PRO] ✅ Session completed');

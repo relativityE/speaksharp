@@ -35,6 +35,9 @@ test.describe('User Journey - Full Onboarding to Trend Analysis', () => {
         await expect(page.getByText('Clarity Score')).toBeVisible();
         console.log('[TEST] ✅ Step 3: Clarity Score metric displayed');
 
+        // Wait to comply with 5s minimum session duration
+        await page.waitForTimeout(6000);
+
         // Step 5: Stop the session
         await startButton.click();
         // Wait for button to return to Start state
@@ -69,6 +72,10 @@ test.describe('User Journey - Full Onboarding to Trend Analysis', () => {
         await expect(startButton).toBeVisible();
         await startButton.click();
         await expect(page.getByText('Stop').first()).toBeVisible({ timeout: 10000 });
+
+        // Wait to comply with 5s minimum session duration
+        await page.waitForTimeout(6000);
+        await startButton.click();
 
         console.log('[TEST] ✅ Pro user can start session (default mode available)');
     });
@@ -110,6 +117,8 @@ test.describe('Free User Tier Restrictions', () => {
         await expect(page.getByText('Stop').first()).toBeVisible({ timeout: 10000 });
         console.log('[TEST] ✅ Free user can start session with Native Browser');
 
+        // Wait to comply with 5s minimum session duration
+        await page.waitForTimeout(6000);
         await startButton.click();
         console.log('[TEST] ✅✅ Free user tier gating verified - only Native Browser available');
     });

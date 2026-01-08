@@ -1,8 +1,9 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Mic, MicOff, Square, Play, Settings, ChevronDown } from 'lucide-react';
+import { Mic, MicOff, Square, Play, Settings, ChevronDown, AlertCircle } from 'lucide-react';
 import { TEST_IDS } from '@/constants/testIds';
+import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -11,7 +12,6 @@ import {
     DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu';
 
-const VERSION_ID = 'RUN_2026_01_02_10AM'; // Execution Proof
 export type RecordingMode = 'cloud' | 'native' | 'private';
 
 interface LiveRecordingCardProps {
@@ -22,6 +22,7 @@ interface LiveRecordingCardProps {
     isProUser: boolean;
     modelLoadingProgress: number | null;
     formattedTime: string;
+    elapsedSeconds: number; // Added for minimum session duration check
     isButtonDisabled: boolean;
     // Callbacks
     onModeChange: (mode: RecordingMode) => void;
@@ -41,11 +42,14 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
     isProUser,
     modelLoadingProgress,
     formattedTime,
+    elapsedSeconds,
     isButtonDisabled,
     onModeChange,
     onSettingsOpen,
     onStartStop,
 }) => {
+    // Check if session is too short to save
+    const isTooShort = isListening && elapsedSeconds > 0 && elapsedSeconds < MIN_SESSION_DURATION_SECONDS;
     const getModeLabel = (m: RecordingMode) => {
         switch (m) {
             case 'native':
@@ -99,9 +103,9 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
                         </Button>
                         <Badge
                             className={`${isListening && isReady
-                                ? 'bg-green-600 text-white border-green-600'
-                                : 'bg-secondary text-white border-secondary'
-                                }`}
+                                    ? 'bg-green-600 text-white border-green-600'
+                                    : 'bg-secondary text-white border-secondary'
+                                } `}
                             data-testid={TEST_IDS.SESSION_STATUS_INDICATOR}
                         >
                             {modelLoadingProgress !== null
@@ -116,8 +120,8 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
                 <div className="flex flex-col items-center py-4 bg-background/30 rounded-lg border border-white/10">
                     {/* Mic Icon Circle */}
                     <div
-                        className={`w-16 h-16 rounded-full flex items-center justify-center mb-4 ${isListening ? 'bg-red-500/20' : 'bg-primary'
-                            }`}
+                        className={`w - 16 h - 16 rounded - full flex items - center justify - center mb - 4 ${isListening ? 'bg-red-500/20' : 'bg-primary'
+                            } `}
                     >
                         {isListening ? (
                             <Mic className="w-8 h-8 text-red-500" strokeWidth={2} />
@@ -138,7 +142,7 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
                             <div className="h-2 bg-secondary rounded-full overflow-hidden">
                                 <div
                                     className="h-full bg-primary transition-all duration-300 ease-out"
-                                    style={{ width: `${modelLoadingProgress * 100}%` }}
+                                    style={{ width: `${modelLoadingProgress * 100}% ` }}
                                 />
                             </div>
                         </div>
@@ -153,6 +157,14 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
                                 ? 'Recording in progress...'
                                 : 'Click start to begin recording'}
                     </p>
+
+                    {/* Inline warning for short sessions */}
+                    {isTooShort && (
+                        <div className="flex items-center gap-2 mt-3 text-amber-500 text-sm" data-testid="short-session-warning">
+                            <AlertCircle className="h-4 w-4" />
+                            <span>Record at least {MIN_SESSION_DURATION_SECONDS} seconds for accurate metrics</span>
+                        </div>
+                    )}
                 </div>
 
                 {/* Control Button - Outside shaded box */}

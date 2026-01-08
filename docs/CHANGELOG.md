@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-01-06
+**Last Reviewed:** 2026-01-07
 
 # Changelog
 
@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Unreleased
 
 ### Added
+- **Minimum Session Duration Policy (2026-01-06):**
+  - Implemented 5-second minimum duration for sessions to ensure data quality.
+  - Added inline warnings in `LiveRecordingCard.tsx` for short sessions.
+  - Added toast notifications and stop-prevention in `SessionPage.tsx`.
+  - Updated 8+ E2E test files to comply with the 5s minimum wait time.
+- **Frontend UX Standards Documentation:** Consolidated UI/UX patterns, notification hierarchy, and metric precision standards into `PRD.md` and `ARCHITECTURE.md`.
 - **Private STT Integration Tests**: New `PrivateSTT.integration.test.ts` covering engine selection, WebGPU detection, and fallback logic (C1).
 - **CI Dependency Caching**: Explicit pnpm store caching via `actions/cache` in `setup-environment` action (2.1).
 - **Live E2E Test Infrastructure (2026-01-06):**
@@ -37,9 +43,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `auth-real.e2e.spec.ts`: Changed to `goToPublicRoute` helper for signin navigation per architecture guidelines
   - Fixed incorrect testid (`user-profile-menu` → `nav-sign-out-button`)
 - **Filler Words/Min Calculation (2026-01-06):**
-  - Fixed rounding bug in `analyticsUtils.ts` that caused inaccurate filler rates for short sessions
-  - Now uses industry-standard formula: `Filler Rate = Total Fillers / Total Speaking Time (precise minutes)`
-  - Previously used `Math.round()` which caused divide-by-zero for sessions under 30 seconds
+  - Fixed rounding bug in `analyticsUtils.ts` that caused inaccurate filler rates for short sessions.
+  - Now uses industry-standard formula: `Filler Rate = Total Fillers / Total Speaking Time (precise minutes)`.
+  - Previously used `Math.round()` on minutes, which caused divide-by-zero or inflated rates for sessions under 30 seconds.
+- **E2E Test Stability & Context Preservation:**
+  - Replaced `page.goto()` with `navigateToRoute()` across all spec files to prevent MSW context loss after programmatic login.
+  - Fixed generic `any` types in `mock-routes.ts` for improved type safety.
+  - Resolved `useEffect` dependency warnings and unused variables in `SessionPage.tsx` and `LiveRecordingCard.tsx`.
+- **Canary Test Selector Fix (2026-01-07):**
+  - Updated `smoke.canary.spec.ts` and `user-filler-words.canary.spec.ts` to use `data-testid` selectors.
+  - Root cause: `input[type="email"]` selector didn't match SignInPage which uses `data-testid="email-input"`.
 
 ### Tech Debt Resolved (Jan 2026)
 - **23 items closed** from 4 independent code reviews (Dec 2025 - Jan 2026):

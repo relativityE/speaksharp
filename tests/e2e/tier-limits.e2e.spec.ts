@@ -1,10 +1,9 @@
 import { test, expect } from '@playwright/test';
 import {
     programmaticLoginWithRoutes,
-    navigateToRoute,
-    mockLiveTranscript
+    navigateToRoute
 } from './helpers';
-import { setupE2EMocks, registerEdgeFunctionMock } from './mock-routes';
+import { registerEdgeFunctionMock } from './mock-routes';
 
 test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
 

@@ -56,6 +56,8 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
         await expect(page.getByText('Clarity Score')).toBeVisible();
         console.log('[FREE] ✅ Clarity Score metric visible');
 
+        // Wait to comply with 5s minimum session duration
+        await page.waitForTimeout(6000);
         // Stop session
         await startButton.click();
         await expect(page.getByText('Start').first()).toBeVisible({ timeout: 5000 });

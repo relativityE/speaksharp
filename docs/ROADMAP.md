@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-01-06
+**Last Reviewed:** 2026-01-07
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -285,12 +285,11 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - **Formula:** `Filler Rate = Total Fillers / Total Speaking Time (precise minutes)`
   - **Status:** ✅ RESOLVED - Unit tests passing
 
-- **🟡 Minimum Session Duration Warning Missing (2026-01-06)**
-  - No toast/warning shown to users when sessions are too short to save or analyze meaningfully.
-  - Sessions under ~5 seconds may not generate useful metrics.
-  - **UX Impact:** Users unaware their session wasn't saved or has unreliable data.
-  - **Recommended Fix:** Add toast notification when session < 5 sec explaining minimum duration required.
-  - **Status:** P2 - UX improvement for beta
+- **✅ FIXED - Minimum Session Duration Warning (2026-01-06)**
+  - Users were previously unaware why sessions under 5s weren't saved or analyzed.
+  - **Fix Applied:** Added inline warning in `LiveRecordingCard` and a warning toast when stopping prematurely.
+  - **Policy:** Sessions < 5s are discarded to maintain data integrity.
+  - **Status:** ✅ RESOLVED - Implemented & Documented in UI/UX Standards
 
 #### Parked
 

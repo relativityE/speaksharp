@@ -1,6 +1,6 @@
 
 **Owner:** [unassigned]
-**Last Reviewed:** 2025-12-18
+**Last Reviewed:** 2026-01-07
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -124,7 +124,36 @@ This section provides a granular breakdown of user-facing features, grouped by p
 
 ---
 
-## 3. Testing Strategy
+## 3. UX Standards & Product Guardrails
+
+To maintain a consistent and premium user experience, SpeakSharp follows these standard feedback and data integrity patterns.
+
+### 3.1 Feedback & Notification Hierarchy
+
+We use a tiered approach to user feedback based on the severity and context.
+
+| Severity | Pattern | Trigger | Goal |
+|-----------|---------|---------|------|
+| **Critical** | Modal / Dialog | Blockers, Tier limits, permanent deletes. | Force acknowledgement before proceeding. |
+| **Warning** | Inline Message | Real-time status (e.g. short session warning). | Contextual guidance without breaking flow. |
+| **Info** | Toast (Sonner) | Background success confirmations. | Non-blocking confirmation of transient events. |
+| **Persistent**| Badge | Core state (e.g. "Recording", "Pro"). | Constant at-a-glance information. |
+
+### 3.2 Session Duration Policy
+
+To ensure data integrity and meaningful analysis:
+*   **Minimum Duration:** 5 seconds (`MIN_SESSION_DURATION_SECONDS`).
+*   **Enforcement:** Sessions under 5 seconds are **discarded** and not saved to the database.
+*   **User Feedback:** Users see an inline warning during recording and a toast explanation if they stop prematurely.
+
+### 3.3 Metric Calculation Standards
+
+*   **Filler Rate (FW/min):** `Total Fillers / (Total Duration Seconds / 60)`. Must use precise minutes for calculation to ensure accuracy in short sessions.
+*   **Aggregation:** Dashboard metrics represent the aggregate of the user's entire history (Single Source of Truth).
+
+---
+
+## 4. Testing Strategy
 
 The project's testing strategy prioritizes stability, reliability, and a tight alignment between the local development environment and the CI/CD pipeline.
 
@@ -141,7 +170,7 @@ The project's testing strategy prioritizes stability, reliability, and a tight a
 
 ---
 
-## 4. Known Issues & Risks
+## 5. Known Issues & Risks
 
 This section tracks **active** product risks and constraints only. Resolved issues are documented in `CHANGELOG.md`.
 
@@ -178,7 +207,7 @@ For E2E infrastructure troubleshooting, see [tests/TROUBLESHOOTING.md](../tests/
 
 ---
 
-## 5. Development Roadmap
+## 6. Development Roadmap
 The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). This board provides a two-dimensional view of our project tasks, combining Phased Milestones with MoSCoW Prioritization.
 
 ---
@@ -186,7 +215,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Wed, 31 Dec 2025 14:56:12 GMT
+**Last Updated:** Wed, 07 Jan 2026 23:38:33 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -202,14 +231,14 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 489 (432 unit + 57 E2E) |
-| Unit tests              | 432   |
-| E2E tests (Playwright)  | 57  |
-| Passing tests           | 489 (432 unit + 57 E2E)   |
-| Failing tests           | 0   |
-| Disabled/skipped tests  | 0 (E2E only)   |
-| Passing unit tests      | 432/432 (100.0%)   |
-| Passing E2E tests       | 57/57 (100.0%)   |
+| Total tests             | 446 (376 unit + 70 E2E) |
+| Unit tests              | 376   |
+| E2E tests (Playwright)  | 70  |
+| Passing tests           | 441 (376 unit + 65 E2E)   |
+| Failing tests           | 1   |
+| Disabled/skipped tests  | 4 (E2E only)   |
+| Passing unit tests      | 376/376 (100.0%)   |
+| Passing E2E tests       | 65/70 (92.9%)   |
 | Total runtime           | See CI logs   |
 
 ---
@@ -218,10 +247,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | 57.47%   |
-| Branches   | 78.55%   |
-| Functions  | 73.59%   |
-| Lines      | 57.47%   |
+| Statements | 54.37%   |
+| Branches   | 78.02%   |
+| Functions  | 65.93%   |
+| Lines      | 54.37%   |
 
 ---
 
@@ -229,16 +258,16 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric              | Value |
 | ------------------- | ----- |
-| Total Source Size   | 3.5M   |
-| Total Project Size  | 1.4G   |
-| Initial Chunk Size  | 884K   |
-| Code Bloat Index    | 24.94%   |
-| Lighthouse Scores   | P: 100, A: 94, BP: 100, SEO: 91 |
+| Total Source Size   | 7.9M   |
+| Total Project Size  | 2.0G   |
+| Initial Chunk Size  | 640K   |
+| Code Bloat Index    | 7.92%   |
+| Lighthouse Scores   | P: 95, A: 94, BP: 100, SEO: 91 |
 
 ---
 <!-- SQM:END -->
 
-## 7. Metrics and Success Criteria
+## 8. Metrics and Success Criteria
 
 ### Service Level Indicators (SLIs) & Objectives (SLOs)
 
@@ -262,7 +291,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 ---
 
-## 8. Future Enhancements / Opportunities
+## 9. Future Enhancements / Opportunities
 
 ### Feature Proposal: Rolling Accuracy Comparison of STT Engines (Native, Cloud, Private)
 **Goal:** Improve transparency and user trust.
@@ -279,7 +308,7 @@ We can strengthen user confidence by adding a feature that compares accuracy acr
 
 ---
 
-## 9. Strategic Review & Analysis
+## 10. Strategic Review & Analysis
 
 This section provides high-level insights into the SpeakSharp project from multiple senior perspectives.
 
@@ -391,7 +420,7 @@ This section provides high-level insights into the SpeakSharp project from multi
 
 ---
 
-## 8. Deployment (Alpha Release)
+## 11. Deployment (Alpha Release)
 
 This section provides a complete step-by-step guide to deploy SpeakSharp to Vercel for alpha testing with new users.
 

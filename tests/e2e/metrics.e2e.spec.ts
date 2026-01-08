@@ -21,6 +21,9 @@ test.describe('Session Metrics', () => {
         await expect(page.getByRole('button', { name: /stop/i })).toBeVisible({ timeout: 15000 });
         console.log('[TEST] ✅ Stop button visible - recording active');
 
+        // Wait to ensure timer ticks (elapsedTime > 0) so WPM calculation works
+        await page.waitForTimeout(1500);
+
         // Target the WPM card
         const wpmValue = page.getByTestId(TEST_IDS.WPM_VALUE);
 

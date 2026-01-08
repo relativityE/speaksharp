@@ -129,8 +129,7 @@ let userWordStore: Map<string, Array<{ id: string; user_id: string; word: string
 
 // Per-test state for sessions (resets on each setupE2EMocks call)
 // Initialize with mock history
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let sessionStore: any[] = [];
+let sessionStore: Array<Record<string, unknown>> = [];
 
 // ============================================================================
 // ROUTE HANDLERS
@@ -201,8 +200,7 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
         // Check if profile override flag is set (for free user testing)
         // Read override from window flag (set by setupE2EMocks or test)
         const profileOverride = await route.request().frame()?.page()?.evaluate(() => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            return (window as any).__E2E_MOCK_PROFILE__ as { id: string; subscription_status: string } | undefined;
+            return (window as Window & { __E2E_MOCK_PROFILE__?: { id: string; subscription_status: string } }).__E2E_MOCK_PROFILE__;
         }).catch(() => undefined);
 
         // Merge: MOCK_USER_PROFILE (base) -> statefulProfile (state) -> profileOverride (hard override)
@@ -228,8 +226,7 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
         // Check if empty sessions flag is set in the page context
         // The flag is set via page.addInitScript() BEFORE navigation
         const isEmpty = await route.request().frame()?.page()?.evaluate(() => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            return !!(window as any).__E2E_EMPTY_SESSIONS__;
+            return !!(window as Window & { __E2E_EMPTY_SESSIONS__?: boolean }).__E2E_EMPTY_SESSIONS__;
         }).catch(() => false);
 
         if (isEmpty) {
@@ -419,8 +416,7 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
     await registerRoute(page, '**/functions/v1/check-usage-limit', async (route) => {
         // Determine subscription status from mock profile injection
         const profileOverride = await route.request().frame()?.page()?.evaluate(() => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            return (window as any).__E2E_MOCK_PROFILE__ as { id: string; subscription_status: string } | undefined;
+            return (window as Window & { __E2E_MOCK_PROFILE__?: { id: string; subscription_status: string } }).__E2E_MOCK_PROFILE__;
         }).catch(() => undefined);
 
         const isPro = profileOverride?.subscription_status === 'pro';
@@ -447,12 +443,13 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
 export async function registerEdgeFunctionMock(
     page: Page,
     functionName: string,
-    response: { status?: number; contentType?: string; body: any } | any
+    response: { status?: number; contentType?: string; body: unknown } | unknown
 ): Promise<void> {
     const isFullResponse = response && typeof response === 'object' && ('body' in response || 'status' in response);
-    const status = isFullResponse ? (response.status || 200) : 200;
-    const contentType = isFullResponse ? (response.contentType || 'application/json') : 'application/json';
-    const body = isFullResponse ? response.body : response;
+    const resObj = response as { status?: number; contentType?: string; body?: unknown };
+    const status = isFullResponse ? (resObj.status || 200) : 200;
+    const contentType = isFullResponse ? (resObj.contentType || 'application/json') : 'application/json';
+    const body = isFullResponse && 'body' in resObj ? resObj.body : response;
 
     await page.route(`**/functions/v1/${functionName}`, async (route) => {
         console.log(`[E2E MOCK OVERRIDE] Fulfilling ${functionName} with custom mock`);
@@ -510,8 +507,8 @@ export async function setupStrictAllowList(page: Page): Promise<void> {
  * 
  * Call this before navigating to your app:
  * ```ts
-    * await setupE2EMocks(page);
- * await page.goto('/');
+ * await setupE2EMocks(page);
+ * await navigateToRoute(page, '/');
  * ```
  * 
  * @param page - Playwright Page object

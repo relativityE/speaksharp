@@ -38,8 +38,8 @@ test.describe('Core User Journey', () => {
             "Basically, we need to improve performance."
         ]);
 
-        // Wait to accumulate some duration
-        await page.waitForTimeout(2000);
+        // Wait to accumulate some duration (Must be > 5s per policy)
+        await page.waitForTimeout(6000);
 
         // 5. Stop Recording
         const stopButton = page.getByTestId('session-start-stop-button');
@@ -51,7 +51,7 @@ test.describe('Core User Journey', () => {
         console.log('[TEST] ✅ Session stopped');
 
         // Use page.goto for reliable navigation (link-based navigation has React Router issues in tests)
-        await page.goto('/analytics');
+        await navigateToRoute(page, '/analytics');
         await page.waitForLoadState('domcontentloaded');
         console.log('[TEST] ✅ Navigated to /analytics via goto');
 

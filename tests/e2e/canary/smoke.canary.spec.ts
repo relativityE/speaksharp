@@ -23,12 +23,12 @@ async function canaryLogin(page: Page): Promise<void> {
 
     // Navigate to sign-in page using public route helper
     await goToPublicRoute(page, ROUTES.SIGN_IN);
-    await page.waitForSelector('input[type="email"]', { timeout: 10000 });
+    await page.waitForSelector('[data-testid="email-input"]', { timeout: 10000 });
 
     // Fill credentials (like soak test)
-    await page.fill('input[type="email"]', CANARY_EMAIL);
-    await page.fill('input[type="password"]', CANARY_PASSWORD);
-    await page.getByRole('button', { name: /sign in/i }).click();
+    await page.getByTestId('email-input').fill(CANARY_EMAIL);
+    await page.getByTestId('password-input').fill(CANARY_PASSWORD);
+    await page.getByTestId('sign-in-submit').click();
 
     // Wait for redirect (like soak test)
     await page.waitForURL((url) =>

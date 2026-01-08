@@ -79,6 +79,8 @@ test.describe('User Filler Words UI & Detection (Local)', () => {
         await mockLiveTranscript(page, ['This is a detectiontest for antigravity.']);
 
         // 7. Assert "Filler Words" count increased (custom word detected)
+        // Wait for filler detection to process
+        await page.waitForTimeout(1500);
         // Use the reliable testid instead of badge text which can be flaky
         const fillerCountValue = page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE);
         await expect(fillerCountValue).not.toHaveText('0', { timeout: 10000 });

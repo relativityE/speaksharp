@@ -96,8 +96,8 @@ describe('UserFillerWordsManager Integration', () => {
             } as any);
 
             vi.mocked(useUserFillerWords).mockReturnValue({
+                userFillerWords: [],
                 fullVocabularyObjects: [],
-                vocabularyWords: [],
                 isLoading: false,
                 error: null,
                 addWord: mockAddWord,
@@ -105,9 +105,9 @@ describe('UserFillerWordsManager Integration', () => {
                 isAdding: false,
                 isRemoving: false,
                 count: 0,
-                maxWords: 10,
+                maxWords: 10,  // Free tier limit
                 isPro: false
-            });
+            } as unknown as ReturnType<typeof useUserFillerWords>);
         });
 
         it('shows user filler words manager for free users', () => {
@@ -146,11 +146,11 @@ describe('UserFillerWordsManager Integration', () => {
             } as any);
 
             vi.mocked(useUserFillerWords).mockReturnValue({
+                userFillerWords: ['blockchain', 'kubernetes'],
                 fullVocabularyObjects: [
                     { id: '1', word: 'blockchain', user_id: 'test-user', created_at: new Date().toISOString() },
                     { id: '2', word: 'kubernetes', user_id: 'test-user', created_at: new Date().toISOString() },
                 ],
-                vocabularyWords: ['blockchain', 'kubernetes'],
                 isLoading: false,
                 error: null,
                 addWord: mockAddWord,
@@ -160,7 +160,7 @@ describe('UserFillerWordsManager Integration', () => {
                 count: 2,
                 maxWords: 100,
                 isPro: true
-            });
+            } as ReturnType<typeof useUserFillerWords>);
         });
 
         it('displays existing filler words', () => {
@@ -248,8 +248,8 @@ describe('UserFillerWordsManager Integration', () => {
         it('shows loading skeleton while fetching', () => {
             mockAuthContextValue.user = { id: 'test-user' } as any;
             vi.mocked(useUserFillerWords).mockReturnValue({
+                userFillerWords: [],
                 fullVocabularyObjects: [],
-                vocabularyWords: [],
                 isLoading: true,
                 error: null,
                 addWord: mockAddWord,
@@ -259,7 +259,7 @@ describe('UserFillerWordsManager Integration', () => {
                 count: 0,
                 maxWords: 100,
                 isPro: true
-            });
+            } as ReturnType<typeof useUserFillerWords>);
 
             render(
                 <MockAuthProvider value={mockAuthContextValue}>
