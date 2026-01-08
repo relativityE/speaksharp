@@ -215,7 +215,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Wed, 07 Jan 2026 23:38:33 GMT
+**Last Updated:** Thu, 08 Jan 2026 01:30:18 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -231,14 +231,14 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 446 (376 unit + 70 E2E) |
+| Total tests             | 443 (376 unit + 67 E2E) |
 | Unit tests              | 376   |
-| E2E tests (Playwright)  | 70  |
-| Passing tests           | 441 (376 unit + 65 E2E)   |
-| Failing tests           | 1   |
+| E2E tests (Playwright)  | 67  |
+| Passing tests           | 439 (376 unit + 63 E2E)   |
+| Failing tests           | 0   |
 | Disabled/skipped tests  | 4 (E2E only)   |
 | Passing unit tests      | 376/376 (100.0%)   |
-| Passing E2E tests       | 65/70 (92.9%)   |
+| Passing E2E tests       | 63/67 (94.0%)   |
 | Total runtime           | See CI logs   |
 
 ---
@@ -247,10 +247,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | 54.37%   |
-| Branches   | 78.02%   |
-| Functions  | 65.93%   |
-| Lines      | 54.37%   |
+| Statements | 55.02%   |
+| Branches   | 78.08%   |
+| Functions  | 66.11%   |
+| Lines      | 55.02%   |
 
 ---
 
@@ -258,11 +258,11 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric              | Value |
 | ------------------- | ----- |
-| Total Source Size   | 7.9M   |
-| Total Project Size  | 2.0G   |
+| Total Source Size   | 6.2M   |
+| Total Project Size  | 1.3G   |
 | Initial Chunk Size  | 640K   |
-| Code Bloat Index    | 7.92%   |
-| Lighthouse Scores   | P: 95, A: 94, BP: 100, SEO: 91 |
+| Code Bloat Index    | 10.18%   |
+| Lighthouse Scores   | P: 0, A: 0, BP: 0, SEO: 0 |
 
 ---
 <!-- SQM:END -->
