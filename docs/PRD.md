@@ -215,7 +215,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Thu, 08 Jan 2026 01:30:18 GMT
+**Last Updated:** Sat, 10 Jan 2026 23:36:31 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -231,14 +231,14 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 443 (376 unit + 67 E2E) |
+| Total tests             | 442 (376 unit + 66 E2E) |
 | Unit tests              | 376   |
-| E2E tests (Playwright)  | 67  |
-| Passing tests           | 439 (376 unit + 63 E2E)   |
+| E2E tests (Playwright)  | 66  |
+| Passing tests           | 438 (376 unit + 62 E2E)   |
 | Failing tests           | 0   |
 | Disabled/skipped tests  | 4 (E2E only)   |
 | Passing unit tests      | 376/376 (100.0%)   |
-| Passing E2E tests       | 63/67 (94.0%)   |
+| Passing E2E tests       | 62/66 (93.9%)   |
 | Total runtime           | See CI logs   |
 
 ---
@@ -247,10 +247,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | 55.02%   |
-| Branches   | 78.08%   |
+| Statements | 55%   |
+| Branches   | 78.04%   |
 | Functions  | 66.11%   |
-| Lines      | 55.02%   |
+| Lines      | 55%   |
 
 ---
 
@@ -259,7 +259,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 | Metric              | Value |
 | ------------------- | ----- |
 | Total Source Size   | 6.2M   |
-| Total Project Size  | 1.3G   |
+| Total Project Size  | 1.4G   |
 | Initial Chunk Size  | 640K   |
 | Code Bloat Index    | 10.18%   |
 | Lighthouse Scores   | P: 0, A: 0, BP: 0, SEO: 0 |
