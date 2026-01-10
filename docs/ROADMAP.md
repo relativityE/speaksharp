@@ -29,6 +29,15 @@ Status Key: 🟡 In Progress | 🔴 Not Started | ✅ Complete | 🛡️ Gap Rem
 
 ---
 
+## 📽️ Marketing & Growth
+
+### Homepage "How It Works" Video
+- 🟡 **60-Second Product Demo Video:** Problem → Solution → Benefit structure
+  - Privacy indicator UI enhancement (shows "On-Device" badge during Private STT)
+  - Recording checklist: Pro account, clean session history, Chrome 1920x1080 dark mode
+  - Tools: Descript/OBS (recording), ElevenLabs (voice-over), Canva (kinetic typography)
+
+---
 
 ## Phase 1: Stabilize & Harden the MVP
 This phase focuses on fixing critical bugs, addressing code health, and ensuring the existing features are reliable and robust.

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Mic, MicOff, Square, Play, Settings, ChevronDown, AlertCircle } from 'lucide-react';
+import { Mic, MicOff, Square, Play, Settings, ChevronDown, AlertCircle, Shield } from 'lucide-react';
 import { TEST_IDS } from '@/constants/testIds';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import {
@@ -114,6 +114,16 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
                                     ? (isReady ? '● Recording' : 'Connecting...')
                                     : 'Ready'}
                         </Badge>
+                        {/* Privacy indicator for Private STT mode */}
+                        {isListening && mode === 'private' && (
+                            <Badge
+                                className="bg-emerald-600/90 text-white border-emerald-600 gap-1"
+                                data-testid="privacy-indicator"
+                            >
+                                <Shield className="h-3 w-3" />
+                                On-Device
+                            </Badge>
+                        )}
                     </div>
                 </div>
 
