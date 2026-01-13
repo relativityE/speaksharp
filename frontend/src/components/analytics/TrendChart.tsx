@@ -32,37 +32,43 @@ export const TrendChart: React.FC<TrendChartProps> = ({ data, metric, title, des
                 {description && <CardDescription>{description}</CardDescription>}
             </CardHeader>
             <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={data}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                        <XAxis
-                            dataKey="date"
-                            className="text-xs"
-                            tick={{ fill: 'hsl(var(--muted-foreground))' }}
-                        />
-                        <YAxis
-                            className="text-xs"
-                            tick={{ fill: 'hsl(var(--muted-foreground))' }}
-                        />
-                        <Tooltip
-                            contentStyle={{
-                                backgroundColor: 'hsl(var(--card))',
-                                border: '1px solid hsl(var(--border))',
-                                borderRadius: '8px'
-                            }}
-                        />
-                        <Legend />
-                        <Line
-                            type="monotone"
-                            dataKey={metric}
-                            stroke={config.color}
-                            strokeWidth={2}
-                            name={`${config.label}${config.unit}`}
-                            dot={{ fill: config.color, r: 4 }}
-                            activeDot={{ r: 6 }}
-                        />
-                    </LineChart>
-                </ResponsiveContainer>
+                {data.length < 2 ? (
+                    <div className="flex items-center justify-center h-[300px] text-center text-muted-foreground">
+                        <p>Complete at least 2 sessions to see your {config.label.toLowerCase()} trend.</p>
+                    </div>
+                ) : (
+                    <ResponsiveContainer width="100%" height={300}>
+                        <LineChart data={data}>
+                            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                            <XAxis
+                                dataKey="date"
+                                className="text-xs"
+                                tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                            />
+                            <YAxis
+                                className="text-xs"
+                                tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                            />
+                            <Tooltip
+                                contentStyle={{
+                                    backgroundColor: 'hsl(var(--card))',
+                                    border: '1px solid hsl(var(--border))',
+                                    borderRadius: '8px'
+                                }}
+                            />
+                            <Legend />
+                            <Line
+                                type="monotone"
+                                dataKey={metric}
+                                stroke={config.color}
+                                strokeWidth={2}
+                                name={`${config.label}${config.unit}`}
+                                dot={{ fill: config.color, r: 4 }}
+                                activeDot={{ r: 6 }}
+                            />
+                        </LineChart>
+                    </ResponsiveContainer>
+                )}
             </CardContent>
         </Card>
     );

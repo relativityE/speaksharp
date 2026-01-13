@@ -114,7 +114,11 @@ const renderApp = async (initialSession: Session | null = null) => {
         ? Promise.resolve(null)
         : import('@stripe/stripe-js').then(({ loadStripe }) =>
           loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY!)
-        );
+        ).catch((error) => {
+          // Gracefully handle ad-blocker blocking Stripe CDN
+          console.warn('[Stripe] ⚠️ Failed to load (possibly blocked by ad-blocker):', error.message);
+          return null;
+        });
 
       // Get initial session (mock if in E2E mode)
       let sessionToUse = initialSession;
