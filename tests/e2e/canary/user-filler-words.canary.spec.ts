@@ -36,7 +36,10 @@ async function canaryLogin(page: Page): Promise<void> {
     const start = Date.now();
 
     await goToPublicRoute(page, ROUTES.SIGN_IN);
-    await page.waitForSelector('[data-testid="email-input"]', { timeout: 10000 });
+
+    // Wait for React hydration and auth loading state to complete
+    await page.waitForLoadState('networkidle');
+    await page.waitForSelector('[data-testid="email-input"]', { timeout: 30000 });
 
     await page.getByTestId('email-input').fill(CANARY_EMAIL);
     await page.getByTestId('password-input').fill(CANARY_PASSWORD);

@@ -23,7 +23,11 @@ async function canaryLogin(page: Page): Promise<void> {
 
     // Navigate to sign-in page using public route helper
     await goToPublicRoute(page, ROUTES.SIGN_IN);
-    await page.waitForSelector('[data-testid="email-input"]', { timeout: 10000 });
+
+    // Wait for React hydration and auth loading state to complete
+    // The sign-in page has a loading spinner that appears while checking auth state
+    await page.waitForLoadState('networkidle');
+    await page.waitForSelector('[data-testid="email-input"]', { timeout: 30000 });
 
     // Fill credentials (like soak test)
     await page.getByTestId('email-input').fill(CANARY_EMAIL);
