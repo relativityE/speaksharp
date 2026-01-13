@@ -37,6 +37,7 @@ jobs:
           VITE_SUPABASE_URL=${{ secrets.SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
           VITE_STRIPE_PUBLISHABLE_KEY=pk_test_mock
+          VITE_SENTRY_DSN=https://placeholder@sentry.io/0
           EOF
           echo "Created .env.development with $(wc -l < .env.development) lines"
 
