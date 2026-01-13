@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-01-07
+**Last Reviewed:** 2026-01-13
 
 # Changelog
 
@@ -9,6 +9,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Unreleased
+
+### Fixed (2026-01-12) - Analytics & Supabase Optimization
+
+- **TrendChart Empty State (UI Fix):**
+  - **Problem:** Speaking Pace Trend and Clarity Trend charts showed empty (only legend visible) when <2 sessions existed.
+  - **Root Cause:** Charts require 2+ data points to render a line; empty data caused Recharts width/height -1 error.
+  - **Fix:** Added conditional rendering with user-friendly message: "Complete at least 2 sessions to see your {metric} trend."
+  - **File:** `frontend/src/components/analytics/TrendChart.tsx`
+
+- **Missing Build Dependency:**
+  - **Problem:** Build failed with "Rollup failed to resolve import @xenova/transformers"
+  - **Root Cause:** Package referenced in `vite.config.mjs` manualChunks but not in package.json.
+  - **Fix:** Added `@xenova/transformers` v2.17.2 dependency.
+  - **File:** `package.json`
+
+- **Stripe Ad-Blocker Error Handling:**
+  - **Problem:** Console showed `ERR_BLOCKED_BY_CLIENT` errors when ad-blockers blocked Stripe.js CDN.
+  - **Fix:** Added `.catch()` handler to gracefully degrade when Stripe is blocked.
+  - **File:** `frontend/src/main.tsx`
+
+- **Supabase RLS Performance Warnings (SQL Migration):**
+  - **Problem:** Supabase linter reported auth_rls_initplan warnings for 7 policies re-evaluating `auth.uid()` per row.
+  - **Fix:** Wrapped `auth.uid()` in `(SELECT auth.uid())` and consolidated duplicate policies.
+  - **Tables:** user_profiles, user_filler_words, sessions, user_goals, promo_codes, promo_redemptions
+  - **File:** `supabase/migrations/20260112_fix_rls_security_performance.sql`
+
+- **Supabase Function Security (SQL Migration):**
+  - **Problem:** 3 functions had mutable search_path warnings.
+  - **Fix:** Added `SET search_path = public` to functions.
+  - **Functions:** update_user_goals_updated_at, handle_new_user, check_usage_limit
+  - **File:** `supabase/migrations/20260112_fix_rls_security_performance.sql`
+
+- **Missing Database Index (SQL Migration):**
+  - **Problem:** `promo_redemptions` foreign key had no covering index.
+  - **Fix:** Added `idx_promo_redemptions_user_id` index.
+  - **File:** `supabase/migrations/20260112_fix_rls_security_performance.sql`
+
+- **Canary Test CI Failures:**
+  - **Problem 1:** Sign-in page timeout (10s) too short for React hydration + auth check.
+  - **Problem 2:** Missing `VITE_SENTRY_DSN` in CI .env.development caused app to show ConfigurationNeededPage.
+  - **Fix 1:** Increased timeout to 30s, added `waitForLoadState('networkidle')`.
+  - **Fix 2:** Added `VITE_SENTRY_DSN=https://placeholder@sentry.io/0` to canary workflow.
+  - **Files:** `tests/e2e/canary/smoke.canary.spec.ts`, `tests/e2e/canary/user-filler-words.canary.spec.ts`, `.github/workflows/canary.yml`
+
+### Added (2026-01-12)
+
+- **Canary Tests Workflow Documentation:**
+  - Created `.agent/workflows/canary-tests.md` documenting how to run canary tests locally and via GitHub Actions.
+  - **File:** `.agent/workflows/canary-tests.md`
+
 
 ### Added
 - **Minimum Session Duration Policy (2026-01-06):**
