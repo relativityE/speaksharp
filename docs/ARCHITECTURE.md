@@ -647,6 +647,7 @@ The project uses a layered testing approach with six distinct categories:
 - `programmaticLoginWithRoutes()` sets up mock auth/routes
 - `navigateToRoute()` for client-side navigation (preserves mock context)
 - `goToPublicRoute()` for public pages like signin
+- **Includes User Journey Tests** (`*-journey.e2e.spec.ts`): 21 tests covering core-journey, user-journey, free-user-journey, pro-user-journey, upgrade-journey, bypass-journey
 
 **3. Live E2E Tests** (`tests/e2e/*-real*.spec.ts`)
 - Runs against real Supabase with GitHub Secrets
