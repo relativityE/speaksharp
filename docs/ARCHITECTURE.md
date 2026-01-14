@@ -442,6 +442,22 @@ The `whisper-turbo` engine uses a two-layer cache (Service Worker + IndexedDB) t
 > The production-only smoke test (`smoke/private-stt-integration.spec.ts`) validates this capability under explicit opt-in: `REAL_WHISPER_TEST=true`.  
 > Standard dev E2E uses MockEngine via `private-stt.e2e.spec.ts`.
 
+**Engine Selection by Environment:**
+
+| Environment | Engine Used | Why |
+|-------------|-------------|-----|
+| **E2E Tests (Playwright)** | MockEngine | `window.__E2E_PLAYWRIGHT__` detected |
+| **Unit Tests (Vitest)** | MockEngine | `window.TEST_MODE` detected |
+| **Smoke Tests** | MockEngine | Still runs in Playwright context |
+| **Production (WebGPU)** | WhisperTurbo → TransformersJS | Real fallback chain |
+| **Production (no WebGPU)** | TransformersJS | CPU-based ONNX runtime |
+
+> [!IMPORTANT]
+> **The WebGPU → CPU fallback chain only activates in production browsers.**
+> All automated tests use MockEngine for reliability and speed.
+> To test real engine behavior, use a production build in a real browser.
+
+
 
 *   **Testing:**
     *   **Unit/Integration:** Vitest (`^2.1.9`)
