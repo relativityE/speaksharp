@@ -112,6 +112,7 @@ run_build() {
 
 run_prepare_stage() {
     echo "🔐 Validating environment variables..."
+    ensure_artifacts_dir
     node scripts/validate-env.mjs
     run_preflight
     run_quality_checks
