@@ -9,7 +9,7 @@ Deno.serve(async (req: Request) => {
         const body = await req.json().catch(() => null);
         if (!body) return new Response(JSON.stringify({ error: "invalid_json" }), { status: 400 });
 
-        const { username, password, agent_secret } = body;
+        const { username, password, agent_secret, type } = body;
 
         // Basic validation
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -48,20 +48,44 @@ Deno.serve(async (req: Request) => {
         });
 
         if (error) {
-            // If user exists, maybe update password? Or just return error.
-            // For this specific test flow "promo-fix-test-1", we might want to Reset.
+            // ... (existing error handling)
             if (error.message.includes('already registered')) {
-                // Logic to fetch and update password could go here, but user asked for this specific code.
-                // I'll stick to the provided code but maybe add a note or minimal handling if implicit.
-                // Provided code returns 500 on error.
                 return new Response(JSON.stringify({ error: "create_failed", details: error }), { status: 500 });
             }
             return new Response(JSON.stringify({ error: "create_failed", details: error }), { status: 500 });
         }
 
-        if (!data) {
+        if (!data || !data.user) {
             return new Response(JSON.stringify({ error: "create_failed", details: "No data returned" }), { status: 500 });
         }
+
+        // Create Profile Logic
+        const userId = data.user.id;
+        let subscriptionStatus = 'free';
+        let usageLimit = 3600; // 1 hour default
+
+        if (type === 'pro') {
+            subscriptionStatus = 'pro';
+            usageLimit = -1; // Unlimited
+        }
+
+        const { error: profileError } = await supabase
+            .from('user_profiles')
+            .insert({
+                user_id: userId,
+                subscription_status: subscriptionStatus,
+                usage_limit: usageLimit,
+                // Add other default fields if necessary
+            });
+
+        if (profileError) {
+            console.error("Profile creation failed:", profileError);
+            // Note: User is created but profile failed. Should we delete user?
+            // For E2E, returning 500 is probably fine to fail the test.
+            return new Response(JSON.stringify({ error: "profile_creation_failed", details: profileError }), { status: 500 });
+        }
+
+
 
         // Return user info (avoid returning sensitive tokens in production)
         return new Response(JSON.stringify({ ok: true, user: { id: data.user?.id, email: data.user?.email } }), {

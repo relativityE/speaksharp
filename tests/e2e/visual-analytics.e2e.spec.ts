@@ -6,10 +6,11 @@
  * 
  * ## Prerequisites (Set these before running)
  * 
- * 1. `VISUAL_TEST_EMAIL` - Email of a pre-created Free user
- * 2. `VISUAL_TEST_PASSWORD` - Password for that user
- * 3. `VISUAL_TEST_PROMO_CODE` - A pre-generated promo code (use `npx tsx scripts/generate-promo.ts`)
- * 4. `VISUAL_TEST_BASE_URL` (optional) - Base URL to test against (defaults to localhost:5173)
+ * 1. `VISUAL_TEST_EMAIL` - (Optional) Email for the test user. Defaults to a timestamped email.
+ * 2. `VISUAL_TEST_PASSWORD` - (Optional) Password for that user. Defaults to a timestamped password.
+ * 3. `VISUAL_TEST_USER_TYPE` - (Optional) 'pro' (default) or 'free'. Determines user tier.
+ * 4. `VISUAL_TEST_PROMO_CODE` - (Required if USER_TYPE='free') A promo code to unlock Pro features.
+ * 5. `VISUAL_TEST_BASE_URL` - (Optional) Base URL to test against (defaults to localhost:5173)
  * 
  * ## How to Run
  * 
@@ -27,9 +28,13 @@ import { navigateToRoute, goToPublicRoute, attachLiveTranscript } from './helper
 
 // Configuration from environment
 // Use soak-test credentials for local E2E testing (same as CI)
-const EMAIL = process.env.VISUAL_TEST_EMAIL || 'promo-fix-test-1@test.com';
-const PASSWORD = process.env.VISUAL_TEST_PASSWORD || 'test-password';
-const PROMO_CODE = process.env.VISUAL_TEST_PROMO_CODE;
+// Generate a unique email for each run to ensure fresh provisioning
+const TIMESTAMP = Date.now();
+const EMAIL = process.env.VISUAL_TEST_EMAIL || `test-user-${TIMESTAMP}@test.com`;
+const PASSWORD = process.env.VISUAL_TEST_PASSWORD || `password-${TIMESTAMP}`;
+const USER_TYPE = (process.env.VISUAL_TEST_USER_TYPE || 'pro') as 'free' | 'pro';
+// TODO: Implement dynamic promo generation for the Free path (requires a new Edge Function or script)
+const PROMO_CODE = process.env.VISUAL_TEST_PROMO_CODE; // Only used if USER_TYPE === 'free'
 const BASE_URL = process.env.VISUAL_TEST_BASE_URL || 'http://localhost:5173';
 
 test.use({
@@ -44,9 +49,6 @@ test.describe('Visual Analytics & Private STT (Real-User Flow)', () => {
 
     test.beforeAll(async () => {
         console.log(`📧 Using test user: ${EMAIL}`);
-        if (!PROMO_CODE) {
-            console.warn('⚠️  VISUAL_TEST_PROMO_CODE not set. Promo step will be skipped.');
-        }
 
         const edgeFnUrl = process.env.EDGE_FN_URL;
         const agentSecret = process.env.AGENT_SECRET;
@@ -63,7 +65,8 @@ test.describe('Visual Analytics & Private STT (Real-User Flow)', () => {
                     body: JSON.stringify({
                         username: EMAIL,
                         password: PASSWORD,
-                        agent_secret: agentSecret
+                        agent_secret: agentSecret,
+                        type: USER_TYPE
                     })
                 });
 
@@ -105,8 +108,9 @@ test.describe('Visual Analytics & Private STT (Real-User Flow)', () => {
         await page.waitForURL('/', { timeout: 30000 });
         await expect(page.getByTestId('app-main')).toBeVisible({ timeout: 10000 });
 
-        // 2. Apply Promo Code (if provided)
-        if (PROMO_CODE) {
+
+        // 2. Apply Promo Code (only for Free users)
+        if (USER_TYPE === 'free' && PROMO_CODE) {
             await navigateToRoute(page, '/', { waitForMocks: false });
             const promoInput = page.getByPlaceholder('Enter promo code');
             const applyBtn = page.getByRole('button', { name: 'Apply' });
