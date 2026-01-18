@@ -111,7 +111,7 @@ test.describe('Visual Analytics & Private STT (Real-User Flow)', () => {
             page.waitForURL(url => url.pathname === '/' || url.pathname === '/session', { timeout: 60000 }),
             page.getByTestId('sign-in-submit').click()
         ]).catch(async (err) => {
-            console.error('❌ Login navigation failed or timed out:', err);
+            console.error(`❌ Login navigation failed or timed out (Started at: ${loginUrl}):`, err);
             await page.screenshot({ path: 'test-results/login-failure.png' });
             console.log('Current URL at failure:', page.url());
             throw err;
