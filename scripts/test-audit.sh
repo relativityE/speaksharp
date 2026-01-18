@@ -15,6 +15,21 @@ ensure_artifacts_dir() {
     mkdir -p "$ARTIFACTS_DIR"
 }
 
+# Filter Playwright output to remove attachment and usage noise (unless CI_DEBUG=true)
+filter_playwright_output() {
+    # Silence verbose Playwright output unless CI_DEBUG is set
+    if [ "${CI_DEBUG:-false}" = "true" ]; then
+        cat
+    else
+        # 1. Filter out attachment noise, usage instructions, and trace messages
+        # 2. Strip browser prefixes like '[chromium] › ' 
+        # 3. Strip line numbers like ':12:3 › '
+        grep --line-buffered -vE "^\s+attachment #[0-9]+:|Usage:|pnpm exec playwright show-trace|^\s+test-results/playwright/.*|^\s*──+|^\s*──+$|useUsageLimit.*FunctionsFetchError" | \
+        sed -u -E 's/^.*\[(chromium|firefox|webkit|mobile).*\] › //' | \
+        sed -u -E 's/:[0-9]+:[0-9]+ › / › /g' || true
+    fi
+}
+
 # --- Stage Functions ---
 
 run_preflight() {
@@ -26,11 +41,12 @@ run_preflight() {
 run_quality_checks() {
     echo "✅ [2/6] Running Code Quality Checks..."
     
-    # Run lint and typecheck in parallel for speed
-    echo "Running Lint & Typecheck in parallel..."
-    pnpm lint &
+    # Run lint and typecheck in parallel, silencing successful output
+    echo "   🔍 Lint..."
+    pnpm lint --quiet > /dev/null 2>&1 &
     LINT_PID=$!
-    pnpm typecheck &
+    echo "   🔍 Typecheck..."
+    pnpm typecheck > /dev/null 2>&1 &
     TC_PID=$!
     
     # Wait for both and capture exit codes
@@ -40,42 +56,55 @@ run_quality_checks() {
     wait $TC_PID || TC_EXIT=$?
     
     if [ $LINT_EXIT -ne 0 ]; then
-        echo "❌ Lint failed." >&2
+        echo "   ❌ Lint FAILED. Run 'pnpm lint' to see errors." >&2
+        pnpm lint >&2
         exit 1
     fi
+    echo "   ✅ Lint passed"
     
     if [ $TC_EXIT -ne 0 ]; then
-        echo "❌ Typecheck failed." >&2
+        echo "   ❌ Typecheck FAILED. Run 'pnpm typecheck' to see errors." >&2
+        pnpm typecheck >&2
         exit 1
     fi
-    
-    echo "✅ Lint & Typecheck passed."
+    echo "   ✅ Typecheck passed"
 
-    echo "Running Unit Tests..."
-    if ! pnpm test; then
-        echo "❌ Unit Tests failed." >&2
-        exit 1
+    # Check for banned eslint-disable directives (silent unless error)
+    if [ -f "./scripts/check-eslint-disable.sh" ]; then
+        if ! ./scripts/check-eslint-disable.sh > /dev/null 2>&1; then
+            echo "   ❌ ESLint Disable Check FAILED." >&2
+            ./scripts/check-eslint-disable.sh >&2
+            exit 1
+        fi
+        echo "   ✅ ESLint disable check passed"
     fi
+
+    echo "   🧪 Unit Tests..."
+    pnpm test --reporter=dot > "$ARTIFACTS_DIR/unit-test.log" 2>&1 || {
+        echo "   ❌ Unit Tests FAILED." >&2
+        cat "$ARTIFACTS_DIR/unit-test.log" >&2
+        exit 1
+    }
+    echo "   ✅ Unit tests passed"
     
     # Move metrics file to root for CI artifact upload
     if [ -f "frontend/unit-metrics.json" ]; then
-        mv frontend/unit-metrics.json .
-        echo "ℹ️ Moved unit-metrics.json to root."
-    else
-        echo "⚠️ Warning: frontend/unit-metrics.json not found."
+        mv frontend/unit-metrics.json . 2>/dev/null || true
     fi
     
-    echo "ℹ️ Quality checks completed successfully."
     echo "✅ [2/6] Code Quality Checks Passed."
 }
 
 run_build() {
     echo "✅ [3/6] Building Application for E2E Tests..."
-    pnpm build:test || {
-        echo "❌ Build failed." >&2
+    echo "   📦 This may take a minute. Running 'pnpm build:test'..."
+    # Run build and show some progress every 10 seconds if possible, or just don't silence it
+    # We'll use a slightly less silent approach
+    if ! pnpm build:test > "$ARTIFACTS_DIR/build.log" 2>&1; then
+        echo "❌ Build failed. Run 'pnpm build:test' to see errors." >&2
+        cat "$ARTIFACTS_DIR/build.log" >&2
         exit 1
-    }
-    echo "ℹ️ Build output located in ./frontend/dist"
+    fi
     echo "✅ [3/6] Build Succeeded."
 }
 
@@ -93,26 +122,30 @@ run_e2e_tests_shard() {
     local SHARD_NUM=$1
     local TOTAL_SHARDS=4  # Fixed to match CI matrix
 
-    echo "✅ Running E2E Test Shard ${SHARD_NUM}/${TOTAL_SHARDS}..."
+    echo "🧪 Preparing E2E Test Shard ${SHARD_NUM}/${TOTAL_SHARDS}..."
+    echo "📋 Test files assigned to this shard:"
+    # List files correctly using the --list flag and improved grep
+    pnpm exec playwright test tests/e2e --shard="${SHARD_NUM}/${TOTAL_SHARDS}" --list | grep -oE "[a-zA-Z0-9.-]+\.spec\.ts" | sort -u | sed 's|^|  - |'
     
     # Ensure build artifact exists (required for preview:test)
     if [ ! -d "frontend/dist" ]; then
-        echo "📦 Building test artifact..."
-        pnpm run build:test
+        echo "   📦 Building test artifact..."
+        pnpm run build:test > "$ARTIFACTS_DIR/build.log" 2>&1
     fi
+
+    echo "🚀 Running Shard ${SHARD_NUM}..."
 
     # Run Playwright with native sharding
     # Playwright expects 1-indexed shards
-    # Use PLAYWRIGHT_BLOB_OUTPUT_DIR env var to output blobs to unique dir per shard
     PLAYWRIGHT_BLOB_OUTPUT_DIR="blob-report/shard-${SHARD_NUM}" \
-        pnpm exec playwright test tests/e2e --shard="${SHARD_NUM}/${TOTAL_SHARDS}" --reporter=blob
+        pnpm exec playwright test tests/e2e --shard="${SHARD_NUM}/${TOTAL_SHARDS}" --reporter=list,blob 2>&1 | filter_playwright_output
 
     echo "✅ E2E Test Shard ${SHARD_NUM} Passed."
 }
 
 run_e2e_tests_all() {
     echo "✅ [4/6] Running ALL E2E Tests (local mode)..."
-    pnpm exec playwright test $E2E_TEST_DIR || {
+    pnpm exec playwright test $E2E_TEST_DIR --reporter=list 2>&1 | filter_playwright_output || {
         echo "❌ E2E full suite failed." >&2
         exit 1
     }
@@ -121,7 +154,7 @@ run_e2e_tests_all() {
 
 run_e2e_health_check() {
     echo "✅ [4/6] Running Core Journey (Canonical Health Check)..."
-    pnpm exec playwright test tests/e2e/core-journey.e2e.spec.ts --project=chromium || {
+    pnpm exec playwright test tests/e2e/core-journey.e2e.spec.ts --project=chromium --reporter=list 2>&1 | filter_playwright_output || {
         echo "❌ Health Check failed." >&2
         exit 1
     }
