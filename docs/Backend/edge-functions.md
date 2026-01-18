@@ -3,7 +3,19 @@
 ## Overview
 This directory contains server-side logic deployed to Supabase Edge Functions (Deno).
 
-## Function: `create-user`
+## Edge Functions Overview
+
+This project includes multiple Edge Functions to handle server-side logic:
+
+- `apply-promo`: Handle promotional code logic.
+- `assemblyai-token`: Securely issue tokens for AssemblyAI.
+- `check-usage-limit`: Enforce subscription limits.
+- `create-user`: Provision users (detailed below as a primary example).
+- `get-ai-suggestions`: Retrieve AI-generated feedback.
+- `stripe-checkout`: Initiate Stripe checkout sessions.
+- `stripe-webhook`: Handle Stripe webhooks.
+
+### Example: `create-user`
 
 This function securely provisions a new user in Supabase Auth and creates a corresponding profile record. It is primarily used for E2E testing to ensure a clean state for test users, but can also be adapted for specific admin provisioning tasks.
 
@@ -35,8 +47,7 @@ Requires `Authorization: Bearer <AGENT_SECRET>` header. The `AGENT_SECRET` serve
 ### Deployment
 
 The function is deployed via GitHub Actions:
-- **Workflow:** `.github/workflows/deploy-create-user.yml`
-- **Secrets:** Requires `SUPABASE_ACCESS_TOKEN` and `SUPABASE_DB_PASSWORD` in GitHub Secrets.
+- **Workflow:** `.github/workflows/deploy-supabase-migrations.yml` (and `.github/workflows/deploy-create-user.yml` for manual testing)
 
 ### Local Development
 
@@ -44,4 +55,3 @@ To run locally:
 ```bash
 supabase functions serve create-user --env-file .env
 ```
-Ensure `AGENT_SECRET` is defined in your local `.env`.

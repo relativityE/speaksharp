@@ -60,6 +60,9 @@ jobs:
           path: .
 
       - name: Run E2E Test Shard
+        env:
+          EDGE_FN_URL: ${{ secrets.EDGE_FN_URL }}
+          AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
         run: ./scripts/test-audit.sh test ${{ matrix.shard }}
 
       - name: Upload Shard Report

@@ -78,6 +78,7 @@ jobs:
           npx supabase functions deploy stripe-checkout --no-verify-jwt
           npx supabase functions deploy stripe-webhook --no-verify-jwt
           npx supabase functions deploy apply-promo --no-verify-jwt
+          npx supabase functions deploy create-user --no-verify-jwt
           echo "✅ Edge Functions deployed successfully"
 
       - name: Save migration list to file

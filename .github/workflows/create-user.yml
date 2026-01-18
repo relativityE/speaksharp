@@ -1,0 +1,31 @@
+name: Manual Call Edge Function
+
+on:
+  workflow_dispatch:
+    inputs:
+      username:
+        description: 'Email (username)'
+        required: true
+      password:
+        description: 'Password (>6 alphanumeric)'
+        required: true
+
+jobs:
+  deploy-and-call:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Manual Call Edge Function
+        env:
+          AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        run: |
+          echo "Calling edge function..."
+          # Fix: Function name is create-user (file saved as index.ts in that folder)
+          RESPONSE=$(curl -s -X POST "${{ secrets.SUPABASE_URL }}/functions/v1/create-user" \
+            -H "Content-Type: application/json" \
+            -d "{\"username\":\"${{ github.event.inputs.username }}\",\"password\":\"${{ github.event.inputs.password }}\",\"agent_secret\":\"${{ secrets.AGENT_SECRET }}\"}" \
+            -w "\nHTTP_STATUS:%{http_code}\n")
+          echo "$RESPONSE"
