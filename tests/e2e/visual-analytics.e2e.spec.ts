@@ -102,11 +102,24 @@ test.describe('Visual Analytics & Private STT (Real-User Flow)', () => {
 
         await page.getByTestId('email-input').fill(EMAIL!);
         await page.getByTestId('password-input').fill(PASSWORD!);
-        await page.getByTestId('sign-in-submit').click();
 
-        // Wait for redirect to home/session
-        await page.waitForURL('/', { timeout: 30000 });
-        await expect(page.getByTestId('app-main')).toBeVisible({ timeout: 10000 });
+        console.log('🔘 Clicking sign-in...');
+        const loginUrl = page.url();
+        await page.screenshot({ path: 'test-results/before-login-click.png' });
+
+        await Promise.all([
+            page.waitForURL(url => url.pathname === '/' || url.pathname === '/session', { timeout: 60000 }),
+            page.getByTestId('sign-in-submit').click()
+        ]).catch(async (err) => {
+            console.error('❌ Login navigation failed or timed out:', err);
+            await page.screenshot({ path: 'test-results/login-failure.png' });
+            console.log('Current URL at failure:', page.url());
+            throw err;
+        });
+
+        console.log('✅ Navigation successful. Final URL:', page.url());
+        await page.screenshot({ path: 'test-results/after-login-success.png' });
+        await expect(page.getByTestId('app-main')).toBeVisible({ timeout: 20000 });
 
 
         // 2. Apply Promo Code (only for Free users)

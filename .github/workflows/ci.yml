@@ -41,7 +41,7 @@ jobs:
     if: success()
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: true  # Stop all shards immediately on first failure
+      fail-fast: false  # Allow all shards to complete even if one fails
       matrix:
         shard: [1, 2, 3, 4]
     steps:
@@ -75,7 +75,7 @@ jobs:
 
   lighthouse:
     needs: [prepare, test]
-    if: success()
+    if: success() || failure() # Run even if E2E tests fail
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -89,15 +89,29 @@ jobs:
         with:
           path: artifacts
 
+      - name: List Artifacts
+        run: ls -R artifacts
+
       - name: Verify Artifacts
         run: ./scripts/verify-artifacts.sh --path artifacts/all-artifacts build metrics
 
       - name: Restore Build Artifacts
         run: |
           mkdir -p frontend
-          cp -r artifacts/all-artifacts/frontend/dist frontend/
-          cp -r artifacts/all-artifacts/frontend/coverage frontend/
-          cp artifacts/all-artifacts/unit-metrics.json .
+          # Support both flattened and preserved structures
+          if [ -d "artifacts/all-artifacts/frontend/dist" ]; then
+            cp -r artifacts/all-artifacts/frontend/dist frontend/
+          elif [ -d "artifacts/all-artifacts/dist" ]; then
+            cp -r artifacts/all-artifacts/dist frontend/
+          fi
+          
+          if [ -d "artifacts/all-artifacts/frontend/coverage" ]; then
+            cp -r artifacts/all-artifacts/frontend/coverage frontend/
+          elif [ -d "artifacts/all-artifacts/coverage" ]; then
+            cp -r artifacts/all-artifacts/coverage frontend/
+          fi
+          
+          cp artifacts/all-artifacts/unit-metrics.json . 2>/dev/null || true
           # test-results is only in shard artifacts, not all-artifacts
           [ -d artifacts/all-artifacts/test-results ] && cp -r artifacts/all-artifacts/test-results . || echo "No test-results in all-artifacts (expected)"
 
@@ -119,7 +133,7 @@ jobs:
 
   report:
     needs: [prepare, test, lighthouse]
-    if: success()
+    if: always() && !cancelled()
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -133,15 +147,26 @@ jobs:
         with:
           path: artifacts
 
+      - name: List Artifacts
+        run: ls -R artifacts
+
       - name: Verify Artifacts
         run: ./scripts/verify-artifacts.sh --path artifacts/all-artifacts build metrics
 
       - name: Restore Build Artifacts
         run: |
           mkdir -p frontend
-          cp -r artifacts/all-artifacts/frontend/dist frontend/
-          cp -r artifacts/all-artifacts/frontend/coverage frontend/
-          cp artifacts/all-artifacts/unit-metrics.json .
+          if [ -d "artifacts/all-artifacts/frontend/dist" ]; then
+            cp -r artifacts/all-artifacts/frontend/dist frontend/
+          elif [ -d "artifacts/all-artifacts/dist" ]; then
+            cp -r artifacts/all-artifacts/dist frontend/
+          fi
+          if [ -d "artifacts/all-artifacts/frontend/coverage" ]; then
+            cp -r artifacts/all-artifacts/frontend/coverage frontend/
+          elif [ -d "artifacts/all-artifacts/coverage" ]; then
+            cp -r artifacts/all-artifacts/coverage frontend/
+          fi
+          cp artifacts/all-artifacts/unit-metrics.json . 2>/dev/null || true
           # test-results is only in shard artifacts, not all-artifacts
           [ -d artifacts/all-artifacts/test-results ] && cp -r artifacts/all-artifacts/test-results . || echo "No test-results in all-artifacts (expected)"
 
