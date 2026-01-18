@@ -7,6 +7,17 @@ const isMockSupabase = !process.env.VITE_SUPABASE_URL || process.env.VITE_SUPABA
 test.describe('Real Authentication Flow', () => {
     // Only run this test if we are connected to a real Supabase instance
     test.skip(isMockSupabase, 'Skipping Real Auth test in mock environment (VITE_SUPABASE_URL not set to real instance)');
+    // -------------------------------------------------
+    // Guard: skip if real credentials are not provided
+    // -------------------------------------------------
+    test.beforeAll(() => {
+        const email = process.env.E2E_FREE_EMAIL;
+        const password = process.env.E2E_FREE_PASSWORD;
+        if (!email || !password) {
+            console.log('⏭️ Skipping Real Auth test – missing E2E_FREE_EMAIL or E2E_FREE_PASSWORD');
+            test.skip();
+        }
+    });
 
     const testEmail = process.env.E2E_FREE_EMAIL || 'e2e-free-user@test.com';
     const testPassword = process.env.E2E_FREE_PASSWORD || 'TestPassword123!';

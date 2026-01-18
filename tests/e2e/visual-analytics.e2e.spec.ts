@@ -39,7 +39,7 @@ test.use({
     baseURL: BASE_URL,
 });
 
-test.describe.skip('Visual Analytics & Private STT (Real-User Flow)', () => {
+test.describe('Visual Analytics & Private STT (Real-User Flow)', () => {
     test.setTimeout(60000); // Increased timeout for provisioning
 
     test.beforeAll(async () => {
@@ -81,6 +81,11 @@ test.describe.skip('Visual Analytics & Private STT (Real-User Flow)', () => {
             }
         } else {
             console.log('ℹ️ Skipped Edge Function provisioning (missing EDGE_FN_URL or AGENT_SECRET).');
+            /**
+             * LOCAL DEV: Skip this test if credentials are missing to prevents failing on "Mock" environment.
+             * CI: Secrets are provided, so this block is skipped and test runs.
+             */
+            test.skip(true, 'Skipping Visual Analytics test; missing Edge Function secrets (Local Run).');
         }
     });
 
