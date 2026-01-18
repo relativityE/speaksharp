@@ -74,7 +74,7 @@ describe('useSessionMetrics', () => {
             const { result } = renderHook(() =>
                 useSessionMetrics({ transcript: '', fillerData: {}, elapsedTime: 60 })
             );
-            expect(result.current.clarityScore).toBe(87);
+            expect(result.current.clarityScore).toBe(100);
         });
 
         it('calculates clarity score correctly with fillers', () => {
@@ -89,8 +89,8 @@ describe('useSessionMetrics', () => {
                     elapsedTime: 60
                 })
             );
-            expect(result.current.clarityScore).toBe(80);
-            expect(result.current.clarityLabel).toBe('Excellent clarity!');
+            expect(result.current.clarityScore).toBe(70);
+            expect(result.current.clarityLabel).toBe('Good clarity');
         });
 
         it('returns Keep practicing for low clarity', () => {
@@ -105,7 +105,7 @@ describe('useSessionMetrics', () => {
                     elapsedTime: 60
                 })
             );
-            expect(result.current.clarityScore).toBe(50);
+            expect(result.current.clarityScore).toBe(25);
             expect(result.current.clarityLabel).toBe('Keep practicing');
         });
     });

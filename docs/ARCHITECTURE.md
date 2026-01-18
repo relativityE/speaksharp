@@ -405,7 +405,7 @@ The `whisper-turbo` engine uses a two-layer cache (Service Worker + IndexedDB) t
 │              │  │ [FAST PATH]    │  │ [SAFE FALLBACK]    │ ││
 │              │  │ WebGPU/WASM    │  │ ONNX Runtime       │ ││
 │              │  └───────┬────────┘  └─────────┬──────────┘ ││
-│              │          │ (5s timeout)        │            ││
+│              │          │ (20s timeout)       │            ││
 │              │          │ ◀── Fail ──────────▶│            ││
 │              └──────────┼─────────────────────┼────────────┘│
 │                         │                     │             │
@@ -457,7 +457,48 @@ The `whisper-turbo` engine uses a two-layer cache (Service Worker + IndexedDB) t
 > All automated tests use MockEngine for reliability and speed.
 > To test real engine behavior, use a production build in a real browser.
 
+### Reliability & Failure Handling
 
+| Scenario | Behavior | Implementation |
+|----------|----------|----------------|
+| **Initialization Failure** | Auto-fallback to Native Browser STT | [`TranscriptionService.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionService.ts) |
+| **Model Load Timeout** | Auto-fallback to Native Browser STT | `PrivateWhisper` timeout logic (30s) |
+| **Retry Limit Exceeded** | Limits to `STT_CONFIG.MAX_PRIVATE_ATTEMPTS` (Default: 2) | Static failure counter prevents infinite loops |
+| **"Dead" State** | User can "Clear Cache & Reload" via UI | `useTranscriptionService.ts` error handling |
+
+## 3. Code Quality Standards
+
+SpeakSharp enforces strict code quality standards to maintain long-term maintainability and type safety. These standards are enforced via CI checks (`test-audit.sh`) and pre-commit hooks.
+
+### Type Safety & Linting
+
+| Rule | Enforcement | Rationale |
+|------|-------------|-----------|
+| **No `any`** | Strict `no-explicit-any` ESLint rule | Prevents TypeScrip "escape hatches" that defeat the purpose of a type system. Use `unknown` with type narrowing instead. |
+| **No `eslint-disable`** | `scripts/check-eslint-disable.sh` (CI blocker) | Directives like `// eslint-disable-next-line` hide problems rather than fixing them. |
+| **Strict Null Checks** | `strictNullChecks` in `tsconfig` | Forces explicit handling of `null` and `undefined` to prevent runtime crashes. |
+| **Zod Validation** | Runtime validation for external data | All API responses and specialized inputs must be validated with Zod schemas. |
+
+### Testing Strategy (The "Gold Standard")
+
+Every non-trivial component or hook must have:
+1.  **Unit Tests (`.test.tsx`):** component logic in isolation (Vitest + React Testing Library).
+2.  **Type Safety:** No implicit `any` in mocks; strict typing for `vi.mock` implementations.
+3.  **Mocking:** Use `vi.mock` for top-level imports and `msw` for network requests. Do not mock `fetch` globally if avoidable.
+4.  **Fail Fast, Fail Hard:** Tests should never hang. Use aggressive timeouts (30s default for E2E) and explicit assertions to surface failures immediately.
+5.  **Print/Log Negatives, Assert Positives:** Only log errors and warnings (`attachLiveTranscript` in E2E). Use assertions (`expect()`) for success—no `console.log("✅ Success")` noise.
+
+### Architecture Decision Records (ADR) - Key Decisions
+
+**ADR-001: Strict Linting Ban (2026-01-16)**
+*   **Context:** The codebase had accumulated technical debt hidden by `eslint-disable` comments.
+*   **Decision:** A hard ban on `eslint-disable` was implemented.
+*   **Consequence:** Requires fixing root causes (e.g., proper typing, dependency arrays) rather than suppressing warnings. Increased initial dev time for higher long-term stability.
+
+**ADR-002: Backend-Driven Stripe Security (2025-12-16)**
+*   **Context:** Frontend was passing `priceId` to the backend, creating a risk of price manipulation.
+*   **Decision:** Moved `priceId` resolution entirely to the backend (`STRIPE_PRO_PRICE_ID` env var).
+*   **Consequence:** Frontend strictly handles UI; backend owns business logic and pricing consistency.
 
 *   **Testing:**
     *   **Unit/Integration:** Vitest (`^2.1.9`)
@@ -1093,10 +1134,21 @@ How it's Launched: The test environment's dev server is not launched by you dire
 
 ### E2E Testing Infrastructure
 
-**Mock Service Worker (MSW)** intercepts all network requests to Supabase, providing deterministic test data. **E2E Bridge** (`frontend/src/lib/e2e-bridge.ts`) extends MSW with additional E2E-specific mocking and synchronization:
+To ensure robust, flake-free testing, we employ a sophisticated infrastructure that bridges the gap between the E2E runner (Playwright) and the application's internal state.
 
-- **Mock SpeechRecognition API**: Polyfills browser `SpeechRecognition` and `webkitSpeechRecognition` with `MockSpeechRecognition` class
-- **dispatchMockTranscript()**: Helper function callable from Playwright tests via `page.evaluate()` to simulate transcription events
+#### 1. The E2E Bridge (`e2e-bridge.ts`)
+We inject a global "Bridge" into the application window during tests (`initializeE2EEnvironment` in `main.tsx`). This allows Playwright to:
+- **Mock Native APIs:** Intercept `SpeechRecognition` and other browser-native APIs that are hard to automate.
+- **Synchronize State:** Dispatch events (e.g., `e2e:speech-recognition-ready`) to ensure the test runner waits for the application to be fully hydrated and ready.
+- **Inject Data:** Programmatically set user sessions or filler word data without going through the UI.
+
+#### 2. Secure User Provisioning (Edge Function)
+Instead of relying on unstable UI-based registration flows, we use a dedicated Supabase Edge Function (`create-user`) to provision test users.
+- **Deterministic State:** Creates fresh users with specific roles ('free' or 'pro') for each test run.
+- **CI/CD Security:** Uses `AGENT_SECRET` to authorize provisioning requests, keeping the production database secure while allowing CI to fully exercise the backend.
+
+#### 3. Programmatic Login
+We bypass the UI login form for most tests, using a programmatic helper that hits the `create-user` function and then injects the resulting session token directly into `localStorage`. This reduces test time and flakiness significantly.
 
 #### 🧪 Audited E2E Global Flags
 To avoid conflicts and ensure predictable testing, we maintain a strict list of `window` level flags. These are deconflicted to ensure MSW and Playwright work in harmony.

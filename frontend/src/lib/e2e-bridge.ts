@@ -35,10 +35,11 @@
 
 import { Session } from '@supabase/supabase-js';
 import logger from '@/lib/logger';
+import { TranscriptionModeOptions, Transcript } from '@/services/transcription/modes/types';
 
 /**
  * E2E Window interface - extends Window with all E2E-specific properties.
- * This eliminates the need for eslint-disable @typescript-eslint/no-explicit-any.
+ * This ensures type safety across the bridge boundary.
  */
 interface E2EWindow extends Window {
     __E2E_PLAYWRIGHT__?: boolean;
@@ -63,21 +64,19 @@ interface MockSpeechResult extends Array<{ transcript: string; confidence: numbe
  */
 export const initializeE2EEnvironment = async (): Promise<void> => {
     try {
-        console.log('[E2E Bridge] Initializing E2E environment');
+        logger.info('[E2E Bridge] Initializing E2E environment');
 
         // 🛑 Skip MSW if we're in a Playwright test (standardizing on PW routes)
         // This allows manual browser preview to use MSW mocks while tests stay isolated
         const isPlaywright = (window as unknown as { __E2E_PLAYWRIGHT__?: boolean }).__E2E_PLAYWRIGHT__;
 
         if (!isPlaywright) {
-            console.log('[E2E Bridge] Starting MSW worker for manual preview...');
+            logger.info('[E2E Bridge] Starting MSW worker for manual preview...');
             const { worker } = await import('../mocks/browser');
             await worker.start({
                 onUnhandledRequest: 'bypass',
             });
-            console.log('[E2E Bridge] MSW worker started successfully');
-        } else {
-            console.log('[E2E Bridge] Playwright detected - skipping MSW worker');
+            logger.info('[E2E Bridge] MSW worker started successfully');
         }
 
         setupSpeechRecognitionMock();
@@ -151,11 +150,7 @@ export class MockSpeechRecognition {
     abort() { }
 }
 
-interface MockPrivateWhisperOptions {
-    onModelLoadProgress?: (progress: number) => void;
-    onReady?: () => void;
-    onTranscriptUpdate?: (update: unknown) => void;
-}
+
 
 /**
  * Mock implementation of PrivateWhisper for E2E tests.
@@ -177,9 +172,9 @@ interface MockPrivateWhisperOptions {
 class MockPrivateWhisper {
     private onModelLoadProgress: ((progress: number) => void) | undefined;
     private onReady: (() => void) | undefined;
-    private onTranscriptUpdate: ((update: unknown) => void) | undefined;
+    private onTranscriptUpdate: ((update: { transcript: Transcript }) => void) | undefined;
 
-    constructor(options: MockPrivateWhisperOptions) {
+    constructor(options: TranscriptionModeOptions) {
         this.onModelLoadProgress = options.onModelLoadProgress;
         this.onReady = options.onReady;
         this.onTranscriptUpdate = options.onTranscriptUpdate;
@@ -192,10 +187,10 @@ class MockPrivateWhisper {
             // Simulate model download
             if (this.onModelLoadProgress) {
                 this.onModelLoadProgress(0);
-                // Simulate progress
-                setTimeout(() => this.onModelLoadProgress!(0.1), 100);
-                setTimeout(() => this.onModelLoadProgress!(0.5), 300);
-                setTimeout(() => this.onModelLoadProgress!(1), 500);
+                // Simulate progress - slower for reliable E2E detection
+                setTimeout(() => this.onModelLoadProgress!(0.1), 1000);
+                setTimeout(() => this.onModelLoadProgress!(0.5), 2000);
+                setTimeout(() => this.onModelLoadProgress!(1), 2500);
             }
 
             // Simulate ready state after download
@@ -211,7 +206,7 @@ class MockPrivateWhisper {
 
                 if (this.onReady) this.onReady();
                 resolve();
-            }, 600);
+            }, 3000);
         });
     }
 

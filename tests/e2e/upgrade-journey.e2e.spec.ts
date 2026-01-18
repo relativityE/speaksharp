@@ -29,7 +29,6 @@ test.describe('Upgrade Journey - Monetization Path', () => {
 
         // 5. Verify Pro is selected (check for active class)
         await expect(proOption).toHaveClass(/border-primary/);
-        console.log('[UPGRADE] ✅ Pro plan selectable');
     });
 
     /**
@@ -44,7 +43,7 @@ test.describe('Upgrade Journey - Monetization Path', () => {
         // 2. Setup SPECIFIC test overrides AFTER (Playwright checks routes in reverse order)
         await page.route('**/functions/v1/stripe-checkout', async (route) => {
             stripeCheckoutCalled = true;
-            console.log('[UPGRADE] ✅ Intercepted stripe-checkout call');
+            // Intercepted stripe-checkout call
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
@@ -56,7 +55,7 @@ test.describe('Upgrade Journey - Monetization Path', () => {
 
         // 3. Intercept the Stripe redirect itself
         await page.route('**/checkout.stripe.com/**', async (route) => {
-            console.log('[UPGRADE] ✅ Intercepted navigation to Stripe');
+            // Intercepted navigation to Stripe
             await route.fulfill({
                 status: 200,
                 contentType: 'text/html',
@@ -82,6 +81,5 @@ test.describe('Upgrade Journey - Monetization Path', () => {
         await page.waitForTimeout(3000);
 
         expect(stripeCheckoutCalled).toBe(true);
-        console.log('[UPGRADE] ✅ Upgrade journey Stripe trigger verified');
     });
 });

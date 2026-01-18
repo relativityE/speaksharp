@@ -137,3 +137,41 @@ export class AudioBuffer {
         this.buffer = new Int16Array(0);
     }
 }
+
+/**
+ * Downsample audio from an input sample rate to a target sample rate.
+ * Uses linear interpolation for simple and efficient resampling.
+ * 
+ * @param audio - Input audio samples
+ * @param inputSampleRate - Source sample rate (e.g., 44100, 48000)
+ * @param targetSampleRate - Target sample rate (e.g., 16000)
+ * @returns Downsampled Float32Array
+ */
+export function downsampleAudio(audio: Float32Array, inputSampleRate: number, targetSampleRate: number = 16000): Float32Array {
+    if (inputSampleRate === targetSampleRate) {
+        return audio;
+    }
+
+    if (inputSampleRate < targetSampleRate) {
+        throw new Error('Upsampling is not supported');
+    }
+
+    const ratio = inputSampleRate / targetSampleRate;
+    const newLength = Math.floor(audio.length / ratio);
+    const result = new Float32Array(newLength);
+
+    for (let i = 0; i < newLength; i++) {
+        // Linear interpolation
+        const position = i * ratio;
+        const index = Math.floor(position);
+        const decimal = position - index;
+
+        // Simple check to avoid out of bounds
+        const p0 = audio[index] || 0;
+        const p1 = audio[index + 1] || p0;
+
+        result[i] = p0 + decimal * (p1 - p0);
+    }
+
+    return result;
+}

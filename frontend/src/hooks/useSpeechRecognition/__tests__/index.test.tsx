@@ -69,6 +69,7 @@ describe('useSpeechRecognition', () => {
     error: null,
     isSupported: true,
     mode: null,
+    sttStatus: { type: 'idle' as const, message: 'Ready to record' },
     startListening: vi.fn(),
     stopListening: vi.fn().mockResolvedValue({ success: true }),
     reset: vi.fn(),

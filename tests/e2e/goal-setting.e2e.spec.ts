@@ -27,8 +27,6 @@ test.describe('Goal Setting', () => {
         // Verify Goals section exists
         const goalsSection = page.getByText('Current Goals');
         await expect(goalsSection).toBeVisible();
-
-        console.log('[TEST] ✅ Goals section is visible');
     });
 
     test('should show actual session progress, not hardcoded values', async ({ page }) => {
@@ -44,8 +42,6 @@ test.describe('Goal Setting', () => {
         // Get all text from the page to find the goals data
         const pageText = await page.textContent('body');
 
-        console.log('[TEST] Checking page for goal values...');
-
         // Should show actual session count (4 out of 5 mock sessions are within 7 days)
         // Session-1 is 7 days ago which may be at boundary
         expect(pageText).toMatch(/[45] \/ 5/);
@@ -53,8 +49,6 @@ test.describe('Goal Setting', () => {
         // Should show actual average clarity score (not hardcoded 88%)
         // New mock data avg clarity is ~84% based on 5 sessions
         expect(pageText).toMatch(/8[0-9]%\s*\/\s*90%/);
-
-        console.log('[TEST] ✅ Goals show real data, not hardcoded values');
     });
 
     test('should allow users to set custom goals', async ({ page }) => {
@@ -103,7 +97,5 @@ test.describe('Goal Setting', () => {
         // Verify updated goals display (4-5 sessions out of 10, clarity target 95%)
         await expect(page.getByText(/[45] \/ 10/)).toBeVisible();
         await expect(page.getByText(/95%/)).toBeVisible();
-
-        console.log('[TEST] ✅ Custom goals saved via localStorage');
     });
 });

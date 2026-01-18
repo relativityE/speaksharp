@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Chunk } from './types';
 import { createFullTranscript } from './utils';
 import {
@@ -15,38 +15,37 @@ export const useFillerWords = (
   const [fillerData, setFillerData] = useState<FillerCounts>(() =>
     createInitialFillerData(customWords)
   );
-  const [finalFillerData, setFinalFillerData] = useState<FillerCounts>(() =>
-    createInitialFillerData(customWords)
-  );
-
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Effect 1: Update final filler data (immediate, no debouncing)
-  useEffect(() => {
+  // Derived final filler data (no side effects, no render loop)
+  const finalFillerData = useMemo(() => {
     const finalText = finalChunks.map(c => c.text).join(' ');
-    if (finalText.trim()) {
-      try {
-        const counts = countFillerWords(finalText, customWords);
-        setFinalFillerData(counts);
-      } catch (err) {
-        console.error('Error counting final filler words:', err);
-      }
+    if (!finalText.trim()) return createInitialFillerData(customWords);
+    try {
+      return countFillerWords(finalText, customWords);
+    } catch (err) {
+      console.error('Error counting final filler words:', err);
+      return createInitialFillerData(customWords);
     }
   }, [finalChunks, customWords]);
 
-  // Effect 2: Debounced live filler counting
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Effect: Debounced live filler counting
   useEffect(() => {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
 
     debounceTimerRef.current = setTimeout(() => {
       const fullText = createFullTranscript(finalChunks, interimTranscript);
-      if (fullText.trim()) {
-        try {
-          const counts = countFillerWords(fullText, customWords);
-          setFillerData(counts);
-        } catch (err) {
-          console.error('Error counting live filler words:', err);
-        }
+      try {
+        const counts = countFillerWords(fullText, customWords);
+        setFillerData(prev => {
+          // Optimization: Prevent infinite render loops by checking if data actually changed
+          if (JSON.stringify(prev) === JSON.stringify(counts)) {
+            return prev;
+          }
+          return counts;
+        });
+      } catch (err) {
+        console.error('Error counting live filler words:', err);
       }
     }, 50);
 
@@ -58,7 +57,6 @@ export const useFillerWords = (
   const reset = useCallback(() => {
     const initial = createInitialFillerData(customWords);
     setFillerData(initial);
-    setFinalFillerData(initial);
   }, [customWords]);
 
   return { fillerData, finalFillerData, reset };

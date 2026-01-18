@@ -47,7 +47,9 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
       if (!supabase) throw new Error("Supabase client not available");
 
       // Backend uses STRIPE_PRO_PRICE_ID env var, no need to send priceId
-      const { data, error } = await supabase.functions.invoke('stripe-checkout');
+      const { data, error } = await supabase.functions.invoke('stripe-checkout', {
+        body: { returnUrlOrigin: window.location.origin }
+      });
 
       if (error) throw error;
       if (data?.checkoutUrl) {

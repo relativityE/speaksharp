@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLoginWithRoutes, navigateToRoute, attachLiveTranscript } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute, attachLiveTranscript, debugLog } from './helpers';
 import { TEST_IDS, TIMEOUTS } from '../constants';
 
 test.describe('Smoke Test', () => {
@@ -11,7 +11,7 @@ test.describe('Smoke Test', () => {
     // IMPORTANT: Do NOT call page.goto() before programmaticLoginWithRoutes - it causes MSW ready event race
     await test.step('Programmatic Login', async () => {
       await programmaticLoginWithRoutes(page);
-      console.log('✅ Login completed successfully.');
+      debugLog('✅ Login completed successfully.');
 
       // Verify auth state after login
       await expect(page.getByTestId('nav-sign-out-button')).toBeVisible();
@@ -28,7 +28,7 @@ test.describe('Smoke Test', () => {
 
       // Verify page title is set
       const title = await page.title();
-      console.log(`[BOOTCHECK] Page title: ${title}`);
+      debugLog(`[BOOTCHECK] Page title: ${title}`);
       expect(title).toBeTruthy();
     });
 
@@ -39,7 +39,7 @@ test.describe('Smoke Test', () => {
 
       // Wait for session page to load
       await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeVisible({ timeout: TIMEOUTS.PAGE_LOAD });
-      console.log('[TEST] ✅ Session page loaded');
+      debugLog('[TEST] ✅ Session page loaded');
     });
 
     // Step 4: Navigate to Analytics Page and verify content

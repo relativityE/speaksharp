@@ -57,6 +57,16 @@ Code MUST be tested locally AND verified via CI (or explicitly waived by user) b
 
 ___
 
+## ⚡ Code Quality Standards (Strict)
+
+- **No `eslint-disable`**: We now have a "Zero Tolerance" policy. The `check-eslint-disable.sh` script will fail the build if any `// eslint-disable` comments are found in the source code.
+- **No `any`**: Strict TypeScript usage is enforced to ensure type safety.
+- **Testing "Gold Standard"**: Mandates that all unit tests must use proper wrappers (like `QueryClientProvider`) and avoid "green illusions" (tests that pass but test nothing).
+- **Fail Fast, Fail Hard**: Tests should never hang. Use aggressive timeouts and explicit assertions to surface failures immediately.
+- **Print/Log Negatives, Assert Positives**: Only log errors and warnings. Use assertions for success verification (no `console.log("✅ Success")` noise).
+
+___
+
 ## ⚡ Quick reference (most-common tasks)
 
 Use page.addInitScript() to set flags that must exist before app JS runs:

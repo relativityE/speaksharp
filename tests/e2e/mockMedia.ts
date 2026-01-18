@@ -57,7 +57,7 @@ export async function mockGetUserMedia(page: Page) {
         // If video or other constraints are requested, fall back to the original function.
         // This makes the mock more robust for other potential uses.
         if (typeof originalGetUserMedia === 'function') {
-            return originalGetUserMedia(constraints);
+          return originalGetUserMedia(constraints);
         }
         // If there's no original to fall back to, reject the promise.
         return Promise.reject(new Error('getUserMedia mock: constraints not supported'));
@@ -72,6 +72,5 @@ export async function mockAudioStream() {
   // which is called automatically by the test setup.
   // We can add logic here in the future if we need to simulate
   // specific audio chunks during a test.
-  console.log('[mockAudioStream] STUB: Audio stream is mocked via global setup.');
   return Promise.resolve();
 }

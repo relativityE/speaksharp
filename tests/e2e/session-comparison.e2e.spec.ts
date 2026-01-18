@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute, debugLog } from './helpers';
 import { TEST_IDS } from '../constants';
 
 /**
@@ -54,7 +54,7 @@ test.describe('Session Comparison & Progress Tracking', () => {
         // Should show Fillers count
         await expect(firstSession.getByText(/Fillers/i)).toBeVisible();
 
-        console.log(`[TEST] ✅ Found ${count} sessions with metrics displayed`);
+        debugLog(`[TEST] ✅ Found ${count} sessions with metrics displayed`);
     });
 
     test('should allow comparing two sessions side-by-side', async ({ page }) => {
@@ -109,7 +109,7 @@ test.describe('Session Comparison & Progress Tracking', () => {
         const improvementIndicators = comparisonModal.locator('[data-testid="improvement-indicator"]');
         expect(await improvementIndicators.count()).toBeGreaterThan(0);
 
-        console.log('[TEST] ✅ Session comparison working');
+        debugLog('[TEST] ✅ Session comparison working');
     });
 
     test('should show progress trends over time', async ({ page }) => {
@@ -142,7 +142,7 @@ test.describe('Session Comparison & Progress Tracking', () => {
 
         // Trend charts are visible (overall progress indicator not implemented)
 
-        console.log('[TEST] ✅ Progress trends displayed');
+        debugLog('[TEST] ✅ Progress trends displayed');
     });
 
     test('should calculate clarity score correctly in live session', async ({ page }) => {
@@ -157,13 +157,13 @@ test.describe('Session Comparison & Progress Tracking', () => {
 
         // 2. Start Recording
         await page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON).click();
-        console.log('[TEST] ✅ Recording started');
+        debugLog('[TEST] ✅ Recording started');
         await expect(page.getByText('Stop').first()).toBeVisible();
 
         // 3. Verify real-time metrics appear
         await expect(page.getByTestId(TEST_IDS.WPM_VALUE)).toBeVisible();
         await expect(page.getByTestId(TEST_IDS.CLARITY_SCORE_VALUE)).toBeVisible();
-        console.log('[TEST] ✅ Metrics visible');
+        debugLog('[TEST] ✅ Metrics visible');
 
         // Find clarity score card
         const clarityValue = page.getByTestId(TEST_IDS.CLARITY_SCORE_VALUE);
@@ -171,11 +171,11 @@ test.describe('Session Comparison & Progress Tracking', () => {
         // Initial value should be visible (default 87% when no data)
         await expect(clarityValue).toBeVisible();
         const initialValue = await clarityValue.textContent();
-        console.log(`[TEST] Initial Clarity Score: ${initialValue}`);
+        debugLog(`[TEST] Initial Clarity Score: ${initialValue}`);
 
         // Verify it's a percentage
         expect(initialValue).toMatch(/\d+%/);
 
-        console.log('[TEST] ✅ Clarity Score calculation verified');
+        debugLog('[TEST] ✅ Clarity Score calculation verified');
     });
 });

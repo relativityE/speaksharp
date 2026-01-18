@@ -30,14 +30,15 @@ test.describe('Schema Canary: Database Contract Validation', () => {
     });
 
     test('validate user_profiles schema integrity', async ({ page }) => {
-        console.log(`🔍 Checking user_profiles schema (Live: ${isLive})`);
+        // Navigate to session page where profile is loaded
+        const { navigateToRoute, debugLog } = await import('../../tests/e2e/helpers');
+
+        debugLog(`🔍 Checking user_profiles schema (Live: ${isLive})`);
 
         // Solution 2: Context-Level Evaluation (99.8% confidence)
         // Instead of intercepting network requests (which can conflict with helper routes),
         // evaluate what the UI actually received by checking DOM state that reflects profile data.
 
-        // Navigate to session page where profile is loaded
-        const { navigateToRoute } = await import('../../tests/e2e/helpers');
         await navigateToRoute(page, '/session');
         await page.waitForLoadState('networkidle');
 
@@ -46,14 +47,14 @@ test.describe('Schema Canary: Database Contract Validation', () => {
         // 2. Subscription tier is displayed correctly
 
         await expect(page.getByRole('button', { name: /sign out/i })).toBeVisible({ timeout: 10000 });
-        console.log('✅ User authenticated - profile loaded');
+        debugLog('✅ User authenticated - profile loaded');
 
         // Check subscription tier indicator (Free/Pro badge or Upgrade button)
         const upgradeButton = page.getByRole('button', { name: /upgrade to pro/i });
         const isUpgradeVisible = await upgradeButton.isVisible().catch(() => false);
 
         // Validate profile was received via UI state
-        console.log(`✅ ${isUpgradeVisible ? 'Free' : 'Pro'} tier user detected`);
+        debugLog(`✅ ${isUpgradeVisible ? 'Free' : 'Pro'} tier user detected`);
 
         // For true schema validation, verify the profile-dependent UI rendered correctly
         // This proves the contract is intact: id, subscription_status, usage_seconds all work
@@ -69,11 +70,12 @@ test.describe('Schema Canary: Database Contract Validation', () => {
         expect(['free', 'pro']).toContain(profileData.subscription_status);
         expect(typeof profileData.usage_seconds).toBe('number');
 
-        console.log('✅ user_profiles schema validated via UI state');
+        debugLog('✅ user_profiles schema validated via UI state');
     });
 
     test('validate sessions schema integrity', async ({ page }) => {
-        console.log(`🔍 Checking sessions schema (Live: ${isLive})`);
+        const { navigateToRoute, debugLog } = await import('../../tests/e2e/helpers');
+        debugLog(`🔍 Checking sessions schema (Live: ${isLive})`);
 
         // Intercept session fetch triggered by navigation to analytics
         const sessionPromise = page.waitForResponse(response =>
@@ -81,7 +83,6 @@ test.describe('Schema Canary: Database Contract Validation', () => {
             response.request().method() === 'GET'
         );
 
-        const { navigateToRoute } = await import('../../tests/e2e/helpers');
         await navigateToRoute(page, '/analytics');
 
         const sessionResponse = await sessionPromise;
@@ -93,7 +94,7 @@ test.describe('Schema Canary: Database Contract Validation', () => {
         }
 
         const latestSession = sessions[0];
-        console.log('📝 Validating session object keys:', Object.keys(latestSession));
+        debugLog('📝 Validating session object keys:', Object.keys(latestSession));
 
         // Grounded metrics check
         const requiredGroundedMetrics = [
@@ -114,6 +115,6 @@ test.describe('Schema Canary: Database Contract Validation', () => {
             }
         }
 
-        console.log('✅ sessions schema validated');
+        debugLog('✅ sessions schema validated');
     });
 });

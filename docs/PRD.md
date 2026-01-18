@@ -76,7 +76,7 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | :--- | :--- | :--- | :--- | :--- |
 | **Transcription** | 1 | The core service that converts speech to text. | ✅ Implemented | ✅ Yes |
 | **Cloud Server STT** | 1 | High-accuracy transcription via AssemblyAI. (Pro) | ✅ Implemented | ✅ Yes |
-| **Private STT** | 1 | Privacy-first transcription using **Triple-Engine Architecture**: `whisper-turbo` (GPU), `transformers.js` (CPU Fallback), or `MockEngine` (Testing). Includes **Self-Healing** (10s timeout + Cache Clear). (Pro) | ✅ Fully Functional | ✅ Yes |
+| **Private STT** | 1 | Privacy-first transcription using **Triple-Engine Architecture**: `whisper-turbo` (GPU), `transformers.js` (CPU Fallback), or `MockEngine` (Testing). Includes **Self-Healing** (Retry Limit -> Native Fallback). (Pro) | ✅ Fully Functional | ✅ Yes |
 | **Fallback STT** | 1 | Reliable fallback to native browser API for Free users and as an **auto-recovery mode** for Cloud/Private STT. | ✅ Fully Functional | ✅ Yes |
 | **UI Mode Selector** | 1 | Allows users to select their preferred transcription engine. | ✅ Implemented | ✅ Yes |
 | **Session History** | 1 | Users can view and analyze their past practice sessions. | ✅ Implemented | ✅ Yes |
@@ -160,6 +160,7 @@ The project's testing strategy prioritizes stability, reliability, and a tight a
 *   **Unit & Integration Tests (Vitest):** These form the foundation of our testing pyramid. They are fast, focused, and verify the correctness of individual components and hooks in isolation. **Target: ≥75% line coverage with integrity-preserving validation (avoiding implementation coupling).**
 *   **End-to-End Tests (Playwright):** E2E tests validate complete user flows from start to finish. To combat the flakiness often associated with UI-driven tests, we have adopted a critical strategic decision:
     *   **Programmatic Login Only:** All E2E tests that require an authenticated state **must** use the `programmaticLogin` helper. This method directly injects a session into `localStorage`, bypassing the UI for sign-up and login. This approach is significantly faster and more reliable than attempting to simulate user input in the auth form.
+    *   **Secure User Provisioning:** We use a dedicated Supabase Edge Function (`create-user`) authorized by CI secrets to provision test data. This avoids the fragility of UI registration automation and guarantees a clean slate for every test.
     *   **Canonical Health Check:** The `pnpm test:health-check` command is the primary quality gate for daily development. It focuses exclusively on the canonical `core-journey.e2e.spec.ts`, verifying the full data flow (Home -> Session -> Analytics) without the overhead of the full unit test suite.
     *   **No UI-Driven Auth Tests:** Tests that attempt to validate the sign-up or login forms via UI interaction have been removed. The stability and speed gained by using programmatic login are considered a higher priority than testing the auth form itself in the E2E suite.
     *   **Canary Deployment Tests:** A subset of E2E tests (marked `@canary`) are designed to hit real staging endpoints periodically to detect API contract drift and production-specific failures that mocks might hide.
@@ -167,6 +168,11 @@ The project's testing strategy prioritizes stability, reliability, and a tight a
 *   **Adversarial Audit Mandate:** All new tests must pass an adversarial review—ensuring they validate design intent (e.g., tier gating, SLOs, resilience) and would fail if production code deviates from intended behavior, even if the structural implementation remains similar.
 *   **Private STT Integration Strategy:** To ensure high-fidelity verification of the triple-engine architecture, `PrivateSTT.integration.test.ts` validates engine selection, WebGPU detection, and fallback logic. For headless CI environments, the engine automatically switches to a reliable `MockEngine` when `window.__E2E_PLAYWRIGHT__` is detected.
 *   **Single Source of Truth (`pnpm test:all`):** A single command, `pnpm test:all`, is the user-facing entry point for all validation. It runs an underlying orchestration script (`test-audit.sh`) that executes all checks (lint, type-check, tests) in a parallelized, multi-stage process both locally and in CI, guaranteeing consistency and speed.
+
+### Testing Principles
+
+*   **Fail Fast, Fail Hard:** Tests should never hang. Use aggressive timeouts (30s default) and explicit assertions to surface failures immediately. Silent failures are unacceptable.
+*   **Print/Log Negatives, Assert Positives:** Only log errors and warnings. Use assertions (`expect()`) to verify successful outcomes—never `console.log("✅ Success")`. Clean CI output makes failures instantly visible.
 
 ---
 
@@ -231,14 +237,14 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 443 (376 unit + 67 E2E) |
-| Unit tests              | 376   |
-| E2E tests (Playwright)  | 67  |
-| Passing tests           | 439 (376 unit + 63 E2E)   |
+| Total tests             | 456 (387 unit + 69 E2E) |
+| Unit tests              | 387   |
+| E2E tests (Playwright)  | 69  |
+| Passing tests           | 451 (387 unit + 64 E2E)   |
 | Failing tests           | 0   |
-| Disabled/skipped tests  | 4 (E2E only)   |
-| Passing unit tests      | 376/376 (100.0%)   |
-| Passing E2E tests       | 63/67 (94.0%)   |
+| Disabled/skipped tests  | 5 (E2E only)   |
+| Passing unit tests      | 387/387 (100.0%)   |
+| Passing E2E tests       | 64/69 (92.8%)   |
 | Total runtime           | See CI logs   |
 
 ---
@@ -247,10 +253,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | 54.96%   |
-| Branches   | 78.04%   |
-| Functions  | 66.11%   |
-| Lines      | 54.96%   |
+| Statements | 56.35%   |
+| Branches   | 76.38%   |
+| Functions  | 68.26%   |
+| Lines      | 56.35%   |
 
 ---
 
@@ -258,11 +264,11 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric              | Value |
 | ------------------- | ----- |
-| Total Source Size   | 6.2M   |
-| Total Project Size  | 1.3G   |
-| Initial Chunk Size  | 640K   |
-| Code Bloat Index    | 10.18%   |
-| Lighthouse Scores   | P: 0, A: 0, BP: 0, SEO: 0 |
+| Total Source Size   | 5.7M   |
+| Total Project Size  | 2.1G   |
+| Initial Chunk Size  | 656K   |
+| Code Bloat Index    | 11.26%   |
+| Lighthouse Scores   | P: 95, A: 94, BP: 100, SEO: 91 |
 
 ---
 <!-- SQM:END -->

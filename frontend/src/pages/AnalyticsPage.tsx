@@ -68,7 +68,6 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; onUpgrade: () =
 const AuthenticatedAnalyticsView: React.FC = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
     const { sessionHistory, overallStats, fillerWordTrends, loading, error } = useAnalytics();
-    // const { user } = useAuthProvider();
     const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
 
     console.log('[AnalyticsPage] Rendering. sessionId:', sessionId, 'loading:', loading, 'isProfileLoading:', isProfileLoading);

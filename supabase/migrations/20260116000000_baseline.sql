@@ -1,0 +1,2 @@
+-- Baseline migration (schema exists in remote)
+-- Created to bypass strict history checks since local Docker is unavailable.

@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import TranscriptionService from '../../services/transcription/TranscriptionService';
-import type { TranscriptionServiceOptions } from '../../services/transcription/TranscriptionService';
+import type { TranscriptionServiceOptions, SttStatus } from '../../services/transcription/TranscriptionService';
 import {
   TranscriptionPolicy,
   TranscriptionMode,
@@ -34,6 +34,7 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
   const [error, setError] = useState<Error | null>(null);
   const [isSupported, setIsSupported] = useState<boolean>(true);
   const [currentMode, setCurrentMode] = useState<TranscriptionMode | null>(null);
+  const [sttStatus, setSttStatus] = useState<SttStatus>({ type: 'idle', message: 'Ready to record' });
 
   const serviceRef = useRef<ITranscriptionService | null>(null);
   const policyRef = useRef<TranscriptionPolicy>(E2E_DETERMINISTIC_NATIVE);
@@ -60,6 +61,7 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
             optionsRef.current.onReady();
           },
           onModeChange: setCurrentMode,
+          onStatusChange: setSttStatus,
           policy: policyRef.current,
           mockMic: mockMicRef.current ?? undefined,
         };
@@ -124,6 +126,7 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
   const reset = useCallback(() => {
     setIsListening(false);
     setError(null);
+    setSttStatus({ type: 'idle', message: 'Ready to record' });
   }, []);
 
   return {
@@ -132,6 +135,7 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
     error,
     isSupported,
     mode: currentMode,
+    sttStatus,
     startListening,
     stopListening,
     reset,
@@ -157,6 +161,8 @@ function handleTranscriptionError(
     friendlyMessage = 'Could not connect to the cloud transcription service. Please check your internet connection and try again.';
   } else if (message.includes('failed to load model')) {
     friendlyMessage = 'Failed to load the Private model. Please check your internet connection or try a different transcription mode.';
+  } else if (message.includes('device not found') || message.includes('notfounderror')) {
+    friendlyMessage = 'No microphone input found. Please check your system settings or connection.';
   } else if (message.includes('not initialized')) {
     friendlyMessage = 'The transcription service could not be started. Please try refreshing the page.';
   } else {

@@ -17,8 +17,7 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
         // Set up free user profile override BEFORE navigation
         await page.addInitScript(() => {
             (window as unknown as { __E2E_MOCK_SESSION__: boolean }).__E2E_MOCK_SESSION__ = true;
-            (window as unknown as { __E2E_MOCK_PROFILE__: { id: string; subscription_status: string } }).__E2E_MOCK_PROFILE__ = {
-                id: 'free-test-user',
+            (window as unknown as { __E2E_MOCK_PROFILE__: { subscription_status: string } }).__E2E_MOCK_PROFILE__ = {
                 subscription_status: 'free'
             };
         });
@@ -37,7 +36,6 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
         // Get the button text - should be "Native" for free users
         const buttonText = await modeDropdownButton.textContent();
         expect(buttonText?.toLowerCase()).toContain('native');
-        console.log(`[FREE] ✅ Mode dropdown shows: ${buttonText}`);
     });
 
     test('should complete session with Native Browser STT', async ({ page }) => {
@@ -50,42 +48,47 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
         // Start session
         await startButton.click();
         await expect(page.getByText('Stop').first()).toBeVisible({ timeout: 10000 });
-        console.log('[FREE] ✅ Session started with Native Browser');
 
         // Verify Clarity Score displayed
         await expect(page.getByText('Clarity Score')).toBeVisible();
-        console.log('[FREE] ✅ Clarity Score metric visible');
 
         // Wait to comply with 5s minimum session duration
         await page.waitForTimeout(6000);
         // Stop session
         await startButton.click();
         await expect(page.getByText('Start').first()).toBeVisible({ timeout: 5000 });
-        console.log('[FREE] ✅ Session stopped successfully');
     });
 
     test('should add custom vocabulary word', async ({ page }) => {
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
         await navigateToRoute(page, '/session');
 
-        // 1. Open Session Settings sheet
-        const settingsBtn = page.getByTestId('session-settings-button');
-        await expect(settingsBtn).toBeVisible();
-        await settingsBtn.click();
-        await expect(page.getByText('Session Settings')).toBeVisible();
+        // Wait for page to load
+        await expect(page.getByText('Practice Session')).toBeVisible();
 
-        // 2. Add word
+        // 1. Click "Add Custom Word" button to open the popover
+        const addWordBtn = page.getByTestId('add-custom-word-button');
+        await expect(addWordBtn).toBeVisible();
+        await addWordBtn.click();
+
+        // 2. Fill in word and submit
+        const word = 'Gravity';
         const customWordInput = page.getByPlaceholder(/literally/i);
-        await customWordInput.fill('Antigravity');
-        const addButton = page.getByRole('button', { name: /add/i }).first();
+        await expect(customWordInput).toBeVisible();
+        await customWordInput.fill(word);
+
+        // Use a more robust way to click the add button in the popover
+        const addButton = page.getByRole('button', { name: /add/i }).last();
         await addButton.click();
 
-        // 3. Verify word is added
-        await expect(page.getByText(/antigravity/i)).toBeVisible();
-        console.log('[FREE] ✅ Custom word "Antigravity" added and verified in sheet');
+        // 3. Verify word is added (popover should close, word appears in Filler Words card)
+        // Wait for the popover to be gone first to avoid finding the word inside the input
+        await expect(page.getByText('User Filler Words')).not.toBeVisible({ timeout: 10000 });
 
-        // 4. Close sheet
-        await page.keyboard.press('Escape');
+        // Now look for the word in the metrics card
+        const wordBadge = page.getByTestId('filler-badge').filter({ hasText: new RegExp(word, 'i') });
+        await expect(wordBadge).toBeVisible({ timeout: 10000 });
+        await expect(wordBadge.getByTestId('filler-badge-count')).toBeVisible();
     });
 
     test('should display analytics after session', async ({ page }) => {
@@ -93,11 +96,9 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
         await navigateToRoute(page, '/analytics');
 
         await expect(page.getByTestId('dashboard-heading')).toBeVisible();
-        console.log('[FREE] ✅ Analytics dashboard loaded');
 
         // Verify key analytics components
         await expect(page.getByText('Session History')).toBeVisible();
-        console.log('[FREE] ✅ Session History visible');
     });
 
     test('should show upgrade prompts for free users', async ({ page }) => {
@@ -111,6 +112,5 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
         // Free users should see upgrade options
         const upgradeButton = page.getByTestId('analytics-dashboard-upgrade-button');
         await expect(upgradeButton).toBeVisible();
-        console.log('[FREE] ✅ Upgrade button visible for free user');
     });
 });

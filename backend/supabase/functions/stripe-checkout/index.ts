@@ -79,6 +79,16 @@ serve(async (req) => {
 
     // 3. User Authentication
     console.log('[Stripe Checkout] 👤 Authenticating user...');
+
+    // Parse body for client origin override (safe for localhost)
+    let returnUrlOrigin: string | undefined;
+    try {
+      const body = await req.json();
+      returnUrlOrigin = body.returnUrlOrigin;
+    } catch {
+      // Body might be empty or invalid json, ignore
+    }
+
     const { data: { user }, error: userError } = await supabase.auth.getUser()
 
     if (userError) {
@@ -106,6 +116,13 @@ serve(async (req) => {
       console.warn("[Stripe Checkout] ⚠️ Using mock price ID - set STRIPE_PRO_PRICE_ID for real checkout");
     }
 
+    // Determine return URL base (allow localhost override for dev experience)
+    let siteUrl = Deno.env.get("SITE_URL") ?? `http://localhost:${DEV_PORT}`;
+    if (returnUrlOrigin && (returnUrlOrigin.includes('localhost') || returnUrlOrigin.includes('127.0.0.1'))) {
+      console.log(`[Stripe Checkout] 🔧 Overriding SITE_URL with client origin: ${returnUrlOrigin}`);
+      siteUrl = returnUrlOrigin;
+    }
+
     // 5. Stripe Session Creation
     console.log(`[Stripe Checkout] 💳 Creating Stripe Session with Price ID: ${priceId}`);
     try {
@@ -118,8 +135,8 @@ serve(async (req) => {
           },
         ],
         mode: "subscription",
-        success_url: `${Deno.env.get("SITE_URL") ?? `http://localhost:${DEV_PORT}`}/session?checkout=success`,
-        cancel_url: `${Deno.env.get("SITE_URL") ?? `http://localhost:${DEV_PORT}`}/pricing?checkout=cancelled`,
+        success_url: `${siteUrl}/session?checkout=success`,
+        cancel_url: `${siteUrl}/pricing?checkout=cancelled`,
         customer_email: user.email,
         metadata: {
           userId: user.id,

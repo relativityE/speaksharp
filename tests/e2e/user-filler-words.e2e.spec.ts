@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLoginWithRoutes, navigateToRoute, mockLiveTranscript, attachLiveTranscript } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute, mockLiveTranscript, attachLiveTranscript, waitForE2EEvent } from './helpers';
 import { ROUTES, TEST_IDS } from '../constants';
 
 test.describe('User Filler Words UI & Detection (Local)', () => {
@@ -83,8 +83,23 @@ test.describe('User Filler Words UI & Detection (Local)', () => {
 
         await page.keyboard.press('Escape'); // Close settings
 
-        // 5. Start Session (Native Mode default)
-        await page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON).click();
+        // 5. Ensure Native Mode is selected
+        const modeTrigger = page.getByTestId('transcription-mode-trigger');
+        if (await modeTrigger.isVisible()) {
+            const currentMode = await modeTrigger.textContent();
+            if (!currentMode?.includes('Native')) {
+                await modeTrigger.click();
+                await page.getByRole('menuitemradio', { name: /Native/i }).click();
+            }
+        }
+
+        // 6. Start Session (Native Mode) and Wait for Bridge Ready
+        // Use Promise.all to setup listener BEFORE triggering the action that causes the event
+        await Promise.all([
+            waitForE2EEvent(page, 'e2e:speech-recognition-ready'),
+            page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON).click()
+        ]);
+
         await expect(page.getByText('Listening...')).toBeVisible();
 
         // 6. Inject Transcript containing the custom word "detectiontest"

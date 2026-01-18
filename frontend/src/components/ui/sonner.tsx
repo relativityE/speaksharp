@@ -16,23 +16,23 @@ const Toaster = ({ ...props }: ToasterProps) => {
       toastOptions={{
         classNames: {
           toast:
-            "group toast group-[.toaster]:bg-background group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg group-[.toaster]:rounded-full group-[.toaster]:w-fit group-[.toaster]:px-6 group-[.toaster]:py-2 group-[.toaster]:mx-auto",
-          description: "group-[.toast]:text-foreground group-[.toast]:opacity-100 group-[.toast]:text-base group-[.toast]:font-semibold",
-          title: "group-[.toast]:text-lg group-[.toast]:font-black",
+            "group toast group-[.toaster]:bg-orange-500 group-[.toaster]:text-black group-[.toaster]:border-orange-500 group-[.toaster]:shadow-lg group-[.toaster]:rounded-full group-[.toaster]:w-fit group-[.toaster]:px-4 group-[.toaster]:py-1.5 group-[.toaster]:mx-auto group-[.toaster]:text-sm group-[.toaster]:font-semibold",
+          description: "group-[.toast]:text-black group-[.toast]:opacity-90 group-[.toast]:text-sm group-[.toast]:font-medium",
+          title: "group-[.toast]:text-base group-[.toast]:font-bold group-[.toast]:text-black",
           actionButton:
             "group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
           cancelButton:
             "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",
-          // Error: Destructive red with white text
-          error: "group-[.toaster]:bg-destructive group-[.toaster]:text-destructive-foreground group-[.toaster]:border-destructive",
-          // Success: Secondary orange (vibrant) with white text
-          success: "group-[.toaster]:bg-secondary group-[.toaster]:text-secondary-foreground group-[.toaster]:border-secondary",
-          // Info: Primary blue with white text
-          info: "group-[.toaster]:bg-primary group-[.toaster]:text-primary-foreground group-[.toaster]:border-primary",
-          // Warning: Accent teal with white text
-          warning: "group-[.toaster]:bg-accent group-[.toaster]:text-accent-foreground group-[.toaster]:border-accent",
-          // Loading: Primary blue with white text
-          loading: "group-[.toaster]:bg-primary group-[.toaster]:text-primary-foreground group-[.toaster]:border-primary",
+          // Error: Destructive red with white text (keep for visibility)
+          error: "group-[.toaster]:bg-destructive group-[.toaster]:text-white group-[.toaster]:border-destructive",
+          // Success: Bright orange with black text
+          success: "group-[.toaster]:bg-orange-500 group-[.toaster]:text-black group-[.toaster]:border-orange-500",
+          // Info: Bright orange with black text  
+          info: "group-[.toaster]:bg-orange-500 group-[.toaster]:text-black group-[.toaster]:border-orange-500",
+          // Warning: Bright orange with black text
+          warning: "group-[.toaster]:bg-orange-500 group-[.toaster]:text-black group-[.toaster]:border-orange-500",
+          // Loading: Bright orange with black text
+          loading: "group-[.toaster]:bg-orange-500 group-[.toaster]:text-black group-[.toaster]:border-orange-500",
         },
       }}
       {...props}

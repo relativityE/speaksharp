@@ -18,7 +18,13 @@ export default defineConfig({
     testTimeout: 30000, // Increased for cleanup
     hookTimeout: 10000,
     teardownTimeout: 10000, // Increased for cleanup
-    reporters: ['verbose', 'html', ['json', { outputFile: 'unit-metrics.json' }]],
+    // CLEAN CI OUTPUT: Use 'basic' for minimal noise, 'verbose' only when debugging
+    // Set CI_DEBUG=true for verbose output
+    reporters: process.env.CI_DEBUG
+      ? ['verbose', 'html', ['json', { outputFile: 'unit-metrics.json' }]]
+      : ['basic', ['json', { outputFile: 'unit-metrics.json' }]],
+    // Suppress console.log noise from tests in CI mode
+    silent: !process.env.CI_DEBUG,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary', 'html'],

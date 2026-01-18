@@ -15,8 +15,9 @@ export type SubscriptionTier = typeof SUBSCRIPTION_TIERS[keyof typeof SUBSCRIPTI
 /**
  * Check if a subscription status indicates Pro tier
  */
-export function isPro(subscriptionStatus: string | undefined | null): boolean {
-    return subscriptionStatus === SUBSCRIPTION_TIERS.PRO;
+export function isPro(_subscriptionStatus: string | undefined | null): boolean {
+    return _subscriptionStatus === SUBSCRIPTION_TIERS.PRO;
+    // return true; // FORCE PRO FOR TESTING (Unblocking Private STT)
 }
 
 /**

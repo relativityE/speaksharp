@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute, debugLog } from './helpers';
 
 test.describe('Analytics Details', () => {
     test.beforeEach(async ({ page }) => {
@@ -25,7 +25,7 @@ test.describe('Analytics Details', () => {
             await expect(page.getByText(/clarity score/i)).toBeVisible();
             await expect(page.getByText(/speaking rate/i)).toBeVisible();
         } else {
-            console.log('No sessions found in analytics list - skipping detail view verification');
+            debugLog('No sessions found in analytics list - skipping detail view verification');
         }
     });
 

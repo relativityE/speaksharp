@@ -30,7 +30,12 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
 
         try {
             // Lazy import transformers.js
-            const { pipeline } = await import('@xenova/transformers');
+            const { pipeline, env } = await import('@xenova/transformers');
+
+            // Force use of remote models (CDN) to avoid "Unexpected token <" error (HTML returned for JSON)
+            // This is required in Vite dev environment where local model paths might be intercepted
+            env.allowLocalModels = false;
+            env.useBrowserCache = true;
 
             // Report progress (transformers.js manages its own download progress callbacks)
             if (callbacks.onModelLoadProgress) {
@@ -44,6 +49,8 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
                 {
                     // Use quantized model for faster loading
                     quantized: true,
+                    // Use main branch for latest model structure (onnx subfolder)
+                    revision: 'main',
                     // Progress callback
                     progress_callback: (data: { progress?: number }) => {
                         if (callbacks.onModelLoadProgress && data.progress !== undefined) {
@@ -66,6 +73,12 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
             return Result.ok(undefined);
         } catch (error) {
             const e = error instanceof Error ? error : new Error(String(error));
+
+            // Check for common SPA 404 error (HTML returned instead of JSON)
+            if (e.message.includes("Unexpected token '<'") || e.message.includes("Unexpected token <")) {
+                logger.error('[TransformersJS] ❌ Model load failed with "Unexpected token <". This suggests a 404 error where the server returned index.html instead of the model file. Ensure env.allowLocalModels=false is set.');
+            }
+
             logger.error({ err: e }, '[TransformersJS] Failed to initialize engine.');
             return Result.err(e);
         }

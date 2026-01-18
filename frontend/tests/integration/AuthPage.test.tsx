@@ -6,6 +6,8 @@ import AuthPage from '@/pages/AuthPage';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { AuthContext, AuthContextType } from '@/contexts/AuthProvider';
 
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
 // Mock AuthProvider context
 const mockAuthContextValue: Partial<AuthContextType> = {
     user: null,
@@ -15,11 +17,23 @@ const mockAuthContextValue: Partial<AuthContextType> = {
     setSession: vi.fn(),
 };
 
+const queryClient = new QueryClient({
+    defaultOptions: {
+        queries: {
+            retry: false,
+        },
+    },
+});
+
 const MockAuthProvider: React.FC<{ children: React.ReactNode; value?: Partial<AuthContextType> }> = ({
     children,
     value = mockAuthContextValue,
 }) => {
-    return <AuthContext.Provider value={value as AuthContextType}>{children}</AuthContext.Provider>;
+    return (
+        <QueryClientProvider client={queryClient}>
+            <AuthContext.Provider value={value as AuthContextType}>{children}</AuthContext.Provider>
+        </QueryClientProvider>
+    );
 };
 
 // Mock Supabase

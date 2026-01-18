@@ -1,5 +1,5 @@
 import logger from '../../../lib/logger';
-import { ITranscriptionMode, TranscriptionModeOptions, Transcript } from './types';
+import { ITranscriptionMode, TranscriptionModeOptions, Transcript, TranscriptionError } from './types';
 
 // A simplified interface for the SpeechRecognition event
 interface SpeechRecognitionEvent extends Event {
@@ -35,14 +35,16 @@ interface SpeechRecognitionStatic {
 export default class NativeBrowser implements ITranscriptionMode {
   private onTranscriptUpdate: (update: { transcript: Transcript }) => void;
   private onReady: () => void;
+  private onError?: (error: TranscriptionError) => void;
   private recognition: SpeechRecognition | null;
   private isSupported: boolean;
   private transcript: string;
   private isListening: boolean;
 
-  constructor({ onTranscriptUpdate, onReady }: TranscriptionModeOptions) {
+  constructor({ onTranscriptUpdate, onReady, onError }: TranscriptionModeOptions) {
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onReady = onReady;
+    this.onError = onError;
     this.recognition = null;
     this.isSupported = true; // Assume supported, check in init
     this.transcript = '';
@@ -50,23 +52,15 @@ export default class NativeBrowser implements ITranscriptionMode {
   }
 
   public async init(): Promise<void> {
-    console.log('[NativeBrowser] Starting init...');
     const SpeechRecognition = (window.SpeechRecognition || window.webkitSpeechRecognition) as SpeechRecognitionStatic;
     this.isSupported = !!SpeechRecognition;
-    console.log('[NativeBrowser] SpeechRecognition API supported:', this.isSupported);
-    console.log('[NativeBrowser] SpeechRecognition constructor name:', SpeechRecognition.name); // Should be MockSpeechRecognition
-
-    // In test environment, we rely on the MockSpeechRecognition provided by e2e-bridge.ts
-    // or the unit test mocks. We no longer bypass initialization.
 
     if (!this.isSupported) {
       throw new Error('Native browser speech recognition not supported');
     }
-    console.log('[NativeBrowser] Creating SpeechRecognition instance...');
     this.recognition = new SpeechRecognition();
     this.recognition.interimResults = true;
     this.recognition.continuous = true;
-    console.log('[NativeBrowser] Configuring recognition handlers...');
 
     this.recognition.onresult = (event: SpeechRecognitionEvent) => {
       try {
@@ -75,7 +69,6 @@ export default class NativeBrowser implements ITranscriptionMode {
         let finalTranscript = '';
 
         for (let i = event.resultIndex; i < event.results.length; ++i) {
-          console.log(`[NativeBrowser] Processing result ${i}. isFinal: ${event.results[i].isFinal}`); // DEBUG LOG
           if (event.results[i].isFinal) {
             finalTranscript += event.results[i][0].transcript;
             logger.info({ finalTranscript }, '[NativeBrowser] Final transcript received');
@@ -102,8 +95,12 @@ export default class NativeBrowser implements ITranscriptionMode {
     this.recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       try {
         logger.error({ error: event.error }, `[NativeBrowser] Speech recognition error: ${event.error}`);
+
         if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
           logger.error('[NativeBrowser] Microphone permission denied by user or browser settings');
+          if (this.onError) {
+            this.onError(TranscriptionError.permission('Microphone permission denied. Please allow microphone access in your browser/system settings.'));
+          }
         }
       } catch (error) {
         logger.error({ error }, "Error in NativeBrowser onerror handler:");
@@ -141,6 +138,22 @@ export default class NativeBrowser implements ITranscriptionMode {
     this.isListening = true;
     logger.info('[NativeBrowser] Starting recognition.start()...');
     this.recognition.start();
+
+    // E2E Test Bridge: Expose instance for mock dispatching
+    // This ensures tests can control recognition even if initialization order varies
+    interface E2EWindow extends Window {
+      TEST_MODE?: boolean;
+      dispatchMockTranscript?: unknown;
+      __activeSpeechRecognition?: SpeechRecognition;
+    }
+    const win = window as unknown as E2EWindow;
+
+    if (win.TEST_MODE || win.dispatchMockTranscript) {
+      win.__activeSpeechRecognition = this.recognition;
+      // Signal ready state for tests to avoid race conditions
+      window.dispatchEvent(new CustomEvent('e2e:speech-recognition-ready'));
+    }
+
     logger.info('[NativeBrowser] recognition.start() called successfully.');
   }
 

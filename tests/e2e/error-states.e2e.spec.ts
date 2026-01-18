@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute, debugLog } from './helpers';
 
 /**
  * E2E Error State Tests
@@ -24,7 +24,7 @@ test.describe('Error State Handling', () => {
             const startButton = page.getByTestId('session-start-stop-button');
             await expect(startButton).toBeVisible({ timeout: 10000 });
 
-            console.log('[TEST] ✅ Session page loaded with start button');
+            debugLog('[TEST] ✅ Session page loaded with start button');
         });
 
         test('should remain functional after clicking start in mock mode', async ({ page }) => {
@@ -45,7 +45,7 @@ test.describe('Error State Handling', () => {
                 await expect(page.getByTestId('app-main')).toBeVisible();
             }
 
-            console.log('[TEST] ✅ Session interaction handled gracefully');
+            debugLog('[TEST] ✅ Session interaction handled gracefully');
         });
     });
 
@@ -66,7 +66,7 @@ test.describe('Error State Handling', () => {
             const startButton = page.getByTestId('session-start-stop-button');
             await expect(startButton).toBeVisible({ timeout: 10000 });
 
-            console.log('[TEST] ✅ Token endpoint failure handled gracefully');
+            debugLog('[TEST] ✅ Token endpoint failure handled gracefully');
         });
 
         test('should handle Supabase profile fetch failure gracefully', async ({ page }) => {
@@ -87,7 +87,7 @@ test.describe('Error State Handling', () => {
             const hasContent = await page.locator('body').textContent();
             expect(hasContent?.length).toBeGreaterThan(0);
 
-            console.log('[TEST] ✅ Supabase API failure handled gracefully');
+            debugLog('[TEST] ✅ Supabase API failure handled gracefully');
         });
     });
 });

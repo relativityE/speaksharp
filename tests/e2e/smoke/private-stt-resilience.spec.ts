@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLoginWithRoutes, navigateToRoute } from '../helpers';
+import { programmaticLoginWithRoutes, navigateToRoute, debugLog } from '../helpers';
 
 // Extend Window interface for E2E mock flag
 declare global {
@@ -33,7 +33,7 @@ test.describe('Private STT Resilience', () => {
         // ARCHITECTURE SIMULATION: Hang the model download
         // We intercept the model request and NEVER fulfill it, simulating a browser/DB lock.
         await page.route('**/models/tiny-q8g16.bin', () => {
-            console.log('[TEST] ⏳ Simulating infinite hang for model download...');
+            debugLog('[TEST] ⏳ Simulating infinite hang for model download...');
             return new Promise(() => { }); // Never settles
         });
 
@@ -57,8 +57,8 @@ test.describe('Private STT Resilience', () => {
         });
 
         if (isMockEngine) {
-            console.log('[TEST] ⚠️ MockEngine detected - skipping hang simulation test');
-            console.log('[TEST] ✅ This test only runs in non-mock environment');
+            debugLog('[TEST] ⚠️ MockEngine detected - skipping hang simulation test');
+            debugLog('[TEST] ✅ This test only runs in non-mock environment');
             // Stop the session and return early
             await page.getByTestId('session-start-stop-button').click();
             return; // Test passes but skips hang verification
@@ -69,10 +69,10 @@ test.describe('Private STT Resilience', () => {
         await expect(loadingIndicator).toBeVisible();
 
         // 2. Wait for the 10s timeout to trigger (giving 12s for safety)
-        console.log('[TEST] Waiting 10s for resilience timeout...');
+        debugLog('[TEST] Waiting 10s for resilience timeout...');
 
         // 3. Verify Error Toast with Action appears
-        console.log('[TEST] Waiting for error toast...');
+        debugLog('[TEST] Waiting for error toast...');
         await page.screenshot({ path: 'test-results/resilience-before-toast.png' });
         await expect(page.getByText(/Private model hung or failed/i)).toBeVisible({ timeout: 20000 });
         await page.screenshot({ path: 'test-results/resilience-with-toast.png' });
@@ -86,6 +86,6 @@ test.describe('Private STT Resilience', () => {
         const modeButton = page.getByRole('button', { name: /native/i });
         await expect(modeButton).toBeVisible({ timeout: 5000 });
 
-        console.log('[TEST] ✅ Resilience timeout and fallback verified');
+        debugLog('[TEST] ✅ Resilience timeout and fallback verified');
     });
 });

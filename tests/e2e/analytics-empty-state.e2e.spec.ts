@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute, debugLog } from './helpers';
 
 test.describe('Analytics Page - Empty State', () => {
     test('should display empty state when user has no session history', async ({ page }) => {
@@ -32,6 +32,6 @@ test.describe('Analytics Page - Empty State', () => {
 
         // Verify CTA links to session page
         await expect(ctaButton).toHaveAttribute('href', '/session');
-        console.log('[TEST] ✅ Empty state test passed');
+        debugLog('[TEST] ✅ Empty state test passed');
     });
 });

@@ -1,10 +1,9 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { renderHook, waitFor } from '@testing-library/react';
 import { usePracticeHistory } from '../usePracticeHistory';
 import { useAuthProvider } from '../../contexts/AuthProvider';
 import { getSessionHistory } from '../../lib/storage';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, Mock } from 'vitest';
 
 // Mock dependencies
 vi.mock('../../contexts/AuthProvider', () => ({
@@ -34,7 +33,7 @@ describe('usePracticeHistory', () => {
     });
 
     it('should not fetch history when no user is authenticated', async () => {
-        (useAuthProvider as any).mockReturnValue({ user: null });
+        (useAuthProvider as unknown as Mock).mockReturnValue({ user: null });
 
         const { result } = renderHook(() => usePracticeHistory(), { wrapper });
 
@@ -46,8 +45,8 @@ describe('usePracticeHistory', () => {
         const mockUser = { id: 'test-user-id' };
         const mockHistory = [{ id: 'session-1', duration: 60 }];
 
-        (useAuthProvider as any).mockReturnValue({ user: mockUser });
-        (getSessionHistory as any).mockResolvedValue(mockHistory);
+        (useAuthProvider as unknown as Mock).mockReturnValue({ user: mockUser });
+        (getSessionHistory as unknown as Mock).mockResolvedValue(mockHistory);
 
         const { result } = renderHook(() => usePracticeHistory(), { wrapper });
 

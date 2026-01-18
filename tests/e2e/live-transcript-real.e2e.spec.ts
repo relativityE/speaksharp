@@ -30,8 +30,8 @@ test.describe('Live Transcript (Real Audio)', () => {
      * The HIGH-FIDELITY value: When run manually, this test verifies real audio → real transcription.
      */
     test.fixme('should transcribe real audio using Native STT', async ({ page }) => {
-        console.log('kp🎤 Running High-Fidelity AUDIO test with Native STT');
-        console.log(`📂 Injecting audio: ${audioFile}`);
+        debugLog('kp🎤 Running High-Fidelity AUDIO test with Native STT');
+        debugLog(`📂 Injecting audio: ${audioFile}`);
 
         // 1. Programmatic Login (focus is on STT, not Auth here)
         // We reuse the existing helper which mocks the session for speed, 
@@ -51,7 +51,7 @@ test.describe('Live Transcript (Real Audio)', () => {
 
         // Select "Native" from the dropdown
         await page.getByRole('menuitemradio', { name: 'Native' }).click();
-        console.log('✅ Switched to Native STT Mode');
+        debugLog('✅ Switched to Native STT Mode');
 
         // 4. Start Recording
         await page.getByTestId('session-start-stop-button').click();
@@ -60,13 +60,13 @@ test.describe('Live Transcript (Real Audio)', () => {
         // 5. Verify Real Transcript Logic
         // The JFK file says "And so my fellow Americans..."
         // Native STT is non-deterministic but should capture "Americans" or "fellow".
-        console.log('👂 Listening for transcript...');
+        debugLog('👂 Listening for transcript...');
 
         const transcriptContainer = page.getByTestId('transcript-container');
 
         // Increase timeout because real STT takes time
         await expect(transcriptContainer).toContainText(/Americans|fellow|ask not/i, { timeout: 30000 });
 
-        console.log('✅ Real Transcript verified: "Americans/fellow" detected');
+        debugLog('✅ Real Transcript verified: "Americans/fellow" detected');
     });
 });

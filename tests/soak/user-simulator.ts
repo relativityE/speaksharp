@@ -156,8 +156,7 @@ export class UserSimulator {
         for (let i = 0; i < iterations; i++) {
             // Simulate speech input
             await page.evaluate((iteration: number) => {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const dispatchMockTranscript = (window as any).dispatchMockTranscript;
+                const dispatchMockTranscript = (window as Window & { dispatchMockTranscript?: (text: string, isFinal: boolean) => void }).dispatchMockTranscript;
                 if (typeof dispatchMockTranscript === 'function') {
                     const phrases = ['Testing...', 'Soak test...', 'Simulating...'];
                     dispatchMockTranscript(phrases[iteration % phrases.length], true);

@@ -18,8 +18,9 @@ export default defineConfig({
   testDir: './tests/e2e',
   testIgnore: '**/canary/**',
   outputDir: './test-results/playwright',
-  timeout: 300_000, // 5-minute global timeout for unmocked Whisper
-  expect: { timeout: 120_000 }, // 2-minute expect timeout
+  // FAIL FAST: Aggressive timeouts - no test should hang
+  timeout: 30_000, // 30s per test max
+  expect: { timeout: 10_000 }, // 10s expect timeout
   retries: 1,
   reporter: process.env.CI
     ? [['blob'], ['github']]
@@ -28,12 +29,15 @@ export default defineConfig({
     ...baseConfig.use,
     baseURL: BASE_URL,
     video: 'retain-on-failure',
+    // FAIL FAST: Action timeout (click, fill, etc.)
+    actionTimeout: 10_000,
+    navigationTimeout: 15_000,
   },
   updateSnapshots: process.env.CI ? 'missing' : 'none',
   webServer: {
     command: 'pnpm dev --force',
     url: BASE_URL,
-    reuseExistingServer: process.env.CI === 'true', // CRITICAL: Always restart locally to prevent stale code (Zombie Server)
+    reuseExistingServer: true, // CRITICAL: Always restart locally to prevent stale code (Zombie Server)
     timeout: 120 * 1000,
     env: {
       DOTENV_CONFIG_PATH: '.env.test',

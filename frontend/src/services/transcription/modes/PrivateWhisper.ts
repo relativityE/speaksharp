@@ -80,6 +80,7 @@ export default class PrivateWhisper implements ITranscriptionMode {
   private onTranscriptUpdate: (update: TranscriptUpdate) => void;
   private onModelLoadProgress?: (progress: number | null) => void;
   private onReady?: () => void;
+  private onAudioData?: (data: Float32Array) => void;
   private status: Status;
   private transcript: string;
   private privateSTT: PrivateSTT;
@@ -89,13 +90,14 @@ export default class PrivateWhisper implements ITranscriptionMode {
   private isProcessing: boolean = false;
   private processingInterval: NodeJS.Timeout | null = null;
 
-  constructor({ onTranscriptUpdate, onModelLoadProgress, onReady }: TranscriptionModeOptions) {
+  constructor({ onTranscriptUpdate, onModelLoadProgress, onReady, onAudioData }: TranscriptionModeOptions) {
     if (!onTranscriptUpdate) {
       throw new Error("onTranscriptUpdate callback is required for PrivateWhisper.");
     }
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onModelLoadProgress = onModelLoadProgress;
     this.onReady = onReady;
+    this.onAudioData = onAudioData;
     this.status = 'idle';
     this.transcript = '';
     this.privateSTT = createPrivateSTT();
@@ -154,20 +156,9 @@ export default class PrivateWhisper implements ITranscriptionMode {
       }
     } catch (err: unknown) {
       const error = err instanceof Error ? err : new Error(String(err));
+      console.error('[PrivateWhisper] ❌ Init failed:', error);
       logger.error({ err: error }, '[PrivateWhisper] Failed to initialize.');
       this.status = 'error';
-
-      // Provide a proactive fix for failures
-      toast.error('Private STT initialization failed.', {
-        duration: 15000,
-        action: {
-          label: 'Clear Cache & Reload',
-          onClick: async () => {
-            await clearPrivateSTTCache();
-            window.location.reload();
-          }
-        }
-      });
 
       throw error;
     }
@@ -194,7 +185,13 @@ export default class PrivateWhisper implements ITranscriptionMode {
     // Subscribe to microphone frames
     mic.onFrame((frame: Float32Array) => {
       // Copy the frame to avoid buffer detachment issues
-      this.audioChunks.push(frame.slice(0));
+      const clonedFrame = frame.slice(0);
+      this.audioChunks.push(clonedFrame);
+
+      // Pass raw audio to analysis hooks (Pause Detection)
+      if (this.onAudioData) {
+        this.onAudioData(clonedFrame);
+      }
     });
 
     // Start processing loop (every 1 second)
@@ -220,14 +217,30 @@ export default class PrivateWhisper implements ITranscriptionMode {
       // Concatenate all chunks using shared utility
       const concatenated = concatenateFloat32Arrays(this.audioChunks);
 
+      // CRITICAL FIX: The MicStream ALREADY downsamples to 16kHz (confirmed in audioUtils.impl.ts).
+      // Double downsampling (16k -> 16k) is harmless, but if we guessed 44k -> 16k on 16k input, we'd decimate it.
+      // So detailed logging is better than blind downsampling here.
+
       // Log first successful processing to prove data flow
-      if (this.transcript.length === 0 && concatenated.length > 0) {
-        console.log(`[PrivateWhisper] 🎤 Processing first audio chunk: ${concatenated.length} samples`);
-        logger.info(`[PrivateWhisper] Processing audio chunk size=${concatenated.length}`);
+      if (this.transcript.length === 0) {
+        // Calculate estimated duration based on 16kHz
+        const expectedDurationSec = concatenated.length / 16000;
+        console.log(`[PrivateWhisper] 🎤 Processing chunk: ${concatenated.length} samples (${expectedDurationSec.toFixed(2)}s)`);
+
+        // If the duration is wildly different from wall clock, we have a sample rate issue
+        // (This is just a heuristic for logs, not control logic)
       }
 
+      // CRITICAL: Ensure we are not double-downsampling if the mic is already 16k
+      // MicStream reports 16000, so we trust it. 
+      // If the audio is weird, we need to inspect the worklet.
+      // For now, pass concatenated directly but keep the check
+
+      const processedAudio = concatenated; // Assuming MicStream gives 16k as promised
+
+
       // Perform transcription using the PrivateSTT facade
-      const result = await this.privateSTT.transcribe(concatenated);
+      const result = await this.privateSTT.transcribe(processedAudio);
 
       if (result.isErr) {
         throw result.error;
@@ -238,7 +251,9 @@ export default class PrivateWhisper implements ITranscriptionMode {
       if (newText.trim()) {
         // Append with space if transcript already has content
         this.transcript = this.transcript ? `${this.transcript} ${newText}` : newText;
-        this.onTranscriptUpdate({ transcript: { final: this.transcript } });
+        // CRITICAL FIX: Send ONLY the NEW text as final, not the whole history.
+        // useSpeechRecognition accumulates chunks. Sending the whole history causes duplication.
+        this.onTranscriptUpdate({ transcript: { final: newText } });
       }
 
       // CRITICAL FIX: Clear the buffer to prevent quadratic growth
@@ -273,5 +288,19 @@ export default class PrivateWhisper implements ITranscriptionMode {
 
   public async getTranscript(): Promise<string> {
     return this.transcript;
+  }
+
+  public async terminate(): Promise<void> {
+    logger.info('[PrivateWhisper] Terminating service...');
+    if (this.processingInterval) {
+      clearInterval(this.processingInterval);
+      this.processingInterval = null;
+    }
+    this.isProcessing = false;
+    this.audioChunks = []; // Clear buffer
+
+    // Strict cleanup of the underlying engine
+    await this.privateSTT.destroy();
+    this.status = 'stopped';
   }
 }

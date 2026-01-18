@@ -31,7 +31,5 @@ test.describe('Plan Selection at Signup', () => {
 
         // Take screenshot for verification
         await page.screenshot({ path: 'test-results/plan-selection-signup.png', fullPage: true });
-
-        console.log('✅ Plan Selection UI verified on signup page');
     });
 });

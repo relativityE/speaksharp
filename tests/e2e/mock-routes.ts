@@ -21,6 +21,21 @@
 import { Page, Route } from '@playwright/test';
 
 // ============================================================================
+// HELPERS
+// ============================================================================
+
+const isDebug = process.env.E2E_DEBUG === 'true';
+
+const mockLog = (...args: unknown[]) => {
+    if (isDebug) console.log('[E2E MOCK]', ...args);
+};
+
+const mockError = (...args: unknown[]) => {
+    // We keep ERRORS visible even in non-debug mode to follow "fail hard"
+    console.error(...args);
+};
+
+// ============================================================================
 // MOCK DATA (mirrored from frontend/src/mocks/handlers.ts)
 // ============================================================================
 
@@ -144,7 +159,7 @@ async function registerRoute(
     handler: (route: Route) => Promise<void>
 ): Promise<void> {
     await page.route(pattern, async (route) => {
-        console.log(`[E2E MOCK]Intercepted: ${route.request().method()} ${route.request().url()} `);
+        // Redundant log removed for CI clarity. Enable E2E_DEBUG if needed.
         await handler(route);
     });
 }
@@ -155,7 +170,7 @@ async function registerRoute(
 export async function setupSupabaseAuthMocks(page: Page): Promise<void> {
     // GET /auth/v1/user
     await registerRoute(page, '**/auth/v1/user', async (route) => {
-        console.log('[E2E MOCK] Fulfilling auth/v1/user');
+        mockLog('[E2E MOCK] Fulfilling auth/v1/user');
         await route.fulfill({
             status: 200,
             contentType: 'application/json',
@@ -193,7 +208,6 @@ export async function setupSupabaseAuthMocks(page: Page): Promise<void> {
 export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
     // GET /rest/v1/user_profiles
     await page.route('**/rest/v1/user_profiles*', async (route) => {
-        console.log(`[E2E MOCK]Intercepted: ${route.request().method()} ${route.request().url()} `);
         const acceptHeader = route.request().headers()['accept'];
         const isSingleObject = acceptHeader === 'application/vnd.pgrst.object+json';
 
@@ -206,12 +220,12 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
         // Merge: MOCK_USER_PROFILE (base) -> statefulProfile (state) -> profileOverride (hard override)
         let profile = { ...statefulProfile };
         if (profileOverride) {
-            console.log(`[E2E MOCK] Profile override detected: ${JSON.stringify(profileOverride)} `);
+            mockLog(`[E2E MOCK] Profile override detected: ${JSON.stringify(profileOverride)} `);
             profile = { ...profile, ...profileOverride };
         }
 
         const userId = profile.id || 'test-user-123';
-        console.log(`[E2E MOCK] Fulfilling user_profiles for: ${userId} (${profile.subscription_status})`);
+        mockLog(`[E2E MOCK] Fulfilling user_profiles for: ${userId} (${profile.subscription_status})`);
         await route.fulfill({
             status: 200,
             contentType: 'application/json',
@@ -221,8 +235,6 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
 
     // GET /rest/v1/sessions
     await page.route('**/rest/v1/sessions*', async (route) => {
-        console.log(`[E2E MOCK]Intercepted: ${route.request().method()} ${route.request().url()} `);
-
         // Check if empty sessions flag is set in the page context
         // The flag is set via page.addInitScript() BEFORE navigation
         const isEmpty = await route.request().frame()?.page()?.evaluate(() => {
@@ -230,7 +242,7 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
         }).catch(() => false);
 
         if (isEmpty) {
-            console.log('[E2E MOCK] Returning empty sessions (flag set)');
+            mockLog('[E2E MOCK] Returning empty sessions (flag set)');
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
@@ -251,7 +263,7 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
         const body = JSON.parse(route.request().postData() || '{}');
         const { p_session_data } = body;
 
-        console.log('[E2E MOCK] RPC create_session called with:', p_session_data);
+        mockLog('[E2E MOCK] RPC create_session called with:', p_session_data);
 
         // Create new session object
         const newSession = {
@@ -271,7 +283,7 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
 
         // Add to store at the BEGINNING (latest first)
         sessionStore.unshift(newSession);
-        console.log(`[E2E MOCK] Session created and added to store.Total sessions: ${sessionStore.length} `);
+        mockLog(`Session created and added to store. Total sessions: ${sessionStore.length}`);
 
         await route.fulfill({
             status: 200,
@@ -332,7 +344,7 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
             const filteredWords = userWords.filter(w => w.id !== wordId);
             userWordStore.set(userId, filteredWords);
 
-            console.log(`[E2E MOCK] Deleted word ${wordId}, remaining: ${filteredWords.length} `);
+            mockLog(`[E2E MOCK] Deleted word ${wordId}, remaining: ${filteredWords.length} `);
             await route.fulfill({ status: 204 });
         } else {
             await route.continue();
@@ -355,19 +367,9 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
 export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
     // Register catch-all FIRST so it is checked LAST (Playwright checks in reverse order)
     // Catch-all for other functions to prevent net::ERR_NAME_NOT_RESOLVED
-    await registerRoute(page, '**/functions/v1/*', async (route) => {
-        // Fallback only if no other specific route matched
-        console.log(`[E2E MOCK]Catch - all intercepted function call: $ { route.request().url() } `);
-        await route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({ success: true, mocked: true }),
-        });
-    });
-
     // POST /functions/v1/stripe-checkout
     await registerRoute(page, '**/functions/v1/stripe-checkout', async (route) => {
-        console.log('[E2E MOCK] Specific Handler: stripe-checkout');
+        mockLog('[E2E MOCK] Specific Handler: stripe-checkout');
         await route.fulfill({
             status: 200,
             contentType: 'application/json',
@@ -377,13 +379,13 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
 
     // POST /functions/v1/apply-promo
     await registerRoute(page, '**/functions/v1/apply-promo', async (route) => {
-        console.log('[E2E MOCK] Specific Handler: apply-promo');
+        mockLog('[E2E MOCK] Specific Handler: apply-promo');
         const body = await route.request().postDataJSON();
         // Accept our standard E2E mock code
         if (body?.promoCode === 'MOCK-PROMO-123') {
             // Update stateful profile to Pro
             statefulProfile.subscription_status = 'pro';
-            console.log('[E2E MOCK] Promo code applied: statefulProfile updated to PRO');
+            mockLog('[E2E MOCK] Promo code applied: statefulProfile updated to PRO');
 
             return route.fulfill({
                 status: 200,
@@ -452,7 +454,7 @@ export async function registerEdgeFunctionMock(
     const body = isFullResponse && 'body' in resObj ? resObj.body : response;
 
     await page.route(`**/functions/v1/${functionName}`, async (route) => {
-        console.log(`[E2E MOCK OVERRIDE] Fulfilling ${functionName} with custom mock`);
+        mockLog(`[E2E MOCK OVERRIDE] Fulfilling ${functionName} with custom mock`);
         await route.fulfill({
             status,
             contentType,
@@ -491,7 +493,7 @@ export async function setupStrictAllowList(page: Page): Promise<void> {
         if (isAllowed) {
             await route.continue();
         } else {
-            console.error(`[E2E STRICT] ❌ Unhandled request: ${route.request().method()} ${url} `);
+            mockError(`[E2E STRICT] ❌ Unhandled request: ${route.request().method()} ${url} `);
             // Fail the request to make it obvious
             await route.abort('failed');
         }
@@ -533,8 +535,7 @@ export async function setupE2EMocks(
     // This must happen BEFORE navigation so it's available when routes are intercepted
     if (subscriptionStatus) {
         await page.addInitScript((status: string) => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (window as any).__E2E_MOCK_PROFILE__ = { subscription_status: status };
+            (window as Window & { __E2E_MOCK_PROFILE__?: { subscription_status: string } }).__E2E_MOCK_PROFILE__ = { subscription_status: status };
         }, subscriptionStatus);
     }
 
@@ -543,7 +544,7 @@ export async function setupE2EMocks(
     userWordStore = new Map();
     sessionStore = [...MOCK_SESSION_HISTORY]; // Reset to default mock history
 
-    console.log('[E2E MOCK] Setting up Playwright route interception...');
+    mockLog('[E2E MOCK] Setting up Playwright route interception...');
 
     // Set flag to tell e2e-bridge to skip MSW
     await page.addInitScript(() => {
@@ -555,7 +556,7 @@ export async function setupE2EMocks(
     await page.route('**', async (route) => {
         const url = route.request().url();
         if (url.includes('mock.supabase.co')) {
-            console.warn(`[E2E MOCK] ⚠️ Unhandled request to mock domain: ${route.request().method()} ${url} `);
+            mockLog(`[E2E MOCK] ⚠️ Unhandled request to mock domain: ${route.request().method()} ${url} `);
             // Return 404 instead of failing with network error
             await route.fulfill({
                 status: 404,
@@ -578,7 +579,7 @@ export async function setupE2EMocks(
     await setupSupabaseDatabaseMocks(page);
     await setupEdgeFunctionMocks(page);
 
-    console.log('[E2E MOCK] ✅ All routes configured');
+    mockLog('[E2E MOCK] ✅ All routes configured');
 }
 
 /**
@@ -587,8 +588,10 @@ export async function setupE2EMocks(
  */
 export async function injectMockSession(page: Page): Promise<void> {
     await page.evaluate(({ session }) => {
-        // Store in localStorage (Supabase format)
-        const storageKey = 'sb-mock-auth-token';
+        // Supabase storage key format: sb-{project-id}-auth-token
+        // The app connects to real Supabase (yxlapjuovrsvjswkwnrk) even in E2E tests,
+        // so we must use the matching storage key for Supabase to detect the session.
+        const storageKey = 'sb-yxlapjuovrsvjswkwnrk-auth-token';
         localStorage.setItem(storageKey, JSON.stringify({
             access_token: session.access_token,
             refresh_token: session.refresh_token,
@@ -601,6 +604,7 @@ export async function injectMockSession(page: Page): Promise<void> {
         // Set flag that app checks for mock session
         (window as unknown as { __E2E_MOCK_SESSION__: boolean }).__E2E_MOCK_SESSION__ = true;
 
-        console.log('[E2E MOCK] Session injected into localStorage');
+        // Use console.debug to keep it out of standard CI logs
+        console.debug('[E2E MOCK] Session injected into localStorage');
     }, { session: MOCK_SESSION });
 }

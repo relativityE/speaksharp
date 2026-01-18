@@ -1,4 +1,3 @@
-/* eslint-disable vitest/expect-expect */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { PauseDetector } from '../pauseDetector';
 
@@ -27,7 +26,8 @@ describe('PauseDetector', () => {
     it('should detect silence start', () => {
         const silentFrame = new Float32Array(1024).fill(0);
         pauseDetector.processAudioFrame(silentFrame);
-        // Internal state check not possible directly, but we can infer from behavior
+        // Internal state check not possible directly, but we can verify metrics didn't change wildly
+        expect(pauseDetector.getMetrics().totalPauses).toBe(0);
     });
 
     it('should detect a valid pause', () => {

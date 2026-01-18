@@ -1,7 +1,7 @@
 create table if not exists public.promo_codes (
     id uuid default gen_random_uuid() primary key,
     code text not null unique,
-    duration_minutes integer not null default 30,
+    duration_minutes integer not null default 60,
     max_uses integer not null default 1,
     used_count integer not null default 0,
     valid_until timestamp with time zone,

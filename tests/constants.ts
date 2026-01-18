@@ -104,7 +104,7 @@ export const TEST_IDS = {
   NAV_SESSION_LINK: 'nav-session-link',
   NAV_ANALYTICS_LINK: 'nav-analytics-link',
   NAV_SIGN_IN_LINK: 'nav-sign-in-link',
-  SESSION_SETTINGS_BUTTON: 'session-settings-button',
+  SESSION_SETTINGS_BUTTON: 'add-custom-word-button', // Filler words popover trigger button
 
   // Auth forms
   EMAIL_INPUT: 'email-input',

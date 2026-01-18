@@ -137,15 +137,15 @@ describe('CloudAssemblyAI (Success Path & Resilience)', () => {
             expect(onConnectionStateChange).toHaveBeenCalledWith('connected');
             onConnectionStateChange.mockClear();
 
-            // 1st failure: Reconnect after 1s
+            // 1st failure: Reconnect after 3s
             MockWebSocket.lastInstance!.onclose!({ code: 1006, reason: 'Abnormal Closure', wasClean: false });
             expect(onConnectionStateChange).toHaveBeenCalledWith('reconnecting');
-            await vi.advanceTimersByTimeAsync(1000);
+            await vi.advanceTimersByTimeAsync(4000);
             expect(getAssemblyAIToken).toHaveBeenCalledTimes(2);
 
-            // 2nd failure: Reconnect after 2s
+            // 2nd failure: Reconnect after 6s
             MockWebSocket.lastInstance!.onclose!({ code: 1006, reason: 'Abnormal Closure', wasClean: false });
-            await vi.advanceTimersByTimeAsync(2000);
+            await vi.advanceTimersByTimeAsync(7000);
             expect(getAssemblyAIToken).toHaveBeenCalledTimes(3);
         });
 
@@ -163,7 +163,9 @@ describe('CloudAssemblyAI (Success Path & Resilience)', () => {
 
             // Run through 5 attempts
             for (let i = 0; i < 5; i++) {
-                await vi.advanceTimersByTimeAsync(1000 * Math.pow(2, i));
+                // Delay: 3000, 6000, 12000, 24000, 30000(cap)
+                const delay = Math.min(3000 * Math.pow(2, i), 30000);
+                await vi.advanceTimersByTimeAsync(delay + 1000);
             }
 
             expect(getAssemblyAIToken).toHaveBeenCalledTimes(6); // 1 initial + 5 attempts

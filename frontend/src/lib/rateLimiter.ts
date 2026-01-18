@@ -3,6 +3,8 @@
  * Prevents accidental rapid token requests.
  */
 
+import { RATE_LIMIT_CONFIG as CONFIG } from '../config';
+
 interface RateLimiterState {
     lastCall: number;
     callCount: number;
@@ -12,13 +14,13 @@ interface RateLimiterState {
 const rateLimiters: Map<string, RateLimiterState> = new Map();
 
 /**
- * Rate limit configuration
+ * Rate limit configuration - uses centralized config values
  */
 export const RATE_LIMIT_CONFIG = {
     ASSEMBLYAI_TOKEN: {
-        windowMs: 60000,      // 1 minute window
-        maxCalls: 5,          // Max 5 calls per window
-        minIntervalMs: 5000,  // Min 5 seconds between calls
+        windowMs: 60000,                           // 1 minute window
+        maxCalls: CONFIG.ASSEMBLYAI_TOKEN_MAX_CALLS,
+        minIntervalMs: CONFIG.ASSEMBLYAI_TOKEN_INTERVAL_MS,
     },
 } as const;
 

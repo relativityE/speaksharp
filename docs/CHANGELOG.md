@@ -10,6 +10,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Unreleased
 
+- **Filler Words UX Polish:**
+  - **Feature:** "Add Custom Word" now opens a compact `Popover` instead of a full sheet for faster workflow.
+  - **Improvement:** Seamless styling—all filler words (standard & custom) are now uniformly Amber-500.
+  - **Improvement:** "Total Detected" label is now prominent; counts are stacked above words.
+  - **Fix:** Custom words now appear immediately in the list upon addition (removed specific transcript check).
+
+- **CI & Quality Enforcement:**
+  - **Standard:** Enforced "Fail Fast, Fail Hard" and "Print/Log Negatives, Assert Positives" across all test suites.
+  - **Refinement:** Silenced successful build, lint, and typecheck output in CI to reduce noise; only errors are now displayed.
+  - **Improvement:** Standardized E2E logging via `attachLiveTranscript` to only show browser errors and warnings.
+  - **Fix:** Resolved `mswReady` timing issues in `bypass-journey.e2e.spec.ts` and missing test-IDs in `SessionPage.tsx`.
+
+- **Private STT Performance:**
+  - **Improvement:** Increased WebGPU initialization timeout to 20s (from 10s) to prevent false-positive fallbacks on slower GPUs.
+
+- **Infrastructure:**
+  - **Fix:** Resolved `ReactCurrentDispatcher` error by hoisting `@radix-ui/react-popover` to root dependencies.
+
+### Fixed (2026-01-16) - Private STT Reliability & Code Quality
+5. 
+6. - **Private STT Reliability:**
+7.   - **Feature:** Implemented robust retry mechanism with `STT_CONFIG.MAX_PRIVATE_ATTEMPTS` (limit 2).
+8.   - **Fallback:** Automatic fallback to Native Browser STT upon exceeding retry limit.
+9.   - **UX:** Added "clear cache" repair action and improved status bar feedback during fallback.
+10.   - **Files:** `frontend/src/services/transcription/TranscriptionService.ts`, `frontend/src/config.ts`
+11. 
+12. - **Promo Code Functionality:**
+13.   - **Backend Fix:** Changed `apply-promo` Edge Function to use `.upsert()` instead of `.update()`, ensuring new users get profiles created.
+14.   - **Frontend Fix:** Added `queryClient.invalidateQueries(['sessionHistory'])` to refresh UI immediately after promo application.
+15.   - **UX:** Updated promo code prompt visibility (amber color, gift emoji) and added session saved toast.
+16.   - **Files:** `backend/supabase/functions/apply-promo/index.ts`, `frontend/src/pages/AuthPage.tsx`, `frontend/src/components/session/StatusNotificationBar.tsx`
+17. 
+18. - **Code Quality Enforcement:**
+19.   - **Strict Linting:** Removed all instances of `eslint-disable` directives across the codebase.
+20.   - **Type Safety:** Eliminated `any` types in `TranscriptionService`, `e2e-bridge`, and test files, replacing them with strict type assertions.
+21.   - **CI:** Added `scripts/check-eslint-disable.sh` to fail builds if `eslint-disable` is detected.
+22.   - **Files:** `scripts/check-eslint-disable.sh`, `scripts/test-audit.sh`, `frontend/src/**/*`
+23. 
+24. - **Stripe Integration Fixes:**
+25.   - **Tests:** Updated `PricingPage.test.tsx` to match new `stripe-checkout` payload (`returnUrlOrigin`).
+26.   - **Security:** Confirmed removal of `priceId` from frontend payload in favor of backend env var `STRIPE_PRO_PRICE_ID`.
+27.   - **Files:** `frontend/src/pages/__tests__/PricingPage.test.tsx`
+28. 
+29. - **Test Suite Corrections:**
+30.   - **Fix:** Resolved relative import paths in `domainServices.test.ts`.
+31.   - **Fix:** Updated `PricingPage` tests to mock updated Stripe payload.
+32.   - **Note:** `SignInPage` and `useSessionManager` tests pending `QueryClientProvider` wrapper fix.
+
+### Added (2026-01-15) - Session Feedback & Promo Updates
+
+- **Status Bar Integration:**
+  - **Feature:** Centralized session feedback notifications into the persistent `StatusNotificationBar`.
+  - **Details:** "Session Saved", "Session Too Short", and "Usage Limit" messages now appear in the status bar instead of transient toasts.
+  - **Priority Logic:** Added strict priority handling (Feedback > Analytics Prompt > Download Progress > Promo status > STT Status).
+  - **Files:** `frontend/src/pages/SessionPage.tsx`
+
+- **Promo Code Duration Update:**
+  - **Change:** Increased default promo code duration from 30 minutes to **60 minutes**.
+  - **Implementation:** Updated `PROMO_DURATION_MINUTES` constant, Edge Function logic, and SQL migration default.
+  - **Files:** `backend/supabase/functions/_shared/constants.ts`, `backend/supabase/functions/apply-promo/index.ts`, `backend/supabase/migrations/20251231010000_create_promo_codes.sql`
+
+- **Analytics UX:**
+  - **Change:** Removed auto-redirect to analytics after session. Replaced with persistent "Click Analytics to review" prompt in status bar.
+  - **File:** `frontend/src/pages/SessionPage.tsx`
+
 ### Fixed (2026-01-12) - Analytics & Supabase Optimization
 
 - **TrendChart Empty State (UI Fix):**
@@ -1555,6 +1620,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Secure E2E User Provisioning**: Implemented `create-user` Edge Function to securely provision test users with specific roles ('free'/'pro') in CI.
+- **E2E Bridge Synchronization**: Added event-driven synchronization (`e2e:speech-recognition-ready`) to `NativeBrowser` to eliminate race conditions in E2E tests.
+
+### Fixed
+- **E2E Test Stability**: Resolved critical race conditions in `user-filler-words` tests by ensuring consistent "Native" mode selection and adding robust synchronization.
+- **CI Pipeline Noise**: Configured log filtering to suppress false-positive console errors (`useUsageLimit`) in CI reports.
 - **Pause Metrics Integration**: Integrated `PauseMetricsDisplay` into SessionPage with real-time tracking via `useVocalAnalysis` hook.
 - **CI Parity**: Updated `test-audit.sh` to match GitHub Actions workflow for Lighthouse execution.
 

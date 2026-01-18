@@ -8,11 +8,15 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import posthog from 'posthog-js';
 
+import { useQueryClient } from '@tanstack/react-query'; // Import query client
+
 export default function SignUpPage() {
     const { session, loading, setSession } = useAuthProvider();
+    const queryClient = useQueryClient(); // Initialize query client
 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [promoCode, setPromoCode] = useState(''); // New promo code state
     const [error, setError] = useState<string | null>(null);
     const [message, setMessage] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -41,6 +45,25 @@ export default function SignUpPage() {
                 setSession(signInData.session);
                 // Track successful signup
                 posthog.capture('signup_completed', { email_domain: email.split('@')[1] });
+
+                // Apply promo code if provided
+                if (promoCode.trim()) {
+                    try {
+                        const { data: promoData, error: promoError } = await supabase.functions.invoke('apply-promo', {
+                            body: { promoCode: promoCode.trim() }
+                        });
+
+                        if (promoError) {
+                            console.error('Failed to apply promo during signup:', promoError);
+                        } else {
+                            console.log('Promo applied during signup:', promoData);
+                            // Force refresh of user profile to show Pro status immediately
+                            await queryClient.invalidateQueries({ queryKey: ['userProfile'] });
+                        }
+                    } catch (e) {
+                        console.error('Failed to apply promo during signup (exception):', e);
+                    }
+                }
             } else {
                 // If no session, it likely requires email confirmation
                 setMessage('Success! Please check your email for a confirmation link.');
@@ -103,6 +126,16 @@ export default function SignUpPage() {
                                     required
                                     value={password}
                                     onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="promoCode">Promo Code (Optional)</Label>
+                                <Input
+                                    id="promoCode"
+                                    type="text"
+                                    placeholder="Enter code if you have one"
+                                    value={promoCode}
+                                    onChange={(e: ChangeEvent<HTMLInputElement>) => setPromoCode(e.target.value)}
                                 />
                             </div>
 

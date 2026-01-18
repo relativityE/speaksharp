@@ -8,10 +8,11 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 dotenv.config({ path: path.resolve(process.cwd(), '.env.development') });
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-const ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+// We try to use Service Key if available, otherwise Anon Key (which worked before security check)
+const API_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
 
-if (!SUPABASE_URL || !ANON_KEY) {
-    console.error('❌ Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY.');
+if (!SUPABASE_URL || !API_KEY) {
+    console.error('❌ Missing VITE_SUPABASE_URL or API KEY.');
     process.exit(1);
 }
 
@@ -28,10 +29,10 @@ async function main() {
         const response = await fetch(`${SUPABASE_URL}/functions/v1/apply-promo/generate`, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${ANON_KEY}`,
+                'Authorization': `Bearer ${API_KEY}`,
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({}) // Empty body, or add { secret: ... } if we added auth check
+            body: JSON.stringify({})
         });
 
         if (!response.ok) {

@@ -12,8 +12,7 @@ test.describe('Analytics Page - Dashboard with Data', () => {
     // Use client-side navigation to avoid full page reload issues
     await navigateToRoute(page, '/analytics');
 
-    console.log('[TEST] Current URL:', page.url());
-    console.log('[TEST] Waiting for dashboard heading...');
+    // Verify dashboard heading
 
     // Verify dashboard heading
     const mainHeading = page.getByTestId('dashboard-heading');

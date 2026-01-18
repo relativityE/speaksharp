@@ -110,7 +110,7 @@ describe('PricingPage', () => {
             // Mock window.location.href
             const originalLocation = window.location;
             Object.defineProperty(window, 'location', {
-                value: { href: '' },
+                value: { href: '', origin: 'http://localhost' },
                 writable: true,
             });
 
@@ -121,7 +121,11 @@ describe('PricingPage', () => {
 
             await waitFor(() => {
                 // Backend now uses STRIPE_PRO_PRICE_ID env var, no body needed
-                expect(mockInvoke).toHaveBeenCalledWith('stripe-checkout');
+                expect(mockInvoke).toHaveBeenCalledWith('stripe-checkout', expect.objectContaining({
+                    body: expect.objectContaining({
+                        returnUrlOrigin: expect.any(String)
+                    })
+                }));
             });
 
             // Restore original location

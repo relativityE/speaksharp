@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute, debugLog } from './helpers';
 
 /**
  * PDF Export E2E Test
@@ -31,7 +31,7 @@ test.describe('PDF Export', () => {
         // Verify Filename logic
         // Expected format: session_YYYYMMDD_userId.pdf
         const filename = download.suggestedFilename();
-        console.log(`[TEST] 📥 Downloaded filename: ${filename}`);
+        debugLog(`[TEST] 📥 Downloaded filename: ${filename}`);
 
         expect(filename).toMatch(/^session_\d{8}_.*\.pdf$/);
         expect(filename).not.toMatch(/^[a-z0-9-]{36}$/i); // Should NOT be a GUID
@@ -39,7 +39,7 @@ test.describe('PDF Export', () => {
         // Save to filesystem to allow manual inspection (and satisfy user requirement)
         const savePath = `test-results/downloads/${filename}`;
         await download.saveAs(savePath);
-        console.log(`[TEST] ✅ Saved PDF to: ${savePath}`);
+        debugLog(`[TEST] ✅ Saved PDF to: ${savePath}`);
 
         // Optional: Verify file size > 0
         const fs = await import('fs');
@@ -90,16 +90,16 @@ test.describe('PDF Export', () => {
 
         // 1. Valid PDF header
         expect(pdfBuffer.subarray(0, 5).toString()).toBe('%PDF-');
-        console.log('[TEST] ✅ PDF Header verified: %PDF-');
+        debugLog('[TEST] ✅ PDF Header verified: %PDF-');
 
         // 2. Non-trivial content (jsPDF generates ~5KB+ for our reports)
         expect(pdfBuffer.length).toBeGreaterThan(1000);
-        console.log(`[TEST] ✅ PDF Size verified: ${pdfBuffer.length} bytes`);
+        debugLog(`[TEST] ✅ PDF Size verified: ${pdfBuffer.length} bytes`);
 
         // CONTENT VERIFICATION is done in unit test:
         // See: frontend/src/lib/__tests__/pdfGenerator.test.ts
-        console.log('[TEST] ℹ️ PDF content verification: See pdfGenerator.test.ts');
-        console.log(`[TEST] ✅ PDF Content Verification Complete (${pdfBuffer.length} bytes)`);
+        debugLog('[TEST] ℹ️ PDF content verification: See pdfGenerator.test.ts');
+        debugLog(`[TEST] ✅ PDF Content Verification Complete (${pdfBuffer.length} bytes)`);
     });
 
     test('should have download button for each session in analytics', async ({ page }) => {
@@ -110,7 +110,7 @@ test.describe('PDF Export', () => {
         // Wait for session items to load - MSW provides 5 mock sessions
         const sessionItems = page.getByTestId(/session-history-item-/);
         await expect(sessionItems.first()).toBeVisible({ timeout: 10000 });
-        console.log('[TEST] ✅ Session items loaded');
+        debugLog('[TEST] ✅ Session items loaded');
 
         const sessionCount = await sessionItems.count();
         expect(sessionCount).toBeGreaterThan(0);
@@ -122,6 +122,6 @@ test.describe('PDF Export', () => {
         // Mock user is Pro, so download buttons MUST exist
         expect(buttonCount).toBeGreaterThan(0);
         expect(buttonCount).toBeLessThanOrEqual(sessionCount);
-        console.log(`[TEST] ✅ Found ${buttonCount} download buttons for ${sessionCount} sessions`);
+        debugLog(`[TEST] ✅ Found ${buttonCount} download buttons for ${sessionCount} sessions`);
     });
 });

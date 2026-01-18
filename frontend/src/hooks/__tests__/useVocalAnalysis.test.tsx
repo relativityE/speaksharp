@@ -1,7 +1,7 @@
 import { renderHook, act } from '@testing-library/react';
 import { useVocalAnalysis } from '../useVocalAnalysis';
 import { PauseDetector } from '@/services/audio/pauseDetector';
-/* eslint-disable vitest/expect-expect */
+/* removed disable */
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 // Mock PauseDetector
@@ -89,10 +89,8 @@ describe('useVocalAnalysis', () => {
         const { result } = renderHook(() => useVocalAnalysis(true));
         const audioData = new Float32Array([0.1, 0.2]);
 
-        result.current.processAudioFrame(audioData);
-
-        // We can't easily access the instance to check if processAudioFrame was called
-        // without storing the mock instance, but we can verify no errors occur.
-        // Ideally we would return the mock instance from the factory.
+        expect(() => {
+            result.current.processAudioFrame(audioData);
+        }).not.toThrow();
     });
 });

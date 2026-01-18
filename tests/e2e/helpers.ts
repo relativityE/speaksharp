@@ -31,15 +31,86 @@ const ANSI = {
 };
 
 /**
- * Stream console logs into Playwright with colorized ERROR/WARN output
- * - ERROR messages appear in red bold
- * - WARN messages appear in yellow
- * - Other messages appear normally
+ * Log only if E2E_DEBUG is set
+ */
+export const debugLog = (...args: unknown[]) => {
+  if (process.env.E2E_DEBUG === 'true') {
+    console.log('[E2E]', ...args);
+  }
+};
+
+/**
+ * Wrap async wait operations with debug logging.
+ * Logs start, end, and duration when E2E_DEBUG=true.
+ * Flags waits >5s as slow with stack trace context.
+ */
+export async function debugWait<T>(description: string, promise: Promise<T>): Promise<T> {
+  const debugMode = process.env.E2E_DEBUG === 'true';
+  const SLOW_THRESHOLD_MS = 30000; // 30s - align with Playwright timeout
+
+  // Capture call site for slow wait warnings
+  const stack = new Error().stack || '';
+  const callerLine = stack.split('\n')[2] || ''; // Skip Error + debugWait lines
+  const callerMatch = callerLine.match(/at.*\((.*):(\d+):\d+\)/) || callerLine.match(/at (.*):(\d+):\d+/);
+  const callerFile = callerMatch?.[1]?.split('/').pop() || 'unknown';
+  const callerLineNum = callerMatch?.[2] || '?';
+
+  if (debugMode) {
+    console.log(`[WAIT START] ${description}`);
+  }
+
+  const startTime = Date.now();
+  try {
+    const result = await promise;
+    const duration = Date.now() - startTime;
+
+    if (duration > SLOW_THRESHOLD_MS) {
+      // Always log slow waits, even without E2E_DEBUG
+      console.warn(`⚠️ [WAIT SLOW] ${description} took ${duration}ms (${callerFile}:${callerLineNum})`);
+    } else if (debugMode) {
+      console.log(`[WAIT END] ${description} resolved after ${duration}ms`);
+    }
+
+    return result;
+  } catch (err) {
+    const duration = Date.now() - startTime;
+    console.error(`[WAIT FAIL] ${description} failed after ${duration}ms (${callerFile}:${callerLineNum}):`, err);
+    throw err;
+  }
+}
+
+/**
+ * Stream console logs into Playwright with colorized ERROR/WARN output.
+ * Controlled by E2E_DEBUG environment variable:
+ * - E2E_DEBUG=true: All logs shown (ERROR, WARNING, LOG, etc.)
+ * - E2E_DEBUG unset: Only ERROR logs shown for cleaner CI output
  */
 export function attachLiveTranscript(page: Page): void {
+  const debugMode = process.env.E2E_DEBUG === 'true';
+
   page.on('console', (msg) => {
     const type = msg.type().toUpperCase();
     const text = msg.text();
+
+    // Noise filter: Skip common strings that are non-actionable in E2E
+    const NOISE_PATTERNS = [
+      /Stripe\.js integrations must use HTTPS/i,
+      /The width\(-1\) and height\(-1\) of chart should be greater than 0/i,
+      /PostHog.js/i,
+      /Surveys/i,
+      /Failed to fetch/i,
+      /FeatureFlags/i
+    ];
+
+    if (NOISE_PATTERNS.some(p => p.test(text))) {
+      return;
+    }
+
+    // Always show errors and warnings, optionally show other logs
+    const isNegative = type === 'ERROR' || type === 'WARNING' || type === 'WARN';
+    if (!isNegative && !debugMode) {
+      return; // Skip non-negative logs in CI mode (Assert Positives)
+    }
 
     // Apply color based on message type
     let prefix = '';
@@ -54,6 +125,10 @@ export function attachLiveTranscript(page: Page): void {
     }
 
     console.log(`${prefix}[BROWSER ${type}] ${text}${suffix}`);
+  });
+
+  page.on('pageerror', (err) => {
+    console.log(`${ANSI.RED}${ANSI.BOLD}[BROWSER PAGE ERROR] ${err.message}${ANSI.RESET}`);
   });
 }
 
@@ -88,11 +163,9 @@ export async function waitForE2EEvent(page: Page, eventName: string): Promise<vo
 export async function programmaticLogin(
   page: Page
 ): Promise<void> {
-  console.log('[E2E DEBUG] Starting programmaticLogin');
 
   // 1. Set flag before navigation (AuthProvider checks this)
   // Using idempotency guard to prevent script stacking from multiple calls
-  console.log('[E2E DEBUG] Setting __E2E_MOCK_SESSION__ flag');
   await page.addInitScript(() => {
     // Guard against multiple script additions (addInitScript stacks cumulatively)
     if (!(window as unknown as { __E2E_MOCK_SESSION__: boolean }).__E2E_MOCK_SESSION__) {
@@ -101,29 +174,25 @@ export async function programmaticLogin(
   });
 
   // 2. Navigate to app
-  console.log('[E2E DEBUG] Navigating to /');
   await page.goto('/');
 
   // 3. Wait for MSW to be ready (required for network mocking)
-  console.log('[E2E DEBUG] Waiting for MSW ready signal');
-  await waitForE2EEvent(page, 'e2e:msw-ready');
-  console.log('[E2E DEBUG] MSW ready signal received');
+  await debugWait('MSW Ready', waitForE2EEvent(page, 'e2e:msw-ready'));
 
   // 4. Wait for app to initialize (app-main indicates auth is complete)
-  console.log('[E2E DEBUG] Waiting for app-main element');
-  await page.waitForSelector('[data-testid="app-main"]', { timeout: 10000 });
-  console.log('[E2E DEBUG] App-main element found');
+  await debugWait(
+    'App Initialize ([data-testid="app-main"])',
+    page.waitForSelector('[data-testid="app-main"]', { timeout: 10000 })
+  );
 
   // 5. Wait for profile to be loaded (fixes race condition where startButton is disabled during profile loading)
   // AuthProvider dispatches 'e2e-profile-loaded' event when profile fetch completes
-  console.log('[E2E DEBUG] Waiting for profile to be loaded');
-  await page.waitForFunction(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return !!(window as any).__e2eProfileLoaded;
-  }, null, { timeout: 10000 });
-  console.log('[E2E DEBUG] Profile loaded');
-
-  console.log('[E2E] MSW ready, user authenticated via network mocking');
+  await debugWait(
+    'Profile Loaded (__e2eProfileLoaded)',
+    page.waitForFunction(() => {
+      return !!window.__e2eProfileLoaded;
+    }, null, { timeout: 10000 })
+  );
 }
 
 /**
@@ -158,9 +227,12 @@ export async function programmaticLogin(
  * @param route - Target route (e.g., '/analytics', '/session')
  * @see https://github.com/[repo]/docs/ARCHITECTURE.md#e2e-anti-pattern
  */
-export async function navigateToRoute(page: Page, route: string): Promise<void> {
-  console.log(`[E2E DEBUG] Navigating to ${route} using client-side navigation`);
-
+export async function navigateToRoute(
+  page: Page,
+  route: string,
+  options: { waitForMocks?: boolean } = {}
+): Promise<void> {
+  const { waitForMocks = true } = options;
   // Use evaluate to trigger React Router navigation without full page reload
   await page.evaluate((targetRoute) => {
     // React Router uses the browser history API
@@ -170,16 +242,21 @@ export async function navigateToRoute(page: Page, route: string): Promise<void> 
   }, route);
 
   // Wait for route change to complete
-  await page.waitForURL(`**${route}`, { timeout: 10000 });
-  console.log(`[E2E DEBUG] Navigation to ${route} complete`);
+  await debugWait(
+    `Route Change (${route})`,
+    page.waitForURL(`**${route}`, { timeout: 10000 })
+  );
 
-  // Wait for MSW to be ready to intercept requests (timing fix)
-  // This gives the service worker time to catch up after navigation
-  await page.waitForFunction(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return !!(window as any).mswReady;
-  }, null, { timeout: 5000 });
-  console.log(`[E2E DEBUG] MSW ready confirmed after navigation`);
+  if (waitForMocks) {
+    // Wait for MSW to be ready to intercept requests (timing fix)
+    // This gives the service worker time to catch up after navigation
+    await debugWait(
+      'MSW Ready (Post-Navigation)',
+      page.waitForFunction(() => {
+        return !!window.mswReady;
+      }, null, { timeout: 5000 })
+    );
+  }
 }
 
 /**
@@ -213,7 +290,7 @@ export async function programmaticLoginAs(page: Page, userType: UserType): Promi
     throw new Error(errorMsg);
   }
 
-  console.log(`[${userType.toUpperCase()} Login] Authenticating with:`, email);
+  debugLog(`[${userType.toUpperCase()} Login] Authenticating with:`, email);
 
   // Navigate to sign-in
   await page.goto('/auth/signin');
@@ -238,7 +315,7 @@ export async function programmaticLoginAs(page: Page, userType: UserType): Promi
     await badge.waitFor({ state: 'visible', timeout: 10000 });
   }
 
-  console.log(`[${userType.toUpperCase()} Login] ✅ Successfully authenticated`);
+  debugLog(`[${userType.toUpperCase()} Login] ✅ Successfully authenticated`);
 }
 
 /**
@@ -320,7 +397,7 @@ export async function capturePage(
     fullPage: true,
   });
 
-  console.log(`[E2E CAPTURE] Saved to screenshots/${filename}`);
+  debugLog(`[E2E CAPTURE] Saved to screenshots/${filename}`);
 }
 
 /* ---------------------------------------------
@@ -349,30 +426,31 @@ export async function programmaticLoginWithRoutes(
     subscriptionStatus?: 'free' | 'pro';
   } = {}
 ): Promise<void> {
-  console.log('[E2E] Starting programmaticLoginWithRoutes (no MSW dependency)');
 
   // 1. Setup Playwright routes BEFORE navigation
   await setupE2EMocks(page, { subscriptionStatus: options.subscriptionStatus });
-  console.log('[E2E] Playwright routes configured');
 
-  // 2. Set mock session flag and force TEST_MODE
+  // 2. Set mock session flag, mswReady (for navigateToRoute compat), and force TEST_MODE
   await page.addInitScript(() => {
     interface CustomWindow extends Window {
       __E2E_MOCK_SESSION__: boolean;
       TEST_MODE: boolean;
+      mswReady: boolean;
     }
     const win = window as unknown as CustomWindow;
     win.__E2E_MOCK_SESSION__ = true;
     win.TEST_MODE = true; // Force test mode regardless of Vite config
+    win.mswReady = true; // Set mswReady for navigateToRoute compatibility (no actual MSW)
   });
 
   // 3. Navigate to app
-  console.log('[E2E] Navigating to /');
   await page.goto('/');
 
   // 4. Wait for React to mount (no MSW wait needed!)
-  console.log('[E2E] Waiting for React to mount...');
-  await page.waitForSelector('#root > *', { timeout: 15000 });
+  await debugWait(
+    'React Mount (#root > *)',
+    page.waitForSelector('#root > *', { timeout: 15000 })
+  );
 
   // 5. Inject mock session
   await injectMockSession(page);
@@ -385,10 +463,10 @@ export async function programmaticLoginWithRoutes(
 
   // 7. Wait for authenticated state
   // Note: app-main confirms auth is complete. Profile is now fetched via useUserProfile hook (C2 refactor).
-  console.log('[E2E] Waiting for app-main...');
-  await page.waitForSelector('[data-testid="app-main"]', { timeout: 30000 });
-
-  console.log('[E2E] ✅ Logged in via Playwright routes');
+  await debugWait(
+    'Authenticated State ([data-testid="app-main"])',
+    page.waitForSelector('[data-testid="app-main"]', { timeout: 30000 })
+  );
 }
 
 /**
@@ -412,7 +490,7 @@ export async function liveLogin(page: Page, email: string, password: string): Pr
  * @param route - Public route to navigate to (e.g., '/auth/signup', '/pricing')
  */
 export async function goToPublicRoute(page: Page, route: string): Promise<void> {
-  console.log(`[E2E] Navigating to public route: ${route}`);
+  debugLog(`[E2E] Navigating to public route: ${route}`);
   await page.goto(route);
   await page.waitForLoadState('domcontentloaded');
 }

@@ -1,10 +1,9 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { renderHook, waitFor } from '@testing-library/react';
 import { useUserProfile } from '../useUserProfile';
 import { useAuthProvider } from '../../contexts/AuthProvider';
 import { profileService } from '../../services/domainServices';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach, Mock } from 'vitest';
 
 // Mock dependencies
 vi.mock('../../contexts/AuthProvider', () => ({
@@ -47,7 +46,7 @@ describe('useUserProfile', () => {
     );
 
     it('should return null when no user is authenticated', async () => {
-        (useAuthProvider as any).mockReturnValue({ session: null });
+        (useAuthProvider as unknown as Mock).mockReturnValue({ session: null });
 
         const { result } = renderHook(() => useUserProfile(), { wrapper });
 
@@ -58,8 +57,8 @@ describe('useUserProfile', () => {
         const mockUser = { id: 'test-user-id' };
         const mockProfile = { id: 'test-user-id', subscription_status: 'pro' };
 
-        (useAuthProvider as any).mockReturnValue({ session: { user: mockUser } });
-        (profileService.getById as any).mockResolvedValue(mockProfile);
+        (useAuthProvider as unknown as Mock).mockReturnValue({ session: { user: mockUser } });
+        (profileService.getById as unknown as Mock).mockResolvedValue(mockProfile);
 
         const { result } = renderHook(() => useUserProfile(), { wrapper });
 
@@ -72,8 +71,8 @@ describe('useUserProfile', () => {
         const mockUser = { id: 'test-user-id' };
         const mockError = new Error('Network error');
 
-        (useAuthProvider as any).mockReturnValue({ session: { user: mockUser } });
-        (profileService.getById as any).mockRejectedValue(mockError);
+        (useAuthProvider as unknown as Mock).mockReturnValue({ session: { user: mockUser } });
+        (profileService.getById as unknown as Mock).mockRejectedValue(mockError);
 
         // Use injectable retry: false to skip retries and make test fast
         const { result } = renderHook(() => useUserProfile({ retry: false }), { wrapper });

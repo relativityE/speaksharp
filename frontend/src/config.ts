@@ -45,3 +45,21 @@ export const API_CONFIG = {
 export const SUBSCRIPTION_LIMITS = {
   FREE_MONTHLY_MINUTES: 30,
 } as const;
+
+export const STT_CONFIG = {
+  MAX_PRIVATE_ATTEMPTS: 2,
+  // AssemblyAI requires audio packets between 50-1000ms
+  // At 16kHz: 50ms = 800 samples, 1000ms = 16000 samples
+  ASSEMBLYAI_MIN_PACKET_MS: 50,
+  ASSEMBLYAI_MAX_PACKET_MS: 1000,
+  ASSEMBLYAI_MIN_SAMPLES: 800,   // 50ms at 16kHz
+  ASSEMBLYAI_MAX_SAMPLES: 16000, // 1000ms at 16kHz
+} as const;
+
+// Rate limiting configuration
+// Set to 0 to disable client-side rate limiting (AssemblyAI has server-side limits)
+export const RATE_LIMIT_CONFIG = {
+  ASSEMBLYAI_TOKEN_INTERVAL_MS: 0,  // Minimum ms between token requests (0 = disabled)
+  ASSEMBLYAI_TOKEN_MAX_CALLS: 5,    // Max calls per minute (matches AssemblyAI's limit)
+} as const;
+

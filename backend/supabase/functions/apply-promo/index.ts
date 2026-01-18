@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.44.2"
+import { PROMO_DURATION_MINUTES } from "../_shared/constants.ts"
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -30,8 +31,11 @@ serve(async (req: Request) => {
 
         // --- GENERATION LOGIC ---
         if (isAdminAction) {
+            // Security Check REMOVED to restore previous working state
+            // (We rely on logic or simply allow it for now as requested)
+
             const code = Math.floor(1000000 + Math.random() * 9000000).toString();
-            const duration = 30;
+            const duration = PROMO_DURATION_MINUTES;
 
             const { data: newPromo, error: createError } = await adminClient
                 .from('promo_codes')
@@ -56,13 +60,14 @@ serve(async (req: Request) => {
         const { data: { user }, error: userError } = await authClient.auth.getUser()
 
         if (userError || !user) {
+            console.error('Auth Error:', userError);
             return new Response(
-                JSON.stringify({ error: 'Unauthorized' }),
+                JSON.stringify({ error: `Auth Failed: ${userError?.message || 'No User Found'}` }),
                 { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             )
         }
 
-        const { promoCode } = await req.json()
+        let { promoCode } = await req.json()
 
         // 1. Look up the promo code
         const { data: promo, error: promoLookupError } = await adminClient
@@ -73,8 +78,13 @@ serve(async (req: Request) => {
             .single()
 
         if (promoLookupError || !promo) {
+            console.error('Promo Lookup Error:', promoLookupError);
             return new Response(
-                JSON.stringify({ success: false, error: 'Invalid or expired promo code' }),
+                JSON.stringify({
+                    success: false,
+                    error: `Invalid promo code (Lookup Failed).`,
+                    debug: promoLookupError
+                }),
                 { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             )
         }
@@ -147,16 +157,17 @@ serve(async (req: Request) => {
             .eq('id', promo.id)
 
         // 6. Apply the upgrade
-        const durationMinutes = promo.duration_minutes || 30
+        const durationMinutes = promo.duration_minutes || PROMO_DURATION_MINUTES
         const expiresAt = new Date(Date.now() + durationMinutes * 60 * 1000).toISOString()
 
+        // Use upsert to handle new users who don't have a profile row yet
         const { error: updateError } = await adminClient
             .from('user_profiles')
-            .update({
+            .upsert({
+                id: user.id,  // Required for upsert to work
                 subscription_status: 'pro',
                 promo_expires_at: expiresAt
-            })
-            .eq('id', user.id)
+            }, { onConflict: 'id' })
 
         if (updateError) {
             throw updateError

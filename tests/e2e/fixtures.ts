@@ -19,6 +19,7 @@
 
 import { test as base, Page } from '@playwright/test';
 import { setupE2EMocks, injectMockSession } from './mock-routes';
+import { goToPublicRoute, debugWait } from './helpers';
 
 /**
  * Custom fixture types
@@ -74,10 +75,14 @@ export const test = base.extend<E2EFixtures>({
         await setupE2EMocks(page);
 
         // Navigate to trigger app initialization
-        await page.goto('/'); // eslint-disable-line no-restricted-syntax -- Initial navigation
+        // Navigate to trigger app initialization
+        await goToPublicRoute(page, '/');
 
         // Wait for app to load
-        await page.waitForSelector('#root > *', { timeout: 10000 });
+        await debugWait(
+            'Initial App Load (#root > *)',
+            page.waitForSelector('#root > *', { timeout: 10000 })
+        );
 
         // Inject mock session
         await injectMockSession(page);
@@ -86,7 +91,10 @@ export const test = base.extend<E2EFixtures>({
         await page.reload();
 
         // Wait for authenticated UI
-        await page.waitForSelector('[data-testid="app-main"]', { timeout: 10000 });
+        await debugWait(
+            'Authenticated UI ([data-testid="app-main"])',
+            page.waitForSelector('[data-testid="app-main"]', { timeout: 10000 })
+        );
 
         // Provide the page to the test
         await use(page);

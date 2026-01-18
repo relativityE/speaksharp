@@ -20,8 +20,11 @@ test.describe('Bypass Code Journey', () => {
         // 1. Navigate to signup
         await goToPublicRoute(page, '/auth/signup');
 
-        // 2. Select Pro Plan
-        await page.click('[data-testid="plan-pro-option"]');
+        // Wait for page to be ready
+        await page.waitForSelector('[data-testid="email-input"]', { timeout: 10000 });
+
+        // 2. Select Pro Plan (with explicit timeout to fail fast if not found)
+        await page.click('[data-testid="plan-pro-option"]', { timeout: 10000 });
 
         // 3. Fill in credentials
         const uniqueEmail = `alpha.${Date.now()}@example.com`;
@@ -29,7 +32,7 @@ test.describe('Bypass Code Journey', () => {
         await page.fill('[data-testid="password-input"]', 'password123');
 
         // 4. Reveal and enter bypass code (uses mock handler accepting MOCK-PROMO-123)
-        await page.click('text=Have a one-time \'pro\' user promo code?');
+        await page.click('text=🎁 Have a promo code? Click here!');
         await page.fill('[data-testid="promo-code-input"]', 'MOCK-PROMO-123');
 
         // 5. Submit signup
@@ -40,27 +43,29 @@ test.describe('Bypass Code Journey', () => {
 
         // 7. Verify Pro features are visible
         await page.click('button:has-text("Native")');
-        const privateOption = page.locator('role=menuitemradio[name*="Private"]');
-        await expect(privateOption).not.toHaveAttribute('disabled', '');
+        const privateOption = page.locator('role=menuitemradio', { hasText: 'Private' });
+        await expect(privateOption).not.toHaveAttribute('aria-disabled', 'true');
 
         // 8. Navigate to Analytics and verify the Pro status
-        await navigateToRoute(page, '/analytics');
+        await navigateToRoute(page, '/analytics', { waitForMocks: false });
         await expect(page.locator('text=Pro Plan Active')).toBeVisible();
         await expect(page.locator('text=Free Plan')).not.toBeVisible();
     });
 
     test('should fallback to Stripe if bypass code is invalid', async ({ page }) => {
         await goToPublicRoute(page, '/auth/signup');
-        await page.click('[data-testid="plan-pro-option"]');
+        await page.waitForSelector('[data-testid="email-input"]', { timeout: 10000 });
+        await page.click('[data-testid="plan-pro-option"]', { timeout: 10000 });
         await page.fill('[data-testid="email-input"]', `badpromo.${Date.now()}@example.com`);
         await page.fill('[data-testid="password-input"]', 'password123');
 
-        await page.click('text=Have a one-time \'pro\' user promo code?');
+        await page.click('text=🎁 Have a promo code? Click here!', { timeout: 10000 });
         await page.fill('[data-testid="promo-code-input"]', 'WRONG_CODE');
 
-        await page.click('[data-testid="sign-up-submit"]');
+        await page.click('[data-testid="sign-up-submit"]', { timeout: 10000 });
 
-        // Should fallback to standard Pro checkout
-        await expect(page).toHaveURL(/checkout.stripe.com/);
+        // Should redirect to session (since login succeeded) but show error toast
+        await page.waitForURL(/\/session/, { timeout: 15000 });
+        await expect(page.getByText(/promo failed/i)).toBeVisible({ timeout: 10000 });
     });
 });

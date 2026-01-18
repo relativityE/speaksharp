@@ -1,6 +1,6 @@
 // tests/e2e/ui-state-capture.e2e.spec.ts
 import { test } from '@playwright/test';
-import { programmaticLoginWithRoutes, capturePage, navigateToRoute } from './helpers';
+import { programmaticLoginWithRoutes, capturePage, navigateToRoute, goToPublicRoute } from './helpers';
 
 const envPages = process.env.UI_CAPTURE_PAGES;
 const pagesFromEnv = envPages ? envPages.split(',').map((p) => p.trim()) : undefined;
@@ -21,7 +21,7 @@ test.describe('UI State Capture', () => {
       switch (which) {
         case 'homepage':
           // unauthenticated homepage - page.goto() is intentional for unauth state
-          await page.goto('/'); // eslint-disable-line no-restricted-syntax
+          await goToPublicRoute(page, '/');
           await capturePage(page, `homepage-unauth-${testInfo.workerIndex}.png`, 'unauth');
 
           // authenticated homepage
@@ -50,7 +50,7 @@ test.describe('UI State Capture', () => {
 
         default:
           // fallback: capture unauth homepage - page.goto() is intentional for unauth state
-          await page.goto('/'); // eslint-disable-line no-restricted-syntax
+          await goToPublicRoute(page, '/');
           await capturePage(page, `unknown-${which}-unauth-${testInfo.workerIndex}.png`, 'unauth');
           break;
       }

@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-01-07
+**Last Reviewed:** 2026-01-15
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -26,6 +26,8 @@ Status Key: 🟡 In Progress | 🔴 Not Started | ✅ Complete | 🛡️ Gap Rem
 | **3.2** | **Analytics Scalability** | ✅ | `useAnalytics` now limits initial dashboard fetch to 20 sessions; fixed build regressions. |
 | **1.1** | **Bundle Optimization** | ✅ | Implemented `manualChunks` in `vite.config.mjs` to isolate transformers, charts, and utils. |
 | **2.1** | **CI/CD Caching Efficiency** | ✅ | Implemented `actions/cache` in `setup-environment` to persist pnpm store across jobs. |
+| **Q1** | **CI Output Refinement** | ✅ | Silenced build/lint/test noise; enforced "Print Negatives" policy. |
+| **Q2** | **Fail Fast Principle** | ✅ | Implemented aggressive timeouts and explicit assertions for all E2E tests. |
 
 ---
 
@@ -365,7 +367,12 @@ This phase is about confirming the core feature set works as expected and polish
 - ✅ **Private STT CI Stability (2026-01-01):** Resolved WASM deadlocks and flaky integration tests using Triple-Engine Architecture and MockEngine strategy.
 
 - ⚠️ **Stripe Webhook E2E Verification (2025-12-21):** End-to-end test of Pro signup flow completed via CLI simulation. Confirmed: Auth → Select Pro → Stripe Redirect → Webhook Upgrade → Success Toast. Ad-hoc fix implemented for double toasts (see Tech Debt section below).
-- 🟡 **Toast Notification structural fix:** Replace ad-hoc `useRef` de-duplication with a formal flash message system. (See Tech Debt section below)
+- ✅ **Toast Notification Styling (2026-01-15):** Reduced toast pill size (px-6 py-2 → px-4 py-1.5) and font sizes for less screen real estate usage.
+- ✅ **STT Status Notification Bar (2026-01-15):** Added persistent StatusNotificationBar component above LiveRecordingCard showing STT state transitions (initializing, ready, fallback, error).
+- ✅ **Filler Word Individual Counts (2026-01-15):** FillerWordsCard now shows individual count next to each word badge, sorted by frequency.
+- ✅ **Promo Code Auto-Select Pro (2026-01-15):** AuthPage automatically selects Pro plan when user enters a promo code.
+- ✅ **Filler Words UX Polish (2026-01-16):** Unified orange styling, cleaner "Total Detected" layout, and Popover-based "Add Custom Word" flow.
+- ✅ **Private STT Timeout Tuning (2026-01-16):** Increased WebGPU init timeout to 20s for better stability on older hardware.
 - 🟡 **Profile Loading Root Cause Investigation:** Move beyond retries to identify why Supabase fetches intermittently fail on load. (See Tech Debt section below)
 - ✅ **COMPLETED - CVA-Based Design System Refinement:**
   - ✅ Audited all 20 UI components for consistent CVA variant usage (2025-11-28)

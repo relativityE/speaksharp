@@ -21,7 +21,8 @@ import { toast } from 'sonner';
 import { useUserFillerWords } from '@/hooks/useUserFillerWords';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Settings } from 'lucide-react';
 import { UserFillerWordsManager } from '@/components/session/UserFillerWordsManager';
 import { SessionPageSkeleton } from '@/components/session/SessionPageSkeleton';
 import { ClarityScoreCard } from '@/components/session/ClarityScoreCard';
@@ -31,6 +32,7 @@ import { LiveTranscriptPanel } from '@/components/session/LiveTranscriptPanel';
 import { SpeakingTipsCard } from '@/components/session/SpeakingTipsCard';
 import { LiveRecordingCard } from '@/components/session/LiveRecordingCard';
 import { MobileActionBar } from '@/components/session/MobileActionBar';
+import { StatusNotificationBar } from '@/components/session/StatusNotificationBar';
 import { PromoExpiredDialog } from '@/components/PromoExpiredDialog';
 
 export const SessionPage: React.FC = () => {
@@ -55,6 +57,8 @@ export const SessionPage: React.FC = () => {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [mode, setMode] = useState<'cloud' | 'native' | 'private'>('native');
     const [showPromoExpiredDialog, setShowPromoExpiredDialog] = useState(false);
+    const [showAnalyticsPrompt, setShowAnalyticsPrompt] = useState(false);
+    const [sessionFeedbackMessage, setSessionFeedbackMessage] = useState<string | null>(null);
     const startTimeRef = useRef<number | null>(null);
     // Rate-limited debug canary ref
     const prevStateRef = useRef({ isListening: false, isReady: false });
@@ -69,16 +73,46 @@ export const SessionPage: React.FC = () => {
 
     const speechRecognition = useSpeechRecognition(speechConfig);
 
-    const { transcript, fillerData, startListening, stopListening, isListening, isReady, modelLoadingProgress, mode: activeMode } = speechRecognition;
+    const { transcript, fillerData, startListening, stopListening, isListening, isReady, modelLoadingProgress, sttStatus, mode: activeMode } = speechRecognition;
     const { pauseMetrics } = useVocalAnalysis(isListening);
 
-    // Sync local mode state if the service falls back (e.g. Private -> Native)
+    // Sync UI mode with actual active mode from service (e.g. after fallback)
     useEffect(() => {
-        if (activeMode && activeMode !== mode) {
-            console.log(`[SessionPage] Syncing mode state to active transcription mode: ${activeMode}`);
-            setMode(activeMode as 'cloud' | 'native' | 'private');
+        if (isListening && activeMode && activeMode !== mode) {
+            console.log(`[SessionPage] [DEBUG-SWITCH] Mode mismatch detected (Active: ${activeMode}, UI: ${mode}). Syncing UI.`);
+            setMode(activeMode);
         }
-    }, [activeMode, mode]);
+    }, [isListening, activeMode, mode]);
+
+    // Enhanced status derived from sttStatus + fallback history
+    // If we are in Native mode but requested Private/Cloud, effectively we fell back.
+    // However, tracking "requested" is tricky if we update `mode` to match active.
+    // We rely on `sttStatus` messages. If `sttStatus.type` is 'ready', it might hide the fallback error.
+    // We can use a local state to hold the last error/fallback message until session end.
+    const [persistentStatus, setPersistentStatus] = useState<typeof sttStatus | null>(null);
+
+    useEffect(() => {
+        if (sttStatus) {
+            if (sttStatus.type === 'fallback' || sttStatus.type === 'error') {
+                setPersistentStatus(sttStatus);
+            } else if (sttStatus.type === 'initializing') {
+                setPersistentStatus(null);
+            }
+        }
+    }, [sttStatus]);
+
+    // Compute display status: Prefer persistent fallback warning over generic "Ready"
+    const displayStatus = (persistentStatus && sttStatus?.type === 'ready')
+        ? persistentStatus
+        : sttStatus;
+
+    // Reset analytics prompt when a new session starts
+    useEffect(() => {
+        if (isListening) {
+            setShowAnalyticsPrompt(false);
+            setSessionFeedbackMessage(null);
+        }
+    }, [isListening]);
 
     // AUDIT FIX: Extract metrics calculation to custom hook
     // Must be called before early returns to comply with React Hooks rules
@@ -88,15 +122,33 @@ export const SessionPage: React.FC = () => {
         elapsedTime,
     });
 
+    // Ref to ensure we only reset the timer once on mount/initialization
+    const hasResetTimerRef = useRef(false);
+    // Ref to access the latest handleStartStop without triggering effect re-runs
+    const handleStartStopRef = useRef<((options?: { skipRedirect?: boolean }) => Promise<void>) | null>(null);
+
+
+
     useEffect(() => {
-        posthog.capture('session_page_viewed');
-        // Reset timer ONLY ON MOUNT to ensure fresh state for new sessions
-        // This prevents resetting immediately after an auto-stop (when isListening transitions to false)
-        if (!isListening) {
-            updateElapsedTime(0);
+        console.log('[SessionPage] [DEBUG-REDIRECT] Mount. Validating auth/pro status...');
+        if (!isProUser) {
+            console.log('[SessionPage] [DEBUG-REDIRECT] User is NOT pro. Subscription:', profile?.subscription_status);
+        } else {
+            console.log('[SessionPage] [DEBUG-REDIRECT] User IS pro. Verified.');
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []); // Run ONLY on mount
+
+        posthog.capture('session_page_viewed');
+
+        // Reset timer ONLY ONCE to ensure fresh state for new sessions
+        if (!isListening && !hasResetTimerRef.current) {
+            updateElapsedTime(0);
+            hasResetTimerRef.current = true;
+        }
+        // STRICT DEPS: We depend on `isListening`, `updateElapsedTime` etc.
+        // We use refs inside to control "run once" logic if needed, but here we actually rely on `hasResetTimerRef` guard
+        // to prevent repeated execution, while confusing the linter less by including typical deps.
+        // However, standard exhaustive-deps wants all used values.
+    }, [isListening, updateElapsedTime, isProUser, profile?.subscription_status]);
 
     useEffect(() => {
         if (isListening) {
@@ -145,11 +197,111 @@ export const SessionPage: React.FC = () => {
         if (!isProUser && isListening && usageLimit && usageLimit.remaining_seconds > 0) {
             if (elapsedTime >= usageLimit.remaining_seconds) {
                 console.log('[TIER] ⚠️ AUTO-STOPPING: elapsedTime >= remaining_seconds');
-                handleStartStop({ skipRedirect: true });
+                // Use ref to avoid dependency cycle
+                if (handleStartStopRef.current) {
+                    handleStartStopRef.current({ skipRedirect: true });
+                }
             }
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [elapsedTime, isListening, usageLimit, isProUser]);
+
+    const handleStartStop = async (_options?: { skipRedirect?: boolean }) => {
+        if (isListening) {
+            // Check minimum session duration before saving
+            if (elapsedTime < MIN_SESSION_DURATION_SECONDS) {
+                // Stop recording but don't save - show warning in status bar
+                await stopListening();
+                setShowAnalyticsPrompt(false);
+                setSessionFeedbackMessage(`⚠️ Session too short (${elapsedTime}s). Minimum ${MIN_SESSION_DURATION_SECONDS}s required for accurate metrics.`);
+                return;
+            }
+
+            try {
+                await stopListening();
+                // Track session end with metrics
+                posthog.capture('session_ended', {
+                    duration: elapsedTime,
+                    wpm: metrics.wpm,
+                    clarity_score: metrics.clarityScore,
+                    filler_count: metrics.fillerCount
+                });
+
+                // Update Streak for positive reinforcement
+                const { currentStreak, isNewDay } = updateStreak();
+
+                const result = await saveSession({
+                    transcript: transcript.transcript,
+                    duration: elapsedTime,
+                    filler_words: fillerData,
+                    wpm: metrics.wpm,
+                    clarity_score: metrics.clarityScore,
+                    title: `Session ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`
+                });
+
+                if (result.session) {
+                    // Show streak message in status bar
+                    const streakText = isNewDay ? `🔥 ${currentStreak} Day Streak!` : '✓ Great practice!';
+                    setSessionFeedbackMessage(`${streakText} Session saved.`);
+
+                    // Refetch usage limit to reflect new session duration
+                    queryClient.invalidateQueries({ queryKey: ['usageLimit'] });
+
+                    // Prompt user to view analytics instead of auto‑redirect
+                    setShowAnalyticsPrompt(true);
+                } else {
+                    console.error('[SessionPage] Session save failed or returned null session.');
+                }
+
+            } catch (error) {
+                console.error('[SessionPage] Error stopping recording:', error);
+                console.error('[SessionPage] Error details:', {
+                    message: error instanceof Error ? error.message : String(error),
+                    stack: error instanceof Error ? error.stack : undefined,
+                    isListening,
+                    mode
+                });
+            }
+        } else {
+            try {
+                // PRE-SESSION USAGE CHECK: Validate before starting
+                if (!isProUser && usageLimit && !usageLimit.can_start) {
+                    setSessionFeedbackMessage('⛔ Monthly usage limit reached. Upgrade to Pro for unlimited practice.');
+                    return;
+                }
+
+                // Warn if running low on time (less than 5 minutes)
+                if (!isProUser && usageLimit && usageLimit.remaining_seconds > 0 && usageLimit.remaining_seconds < 300) {
+                    toast.warning(
+                        `Only ${formatRemainingTime(usageLimit.remaining_seconds)} remaining this month.`,
+                        { duration: 5000 }
+                    );
+                }
+
+                // Reset timer for new session
+                updateElapsedTime(0);
+                // Build policy based on user tier and selected mode
+                const policy = buildPolicyForUser(isProUser, mode as 'native' | 'cloud' | 'private');
+                await startListening(policy);
+                // Track session start
+                posthog.capture('session_started', { mode });
+            } catch (error) {
+                console.error('[SessionPage] Error starting recording:', error);
+                console.error('[SessionPage] Error details:', {
+                    message: error instanceof Error ? error.message : String(error),
+                    stack: error instanceof Error ? error.stack : undefined,
+                    mode,
+                    profileStatus: profile?.subscription_status
+                });
+            }
+        }
+    };
+
+    const isButtonDisabled = false; // Always allow stopping/canceling
+
+    // Keep handleStartStopRef updated
+    useEffect(() => {
+        handleStartStopRef.current = handleStartStop;
+    });
 
     if (isProfileLoading) {
         console.log('[DEBUG] SessionPage: Loading profile...');
@@ -198,118 +350,7 @@ export const SessionPage: React.FC = () => {
         );
     }
 
-    const handleStartStop = async (options?: { skipRedirect?: boolean }) => {
-        if (isListening) {
-            // Check minimum session duration before saving
-            if (elapsedTime < MIN_SESSION_DURATION_SECONDS) {
-                // Stop recording but don't save - show inline warning already visible
-                await stopListening();
-                toast.warning(`Session too short (${elapsedTime}s). Minimum ${MIN_SESSION_DURATION_SECONDS}s required for accurate metrics.`, {
-                    id: 'short-session',
-                    duration: 4000
-                });
-                return;
-            }
 
-            try {
-                await stopListening();
-                // Track session end with metrics
-                posthog.capture('session_ended', {
-                    duration: elapsedTime,
-                    wpm: metrics.wpm,
-                    clarity_score: metrics.clarityScore,
-                    filler_count: metrics.fillerCount
-                });
-
-                // Update Streak for positive reinforcement
-                const { currentStreak, isNewDay } = updateStreak();
-
-                const result = await saveSession({
-                    transcript: transcript.transcript,
-                    duration: elapsedTime,
-                    filler_words: fillerData,
-                    wpm: metrics.wpm,
-                    clarity_score: metrics.clarityScore,
-                    title: `Session ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`
-                });
-
-                if (result.session) {
-
-                    // Show single consolidated toast with streak + save confirmation
-                    const streakText = isNewDay ? `🔥 ${currentStreak} Day Streak!` : '✓ Great practice!';
-                    toast.success(streakText, {
-                        id: 'session-feedback',
-                        description: 'Session saved • Redirecting to analysis...',
-                        duration: 3000,
-                    });
-
-                    // Refetch usage limit to reflect new session duration
-                    queryClient.invalidateQueries({ queryKey: ['usageLimit'] });
-
-                    // Short delay to let the toast be seen and ensure state updates
-                    setTimeout(() => {
-                        if (!options?.skipRedirect) {
-                            navigate('/analytics');
-                        }
-                    }, 1000);
-                } else {
-                    console.error('[SessionPage] Session save failed or returned null session.');
-                }
-
-            } catch (error) {
-                console.error('[SessionPage] Error stopping recording:', error);
-                console.error('[SessionPage] Error details:', {
-                    message: error instanceof Error ? error.message : String(error),
-                    stack: error instanceof Error ? error.stack : undefined,
-                    isListening,
-                    mode
-                });
-            }
-        } else {
-            try {
-                // PRE-SESSION USAGE CHECK: Validate before starting
-                if (!isProUser && usageLimit && !usageLimit.can_start) {
-                    toast.error(
-                        `Monthly usage limit reached (${formatRemainingTime(usageLimit.limit_seconds)}). Upgrade to Pro for unlimited practice.`,
-                        {
-                            action: {
-                                label: 'Upgrade',
-                                onClick: () => window.location.href = '/#pricing'
-                            },
-                            duration: 8000
-                        }
-                    );
-                    return;
-                }
-
-                // Warn if running low on time (less than 5 minutes)
-                if (!isProUser && usageLimit && usageLimit.remaining_seconds > 0 && usageLimit.remaining_seconds < 300) {
-                    toast.warning(
-                        `Only ${formatRemainingTime(usageLimit.remaining_seconds)} remaining this month.`,
-                        { duration: 5000 }
-                    );
-                }
-
-                // Reset timer for new session
-                updateElapsedTime(0);
-                // Build policy based on user tier and selected mode
-                const policy = buildPolicyForUser(isProUser, mode as 'native' | 'cloud' | 'private');
-                await startListening(policy);
-                // Track session start
-                posthog.capture('session_started', { mode });
-            } catch (error) {
-                console.error('[SessionPage] Error starting recording:', error);
-                console.error('[SessionPage] Error details:', {
-                    message: error instanceof Error ? error.message : String(error),
-                    stack: error instanceof Error ? error.stack : undefined,
-                    mode,
-                    profileStatus: profile?.subscription_status
-                });
-            }
-        }
-    };
-
-    const isButtonDisabled = isListening && !isReady;
 
     // Rate-limited debug canary - only log when state changes
     if (prevStateRef.current.isListening !== isListening || prevStateRef.current.isReady !== isReady) {
@@ -325,18 +366,32 @@ export const SessionPage: React.FC = () => {
                 <p className="text-sm text-muted-foreground">We'll analyze your speech patterns in real-time</p>
             </div>
 
-            <Sheet open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-                <SheetContent>
-                    <SheetHeader>
-                        <SheetTitle>Session Settings</SheetTitle>
-                    </SheetHeader>
-                    <div className="mt-6">
-                        <UserFillerWordsManager />
-                    </div>
-                </SheetContent>
-            </Sheet>
+
 
             <div className="max-w-7xl mx-auto px-6 pb-12 space-y-6">
+                {/* Status Notification Bar - Shows STT state transitions & critical alerts */}
+                <StatusNotificationBar
+                    status={
+                        // Priority 1: Session feedback (warnings, success messages)
+                        sessionFeedbackMessage
+                            ? {
+                                type: sessionFeedbackMessage.includes('⚠️') ? 'error' : 'ready',
+                                message: sessionFeedbackMessage
+                            }
+                            // Priority 2: Session completed - show analytics prompt
+                            : showAnalyticsPrompt
+                                ? { type: 'ready', message: '✓ Session saved. Click Analytics above to review your performance.' }
+                                // Priority 3: If a model is downloading, show downloading status
+                                : modelLoadingProgress != null
+                                    ? { type: 'downloading', message: 'Downloading model...', progress: modelLoadingProgress }
+                                    // Priority 4: Override status if promo expired
+                                    : (usageLimit?.promo_just_expired)
+                                        ? { type: 'error', message: '⚠️ Promo code expired. Session limit reverted to 5 mins.' }
+                                        // Priority 5: Show current STT status
+                                        : displayStatus
+                    }
+                />
+
                 {/* Live Recording Card - Full Width */}
                 <LiveRecordingCard
                     mode={mode}
@@ -347,8 +402,10 @@ export const SessionPage: React.FC = () => {
                     formattedTime={metrics.formattedTime}
                     elapsedSeconds={elapsedTime}
                     isButtonDisabled={isButtonDisabled}
-                    onModeChange={setMode}
-                    onSettingsOpen={() => setIsSettingsOpen(true)}
+                    onModeChange={(newMode) => {
+                        console.log(`[SessionPage] [DEBUG-SWITCH] UI Dropdown changed to: ${newMode}`);
+                        setMode(newMode);
+                    }}
                     onStartStop={handleStartStop}
                 />
 
@@ -357,11 +414,36 @@ export const SessionPage: React.FC = () => {
                     transcript={transcript.transcript}
                     isListening={isListening}
                     containerRef={transcriptContainerRef}
+                    customWords={userFillerWords}
                 />
             </div>
 
             {/* Metrics Cards - Full Width Stacked */}
             <div className="max-w-7xl mx-auto px-6 pb-12 space-y-6">
+                {/* Filler Words - Moved to top as requested */}
+                <FillerWordsCard
+                    fillerCount={metrics.fillerCount}
+                    fillerData={fillerData}
+                    headerAction={
+                        <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+                            <PopoverTrigger asChild>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    data-testid="add-custom-word-button"
+                                    className="text-amber-500 hover:text-amber-400 hover:bg-amber-500/10 gap-2 h-9 px-3 font-medium transition-colors"
+                                >
+                                    <Settings className="h-4 w-4" />
+                                    Add Custom Word
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-80 bg-card border-border shadow-xl mr-6">
+                                <UserFillerWordsManager onWordAdded={() => setIsSettingsOpen(false)} />
+                            </PopoverContent>
+                        </Popover>
+                    }
+                />
+
                 {/* Clarity Score */}
                 <ClarityScoreCard
                     clarityScore={metrics.clarityScore}
@@ -373,11 +455,7 @@ export const SessionPage: React.FC = () => {
                     <PauseMetricsDisplay metrics={pauseMetrics} isListening={isListening} />
                 </div>
 
-                {/* Filler Words */}
-                <FillerWordsCard
-                    fillerCount={metrics.fillerCount}
-                    fillerData={fillerData}
-                />
+
 
                 {/* Speaking Rate - Above Speaking Tips */}
                 <SpeakingRateCard

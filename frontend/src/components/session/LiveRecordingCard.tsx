@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Mic, MicOff, Square, Play, Settings, ChevronDown, AlertCircle, Shield } from 'lucide-react';
+import { Mic, MicOff, Square, Play, ChevronDown, AlertCircle, Shield } from 'lucide-react';
 import { TEST_IDS } from '@/constants/testIds';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import {
@@ -26,7 +26,6 @@ interface LiveRecordingCardProps {
     isButtonDisabled: boolean;
     // Callbacks
     onModeChange: (mode: RecordingMode) => void;
-    onSettingsOpen: () => void;
     onStartStop: () => void;
 }
 
@@ -45,7 +44,6 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
     elapsedSeconds,
     isButtonDisabled,
     onModeChange,
-    onSettingsOpen,
     onStartStop,
 }) => {
     // Check if session is too short to save
@@ -83,35 +81,28 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
                                         Native (Browser)
                                     </DropdownMenuRadioItem>
                                     <DropdownMenuRadioItem value="private" disabled={!isProUser}>
-                                        Private (Whisper) {!isProUser && '(Pro)'}
+                                        Private {!isProUser && '(Pro)'}
                                     </DropdownMenuRadioItem>
                                     <DropdownMenuRadioItem value="cloud" disabled={!isProUser}>
-                                        Cloud (AssemblyAI) {!isProUser && '(Pro)'}
+                                        Cloud {!isProUser && '(Pro)'}
                                     </DropdownMenuRadioItem>
                                 </DropdownMenuRadioGroup>
                             </DropdownMenuContent>
                         </DropdownMenu>
                     </div>
                     <div className="flex items-center gap-2">
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={onSettingsOpen}
-                            data-testid={TEST_IDS.SESSION_SETTINGS_BUTTON}
-                        >
-                            <Settings className="h-5 w-5" />
-                        </Button>
+                        {/* Settings button removed/moved to FillerWordsCard */}
                         <Badge
                             className={`${isListening && isReady
-                                    ? 'bg-green-600 text-white border-green-600'
-                                    : 'bg-secondary text-white border-secondary'
+                                ? 'bg-green-600 text-white border-green-600'
+                                : 'bg-secondary text-white border-secondary'
                                 } `}
                             data-testid={TEST_IDS.SESSION_STATUS_INDICATOR}
                         >
                             {modelLoadingProgress !== null
                                 ? 'Initializing...'
                                 : isListening
-                                    ? (isReady ? '● Recording' : 'Connecting...')
+                                    ? (isReady ? `● Recording (${mode === 'native' ? 'Browser' : mode === 'private' ? 'Private' : 'Cloud'})` : 'Connecting...')
                                     : 'Ready'}
                         </Badge>
                         {/* Privacy indicator for Private STT mode */}
@@ -172,7 +163,7 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
                     {isTooShort && (
                         <div className="flex items-center gap-2 mt-3 text-amber-500 text-sm" data-testid="short-session-warning">
                             <AlertCircle className="h-4 w-4" />
-                            <span>Record at least {MIN_SESSION_DURATION_SECONDS} seconds for accurate metrics</span>
+                            <span>Suggestion: Record at least {MIN_SESSION_DURATION_SECONDS} seconds for accurate metrics</span>
                         </div>
                     )}
                 </div>
@@ -184,17 +175,16 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
                         size="lg"
                         variant={isListening ? 'destructive' : 'default'}
                         className="w-48 h-12 text-lg font-semibold hidden md:flex"
-                        disabled={isButtonDisabled || modelLoadingProgress !== null}
+                        disabled={isButtonDisabled}
                         data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
                     >
                         {modelLoadingProgress !== null ? (
                             <>
-                                <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
-                                Initializing...
+                                <Square className="w-5 h-5 mr-2" /> Cancel
                             </>
                         ) : isListening ? (
                             <>
-                                <Square className="w-5 h-5 mr-2" /> Stop
+                                <Square className="w-5 h-5 mr-2" /> {isReady ? 'Stop' : 'Cancel'}
                             </>
                         ) : (
                             <>

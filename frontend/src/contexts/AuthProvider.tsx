@@ -86,6 +86,14 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, newSession) => {
+        // 🧪 E2E FIX: If we provided an initialSession (mock), don't let 
+        // INITIAL_SESSION event overwrite it with 'null' if Supabase 
+        // hasn't picked up the localStorage yet.
+        if (_event === 'INITIAL_SESSION' && initialSession && !newSession) {
+          console.log('[AuthProvider] 🧪 E2E: Ignoring INITIAL_SESSION(null) because initialSession is present');
+          return;
+        }
+
         console.log(`[Supabase Auth] 🔐 Auth state changed: ${_event}`, newSession?.user?.id ? `User: ${newSession.user.id.slice(0, 8)}...` : 'No user');
         setSessionState(newSession);
         if (!newSession) {

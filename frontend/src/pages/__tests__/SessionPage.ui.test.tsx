@@ -76,6 +76,7 @@ describe('SessionPage - STT Mode Selection UI', () => {
             modelLoadingProgress: null,
             error: null,
             resetTranscript: vi.fn(),
+            sttStatus: { type: 'ready', message: '' },
         } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
         mockUseSessionStore.mockReturnValue({
@@ -115,12 +116,12 @@ describe('SessionPage - STT Mode Selection UI', () => {
         await user.click(trigger);
 
         // Radix UI renders content in a specific way, userEvent should handle it.
-        // Wait for items to appear
-        const onDeviceItem = await screen.findByText(/Private.*\(Whisper\)/);
+        // Wait for items to appear - Free users see "Private (Pro)" and "Cloud (Pro)"
+        const onDeviceItem = await screen.findByText(/Private.*\(Pro\)/);
         const cloudItem = await screen.findByText(/Cloud.*\(Pro\)/);
 
-        expect(onDeviceItem).toHaveAttribute('aria-disabled', 'true');
-        expect(cloudItem).toHaveAttribute('aria-disabled', 'true');
+        expect(onDeviceItem.closest('[role="menuitemradio"]')).toHaveAttribute('aria-disabled', 'true');
+        expect(cloudItem.closest('[role="menuitemradio"]')).toHaveAttribute('aria-disabled', 'true');
     });
 
     it('should enable options for Pro users', async () => {
@@ -138,11 +139,11 @@ describe('SessionPage - STT Mode Selection UI', () => {
         const trigger = screen.getByText('Native');
         await user.click(trigger);
 
-        // Note: When enabled, the text matches exactly "Private (Whisper)"
-        const onDeviceItem = await screen.findByText('Private (Whisper)');
-        const cloudItem = await screen.findByText('Cloud (AssemblyAI)');
+        // Note: For Pro users, the "(Pro)" suffix is not shown
+        const onDeviceItem = await screen.findByText('Private');
+        const cloudItem = await screen.findByText('Cloud');
 
-        expect(onDeviceItem).not.toHaveAttribute('aria-disabled', 'true');
-        expect(cloudItem).not.toHaveAttribute('aria-disabled', 'true');
+        expect(onDeviceItem.closest('[role="menuitemradio"]')).not.toHaveAttribute('aria-disabled', 'true');
+        expect(cloudItem.closest('[role="menuitemradio"]')).not.toHaveAttribute('aria-disabled', 'true');
     });
 });

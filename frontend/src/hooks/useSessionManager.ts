@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuthProvider } from '../contexts/AuthProvider';
 import logger from '../lib/logger';
 import { saveSession as saveSessionToDb, deleteSession as deleteSessionFromDb, exportData } from '../lib/storage';
@@ -15,6 +16,7 @@ interface UseSessionManager {
 export const useSessionManager = (): UseSessionManager => {
   const { user } = useAuthProvider();
   const { data: profile } = useUserProfile();
+  const queryClient = useQueryClient();
 
   const saveSession = async (sessionData: Partial<PracticeSession>): Promise<{ session: PracticeSession | null; usageExceeded: boolean }> => {
     try {
@@ -43,6 +45,11 @@ export const useSessionManager = (): UseSessionManager => {
 
       if (newSession) {
         console.log('[useSessionManager] ✅ Session saved successfully:', newSession.id);
+
+        // CRITICAL: Invalidate session history cache so analytics page shows new data
+        await queryClient.invalidateQueries({ queryKey: ['sessionHistory'] });
+        console.log('[useSessionManager] 🔄 Session history cache invalidated');
+
         return { session: newSession, usageExceeded: usageExceeded || false };
       }
       console.warn('[useSessionManager] ⚠️ Session save returned null');

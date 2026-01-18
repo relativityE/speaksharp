@@ -1,12 +1,15 @@
 import React, { useState, FormEvent } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Plus, X } from 'lucide-react';
 import { useUserFillerWords } from '@/hooks/useUserFillerWords';
 import { VOCABULARY_LIMITS } from '@/config';
 
-export const UserFillerWordsManager: React.FC = () => {
+interface UserFillerWordsManagerProps {
+    onWordAdded?: () => void;
+}
+
+export const UserFillerWordsManager: React.FC<UserFillerWordsManagerProps> = ({ onWordAdded }) => {
     const [newWord, setNewWord] = useState('');
     const {
         fullVocabularyObjects: vocabulary, // Renamed in hook, mapping here
@@ -37,6 +40,9 @@ export const UserFillerWordsManager: React.FC = () => {
                     onSuccess: () => {
                         console.log('[UserFillerWordsManager] onSuccess callback - clearing input');
                         setNewWord('');
+                        if (onWordAdded) {
+                            onWordAdded();
+                        }
                     },
                     onError: (error) => {
                         console.error('[UserFillerWordsManager] onError callback:', error);
@@ -51,35 +57,36 @@ export const UserFillerWordsManager: React.FC = () => {
     };
 
     return (
-        <Card>
-            <CardHeader>
-                <CardTitle className="flex items-center gap-2">
+        <div className="w-full">
+            <div className="mb-4">
+                <h4 className="font-semibold flex items-center gap-2">
                     User Filler Words
-                    <span className={`text-sm font-normal ${isAtLimit ? 'text-destructive' : 'text-muted-foreground'}`}>
+                    <span className={`text-xs font-normal ${isAtLimit ? 'text-destructive' : 'text-muted-foreground'}`}>
                         ({vocabulary.length}/{maxWords})
                     </span>
-                </CardTitle>
-                <CardDescription>
-                    Add words you frequently use as fillers so SpeakSharp can detect and count them.
-                    Includes technical terms, names, or specific phrases.
-                </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+                </h4>
+                <p className="text-xs text-muted-foreground mt-1">
+                    Add words you want tracked.
+                </p>
+            </div>
+
+            <div className="space-y-4">
                 {/* Add Word Form */}
                 <form onSubmit={handleSubmit} className="flex gap-2">
                     <Input
                         type="text"
                         value={newWord}
                         onChange={(e) => setNewWord(e.target.value)}
-                        placeholder="e.g., literally, basic, essentially"
+                        placeholder="e.g. literally"
                         disabled={isAdding || isAtLimit}
-                        className="flex-1"
+                        className="flex-1 h-8 text-sm"
                     />
                     <Button
                         type="submit"
-                        size="icon"
+                        size="sm"
                         disabled={!newWord.trim() || isAdding || isAtLimit}
                         aria-label="Add word"
+                        className="h-8 w-8 p-0"
                     >
                         <Plus className="h-4 w-4" />
                     </Button>
@@ -87,7 +94,7 @@ export const UserFillerWordsManager: React.FC = () => {
 
                 {/* Error Message */}
                 {addError && (
-                    <p className="text-sm text-destructive" role="alert">
+                    <p className="text-xs text-destructive" role="alert">
                         {addError instanceof Error ? addError.message : 'Failed to add word'}
                     </p>
                 )}
@@ -95,24 +102,23 @@ export const UserFillerWordsManager: React.FC = () => {
                 {/* Loading State */}
                 {isLoading ? (
                     <div className="space-y-2">
-                        <div className="h-10 bg-secondary/50 rounded-md animate-pulse" />
-                        <div className="h-10 bg-secondary/50 rounded-md animate-pulse" />
-                        <div className="h-10 bg-secondary/50 rounded-md animate-pulse" />
+                        <div className="h-8 bg-secondary/50 rounded-md animate-pulse" />
+                        <div className="h-8 bg-secondary/50 rounded-md animate-pulse" />
                     </div>
                 ) : vocabulary.length > 0 ? (
-                    <div className="space-y-2 max-h-60 overflow-y-auto">
+                    <div className="space-y-1 max-h-48 overflow-y-auto pr-1 scrollbar-thin">
                         {vocabulary.map((word) => (
                             <div
                                 key={word.id}
-                                className="flex items-center justify-between p-2 rounded-md bg-secondary/50 hover:bg-secondary transition-colors"
+                                className="flex items-center justify-between p-1.5 rounded-md bg-secondary/30 hover:bg-secondary/50 transition-colors group"
                             >
-                                <span className="text-sm font-medium">{word.word}</span>
+                                <span className="text-sm font-medium pl-1">{word.word}</span>
                                 <Button
                                     variant="ghost"
                                     size="icon"
                                     onClick={() => removeWord(word.id)}
                                     disabled={isRemoving}
-                                    className="h-6 w-6"
+                                    className="h-6 w-6 opacity-50 group-hover:opacity-100"
                                     aria-label={`Remove ${word.word}`}
                                 >
                                     <X className="h-3 w-3" />
@@ -121,11 +127,11 @@ export const UserFillerWordsManager: React.FC = () => {
                         ))}
                     </div>
                 ) : (
-                    <p className="text-sm text-muted-foreground text-center py-4">
-                        No custom filler words yet. Add your first word above!
+                    <p className="text-xs text-muted-foreground text-center py-2">
+                        No custom words yet.
                     </p>
                 )}
-            </CardContent>
-        </Card>
+            </div>
+        </div>
     );
 };

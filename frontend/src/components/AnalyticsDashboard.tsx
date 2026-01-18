@@ -505,15 +505,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             />
         );
     }
-    // --- Image Example (Commented out: Requires browser-compatible handling) ---
-    /*
-    try {
-      // const imageBuffer = ...
-      // await processImage(imageBuffer, 200, 200);
-    } catch (error) {
-      console.error('Error processing image:', error);
-    }
-    */
     console.log('[AnalyticsDashboard] Showing full dashboard with', sessionHistory.length, 'sessions');
 
 

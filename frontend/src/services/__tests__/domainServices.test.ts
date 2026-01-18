@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createSupabaseMock, createSupabaseNotFoundMock, createSupabaseErrorMock } from 'tests/utils/supabase-mock';
+import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
+import { createSupabaseMock, createSupabaseNotFoundMock, createSupabaseErrorMock } from '../../../tests/utils/supabase-mock';
 import * as supabaseModule from '@/lib/supabaseClient';
 import {
     sessionService,
@@ -21,7 +21,7 @@ describe('domainServices', () => {
             it('should return session history on success', async () => {
                 const mockData = [{ id: '1', title: 'Session 1' }, { id: '2', title: 'Session 2' }];
                 const mockClient = createSupabaseMock(mockData, null);
-                mockClient.limit = vi.fn().mockResolvedValue({ data: mockData, error: null });
+                (mockClient as unknown as { limit: Mock }).limit = vi.fn().mockResolvedValue({ data: mockData, error: null });
                 vi.spyOn(supabaseModule, 'getSupabaseClient').mockReturnValue(mockClient);
 
                 const result = await sessionService.getHistory('user-123');
@@ -32,7 +32,7 @@ describe('domainServices', () => {
 
             it('should throw on error', async () => {
                 const mockClient = createSupabaseErrorMock('DB_ERROR', 'Database connection failed');
-                mockClient.limit = vi.fn().mockResolvedValue({ data: null, error: { code: 'DB_ERROR', message: 'Database connection failed' } });
+                (mockClient as unknown as { limit: Mock }).limit = vi.fn().mockResolvedValue({ data: null, error: { code: 'DB_ERROR', message: 'Database connection failed' } });
                 vi.spyOn(supabaseModule, 'getSupabaseClient').mockReturnValue(mockClient);
 
                 await expect(sessionService.getHistory('user-123')).rejects.toEqual({ code: 'DB_ERROR', message: 'Database connection failed' });
@@ -83,7 +83,7 @@ describe('domainServices', () => {
         describe('delete', () => {
             it('should delete session on success', async () => {
                 const mockClient = createSupabaseMock(null, null);
-                mockClient.eq = vi.fn().mockResolvedValue({ error: null });
+                (mockClient as unknown as { eq: Mock }).eq = vi.fn().mockResolvedValue({ error: null });
                 vi.spyOn(supabaseModule, 'getSupabaseClient').mockReturnValue(mockClient);
 
                 await expect(sessionService.delete('123')).resolves.toBeUndefined();
@@ -141,7 +141,7 @@ describe('domainServices', () => {
             it('should return vocabulary list on success', async () => {
                 const mockData = [{ id: '1', word: 'kubernetes' }, { id: '2', word: 'terraform' }];
                 const mockClient = createSupabaseMock(mockData, null);
-                mockClient.order = vi.fn().mockResolvedValue({ data: mockData, error: null });
+                (mockClient as unknown as { order: Mock }).order = vi.fn().mockResolvedValue({ data: mockData, error: null });
                 vi.spyOn(supabaseModule, 'getSupabaseClient').mockReturnValue(mockClient);
 
                 const result = await vocabularyService.getWords('user-1');
@@ -163,7 +163,7 @@ describe('domainServices', () => {
         describe('removeWord', () => {
             it('should remove word on success', async () => {
                 const mockClient = createSupabaseMock(null, null);
-                mockClient.eq = vi.fn().mockResolvedValue({ error: null });
+                (mockClient as unknown as { eq: Mock }).eq = vi.fn().mockResolvedValue({ error: null });
                 vi.spyOn(supabaseModule, 'getSupabaseClient').mockReturnValue(mockClient);
 
                 await expect(vocabularyService.removeWord('word-123')).resolves.toBeUndefined();

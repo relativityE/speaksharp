@@ -60,11 +60,14 @@ export interface TranscriptionModeOptions {
   getAssemblyAIToken?: () => Promise<string | null>;
   customVocabulary?: string[];
   onConnectionStateChange?: (state: 'connected' | 'reconnecting' | 'disconnected' | 'error') => void;
+  /** Callback for raw audio data (for visualization/analysis) */
+  onAudioData?: (data: Float32Array) => void;
 }
 
 export interface ITranscriptionMode {
   init(): Promise<void>;
   startTranscription(mic?: MicStream): Promise<void>; // mic is optional for native
   stopTranscription(): Promise<string>;
+  terminate?(): Promise<void>; // Optional strict cleanup
   getTranscript(): Promise<string>;
 }

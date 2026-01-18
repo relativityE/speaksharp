@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createMockSupabase } from '../mockSupabase';
 
 // Mock dependencies
@@ -16,11 +16,6 @@ describe('supabaseClient.ts', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.resetModules();
-        // Reset cached client by reloading module? 
-        // Since cachedClient is module-level variable, we might need to re-import or expose a reset function.
-        // However, for unit tests, vitest isolates modules if we use vi.mock appropriately or resetModules.
-        // But getSupabaseClient is imported at top level.
-        // We might need to use dynamic import to test different env configurations properly.
     });
 
     afterEach(() => {
@@ -35,9 +30,8 @@ describe('supabaseClient.ts', () => {
     };
 
     it('should return window.supabase if it exists', async () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const mockWindowClient = { auth: {} } as any;
-        window.supabase = mockWindowClient;
+        const mockWindowClient = { auth: {} };
+        window.supabase = mockWindowClient as unknown as SupabaseClient;
 
         const module = await reImportModule();
         const client = module.getSupabaseClient();
@@ -51,8 +45,7 @@ describe('supabaseClient.ts', () => {
         vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'key');
 
         const mockClient = { auth: {} };
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        vi.mocked(createMockSupabase).mockReturnValue(mockClient as any);
+        vi.mocked(createMockSupabase).mockReturnValue(mockClient as unknown as ReturnType<typeof createMockSupabase>);
 
         const module = await reImportModule();
         const client = module.getSupabaseClient();
@@ -67,8 +60,7 @@ describe('supabaseClient.ts', () => {
         vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'real-key');
 
         const mockRealClient = { auth: {} };
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        vi.mocked(createClient).mockReturnValue(mockRealClient as any);
+        vi.mocked(createClient).mockReturnValue(mockRealClient as unknown as ReturnType<typeof createClient>);
 
         const module = await reImportModule();
         const client = module.getSupabaseClient();
@@ -103,8 +95,7 @@ describe('supabaseClient.ts', () => {
         vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'real-key');
 
         const mockRealClient = { auth: {} };
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        vi.mocked(createClient).mockReturnValue(mockRealClient as any);
+        vi.mocked(createClient).mockReturnValue(mockRealClient as unknown as ReturnType<typeof createClient>);
 
         const module = await reImportModule();
         const client1 = module.getSupabaseClient();

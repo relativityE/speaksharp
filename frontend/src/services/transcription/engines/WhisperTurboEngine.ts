@@ -79,14 +79,21 @@ export class WhisperTurboEngine implements IPrivateSTTEngine {
             logger.error({ err: e }, '[WhisperTurbo] Failed to initialize engine.');
 
             // Self-healing: Clear IndexedDB cache on failure to prevent permanent hang
-            try {
-                logger.info('[WhisperTurbo] Attempting self-healing cache clear...');
-                const deleteRequest = indexedDB.deleteDatabase('whisper-turbo');
-                deleteRequest.onsuccess = () => {
-                    logger.info('[WhisperTurbo] Cache cleared successfully. Retry may succeed.');
-                };
-            } catch (cacheError) {
-                logger.warn({ err: cacheError }, '[WhisperTurbo] Failed to clear cache.');
+            // But DO NOT clear on timeout, as that causes infinite re-download loops for slow connections
+            const isTimeout = e.message.includes('timed out');
+
+            if (!isTimeout) {
+                try {
+                    logger.info('[WhisperTurbo] Attempting self-healing cache clear (non-timeout error)...');
+                    const deleteRequest = indexedDB.deleteDatabase('whisper-turbo');
+                    deleteRequest.onsuccess = () => {
+                        logger.info('[WhisperTurbo] Cache cleared successfully. Retry may succeed.');
+                    };
+                } catch (cacheError) {
+                    logger.warn({ err: cacheError }, '[WhisperTurbo] Failed to clear cache.');
+                }
+            } else {
+                console.warn('[WhisperTurbo] ⏳ Init timed out. Preserving cache for next attempt.');
             }
 
             return Result.err(e);

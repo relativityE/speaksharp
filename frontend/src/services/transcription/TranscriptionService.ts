@@ -1,5 +1,4 @@
 import logger from '../../lib/logger';
-import * as Sentry from '@sentry/react';
 import CloudAssemblyAI from './modes/CloudAssemblyAI';
 import NativeBrowser from './modes/NativeBrowser';
 import { createMicStream } from './utils/audioUtils';
@@ -22,6 +21,15 @@ export interface TranscriptUpdate {
   chunks?: { timestamp: [number, number]; text: string }[];
 }
 
+export type SttStatusType = 'idle' | 'initializing' | 'downloading' | 'ready' | 'fallback' | 'error';
+
+export interface SttStatus {
+  type: SttStatusType;
+  message: string;
+  progress?: number;
+  newMode?: TranscriptionMode;
+}
+
 export interface TranscriptionServiceOptions {
   onTranscriptUpdate: (update: TranscriptUpdate) => void;
   onModelLoadProgress: (progress: number | null) => void;
@@ -41,14 +49,32 @@ export interface TranscriptionServiceOptions {
    */
   mockMic?: MicStream;
   onModeChange?: (mode: TranscriptionMode | null) => void;
+  /** Callback for STT status changes (initialization, fallback, errors) */
+  onStatusChange?: (status: SttStatus) => void;
+  /** Callback for raw audio data (for visualization/analysis) */
+  onAudioData?: (data: Float32Array) => void;
+}
+
+import { STT_CONFIG } from '../../config';
+
+// Extend Window interface for E2E mocks
+declare global {
+  interface Window {
+    MockPrivateWhisper?: new (config: TranscriptionModeOptions) => ITranscriptionMode;
+    __E2E_MOCK_LOCAL_WHISPER__?: boolean;
+  }
 }
 
 export default class TranscriptionService {
+  private static privateInitFailures = 0;
   private mode: TranscriptionMode | null = null;
+  // ... existing private properties ...
   private onTranscriptUpdate: (update: TranscriptUpdate) => void;
   private onModelLoadProgress: (progress: number | null) => void;
   private onReady: () => void;
   private onModeChange?: (mode: TranscriptionMode | null) => void;
+  private onStatusChange?: (status: SttStatus) => void;
+  private onAudioData?: (data: Float32Array) => void;
   private session: Session | null;
   private navigate: NavigateFunction;
   private getAssemblyAIToken: () => Promise<string | null>;
@@ -69,6 +95,8 @@ export default class TranscriptionService {
     policy = PROD_FREE_POLICY,
     mockMic,
     onModeChange,
+    onStatusChange,
+    onAudioData,
   }: TranscriptionServiceOptions) {
     logger.info(
       { policy: policy.executionIntent },
@@ -78,13 +106,26 @@ export default class TranscriptionService {
     this.onModelLoadProgress = onModelLoadProgress;
     this.onReady = onReady;
     this.onModeChange = onModeChange;
+    this.onStatusChange = onStatusChange;
     this.session = session;
     this.navigate = navigate;
     this.getAssemblyAIToken = getAssemblyAIToken;
     this.customVocabulary = customVocabulary;
     this.policy = policy;
+    this.policy = policy;
     this.mockMic = mockMic ?? null;
+    this.onAudioData = onAudioData;
   }
+
+  /**
+   * Resets the static failure count.
+   * STRICTLY FOR TESTING PURPOSES ONLY.
+   */
+  public static resetFailureCount(): void {
+    TranscriptionService.privateInitFailures = 0;
+  }
+
+  private micError: Error | null = null;
 
   public async init(): Promise<{ success: boolean }> {
     // If a mock mic was injected (for E2E), use it directly
@@ -98,20 +139,30 @@ export default class TranscriptionService {
     try {
       this.mic = await createMicStream({ sampleRate: 16000, frameSize: 1024 });
       console.log('[TranscriptionService] Mic stream created.');
+      this.micError = null;
       return { success: true };
     } catch (error) {
       console.error('[TranscriptionService] Failed to initialize mic:', error);
-      Sentry.captureException(error, { tags: { component: 'TranscriptionService', method: 'init' } });
-      throw error;
+      // Sentry.captureException(error, ...); // Optional: keep or remove noise
+
+      // CRITICAL CHANGE: Don't throw yet. Store error and allow "native" mode to try.
+      this.micError = error instanceof Error ? error : new Error(String(error));
+
+      // Return success=false but don't explode.
+      // The calling hook should check this check, or we handle it in startTranscription.
+      return { success: false };
     }
   }
 
   public async startTranscription(): Promise<void> {
     console.log('[TranscriptionService] Attempting to start transcription...');
-    if (!this.mic) {
-      console.error('[TranscriptionService] Microphone not initialized.');
-      throw new Error("Microphone not initialized. Call init() first.");
-    }
+
+    // Resolve the mode using the injected policy
+    let resolvedMode = resolveMode(this.policy);
+    console.log(`[TranscriptionService] 🎯 Mode resolved: ${resolvedMode} (policy: ${this.policy.executionIntent})`);
+
+    // CHECK MICROPHONE REQUIREMENT MOVED INSIDE TRY/CATCH
+
 
     const providerConfig: TranscriptionModeOptions = {
       onTranscriptUpdate: this.onTranscriptUpdate,
@@ -121,20 +172,61 @@ export default class TranscriptionService {
       navigate: this.navigate,
       getAssemblyAIToken: this.getAssemblyAIToken,
       customVocabulary: this.customVocabulary,
+      onAudioData: this.onAudioData,
+      onError: (err) => {
+        // Propagate error to status change or main error handler if needed
+        // For now, we can log it or let specific modes handle it.
+        // Actually, useTranscriptionService doesn't pass onError in init options yet, 
+        // but we can at least log it or map it to status.
+        console.error('[TranscriptionService] Error from mode:', err);
+        this.onStatusChange?.({ type: 'error', message: err.message });
+      }
     };
 
-    // Resolve the mode using the injected policy
-    const resolvedMode = resolveMode(this.policy);
+    // CHECK MAX ATTEMPTS FOR PRIVATE MODE
+    if (resolvedMode === 'private' && TranscriptionService.privateInitFailures >= STT_CONFIG.MAX_PRIVATE_ATTEMPTS) {
+      console.warn(`[TranscriptionService] ⚠️ Max Private STT attempts (${STT_CONFIG.MAX_PRIVATE_ATTEMPTS}) reached. Forcing Native.`);
+
+      this.onStatusChange?.({
+        type: 'fallback',
+        message: '⚠️ Too many failures. Switched to Native STT.',
+        newMode: 'native'
+      });
+
+      resolvedMode = 'native';
+    }
+
     logger.info(
       { resolvedMode, policy: this.policy.executionIntent },
       `[TranscriptionService] Resolved mode: ${resolvedMode}`
     );
 
     try {
+      // CHECK MICROPHONE REQUIREMENT
+      // Native mode does NOT need our custom mic stream (it uses browser native API)
+      // Cloud and Private DO need it.
+      if (resolvedMode !== 'native') {
+        if (this.micError) {
+          console.error('[TranscriptionService] Blocking start: Mic initialization failed previously.');
+          throw this.micError;
+        }
+        if (!this.mic) {
+          console.error('[TranscriptionService] Microphone not initialized.');
+          throw new Error("Microphone not initialized. Call init() first.");
+        }
+      }
+
       await this.executeMode(resolvedMode, providerConfig);
     } catch (error) {
+      // TRACK FAILURE
+      if (resolvedMode === 'private') {
+        TranscriptionService.privateInitFailures++;
+        console.warn(`[TranscriptionService] Private mode failed. Failure count: ${TranscriptionService.privateInitFailures}`);
+      }
+
       // If fallback is allowed, try alternatives
       if (this.policy.allowFallback) {
+        console.warn(`[TranscriptionService] ⚠️ ${resolvedMode} failed, attempting fallback...`);
         logger.warn({ error }, `[TranscriptionService] ${resolvedMode} failed, attempting fallback`);
         await this.executeFallback(resolvedMode, providerConfig);
       } else {
@@ -150,19 +242,32 @@ export default class TranscriptionService {
     mode: TranscriptionMode,
     config: TranscriptionModeOptions
   ): Promise<void> {
+    // Notify status: initializing
+    const modeLabel = mode === 'native' ? 'Native Browser' : mode === 'cloud' ? 'Cloud' : 'Private';
+    this.onStatusChange?.({ type: 'initializing', message: `Starting ${modeLabel} mode...` });
+
     switch (mode) {
       case 'native':
+        console.log('[TranscriptionService] 🌐 Starting Native Browser mode');
         logger.info('[TranscriptionService] Starting Native Browser mode');
         this.instance = new NativeBrowser(config);
         break;
 
       case 'cloud':
+        console.log('[TranscriptionService] ☁️ Starting Cloud (AssemblyAI) mode');
         logger.info('[TranscriptionService] Starting Cloud (AssemblyAI) mode');
         this.instance = new CloudAssemblyAI(config);
         break;
 
       case 'private': {
+        console.log('[TranscriptionService] 🔒 Starting Private (Whisper) mode');
         logger.info('[TranscriptionService] Starting Private (Whisper) mode');
+        // Check for E2E mock override (Must be explicitly enabled)
+        if (window.MockPrivateWhisper && window.__E2E_MOCK_LOCAL_WHISPER__ === true) {
+          console.log('[TranscriptionService] 🧪 Using MockPrivateWhisper for E2E');
+          this.instance = new window.MockPrivateWhisper(config);
+          break;
+        }
         const module = await import('./modes/PrivateWhisper');
         this.instance = new module.default(config);
         break;
@@ -176,10 +281,19 @@ export default class TranscriptionService {
     await this.instance.startTranscription(this.mic!);
     this.mode = mode;
     this.onModeChange?.(this.mode);
+    // Notify status: ready
+    this.onStatusChange?.({ type: 'ready', message: `Recording active (${modeLabel})` });
   }
 
   /**
    * Attempt fallback to an alternative mode after failure.
+   * 
+   * FALLBACK RULES:
+   * - Native: No fallback (it's the base tier)
+   * - Cloud: Falls back to Native only
+   * - Private: Falls back to Native only (internal WebGPU→CPU handled by PrivateSTT)
+   * 
+   * Cloud and Private are Pro-only features and cannot be fallback targets.
    */
   private async executeFallback(
     failedMode: TranscriptionMode,
@@ -187,23 +301,30 @@ export default class TranscriptionService {
   ): Promise<void> {
     this.onModelLoadProgress(null); // Clear any loading state
 
-    // Fallback priority: native is always safest
-    const fallbackOrder: TranscriptionMode[] = ['native', 'cloud', 'private'];
-
-    for (const fallbackMode of fallbackOrder) {
-      if (fallbackMode === failedMode) continue; // Skip the mode that failed
-      if (!this.isModeAllowedByPolicy(fallbackMode)) continue; // Skip disallowed modes
-
-      try {
-        logger.info(`[TranscriptionService] Attempting fallback to ${fallbackMode}`);
-        await this.executeMode(fallbackMode, config);
-        return;
-      } catch (fallbackError) {
-        logger.warn({ error: fallbackError }, `[TranscriptionService] Fallback ${fallbackMode} also failed`);
-      }
+    // Native is the base tier - no further fallback available
+    if (failedMode === 'native') {
+      console.error('[TranscriptionService] ❌ Native mode failed. No fallback available.');
+      this.onStatusChange?.({ type: 'error', message: '❌ Native STT failed. No fallback available.' });
+      throw new Error('[TranscriptionService] Native mode failed. No fallback available.');
     }
 
-    throw new Error('[TranscriptionService] All fallback modes failed');
+    // Cloud and Private both fall back to Native only
+    console.log(`[TranscriptionService] 🔄 Fallback: ${failedMode} → native`);
+    logger.info(`[TranscriptionService] Attempting fallback to native`);
+
+    try {
+      this.onStatusChange?.({
+        type: 'fallback',
+        message: `⚠️ Switched to Native Browser mode (${failedMode} unavailable)`,
+        newMode: 'native'
+      });
+      await this.executeMode('native', config);
+    } catch (nativeError) {
+      console.error('[TranscriptionService] ❌ Native fallback also failed');
+      logger.error({ error: nativeError }, '[TranscriptionService] Native fallback also failed');
+      this.onStatusChange?.({ type: 'error', message: '❌ All transcription modes failed' });
+      throw new Error('[TranscriptionService] All fallback modes failed');
+    }
   }
 
   /**
@@ -235,12 +356,27 @@ export default class TranscriptionService {
   }
 
   public async destroy(): Promise<void> {
-    logger.info('[TranscriptionService] Destroying service.');
-    try {
-      await this.stopTranscription();
-    } catch (error) {
-      logger.debug({ error }, '[TranscriptionService] Error stopping transcription during destroy');
+    const start = performance.now();
+    logger.info('[TranscriptionService] [DEBUG-TIMING] Destroying service START.');
+
+    // Attempt strict termination first if available (for Private STT worker cleanup)
+    if (this.instance && typeof this.instance.terminate === 'function') {
+      try {
+        await this.instance.terminate();
+        logger.info(`[TranscriptionService] [DEBUG-TIMING] Terminate completed in ${performance.now() - start}ms`);
+      } catch (error) {
+        logger.error({ error }, '[TranscriptionService] Error terminating instance');
+      }
+    } else {
+      // Fallback to standard stop
+      try {
+        await this.stopTranscription();
+        logger.info(`[TranscriptionService] [DEBUG-TIMING] StopTranscription completed in ${performance.now() - start}ms`);
+      } catch (error) {
+        logger.debug({ error }, '[TranscriptionService] Error stopping transcription during destroy');
+      }
     }
+
     try {
       this.mic?.stop();
     } catch (error) {

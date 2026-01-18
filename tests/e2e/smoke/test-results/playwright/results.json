@@ -1,0 +1,273 @@
+{
+  "config": {
+    "configFile": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e/smoke/playwright.integration.config.ts",
+    "rootDir": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e/smoke",
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "reporter": [
+      [
+        "html",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "test-results/playwright/results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "quiet": false,
+    "projects": [
+      {
+        "outputDir": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e/smoke/test-results/playwright",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e/smoke",
+        "testIgnore": [
+          "**/canary/**"
+        ],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 300000
+      }
+    ],
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "none",
+    "updateSourceMethod": "patch",
+    "version": "1.57.0",
+    "workers": 1,
+    "webServer": {
+      "command": "pnpm dev --force",
+      "url": "http://localhost:5173",
+      "reuseExistingServer": false,
+      "timeout": 120000,
+      "env": {
+        "DOTENV_CONFIG_PATH": ".env.test",
+        "VITE_MODE": "test"
+      }
+    }
+  },
+  "suites": [
+    {
+      "title": "private-stt-integration.spec.ts",
+      "file": "private-stt-integration.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Private STT (Production Capability Smoke)",
+          "file": "private-stt-integration.spec.ts",
+          "line": 55,
+          "column": 6,
+          "specs": [
+            {
+              "title": "should initialize real Whisper engine and intercept with Service Worker",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 300000,
+                  "annotations": [
+                    {
+                      "type": "skip",
+                      "location": {
+                        "file": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e/smoke/private-stt-integration.spec.ts",
+                        "line": 109,
+                        "column": 18
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "skipped",
+                      "duration": 1755,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "[E2E] 🛡️ crossOriginIsolated: false\n"
+                        },
+                        {
+                          "text": "[E2E] ⏭️ Skipping unmocked test - COOP/COEP headers not available in dev mode\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-14T00:21:13.785Z",
+                      "annotations": [
+                        {
+                          "type": "skip",
+                          "location": {
+                            "file": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e/smoke/private-stt-integration.spec.ts",
+                            "line": 109,
+                            "column": 18
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "9f8898f8767ea64e579e-d4679955b8070e81ad08",
+              "file": "private-stt-integration.spec.ts",
+              "line": 61,
+              "column": 5
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "private-stt-resilience.spec.ts",
+      "file": "private-stt-resilience.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Private STT Resilience",
+          "file": "private-stt-resilience.spec.ts",
+          "line": 22,
+          "column": 6,
+          "specs": [
+            {
+              "title": "should trigger 10s timeout and show repair action on hang",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 300000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1496,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "[E2E] Starting programmaticLoginWithRoutes (no MSW dependency)\n"
+                        },
+                        {
+                          "text": "[E2E MOCK] Setting up Playwright route interception...\n"
+                        },
+                        {
+                          "text": "[E2E MOCK] ✅ All routes configured\n"
+                        },
+                        {
+                          "text": "[E2E] Playwright routes configured\n"
+                        },
+                        {
+                          "text": "[E2E] Navigating to /\n"
+                        },
+                        {
+                          "text": "[E2E] Waiting for React to mount...\n"
+                        },
+                        {
+                          "text": "[E2E MOCK]Intercepted: GET https://mock.supabase.co/rest/v1/user_profiles?select=*&id=eq.test-user-123 \n"
+                        },
+                        {
+                          "text": "[E2E MOCK] Profile override detected: {\"subscription_status\":\"pro\"} \n"
+                        },
+                        {
+                          "text": "[E2E MOCK] Fulfilling user_profiles for: test-user-123 (pro)\n"
+                        },
+                        {
+                          "text": "[E2E] Waiting for app-main...\n"
+                        },
+                        {
+                          "text": "[E2E MOCK]Intercepted: GET https://mock.supabase.co/rest/v1/user_profiles?select=*&id=eq.test-user-123 \n"
+                        },
+                        {
+                          "text": "[E2E] ✅ Logged in via Playwright routes\n"
+                        },
+                        {
+                          "text": "[E2E DEBUG] Navigating to /session using client-side navigation\n"
+                        },
+                        {
+                          "text": "[E2E MOCK] Profile override detected: {\"subscription_status\":\"pro\"} \n"
+                        },
+                        {
+                          "text": "[E2E MOCK] Fulfilling user_profiles for: test-user-123 (pro)\n"
+                        },
+                        {
+                          "text": "[E2E DEBUG] Navigation to /session complete\n"
+                        },
+                        {
+                          "text": "[E2E DEBUG] MSW ready confirmed after navigation\n"
+                        },
+                        {
+                          "text": "[E2E MOCK]Intercepted: POST https://mock.supabase.co/functions/v1/check-usage-limit \n"
+                        },
+                        {
+                          "text": "[E2E MOCK]Intercepted: GET https://mock.supabase.co/rest/v1/user_filler_words?select=*&user_id=eq.test-user-123 \n"
+                        },
+                        {
+                          "text": "[TEST] ⚠️ MockEngine detected - skipping hang simulation test\n"
+                        },
+                        {
+                          "text": "[TEST] ✅ This test only runs in non-mock environment\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-14T00:21:16.243Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "558bec7d9353555424bc-36b910263d220f3fcfc2",
+              "file": "private-stt-resilience.spec.ts",
+              "line": 24,
+              "column": 5
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-01-14T00:21:11.697Z",
+    "duration": 6089.019,
+    "expected": 1,
+    "skipped": 1,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

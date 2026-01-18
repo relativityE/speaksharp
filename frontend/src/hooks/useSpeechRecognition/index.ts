@@ -28,17 +28,20 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
   const [modelLoadingProgress, setModelLoadingProgress] = useState<number | null>(null);
   const toastIdRef = useRef<string | number | null>(null);
 
+  // Synced state for VocalAnalysis to avoid circular dependency with service creation
+  const [internalIsListening, setInternalIsListening] = useState(false);
+
   const transcript = useTranscriptState();
   // Extract stable method references to avoid object identity issues in useMemo deps
   const { setInterimTranscript, addChunk } = transcript;
   const fillerWords = useFillerWords(transcript.finalChunks, transcript.interimTranscript, customWords);
-  const vocalAnalysis = useVocalAnalysis(false); // We'll enable this when we have mic access
+  const vocalAnalysis = useVocalAnalysis(internalIsListening); // Pass dynamic state
 
   const getAssemblyAIToken = useCallback(async (): Promise<string | null> => {
     // Rate limit check to prevent abuse
     const rateCheck = checkRateLimit('ASSEMBLYAI_TOKEN');
-    if (!rateCheck.allowed) {
-      const seconds = Math.ceil((rateCheck.retryAfterMs || 0) / 1000);
+    if (!rateCheck.allowed && rateCheck.retryAfterMs && rateCheck.retryAfterMs > 0) {
+      const seconds = Math.ceil(rateCheck.retryAfterMs / 1000);
       toast.error(`Please wait ${seconds} seconds before starting another session.`);
       logger.warn({ retryAfterMs: rateCheck.retryAfterMs }, 'Rate limited token request');
       return null;
@@ -60,10 +63,22 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
       if (error) throw new Error(`Failed to invoke token function: ${error.message}`);
       if (!data || !data.token) throw new Error("No valid AssemblyAI token returned.");
       return data.token;
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
+    } catch (err: unknown) {
+      let errorMessage = err instanceof Error ? err.message : String(err);
+
+      // Parse Supabase Edge Function "non-2xx" error for better clarity
+      if (errorMessage.includes("non-2xx")) {
+        errorMessage = "Cloud STT Service Unavailable. The backend service returned an error.";
+        logger.error({ originalError: err }, "Edge Function 500/Non-2xx Error");
+      }
+
       logger.error({ err }, "Error getting AssemblyAI token");
-      toast.error("Unable to start transcription: " + errorMessage);
+
+      // Show persistent toast for critical failure
+      toast.error(errorMessage, {
+        duration: 5000, // 5 seconds
+        description: "Please switch to Native mode or try again later."
+      });
       return null;
     }
   }, [authSession]);
@@ -116,20 +131,12 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
       }
 
       // Dismiss toast when complete (handle both 1.0 and 100)
-      if (progress >= 1 && progress <= 1.1) {  // 1.0 for fraction, allow small overshoot
+      if ((progress >= 1 && progress <= 1.1) || progress >= 100) {
         setTimeout(() => {
           if (toastIdRef.current) {
             toast.dismiss(toastIdRef.current);
-            toast.success('Model loaded successfully!', { id: 'model-loaded', duration: 10000 });
-            toastIdRef.current = null;
-          }
-          setModelLoadingProgress(null);
-        }, 500);
-      } else if (progress >= 100) {  // 100 for percentage
-        setTimeout(() => {
-          if (toastIdRef.current) {
-            toast.dismiss(toastIdRef.current);
-            toast.success('Model loaded successfully!', { id: 'model-loaded', duration: 10000 });
+            // Removed "Model loaded successfully!" toast to avoid confusion during fallback
+            // The Status Notification Bar will show "Ready" or "Recording active"
             toastIdRef.current = null;
           }
           setModelLoadingProgress(null);
@@ -141,9 +148,17 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     navigate,
     getAssemblyAIToken,
     customVocabulary,
-  }), [profile, session, navigate, getAssemblyAIToken, customVocabulary, setInterimTranscript, addChunk]);
+    // PLUMBING: Pass audio frame analyzer for pause detection
+    onAudioData: vocalAnalysis.processAudioFrame,
+  }), [profile, session, navigate, getAssemblyAIToken, customVocabulary, setInterimTranscript, addChunk, vocalAnalysis.processAudioFrame]);
 
   const service = useTranscriptionService(serviceOptions);
+
+  // Sync service state to internal state for VocalAnalysis
+  // This avoids the circular dependency where hook creation needs service state
+  if (service.isListening !== internalIsListening) {
+    setInternalIsListening(service.isListening);
+  }
   const sessionTimer = useSessionTimer(service.isListening);
 
   const reset = useCallback(() => {
@@ -210,6 +225,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     error: service.error,
     isSupported: service.isSupported,
     mode: service.mode,
+    sttStatus: service.sttStatus,
     modelLoadingProgress,
     startListening,
     stopListening,

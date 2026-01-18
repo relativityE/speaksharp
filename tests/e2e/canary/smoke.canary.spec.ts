@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { goToPublicRoute, navigateToRoute } from '../helpers';
+import { goToPublicRoute, navigateToRoute, debugLog } from '../helpers';
 import { ROUTES, TEST_IDS, CANARY_USER } from '../../constants';
 
 /**
@@ -18,7 +18,7 @@ async function canaryLogin(page: Page): Promise<void> {
         throw new Error('Missing CANARY_PASSWORD environment variable');
     }
 
-    console.log(`[CANARY] Logging in as ${CANARY_EMAIL}...`);
+    debugLog(`[CANARY] Logging in as ${CANARY_EMAIL}...`);
     const start = Date.now();
 
     // Navigate to sign-in page using public route helper
@@ -42,7 +42,7 @@ async function canaryLogin(page: Page): Promise<void> {
     // Verify auth state (like soak test)
     await expect(page.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 15000 });
 
-    console.log(`[CANARY] Login successful in ${Date.now() - start}ms`);
+    debugLog(`[CANARY] Login successful in ${Date.now() - start}ms`);
 }
 
 /**
@@ -83,12 +83,12 @@ test.describe('Production Smoke Canary @canary', () => {
         await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeVisible({ timeout: 15000 });
 
         // 3. Configure for Native STT (Free/Low Risk)
-        console.log('[CANARY] Configuring Native STT mode...');
+        debugLog('[CANARY] Configuring Native STT mode...');
         await page.getByRole('button', { name: /Native|Cloud AI|Private|On-Device/i }).click();
         await page.getByRole('menuitemradio', { name: /Native/i }).click();
 
         // 4. Start Session
-        console.log('[CANARY] Starting session...');
+        debugLog('[CANARY] Starting session...');
         const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
         await expect(startButton).toBeEnabled();
         await startButton.click();
@@ -97,11 +97,11 @@ test.describe('Production Smoke Canary @canary', () => {
         await page.waitForSelector('[data-testid="session-status-indicator"]', { timeout: 10000 });
 
         // 5. Record for 5 seconds
-        console.log('[CANARY] Recording for 5 seconds...');
+        debugLog('[CANARY] Recording for 5 seconds...');
         await page.waitForTimeout(5000);
 
         // 6. Stop Session
-        console.log('[CANARY] Stopping session...');
+        debugLog('[CANARY] Stopping session...');
         await page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON).click();
 
         // 7. Handle session end (dialog, empty state, or redirect)
@@ -124,6 +124,6 @@ test.describe('Production Smoke Canary @canary', () => {
             }
         }
 
-        console.log('[CANARY] ✅ Smoke test passed. System is operational.');
+        debugLog('[CANARY] ✅ Smoke test passed. System is operational.');
     });
 });

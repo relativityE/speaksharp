@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { goToPublicRoute, navigateToRoute } from '../helpers';
+import { goToPublicRoute, navigateToRoute, debugLog } from '../helpers';
 import { ROUTES, TEST_IDS, CANARY_USER } from '../../constants';
 
 /**
@@ -32,7 +32,7 @@ async function canaryLogin(page: Page): Promise<void> {
         throw new Error('Missing CANARY_PASSWORD environment variable');
     }
 
-    console.log(`[CANARY] Logging in as ${CANARY_EMAIL}...`);
+    debugLog(`[CANARY] Logging in as ${CANARY_EMAIL}...`);
     const start = Date.now();
 
     await goToPublicRoute(page, ROUTES.SIGN_IN);
@@ -51,7 +51,7 @@ async function canaryLogin(page: Page): Promise<void> {
 
     await expect(page.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 15000 });
 
-    console.log(`[CANARY] Login successful in ${Date.now() - start}ms`);
+    debugLog(`[CANARY] Login successful in ${Date.now() - start}ms`);
 }
 
 /**
@@ -95,7 +95,7 @@ test.describe('User Filler Words Canary @canary', () => {
         await expect(page.getByText('Session Settings')).toBeHidden();
 
         // 3. Select Cloud Mode
-        console.log('[CANARY] Selecting Cloud STT mode...');
+        debugLog('[CANARY] Selecting Cloud STT mode...');
         await page.getByRole('button', { name: /Native|Cloud AI|Private|On-Device/i }).click();
         await page.getByRole('menuitemradio', { name: /Cloud/i }).click();
 
@@ -106,20 +106,20 @@ test.describe('User Filler Words Canary @canary', () => {
         });
 
         // 5. Start Session
-        console.log('[CANARY] Starting Cloud STT session...');
+        debugLog('[CANARY] Starting Cloud STT session...');
         await page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON).click();
 
         // 6. Verify WebSocket was opened to AssemblyAI
         const ws = await wsPromise;
         const wsUrl = ws.url();
-        console.log(`[CANARY] 📡 Captured Cloud STT WebSocket: ${wsUrl}`);
+        debugLog(`[CANARY] 📡 Captured Cloud STT WebSocket: ${wsUrl}`);
 
         // 7. Verify word_boost (boost_param) is present
         expect(wsUrl).toContain('boost_param');
         const decodedUrl = decodeURIComponent(wsUrl);
         expect(decodedUrl.toLowerCase()).toContain('canaryboosttest');
 
-        console.log('[CANARY] ✅ User Filler Words verified in Cloud STT request');
+        debugLog('[CANARY] ✅ User Filler Words verified in Cloud STT request');
 
         // Cleanup - stop session
         await page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON).click();

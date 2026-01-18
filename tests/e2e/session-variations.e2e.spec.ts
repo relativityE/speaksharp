@@ -20,48 +20,55 @@ test.describe('Session Variations', () => {
         await modeButton.click();
 
         // Switch to Cloud
-        await page.getByRole('menuitemradio', { name: /Cloud \(AssemblyAI\)/ }).click();
+        await page.getByRole('menuitemradio', { name: /Cloud/ }).click();
         await expect(modeButton).toContainText(/Cloud/);
 
         // Open dropdown again
         await modeButton.click();
 
         // Switch to Private
-        await page.getByRole('menuitemradio', { name: /Private \(Whisper\)/ }).click();
+        await page.getByRole('menuitemradio', { name: /Private/ }).click();
         await expect(modeButton).toContainText(/Private/);
 
         // Switch back to Native
         await modeButton.click();
-        await page.getByRole('menuitemradio', { name: /Native \(Browser\)/ }).click();
+        await page.getByRole('menuitemradio', { name: /Native/ }).click();
         await expect(modeButton).toContainText(/Native/);
     });
 
     test('Journey 6: Custom Vocabulary Management', async ({ page }) => {
-        // Custom Vocabulary is inside the settings sheet
-        const settingsButton = page.getByTestId('session-settings-button');
-        await expect(settingsButton).toBeVisible({ timeout: 10000 });
-        await settingsButton.click();
+        // Custom Vocabulary is now in a popover opened by the badge list action
+        const addWordBtn = page.getByTestId('add-custom-word-button');
+        await expect(addWordBtn).toBeVisible({ timeout: 10000 });
+        await addWordBtn.click();
 
-        // Wait for sheet animation to complete
-        await expect(page.getByRole('heading', { name: 'Session Settings' })).toBeVisible({ timeout: 5000 });
-        await expect(page.getByRole('heading', { name: /Custom Vocabulary|User Filler Words/i })).toBeVisible();
+        // Wait for popover content
+        await expect(page.getByText('User Filler Words')).toBeVisible({ timeout: 5000 });
 
         // Fill input and add word (note: mutation lowercases all words)
+        const word = 'testword';
         const wordInput = page.getByPlaceholder(/literally|basically/i);
         await expect(wordInput).toBeVisible({ timeout: 5000 });
-        await wordInput.fill('TestWord');
+        await wordInput.fill(word);
 
-        const addButton = page.getByRole('button', { name: /Add/i });
+        const addButton = page.getByRole('button', { name: /Add/i }).last();
         await expect(addButton).toBeEnabled();
         await addButton.click();
 
-        // Wait for word to appear - it will be lowercased to 'testword'
-        await expect(page.getByText('testword', { exact: true })).toBeVisible({ timeout: 10000 });
+        // Wait for popover to close
+        await expect(page.getByText('User Filler Words')).not.toBeVisible({ timeout: 10000 });
 
-        // Remove the word
-        await page.getByRole('button', { name: /Remove testword/i }).click();
+        // Verify word is in metrics list
+        const wordBadge = page.getByTestId('filler-badge').filter({ hasText: new RegExp(word, 'i') });
+        await expect(wordBadge).toBeVisible({ timeout: 10000 });
 
-        // Verify word is removed
-        await expect(page.getByText('testword', { exact: true })).not.toBeVisible({ timeout: 5000 });
+        // Re-open to remove
+        await addWordBtn.click();
+
+        // Remove the word using the specialized remove button
+        await page.getByRole('button', { name: new RegExp(`Remove ${word}`, 'i') }).click();
+
+        // Verify word is removed from metrics list (might take a moment for state to ripple)
+        await expect(wordBadge).not.toBeVisible({ timeout: 10000 });
     });
 });

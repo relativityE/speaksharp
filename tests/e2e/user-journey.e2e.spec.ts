@@ -9,7 +9,7 @@
  * 5. Compares sessions to see trends
  */
 import { test, expect } from '@playwright/test';
-import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute, debugLog } from './helpers';
 
 test.describe('User Journey - Full Onboarding to Trend Analysis', () => {
     test('should complete full user journey with session and analytics', async ({ page }) => {
@@ -20,7 +20,7 @@ test.describe('User Journey - Full Onboarding to Trend Analysis', () => {
         await navigateToRoute(page, '/session');
         await expect(page.locator('[data-testid="app-main"]')).toBeVisible();
         await expect(page.getByText('Practice Session')).toBeVisible();
-        console.log('[TEST] ✅ Step 1: Session page loaded');
+        debugLog('[TEST] ✅ Step 1: Session page loaded');
 
         // Step 3: Start a practice session
         const startButton = page.getByTestId('session-start-stop-button').first();
@@ -29,11 +29,11 @@ test.describe('User Journey - Full Onboarding to Trend Analysis', () => {
 
         // Wait for session to start (button should show Stop)
         await expect(page.getByText('Stop').first()).toBeVisible({ timeout: 10000 });
-        console.log('[TEST] ✅ Step 2: Session started');
+        debugLog('[TEST] ✅ Step 2: Session started');
 
         // Step 4: Verify Clarity Score card is displayed (core metric)
         await expect(page.getByText('Clarity Score')).toBeVisible();
-        console.log('[TEST] ✅ Step 3: Clarity Score metric displayed');
+        debugLog('[TEST] ✅ Step 3: Clarity Score metric displayed');
 
         // Wait to comply with 5s minimum session duration
         await page.waitForTimeout(6000);
@@ -42,23 +42,23 @@ test.describe('User Journey - Full Onboarding to Trend Analysis', () => {
         await startButton.click();
         // Wait for button to return to Start state
         await expect(page.getByText('Start').first()).toBeVisible({ timeout: 5000 });
-        console.log('[TEST] ✅ Step 4: Session stopped');
+        debugLog('[TEST] ✅ Step 4: Session stopped');
 
         // Step 6: Navigate to analytics
         await navigateToRoute(page, '/analytics');
         await expect(page.getByTestId('dashboard-heading')).toBeVisible();
-        console.log('[TEST] ✅ Step 5: Analytics dashboard loaded');
+        debugLog('[TEST] ✅ Step 5: Analytics dashboard loaded');
 
         // Step 7: Verify session history is displayed
         await expect(page.getByText('Session History')).toBeVisible();
-        console.log('[TEST] ✅ Step 6: Session history visible');
+        debugLog('[TEST] ✅ Step 6: Session history visible');
 
         // Step 8: Navigate back to session for "return user" simulation
         await navigateToRoute(page, '/session');
         await expect(page.getByText('Practice Session')).toBeVisible();
-        console.log('[TEST] ✅ Step 7: Return user can access session page');
+        debugLog('[TEST] ✅ Step 7: Return user can access session page');
 
-        console.log('[TEST] ✅✅✅ Full user journey completed successfully');
+        debugLog('[TEST] ✅✅✅ Full user journey completed successfully');
     });
 
     test('should allow pro users to start session with default cloud mode', async ({ page }) => {
@@ -77,7 +77,7 @@ test.describe('User Journey - Full Onboarding to Trend Analysis', () => {
         await page.waitForTimeout(6000);
         await startButton.click();
 
-        console.log('[TEST] ✅ Pro user can start session (default mode available)');
+        debugLog('[TEST] ✅ Pro user can start session (default mode available)');
     });
 });
 
@@ -107,7 +107,7 @@ test.describe('Free User Tier Restrictions', () => {
         // The mode should default to Native Browser for free users
         // Cloud AI and Private should not be selectable or show upgrade prompt
         if (await nativeBrowserIndicator.count() > 0) {
-            console.log('[TEST] ✅ Free user defaults to Native Browser mode');
+            debugLog('[TEST] ✅ Free user defaults to Native Browser mode');
         }
 
         // Verify session still works for free users
@@ -115,11 +115,11 @@ test.describe('Free User Tier Restrictions', () => {
         await expect(startButton).toBeVisible();
         await startButton.click();
         await expect(page.getByText('Stop').first()).toBeVisible({ timeout: 10000 });
-        console.log('[TEST] ✅ Free user can start session with Native Browser');
+        debugLog('[TEST] ✅ Free user can start session with Native Browser');
 
         // Wait to comply with 5s minimum session duration
         await page.waitForTimeout(6000);
         await startButton.click();
-        console.log('[TEST] ✅✅ Free user tier gating verified - only Native Browser available');
+        debugLog('[TEST] ✅✅ Free user tier gating verified - only Native Browser available');
     });
 });

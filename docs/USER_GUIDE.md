@@ -80,7 +80,7 @@ If you've been provided with a **One-Time Code**, follow these steps to activate
 4.  Enter your 7-digit numeric code into the field.
 5.  Complete your account creation.
 
-> **Note:** One-time 'pro' user promo codes grant **initial access to Pro features**. Once consumed or expired, your account will follow the standard Free tier limits (1 hour of practice per day).
+> **Note:** One-time 'pro' user promo codes grant **access to Pro features for 60 minutes**. Once consumed or expired, your account will follow the standard Free tier limits (1 hour of practice per day).
 
 ---
 

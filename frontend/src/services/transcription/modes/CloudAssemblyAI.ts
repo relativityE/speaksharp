@@ -3,6 +3,7 @@ import { TranscriptionError } from './types';
 import type { MicStream } from '../utils/types';
 import { floatToInt16 } from '../utils/AudioProcessor';
 import logger from '../../../lib/logger';
+import { STT_CONFIG, AUDIO_CONFIG } from '../../../config';
 
 // Type definitions for AssemblyAI WebSocket messages
 interface AssemblyAIWord {
@@ -16,6 +17,7 @@ interface AssemblyAIMessage {
   type: 'Begin' | 'Turn' | 'Termination';
   transcript?: string;
   turn_is_formatted?: boolean;
+  end_of_turn?: boolean;
   words?: AssemblyAIWord[];
   session_id?: string;
   id?: string;
@@ -39,7 +41,13 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
   private frameHandler: (frame: Float32Array) => void;
   private firstPacketSent: boolean = false;
   private audioBuffer: Int16Array = new Int16Array(0);
-  private readonly MIN_SAMPLES = 800; // 50ms at 16kHz (AssemblyAI minimum)
+  // AssemblyAI requires audio packets between 50-1000ms (see STT_CONFIG)
+  private readonly MIN_SAMPLES = STT_CONFIG.ASSEMBLYAI_MIN_SAMPLES;
+  private readonly MAX_SAMPLES = STT_CONFIG.ASSEMBLYAI_MAX_SAMPLES;
+
+  // Track last partial to preserve on unexpected disconnect
+  // AssemblyAI sample code shows partials overwrite until final is received
+  private lastPartialTranscript: string = '';
 
   // Reconnection logic
   private reconnectAttempts = 0;
@@ -82,8 +90,13 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
         throw new Error("Failed to retrieve AssemblyAI token.");
       }
 
-      // Build WebSocket URL with optional boost_param for custom vocabulary
-      let url = `wss://streaming.assemblyai.com/v3/ws?sample_rate=${mic.sampleRate}&token=${token}&format_turns=true&speaker_labels=true`;
+      // Build WebSocket URL with AssemblyAI Universal Streaming parameters
+      // Settings from AssemblyAI Playground for optimal end-of-turn detection:
+      // - format_turns=true: Get formatted final transcripts
+      // - end_of_turn_confidence_threshold=0.7: Confidence for end-of-turn detection
+      // - min_end_of_turn_silence=160: Min silence (ms) when confident
+      // - max_turn_silence=2400: Max silence (ms) before forcing end-of-turn
+      let url = `wss://streaming.assemblyai.com/v3/ws?sample_rate=${mic.sampleRate}&token=${token}&format_turns=true&end_of_turn_confidence_threshold=0.7&min_end_of_turn_silence=160&max_turn_silence=2400`;
       if (this.customVocabulary.length > 0) {
         const boostParam = this.customVocabulary.join(',');
         url += `&boost_param=${encodeURIComponent(boostParam)}`;
@@ -110,13 +123,27 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
         }
 
         if (data.type === 'Turn' && data.transcript) {
-          if (data.turn_is_formatted) {
-            logger.info({ transcript: data.transcript }, '[CloudAssemblyAI] Final transcript');
+          // AssemblyAI v3 sends:
+          // - Partial transcripts: no end_of_turn, no turn_is_formatted
+          // - Unformatted final: end_of_turn=true, turn_is_formatted=false
+          // - Formatted final: turn_is_formatted=true (if format_turns=true)
+          // We treat BOTH end_of_turn and turn_is_formatted as finals to ensure accumulation
+          if (data.turn_is_formatted || data.end_of_turn) {
+            logger.info({ transcript: data.transcript, formatted: data.turn_is_formatted }, '[CloudAssemblyAI] Final transcript');
             this.onTranscriptUpdate({ transcript: { final: data.transcript }, words: data.words || [] });
+            this.lastPartialTranscript = ''; // Clear after final
           } else {
             logger.info({ transcript: data.transcript }, '[CloudAssemblyAI] Partial transcript');
+            this.lastPartialTranscript = data.transcript; // Track for disconnect recovery
             this.onTranscriptUpdate({ transcript: { partial: data.transcript } });
           }
+        }
+
+        // Handle Termination message per canonical sample
+        if (data.type === 'Termination') {
+          const audioDuration = (data as { audio_duration_seconds?: number }).audio_duration_seconds;
+          const sessionDuration = (data as { session_duration_seconds?: number }).session_duration_seconds;
+          logger.info({ audioDuration, sessionDuration }, '[CloudAssemblyAI] Session Terminated');
         }
       };
 
@@ -131,6 +158,14 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
         this.socket = null;
         this.mic?.offFrame(this.frameHandler);
         this.stopHeartbeat(); // Stop heartbeat
+
+        // On unexpected close, save the last partial as a final to prevent transcript loss
+        // This matches AssemblyAI sample behavior where partials overwrite until commit
+        if (event.code !== 1000 && this.lastPartialTranscript) {
+          logger.info({ transcript: this.lastPartialTranscript }, '[CloudAssemblyAI] Saving partial before reconnect');
+          this.onTranscriptUpdate({ transcript: { final: this.lastPartialTranscript } });
+          this.lastPartialTranscript = '';
+        }
 
         // Only attempt reconnect if not a normal closure (code 1000)
         if (event.code !== 1000) {
@@ -154,20 +189,31 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
     // Convert Float32 to Int16 using shared utility
     const int16Array = floatToInt16(float32Array);
 
-    // Buffer audio until we have at least MIN_SAMPLES (50ms)
-    // AssemblyAI requires 50-1000ms per packet
+    // Buffer audio until we have at least MIN_SAMPLES (50ms at 16kHz)
+    // Web Audio provides ~2.6ms frames, but AssemblyAI requires 50-1000ms per packet
     const newBuffer = new Int16Array(this.audioBuffer.length + int16Array.length);
     newBuffer.set(this.audioBuffer);
     newBuffer.set(int16Array, this.audioBuffer.length);
     this.audioBuffer = newBuffer;
 
-    // Send when we have enough samples
+    // Send when we have enough samples (50ms minimum)
     if (this.audioBuffer.length >= this.MIN_SAMPLES) {
+      // Validate packet duration is within AssemblyAI's 50-1000ms range
+      const durationMs = (this.audioBuffer.length / AUDIO_CONFIG.SAMPLE_RATE) * 1000;
+
+      if (durationMs < STT_CONFIG.ASSEMBLYAI_MIN_PACKET_MS || durationMs > STT_CONFIG.ASSEMBLYAI_MAX_PACKET_MS) {
+        logger.error({
+          samples: this.audioBuffer.length,
+          durationMs: durationMs.toFixed(2),
+          expectedMin: STT_CONFIG.ASSEMBLYAI_MIN_PACKET_MS,
+          expectedMax: STT_CONFIG.ASSEMBLYAI_MAX_PACKET_MS
+        }, '[CloudAssemblyAI] Audio packet duration INVALID - expected between 50 and 1000 ms');
+      }
+
       this.socket.send(this.audioBuffer.buffer);
 
       if (!this.firstPacketSent) {
         this.firstPacketSent = true;
-        const durationMs = (this.audioBuffer.length / 16000) * 1000;
         logger.info({
           samples: this.audioBuffer.length,
           durationMs: durationMs.toFixed(2)
@@ -198,8 +244,10 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
     }
 
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      // AssemblyAI v3 doesn't use a 'Terminate' message like v2.
-      // Simply closing the socket is sufficient.
+      // Send Terminate message before closing per canonical AssemblyAI sample
+      const terminateMessage = { type: 'Terminate' };
+      logger.info({ terminateMessage }, '[CloudAssemblyAI] Sending termination message');
+      this.socket.send(JSON.stringify(terminateMessage));
       this.socket.close(1000); // Normal closure
     }
     this.socket = null;
@@ -235,8 +283,9 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
       return;
     }
 
-    // Exponential backoff: 1s, 2s, 4s, 8s, max 30s
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
+    // Exponential backoff: 3s, 6s, 12s, max 30s
+    // 3005 errors are fixed, so we can use shorter delays now
+    const delay = Math.min(3000 * Math.pow(2, this.reconnectAttempts), 30000);
     this.reconnectAttempts++;
 
     logger.info({ delay, attempt: this.reconnectAttempts }, `[CloudAssemblyAI] Reconnecting in ${delay}ms`);
@@ -244,6 +293,8 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
 
     this.reconnectTimeout = setTimeout(async () => {
       logger.info('[CloudAssemblyAI] Attempting reconnect...');
+      // Clear audio buffer to prevent sending stale audio faster than real-time (error 3005)
+      this.audioBuffer = new Int16Array(0);
       if (this.mic) {
         try {
           await this.startTranscription(this.mic);

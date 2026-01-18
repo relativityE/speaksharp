@@ -37,7 +37,7 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute, debugLog } from './helpers';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -64,8 +64,8 @@ test.use({
     permissions: ['microphone']
 });
 
-// Mark as slow test (120s default timeout)
-test.describe.configure({ timeout: 120000 });
+// Mark as slow test (30s default timeout - CAPPED)
+test.describe.configure({ timeout: 30000 });
 
 test.describe('Private STT Real Audio (High Fidelity)', () => {
 
@@ -83,7 +83,7 @@ test.describe('Private STT Real Audio (High Fidelity)', () => {
             window.__E2E_PLAYWRIGHT__ = true;
             // Force TransformersJS (skip WhisperTurbo WebGPU)
             window.__FORCE_TRANSFORMERS_JS__ = true;
-            console.log('[E2E] Real audio test: MockEngine DISABLED, TransformersJS FORCED');
+            debugLog('[E2E] Real audio test: MockEngine DISABLED, TransformersJS FORCED');
         });
     });
 
@@ -93,8 +93,8 @@ test.describe('Private STT Real Audio (High Fidelity)', () => {
     // real microphone input or a different approach to audio injection.
     // See: https://github.com/nickarellano/speaksharp/issues/XXX for tracking.
     test.skip('should transcribe real audio using TransformersJS (no mocks, no cost)', async ({ page }) => {
-        console.log('🎤 Running High-Fidelity Private STT test with REAL audio');
-        console.log(`📂 Audio file: ${audioFile}`);
+        debugLog('🎤 Running High-Fidelity Private STT test with REAL audio');
+        debugLog(`📂 Audio file: ${audioFile}`);
 
         // 1. Login as Pro user (Private STT requires Pro)
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
@@ -107,39 +107,39 @@ test.describe('Private STT Real Audio (High Fidelity)', () => {
         const modeButton = page.getByRole('button', { name: /Native|Cloud AI|Private/ });
         await modeButton.click();
         await page.getByRole('menuitemradio', { name: /private/i }).click();
-        console.log('✅ Selected Private STT mode');
+        debugLog('✅ Selected Private STT mode');
 
         // 4. Start recording - this triggers TransformersJS model loading
         const startButton = page.getByTestId('session-start-stop-button');
         await startButton.click();
-        console.log('🚀 Started recording, waiting for model to load...');
+        debugLog('🚀 Started recording, waiting for model to load...');
 
         // 5. Wait for model to load (can take 30-60s)
         // Look for either "Listening" or "Stop" to indicate model is ready
         await expect(
             startButton.first()
-        ).toContainText(/stop/i, { timeout: 90000 });
-        console.log('✅ Model loaded, transcription active');
+        ).toContainText(/stop/i, { timeout: 30000 });
+        debugLog('✅ Model loaded, transcription active');
 
         // 6. Wait for transcript to appear
         const transcriptContainer = page.getByTestId('transcript-container');
 
         // The JFK audio says: "And so, my fellow Americans: ask not what your country can do for you..."
         // We check for key words that should appear in the transcript
-        console.log('👂 Listening for transcript output...');
+        debugLog('👂 Listening for transcript output...');
 
-        await expect(transcriptContainer).toContainText(/Americans|fellow|country|ask/i, { timeout: 60000 });
+        await expect(transcriptContainer).toContainText(/Americans|fellow|country|ask/i, { timeout: 30000 });
 
         const transcriptText = await transcriptContainer.textContent();
-        console.log(`📝 Transcript received: "${transcriptText?.substring(0, 100)}..."`);
+        debugLog(`📝 Transcript received: "${transcriptText?.substring(0, 100)}..."`);
 
         // 7. Stop recording
         await startButton.click();
         await expect(startButton).toContainText(/start/i, { timeout: 5000 });
-        console.log('✅ Recording stopped');
+        debugLog('✅ Recording stopped');
 
         // 8. Verify transcript contains expected content
         expect(transcriptText).toMatch(/Americans|fellow|country/i);
-        console.log('✅ HIGH-FIDELITY VERIFICATION PASSED: Real audio → Real transcript');
+        debugLog('✅ HIGH-FIDELITY VERIFICATION PASSED: Real audio → Real transcript');
     });
 });

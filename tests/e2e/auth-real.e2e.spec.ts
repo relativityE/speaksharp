@@ -12,7 +12,7 @@ test.describe('Real Authentication Flow', () => {
     const testPassword = process.env.E2E_FREE_PASSWORD || 'TestPassword123!';
 
     test('should sign in with real credentials and establish session', async ({ page }) => {
-        console.log('🔐 Running High-Fidelity AUTH test against real Supabase');
+        // High-Fidelity AUTH test against real Supabase
 
         // 1. Navigate to Sign In (public route - uses goToPublicRoute per architecture)
         await goToPublicRoute(page, '/auth/signin');
@@ -38,7 +38,5 @@ test.describe('Real Authentication Flow', () => {
         // 5. Verify Redirect and Session State
         await page.waitForURL('/session');
         await expect(page.getByTestId('nav-sign-out-button')).toBeVisible();
-
-        console.log('✅ Real Authentication successful');
     });
 });

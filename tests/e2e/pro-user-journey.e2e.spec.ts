@@ -10,7 +10,7 @@
  * 6. Multiple sessions with cumulative scores
  */
 import { test, expect } from '@playwright/test';
-import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute, debugLog } from './helpers';
 
 test.describe('Pro User Journey - Complete Lifecycle', () => {
     test.beforeEach(async ({ page }) => {
@@ -33,12 +33,12 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
             const cloudOption = page.getByText(/Cloud|AssemblyAI/i);
             const privateOption = page.getByText(/Private|Whisper/i);
 
-            console.log('[PRO] Checking STT mode options...');
-            if (await nativeOption.count() > 0) console.log('[PRO] ✅ Native Browser available');
-            if (await cloudOption.count() > 0) console.log('[PRO] ✅ Cloud (AssemblyAI) available');
-            if (await privateOption.count() > 0) console.log('[PRO] ✅ Private (Whisper) available');
+            debugLog('[PRO] Checking STT mode options...');
+            if (await nativeOption.count() > 0) debugLog('[PRO] ✅ Native Browser available');
+            if (await cloudOption.count() > 0) debugLog('[PRO] ✅ Cloud (AssemblyAI) available');
+            if (await privateOption.count() > 0) debugLog('[PRO] ✅ Private (Whisper) available');
         } else {
-            console.log('[PRO] ⚠️ STT mode selector not found, checking default mode');
+            debugLog('[PRO] ⚠️ STT mode selector not found, checking default mode');
         }
     });
 
@@ -50,7 +50,7 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
 
         await startButton.click();
         await expect(page.getByText('Stop').first()).toBeVisible({ timeout: 10000 });
-        console.log('[PRO] ✅ Session started with Native Browser');
+        debugLog('[PRO] ✅ Session started with Native Browser');
 
         await expect(page.getByText('Clarity Score')).toBeVisible();
 
@@ -58,7 +58,7 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
         await page.waitForTimeout(6000);
         await startButton.click();
         await expect(page.getByText('Start').first()).toBeVisible({ timeout: 5000 });
-        console.log('[PRO] ✅ Native Browser session completed');
+        debugLog('[PRO] ✅ Native Browser session completed');
     });
 
     test('should complete session with Cloud STT', async ({ page }) => {
@@ -71,7 +71,7 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
             const cloudOption = page.getByText(/Cloud|AssemblyAI/i).first();
             if (await cloudOption.count() > 0) {
                 await cloudOption.click();
-                console.log('[PRO] ✅ Cloud STT mode selected');
+                debugLog('[PRO] ✅ Cloud STT mode selected');
             }
         }
 
@@ -84,7 +84,7 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
         await page.waitForTimeout(6000);
         await startButton.click();
         await expect(page.getByText('Start').first()).toBeVisible({ timeout: 5000 });
-        console.log('[PRO] ✅ Cloud STT session completed');
+        debugLog('[PRO] ✅ Cloud STT session completed');
     });
 
     /**
@@ -105,16 +105,16 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
             const privateOption = page.getByText(/Private|Whisper/i).first();
             if (await privateOption.count() > 0) {
                 await privateOption.click();
-                console.log('[PRO] ✅ Private STT mode selected');
+                debugLog('[PRO] ✅ Private STT mode selected');
 
                 // Wait for model to initialize (mock loads quickly)
                 await page.waitForTimeout(1000);
             } else {
-                console.log('[PRO] ⚠️ Private option not found, skipping');
+                debugLog('[PRO] ⚠️ Private option not found, skipping');
                 return;
             }
         } else {
-            console.log('[PRO] ⚠️ Mode selector not found, using default mode');
+            debugLog('[PRO] ⚠️ Mode selector not found, using default mode');
         }
 
         const startButton = page.getByTestId('session-start-stop-button').first();
@@ -123,7 +123,7 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
         // Start session - Private may need extra time for model initialization
         await startButton.click();
         await expect(page.getByText('Stop').first()).toBeVisible({ timeout: 20000 });
-        console.log('[PRO] ✅ Session started with Private STT');
+        debugLog('[PRO] ✅ Session started with Private STT');
 
         // Verify session is running
         await expect(page.getByText('Clarity Score')).toBeVisible();
@@ -133,37 +133,40 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
         // Stop session
         await startButton.click();
         await expect(page.getByText('Start').first()).toBeVisible({ timeout: 5000 });
-        console.log('[PRO] ✅ Private STT session completed');
+        debugLog('[PRO] ✅ Private STT session completed');
     });
 
     test('should add and persist custom vocabulary', async ({ page }) => {
         await navigateToRoute(page, '/session');
 
-        // 1. Open Session Settings sheet
-        const settingsBtn = page.getByTestId('session-settings-button');
-        await expect(settingsBtn).toBeVisible();
-        await settingsBtn.click();
-        await expect(page.getByText('Session Settings')).toBeVisible();
+        // 1. Click "Add Custom Word" button to open the popover
+        const addWordBtn = page.getByTestId('add-custom-word-button');
+        await expect(addWordBtn).toBeVisible();
+        await addWordBtn.click();
 
         // 2. Add word
+        const word = 'Gravity';
         const customWordInput = page.getByPlaceholder(/literally/i);
-        await customWordInput.fill('Antigravity');
-        const addButton = page.getByRole('button', { name: /add/i }).first();
+        await customWordInput.fill(word);
+
+        // Use a more robust way to click the add button in the popover
+        const addButton = page.getByRole('button', { name: /add/i }).last();
         await addButton.click();
 
-        // 3. Verify word appears in the list
-        await expect(page.getByText('Antigravity')).toBeVisible({ timeout: 3000 });
-        console.log('[PRO] ✅ Custom word visible in vocabulary list');
+        // 3. Verify word appears in the list (Filler Words card)
+        // Wait for popover to close
+        await expect(page.getByText('User Filler Words')).not.toBeVisible({ timeout: 10000 });
 
-        // 4. Close sheet
-        await page.keyboard.press('Escape');
+        // Verify in metrics list
+        await expect(page.getByTestId('filler-words-list').getByText(new RegExp(word, 'i'))).toBeVisible({ timeout: 10000 });
+        debugLog('[PRO] ✅ Custom word visible in metrics list');
     });
 
     test('should display all analytics metrics', async ({ page }) => {
         await navigateToRoute(page, '/analytics');
 
         await expect(page.getByTestId('dashboard-heading')).toBeVisible();
-        console.log('[PRO] ✅ Analytics dashboard loaded');
+        debugLog('[PRO] ✅ Analytics dashboard loaded');
 
         // Verify key analytics components
         const analytics = [
@@ -174,7 +177,7 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
         for (const metric of analytics) {
             const element = page.getByText(metric);
             if (await element.count() > 0) {
-                console.log(`[PRO] ✅ ${metric} visible`);
+                debugLog(`[PRO] ✅ ${metric} visible`);
             }
         }
     });
@@ -186,9 +189,9 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
         // Look for PDF export button
         const pdfButton = page.getByRole('button', { name: /pdf|export|download/i });
         if (await pdfButton.count() > 0) {
-            console.log('[PRO] ✅ PDF export button available');
+            debugLog('[PRO] ✅ PDF export button available');
         } else {
-            console.log('[PRO] ⚠️ PDF export button not found (may require session data)');
+            debugLog('[PRO] ⚠️ PDF export button not found (may require session data)');
         }
     });
 
@@ -204,19 +207,19 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
         await page.waitForTimeout(6000);
         await startButton.click();
         await expect(page.getByText('Start').first()).toBeVisible({ timeout: 5000 });
-        console.log('[PRO] ✅ Session completed');
+        debugLog('[PRO] ✅ Session completed');
 
         // Analytics
         await navigateToRoute(page, '/analytics');
         await expect(page.getByTestId('dashboard-heading')).toBeVisible();
         await expect(page.getByText('Session History')).toBeVisible();
-        console.log('[PRO] ✅ Analytics verified');
+        debugLog('[PRO] ✅ Analytics verified');
 
         // Return to session
         await navigateToRoute(page, '/session');
         await expect(page.getByText('Practice Session')).toBeVisible();
-        console.log('[PRO] ✅ Return to session successful');
+        debugLog('[PRO] ✅ Return to session successful');
 
-        console.log('[PRO] ✅✅✅ Full Pro user journey completed');
+        debugLog('[PRO] ✅✅✅ Full Pro user journey completed');
     });
 });

@@ -10,7 +10,7 @@
  * - Uses `MockEngine` to avoid WASM deadlocks in headless CI.
  */
 import { test, expect } from '@playwright/test';
-import { programmaticLoginWithRoutes, navigateToRoute } from '../helpers';
+import { programmaticLoginWithRoutes, navigateToRoute, goToPublicRoute, debugLog } from '../helpers';
 
 // Extend Window interface for E2E flags
 declare global {
@@ -60,22 +60,21 @@ test.describe('Private STT (Production Capability Smoke)', () => {
 
     test('should initialize real Whisper engine and intercept with Service Worker', async ({ page }) => {
         // 1. Setup: Initial page load (must use page.goto before programmaticLoginWithRoutes)
-        // eslint-disable-next-line no-restricted-syntax -- Intentional: goto is BEFORE login for nuclear teardown, not after
-        await page.goto('/', { waitUntil: 'networkidle' });
+        await goToPublicRoute(page, '/');
 
         // 🧹 NUCLEAR TEARDOWN: Kill SW, clear caches, and RELOAD to get fresh assets
         await page.evaluate(async () => {
-            console.log('[E2E] 🧹 Nuclear teardown starting...');
+            debugLog('[E2E] 🧹 Nuclear teardown starting...');
 
             // 1. Unregister all Service Workers
             const registrations = await navigator.serviceWorker.getRegistrations();
             for (const r of registrations) await r.unregister();
-            console.log(`[E2E] ✅ Unregistered ${registrations.length} Service Workers`);
+            debugLog(`[E2E] ✅ Unregistered ${registrations.length} Service Workers`);
 
             // 2. Delete all caches
             const cacheNames = await caches.keys();
             for (const n of cacheNames) await caches.delete(n);
-            console.log(`[E2E] ✅ Deleted ${cacheNames.length} caches`);
+            debugLog(`[E2E] ✅ Deleted ${cacheNames.length} caches`);
 
             // 3. Clear all site data
             window.localStorage.clear();
@@ -87,13 +86,13 @@ test.describe('Private STT (Production Capability Smoke)', () => {
                 for (const db of dbs) {
                     if (db.name) indexedDB.deleteDatabase(db.name);
                 }
-                console.log(`[E2E] ✅ Deleted ${dbs.length} IndexedDB databases`);
+                debugLog(`[E2E] ✅ Deleted ${dbs.length} IndexedDB databases`);
             } catch {
                 // Fallback for browsers without databases() API
                 indexedDB.deleteDatabase('whisper-turbo');
-                console.log('[E2E] ✅ Deleted whisper-turbo IndexedDB (fallback)');
+                debugLog('[E2E] ✅ Deleted whisper-turbo IndexedDB (fallback)');
             }
-            console.log('[E2E] ✅ Nuclear teardown complete.');
+            debugLog('[E2E] ✅ Nuclear teardown complete.');
         });
 
         // 🔄 CRITICAL: Reload to ensure browser fetches fresh assets (not from SW cache)
@@ -101,11 +100,11 @@ test.describe('Private STT (Production Capability Smoke)', () => {
 
         // 🛡️ FAIL-FAST: Verify Cross-Origin Isolation (SAB requirement)
         const isIsolated = await page.evaluate(() => window.crossOriginIsolated);
-        console.log(`[E2E] 🛡️ crossOriginIsolated: ${isIsolated}`);
+        debugLog(`[E2E] 🛡️ crossOriginIsolated: ${isIsolated}`);
         if (!isIsolated) {
             // In dev mode, COOP/COEP headers are disabled (they break Stripe.js)
             // Skip this unmocked test - MockEngine handles E2E via private-stt.e2e.spec.ts
-            console.log('[E2E] ⏭️ Skipping unmocked test - COOP/COEP headers not available in dev mode');
+            debugLog('[E2E] ⏭️ Skipping unmocked test - COOP/COEP headers not available in dev mode');
             test.skip();
             return;
         }
@@ -120,15 +119,14 @@ test.describe('Private STT (Production Capability Smoke)', () => {
                 return false;
             }
         });
-        console.log(`[E2E] 🧪 SharedArrayBuffer construction test: ${sabWorks ? 'PASS' : 'FAIL'}`);
+        debugLog(`[E2E] 🧪 SharedArrayBuffer construction test: ${sabWorks ? 'PASS' : 'FAIL'}`);
         if (!sabWorks) {
             throw new Error('[E2E] ❌ FATAL: SharedArrayBuffer construction failed despite crossOriginIsolated=true!');
         }
 
         // 🎮 WebGPU CHECK: whisper-turbo might stall on GPU detection in headless mode
         const gpuStatus = await page.evaluate(async () => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const nav = navigator as any;
+            const nav = navigator as Navigator & { gpu?: { requestAdapter: () => Promise<{ requestDevice: () => Promise<unknown> }> } };
             if (!nav.gpu) return 'NOT_AVAILABLE';
             try {
                 const adapter = await nav.gpu.requestAdapter();
@@ -139,7 +137,7 @@ test.describe('Private STT (Production Capability Smoke)', () => {
                 return `ERROR: ${e}`;
             }
         });
-        console.log(`[E2E] 🎮 WebGPU status: ${gpuStatus}`);
+        debugLog(`[E2E] 🎮 WebGPU status: ${gpuStatus}`);
 
         // Login as Pro user (Private mode requires Pro tier)
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
@@ -149,7 +147,7 @@ test.describe('Private STT (Production Capability Smoke)', () => {
         // 2. Ensure Mocks are DISABLED
         await page.evaluate(() => {
             window.__E2E_MOCK_LOCAL_WHISPER__ = false;
-            console.log('[TEST] Force real Whisper: window.__E2E_MOCK_LOCAL_WHISPER__ = false');
+            debugLog('[TEST] Force real Whisper: window.__E2E_MOCK_LOCAL_WHISPER__ = false');
 
             // Clear IndexedDB to ensure we test the full loading/compilation flow
             return new Promise((resolve) => {
@@ -164,35 +162,35 @@ test.describe('Private STT (Production Capability Smoke)', () => {
         page.on('console', msg => {
             const text = msg.text();
             logs.push(text);
-            console.log(`[BROWSER ${msg.type().toUpperCase()}] ${text}`);
+            debugLog(`[BROWSER ${msg.type().toUpperCase()}] ${text}`);
         });
 
         // 4. Monitor Network for Model Requests & Responses
         page.on('request', request => {
             const url = request.url();
             if (url.includes('/models/') && (url.endsWith('.bin') || url.endsWith('.json'))) {
-                console.log(`[NETWORK LOG] ⬆️ Request: ${url}`);
+                debugLog(`[NETWORK LOG] ⬆️ Request: ${url}`);
             }
         });
         page.on('response', response => {
             const url = response.url();
             if (url.includes('/models/') && (url.endsWith('.bin') || url.endsWith('.json'))) {
-                console.log(`[NETWORK LOG] ⬇️ Response: ${url} (Status: ${response.status()})`);
+                debugLog(`[NETWORK LOG] ⬇️ Response: ${url} (Status: ${response.status()})`);
             }
         });
 
         // 5. Select Private mode
-        console.log('[TEST] Selecting Private mode...');
+        debugLog('[TEST] Selecting Private mode...');
         const modeButton = page.getByRole('button', { name: /cloud|private|native/i });
         await modeButton.click();
         await page.getByRole('menuitemradio', { name: /private/i }).click();
 
         // Verify selection in UI
         await expect(modeButton).toContainText(/private/i);
-        console.log('[TEST] Mode selected: Private');
+        debugLog('[TEST] Mode selected: Private');
 
         // 6. Start session - triggers REAL model initialization
-        console.log('[TEST] Clicking Start Session...');
+        debugLog('[TEST] Clicking Start Session...');
         await page.getByTestId('session-start-stop-button').click();
 
         // 7. Verify Real Loading Indicator and Service Worker Interaction
@@ -200,8 +198,8 @@ test.describe('Private STT (Production Capability Smoke)', () => {
         await expect(loadingIndicator).toBeVisible({ timeout: 5000 });
 
         // Wait for model to load (unmocked usually takes 2-8 seconds depending on CI hardware)
-        console.log('[TEST] Waiting for real model to finish loading...');
-        await expect(loadingIndicator).toBeHidden({ timeout: 45000 });
+        debugLog('[TEST] Waiting for real model to finish loading...');
+        await expect(loadingIndicator).toBeHidden({ timeout: 30000 });
 
         // 8. Assert Success State
         const startButton = page.getByTestId('session-start-stop-button');
@@ -223,30 +221,30 @@ test.describe('Private STT (Production Capability Smoke)', () => {
 
         if (isMockEngine) {
             // In CI/Mock mode, skip cache verification since MockEngine doesn't cache real models
-            console.log('[TEST] ✅ MockEngine detected - CI mode test passed');
-            console.log('[TEST] ✅ Verified: Engine init, start/stop, UI flow - all working');
+            debugLog('[TEST] ✅ MockEngine detected - CI mode test passed');
+            debugLog('[TEST] ✅ Verified: Engine init, start/stop, UI flow - all working');
         } else {
             // Real engine mode - verify cache persistence
-            console.log('[TEST] Verifying Layer 1 Cache (whisper-models-v1) persistence...');
+            debugLog('[TEST] Verifying Layer 1 Cache (whisper-models-v1) persistence...');
             const hasCache = await page.evaluate(async () => {
                 const registrations = await navigator.serviceWorker.getRegistrations();
-                console.log('[BROWSER] SW Registrations:', registrations.length);
+                debugLog('[BROWSER] SW Registrations:', registrations.length);
 
                 const cacheNames = await caches.keys();
-                console.log('[BROWSER] Active caches:', cacheNames);
+                debugLog('[BROWSER] Active caches:', cacheNames);
                 if (!cacheNames.includes('whisper-models-v1')) return false;
                 const cache = await caches.open('whisper-models-v1');
                 const keys = await cache.keys();
-                console.log('[BROWSER] Cache keys:', keys.map(k => k.url));
+                debugLog('[BROWSER] Cache keys:', keys.map(k => k.url));
                 return keys.some(k => k.url.includes('/models/tiny-q8g16.bin'));
             });
 
             expect(hasCache).toBe(true);
-            console.log('[TEST] ✅ Layer 1 (CacheStorage) Persistence Verified');
+            debugLog('[TEST] ✅ Layer 1 (CacheStorage) Persistence Verified');
 
             // 13. Transcription Accuracy Verification (High-Fidelity)
-            console.log('[TEST] Starting Transcription Accuracy Verification with speech fixture...');
-            await expect(page.getByTestId('live-transcript-text')).toContainText(/weather/i, { timeout: 45000 });
+            debugLog('[TEST] Starting Transcription Accuracy Verification with speech fixture...');
+            await expect(page.getByTestId('live-transcript-text')).toContainText(/weather/i, { timeout: 30000 });
             await startButton.click();
             await expect(page.getByText(/session saved/i)).toBeVisible({ timeout: 15000 });
         }
@@ -266,7 +264,7 @@ test.describe('Private STT (Production Capability Smoke)', () => {
         });
 
         if (internalState) {
-            console.log('[TEST] 🔬 Internal State:', internalState);
+            debugLog('[TEST] 🔬 Internal State:', internalState);
             // Verify engine type matches expectation (mock in CI)
             if (isMockEngine) {
                 expect(internalState.engineType).toBe('mock');
@@ -287,6 +285,6 @@ test.describe('Private STT (Production Capability Smoke)', () => {
             console.warn('[TEST] ⚠️ PrivateWhisper instance not found on window. Test running in non-test mode?');
         }
 
-        console.log('[TEST] ✅ Private STT Integration Test Passed');
+        debugLog('[TEST] ✅ Private STT Integration Test Passed');
     });
 });

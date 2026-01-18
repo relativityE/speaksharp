@@ -4,7 +4,7 @@ import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
 test.describe('Upgrade Flow Payload Verification', () => {
 
     test('should send correct payload to stripe-checkout', async ({ page }) => {
-        console.log('💳 Running High-Fidelity UPGRADE test (Network Interception)');
+        // High-Fidelity UPGRADE test (Network Interception)
 
         // 1. Programmatic Login as FREE user (to see Upgrade button)
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
@@ -15,8 +15,7 @@ test.describe('Upgrade Flow Payload Verification', () => {
         let upgradeRequestCaptured = false;
 
         await page.route('**/functions/v1/stripe-checkout', async route => {
-            const request = route.request();
-            console.log('📡 Intercepted stripe-checkout request. Method:', request.method());
+            // Intercepted stripe-checkout request
 
             // The request was made - that's what we're verifying in this high-fidelity test.
             // Note: supabase.functions.invoke() sends no body by default; 
@@ -43,9 +42,8 @@ test.describe('Upgrade Flow Payload Verification', () => {
         try {
             await upgradeButton.waitFor({ state: 'visible', timeout: 10000 });
             await upgradeButton.click();
-            console.log('✅ Clicked Upgrade button');
         } catch {
-            console.log('⚠️ Upgrade button not found on Analytics, test will fail.');
+            // Upgrade button not found on Analytics
         }
 
         // 4. Assert Request Captured
@@ -54,6 +52,5 @@ test.describe('Upgrade Flow Payload Verification', () => {
 
         // If the button wasn't found/clicked or request didn't happen, fail.
         expect(upgradeRequestCaptured).toBe(true);
-        console.log('✅ Upgrade Payload verified');
     });
 });

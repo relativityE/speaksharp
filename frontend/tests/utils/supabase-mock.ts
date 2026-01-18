@@ -10,9 +10,9 @@
  *   vi.spyOn(supabaseModule, 'getSupabaseClient').mockReturnValue(mock);
  */
 import { vi } from 'vitest';
+import { SupabaseClient } from '@supabase/supabase-js';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const createSupabaseMock = (returnData: unknown = null, error: unknown = null): any => {
+export const createSupabaseMock = (returnData: unknown = null, error: unknown = null): SupabaseClient => {
     const chainMock = {
         from: vi.fn().mockReturnThis(),
         select: vi.fn().mockReturnThis(),
@@ -27,21 +27,19 @@ export const createSupabaseMock = (returnData: unknown = null, error: unknown = 
         maybeSingle: vi.fn().mockResolvedValue({ data: returnData, error }),
     };
 
-    return chainMock;
+    return chainMock as unknown as SupabaseClient;
 };
 
 /**
  * Creates a mock that errors on the specified method
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const createSupabaseErrorMock = (errorCode: string, errorMessage: string): any => {
+export const createSupabaseErrorMock = (errorCode: string, errorMessage: string): SupabaseClient => {
     return createSupabaseMock(null, { code: errorCode, message: errorMessage });
 };
 
 /**
  * Creates a mock for "not found" scenarios (PGRST116)
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const createSupabaseNotFoundMock = (): any => {
+export const createSupabaseNotFoundMock = (): SupabaseClient => {
     return createSupabaseErrorMock('PGRST116', 'Row not found');
 };

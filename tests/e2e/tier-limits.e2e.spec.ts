@@ -70,16 +70,19 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
         await navigateToRoute(page, '/session');
 
         // 3. Open settings
-        await page.getByTestId('session-settings-button').click();
+        await page.getByTestId('add-custom-word-button').click();
 
         const input = page.getByPlaceholder(/literally/i);
-        const addButton = page.getByRole('button', { name: /add word/i });
+        const word = 'word11';
 
         // 4. Verify adding a word
-        await input.fill('word11');
-        await addButton.click();
+        await input.fill(word);
+        await page.getByRole('button', { name: /add/i }).last().click();
 
-        await expect(page.getByText('word11')).toBeVisible();
-        await expect(page.getByText(/Word added/i)).toBeVisible();
+        // Wait for popover to close
+        await expect(page.getByText('User Filler Words')).not.toBeVisible({ timeout: 10000 });
+
+        // Verify in metrics list
+        await expect(page.getByTestId('filler-badge').filter({ hasText: new RegExp(word, 'i') })).toBeVisible({ timeout: 10000 });
     });
 });

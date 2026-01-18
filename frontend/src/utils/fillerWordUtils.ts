@@ -67,7 +67,6 @@ export const createFillerPatterns = (customWords: string[] = []): FillerPatterns
 };
 
 export const countFillerWords = (text: string, customWords: string[] = []): FillerCounts => {
-    console.log(`[fillerWordUtils] countFillerWords called with text: "${text}"`); // DEBUG LOG
     const counts: FillerCounts = createInitialFillerData(customWords);
     const patterns: FillerPatterns = createFillerPatterns(customWords);
     let totalCount = 0;

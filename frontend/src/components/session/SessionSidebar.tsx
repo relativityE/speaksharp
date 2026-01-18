@@ -174,6 +174,12 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
 
             setCompletedSessions(prev => [...prev, sessionWithMetadata]);
             setShowEndSessionDialog(true);
+
+            // Notify user about Analytics access
+            toast.success('Session saved! Click "Analytics" in the header to view detailed insights.', {
+                duration: 5000,
+                id: 'session-saved-analytics-hint',
+            });
         } catch (e: unknown) {
             const error = e instanceof Error ? e : new Error(String(e));
             logger.error({ error: error.message }, "Error ending session:");
@@ -262,8 +268,8 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
 
                     <div className="flex flex-col items-center justify-center gap-6 py-2 flex-grow">
                         <DigitalTimer startTime={startTime} />
-                        <div data-testid="session-status-indicator" className={`text-xl font-semibold ${isListening && isReady ? 'text-green-500' : 'text-muted-foreground'}`}>
-                            {isConnecting ? 'Connecting...' : (isListening ? 'Session Active' : (isModelLoading ? 'Initializing...' : 'Ready'))}
+                        <div data-testid="session-status-indicator" className={`text-xl font-semibold ${isListening && isReady ? 'text-green-500' : (isConnecting || isModelLoading ? 'text-amber-500' : 'text-amber-400')}`}>
+                            {isConnecting ? 'Connecting...' : (isListening ? 'Recording' : (isModelLoading ? 'Initializing...' : 'Ready'))}
                         </div>
                         <div className="relative">
                             {/* Pulse Ring Effect when Ready */}

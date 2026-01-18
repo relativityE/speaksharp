@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Session } from '@supabase/supabase-js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
 
 // --- Types ---
 type AuthView = 'sign_in' | 'sign_up' | 'forgot_password';
@@ -32,6 +33,7 @@ const mapError = (message: string) => {
 export default function AuthPage() {
   const { session, loading, setSession } = useAuthProvider();
   const location = useLocation();
+  const queryClient = useQueryClient();
 
   // Determine initial view from URL path
   const getInitialView = (): AuthView => {
@@ -49,26 +51,44 @@ export default function AuthPage() {
   const [showPromoField, setShowPromoField] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleProUpgrade = async (currentSession: Session) => {
+  const handleProUpgrade = async (currentSession: Session): Promise<boolean | void> => {
     // 1. Priority Check: Handle Promo Bypass Code if provided
-    if (promoCode) {
-      console.log('[AuthPage] Applying promo bypass code:', promoCode);
+    const val = promoCode.trim();
+    if (val) {
+      console.log('[AuthPage] Applying promo bypass code:', val);
       try {
         const { error: promoError, data: promoData } = await getSupabaseClient()!.functions.invoke('apply-promo', {
-          body: { promoCode }
+          body: { promoCode: val }
         });
-        if (promoError) throw promoError;
+
+        if (promoError) {
+          // Extract message if possible
+          let msg = 'Promo failed';
+          try {
+            const body = await promoError.context.json();
+            msg = body.error || msg;
+          } catch (e) { /* ignore */ }
+          throw new Error(msg);
+        }
 
         // If successful, redirect to dashboard immediately as Pro
         console.log('[AuthPage] Promo upgrade successful!');
         const expiryMsg = promoData?.proFeatureMinutes ? ` for ${promoData.proFeatureMinutes} minutes` : '';
         toast.success(`🎉 Promo code applied! You have Pro features${expiryMsg}.`, { id: 'promo-success' });
-        window.location.href = '/session';
-        return;
+
+        // CRITICAL: Invalidate the userProfile cache so SessionPage fetches fresh Pro status
+        await queryClient.invalidateQueries({ queryKey: ['userProfile'] });
+        console.log('[AuthPage] User profile cache invalidated');
+
+        // Don't force reload - allow standard auth flow to proceed
+        return true;
       } catch (pe) {
         console.error('[AuthPage] Promo bypass failed:', pe);
-        setError('Invalid promo code or upgrade failed. Redirecting to standard Pro checkout...');
-        // Fallback: proceed to checkout
+        const errText = pe instanceof Error ? pe.message : 'Invalid code';
+        // Use toast for error so it persists across redirects (since user is already logged in)
+        toast.error(`Promo failed: ${errText}. Please try applying it later from the dashboard.`, { id: 'promo-error' });
+        // Do NOT fallback to Stripe for this specific bypass attempt, it confuses users
+        return false;
       }
     }
 
@@ -148,9 +168,12 @@ export default function AuthPage() {
 
         // 2. If Pro was selected...
         if (selectedPlan === 'pro' && signInData.session) {
-          await handleProUpgrade(signInData.session);
-          // If handleProUpgrade redirects, we return early. 
-          // If it fails but doesn't throw (just sets error), we continue to setSession
+          const upgradeSuccess = await handleProUpgrade(signInData.session);
+          // If handleProUpgrade returns true, it was a promo bypass - continue to setSession
+          // If it returns undefined (Stripe redirect), we stop here
+          if (!upgradeSuccess) {
+            return;
+          }
         }
       } else { // forgot_password
         console.log('[AuthPage] Attempting password reset for:', email);
@@ -200,9 +223,10 @@ export default function AuthPage() {
     return null;
   }
 
-  if (session) {
+  if (session && !isSubmitting) {
     return <Navigate to="/session" replace />;
   }
+
 
   const handleViewChange = (newView: AuthView) => {
     setView(newView);
@@ -307,9 +331,10 @@ export default function AuthPage() {
                       <button
                         type="button"
                         onClick={() => setShowPromoField(!showPromoField)}
-                        className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
+                        className="text-sm font-normal text-secondary hover:text-secondary-light transition-colors flex items-center gap-1"
                       >
-                        {showPromoField ? 'Remove code' : "Have a one-time 'pro' user promo code?"}
+                        {showPromoField ? 'Hide promo code field' : "🎁 Have a promo code? Click here!"}
+
                       </button>
 
                       {showPromoField && (
@@ -319,7 +344,13 @@ export default function AuthPage() {
                             id="promo"
                             placeholder="Enter promo code"
                             value={promoCode}
-                            onChange={(e) => setPromoCode(e.target.value)}
+                            onChange={(e) => {
+                              setPromoCode(e.target.value);
+                              // Auto-select Pro when promo code is entered
+                              if (e.target.value.trim() && selectedPlan === 'free') {
+                                setSelectedPlan('pro');
+                              }
+                            }}
                             className="h-9 text-sm"
                             data-testid="promo-code-input"
                           />

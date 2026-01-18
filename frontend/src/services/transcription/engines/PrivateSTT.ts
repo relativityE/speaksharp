@@ -21,7 +21,11 @@ import { IPrivateSTTEngine, EngineCallbacks, EngineType } from './IPrivateSTTEng
 import logger from '../../../lib/logger';
 
 // Engine timeout for whisper-turbo (5 seconds)
-const FAST_ENGINE_TIMEOUT_MS = 5000;
+// Engine timeout for whisper-turbo (5 seconds)
+// Engine timeout for whisper-turbo (20 seconds) - Increased to accommodate slower GPUs/laptops
+const FAST_ENGINE_TIMEOUT_MS = 20000;
+// Engine timeout for TransformersJS (20 seconds - allows for slower network/startup)
+const SAFE_ENGINE_TIMEOUT_MS = 20000;
 
 /**
  * Check if we're running in a test/CI environment
@@ -76,6 +80,7 @@ export class PrivateSTT {
             const fastResult = await this.initFastEngine(callbacks);
             if (fastResult.isOk) {
                 console.log('[PrivateSTT] ✅ WhisperTurbo initialized successfully.');
+                console.log('[PrivateSTT] [DEBUG-PRIVATE] 🚀 Verified: Using Fast WhisperTurbo engine.');
                 return fastResult;
             }
 
@@ -87,7 +92,7 @@ export class PrivateSTT {
         }
 
         // Fallback to safe engine
-        console.log('[PrivateSTT] 🛡️ Initializing TransformersJS (Safe Path)...');
+        console.log(`[PrivateSTT] 🛡️ Initializing TransformersJS (Safe Path) with ${SAFE_ENGINE_TIMEOUT_MS}ms timeout...`);
         return this.initSafeEngine(callbacks);
     }
 
@@ -157,8 +162,15 @@ export class PrivateSTT {
             const { TransformersJSEngine } = await import('./TransformersJSEngine');
             const engine = new TransformersJSEngine();
 
-            console.log('[PrivateSTT] ⏳ calling TransformersJS.init()...');
-            const result = await engine.init(callbacks);
+            console.log(`[PrivateSTT] ⏳ calling TransformersJS.init() with ${SAFE_ENGINE_TIMEOUT_MS}ms timeout...`);
+
+            // Wrap init with timeout
+            const result = await Promise.race([
+                engine.init(callbacks, SAFE_ENGINE_TIMEOUT_MS),
+                new Promise<Result<void, Error>>((_, reject) =>
+                    setTimeout(() => reject(new Error(`TransformersJS init timed out after ${SAFE_ENGINE_TIMEOUT_MS}ms`)), SAFE_ENGINE_TIMEOUT_MS)
+                ).catch(err => Result.err<void, Error>(err)) // Catch the rejection and return Result.err
+            ]);
 
             if (result.isErr) {
                 console.error('[PrivateSTT] ❌ TransformersJS init returned error:', result.error);
