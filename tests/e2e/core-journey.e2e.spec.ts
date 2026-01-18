@@ -21,6 +21,10 @@ test.describe('Core User Journey', () => {
 
         await expect(page).toHaveURL(/\/session/);
 
+        // Ensure app settlement and bridge readiness
+        await page.waitForFunction(() => window.__e2eProfileLoaded__ === true, null, { timeout: 30000 });
+        await page.waitForFunction(() => window.__e2eBridgeReady__ === true, null, { timeout: 10000 });
+
         // 3. Start Recording
         const startButton = page.getByTestId('session-start-stop-button');
         await expect(startButton).toBeEnabled();

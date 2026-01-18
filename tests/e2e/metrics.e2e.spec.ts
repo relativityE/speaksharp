@@ -30,6 +30,10 @@ test.describe('Session Metrics', () => {
         // Initial word stats check - wait for the grid to render
         await expect(page.getByTestId('filler-badge-count')).toHaveCount(Object.keys(FILLER_WORD_KEYS).length, { timeout: 10000 });
 
+        // Ensure E2E bridge is ready before dispatching transcripts
+        debugLog('[TEST] ⏳ Waiting for E2E bridge readiness...');
+        await page.waitForFunction(() => window.__e2eBridgeReady__ === true, null, { timeout: 10000 });
+
         // Inject clean text
         debugLog('[TEST] 🚀 Dispatching transcript event...');
         await mockLiveTranscript(page, ["Hello world this is a test"], 1000);

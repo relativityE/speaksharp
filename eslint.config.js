@@ -6,7 +6,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 
 export default tseslint.config(
-  { ignores: ['dist', 'node_modules', 'playwright-report/', 'test-results/', 'html/', 'public/', 'supabase/', 'tests/global-teardown.js'] },
+  { ignores: ['dist', 'node_modules', 'playwright-report/', 'test-results/', 'html/', 'public/', 'backend/supabase/migrations/', 'backend/supabase/.temp/', 'tests/global-teardown.js'] },
 
   // Base configs
   js.configs.recommended,
@@ -123,6 +123,25 @@ export default tseslint.config(
         ...vitest.environments.env.globals,
       },
     },
+  },
+
+  // Config for Deno Edge Functions
+  // RATIONALE: Edge Functions run in the Deno runtime, not Node.js.
+  // 1. We include 'backend/supabase/functions/**/*.ts' to catch syntax errors during CI.
+  // 2. We define 'Deno' as a global variable to prevent "undefined variable" lint errors 
+  //    when using Deno-specific APIs like Deno.serve or Deno.env.
+  {
+    files: ['backend/supabase/functions/**/*.ts'],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+        Deno: 'readonly',
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off', // Edge Functions often handle generic JSON payloads
+      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+    }
   },
 
   // Config for project-level config files

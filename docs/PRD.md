@@ -221,7 +221,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Sun, 18 Jan 2026 02:59:50 GMT
+**Last Updated:** Sun, 18 Jan 2026 22:12:43 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -237,14 +237,14 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 456 (387 unit + 69 E2E) |
+| Total tests             | 450 (387 unit + 63 E2E) |
 | Unit tests              | 387   |
-| E2E tests (Playwright)  | 69  |
-| Passing tests           | 451 (387 unit + 64 E2E)   |
+| E2E tests (Playwright)  | 63  |
+| Passing tests           | 450 (387 unit + 63 E2E)   |
 | Failing tests           | 0   |
-| Disabled/skipped tests  | 5 (E2E only)   |
+| Disabled/skipped tests  | 0 (E2E only)   |
 | Passing unit tests      | 387/387 (100.0%)   |
-| Passing E2E tests       | 64/69 (92.8%)   |
+| Passing E2E tests       | 63/63 (100.0%)   |
 | Total runtime           | See CI logs   |
 
 ---
@@ -253,10 +253,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | 56.35%   |
-| Branches   | 76.38%   |
-| Functions  | 68.26%   |
-| Lines      | 56.35%   |
+| Statements | 56.33%   |
+| Branches   | 76.33%   |
+| Functions  | 68.18%   |
+| Lines      | 56.33%   |
 
 ---
 
@@ -266,9 +266,9 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 | ------------------- | ----- |
 | Total Source Size   | 5.7M   |
 | Total Project Size  | 2.1G   |
-| Initial Chunk Size  | 656K   |
-| Code Bloat Index    | 11.26%   |
-| Lighthouse Scores   | P: 95, A: 94, BP: 100, SEO: 91 |
+| Initial Chunk Size  | 416K   |
+| Code Bloat Index    | 7.12%   |
+| Lighthouse Scores   | P: 96, A: 94, BP: 100, SEO: 91 |
 
 ---
 <!-- SQM:END -->

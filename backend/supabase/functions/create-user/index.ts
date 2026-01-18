@@ -1,5 +1,6 @@
-// Edge Function: create-user.ts (Edge Function)
-import { createClient } from 'npm:@supabase/supabase-js@2.32.0';
+// RATIONALE: Using esm.sh for Deno imports ensures explicit versioning and avoids 
+// dependency on local node_modules, which is standard practice for Supabase Edge Functions.
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.44.4";
 console.info("create_user function starting");
 
 Deno.serve(async (req: Request) => {
@@ -44,14 +45,10 @@ Deno.serve(async (req: Request) => {
             email: username,
             password,
             email_confirm: true,
-            // role: 'authenticated' // optional
         });
 
         if (error) {
-            // ... (existing error handling)
-            if (error.message.includes('already registered')) {
-                return new Response(JSON.stringify({ error: "create_failed", details: error }), { status: 500 });
-            }
+            console.error("User creation failed:", error);
             return new Response(JSON.stringify({ error: "create_failed", details: error }), { status: 500 });
         }
 

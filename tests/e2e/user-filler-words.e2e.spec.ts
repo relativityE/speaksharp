@@ -11,7 +11,12 @@ test.describe('User Filler Words UI & Detection (Local)', () => {
 
         // 2. Navigate to Session
         await navigateToRoute(page, ROUTES.SESSION);
-        await page.waitForSelector('[data-testid="app-main"]', { timeout: 10000 });
+
+        // Ensure app settlement and bridge readiness
+        await page.waitForFunction(() => window.__e2eProfileLoaded__ === true, null, { timeout: 30000 });
+        await page.waitForFunction(() => window.__e2eBridgeReady__ === true, null, { timeout: 10000 });
+
+        await page.waitForSelector('[data-testid="app-main"]', { timeout: 5000 });
 
         // 3. Wait for and scroll to Filler Words card
         const fillerCard = page.getByText('Filler Words', { exact: true }).first();
@@ -71,6 +76,10 @@ test.describe('User Filler Words UI & Detection (Local)', () => {
 
         // 3. Navigate to Session
         await navigateToRoute(page, ROUTES.SESSION);
+
+        // Ensure app settlement and bridge readiness
+        await page.waitForFunction(() => window.__e2eProfileLoaded__ === true, null, { timeout: 30000 });
+        await page.waitForFunction(() => window.__e2eBridgeReady__ === true, null, { timeout: 10000 });
 
         // 4. Add custom word "detectiontest"
         const settingsBtn = page.getByTestId(TEST_IDS.SESSION_SETTINGS_BUTTON);

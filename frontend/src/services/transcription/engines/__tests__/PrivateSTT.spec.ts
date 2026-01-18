@@ -6,7 +6,7 @@
  * - Verifies correct engine selection:
  *   - WebGPU available -> WhisperTurboEngine (Fast Path)
  *   - WebGPU missing -> TransformersJSEngine (Safe Path)
- *   - `window.__E2E_PLAYWRIGHT__` -> MockEngine (Reliable Path)
+ *   - `window.__E2E_CONTEXT__` -> MockEngine (Reliable Path)
  */
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -46,7 +46,7 @@ describe('PrivateSTT (Routing Logic)', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         // Reset window flags - properties are now typed via PrivateWhisper.ts declare global
-        delete window.__E2E_PLAYWRIGHT__;
+        delete window.__E2E_CONTEXT__;
         delete window.TEST_MODE;
 
         // Reset navigator.gpu
@@ -54,8 +54,8 @@ describe('PrivateSTT (Routing Logic)', () => {
         delete navigator.gpu;
     });
 
-    it('selects MockEngine when window.__E2E_PLAYWRIGHT__ is true', async () => {
-        window.__E2E_PLAYWRIGHT__ = true;
+    it('selects MockEngine when window.__E2E_CONTEXT__ is true', async () => {
+        window.__E2E_CONTEXT__ = true;
 
         const pstt = createPrivateSTT();
         await pstt.init({});

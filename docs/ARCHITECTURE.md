@@ -351,8 +351,23 @@ External services (Supabase, Edge Functions) are mocked via Playwright routes in
 
 > **Note for Reviewers:** These features were implemented as part of Phase 2 hardening. If conducting a code review, please verify against the file references above before flagging as missing.
 
-#### Private STT (Triple-Engine Architecture)
+#### Private STT (Dual-Engine Facade & Triple-Engine Strategy)
 
+**`PrivateSTT`** is a facade that manages two local engines:
+
+1.  **WhisperTurbo:** Fast, WebGPU-accelerated engine (primary).
+2.  **TransformersJS:** Slower, CPU-based fallback (safe).
+
+**Caching:**
+The `PrivateSTT` class itself does not implement caching logic; it delegates to the underlying engines (`whisper-turbo` / `transformers.js`), which handle caching of model weights in the browser (IndexedDB/CacheStorage). The "Zero Latency" feature relies on this browser-level caching.
+
+**Native Fallback:**
+If `PrivateSTT` fails to initialize both engines (or crashes), the `TranscriptionService` (the parent orchestration layer) handles the fallback to **Native Browser STT** (Web Speech API).
+
+*   **Layer 1 (Internal):** `PrivateSTT` tries WhisperTurbo -> falls back to TransformersJS.
+*   **Layer 2 (External):** `TranscriptionService` catches `PrivateSTT` failure -> falls back to Native Mode.
+
+**The Three Engines Configuration:**
 To ensure high performance for capable devices while maintaining 99.9% reliability for older hardware and CI environments, SpeakSharp uses a **Triple-Engine Strategy** orchestrated by the `PrivateSTT` facade.
 
 **The Three Engines:**
@@ -486,7 +501,8 @@ Every non-trivial component or hook must have:
 2.  **Type Safety:** No implicit `any` in mocks; strict typing for `vi.mock` implementations.
 3.  **Mocking:** Use `vi.mock` for top-level imports and `msw` for network requests. Do not mock `fetch` globally if avoidable.
 4.  **Fail Fast, Fail Hard:** Tests should never hang. Use aggressive timeouts (30s default for E2E) and explicit assertions to surface failures immediately.
-5.  **Print/Log Negatives, Assert Positives:** Only log errors and warnings (`attachLiveTranscript` in E2E). Use assertions (`expect()`) for success—no `console.log("✅ Success")` noise.
+5.  **Event-Based Wait Over Static Timeout:** Never use `page.waitForTimeout(60000)` or similar "guessing" delays. Instead, inject code-level signals (e.g., `window.__e2eProfileLoaded`) and wait for them: `await page.waitForFunction(() => window.__e2eProfileLoaded)`. This ensures tests run at the speed of the app, not the speed of the worst-case scenario.
+6.  **Print/Log Negatives, Assert Positives:** Only log errors and warnings (`attachLiveTranscript` in E2E). Use assertions (`expect()`) for success—no `console.log("✅ Success")` noise.
 
 ### Architecture Decision Records (ADR) - Key Decisions
 
@@ -680,19 +696,36 @@ The project uses **two distinct Supabase configurations** depending on the execu
 
 ##### Hybrid Testing Strategy
 
-The project uses a layered testing approach with six distinct categories:
+The project uses a tiered testing approach to balance speed, reliability, and realism.
 
-| Category | Command | Description |
-|----------|---------|-------------|
-| **Unit Tests** | `pnpm test` | Fast, isolated component/function tests |
-| **Integration Tests** | `pnpm test` | Component integration with mocked services |
-| **Mock E2E** | `pnpm test:e2e` | Full user flows with MSW mocks (64 tests) |
-| **Live E2E** | `pnpm test:e2e:live` | Real API tests against Supabase/Stripe (auth-real) |
-| **Canary E2E** | `pnpm test:canary` | Real infrastructure validation (CI only) |
-| **Smoke Tests** | (via mock E2E) | Production capability validation (`REAL_WHISPER_TEST=true`) |
-| **Soak Tests** | `pnpm test:soak` | 5-min concurrent user simulation |
+| Category | Command | Environment | Purpose |
+|----------|---------|-------------|---------|
+| **1. Unit Tests** | `pnpm test` | `happy-dom` | Fast, isolated logic tests. Mocks all external deps. |
+| **2. Integration Tests** | `pnpm test` | `happy-dom` | Component + Provider interaction. Mocks services. |
+| **3. CI Simulation (E2E)** | `pnpm ci:local` | Playwright + **MSW** | **The Default.** Full app flow with **Mocked Backend**. Fast, reliable, runs on PRs. No secrets needed. |
+| **4. Live E2E (Real)** | `pnpm test:e2e:live` | Playwright + **Real Services** | Validates integration with **Real Supabase/Stripe/Edge Functions**. Requires `.env` secrets. |
+| **5. Smoke Tests** | (via Live E2E) | Real Hardware | specific capability checks (e.g., `REAL_WHISPER_TEST=true` for WebGPU). |
+| **6. Soak Tests** | `pnpm test:soak` | Production | Long-running load tests on production infrastructure. |
 
 ##### Test Category Details
+
+**1. Unit & Integration Tests** (`frontend/src/**/*.test.{ts,tsx}`)
+- **Scope:** Functions, Hooks, Components.
+- **Mocking:** Heavy. Mocks `fetch`, `SupabaseClient`, `Worker`.
+- **Goal:** Verify logic correctness and component states.
+
+**2. CI Simulation (Mock E2E)** (`tests/e2e/*.e2e.spec.ts`)
+- **Scope:** Full User Journeys (Signup -> Record -> Analytics).
+- **Mocking:** **Network Layer** (MSW/Playwright Routes) intercepts all requests.
+- **Environment:** `IS_TEST_ENVIRONMENT=true`.
+- **Goal:** Verify application flow and UI states without network flakiness or credential dependencies. **This is the primary CI gate.**
+
+**3. Live E2E Tests** (`tests/e2e/*-real*.spec.ts`)
+- **Scope:** Critical paths ensuring backend compatibility (Auth, Payments, Edge Functions).
+- **Mocking:** **None.** Uses `VITE_USE_LIVE_DB=true`.
+- **Environment:** Requires `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `EDGE_FN_URL`, `AGENT_SECRET`.
+    - *Why `AGENT_SECRET`?* Tests like `visual-analytics` programmatically create users via admin Edge Functions to ensure a clean state, rather than relying on UI-based signup which might be captcha-gated or slower.
+- **Goal:** Verify that the frontend correctly communicates with the real backend APIs.
 
 **1. Unit Tests** (`frontend/src/**/*.test.{ts,tsx}`)
 - Run with Vitest in happy-dom environment

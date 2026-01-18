@@ -19,6 +19,7 @@
 import { Result } from 'true-myth';
 import { IPrivateSTTEngine, EngineCallbacks, EngineType } from './IPrivateSTTEngine';
 import logger from '../../../lib/logger';
+import { IS_TEST_ENVIRONMENT } from '@/config/env';
 
 // Engine timeout for whisper-turbo (5 seconds)
 // Engine timeout for whisper-turbo (5 seconds)
@@ -27,17 +28,6 @@ const FAST_ENGINE_TIMEOUT_MS = 20000;
 // Engine timeout for TransformersJS (20 seconds - allows for slower network/startup)
 const SAFE_ENGINE_TIMEOUT_MS = 20000;
 
-/**
- * Check if we're running in a test/CI environment
- */
-function isTestEnvironment(): boolean {
-    return !!(
-        typeof window !== 'undefined' && (
-            (window as unknown as { __E2E_PLAYWRIGHT__?: boolean }).__E2E_PLAYWRIGHT__ ||
-            (window as unknown as { TEST_MODE?: boolean }).TEST_MODE
-        )
-    );
-}
 
 /**
  * Check if WebGPU is available for fast path
@@ -63,7 +53,7 @@ export class PrivateSTT {
         logger.info('[PrivateSTT] Automatic engine selection started.');
 
         // Force mock engine in CI/test environments
-        if (isTestEnvironment()) {
+        if (IS_TEST_ENVIRONMENT) {
             console.log('[PrivateSTT] 🧪 Test environment detected. Using MockEngine.');
             logger.info('[PrivateSTT] Test environment detected. Using MockEngine.');
             return this.initMockEngine(callbacks);

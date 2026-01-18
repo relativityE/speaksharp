@@ -35,6 +35,19 @@ export const useUserProfile = (options: UseUserProfileOptions = {}) => {
       } else if (!profile.subscription_status) {
         console.error('[useUserProfile WARNING] Profile missing subscription_status:', profile);
       }
+      // Signal for E2E tests that the profile is settled and available on the window
+      const win = window as unknown as {
+        __E2E_CONTEXT__?: boolean;
+        TEST_MODE?: boolean;
+        __e2eProfileLoaded__?: boolean;
+        dispatchEvent: (e: Event) => void
+      };
+
+      if (typeof window !== 'undefined' && (win.__E2E_CONTEXT__ || win.TEST_MODE)) {
+        win.__e2eProfileLoaded__ = true;
+        win.dispatchEvent(new CustomEvent('e2e:profile-loaded'));
+        console.log('[E2E Signal] ✅ Profile Loaded (window.__e2eProfileLoaded__ = true)');
+      }
 
       return profile;
     },

@@ -42,14 +42,16 @@ import { TranscriptionModeOptions, Transcript } from '@/services/transcription/m
  * This ensures type safety across the bridge boundary.
  */
 interface E2EWindow extends Window {
-    __E2E_PLAYWRIGHT__?: boolean;
-    __E2E_MOCK_SESSION__?: Session;
+    __E2E_CONTEXT__?: boolean;
+    __E2E_MOCK_SESSION__?: boolean;
     __activeSpeechRecognition?: MockSpeechRecognition;
     SpeechRecognition?: typeof MockSpeechRecognition;
     webkitSpeechRecognition?: typeof MockSpeechRecognition;
     MockPrivateWhisper?: typeof MockPrivateWhisper;
     dispatchMockTranscript?: (text: string, isFinal?: boolean) => void;
     mswReady?: boolean;
+    __e2eBridgeReady__?: boolean;
+    __e2eProfileLoaded__?: boolean;
 }
 
 /** Type for speech recognition result with isFinal flag */
@@ -68,7 +70,8 @@ export const initializeE2EEnvironment = async (): Promise<void> => {
 
         // 🛑 Skip MSW if we're in a Playwright test (standardizing on PW routes)
         // This allows manual browser preview to use MSW mocks while tests stay isolated
-        const isPlaywright = (window as unknown as { __E2E_PLAYWRIGHT__?: boolean }).__E2E_PLAYWRIGHT__;
+        const e2eWin = window as unknown as E2EWindow;
+        const isPlaywright = e2eWin.__E2E_CONTEXT__;
 
         if (!isPlaywright) {
             logger.info('[E2E Bridge] Starting MSW worker for manual preview...');
@@ -259,6 +262,10 @@ export const setupSpeechRecognitionMock = () => {
                 logger.warn('[E2E Bridge] No active SpeechRecognition instance found to dispatch to');
             }
         };
+
+        // Signal that the bridge is fully initialized and dispatchMockTranscript is available
+        e2eWindow.__e2eBridgeReady__ = true;
+        dispatchE2EEvent('e2e:bridge-ready');
     }
 };
 

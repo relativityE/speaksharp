@@ -30,6 +30,14 @@ vi.mock('@/services/transcription/engines/MockEngine', () => ({
     }))
 }));
 
+// Mock the environment config to control IS_TEST_ENVIRONMENT
+vi.mock('@/config/env', () => ({
+    IS_TEST_ENVIRONMENT: false,
+    E2E_CONTEXT_FLAG: '__E2E_CONTEXT__',
+    // Mock other exports if needed, or use vi.importActual if possible
+    getEnvVar: vi.fn(),
+}));
+
 describe('PrivateSTT Integration (Facade Logic)', () => {
     let privateSTT: PrivateSTT;
     const mockCallbacks = {
@@ -37,30 +45,30 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
         onReady: vi.fn(),
     };
 
-    beforeEach(() => {
+    beforeEach(async () => {
         vi.clearAllMocks();
         privateSTT = new PrivateSTT();
 
-        // Reset window flags
-        delete (window as any).TEST_MODE;
-        delete (window as any).__E2E_PLAYWRIGHT__;
-
-        // Define navigator.gpu mock
-        if (!('gpu' in navigator)) {
-            Object.defineProperty(navigator, 'gpu', {
-                value: {},
-                configurable: true,
-                writable: true
-            });
-        }
+        // Standardize WebGPU mock
+        Object.defineProperty(navigator, 'gpu', {
+            value: {},
+            configurable: true,
+            writable: true
+        });
     });
 
     afterEach(async () => {
-        await privateSTT.destroy();
+        if (privateSTT) {
+            await privateSTT.destroy();
+        }
     });
 
-    it('should use MockEngine when TEST_MODE is active', async () => {
-        (window as any).TEST_MODE = true;
+    it('should use MockEngine when IS_TEST_ENVIRONMENT is active', async () => {
+        // Dynamically update the mock to return true
+        const env = await import('@/config/env');
+        // @ts-expect-error - overriding readonly export for test
+        env.IS_TEST_ENVIRONMENT = true;
+
         const { MockEngine } = await import('@/services/transcription/engines/MockEngine');
         const mockInit = vi.fn().mockResolvedValue(Result.ok(undefined));
         (MockEngine as any).mockImplementationOnce(() => ({
@@ -74,6 +82,10 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
         expect(result.isOk).toBe(true);
         expect(result.isOk ? result.value : null).toBe('mock');
         expect(mockInit).toHaveBeenCalled();
+
+        // Reset for other tests
+        // @ts-expect-error
+        env.IS_TEST_ENVIRONMENT = false;
     });
 
     it('should select WhisperTurbo when WebGPU is available', async () => {
@@ -145,7 +157,10 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
 
     it('should delegate transcription to the active engine', async () => {
         // Initialize with Mock
-        (window as any).TEST_MODE = true;
+        const env = await import('@/config/env');
+        // @ts-expect-error
+        env.IS_TEST_ENVIRONMENT = true;
+
         const { MockEngine } = await import('@/services/transcription/engines/MockEngine');
         const mockTranscribe = vi.fn().mockResolvedValue(Result.ok('transcribed text'));
         (MockEngine as any).mockImplementationOnce(() => ({
@@ -161,5 +176,9 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
         expect(result.isOk).toBe(true);
         expect(result.isOk ? result.value : null).toBe('transcribed text');
         expect(mockTranscribe).toHaveBeenCalled();
+
+        // Reset
+        // @ts-expect-error
+        env.IS_TEST_ENVIRONMENT = false;
     });
 });

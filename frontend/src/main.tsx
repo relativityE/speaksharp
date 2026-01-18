@@ -181,6 +181,7 @@ const initialize = async () => {
   */
 
   if (IS_TEST_ENVIRONMENT) {
+    console.log('[main.tsx] 🧪 Test environment detected');
     // Check if we should skip MSW (using Playwright routes instead OR using Live DB)
     const skipMSW = import.meta.env.VITE_SKIP_MSW === 'true' || import.meta.env.VITE_USE_LIVE_DB === 'true';
 
@@ -196,8 +197,9 @@ const initialize = async () => {
       console.log('[E2E] Mock speech recognition and dispatchMockTranscript configured');
 
       // Set mswReady immediately since we're not using MSW
-      (window as unknown as { mswReady: boolean }).mswReady = true;
+      Object.assign(window, { mswReady: true });
       window.dispatchEvent(new CustomEvent('e2e:msw-ready'));
+      console.log('[E2E] Dispatched e2e:msw-ready (no MSW)');
 
       await renderApp();
       console.log('[E2E] App fully mounted (Playwright routes mode)');

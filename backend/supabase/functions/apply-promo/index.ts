@@ -67,7 +67,7 @@ serve(async (req: Request) => {
             )
         }
 
-        let { promoCode } = await req.json()
+        const { promoCode } = await req.json()
 
         // 1. Look up the promo code
         const { data: promo, error: promoLookupError } = await adminClient
@@ -90,7 +90,7 @@ serve(async (req: Request) => {
         }
 
         // 2. Check if user already redeemed THIS code
-        const { data: redemption, error: redemptionError } = await adminClient
+        const { data: redemption, error: _redemptionError } = await adminClient
             .from('promo_redemptions')
             .select('*')
             .eq('promo_code_id', promo.id)

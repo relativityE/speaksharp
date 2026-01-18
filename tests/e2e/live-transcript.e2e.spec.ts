@@ -92,6 +92,11 @@ test.describe('Live Transcript Feature', () => {
     debugLog('[TEST DEBUG] Navigating to session page...');
     await sessionPage.navigate(); // Uses navigateToRoute internally - preserves MSW context
 
+    // Ensure E2E bridge is ready before proceeding
+    // Ensure E2E bridge is ready before proceeding
+    debugLog('[TEST DEBUG] ⏳ Waiting for E2E bridge readiness...');
+    await page.waitForFunction(() => window.__e2eBridgeReady__ === true, null, { timeout: 10000 });
+
     debugLog('[TEST DEBUG] Checking start button state...');
     // We expect the button to be enabled now that we fixed the disabled logic
     // But it might still be disabled briefly while profile loads
@@ -118,6 +123,7 @@ test.describe('Live Transcript Feature', () => {
 
     // Use the existing e2e-bridge infrastructure to dispatch a mock transcript
     debugLog('[TEST DEBUG] Dispatching mock transcript via window.dispatchMockTranscript...');
+    await page.waitForFunction(() => typeof (window as unknown as { dispatchMockTranscript: unknown }).dispatchMockTranscript === 'function', null, { timeout: 5000 });
     await page.evaluate(() => {
       const win = window as Window & { dispatchMockTranscript?: (text: string, isFinal: boolean) => void };
       if (win.dispatchMockTranscript) {

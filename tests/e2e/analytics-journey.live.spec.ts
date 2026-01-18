@@ -24,7 +24,7 @@
  */
 
 import { test, expect, Page } from '@playwright/test';
-import { navigateToRoute, goToPublicRoute, attachLiveTranscript } from './helpers';
+import { navigateToRoute, attachLiveTranscript, verifyCredentialsAndInjectSession } from './helpers';
 
 // Configuration from environment
 // Use soak-test credentials for local E2E testing (same as CI)
@@ -53,42 +53,36 @@ test.describe('Visual Analytics & Private STT (Real-User Flow)', () => {
         const edgeFnUrl = process.env.EDGE_FN_URL;
         const agentSecret = process.env.AGENT_SECRET;
 
-        if (edgeFnUrl && agentSecret) {
-            console.log('🔄 Provisioning user via Edge Function...');
-            try {
-                const response = await fetch(edgeFnUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        // Note: User's code expects agent_secret in BODY, but let's send header too if standard auth used
-                    },
-                    body: JSON.stringify({
-                        username: EMAIL,
-                        password: PASSWORD,
-                        agent_secret: agentSecret,
-                        type: USER_TYPE
-                    })
-                });
+        // Strict Assertion for Live Tests
+        if (!edgeFnUrl || !agentSecret) {
+            throw new Error('Spec failed: EDGE_FN_URL and AGENT_SECRET are required for Live Analytics tests.');
+        }
 
-                const text = await response.text();
-                // Check success or "already registered"
-                if (response.ok) {
-                    console.log('✅ User provisioned successfully.');
-                } else if (text.includes('already registered')) {
-                    console.log('ℹ️ User already exists (assuming valid credentials).');
-                } else {
-                    console.warn(`⚠️ Provisioning warning (Status ${response.status}): ${text}`);
-                }
-            } catch (e) {
-                console.warn('❌ Failed to connect to Edge Function for provisioning:', e);
+        console.log('🔄 Provisioning user via Edge Function...');
+        try {
+            const response = await fetch(edgeFnUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    username: EMAIL,
+                    password: PASSWORD,
+                    agent_secret: agentSecret,
+                    type: USER_TYPE
+                })
+            });
+
+            const text = await response.text();
+            if (response.ok) {
+                console.log('✅ User provisioned successfully.');
+            } else if (text.includes('already registered')) {
+                console.log('ℹ️ User already exists (assuming valid credentials).');
+            } else {
+                throw new Error(`Provisioning failed (Status ${response.status}): ${text}`);
             }
-        } else {
-            console.log('ℹ️ Skipped Edge Function provisioning (missing EDGE_FN_URL or AGENT_SECRET).');
-            /**
-             * LOCAL DEV: Skip this test if credentials are missing to prevents failing on "Mock" environment.
-             * CI: Secrets are provided, so this block is skipped and test runs.
-             */
-            test.skip(true, 'Skipping Visual Analytics test; missing Edge Function secrets (Local Run).');
+        } catch (e) {
+            throw new Error(`Failed to connect to Edge Function for provisioning: ${e}`);
         }
     });
 
@@ -96,30 +90,13 @@ test.describe('Visual Analytics & Private STT (Real-User Flow)', () => {
         // Only show errors and warnings (set E2E_DEBUG=true for full logs)
         attachLiveTranscript(page);
 
-        // 1. Login
-        await goToPublicRoute(page, '/auth/signin');
-        await expect(page.getByTestId('email-input')).toBeVisible({ timeout: 30000 });
+        // 1. Login (API-based verification & Session Injection)
+        // This ensures robust authentication without flakiness from the UI form,
+        // while still verifying the session is correctly adopted by the app.
+        await verifyCredentialsAndInjectSession(page, EMAIL!, PASSWORD!, USER_TYPE);
 
-        await page.getByTestId('email-input').fill(EMAIL!);
-        await page.getByTestId('password-input').fill(PASSWORD!);
-
-        console.log('🔘 Clicking sign-in...');
-        const loginUrl = page.url();
-        await page.screenshot({ path: 'test-results/before-login-click.png' });
-
-        await Promise.all([
-            page.waitForURL(url => url.pathname === '/' || url.pathname === '/session', { timeout: 60000 }),
-            page.getByTestId('sign-in-submit').click()
-        ]).catch(async (err) => {
-            console.error(`❌ Login navigation failed or timed out (Started at: ${loginUrl}):`, err);
-            await page.screenshot({ path: 'test-results/login-failure.png' });
-            console.log('Current URL at failure:', page.url());
-            throw err;
-        });
-
-        console.log('✅ Navigation successful. Final URL:', page.url());
-        await page.screenshot({ path: 'test-results/after-login-success.png' });
-        await expect(page.getByTestId('app-main')).toBeVisible({ timeout: 20000 });
+        // Ensure we are on the main app page
+        await expect(page.getByTestId('app-main')).toBeVisible({ timeout: 10000 });
 
 
         // 2. Apply Promo Code (only for Free users)

@@ -2,7 +2,7 @@ import { handler } from './index.ts';
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 
 Deno.test("stripe-webhook idempotency adversarial tests", async (t) => {
-    
+
     const mockEvent = {
         id: 'evt_test_123',
         type: 'checkout.session.completed',
@@ -26,7 +26,7 @@ Deno.test("stripe-webhook idempotency adversarial tests", async (t) => {
         };
 
         const supabase = {
-            from: (table: string) => ({
+            from: (_table: string) => ({
                 insert: () => {
                     insertCalledCount++;
                     if (options.existing) return Promise.resolve({ error: { code: '23505' } });
@@ -53,10 +53,10 @@ Deno.test("stripe-webhook idempotency adversarial tests", async (t) => {
             })
         } as any;
 
-        return { 
-            stripe, 
-            supabase, 
-            getUpgradeCount: () => upgradeCalledCount, 
+        return {
+            stripe,
+            supabase,
+            getUpgradeCount: () => upgradeCalledCount,
             getInsertCount: () => insertCalledCount,
             getDeleteCount: () => deleteCalledCount
         };
@@ -64,8 +64,8 @@ Deno.test("stripe-webhook idempotency adversarial tests", async (t) => {
 
     await t.step("should skip processing if event is already recorded (idempotency)", async () => {
         const { stripe, supabase, getUpgradeCount } = setupMocks({ existing: true });
-        const req = new Request('http://localhost', { 
-            method: 'POST', 
+        const req = new Request('http://localhost', {
+            method: 'POST',
             headers: { 'Stripe-Signature': 'fake' },
             body: JSON.stringify(mockEvent)
         });
@@ -80,8 +80,8 @@ Deno.test("stripe-webhook idempotency adversarial tests", async (t) => {
 
     await t.step("should process if event is new", async () => {
         const { stripe, supabase, getUpgradeCount } = setupMocks({ existing: false });
-        const req = new Request('http://localhost', { 
-            method: 'POST', 
+        const req = new Request('http://localhost', {
+            method: 'POST',
             headers: { 'Stripe-Signature': 'fake' },
             body: JSON.stringify(mockEvent)
         });
@@ -97,8 +97,8 @@ Deno.test("stripe-webhook idempotency adversarial tests", async (t) => {
     await t.step("should rollback idempotency record if processing fails", async () => {
         const { stripe, supabase, getDeleteCount } = setupMocks({ existing: false, updateStatus: 500 });
 
-        const req = new Request('http://localhost', { 
-            method: 'POST', 
+        const req = new Request('http://localhost', {
+            method: 'POST',
             headers: { 'Stripe-Signature': 'fake' },
             body: JSON.stringify(mockEvent)
         });

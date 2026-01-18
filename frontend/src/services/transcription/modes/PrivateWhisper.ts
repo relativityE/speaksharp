@@ -38,12 +38,17 @@ import { ITranscriptionMode, TranscriptionModeOptions } from './types';
 import { MicStream } from '../utils/types';
 import { concatenateFloat32Arrays } from '../utils/AudioProcessor';
 import { TranscriptUpdate } from '../TranscriptionService';
+import { IS_TEST_ENVIRONMENT } from '@/config/env';
 
 // Extend Window interface for E2E test flags
 declare global {
   interface Window {
-    __E2E_PLAYWRIGHT__?: boolean;
+    __E2E_CONTEXT__?: boolean;
+    __E2E_MOCK_SESSION__?: boolean;
+    __e2eBridgeReady__?: boolean;
+    __e2eProfileLoaded__?: boolean;
     TEST_MODE?: boolean;
+    __E2E_PLAYWRIGHT__?: boolean;
     __PrivateWhisper_INT_TEST__?: PrivateWhisper;
   }
 }
@@ -103,10 +108,7 @@ export default class PrivateWhisper implements ITranscriptionMode {
     this.privateSTT = createPrivateSTT();
 
     // Check for test environment and expose instance for E2E verification
-    if (typeof window !== 'undefined' && (
-      window.__E2E_PLAYWRIGHT__ ||
-      window.TEST_MODE
-    )) {
+    if (IS_TEST_ENVIRONMENT) {
       console.log('[PrivateWhisper] 🧪 Exposing instance for E2E testing as window.__PrivateWhisper_INT_TEST__');
       window.__PrivateWhisper_INT_TEST__ = this;
     }

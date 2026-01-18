@@ -8,7 +8,8 @@ declare global {
         // E2E test environment flags
         mswReady?: boolean;
         __E2E_MOCK_SESSION__?: boolean;
-        __e2eProfileLoaded?: boolean;
+        __e2eProfileLoaded__?: boolean;
+        __e2eBridgeReady__?: boolean;
 
         // Speech simulation function (from e2e-bridge.ts)
         dispatchMockTranscript?: (text: string, isFinal?: boolean) => void;

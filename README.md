@@ -216,6 +216,14 @@ pnpm test:all
 - Runs quality checks + full E2E suite (all test files)
 - **Use for:** Final validation before merge
 
+**🔥 Want to run tests against REAL live services?**
+```bash
+pnpm test:e2e:live
+```
+- Runs specific E2E tests (`*-real.e2e.spec.ts`, `smoke/`) against a real database and real Whisper engine (simulating production environment locally)
+- Requires proper `.env` setup with live credentials (DB, Stripe, etc.)
+- **Use for:** Verifying integrations that cannot be mocked (e.g., precise audio decoding, real database transactions)
+
 ### E2E Debugging
 
 **🐛 Want to debug E2E tests interactively?**

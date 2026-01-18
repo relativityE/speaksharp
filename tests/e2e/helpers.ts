@@ -4,19 +4,23 @@
  * Uses Playwright route interception for network mocking (replacing MSW).
  */
 
-import type { Page } from '@playwright/test';
+import { type Page, expect } from '@playwright/test';
 import {
   MOCK_TRANSCRIPTS,
 } from './fixtures/mockData';
 
-// Global window augmentation for E2E bridge
+// 1. Unified E2E Window interface (consolidated from various files)
 declare global {
   interface Window {
-    mswReady?: boolean;
-    __e2eProfileLoaded?: boolean;
-    dispatchMockTranscript?: (text: string, isFinal?: boolean) => void;
+    __E2E_CONTEXT__?: boolean;
     __E2E_MOCK_SESSION__?: boolean;
+    __e2eBridgeReady__?: boolean;
+    __e2eProfileLoaded__?: boolean;
+    mswReady?: boolean;
+    dispatchMockTranscript?: (text: string, isFinal?: boolean) => void;
+    // Legacy/Retiring flags (keep for migration period if needed, or remove)
     TEST_MODE?: boolean;
+    __E2E_PLAYWRIGHT__?: boolean;
   }
 }
 
@@ -77,6 +81,19 @@ export async function debugWait<T>(description: string, promise: Promise<T>): Pr
     console.error(`[WAIT FAIL] ${description} failed after ${duration}ms (${callerFile}:${callerLineNum}):`, err);
     throw err;
   }
+}
+
+/**
+ * Formats an exception for logging, including a truncated stack trace.
+ * @param e The exception to format
+ * @param frames Number of stack frames to include (default: 2)
+ */
+export function formatException(e: unknown, frames = 2): string {
+  if (e instanceof Error) {
+    const stack = e.stack ? e.stack.split('\n').slice(0, frames + 1).join('\n') : '';
+    return `Error: ${e}\nStack: ${stack}`;
+  }
+  return `Error: ${String(e)}`;
 }
 
 /**
@@ -188,9 +205,9 @@ export async function programmaticLogin(
   // 5. Wait for profile to be loaded (fixes race condition where startButton is disabled during profile loading)
   // AuthProvider dispatches 'e2e-profile-loaded' event when profile fetch completes
   await debugWait(
-    'Profile Loaded (__e2eProfileLoaded)',
+    'Profile Loaded (__e2eProfileLoaded__)',
     page.waitForFunction(() => {
-      return !!window.__e2eProfileLoaded;
+      return !!window.__e2eProfileLoaded__;
     }, null, { timeout: 10000 })
   );
 }
@@ -354,10 +371,15 @@ export async function mockLiveTranscript(
   lines: readonly string[] = MOCK_TRANSCRIPTS,
   delayMs = 200
 ): Promise<void> {
+  // Ensure E2E bridge is ready before dispatching transcripts
+  // This avoids the common "window.dispatchMockTranscript is not defined" race condition.
+  await page.waitForFunction(() => window.__e2eBridgeReady__ === true, null, { timeout: 10000 });
+
   for (const line of lines) {
     await page.evaluate((text) => {
-      if (typeof window.dispatchMockTranscript === 'function') {
-        window.dispatchMockTranscript(text, true);
+      const win = window as unknown as { dispatchMockTranscript?: (t: string, f: boolean) => void };
+      if (typeof win.dispatchMockTranscript === 'function') {
+        win.dispatchMockTranscript(text, true);
       } else {
         console.error('[E2E Helper] window.dispatchMockTranscript is not defined!');
       }
@@ -430,17 +452,15 @@ export async function programmaticLoginWithRoutes(
   // 1. Setup Playwright routes BEFORE navigation
   await setupE2EMocks(page, { subscriptionStatus: options.subscriptionStatus });
 
-  // 2. Set mock session flag, mswReady (for navigateToRoute compat), and force TEST_MODE
+  // 2. Set mock session flag and consolidated E2E context sentinel
   await page.addInitScript(() => {
-    interface CustomWindow extends Window {
-      __E2E_MOCK_SESSION__: boolean;
-      TEST_MODE: boolean;
-      mswReady: boolean;
-    }
-    const win = window as unknown as CustomWindow;
-    win.__E2E_MOCK_SESSION__ = true;
-    win.TEST_MODE = true; // Force test mode regardless of Vite config
-    win.mswReady = true; // Set mswReady for navigateToRoute compatibility (no actual MSW)
+    window.__E2E_CONTEXT__ = true;
+    window.__E2E_MOCK_SESSION__ = true;
+    window.mswReady = true; // Set mswReady for navigateToRoute compatibility
+
+    // Retirement period: Set legacy flags to maintain compatibility until all code is updated
+    window.TEST_MODE = true;
+    window.__E2E_PLAYWRIGHT__ = true;
   });
 
   // 3. Navigate to app
@@ -493,4 +513,125 @@ export async function goToPublicRoute(page: Page, route: string): Promise<void> 
   debugLog(`[E2E] Navigating to public route: ${route}`);
   await page.goto(route);
   await page.waitForLoadState('domcontentloaded');
+}
+
+/**
+ * API-based credential verification and session injection.
+ * 
+ * This helper isolates "Credential Validity" from "UI Form Validity" by:
+ * 1. Verifying credentials directly against Supabase Auth API (Test Runner -> API)
+ * 2. Injecting the resulting session into the browser (Test Runner -> LocalStorage)
+ * 3. Verifying the app accepts the session (Reload -> Dashboard)
+ * 
+ * @param page - Playwright Page object
+ * @param email - User email
+ * @param password - User password
+ * @param userType - Expected user tier ('free' | 'pro') for feature verification
+ */
+export async function verifyCredentialsAndInjectSession(
+  page: Page,
+  email: string,
+  password: string,
+  userType: 'free' | 'pro'
+): Promise<void> {
+  const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+  const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error('Supabase URL or Anon Key not defined in environment variables');
+  }
+
+  debugLog(`[API Auth] Verifying credentials for ${email}...`);
+
+  // 1. API Verification (Headless)
+  const authUrl = `${supabaseUrl}/auth/v1/token?grant_type=password`;
+
+  // Use native fetch (Node 18+)
+  const response = await fetch(authUrl, {
+    method: 'POST',
+    headers: {
+      'apikey': supabaseAnonKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ email, password }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    debugLog(`[API Auth] Failed: ${response.status} ${response.statusText} - ${errorText}`);
+    throw new Error(`Credential verification failed for ${email}: ${response.status} ${response.statusText}`);
+  }
+
+  const sessionData = await response.json();
+  const { access_token, refresh_token, user } = sessionData;
+
+  if (!access_token || !user) {
+    throw new Error('API response missing access_token or user object');
+  }
+
+  debugLog(`[API Auth] ✅ Credentials valid. User ID: ${user.id}`);
+
+  // 2. Session Injection
+  // Construct the local storage key. Default is `sb-<project_ref>-auth-token`
+  // We can derive project_ref from the URL: https://<project_ref>.supabase.co
+  let projectRef = 'unknown';
+  try {
+    const urlObj = new URL(supabaseUrl);
+    projectRef = urlObj.hostname.split('.')[0];
+  } catch {
+    console.warn('[API Auth] Could not parse Supabase URL for project ref, falling back to default injection.');
+  }
+
+  const localStorageKey = `sb-${projectRef}-auth-token`;
+  const sessionPayload = {
+    access_token,
+    refresh_token,
+    user,
+    token_type: 'bearer',
+    expires_in: 3600,
+    created_at: Math.floor(Date.now() / 1000),
+    ...sessionData
+  };
+
+  debugLog(`[API Auth] Injecting session into LocalStorage key: ${localStorageKey}`);
+
+  await page.addInitScript(({ key, value }) => {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  }, { key: localStorageKey, value: sessionPayload });
+
+  // 3. App Verification
+  await page.goto('/');
+  await page.waitForLoadState('domcontentloaded');
+
+  try {
+    await debugWait(
+      'Authenticated State (Dashboard)',
+      page.waitForSelector('[data-testid="app-main"]', { timeout: 15000 })
+    );
+    debugLog(`[API Auth] ✅ App accepted session. User is logged in.`);
+  } catch (e) {
+    debugLog(`[helpers.ts:verifyCredentialsAndInjectSession] [API Auth] ❌ App did not accept session. Reloading and retrying... ${formatException(e)}`);
+    await page.reload();
+    await debugWait(
+      'Authenticated State (Dashboard) - Post Reload',
+      page.waitForSelector('[data-testid="app-main"]', { timeout: 15000 })
+    );
+  }
+
+  // 4. Feature Verification (Pro vs Free)
+  debugLog(`[API Auth] Verifying ${userType.toUpperCase()} features...`);
+
+  if (userType === 'pro') {
+    // Check for Pro Badge
+    await debugWait(
+      'Pro Badge Visible',
+      page.waitForSelector('[data-testid="pro-badge"]', { timeout: 10000 })
+    );
+    debugLog('[API Auth] ✅ Pro features verified.');
+  } else {
+    // Ensure Pro badge is NOT present
+    const proBadge = page.locator('[data-testid="pro-badge"]');
+    await expect(proBadge).not.toBeVisible();
+    debugLog('[API Auth] ✅ Free status verified.');
+  }
 }

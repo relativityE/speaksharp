@@ -80,18 +80,33 @@ run_quality_checks() {
     fi
 
     echo "   🧪 Unit Tests..."
-    pnpm test --reporter=dot > "$ARTIFACTS_DIR/unit-test.log" 2>&1 || {
+    # Run tests and capture exit code to allow artifact movement even on failure
+    set +e
+    pnpm test --reporter=dot > "$ARTIFACTS_DIR/unit-test.log" 2>&1
+    UNIT_EXIT=$?
+    set -e
+    
+    # ARTIFACT MANAGEMENT RATIONALE:
+    # 1. unit-metrics.json is moved to the root because ci.yml explicitly looks for it there 
+    #    in the "Upload Prepare Artifacts" step (lines 30-38).
+    # 2. Moving it here simplifies the packaging for the Lighthouse and Report jobs, 
+    #    which expect a flat metrics file in the all-artifacts bundle.
+    if [ -f "frontend/unit-metrics.json" ]; then
+        mv frontend/unit-metrics.json .
+        echo "   ✅ Moved unit-metrics.json to root (required for ci.yml)"
+    elif [ -f "unit-metrics.json" ]; then
+        echo "   ℹ️ unit-metrics.json already at root"
+    else
+        echo "   ⚠️ Warning: unit-metrics.json not found (may cause Lighthouse job to fail)"
+    fi
+    
+    if [ $UNIT_EXIT -ne 0 ]; then
         echo "   ❌ Unit Tests FAILED." >&2
         cat "$ARTIFACTS_DIR/unit-test.log" >&2
         exit 1
-    }
-    echo "   ✅ Unit tests passed"
-    
-    # Move metrics file to root for CI artifact upload
-    if [ -f "frontend/unit-metrics.json" ]; then
-        mv frontend/unit-metrics.json . 2>/dev/null || true
     fi
-    
+    echo "   ✅ Unit tests passed"
+
     echo "✅ [2/6] Code Quality Checks Passed."
 }
 

@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { handler } from './index.ts';
 import { assertEquals, assertExists } from "https://deno.land/std@0.224.0/assert/mod.ts";
 
@@ -88,19 +87,19 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
     }) as any;
 
     try {
-        const req = new Request('http://localhost/get-ai-suggestions', {
-            method: 'POST',
-            headers: { 'Authorization': 'Bearer fake-token', 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transcript: "hello world pro user" })
-        });
-        const res = await handler(req, mockCreateSupabaseProUser);
-        const json = await res.json();
+      const req = new Request('http://localhost/get-ai-suggestions', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer fake-token', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript: "hello world pro user" })
+      });
+      const res = await handler(req, mockCreateSupabaseProUser);
+      const json = await res.json();
 
-        assertEquals(res.status, 200);
-        assertExists(json.suggestions);
-        assertEquals(json.suggestions.summary, "This is a mock summary.");
+      assertEquals(res.status, 200);
+      assertExists(json.suggestions);
+      assertEquals(json.suggestions.summary, "This is a mock summary.");
     } finally {
-        Deno.env.delete('GEMINI_API_KEY');
+      Deno.env.delete('GEMINI_API_KEY');
     }
   });
 });
