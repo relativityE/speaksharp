@@ -64,17 +64,17 @@ test.describe('Private STT (Production Capability Smoke)', () => {
 
         // 🧹 NUCLEAR TEARDOWN: Kill SW, clear caches, and RELOAD to get fresh assets
         await page.evaluate(async () => {
-            debugLog('[E2E] 🧹 Nuclear teardown starting...');
+            console.log('[E2E] 🧹 Nuclear teardown starting...');
 
             // 1. Unregister all Service Workers
             const registrations = await navigator.serviceWorker.getRegistrations();
             for (const r of registrations) await r.unregister();
-            debugLog(`[E2E] ✅ Unregistered ${registrations.length} Service Workers`);
+            console.log(`[E2E] ✅ Unregistered ${registrations.length} Service Workers`);
 
             // 2. Delete all caches
             const cacheNames = await caches.keys();
             for (const n of cacheNames) await caches.delete(n);
-            debugLog(`[E2E] ✅ Deleted ${cacheNames.length} caches`);
+            console.log(`[E2E] ✅ Deleted ${cacheNames.length} caches`);
 
             // 3. Clear all site data
             window.localStorage.clear();
@@ -86,13 +86,13 @@ test.describe('Private STT (Production Capability Smoke)', () => {
                 for (const db of dbs) {
                     if (db.name) indexedDB.deleteDatabase(db.name);
                 }
-                debugLog(`[E2E] ✅ Deleted ${dbs.length} IndexedDB databases`);
+                console.log(`[E2E] ✅ Deleted ${dbs.length} IndexedDB databases`);
             } catch {
                 // Fallback for browsers without databases() API
                 indexedDB.deleteDatabase('whisper-turbo');
-                debugLog('[E2E] ✅ Deleted whisper-turbo IndexedDB (fallback)');
+                console.log('[E2E] ✅ Deleted whisper-turbo IndexedDB (fallback)');
             }
-            debugLog('[E2E] ✅ Nuclear teardown complete.');
+            console.log('[E2E] ✅ Nuclear teardown complete.');
         });
 
         // 🔄 CRITICAL: Reload to ensure browser fetches fresh assets (not from SW cache)
@@ -147,7 +147,7 @@ test.describe('Private STT (Production Capability Smoke)', () => {
         // 2. Ensure Mocks are DISABLED
         await page.evaluate(() => {
             window.__E2E_MOCK_LOCAL_WHISPER__ = false;
-            debugLog('[TEST] Force real Whisper: window.__E2E_MOCK_LOCAL_WHISPER__ = false');
+            console.log('[TEST] Force real Whisper: window.__E2E_MOCK_LOCAL_WHISPER__ = false');
 
             // Clear IndexedDB to ensure we test the full loading/compilation flow
             return new Promise((resolve) => {
@@ -228,14 +228,14 @@ test.describe('Private STT (Production Capability Smoke)', () => {
             debugLog('[TEST] Verifying Layer 1 Cache (whisper-models-v1) persistence...');
             const hasCache = await page.evaluate(async () => {
                 const registrations = await navigator.serviceWorker.getRegistrations();
-                debugLog('[BROWSER] SW Registrations:', registrations.length);
+                console.log('[BROWSER] SW Registrations:', registrations.length);
 
                 const cacheNames = await caches.keys();
-                debugLog('[BROWSER] Active caches:', cacheNames);
+                console.log('[BROWSER] Active caches:', cacheNames);
                 if (!cacheNames.includes('whisper-models-v1')) return false;
                 const cache = await caches.open('whisper-models-v1');
                 const keys = await cache.keys();
-                debugLog('[BROWSER] Cache keys:', keys.map(k => k.url));
+                console.log('[BROWSER] Cache keys:', keys.map(k => k.url));
                 return keys.some(k => k.url.includes('/models/tiny-q8g16.bin'));
             });
 

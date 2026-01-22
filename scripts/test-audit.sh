@@ -82,7 +82,7 @@ run_quality_checks() {
     echo "   🧪 Unit Tests..."
     # Run tests and capture exit code to allow artifact movement even on failure
     set +e
-    pnpm test --reporter=dot > "$ARTIFACTS_DIR/unit-test.log" 2>&1
+    pnpm test > "$ARTIFACTS_DIR/unit-test.log" 2>&1
     UNIT_EXIT=$?
     set -e
     

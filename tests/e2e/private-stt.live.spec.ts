@@ -92,7 +92,7 @@ test.describe('Private STT Real Audio (High Fidelity)', () => {
     // AudioWorklet which receives silence from fake streams. This test requires a real browser with
     // real microphone input or a different approach to audio injection.
     // See: https://github.com/nickarellano/speaksharp/issues/XXX for tracking.
-    test.skip('should transcribe real audio using TransformersJS (no mocks, no cost)', async ({ page }) => {
+    test('should transcribe real audio using TransformersJS (no mocks, no cost)', async ({ page }) => {
         debugLog('🎤 Running High-Fidelity Private STT test with REAL audio');
         debugLog(`📂 Audio file: ${audioFile}`);
 

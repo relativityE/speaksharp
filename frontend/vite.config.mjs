@@ -13,6 +13,11 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, path.resolve(__dirname, '..'), '');
   const isTestMode = mode === 'test' || env.VITE_TEST_MODE === 'true';
 
+  console.log(`[Vite] Mode: ${mode}, REAL_WHISPER_TEST: ${process.env.REAL_WHISPER_TEST}`);
+  if (process.env.REAL_WHISPER_TEST === 'true') {
+    console.log('[Vite] enabling COOP/COEP headers');
+  }
+
   return {
     plugins: [react()],
     worker: {
@@ -31,7 +36,11 @@ export default defineConfig(({ mode }) => {
           '**/*.log',
           'docs/PRD.md'
         ]
-      }
+      },
+      headers: process.env.REAL_WHISPER_TEST === 'true' ? {
+        'Cross-Origin-Opener-Policy': 'same-origin',
+        'Cross-Origin-Embedder-Policy': 'require-corp',
+      } : undefined
     },
     preview: {
       host: '127.0.0.1',
