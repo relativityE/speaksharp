@@ -12,6 +12,7 @@
  * │ private-stt-resilience.spec.ts   │ Hang simulation   │ Timeout, fallback     │
  * │ private-stt-real.e2e.spec.ts     │ TransformersJS +  │ REAL audio → REAL     │
  * │ (THIS FILE)                      │ Real Audio        │ transcript verification│
+ * │ private-stt-performance.spec.ts  │ Real Whisper      │ Memory/CPU profiling  │
  * └──────────────────────────────────────────────────────────────────────────────┘
  * 
  * HOW THIS TEST IS DIFFERENT:
