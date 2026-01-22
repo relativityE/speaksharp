@@ -703,9 +703,12 @@ The project uses a tiered testing approach to balance speed, reliability, and re
 | **1. Unit Tests** | `pnpm test` | `happy-dom` | Fast, isolated logic tests. Mocks all external deps. |
 | **2. Integration Tests** | `pnpm test` | `happy-dom` | Component + Provider interaction. Mocks services. |
 | **3. CI Simulation (E2E)** | `pnpm ci:local` | Playwright + **MSW** | **The Default.** Full app flow with **Mocked Backend**. Fast, reliable, runs on PRs. No secrets needed. |
-| **4. Live E2E (Real)** | `pnpm test:e2e:live` | Playwright + **Real Services** | Validates integration with **Real Supabase/Stripe/Edge Functions**. Requires `.env` secrets. |
+| **4. Live E2E (Real)** | `pnpm test:e2e:live` | Playwright + **Real Services** | Validates integration with **Real Supabase/Stripe/Edge Functions**. Requires `.env` secrets. Uses `playwright.live.config.ts` to auto-sawn dev server with COOP/COEP headers. |
 | **5. Smoke Tests** | (via Live E2E) | Real Hardware | specific capability checks (e.g., `REAL_WHISPER_TEST=true` for WebGPU). |
 | **6. Soak Tests** | `pnpm test:soak` | Production | Long-running load tests on production infrastructure. |
+
+##### CI Artifacts & Reporting
+The automated CI pipeline requires specific JSON artifacts for tracking metrics. The `test-audit.sh` script is configured to allow Vitest to generate `unit-metrics.json` (via `vitest.config.mjs`) by avoiding conflicting reporter flags. This artifact is critical for the "Report" stage of the CI pipeline.
 
 ##### Test Category Details
 

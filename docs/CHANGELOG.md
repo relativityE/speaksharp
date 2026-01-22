@@ -28,6 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Infrastructure:**
   - **Fix:** Resolved `ReactCurrentDispatcher` error by hoisting `@radix-ui/react-popover` to root dependencies.
 
+- **CI Pipeline & Live Testing (Jan 2026):**
+  - **Fix (Critical):** Resolved `unit-metrics.json` missing artifact error in CI by enabling JSON reporter in `test-audit.sh`.
+  - **Live Testing:** Unskipped and fixed `private-stt.live.spec.ts` high-fidelity tests using real Audio/AI services.
+  - **Dev Server:** Added `COOP/COEP` header support in `vite.config.mjs` (enabled via `REAL_WHISPER_TEST=true`) to support local WebGPU testing.
+  - **Configuration:** Updated `playwright.live.config.ts` to auto-spawn the dev server and inject required `process.env` secrets for the test runner.
+
 ### Fixed (2026-01-16) - Private STT Reliability & Code Quality
 5. 
 6. - **Private STT Reliability:**
