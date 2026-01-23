@@ -29,11 +29,13 @@ jobs:
         env:
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           echo "Calling edge function..."
           # Fix: Function name is create-user (file saved as index.ts in that folder)
           RESPONSE=$(curl -s -X POST "${{ secrets.SUPABASE_URL }}/functions/v1/create-user" \
             -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
             -d "{\"username\":\"${{ github.event.inputs.username }}\",\"password\":\"${{ github.event.inputs.password }}\",\"agent_secret\":\"${{ secrets.AGENT_SECRET }}\",\"type\":\"${{ github.event.inputs.type }}\"}" \
             -w "\nHTTP_STATUS:%{http_code}\n")
           echo "$RESPONSE"
