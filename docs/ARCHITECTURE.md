@@ -732,22 +732,24 @@ The automated CI pipeline requires specific JSON artifacts for tracking metrics.
 
 ##### Creating E2E Test Users
 
-**DO NOT create new provisioning scripts.** Use `.github/workflows/create-user.yml` to provision `E2E_PRO_EMAIL` or `E2E_FREE_EMAIL`.
+The `create-user` Edge Function backs user provisioning. You have two options for creating users, including Pro users.
 
-**Key Detail:** The `create-user` edge function accepts a `type` parameter:
-- Omit `type` → creates Free user (default)
-- Pass `"type": "pro"` → creates Pro user
+**Option 1: GitHub Workflow (Standard)**
+Use `.github/workflows/create-user.yml`.
+- **How**: Run via GitHub Actions UI.
+- **Inputs**: Username, Password, Type (select `pro` or `free`).
+- **Prerequisite**: Workflow must support `type` input (implemented).
+
+**Option 2: Manual Curl (Fallback)**
+Directly call the Edge Function if GitHub Actions is inaccessible.
 
 ```bash
-# Verify required secrets exist
-gh secret list  # Check for E2E_PRO_EMAIL, E2E_FREE_EMAIL, AGENT_SECRET
-
-# Manually create Pro user via edge function
+# Requires AGENT_SECRET
 curl -X POST "{SUPABASE_URL}/functions/v1/create-user" \
   -H "Content-Type: application/json" \
   -d '{"username":"e2e-pro@test.com","password":"TestPro2026","agent_secret":"...","type":"pro"}'
 
-# Update GitHub secret
+# Update GitHub secret after success
 gh secret set E2E_PRO_EMAIL --body "e2e-pro@test.com"
 ```
 
