@@ -723,12 +723,33 @@ The automated CI pipeline requires specific JSON artifacts for tracking metrics.
 - **Environment:** `IS_TEST_ENVIRONMENT=true`.
 - **Goal:** Verify application flow and UI states without network flakiness or credential dependencies. **This is the primary CI gate.**
 
-**3. Live E2E Tests** (`tests/e2e/*-real*.spec.ts`)
+**3. Live E2E Tests** (`tests/e2e/*-real*.spec.ts` and `*.live.spec.ts`)
 - **Scope:** Critical paths ensuring backend compatibility (Auth, Payments, Edge Functions).
 - **Mocking:** **None.** Uses `VITE_USE_LIVE_DB=true`.
 - **Environment:** Requires `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `EDGE_FN_URL`, `AGENT_SECRET`.
     - *Why `AGENT_SECRET`?* Tests like `visual-analytics` programmatically create users via admin Edge Functions to ensure a clean state, rather than relying on UI-based signup which might be captcha-gated or slower.
 - **Goal:** Verify that the frontend correctly communicates with the real backend APIs.
+
+##### Creating E2E Test Users
+
+**DO NOT create new provisioning scripts.** Use `.github/workflows/create-user.yml` to provision `E2E_PRO_EMAIL` or `E2E_FREE_EMAIL`.
+
+**Key Detail:** The `create-user` edge function accepts a `type` parameter:
+- Omit `type` → creates Free user (default)
+- Pass `"type": "pro"` → creates Pro user
+
+```bash
+# Verify required secrets exist
+gh secret list  # Check for E2E_PRO_EMAIL, E2E_FREE_EMAIL, AGENT_SECRET
+
+# Manually create Pro user via edge function
+curl -X POST "{SUPABASE_URL}/functions/v1/create-user" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"e2e-pro@test.com","password":"TestPro2026","agent_secret":"...","type":"pro"}'
+
+# Update GitHub secret
+gh secret set E2E_PRO_EMAIL --body "e2e-pro@test.com"
+```
 
 **1. Unit Tests** (`frontend/src/**/*.test.{ts,tsx}`)
 - Run with Vitest in happy-dom environment
