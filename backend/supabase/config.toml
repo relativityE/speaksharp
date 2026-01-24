@@ -6,3 +6,7 @@ project_id = "yxlapjuovrsvjswkwnrk"
 [functions.apply-promo]
   entrypoint = "./functions/apply-promo/index.ts"
   verify_jwt = false
+
+[functions.create-user]
+  entrypoint = "./functions/create-user/index.ts"
+  verify_jwt = false

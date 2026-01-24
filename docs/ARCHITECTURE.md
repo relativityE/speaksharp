@@ -730,28 +730,49 @@ The automated CI pipeline requires specific JSON artifacts for tracking metrics.
     - *Why `AGENT_SECRET`?* Tests like `visual-analytics` programmatically create users via admin Edge Functions to ensure a clean state, rather than relying on UI-based signup which might be captcha-gated or slower.
 - **Goal:** Verify that the frontend correctly communicates with the real backend APIs.
 
-##### Creating E2E Test Users
+##### Creating E2E Test Users (create-user Edge Function)
 
-The `create-user` Edge Function backs user provisioning. You have two options for creating users, including Pro users.
+The `create-user` Edge Function is the canonical way to provision test users. It handles both Supabase Auth user creation and `user_profiles` tier setup.
 
-**Option 1: GitHub Workflow (Standard)**
-Use `.github/workflows/create-user.yml`.
-- **How**: Run via GitHub Actions UI.
-- **Inputs**: Username, Password, Type (select `pro` or `free`).
-- **Prerequisite**: Workflow must support `type` input (implemented).
+###### The "2-Stage Key" Implementation (Synchronized Auth)
 
-**Option 2: Manual Curl (Fallback)**
-Directly call the Edge Function if GitHub Actions is inaccessible.
+Due to the Supabase API Gateway (Kong) architecture, we use a **2-stage key** pattern to allow custom Bearer tokens while ensuring correct request routing:
+
+1.  **Stage 1: Gateway Ingress (`apikey` header)**
+    -   **Value**: Project Anonymous Key (`SUPABASE_ANON_KEY`).
+    -   **Purpose**: Identifies the request project to the Gateway for routing and ingress. Using the ANON key ensures least privilege.
+2.  **Stage 2: Function Authentication (`Authorization` header)**
+    -   **Value**: `Bearer <AGENT_SECRET>`.
+    -   **Purpose**: Authenticates the request within the Edge Function logic.
+    -   **Prerequisite**: Function must be deployed with `verify_jwt = false` in `config.toml` to prevent the Gateway from rejecting non-standard Bearer tokens.
+
+###### Usage via GitHub Workflow (Standard)
+
+Use [.github/workflows/create-user.yml](file:///.github/workflows/create-user.yml) via the GitHub Actions UI. It automatically:
+-   Generates a 24-char POSIX-random password.
+-   Masks all credentials in logs (`::add-mask::`).
+-   Implements the 2-stage key headers via `curl`.
+
+###### Manual Usage (Fallback)
+
+If the workflow is inaccessible, you can call the function directly. Note that and the function supports multiple field aliases for maximum compatibility:
 
 ```bash
-# Requires AGENT_SECRET
-curl -X POST "{SUPABASE_URL}/functions/v1/create-user" \
+# Example for a PRO user
+curl -i -X POST "https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/create-user" \
   -H "Content-Type: application/json" \
-  -d '{"username":"e2e-pro@test.com","password":"TestPro2026","agent_secret":"...","type":"pro"}'
-
-# Update GitHub secret after success
-gh secret set E2E_PRO_EMAIL --body "e2e-pro@test.com"
+  -H "apikey: <SUPABASE_ANON_KEY>" \
+  -H "Authorization: Bearer <AGENT_SECRET>" \
+  -d '{
+    "email": "test-user@example.com",
+    "password": "strong-password-123",
+    "subscription_status": "pro"
+  }'
 ```
+
+> [!TIP]
+> **Field Aliases**: The function accepts `email`/`username` and `subscription_status`/`type`.
+> **Security**: Internal logic uses constant-time comparison (`safeCompare`) for the `AGENT_SECRET` and defensively deletes it from memory after validation.
 
 **1. Unit Tests** (`frontend/src/**/*.test.{ts,tsx}`)
 - Run with Vitest in happy-dom environment

@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Unreleased
 
+- **Synchronized Auth User Provisioning:**
+  - **Feature:** Implemented "2-Stage Key" auth pattern for `create-user` Edge Function to satisfy Supabase Gateway routing requirements.
+  - **Security:** Added constant-time `safeCompare` for `AGENT_SECRET` to prevent timing attacks.
+  - **Security:** Implemented defensive secret handling; credentials are redacted from memory immediately after validation.
+  - **Flexibility:** Standardized on `email` and `subscription_status` field names while maintaining backward compatibility with `username` and `type` aliases.
+  - **Workflow:** Updated `.github/workflows/create-user.yml` to use POSIX-random passwords and dual-header (`apikey` + `Authorization`) authentication.
+  - **Documentation:** Consolidated provisioning standards across `ARCHITECTURE.md` and `Backend/edge-functions.md`.
+
 - **Filler Words UX Polish:**
   - **Feature:** "Add Custom Word" now opens a compact `Popover` instead of a full sheet for faster workflow.
   - **Improvement:** Seamless styling—all filler words (standard & custom) are now uniformly Amber-500.
