@@ -91,11 +91,20 @@ Deno.serve(async (req: Request) => {
             if (error) {
                 // Graceful recovery for existing users
                 if (error.message?.includes("already registered")) {
-                    const { data: listData } = await supabase.auth.admin.listUsers();
+                    const { data: listData, error: listError } = await supabase.auth.admin.listUsers();
+                    if (listError) throw listError;
                     const existing = listData.users.find((u: any) => u.email === email);
                     if (existing) {
                         userId = existing.id;
-                        console.log(`User existing: ${userId}`);
+                        console.log(`User exists (${userId}), updating password...`);
+                        const { error: updateError } = await supabase.auth.admin.updateUserById(userId, {
+                            password,
+                            email_confirm: true
+                        });
+                        if (updateError) {
+                            console.error("Auth update error:", updateError);
+                            return new Response(JSON.stringify({ error: "auth_update_failed", details: updateError }), { status: 500 });
+                        }
                     } else {
                         return new Response(JSON.stringify({ error: "user_exists_but_lookup_failed" }), { status: 500 });
                     }
