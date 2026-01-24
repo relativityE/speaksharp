@@ -45,26 +45,42 @@ jobs:
           EMAIL="${{ github.event.inputs.username }}"
           TYPE="${{ github.event.inputs.type }}" # free|pro
 
-          # Build the payload; include password to allow the function to create the Auth user
+          # 🔍 DIAGNOSTIC: Verify secrets are present (masked)
+          echo "--- 🔍 Headers Diagnostic ---"
+          if [ -n "$AGENT_SECRET" ]; then echo "✅ AGENT_SECRET is present"; else echo "❌ AGENT_SECRET is MISSING"; fi
+          if [ -n "$SUPABASE_ANON_KEY" ]; then echo "✅ SUPABASE_ANON_KEY is present"; else echo "❌ SUPABASE_ANON_KEY is MISSING"; fi
+          echo "Processing for: $EMAIL (Dual-Header Mode)"
+
+          # Build the payload
           PAYLOAD=$(jq -n \
             --arg email "$EMAIL" \
             --arg password "$PASSWORD" \
             --arg subscription_status "$TYPE" \
             '{ email: $email, password: $password, subscription_status: $subscription_status }')
 
-          echo "Calling Edge Function for: $EMAIL (Dual-Header Mode)"
-
-          # Call Edge Function: apikey header for Gateway routing + AGENT_SECRET for function validation
-          HTTP_STATUS=$(curl -sS -o /tmp/create_user_response.json -w "%{http_code}" -X POST "${SUPABASE_URL}/functions/v1/create-user" \
+          # Call Edge Function with full diagnostic output
+          # -D: Save response headers
+          # -o: Save response body
+          curl -sS -i -X POST "${SUPABASE_URL}/functions/v1/create-user" \
             -H "Content-Type: application/json" \
             -H "apikey: ${SUPABASE_ANON_KEY}" \
             -H "Authorization: Bearer ${AGENT_SECRET}" \
-            -d "$PAYLOAD")
+            -d "$PAYLOAD" \
+            -D /tmp/create_user_headers.txt \
+            -o /tmp/create_user_response.json \
+            -w "%{http_code}" > /tmp/http_status.txt
 
+          HTTP_STATUS=$(cat /tmp/http_status.txt)
           RESP_BODY=$(cat /tmp/create_user_response.json || true)
+          
+          echo "--- 🔍 Response Diagnostic ---"
+          echo "HTTP Status Code: $HTTP_STATUS"
+          echo "Response Headers:"
+          cat /tmp/create_user_headers.txt | grep -E "x-sb-edge-region|content-type|x-served-by|sb-request-id" || true
+          
           if [ "$HTTP_STATUS" -ne 200 ]; then
             echo "❌ API Gateway or Edge Function returned HTTP $HTTP_STATUS"
-            echo "$RESP_BODY" | sed -e "s/$PASSWORD/[REDACTED]/g"
+            echo "Body: $RESP_BODY" | sed -e "s/$PASSWORD/[REDACTED]/g"
             exit 1
           fi
 
@@ -82,3 +98,13 @@ jobs:
           # Store password for potential subsequent steps (Restricted access)
           printf '%s' "$PASSWORD" > /tmp/test_user_password.txt
           chmod 600 /tmp/test_user_password.txt
+
+      - name: Upload Debug Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: create-user-debug-logs
+          path: |
+            /tmp/create_user_headers.txt
+            /tmp/create_user_response.json
+          retention-days: 1
