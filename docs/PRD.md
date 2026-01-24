@@ -221,7 +221,11 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
+<<<<<<< Updated upstream
 **Last Updated:** Fri, 23 Jan 2026 15:32:14 GMT
+=======
+**Last Updated:** Sat, 24 Jan 2026 00:56:01 GMT
+>>>>>>> Stashed changes
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -237,14 +241,14 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 513 (387 unit + 126 E2E) |
+| Total tests             | 450 (387 unit + 63 E2E) |
 | Unit tests              | 387   |
-| E2E tests (Playwright)  | 126  |
+| E2E tests (Playwright)  | 63  |
 | Passing tests           | 450 (387 unit + 63 E2E)   |
 | Failing tests           | 0   |
-| Disabled/skipped tests  | 63 (E2E only)   |
+| Disabled/skipped tests  | 0 (E2E only)   |
 | Passing unit tests      | 387/387 (100.0%)   |
-| Passing E2E tests       | 63/126 (50.0%)   |
+| Passing E2E tests       | 63/63 (100.0%)   |
 | Total runtime           | See CI logs   |
 
 ---
@@ -253,10 +257,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | 56.97%   |
-| Branches   | 76.38%   |
-| Functions  | 68.36%   |
-| Lines      | 56.97%   |
+| Statements | 56.33%   |
+| Branches   | 76.33%   |
+| Functions  | 68.18%   |
+| Lines      | 56.33%   |
 
 ---
 
@@ -264,11 +268,11 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric              | Value |
 | ------------------- | ----- |
-| Total Source Size   | 6.0M   |
-| Total Project Size  | 1.3G   |
+| Total Source Size   | 5.7M   |
+| Total Project Size  | 2.1G   |
 | Initial Chunk Size  | 416K   |
-| Code Bloat Index    | 6.83%   |
-| Lighthouse Scores   | P: 0, A: 0, BP: 0, SEO: 0 |
+| Code Bloat Index    | 7.11%   |
+| Lighthouse Scores   | P: 96, A: 94, BP: 100, SEO: 91 |
 
 ---
 <!-- SQM:END -->

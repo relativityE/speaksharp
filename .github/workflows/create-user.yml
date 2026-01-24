@@ -38,18 +38,15 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Generate 24-char POSIX password if needed
-          PASSWORD=$(LC_ALL=C tr -dc 'A-Za-z0-9@#%_-+' < /dev/urandom | head -c 24)
+          # Generate 24-char POSIX password if none provided
+          PASSWORD="${{ github.event.inputs.password }}"
+          if [ -z "$PASSWORD" ] || [ "$PASSWORD" = "dummy-password" ]; then
+            PASSWORD=$(LC_ALL=C tr -dc 'A-Za-z0-9@#%_-+' < /dev/urandom | head -c 24)
+          fi
           echo "::add-mask::$PASSWORD"
 
           EMAIL="${{ github.event.inputs.username }}"
           TYPE="${{ github.event.inputs.type }}" # free|pro
-
-          # 🔍 DIAGNOSTIC: Verify secrets are present (masked)
-          echo "--- 🔍 Headers Diagnostic ---"
-          if [ -n "$AGENT_SECRET" ]; then echo "✅ AGENT_SECRET is present"; else echo "❌ AGENT_SECRET is MISSING"; fi
-          if [ -n "$SUPABASE_ANON_KEY" ]; then echo "✅ SUPABASE_ANON_KEY is present"; else echo "❌ SUPABASE_ANON_KEY is MISSING"; fi
-          echo "Processing for: $EMAIL (Dual-Header Mode)"
 
           # Build the payload
           PAYLOAD=$(jq -n \
@@ -58,26 +55,16 @@ jobs:
             --arg subscription_status "$TYPE" \
             '{ email: $email, password: $password, subscription_status: $subscription_status }')
 
-          # Call Edge Function with full diagnostic output
-          # -D: Save response headers
-          # -o: Save response body
-          curl -sS -i -X POST "${SUPABASE_URL}/functions/v1/create-user" \
+          echo "Calling Edge Function for: $EMAIL (Synchronized Auth Mode)"
+
+          # Call Edge Function: apikey header (Stage 1 Routing) + AGENT_SECRET (Stage 2 Auth)
+          HTTP_STATUS=$(curl -sS -o /tmp/create_user_response.json -w "%{http_code}" -X POST "${SUPABASE_URL}/functions/v1/create-user" \
             -H "Content-Type: application/json" \
             -H "apikey: ${SUPABASE_ANON_KEY}" \
             -H "Authorization: Bearer ${AGENT_SECRET}" \
-            -d "$PAYLOAD" \
-            -D /tmp/create_user_headers.txt \
-            -o /tmp/create_user_response.json \
-            -w "%{http_code}" > /tmp/http_status.txt
+            -d "$PAYLOAD")
 
-          HTTP_STATUS=$(cat /tmp/http_status.txt)
           RESP_BODY=$(cat /tmp/create_user_response.json || true)
-          
-          echo "--- 🔍 Response Diagnostic ---"
-          echo "HTTP Status Code: $HTTP_STATUS"
-          echo "Response Headers:"
-          cat /tmp/create_user_headers.txt | grep -E "x-sb-edge-region|content-type|x-served-by|sb-request-id" || true
-          
           if [ "$HTTP_STATUS" -ne 200 ]; then
             echo "❌ API Gateway or Edge Function returned HTTP $HTTP_STATUS"
             echo "Body: $RESP_BODY" | sed -e "s/$PASSWORD/[REDACTED]/g"
@@ -93,18 +80,14 @@ jobs:
             fi
           fi
 
-          echo "✅ Successfully upserted user_profiles for: $EMAIL"
+          echo "✅ Successfully provisioned: $EMAIL"
           
-          # Store password for potential subsequent steps (Restricted access)
-          printf '%s' "$PASSWORD" > /tmp/test_user_password.txt
-          chmod 600 /tmp/test_user_password.txt
+          # Store password for job summary reference (masked)
+          echo "TEST_USER_PASSWORD=$PASSWORD" >> $GITHUB_ENV
 
-      - name: Upload Debug Artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: create-user-debug-logs
-          path: |
-            /tmp/create_user_headers.txt
-            /tmp/create_user_response.json
-          retention-days: 1
+      - name: Add Summary
+        run: |
+          echo "### Provisioning Complete" >> $GITHUB_STEP_SUMMARY
+          echo "- **User:** ${{ github.event.inputs.username }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tier:** ${{ github.event.inputs.type }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status:** ✅ Success" >> $GITHUB_STEP_SUMMARY
