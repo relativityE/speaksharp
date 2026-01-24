@@ -65,7 +65,7 @@ jobs:
           cd backend/supabase
           # Repair history for the baseline migration that was moved correctly but is flagged as missing
           echo "🛠️ Repairing migration history..."
-          npx supabase migration repair 20260116000000 --status applied --project-ref "$SUPABASE_PROJECT_ID"
+          npx supabase migration repair 20260116000000 --status applied
           
           echo "🚀 Pushing migrations to production..."
           npx supabase db push
