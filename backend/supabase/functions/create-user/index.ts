@@ -68,7 +68,7 @@ Deno.serve(async (req: Request) => {
 
         // Initialize Supabase Admin Client
         const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-        const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_KEY")!;
+        const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
         if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
             return new Response(JSON.stringify({ error: "server_misconfigured" }), { status: 500 });
         }

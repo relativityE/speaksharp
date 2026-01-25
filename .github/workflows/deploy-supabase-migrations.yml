@@ -71,6 +71,21 @@ jobs:
           npx supabase db push
           echo "✅ Migrations applied successfully"
 
+      - name: Set Supabase Secrets
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+          AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
+        run: |
+          if [ -z "$AGENT_SECRET" ]; then
+            echo "❌ AGENT_SECRET not available in GitHub Secrets!"
+            exit 1
+          fi
+          cd backend/supabase
+          # Set the secret in Supabase Cloud
+          npx supabase secrets set AGENT_SECRET="$AGENT_SECRET" --project-ref "$SUPABASE_PROJECT_ID"
+          echo "✅ AGENT_SECRET synchronized to Supabase"
+
       - name: Deploy Edge Functions
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
