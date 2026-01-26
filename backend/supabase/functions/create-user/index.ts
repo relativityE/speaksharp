@@ -40,6 +40,8 @@ Deno.serve(async (req: Request) => {
         const password = body.password;
         const subscription_status = body.subscription_status || body.type;
 
+        console.log(`[Provisioning] Inputs - Email: ${email}, Status: ${subscription_status} (Raw Body Type: ${body.subscription_status} / ${body.type})`);
+
         // Agent Auth Extraction (2nd Stage Verification)
         const authHeader = req.headers.get("Authorization") || "";
         const bearer = authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : null;
@@ -90,7 +92,12 @@ Deno.serve(async (req: Request) => {
 
             if (error) {
                 // Graceful recovery for existing users
-                if (error.message?.includes("already registered")) {
+                console.log(`[Provisioning] Auth Error keys: ${Object.keys(error)}`);
+                console.log(`[Provisioning] Auth Error code: ${(error as any).code}, status: ${(error as any).status}`);
+
+                // Graceful recovery for existing users
+                // Check code, status (422), or message
+                if ((error as any).code === "email_exists" || (error as any).status === 422 || error.message?.includes("already registered")) {
                     const { data: listData, error: listError } = await supabase.auth.admin.listUsers();
                     if (listError) throw listError;
                     const existing = listData.users.find((u: any) => u.email === email);
@@ -110,7 +117,13 @@ Deno.serve(async (req: Request) => {
                     }
                 } else {
                     console.error("Auth creation error:", error);
-                    return new Response(JSON.stringify({ error: "auth_creation_failed", details: error }), { status: 500 });
+                    return new Response(JSON.stringify({
+                        error: "auth_creation_failed",
+                        details: error,
+                        debug_keys: Object.keys(error),
+                        debug_code: (error as any).code,
+                        debug_status: (error as any).status
+                    }), { status: 500 });
                 }
             } else {
                 userId = data.user.id;
@@ -126,13 +139,27 @@ Deno.serve(async (req: Request) => {
         }
 
         // 2. Provision / Upsert Profile (Tier Alignment)
-        let tier = 'free';
-        let usageLimit = 3600; // 1 hour default
+        let tier: string;
+        let usageLimit: number;
 
-        if (subscription_status === 'pro') {
+        const normalizedStatus = (subscription_status || '').toLowerCase().trim();
+
+        if (normalizedStatus === 'pro') {
             tier = 'pro';
             usageLimit = -1; // Unlimited
+        } else if (normalizedStatus === 'free') {
+            tier = 'free';
+            usageLimit = 3600; // 1 hour default
+        } else {
+            console.error(`[Provisioning] Invalid subscription status: '${subscription_status}'`);
+            return new Response(JSON.stringify({
+                error: "invalid_subscription_status",
+                message: "subscription_status must be explicitly 'free' or 'pro'",
+                received: subscription_status
+            }), { status: 400 });
         }
+
+        console.log(`[Provisioning] Decision - Tier: ${tier}, Limit: ${usageLimit} (Input Status: '${subscription_status}')`);
 
         console.log(`Upserting profile for ${userId} (status: ${tier})`);
         const { error: profileError } = await supabase
@@ -149,12 +176,37 @@ Deno.serve(async (req: Request) => {
             return new Response(JSON.stringify({ error: "profile_provision_failed", details: profileError }), { status: 500 });
         }
 
+        // VERIFICATION: Read back the profile to ensure persistence
+        const { data: verifiedProfile, error: verifyError } = await supabase
+            .from('user_profiles')
+            .select('*')
+            .eq('id', userId)
+            .single();
+
+        if (verifyError) {
+            console.error("Profile verification read failed:", verifyError);
+        } else {
+            console.log(`[Provisioning] Verification Read - ID: ${verifiedProfile.id}, Status: ${verifiedProfile.subscription_status}`);
+
+            if (verifiedProfile.subscription_status !== tier) {
+                console.error(`[CRITICAL] Profile verification mismatch! Expected '${tier}', got '${verifiedProfile.subscription_status}'`);
+                return new Response(JSON.stringify({
+                    error: "profile_verification_mismatch",
+                    message: "Database persistence did not match intent",
+                    expected: tier,
+                    actual: verifiedProfile.subscription_status,
+                    profile: verifiedProfile
+                }), { status: 500 });
+            }
+        }
+
         // 3. Final Success Response
         return new Response(JSON.stringify({
             success: true,
             ok: true,
             user: { id: userId, email: email },
-            profile: { tier, limit: usageLimit }
+            profile: { tier, limit: usageLimit },
+            verified_profile: verifiedProfile
         }), {
             status: 200,
             headers: { "Content-Type": "application/json" },
