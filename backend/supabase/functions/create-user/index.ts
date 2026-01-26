@@ -166,7 +166,8 @@ Deno.serve(async (req: Request) => {
             .from('user_profiles')
             .upsert({
                 id: userId,
-                user_id: userId,
+                // user_id column does not exist (id is the PK/FK)
+                // user_id: userId,
                 subscription_status: tier,
                 // usage_limit column does not exist in schema yet
                 // usage_limit: usageLimit, 
