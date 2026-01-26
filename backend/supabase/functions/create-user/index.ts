@@ -168,7 +168,8 @@ Deno.serve(async (req: Request) => {
                 id: userId,
                 user_id: userId,
                 subscription_status: tier,
-                usage_limit: usageLimit,
+                // usage_limit column does not exist in schema yet
+                // usage_limit: usageLimit, 
             }, { onConflict: 'id' });
 
         if (profileError) {
