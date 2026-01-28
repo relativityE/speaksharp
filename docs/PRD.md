@@ -221,7 +221,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Mon, 26 Jan 2026 21:46:05 GMT
+**Last Updated:** Wed, 28 Jan 2026 01:53:22 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -237,14 +237,14 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 513 (387 unit + 126 E2E) |
-| Unit tests              | 387   |
-| E2E tests (Playwright)  | 126  |
-| Passing tests           | 450 (387 unit + 63 E2E)   |
-| Failing tests           | 0   |
-| Disabled/skipped tests  | 63 (E2E only)   |
-| Passing unit tests      | 387/387 (100.0%)   |
-| Passing E2E tests       | 63/126 (50.0%)   |
+| Total tests             | 545 (404 unit + 141 E2E) |
+| Unit tests              | 404   |
+| E2E tests (Playwright)  | 141  |
+| Passing tests           | 441 (404 unit + 37 E2E)   |
+| Failing tests           | 31   |
+| Disabled/skipped tests  | 73 (E2E only)   |
+| Passing unit tests      | 404/404 (100.0%)   |
+| Passing E2E tests       | 37/141 (26.2%)   |
 | Total runtime           | See CI logs   |
 
 ---
@@ -253,10 +253,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | 56.97%   |
-| Branches   | 76.38%   |
-| Functions  | 68.36%   |
-| Lines      | 56.97%   |
+| Statements | 57.98%   |
+| Branches   | 76.75%   |
+| Functions  | 70.13%   |
+| Lines      | 57.98%   |
 
 ---
 
@@ -265,9 +265,9 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 | Metric              | Value |
 | ------------------- | ----- |
 | Total Source Size   | 6.0M   |
-| Total Project Size  | 1.3G   |
+| Total Project Size  | 1.6G   |
 | Initial Chunk Size  | 416K   |
-| Code Bloat Index    | 6.81%   |
+| Code Bloat Index    | 6.79%   |
 | Lighthouse Scores   | P: 0, A: 0, BP: 0, SEO: 0 |
 
 ---
