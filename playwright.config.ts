@@ -16,7 +16,7 @@ const BASE_URL = urls.dev;
 export default defineConfig({
   ...baseConfig,
   testDir: './tests/e2e',
-  testIgnore: ['**/canary/**', '**/*.live.spec.ts'],
+  testIgnore: [],
   outputDir: './test-results/playwright',
   // FAIL FAST: Aggressive timeouts - no test should hang
   timeout: 30_000, // 30s per test max

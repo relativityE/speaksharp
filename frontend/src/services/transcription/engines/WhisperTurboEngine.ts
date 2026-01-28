@@ -29,7 +29,7 @@ export class WhisperTurboEngine implements IPrivateSTTEngine {
         this.manager = new SessionManager();
     }
 
-    async init(callbacks: EngineCallbacks, timeoutMs: number = 5000): Promise<Result<void, Error>> {
+    async init(callbacks: EngineCallbacks): Promise<Result<void, Error>> {
         logger.info('[WhisperTurbo] Initializing engine...');
 
         try {
@@ -37,26 +37,19 @@ export class WhisperTurboEngine implements IPrivateSTTEngine {
                 callbacks.onModelLoadProgress(0);
             }
 
-            // Use Promise.race to implement a timeout
-            const result = await Promise.race([
-                this.manager.loadModel(
-                    AvailableModels.WHISPER_TINY,
-                    () => {
-                        logger.info('[WhisperTurbo] Model loaded callback triggered.');
-                    },
-                    (progress: number) => {
-                        if (callbacks.onModelLoadProgress) {
-                            callbacks.onModelLoadProgress(progress);
-                        }
+            // Load model without arbitrary timeout.
+            // Network speed will determine duration. Progress callbacks keep user informed.
+            const result = await this.manager.loadModel(
+                AvailableModels.WHISPER_TINY,
+                () => {
+                    logger.info('[WhisperTurbo] Model loaded callback triggered.');
+                },
+                (progress: number) => {
+                    if (callbacks.onModelLoadProgress) {
+                        callbacks.onModelLoadProgress(progress);
                     }
-                ),
-                new Promise<never>((_, reject) =>
-                    setTimeout(
-                        () => reject(new Error(`WhisperTurbo init timed out after ${timeoutMs}ms`)),
-                        timeoutMs
-                    )
-                )
-            ]);
+                }
+            );
 
             if (result.isErr) {
                 return Result.err(result.error);
@@ -79,21 +72,14 @@ export class WhisperTurboEngine implements IPrivateSTTEngine {
             logger.error({ err: e }, '[WhisperTurbo] Failed to initialize engine.');
 
             // Self-healing: Clear IndexedDB cache on failure to prevent permanent hang
-            // But DO NOT clear on timeout, as that causes infinite re-download loops for slow connections
-            const isTimeout = e.message.includes('timed out');
-
-            if (!isTimeout) {
-                try {
-                    logger.info('[WhisperTurbo] Attempting self-healing cache clear (non-timeout error)...');
-                    const deleteRequest = indexedDB.deleteDatabase('whisper-turbo');
-                    deleteRequest.onsuccess = () => {
-                        logger.info('[WhisperTurbo] Cache cleared successfully. Retry may succeed.');
-                    };
-                } catch (cacheError) {
-                    logger.warn({ err: cacheError }, '[WhisperTurbo] Failed to clear cache.');
-                }
-            } else {
-                console.warn('[WhisperTurbo] ⏳ Init timed out. Preserving cache for next attempt.');
+            try {
+                logger.info('[WhisperTurbo] Attempting self-healing cache clear...');
+                const deleteRequest = indexedDB.deleteDatabase('whisper-turbo');
+                deleteRequest.onsuccess = () => {
+                    logger.info('[WhisperTurbo] Cache cleared successfully. Retry may succeed.');
+                };
+            } catch (cacheError) {
+                logger.warn({ err: cacheError }, '[WhisperTurbo] Failed to clear cache.');
             }
 
             return Result.err(e);

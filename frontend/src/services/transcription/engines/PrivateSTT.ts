@@ -19,14 +19,9 @@
 import { Result } from 'true-myth';
 import { IPrivateSTTEngine, EngineCallbacks, EngineType } from './IPrivateSTTEngine';
 import logger from '../../../lib/logger';
-import { IS_TEST_ENVIRONMENT } from '@/config/env';
+import { IS_TEST_ENVIRONMENT } from '../../../config/env';
 
-// Engine timeout for whisper-turbo (5 seconds)
-// Engine timeout for whisper-turbo (5 seconds)
-// Engine timeout for whisper-turbo (20 seconds) - Increased to accommodate slower GPUs/laptops
-const FAST_ENGINE_TIMEOUT_MS = 20000;
-// Engine timeout for TransformersJS (20 seconds - allows for slower network/startup)
-const SAFE_ENGINE_TIMEOUT_MS = 20000;
+
 
 
 /**
@@ -34,6 +29,17 @@ const SAFE_ENGINE_TIMEOUT_MS = 20000;
  */
 function hasWebGPU(): boolean {
     return typeof navigator !== 'undefined' && 'gpu' in navigator;
+}
+
+/**
+ * Options for engine initialization
+ */
+export interface PrivateSTTInitOptions extends EngineCallbacks {
+    /** 
+     * Force a specific engine, bypassing automatic selection and test-environment mocks.
+     * Useful for unit testing the routing logic.
+     */
+    forceEngine?: EngineType;
 }
 
 /**
@@ -48,11 +54,21 @@ export class PrivateSTT {
      * In CI: Uses MockEngine (both real engines fail in Playwright)
      * In production: Tries WhisperTurbo, falls back to TransformersJS
      */
-    async init(callbacks: EngineCallbacks): Promise<Result<EngineType, Error>> {
+    async init(options: PrivateSTTInitOptions): Promise<Result<EngineType, Error>> {
         console.log('[PrivateSTT] 🚀 Automatic engine selection started...');
         logger.info('[PrivateSTT] Automatic engine selection started.');
 
-        // Force mock engine in CI/test environments
+        const callbacks = options;
+
+        // 1. Check for manual engine override (Testability/Deep-linking)
+        if (options.forceEngine) {
+            console.log(`[PrivateSTT] 🎯 Forcing engine: ${options.forceEngine}`);
+            if (options.forceEngine === 'whisper-turbo') return this.initFastEngine(callbacks);
+            if (options.forceEngine === 'transformers-js') return this.initSafeEngine(callbacks);
+            if (options.forceEngine === 'mock') return this.initMockEngine(callbacks);
+        }
+
+        // 2. Force mock engine in CI/test environments unless specifically bypassed
         if (IS_TEST_ENVIRONMENT) {
             console.log('[PrivateSTT] 🧪 Test environment detected. Using MockEngine.');
             logger.info('[PrivateSTT] Test environment detected. Using MockEngine.');
@@ -82,7 +98,7 @@ export class PrivateSTT {
         }
 
         // Fallback to safe engine
-        console.log(`[PrivateSTT] 🛡️ Initializing TransformersJS (Safe Path) with ${SAFE_ENGINE_TIMEOUT_MS}ms timeout...`);
+        console.log('[PrivateSTT] 🛡️ Initializing TransformersJS (Safe Path)...');
         return this.initSafeEngine(callbacks);
     }
 
@@ -96,9 +112,10 @@ export class PrivateSTT {
             const engine = new MockEngine();
 
             const result = await engine.init(callbacks);
-            if (result.isErr) {
-                console.error('[PrivateSTT] ❌ MockEngine initialization failed:', result.error);
-                return Result.err(result.error);
+            if (!result || result.isErr) {
+                const err = result?.error || new Error('MockEngine initialization returned no result');
+                console.error('[PrivateSTT] ❌ MockEngine initialization failed:', err);
+                return Result.err(err);
             }
 
             this.engine = engine;
@@ -123,8 +140,8 @@ export class PrivateSTT {
             const { WhisperTurboEngine } = await import('./WhisperTurboEngine');
             const engine = new WhisperTurboEngine();
 
-            console.log(`[PrivateSTT] ⏳ calling WhisperTurbo.init() with ${FAST_ENGINE_TIMEOUT_MS}ms timeout...`);
-            const result = await engine.init(callbacks, FAST_ENGINE_TIMEOUT_MS);
+            console.log('[PrivateSTT] ⏳ calling WhisperTurbo.init()...');
+            const result = await engine.init(callbacks);
 
             if (result.isErr) {
                 console.warn('[PrivateSTT] ⚠️ WhisperTurbo init returned error:', result.error);
@@ -152,15 +169,10 @@ export class PrivateSTT {
             const { TransformersJSEngine } = await import('./TransformersJSEngine');
             const engine = new TransformersJSEngine();
 
-            console.log(`[PrivateSTT] ⏳ calling TransformersJS.init() with ${SAFE_ENGINE_TIMEOUT_MS}ms timeout...`);
+            console.log('[PrivateSTT] ⏳ calling TransformersJS.init()...');
 
-            // Wrap init with timeout
-            const result = await Promise.race([
-                engine.init(callbacks, SAFE_ENGINE_TIMEOUT_MS),
-                new Promise<Result<void, Error>>((_, reject) =>
-                    setTimeout(() => reject(new Error(`TransformersJS init timed out after ${SAFE_ENGINE_TIMEOUT_MS}ms`)), SAFE_ENGINE_TIMEOUT_MS)
-                ).catch(err => Result.err<void, Error>(err)) // Catch the rejection and return Result.err
-            ]);
+            // Initialize without arbitrary timeout
+            const result = await engine.init(callbacks);
 
             if (result.isErr) {
                 console.error('[PrivateSTT] ❌ TransformersJS init returned error:', result.error);

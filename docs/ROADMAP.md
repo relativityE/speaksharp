@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-01-15
+**Last Reviewed:** 2026-01-28
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -11,23 +11,17 @@ This document outlines the forward-looking development plan for SpeakSharp. Comp
 Status Key: 🟡 In Progress | 🔴 Not Started | ✅ Complete | 🛡️ Gap Remediation
 ---
 
-## 🧪 Jan 2026 Gap Remediation Audit ✅ COMPLETE
+## 🧪 Frontend Verification & Defect Resolution (Jan 2026) 🟡 IN PROGRESS
 
-> **Goal:** Resolve critical (C1-C3) and high (H2, H3) gaps identified in the Jan 2026 Alpha Readiness review.
+> **Goal:** Resolve critical defects identified during the Jan 26 production verification to ensure a stable Alpha user experience.
 
-| ID | Title | Status | Result |
-|----|-------|--------|--------|
-| **C1** | **Private STT Integration Test** | ✅ | Created high-fidelity `PrivateSTT.integration.test.ts` covering engine selection and fallback. |
-| **C2** | **Conflicting Profile Sources** | ✅ | Removed duplicate profile state and fixed all downstream regressions in components/tests. |
-| **C3** | **Brittle E2E Login** | ✅ | Replaced `page.reload()` with `storage` event dispatch in `helpers.ts` to preserve MSW context. |
-| **H2** | **Self-Healing Cache Clear** | ✅ | Added `clearPrivateSTTCache()` call on engine initialization failure in `WhisperTurboEngine.ts`. |
-| **H3** | **Parallel CI Quality Checks** | ✅ | `scripts/test-audit.sh` now runs lint and type-check in parallel for 2x faster CI feedback. |
-| **3.1** | **Monolithic Context Optimization**| ✅ | Refactored Auth Context to isolate profile, reducing re-renders and following SSoT. |
-| **3.2** | **Analytics Scalability** | ✅ | `useAnalytics` now limits initial dashboard fetch to 20 sessions; fixed build regressions. |
-| **1.1** | **Bundle Optimization** | ✅ | Implemented `manualChunks` in `vite.config.mjs` to isolate transformers, charts, and utils. |
-| **2.1** | **CI/CD Caching Efficiency** | ✅ | Implemented `actions/cache` in `setup-environment` to persist pnpm store across jobs. |
-| **Q1** | **CI Output Refinement** | ✅ | Silenced build/lint/test noise; enforced "Print Negatives" policy. |
-| **Q2** | **Fail Fast Principle** | ✅ | Implemented aggressive timeouts and explicit assertions for all E2E tests. |
+| ID | Title | Priority | Status | Notes |
+|----|-------|----------|--------|-------|
+| **V1** | **Cloud STT CORS** | **CRITICAL** | 🟡 Ready to Deploy | `ALLOWED_ORIGIN` secret missing in production. Fix prepared in `deploy-supabase-migrations.yml`. |
+| **V2** | **Private STT WASM Crash** | **CRITICAL** | 🔴 Investigating | `WhisperTurbo` fails with `RangeError`. Needs buffer resizing or rigorous fallback handling. |
+| **V3** | **Transitions & Cleanup** | **CRITICAL** | 🔴 Investigating | Ensuring AudioContexts are cleanly torndown to prevent zombie state. |
+| **V4** | **Real-time Analysis UI** | **HIGH** | 🔴 Investigating | Detected words not updating in UI (React state binding). |
+| **V5** | **Auth Token Refresh** | **MEDIUM** | 🔴 Investigating | 400 Bad Request on refresh_token calls. |
 
 ---
 
@@ -56,7 +50,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 - ✅ **COMPLETED - Integration Test (Usage Limits):** Deno unit tests exist at `backend/supabase/functions/check-usage-limit/index.test.ts` (167 lines, 6 test cases covering auth, free/pro users, exceeded limits, graceful degradation, CORS).
 - 🔴 **Domain Services DI Refactor:** Evolve `domainServices.ts` from internal client retrieval to dependency injection pattern for fully pure, easily testable functions. Low priority - current spy-based testing works for alpha.
 - 🟡 **Console Error Highlighting (P0 - Debugging) [HIGH PRIORITY]:** Add automatic ANSI color highlighting for ERROR/FAILED/FATAL (red bold) and WARNING/WARN (yellow bold) in all terminal output. Should apply globally to any console usage (not require agents to remember a specific script). Improves developer experience for spotting issues.
-- 🟡 **Independent Documentation Review [HIGH PRIORITY]:** Have an independent reviewer analyze the codebase against documentation (ARCHITECTURE.md, PRD.md, ROADMAP.md) to identify gaps, outdated sections, and missing coverage. Ensures docs match actual implementation.
+- ✅ **Independent Documentation Review (2026-01-28):** Conducted full audit of all project documents against `docs/OUTLINE.md` requirements. Verified sync across PRD, Architecture, and Roadmap.
 - 🟡 **Gap Analysis [HIGH PRIORITY]:** Do a Gap Analysis of current implementation against the Current Phase requirements.
 - ✅ **COMPLETED (2025-12-15) - E2E Test Infrastructure: MSW-to-Playwright Routes Migration:**
   - **Problem:** MSW service workers are browser-global per-origin. Parallel shards race for registration, causing intermittent `ui-state-capture` flakiness.

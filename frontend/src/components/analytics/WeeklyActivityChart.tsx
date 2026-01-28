@@ -63,26 +63,49 @@ export const WeeklyActivityChart: React.FC = () => {
     }
 
     return (
-        <Card className="h-full">
-            <CardHeader>
-                <CardTitle>Weekly Activity</CardTitle>
-            </CardHeader>
-            <CardContent>
-                <div className="h-[250px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={chartData}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.2} />
-                            <XAxis dataKey="day" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                            <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} allowDecimals={false} />
-                            <Tooltip
-                                cursor={{ fill: 'hsla(var(--secondary))', opacity: 0.2 }}
-                                contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
-                            />
-                            <Bar dataKey="sessions" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-                        </BarChart>
-                    </ResponsiveContainer>
-                </div>
-            </CardContent>
+        <Card className="h-full bg-card border-border p-6 rounded-xl shadow-sm">
+            <div className="flex items-center justify-between mb-6">
+                <h3 className="text-lg font-semibold text-foreground">Weekly Activity</h3>
+            </div>
+            <div className="h-[250px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={chartData}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.1} />
+                        <XAxis
+                            dataKey="day"
+                            stroke="hsl(var(--muted-foreground))"
+                            fontSize={12}
+                            tickLine={false}
+                            axisLine={false}
+                            tickMargin={10}
+                        />
+                        <YAxis
+                            stroke="hsl(var(--muted-foreground))"
+                            fontSize={12}
+                            tickLine={false}
+                            axisLine={false}
+                            allowDecimals={false}
+                        />
+                        <Tooltip
+                            cursor={{ fill: 'hsl(var(--muted))', opacity: 0.2 }}
+                            contentStyle={{
+                                backgroundColor: 'hsl(var(--popover))',
+                                borderColor: 'hsl(var(--border))',
+                                color: 'hsl(var(--popover-foreground))',
+                                borderRadius: '8px',
+                                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
+                            }}
+                        />
+                        <Bar
+                            dataKey="sessions"
+                            fill="hsl(var(--primary))"
+                            radius={[6, 6, 0, 0]}
+                            barSize={32}
+                            activeBar={{ fill: 'hsl(var(--primary))', opacity: 0.8 }}
+                        />
+                    </BarChart>
+                </ResponsiveContainer>
+            </div>
         </Card>
     );
 };

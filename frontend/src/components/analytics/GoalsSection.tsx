@@ -71,45 +71,46 @@ export const GoalsSection: React.FC = () => {
     };
 
     return (
-        <Card>
-            <CardHeader>
-                <div className="flex items-center justify-between">
-                    <CardTitle className="flex items-center gap-2">
+        <Card className="bg-card border-border p-6 rounded-xl shadow-sm">
+            <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-2">
+                    <div className="p-2 bg-primary/10 rounded-lg">
                         <Target className="h-5 w-5 text-primary" />
-                        Current Goals
-                    </CardTitle>
-                    <EditGoalsDialog goals={goals} onSave={setGoals} />
+                    </div>
+                    <CardTitle className="text-lg font-semibold text-foreground">Current Goals</CardTitle>
                 </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-                <div className="space-y-2">
+                <EditGoalsDialog goals={goals} onSave={setGoals} />
+            </div>
+
+            <div className="space-y-6">
+                <div className="space-y-3">
                     <div className="flex justify-between text-sm">
-                        <span className="font-medium flex items-center gap-2">
+                        <span className="font-medium flex items-center gap-2 text-foreground">
                             <Calendar className="h-4 w-4 text-muted-foreground" />
                             Weekly Sessions
                         </span>
-                        <span className="text-muted-foreground">{weeklySessions} / {weeklyGoal}</span>
+                        <span className="font-bold text-foreground">{weeklySessions} <span className="text-muted-foreground font-normal">/ {weeklyGoal}</span></span>
                     </div>
-                    <Progress value={weeklyProgress} className="h-2" />
+                    <Progress value={weeklyProgress} className="h-2 bg-muted/50" />
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-3">
                     <div className="flex justify-between text-sm">
-                        <span className="font-medium flex items-center gap-2">
+                        <span className="font-medium flex items-center gap-2 text-foreground">
                             <Trophy className="h-4 w-4 text-muted-foreground" />
                             Clarity Score Avg
                         </span>
-                        <span className="text-muted-foreground">{avgClarityScore.toFixed(0)}% / {clarityGoal}%</span>
+                        <span className="font-bold text-foreground">{avgClarityScore.toFixed(0)}% <span className="text-muted-foreground font-normal">/ {clarityGoal}%</span></span>
                     </div>
-                    <Progress value={clarityProgress} className="h-2" />
+                    <Progress value={clarityProgress} className="h-2 bg-muted/50" />
                 </div>
 
-                <div className="pt-2">
-                    <p className="text-xs text-muted-foreground text-center">
+                <div className="pt-4 mt-2 border-t border-border/50">
+                    <p className={`text-sm text-center font-medium ${weeklySessions >= weeklyGoal ? 'text-emerald-500' : 'text-muted-foreground'}`}>
                         {getEncouragementMessage()}
                     </p>
                 </div>
-            </CardContent>
+            </div>
         </Card>
     );
 };

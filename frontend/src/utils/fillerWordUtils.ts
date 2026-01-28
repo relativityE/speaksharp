@@ -40,6 +40,10 @@ const defaultFillerPatterns: FillerPatterns = {
     [FILLER_WORD_KEYS.ACTUALLY]: /\b(actually)\b/gi,
     [FILLER_WORD_KEYS.OH]: /\b(oh|ooh|ohh)\b/gi,
     [FILLER_WORD_KEYS.I_MEAN]: /\b(i mean)\b/gi,
+    [FILLER_WORD_KEYS.BASICALLY]: /\b(basically)\b/gi,
+    [FILLER_WORD_KEYS.LITERALLY]: /\b(literally)\b/gi,
+    [FILLER_WORD_KEYS.KIND_OF]: /\b(kind of|kinda)\b/gi,
+    [FILLER_WORD_KEYS.SORT_OF]: /\b(sort of|sorta)\b/gi,
 };
 
 const FILLER_WORD_COLORS: string[] = ['#BFDBFE', '#FCA5A5', '#FDE68A', '#86EFAC', '#FDBA74', '#C4B5FD', '#6EE7B7'];

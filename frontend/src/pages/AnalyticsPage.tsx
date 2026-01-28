@@ -24,14 +24,16 @@ import { Mic, BarChart } from 'lucide-react';
 
 // --- Sub-components ---
 
+// --- Sub-components ---
+
 const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; onUpgrade: () => void }> = ({ isPro, sessionId, onUpgrade }) => {
 
     // Different heading and description based on whether viewing a specific session
     const isSessionView = !!sessionId;
-    const heading = isSessionView ? 'Session Analysis' : 'Your Dashboard';
+    const heading = isSessionView ? 'Session Analysis' : 'Your Analytics';
     const description = isSessionView
         ? 'A detailed breakdown of your recent practice session.'
-        : "Here's an overview of your progress. Keep it up!";
+        : 'Track your speaking progress and improvements';
 
     return (
         <div className="mb-8">
@@ -42,23 +44,26 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; onUpgrade: () =
             {!isSessionView && !isPro && (
                 <button
                     onClick={onUpgrade}
-                    className="w-full flex items-center justify-between bg-secondary hover:bg-secondary/90 text-white px-6 py-3 rounded-full transition-colors"
+                    className="w-full flex items-center justify-between bg-secondary hover:bg-secondary/90 text-white px-6 py-4 rounded-xl shadow-md transform transition-all hover:-translate-y-0.5"
                     data-testid="analytics-page-upgrade-button"
                 >
                     <div className="flex items-center gap-3">
-                        <Mic className="w-5 h-5" />
-                        <span className="font-medium">Free Plan</span>
-                        <span className="text-white/70 hidden sm:inline">|</span>
-                        <span className="text-sm text-white/90 hidden sm:inline">Upgrade to Pro for unlimited practice, PDF exports, and detailed analytics</span>
+                        <div className="p-2 bg-white/20 rounded-lg">
+                            <Mic className="w-5 h-5 text-white" />
+                        </div>
+                        <div className="text-left">
+                            <span className="font-bold block text-lg">Free Plan</span>
+                            <span className="text-sm text-white/90 hidden sm:inline">Upgrade for unlimited practice & advanced metrics</span>
+                        </div>
                     </div>
-                    <div className="flex items-center gap-2 font-medium">
-                        Upgrade to Pro
+                    <div className="flex items-center gap-2 font-bold bg-white text-secondary px-4 py-2 rounded-lg">
+                        Upgrade
                     </div>
                 </button>
             )}
             {!isSessionView && isPro && (
-                <div className="w-full flex items-center justify-center bg-secondary text-gray-900 px-6 py-3 rounded-full">
-                    <span className="font-medium">✨ Pro Plan Active</span>
+                <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 text-primary font-medium border border-primary/20">
+                    <span>✨ Pro Plan Active</span>
                 </div>
             )}
         </div>
@@ -69,9 +74,6 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
     const { sessionHistory, overallStats, fillerWordTrends, loading, error } = useAnalytics();
     const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
-
-    console.log('[AnalyticsPage] Rendering. sessionId:', sessionId, 'loading:', loading, 'isProfileLoading:', isProfileLoading);
-    console.log('[AnalyticsPage] sessionHistory length:', sessionHistory?.length, 'error:', error, 'profileError:', profileError);
 
     const handleUpgrade = async () => {
         try {
@@ -94,9 +96,8 @@ const AuthenticatedAnalyticsView: React.FC = () => {
 
     // Show loading state while fetching data
     if (loading || isProfileLoading) {
-        console.log('[AnalyticsPage] Showing loading state');
         return (
-            <div className="flex items-center justify-center py-16">
+            <div className="flex items-center justify-center py-24">
                 <div className="text-center">
                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
                     <p className="text-muted-foreground">Loading analytics...</p>
@@ -108,7 +109,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     // Show error state if either query failed
     if (error || profileError) {
         return (
-            <div className="text-center py-16">
+            <div className="text-center py-24">
                 <h2 className="text-2xl font-semibold mb-4 text-destructive">Error Loading Analytics</h2>
                 <p className="text-muted-foreground mb-6">
                     {error?.message || profileError?.message || 'Something went wrong. Please try again.'}
@@ -124,7 +125,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     const sessionExists = sessionId ? sessionHistory.some(s => s.id === sessionId) : true;
     if (sessionId && !sessionExists && !loading && !error) {
         return (
-            <div className="text-center py-16">
+            <div className="text-center py-24">
                 <h2 className="text-2xl font-semibold mb-4">Session Not Found</h2>
                 <p className="text-muted-foreground mb-6">We couldn't find the session you're looking for.</p>
                 <Button asChild>
@@ -153,8 +154,8 @@ const AuthenticatedAnalyticsView: React.FC = () => {
 
 export const AnalyticsPage: React.FC = () => {
     return (
-        <div className="min-h-screen bg-gradient-subtle pt-20">
-            <div className="max-w-7xl mx-auto px-8 md:px-12 py-10">
+        <div className="min-h-screen bg-background pt-20">
+            <div className="max-w-7xl mx-auto px-6 py-8">
                 <AuthenticatedAnalyticsView />
             </div>
         </div>

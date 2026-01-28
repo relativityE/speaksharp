@@ -25,7 +25,7 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
     public readonly type: EngineType = 'transformers-js';
     private transcriber: Pipeline | null = null;
 
-    async init(callbacks: EngineCallbacks, _timeoutMs?: number): Promise<Result<void, Error>> {
+    async init(callbacks: EngineCallbacks): Promise<Result<void, Error>> {
         logger.info('[TransformersJS] Initializing engine...');
 
         try {

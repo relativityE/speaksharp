@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-01-07
+**Last Reviewed:** 2026-01-28
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -420,7 +420,7 @@ The `whisper-turbo` engine uses a two-layer cache (Service Worker + IndexedDB) t
 │              │  │ [FAST PATH]    │  │ [SAFE FALLBACK]    │ ││
 │              │  │ WebGPU/WASM    │  │ ONNX Runtime       │ ││
 │              │  └───────┬────────┘  └─────────┬──────────┘ ││
-│              │          │ (20s timeout)       │            ││
+│              │          │ (Load Error)        │            ││
 │              │          │ ◀── Fail ──────────▶│            ││
 │              └──────────┼─────────────────────┼────────────┘│
 │                         │                     │             │
@@ -474,12 +474,14 @@ The `whisper-turbo` engine uses a two-layer cache (Service Worker + IndexedDB) t
 
 ### Reliability & Failure Handling
 
-| Scenario | Behavior | Implementation |
-|----------|----------|----------------|
-| **Initialization Failure** | Auto-fallback to Native Browser STT | [`TranscriptionService.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionService.ts) |
-| **Model Load Timeout** | Auto-fallback to Native Browser STT | `PrivateWhisper` timeout logic (30s) |
-| **Retry Limit Exceeded** | Limits to `STT_CONFIG.MAX_PRIVATE_ATTEMPTS` (Default: 2) | Static failure counter prevents infinite loops |
-| **"Dead" State** | User can "Clear Cache & Reload" via UI | `useTranscriptionService.ts` error handling |
+|Scenario|Behavior|Implementation|
+|---|---|---|
+|**Initialization Failure**|Auto-fallback to Native Browser STT|[`TranscriptionService.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionService.ts)|
+|**Model Load Timeout**|**Removed.** The service now waits for the full download/load cycle regardless of network speed, preventing "First Load" crashes. User sees progress updates during the wait.|`PrivateSTT.ts` / `WhisperTurboEngine.ts`|
+|**Silence Hallucination**|**Dropped via RMS VAD.** Discards silent chunks (< 1% energy / RMS < 0.01) *before* they reach the model, eliminating `[inaudible]` or `[blank audio]` hallucinations.|`PrivateWhisper.ts`|
+|**Hardware Race Condition**|**Synchronous Release.** Microphone is stopped immediately during `destroy()`, preventing "Device Busy" errors on session restart.|`TranscriptionService.ts`|
+|**Retry Limit Exceeded**|Limits to `STT_CONFIG.MAX_PRIVATE_ATTEMPTS` (Default: 2) | Static failure counter prevents infinite loops |
+|**"Dead" State**|User can "Clear Cache & Reload" via UI|`useTranscriptionService.ts` error handling|
 
 ## 3. Code Quality Standards
 
@@ -1147,6 +1149,90 @@ The [`vercel.json`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/ve
 ├─────────────────────────────────────────────────────────────────────────┤
 │  frontend/dist/ (Static SPA)                                            │
 │  ├── index.html                                                         │
+│  ├── assets/ (hashed JS/CSS)                                            │
+│  └── static/                                                            │
+└─────────────────────────────────────────────────────────────────────────┘
+
+---
+
+## 8. Workflow Architecture & Automation
+
+### 8.1 Workflow Dependency Map
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                     GitHub Actions Workflows                          │
+└──────────────────────────────────────────────────────────────────────┘
+
+1. ci.yml (Main CI Pipeline)
+   ├─ Scripts: test-audit.sh, validate-env.mjs, verify-artifacts.sh
+   ├─ Edge Functions: None directly, but tests hit all functions
+   ├─ Env Vars: EDGE_FN_URL, AGENT_SECRET
+   └─ Stages: prepare → test (4 shards) → lighthouse → report
+
+2. deploy-supabase-migrations.yml
+   ├─ Scripts: None (uses Supabase CLI)
+   ├─ Edge Functions: DEPLOYS all 7 functions
+   │  - assemblyai-token
+   │  - check-usage-limit
+   │  - get-ai-suggestions
+   │  - stripe-checkout
+   │  - stripe-webhook
+   │  - apply-promo
+   │  - create-user
+   └─ Auth: SUPABASE_ACCESS_TOKEN (admin)
+
+3. setup-test-users.yml
+   ├─ Scripts: setup-test-users.mjs
+   ├─ Edge Functions: None (uses Admin API directly)
+   ├─ Modes: e2e (1 user) | soak (bulk)
+   └─ Creates: soak-test{N}@test.com users
+
+4. create-user.yml
+   ├─ Scripts: None (direct curl)
+   ├─ Edge Functions: create-user (HTTP POST)
+   ├─ Auth: AGENT_SECRET (in request body)
+   └─ Creates: Individual ad-hoc users
+
+5. soak-test.yml
+   ├─ Scripts: None (uses Playwright directly)
+   ├─ Edge Functions: None (tests use existing users)
+   ├─ Requires: SOAK_TEST_PASSWORD
+   └─ Runs: playwright.soak.config.ts
+
+6. dev-real-integration.yml
+   ├─ Scripts: None (uses Playwright directly)
+   ├─ Edge Functions: None (tests auth flow)
+   ├─ Requires: E2E_FREE_EMAIL/PASSWORD
+   └─ Runs: auth-real.e2e.spec.ts
+
+7. canary.yml
+   ├─ Scripts: provision-canary.mjs
+   ├─ Edge Functions: None (uses Admin API)
+   ├─ Requires: CANARY_PASSWORD
+   └─ Runs: tests/canary/*.canary.spec.ts
+
+8. stripe-checkout-test.yml
+   ├─ Scripts: None (uses Playwright directly)
+   ├─ Edge Functions: stripe-checkout (tested)
+   ├─ Requires: E2E_FREE_EMAIL/PASSWORD, STRIPE_*
+   └─ Runs: playwright.stripe.config.ts
+```
+
+### 8.2 Edge Function Authentication Matrix
+
+| Edge Function | Auth Method | Required Secret |
+|--------------|-------------|----------------|
+| `create-user` | Request body: `agent_secret` | `AGENT_SECRET` |
+| `assemblyai-token` | JWT from user session | - |
+| `check-usage-limit` | JWT from user session | - |
+| `get-ai-suggestions` | JWT from user session | - |
+| `stripe-checkout` | JWT from user session | - |
+| `stripe-webhook` | Stripe signature | `STRIPE_WEBHOOK_SECRET` |
+| `apply-promo` | JWT from user session | - |
+
+**Key Insight**: Only `create-user` uses agent-based auth (for test provisioning). All others use standard JWT user auth.
+
 │  ├── assets/ (JS bundles, CSS, images)                                  │
 │  └── models/ (Whisper: tiny-q8g16.bin, tokenizer.json)                  │
 └───────────────────────────────┬─────────────────────────────────────────┘

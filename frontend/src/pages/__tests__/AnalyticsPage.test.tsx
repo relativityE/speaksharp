@@ -128,8 +128,8 @@ describe('AnalyticsPage', () => {
     describe('Dashboard View (No Session ID)', () => {
         it('should render dashboard heading', () => {
             renderAnalyticsPage('/analytics');
-            expect(screen.getByTestId('dashboard-heading')).toHaveTextContent('Your Dashboard');
-            expect(screen.getByText("Here's an overview of your progress. Keep it up!")).toBeInTheDocument();
+            expect(screen.getByTestId('dashboard-heading')).toHaveTextContent('Your Analytics');
+            expect(screen.getByText('Track your speaking progress and improvements')).toBeInTheDocument();
         });
 
         it('should render AnalyticsDashboard component', () => {

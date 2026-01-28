@@ -5,14 +5,13 @@ export const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary-light shadow-md hover:shadow-elegant transform hover:-translate-y-0.5",
-        destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-        outline: "border border-border bg-card text-foreground hover:bg-muted hover:border-primary/30",
-        secondary: "bg-gradient-secondary text-secondary-foreground hover:opacity-90 shadow-md hover:shadow-elegant transform hover:-translate-y-0.5",
-        accent: "bg-gradient-accent text-accent-foreground hover:opacity-90 shadow-md hover:shadow-elegant transform hover:-translate-y-0.5",
-        hero: "bg-gradient-hero text-white font-semibold shadow-elegant hover:shadow-2xl transform hover:-translate-y-1 hover:scale-105 transition-all duration-300",
-        ghost: "hover:bg-muted text-foreground hover:text-primary",
-        link: "text-primary underline-offset-4 hover:underline hover:text-primary-light",
+        default: "bg-primary text-primary-foreground hover:bg-primary/90 shadow-md hover:shadow-lg transform hover:-translate-y-0.5",
+        destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90 shadow-sm hover:shadow-md",
+        outline: "border border-primary text-primary hover:bg-primary/10 bg-transparent shadow-sm",
+        secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/90 shadow-md hover:shadow-lg transform hover:-translate-y-0.5",
+        accent: "bg-accent text-accent-foreground hover:bg-accent/90 shadow-md hover:shadow-lg transform hover:-translate-y-0.5",
+        ghost: "hover:bg-accent/10 hover:text-accent",
+        link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
         default: "h-10 px-4 py-2",

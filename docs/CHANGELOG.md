@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-01-13
+**Last Reviewed:** 2026-01-28
 
 # Changelog
 
@@ -8,7 +8,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+  - **File:** `TranscriptionService.ts`
+
+- **Frontend Polish (Theme):**
+  - **Feature:** Completed "Clean, Modern, Rounded" theme overhaul (Inter font, `rounded-2xl`, glassmorphism sidebar).
+  - **Files:** `index.css`, `App.tsx`, `SessionSidebar.tsx`, `LiveRecordingCard.tsx`
+
+- **Filler Word Logic:**
+  - **Fix:** Synced `highlightUtils` and `fillerWordUtils` to use Regex Tokenization, fixing detection of multi-word fillers (e.g., "you know").
+
 ### Unreleased
+
+- **CI & Documentation Audit (2026-01-28):**
+  - **Fix:** Resolved unit test regressions in `SessionPage.rendering.test.tsx` (labels "Speaking Pace", "Ready to Record").
+  - **Fix:** Resolved unit test regression in `AnalyticsPage.test.tsx` (label "Your Analytics").
+  - **Fix:** Eliminated `any` type in `StatusNotificationBar` mock to satisfy strict linting rules.
+  - **Architectural Review:** Conducted high-level audit and documented findings in `diagnosis.md`.
+  - **Verification:** Full CI suite (lint, typecheck, unit tests) verified passing locally.
+
+- **Transcription Reliability & Logic (2026-01-27):**
+  - **Feature:** Implemented energy-based VAD (RMS threshold 0.01) in `PrivateWhisper` to eliminate silence hallucinations.
+  - **Feature:** Removed hard-coded initialization timeouts in `PrivateSTT`, allowing models to load at their own pace with progress feedback.
+  - **Feature:** Synchronous microphone release in `TranscriptionService` to prevent hardware race conditions.
+  - **Fix:** Prioritized multi-word filler phrases (e.g., "you know") over single-word components in `highlightUtils`.
+  - **Test:** Achieved 100% pass rate for transcription unit tests (18/18).
+
+- **UI/UX Polish:**
+  - **Feature:** Modernized `TrendChart` with glassmorphism, animated gradients, and improved tooltips.
+  - **Fix:** Fixed broken triple-backtick markdown injection in logic files.
+
+  - **Process:** Conducted extensive manual verification of the Vercel production deployment.
+  - **Findings Documented:** Detailed root cause analysis for Cloud STT (CORS), Private STT (WASM Crash), and Audio/UI defects captured in `docs/FRONTEND_TRIAGE.md`.
+  - **Backend Fix (Provisioning):** `create-user` Edge Function now strictly enforces `subscription_status` ('free'/'pro') and performs a read-back verification to prevent default value drift.
+  - **Critical Issues Identified:**
+    - **Cloud STT:** Blocked by CORS (`ALLOWED_ORIGIN` missing in production).
+    - **Private STT:** `WhisperTurbo` WASM initialization crash (`RangeError`) causing "Blank Audio" on fallback.
+  - **Action Plan:** Prioritized task list created in `task.md` to resolve these defects immediately.
 
 - **Synchronized Auth User Provisioning:**
   - **Feature:** Implemented "2-Stage Key" auth pattern for `create-user` Edge Function to satisfy Supabase Gateway routing requirements.

@@ -1,12 +1,11 @@
-
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-01-07
+**Last Reviewed:** 2026-01-28
 
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp Product Requirements Document
 
-**Version 8.5** | **Last Updated:** 2025-12-31
+**Version 8.6** | **Last Updated:** 2026-01-27
 
 ## 1. Executive Summary
 
@@ -76,8 +75,8 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | :--- | :--- | :--- | :--- | :--- |
 | **Transcription** | 1 | The core service that converts speech to text. | ✅ Implemented | ✅ Yes |
 | **Cloud Server STT** | 1 | High-accuracy transcription via AssemblyAI. (Pro) | ✅ Implemented | ✅ Yes |
-| **Private STT** | 1 | Privacy-first transcription using **Triple-Engine Architecture**: `whisper-turbo` (GPU), `transformers.js` (CPU Fallback), or `MockEngine` (Testing). Includes **Self-Healing** (Retry Limit -> Native Fallback). (Pro) | ✅ Fully Functional | ✅ Yes |
-| **Fallback STT** | 1 | Reliable fallback to native browser API for Free users and as an **auto-recovery mode** for Cloud/Private STT. | ✅ Fully Functional | ✅ Yes |
+| **Private STT** | 1 | Privacy-first transcription using **Triple-Engine Architecture**: `whisper-turbo` (GPU), `transformers.js` (CPU Fallback), or `MockEngine` (Testing). Includes **RMS-based VAD** and **No-Timeout Load**. (Pro) | ✅ Verified (UT) | ✅ Yes |
+| **Fallback STT** | 1 | Reliable fallback to native browser API for Free users and as an **auto-recovery mode** for Cloud/Private STT. | ✅ Verified (UT) | ✅ Yes |
 | **UI Mode Selector** | 1 | Allows users to select their preferred transcription engine. | ✅ Implemented | ✅ Yes |
 | **Session History** | 1 | Users can view and analyze their past practice sessions. | ✅ Implemented | ✅ Yes |
 | **Filler Word Detection** | 1 | Detects and counts common filler words (um, uh, like, etc.). | ✅ Implemented | ✅ Yes |
@@ -184,10 +183,11 @@ For E2E infrastructure troubleshooting, see [tests/TROUBLESHOOTING.md](../tests/
 
 ### Active Constraints
 
-- **Incomplete Theming:** Only dark theme implemented. Light theme a11y constraint.
+- **Theming:** Dark Theme fully implemented with polished UI (Inter font, glassmorphism). Light theme pending.
 - **Unit Test Coverage:** 57.03% (89 tests, 52 files). Expansion tracked in tech debt.
 - **UX - Mobile Experience:** Controls on `SessionPage` scroll away ("thumb stretch" issue). Sticky footer required.
 - **🟡 Testimonials:** `TestimonialsSection` has placeholder content. Needs real user testimonials.
+- **🔴 Cloud STT (Production):** Currently blocked by CORS (`ALLOWED_ORIGIN` mismatch). Fix in progress.
 
 ### Tech Debt (Testing)
 

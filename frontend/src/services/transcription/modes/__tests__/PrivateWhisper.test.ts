@@ -86,14 +86,77 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         expect(mockMic.onFrame).toHaveBeenCalled();
         expect(frameCallback).toBeDefined();
 
-        // Simulate audio frames
+        // Simulate audio frames (must be non-silent to pass VAD)
         if (frameCallback) {
-            frameCallback(new Float32Array(16000));
+            frameCallback(new Float32Array(16000).fill(0.5));
         }
 
         // Fast forward 1.1 seconds to trigger interval (1000ms loop)
         await vi.advanceTimersByTimeAsync(1100);
 
+        expect(mocks.transcribe).toHaveBeenCalled();
+
+        await privateWhisper.stopTranscription();
+        vi.useRealTimers();
+    });
+
+    it('RMS VAD: drops silent chunks (RMS < 0.01)', async () => {
+        vi.useFakeTimers();
+        await privateWhisper.init();
+
+        let frameCallback: ((frame: Float32Array) => void) | undefined;
+        const mockMic: MicStream = {
+            sampleRate: 16000,
+            onFrame: vi.fn((cb) => { frameCallback = cb; }),
+            offFrame: vi.fn(),
+            stop: vi.fn(),
+            close: vi.fn(),
+            _mediaStream: new MediaStream(),
+        };
+
+        await privateWhisper.startTranscription(mockMic);
+
+        // Simulate silent frame (all zeros)
+        if (frameCallback) {
+            frameCallback(new Float32Array(16000).fill(0));
+        }
+
+        // Advance timer to trigger processAudio
+        await vi.advanceTimersByTimeAsync(1100);
+
+        // Verify: transcribe should NOT be called because RMS is 0
+        expect(mocks.transcribe).not.toHaveBeenCalled();
+
+        await privateWhisper.stopTranscription();
+        vi.useRealTimers();
+    });
+
+    it('RMS VAD: processes audio chunks (RMS >= 0.01)', async () => {
+        vi.useFakeTimers();
+        await privateWhisper.init();
+
+        let frameCallback: ((frame: Float32Array) => void) | undefined;
+        const mockMic: MicStream = {
+            sampleRate: 16000,
+            onFrame: vi.fn((cb) => { frameCallback = cb; }),
+            offFrame: vi.fn(),
+            stop: vi.fn(),
+            close: vi.fn(),
+            _mediaStream: new MediaStream(),
+        };
+
+        await privateWhisper.startTranscription(mockMic);
+
+        // Simulate audio frame (high amplitude squares)
+        const audioFrame = new Float32Array(16000).fill(0.5);
+        if (frameCallback) {
+            frameCallback(audioFrame);
+        }
+
+        // Advance timer
+        await vi.advanceTimersByTimeAsync(1100);
+
+        // Verify: transcribe SHOULD be called
         expect(mocks.transcribe).toHaveBeenCalled();
 
         await privateWhisper.stopTranscription();

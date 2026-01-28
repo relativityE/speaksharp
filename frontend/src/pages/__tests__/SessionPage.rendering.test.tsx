@@ -78,7 +78,11 @@ vi.mock('@/components/session/PauseMetricsDisplay', () => ({
     PauseMetricsDisplay: () => <div data-testid="pause-metrics-display">Pause Metrics</div>,
 }));
 vi.mock('@/components/session/StatusNotificationBar', () => ({
-    StatusNotificationBar: () => <div data-testid="status-notification-bar">Status Bar</div>,
+    StatusNotificationBar: ({ status }: { status: { message: string; type: string } }) => (
+        <div data-testid="status-notification-bar">
+            <span data-testid="session-status-indicator">{status.message || status.type}</span>
+        </div>
+    ),
 }));
 vi.mock('@/components/session/UserFillerWordsManager', () => ({
     UserFillerWordsManager: () => <div data-testid="user-filler-words-manager">User Filler Words Manager</div>,
@@ -167,13 +171,14 @@ describe('SessionPage Rendering', () => {
 
     it('should render the live recording card', () => {
         renderWithRouter(<SessionPage />);
-        expect(screen.getByText('Live Recording')).toBeInTheDocument();
+        expect(screen.getByTestId('live-recording-card')).toBeInTheDocument();
+        expect(screen.getByText('Ready to Record')).toBeInTheDocument();
     });
 
     it('should render metrics cards', () => {
         renderWithRouter(<SessionPage />);
         expect(screen.getByText('Clarity Score')).toBeInTheDocument();
-        expect(screen.getByText('Speaking Rate')).toBeInTheDocument();
+        expect(screen.getByText('Speaking Pace')).toBeInTheDocument();
         expect(screen.getByText('Filler Words')).toBeInTheDocument();
     });
 
@@ -182,11 +187,11 @@ describe('SessionPage Rendering', () => {
         expect(screen.getByTestId('pause-metrics-display')).toBeInTheDocument();
     });
 
-    it('should render Add Custom Word button', () => {
+    it('should render Add Custom Word settings button', () => {
         renderWithRouter(<SessionPage />);
-        // The "Add Custom Word" button is passed as headerAction to FillerWordsCard
-        // We look for the button text or aria-label
-        expect(screen.getByText('Add Custom Word')).toBeInTheDocument();
+        // The settings button is passed as headerAction to FillerWordsCard
+        expect(screen.getByTestId('add-custom-word-button')).toBeInTheDocument();
+        expect(screen.getByText('Custom')).toBeInTheDocument();
     });
 });
 
@@ -282,6 +287,7 @@ describe('Session Control', () => {
             ...mockUseSpeechRecognition(),
             isReady: false,
             isListening: true,
+            sttStatus: { type: 'initializing', message: 'Connecting...' },
         } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
         renderWithRouter(<SessionPage />);
@@ -323,13 +329,9 @@ describe('Metrics Display', () => {
             fillerData: { 'um': { count: 2 }, 'uh': { count: 3 } },
         } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
-        // Note: The mocked UserFillerWordsManager might hide the actual list if it takes over rendering?
-        // But the original test checked for specific text. The component implementation renders metrics cards 
-        // which might use fillerData props.
         renderWithRouter(<SessionPage />);
-        // The specific implementation of how filler words are displayed depends on the component.
-        // Assuming the metrics card displays total count "5"
-        expect(screen.getByTestId('filler-count-value')).toHaveTextContent('5');
+        // It should display (5) next to "Filler Words"
+        expect(screen.getByTestId('filler-count-value')).toHaveTextContent('(5)');
     });
 });
 

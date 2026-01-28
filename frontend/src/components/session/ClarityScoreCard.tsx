@@ -14,30 +14,21 @@ export const ClarityScoreCard: React.FC<ClarityScoreCardProps> = ({
     clarityLabel,
 }) => {
     return (
-        <div className="bg-card border border-border rounded-lg p-8 shadow-elegant">
-            <h3 className="text-lg font-semibold text-foreground mb-6">Clarity Score</h3>
-            <div className="flex flex-col items-center">
-                <div
-                    data-testid="clarity-score-value"
-                    style={{
-                        color: '#2aa198',
-                        fontSize: '60px',
-                        fontWeight: 700,
-                        lineHeight: 1.2,
-                        marginBottom: '1rem',
-                    }}
-                >
-                    {Math.round(clarityScore)}%
+        <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
+            <h3 className="text-lg font-semibold text-foreground mb-4">Live Stats</h3>
+            <div className="bg-muted/30 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                    <span className="text-muted-foreground text-sm">Clarity Score</span>
+                    <span className="text-primary font-bold">{Math.round(clarityScore)}%</span>
                 </div>
-                {/* Progress bar - teal filled, orange remaining */}
-                <div className="w-full h-3 rounded-full overflow-hidden flex bg-secondary mb-3">
+                <div className="h-2 bg-muted rounded-full overflow-hidden mb-2">
                     <div
-                        className="h-full bg-accent transition-all duration-300"
+                        className="h-full bg-primary rounded-full transition-all duration-300"
                         style={{ width: `${clarityScore}%` }}
                     />
                 </div>
-                <p className="text-sm text-muted-foreground">
-                    {clarityLabel || 'Excellent clarity!'}
+                <p className="text-xs text-muted-foreground text-right">
+                    {clarityLabel || 'Keep speaking clearly'}
                 </p>
             </div>
         </div>

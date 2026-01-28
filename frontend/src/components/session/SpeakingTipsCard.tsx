@@ -25,12 +25,7 @@ interface SpeakingTipsCardProps {
     tips?: SpeakingTip[];
 }
 
-const TipCard: React.FC<SpeakingTip> = ({ title, description }) => (
-    <div className="p-3 rounded-lg bg-card/80 border border-white/15 shadow-sm">
-        <h4 className="font-semibold text-foreground mb-1 text-sm">{title}</h4>
-        <p className="text-xs text-muted-foreground">{description}</p>
-    </div>
-);
+// Unused TipCard component removed as content is inlined below
 
 /**
  * Presentational component for speaking tips.
@@ -39,16 +34,20 @@ const TipCard: React.FC<SpeakingTip> = ({ title, description }) => (
 export const SpeakingTipsCard: React.FC<SpeakingTipsCardProps> = ({
     tips = defaultTips,
 }) => {
+    // Select a random tip on mount (stable for session)
+    const [tip] = React.useState(() => tips[Math.floor(Math.random() * tips.length)]);
+
     return (
-        <div className="bg-card border border-border rounded-lg p-8 shadow-elegant">
-            <div className="flex items-center gap-2 mb-6">
-                <Lightbulb className="size-5 text-secondary" />
-                <h3 className="text-lg font-semibold text-foreground">Speaking Tips</h3>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {tips.map((tip) => (
-                    <TipCard key={tip.title} title={tip.title} description={tip.description} />
-                ))}
+        <div className="bg-secondary/10 border border-secondary/30 rounded-xl p-6 shadow-sm">
+            <h2 className="text-lg font-semibold text-secondary mb-2 flex items-center gap-2">
+                <Lightbulb className="h-5 w-5" />
+                Quick Tip
+            </h2>
+            <div className="space-y-1">
+                <h4 className="font-medium text-foreground text-sm">{tip.title}</h4>
+                <p className="text-muted-foreground text-sm leading-relaxed">
+                    {tip.description}
+                </p>
             </div>
         </div>
     );

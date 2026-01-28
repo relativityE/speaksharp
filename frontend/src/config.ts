@@ -11,6 +11,10 @@ export const FILLER_WORD_KEYS = {
   ACTUALLY: 'actually',
   OH: 'oh',
   I_MEAN: 'I Mean',
+  BASICALLY: 'basically',
+  LITERALLY: 'literally',
+  KIND_OF: 'Kind Of',
+  SORT_OF: 'Sort Of',
 } as const;
 
 // Session time limits (in seconds)

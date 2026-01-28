@@ -1,6 +1,6 @@
 import React from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
+import { Card } from '@/components/ui/card';
 
 interface TrendDataPoint {
     date: string;
@@ -18,58 +18,67 @@ interface TrendChartProps {
 
 export const TrendChart: React.FC<TrendChartProps> = ({ data, metric, title, description }) => {
     const metricConfig = {
-        wpm: { color: '#3b82f6', label: 'WPM', unit: '' },
-        clarity: { color: '#10b981', label: 'Clarity', unit: '%' },
-        fillers: { color: '#ef4444', label: 'Fillers', unit: '' },
+        wpm: { color: 'hsl(var(--primary))', label: 'WPM', unit: '' },
+        clarity: { color: 'hsl(var(--chart-2))', label: 'Clarity', unit: '%' }, // Usually green/emerald in theme
+        fillers: { color: 'hsl(var(--secondary))', label: 'Fillers', unit: '' },
     };
 
     const config = metricConfig[metric];
 
     return (
-        <Card data-testid={`${metric}-trend-chart`}>
-            <CardHeader>
-                <CardTitle>{title}</CardTitle>
-                {description && <CardDescription>{description}</CardDescription>}
-            </CardHeader>
-            <CardContent>
+        <Card className="bg-card border-border p-6 rounded-xl shadow-sm" data-testid={`${metric}-trend-chart`}>
+            <div className="mb-6">
+                <h3 className="text-lg font-semibold text-foreground">{title}</h3>
+                {description && <p className="text-sm text-muted-foreground">{description}</p>}
+            </div>
+
+            <div className="h-[300px] w-full">
                 {data.length < 2 ? (
-                    <div className="flex items-center justify-center h-[300px] text-center text-muted-foreground">
-                        <p>Complete at least 2 sessions to see your {config.label.toLowerCase()} trend.</p>
+                    <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground bg-muted/20 rounded-xl border border-dashed border-border">
+                        <p className="font-medium">Not enough data yet</p>
+                        <p className="text-sm">Complete at least 2 sessions to see your {config.label.toLowerCase()} trend.</p>
                     </div>
                 ) : (
-                    <ResponsiveContainer width="100%" height={300}>
-                        <LineChart data={data}>
-                            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                    <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={data} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.1} />
                             <XAxis
                                 dataKey="date"
-                                className="text-xs"
-                                tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                                stroke="hsl(var(--muted-foreground))"
+                                fontSize={12}
+                                tickLine={false}
+                                axisLine={false}
+                                tickMargin={10}
                             />
                             <YAxis
-                                className="text-xs"
-                                tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                                stroke="hsl(var(--muted-foreground))"
+                                fontSize={12}
+                                tickLine={false}
+                                axisLine={false}
+                                tickFormatter={(value) => `${value}${config.unit}`}
                             />
                             <Tooltip
                                 contentStyle={{
-                                    backgroundColor: 'hsl(var(--card))',
-                                    border: '1px solid hsl(var(--border))',
-                                    borderRadius: '8px'
+                                    backgroundColor: 'hsl(var(--popover))',
+                                    borderColor: 'hsl(var(--border))',
+                                    color: 'hsl(var(--popover-foreground))',
+                                    borderRadius: '8px',
+                                    boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
                                 }}
                             />
-                            <Legend />
-                            <Line
+                            <Area
                                 type="monotone"
                                 dataKey={metric}
                                 stroke={config.color}
+                                fill={`url(#color-${metric})`}
                                 strokeWidth={2}
-                                name={`${config.label}${config.unit}`}
-                                dot={{ fill: config.color, r: 4 }}
-                                activeDot={{ r: 6 }}
+                                dot={false}
+                                activeDot={{ r: 4, strokeWidth: 0 }}
                             />
-                        </LineChart>
+                        </AreaChart>
                     </ResponsiveContainer>
                 )}
-            </CardContent>
+            </div>
         </Card>
     );
 };

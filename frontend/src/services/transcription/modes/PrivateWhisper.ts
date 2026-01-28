@@ -14,7 +14,8 @@
  * -------------
  * This service uses the PrivateSTT facade which:
  * 1. Detects available hardware capabilities
- * 2. Tries whisper-turbo first (5s timeout)
+ * 1. Detects available hardware capabilities
+ * 2. Tries whisper-turbo first
  * 3. Falls back to transformers.js on failure
  * 4. Forces transformers.js in CI/test environments
  * 
@@ -38,7 +39,7 @@ import { ITranscriptionMode, TranscriptionModeOptions } from './types';
 import { MicStream } from '../utils/types';
 import { concatenateFloat32Arrays } from '../utils/AudioProcessor';
 import { TranscriptUpdate } from '../TranscriptionService';
-import { IS_TEST_ENVIRONMENT } from '@/config/env';
+import { IS_TEST_ENVIRONMENT } from '../../../config/env';
 
 // Extend Window interface for E2E test flags
 declare global {
@@ -61,24 +62,29 @@ type Status = 'idle' | 'loading' | 'transcribing' | 'stopped' | 'error';
  * Used for self-repair when browser locks occur.
  */
 export async function clearPrivateSTTCache(): Promise<void> {
-  return new Promise((resolve) => {
-    logger.info('[PrivateSTT] Attempting to clear model cache...');
+  logger.info('[PrivateSTT] Attempting to clear model cache...');
 
-    // Clear whisper-turbo cache
-    const request1 = indexedDB.deleteDatabase('whisper-turbo');
-    request1.onsuccess = () => {
-      logger.info('[PrivateSTT] whisper-turbo IndexedDB cleared.');
+  const clearDB = (name: string) => new Promise<void>((resolve) => {
+    const request = indexedDB.deleteDatabase(name);
+    request.onsuccess = () => {
+      logger.info(`[PrivateSTT] ${name} IndexedDB cleared.`);
+      resolve();
     };
-
-    // Clear transformers cache
-    const request2 = indexedDB.deleteDatabase('transformers-cache');
-    request2.onsuccess = () => {
-      logger.info('[PrivateSTT] transformers-cache IndexedDB cleared.');
+    request.onerror = () => {
+      logger.warn(`[PrivateSTT] Failed to clear ${name} IndexedDB.`);
+      resolve(); // Resolve anyway to allow other cleanup
     };
-
-    // Resolve after a short delay to allow both operations
-    setTimeout(resolve, 100);
+    request.onblocked = () => {
+      logger.warn(`[PrivateSTT] Clear ${name} blocked. Ensure all tabs are closed.`);
+      resolve();
+    };
   });
+
+  // Clear both caches in parallel and wait for actual completion events
+  await Promise.all([
+    clearDB('whisper-turbo'),
+    clearDB('transformers-cache')
+  ]);
 }
 
 export default class PrivateWhisper implements ITranscriptionMode {
@@ -219,6 +225,19 @@ export default class PrivateWhisper implements ITranscriptionMode {
       // Concatenate all chunks using shared utility
       const concatenated = concatenateFloat32Arrays(this.audioChunks);
 
+      // RMS VAD: Prevent silence from reaching the model to avoid hallucinations
+      let sum = 0;
+      for (let i = 0; i < concatenated.length; i++) {
+        sum += concatenated[i] * concatenated[i];
+      }
+      const rms = Math.sqrt(sum / concatenated.length);
+
+      // Threshold 0.01 (1%) is a safe silence threshold for 16-bit audio range (-1 to 1)
+      if (rms < 0.01) {
+        this.audioChunks = [];
+        return;
+      }
+
       // CRITICAL FIX: The MicStream ALREADY downsamples to 16kHz (confirmed in audioUtils.impl.ts).
       // Double downsampling (16k -> 16k) is harmless, but if we guessed 44k -> 16k on 16k input, we'd decimate it.
       // So detailed logging is better than blind downsampling here.
@@ -250,6 +269,7 @@ export default class PrivateWhisper implements ITranscriptionMode {
 
       // Append new text to transcript (incremental)
       const newText = result.value || '';
+
       if (newText.trim()) {
         // Append with space if transcript already has content
         this.transcript = this.transcript ? `${this.transcript} ${newText}` : newText;

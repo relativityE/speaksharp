@@ -368,104 +368,100 @@ export const SessionPage: React.FC = () => {
 
 
 
-            <div className="max-w-7xl mx-auto px-6 pb-12 space-y-6">
-                {/* Status Notification Bar - Shows STT state transitions & critical alerts */}
-                <StatusNotificationBar
-                    status={
-                        // Priority 1: Session feedback (warnings, success messages)
-                        sessionFeedbackMessage
-                            ? {
-                                type: sessionFeedbackMessage.includes('⚠️') ? 'error' : 'ready',
-                                message: sessionFeedbackMessage
+            {/* Main Content Grid */}
+            <div className="max-w-7xl mx-auto px-6 pb-12">
+                <div className="grid lg:grid-cols-3 gap-6">
+
+                    {/* LEFT COLUMN: Recording & Transcript (Span 2) */}
+                    <div className="lg:col-span-2 space-y-6">
+                        {/* Status Bar */}
+                        <StatusNotificationBar
+                            status={
+                                sessionFeedbackMessage
+                                    ? { type: sessionFeedbackMessage.includes('⚠️') ? 'error' : 'ready', message: sessionFeedbackMessage }
+                                    : showAnalyticsPrompt
+                                        ? { type: 'ready', message: '✓ Session saved. Click Analytics above to review your performance.' }
+                                        : modelLoadingProgress != null
+                                            ? { type: 'downloading', message: 'Downloading model...', progress: modelLoadingProgress }
+                                            : (usageLimit?.promo_just_expired)
+                                                ? { type: 'error', message: '⚠️ Promo code expired. Session limit reverted to 5 mins.' }
+                                                : displayStatus
                             }
-                            // Priority 2: Session completed - show analytics prompt
-                            : showAnalyticsPrompt
-                                ? { type: 'ready', message: '✓ Session saved. Click Analytics above to review your performance.' }
-                                // Priority 3: If a model is downloading, show downloading status
-                                : modelLoadingProgress != null
-                                    ? { type: 'downloading', message: 'Downloading model...', progress: modelLoadingProgress }
-                                    // Priority 4: Override status if promo expired
-                                    : (usageLimit?.promo_just_expired)
-                                        ? { type: 'error', message: '⚠️ Promo code expired. Session limit reverted to 5 mins.' }
-                                        // Priority 5: Show current STT status
-                                        : displayStatus
-                    }
-                />
+                        />
 
-                {/* Live Recording Card - Full Width */}
-                <LiveRecordingCard
-                    mode={mode}
-                    isListening={isListening}
-                    isReady={isReady}
-                    isProUser={isProUser}
-                    modelLoadingProgress={modelLoadingProgress}
-                    formattedTime={metrics.formattedTime}
-                    elapsedSeconds={elapsedTime}
-                    isButtonDisabled={isButtonDisabled}
-                    onModeChange={(newMode) => {
-                        console.log(`[SessionPage] [DEBUG-SWITCH] UI Dropdown changed to: ${newMode}`);
-                        setMode(newMode);
-                    }}
-                    onStartStop={handleStartStop}
-                />
+                        {/* Main Recording Card */}
+                        <LiveRecordingCard
+                            mode={mode}
+                            isListening={isListening}
+                            isReady={isReady}
+                            isProUser={isProUser}
+                            modelLoadingProgress={modelLoadingProgress}
+                            formattedTime={metrics.formattedTime}
+                            elapsedSeconds={elapsedTime}
+                            isButtonDisabled={isButtonDisabled}
+                            onModeChange={(newMode) => {
+                                console.log(`[SessionPage] [DEBUG-SWITCH] UI Dropdown changed to: ${newMode}`);
+                                setMode(newMode);
+                            }}
+                            onStartStop={handleStartStop}
+                        />
 
-                {/* Live Transcript Display - Right below Live Recording */}
-                <LiveTranscriptPanel
-                    transcript={transcript.transcript}
-                    isListening={isListening}
-                    containerRef={transcriptContainerRef}
-                    customWords={userFillerWords}
-                />
-            </div>
+                        {/* Live Transcript */}
+                        <LiveTranscriptPanel
+                            transcript={transcript.transcript}
+                            isListening={isListening}
+                            containerRef={transcriptContainerRef}
+                            customWords={userFillerWords}
+                        />
+                    </div>
 
-            {/* Metrics Cards - Full Width Stacked */}
-            <div className="max-w-7xl mx-auto px-6 pb-12 space-y-6">
-                {/* Filler Words - Moved to top as requested */}
-                <FillerWordsCard
-                    fillerCount={metrics.fillerCount}
-                    fillerData={fillerData}
-                    headerAction={
-                        <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-                            <PopoverTrigger asChild>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    data-testid="add-custom-word-button"
-                                    className="text-amber-500 hover:text-amber-400 hover:bg-amber-500/10 gap-2 h-9 px-3 font-medium transition-colors"
-                                >
-                                    <Settings className="h-4 w-4" />
-                                    Add Custom Word
-                                </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-80 bg-card border-border shadow-xl mr-6">
-                                <UserFillerWordsManager onWordAdded={() => setIsSettingsOpen(false)} />
-                            </PopoverContent>
-                        </Popover>
-                    }
-                />
+                    {/* RIGHT COLUMN: Real-time Stats Sidebar (Span 1) */}
+                    <div className="space-y-6">
+                        <FillerWordsCard
+                            fillerCount={metrics.fillerCount}
+                            fillerData={fillerData}
+                            headerAction={
+                                <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            data-testid="add-custom-word-button"
+                                            className="text-primary underline-offset-4 hover:underline"
+                                        >
+                                            <Settings className="h-4 w-4" />
+                                            Custom
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-80 bg-card border-border shadow-xl mr-6">
+                                        <UserFillerWordsManager onWordAdded={() => setIsSettingsOpen(false)} />
+                                    </PopoverContent>
+                                </Popover>
+                            }
+                        />
 
-                {/* Clarity Score */}
-                <ClarityScoreCard
-                    clarityScore={metrics.clarityScore}
-                    clarityLabel={metrics.clarityLabel}
-                />
+                        {/* Clarity Score */}
+                        <ClarityScoreCard
+                            clarityScore={metrics.clarityScore}
+                            clarityLabel={metrics.clarityLabel}
+                        />
 
-                {/* Pause Analysis - Right below Clarity Score */}
-                <div>
-                    <PauseMetricsDisplay metrics={pauseMetrics} isListening={isListening} />
+                        {/* Speaking Rate */}
+                        <SpeakingRateCard
+                            wpm={metrics.wpm}
+                            wpmLabel={metrics.wpmLabel}
+                        />
+
+                        {/* Pause Analysis */}
+                        <div className="bg-card border border-border rounded-xl overflow-hidden">
+                            <PauseMetricsDisplay metrics={pauseMetrics} isListening={isListening} />
+                        </div>
+
+                        {/* Tips */}
+                        <SpeakingTipsCard />
+                    </div>
+
                 </div>
-
-
-
-                {/* Speaking Rate - Above Speaking Tips */}
-                <SpeakingRateCard
-                    wpm={metrics.wpm}
-                    wpmLabel={metrics.wpmLabel}
-                />
-
-                {/* Speaking Tips */}
-                <SpeakingTipsCard />
-
             </div>
 
             {/* Mobile Sticky Action Bar */}

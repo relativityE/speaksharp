@@ -1,7 +1,7 @@
 import React from 'react';
 import { TEST_IDS } from '@/constants/testIds';
 
-import { parseTranscriptForHighlighting, getWordColor } from '@/utils/highlightUtils';
+import { parseTranscriptForHighlighting } from '@/utils/highlightUtils';
 
 interface LiveTranscriptPanelProps {
     transcript: string;
@@ -24,16 +24,16 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
 
     return (
         <div
-            className="bg-card border border-border rounded-lg p-6 shadow-elegant"
+            className="bg-card border border-border rounded-2xl p-6 shadow-sm"
             data-testid={TEST_IDS.TRANSCRIPT_PANEL}
         >
             <div className="flex items-center gap-2 mb-4">
                 <div className="w-1 h-5 bg-primary rounded"></div>
-                <h3 className="text-base font-semibold text-foreground">Live Transcript</h3>
+                <h3 className="text-lg font-semibold text-foreground">Live Transcript</h3>
             </div>
             <div
                 ref={containerRef}
-                className="h-[250px] overflow-y-auto p-4 rounded-lg bg-background/50 border border-white/10 scroll-smooth leading-relaxed"
+                className="h-[250px] overflow-y-auto p-4 rounded-xl bg-muted/30 leading-relaxed transition-all"
                 data-testid={TEST_IDS.TRANSCRIPT_CONTAINER}
                 aria-live="polite"
                 aria-label="Live transcript of your speech"
@@ -42,7 +42,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                 {isListening && (!transcript || transcript.trim() === '') ? (
                     <p className="text-muted-foreground italic animate-pulse">Listening...</p>
                 ) : transcript && transcript.trim() !== '' ? (
-                    <div className="text-white text-lg">
+                    <div className="text-foreground text-lg">
                         {tokens.map((token, i) => {
                             if (token.type === 'error') {
                                 return (
@@ -55,8 +55,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                                 return (
                                     <span
                                         key={i}
-                                        style={{ color: token.color || getWordColor(token.text) }}
-                                        className="font-medium mx-0.5"
+                                        className="bg-secondary/20 text-secondary px-1.5 py-0.5 rounded mx-0.5 font-medium transition-all"
                                     >
                                         {token.text}
                                     </span>
@@ -66,7 +65,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                         })}
                     </div>
                 ) : (
-                    <p className="text-white/60 italic">words appear here...</p>
+                    <p className="text-muted-foreground italic">words appear here...</p>
                 )}
             </div>
         </div>

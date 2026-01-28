@@ -65,7 +65,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
             data-testid="stt-status-bar"
         >
             <Icon className={`h-5 w-5 ${config.textClass} ${isAnimated ? 'animate-spin' : ''}`} />
-            <span className={`text-sm font-bold ${config.textClass}`}>
+            <span data-testid="session-status-indicator" className={`text-sm font-bold ${config.textClass}`}>
                 {status.message || (status.type === 'idle' ? 'Ready' : '')}
             </span>
             {status.progress !== undefined && status.type === 'downloading' && (

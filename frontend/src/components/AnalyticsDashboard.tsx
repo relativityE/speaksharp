@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { toast } from 'sonner';
-import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity } from 'lucide-react';
+import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -63,6 +63,7 @@ interface SessionHistoryItemProps {
     isPro: boolean;
     isSelected: boolean;
     onToggleSelect: (sessionId: string) => void;
+    profileName: string;
 }
 
 // --- Stat Card Configuration ---
@@ -197,82 +198,101 @@ const ANALYSIS_STORAGE_KEY = 'speaksharp_selected_analysis_slides_v3';
 // --- Sub-components ---
 
 const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, className, testId }) => (
-    <Card className={className} data-testid={testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`}>
-        <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
-            {icon}
-        </CardHeader>
-        <CardContent>
+    <Card className={`bg-card border-border p-6 rounded-xl shadow-sm ${className}`} data-testid={testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`}>
+        <div className="flex items-center justify-between mb-4">
+            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${label.includes('Filler') ? 'bg-secondary/10 text-secondary' : 'bg-primary/10 text-primary'}`}>
+                {/* Clone icon to enforce size and styling if needed, but usually props are fine. Wrapper handles color. */}
+                {React.cloneElement(icon as React.ReactElement, { size: 24, className: "stroke-current" })}
+            </div>
+            {/* Trend placeholder - could be passed as prop later */}
+            {label.includes('Pace') && (
+                <span className="flex items-center gap-1 text-sm text-emerald-500 font-medium">
+                    <TrendingUp className="w-4 h-4" />
+                    Optimal
+                </span>
+            )}
+        </div>
+        <div>
             <div className="flex items-baseline gap-1">
-                <span style={{ fontSize: '48px', fontWeight: 700, color: '#2aa198', lineHeight: 1 }}>
+                <span className="text-3xl font-bold text-foreground tracking-tight">
                     {value}
                 </span>
-                {unit && <span className="text-xl font-medium text-muted-foreground">{unit}</span>}
+                {unit && <span className="text-sm font-medium text-muted-foreground ml-1">{unit}</span>}
             </div>
-        </CardContent>
+            <p className="text-sm text-muted-foreground mt-1 font-medium">{label}</p>
+        </div>
     </Card>
 );
 
-
-interface SessionHistoryItemProps {
-    session: PracticeSession;
-    isPro: boolean;
-    isSelected: boolean;
-    onToggleSelect: (sessionId: string) => void;
-    profileName: string;
-}
-
 const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro, isSelected, onToggleSelect, profileName }) => {
     const totalFillers = Object.values(session.filler_words || {}).reduce((sum, data) => sum + (data.count || 0), 0);
-    const durationMins = (session.duration / 60).toFixed(1);
-    const wpm = session.wpm ?? (session.duration > 0 && session.total_words ? Math.round((session.total_words / session.duration) * 60) : 'N/A');
-    const clarity = session.clarity_score ?? (session.accuracy ? (session.accuracy * 100) : null);
+    const durationMins = Math.floor(session.duration / 60);
+    const durationSecs = session.duration % 60;
+    const durationStr = `${durationMins}:${durationSecs.toString().padStart(2, '0')}`;
+
+    const wpm = session.wpm ?? (session.duration > 0 && session.total_words ? Math.round((session.total_words / session.duration) * 60) : 0);
+    const clarity = session.clarity_score ?? (session.accuracy ? (session.accuracy * 100) : 0);
 
     return (
-        <Card className="p-4 transition-all duration-200 hover:bg-secondary/50" data-testid={`${TEST_IDS.SESSION_HISTORY_ITEM}-${session.id}`}>
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div className="flex items-center gap-3 flex-grow">
+        <div
+            className="group flex flex-col md:flex-row items-center justify-between p-4 bg-muted/30 rounded-xl hover:bg-muted/50 transition-all border border-transparent hover:border-border mb-3 last:mb-0"
+            data-testid={`${TEST_IDS.SESSION_HISTORY_ITEM}-${session.id}`}
+        >
+            <div className="flex items-center gap-4 w-full md:w-auto mb-4 md:mb-0">
+                <div className="flex items-center h-full">
                     <Checkbox
                         checked={isSelected}
                         onCheckedChange={() => onToggleSelect(session.id)}
-                        data-testid="compare-checkbox"
+                        className="mr-4"
                         aria-label={`Select session for comparison`}
                     />
-                    <div>
-                        <p className="font-semibold text-foreground text-base">{session.title || `Session from ${formatDate(session.created_at)}`}</p>
-                        <p className="text-xs text-muted-foreground">
-                            {formatDateTime(session.created_at)}
-                        </p>
-                    </div>
                 </div>
-                <div className="flex items-center gap-6 text-right">
-                    <div>
-                        <p className="text-xs text-muted-foreground">Pace</p>
-                        <p className="font-bold text-base text-foreground">{wpm} WPM</p>
+                <div className="w-12 h-12 bg-secondary/20 rounded-xl flex items-center justify-center shrink-0">
+                    <Mic className="w-6 h-6 text-secondary" />
+                </div>
+                <div>
+                    <p className="font-semibold text-foreground text-base truncate max-w-[200px]">{session.title || 'Practice Session'}</p>
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Clock className="w-3 h-3" />
+                        <span>{durationStr} duration</span>
+                        <span className="text-muted-foreground/50">•</span>
+                        <span>{formatDateTime(session.created_at)}</span>
                     </div>
-                    <div>
-                        <p className="text-xs text-muted-foreground">Accuracy</p>
-                        <p className="font-bold text-base text-foreground">{clarity ? `${clarity.toFixed(1)}%` : 'N/A'}</p>
-                    </div>
-                    <div>
-                        <p className="text-xs text-muted-foreground">Fillers</p>
-                        <p className="font-bold text-base text-foreground">{totalFillers}</p>
-                    </div>
-                    <div>
-                        <p className="text-xs text-muted-foreground">Duration</p>
-                        <p className="font-bold text-base text-foreground">{durationMins} min</p>
-                    </div>
-                    {isPro && (
-                        <div>
-                            <p className="text-xs text-muted-foreground">Report</p>
-                            <Button variant="ghost" size="icon" className="-mr-2 h-7 w-7" onClick={() => generateSessionPdf(session, profileName)} aria-label="Download Session PDF" title="Download Session PDF">
-                                <Download className="h-4 w-4" />
-                            </Button>
-                        </div>
-                    )}
                 </div>
             </div>
-        </Card>
+
+            <div className="flex items-center gap-8 w-full md:w-auto justify-between md:justify-end px-4 md:px-0">
+                <div className="text-center">
+                    <p className="font-bold text-foreground text-lg">{wpm}</p>
+                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">WPM</p>
+                </div>
+                <div className="text-center">
+                    <p className={`font-bold text-lg ${totalFillers <= 3 ? "text-emerald-500" : "text-secondary"}`}>
+                        {totalFillers}
+                    </p>
+                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Fillers</p>
+                </div>
+                <div className="text-center">
+                    <p className="font-bold text-primary text-lg">{typeof clarity === 'number' ? clarity.toFixed(0) : '0'}%</p>
+                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Clarity</p>
+                </div>
+
+                {isPro && (
+                    <div className="pl-4 border-l border-border hidden md:block">
+                        <Button variant="ghost" size="icon" className="hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors" onClick={() => generateSessionPdf(session, profileName)} title="Download Report">
+                            <Download className="h-5 w-5" />
+                        </Button>
+                    </div>
+                )}
+            </div>
+            {isPro && (
+                <div className="w-full flex justify-end md:hidden pt-4 border-t border-border mt-4">
+                    <Button variant="ghost" size="sm" className="w-full gap-2 text-muted-foreground" onClick={() => generateSessionPdf(session, profileName)}>
+                        <Download className="h-4 w-4" /> Download Report
+                    </Button>
+                </div>
+            )}
+        </div>
     );
 };
 
@@ -693,19 +713,19 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
                 {/* Session History Section - Moved below carousel */}
                 <div id="session-history-section">
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between">
-                            <CardTitle>Session History</CardTitle>
+                    <Card className="bg-card border-border p-6 rounded-2xl shadow-sm">
+                        <div className="flex items-center justify-between mb-6">
+                            <h2 className="text-lg font-semibold text-foreground">Session History</h2>
                             {selectedSessions.length === 2 && (
                                 <Button
                                     onClick={() => setShowComparison(true)}
-                                    variant="default"
+                                    className="bg-primary text-primary-foreground hover:bg-primary/90"
                                 >
-                                    Compare Sessions
+                                    Compare Selected (2)
                                 </Button>
                             )}
-                        </CardHeader>
-                        <CardContent className="space-y-4" data-testid={TEST_IDS.SESSION_HISTORY_LIST}>
+                        </div>
+                        <div className="space-y-4" data-testid={TEST_IDS.SESSION_HISTORY_LIST}>
                             {sessionHistory && sessionHistory.length > 0 ? (
                                 sessionHistory.slice(0, 10).map((session) => (
                                     <SessionHistoryItem
@@ -714,13 +734,15 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                         isPro={isProUser}
                                         isSelected={selectedSessions.includes(session.id)}
                                         onToggleSelect={toggleSessionSelection}
-                                        profileName={''}
+                                        profileName={profile?.email || 'User'}
                                     />
                                 ))
                             ) : (
-                                <div className="text-center py-8 text-muted-foreground">No sessions available.</div>
+                                <div className="text-center py-12 text-muted-foreground bg-muted/20 rounded-xl border border-dashed border-border">
+                                    <p>No sessions recorded yet.</p>
+                                </div>
                             )}
-                        </CardContent>
+                        </div>
                     </Card>
                 </div>
             </div>

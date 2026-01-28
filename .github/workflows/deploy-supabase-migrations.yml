@@ -83,8 +83,9 @@ jobs:
           fi
           cd backend/supabase
           # Set the secret in Supabase Cloud
-          npx supabase secrets set AGENT_SECRET="$AGENT_SECRET" --project-ref "$SUPABASE_PROJECT_ID"
-          echo "✅ AGENT_SECRET synchronized to Supabase"
+          # Using wildcard or multiple origins if needed, but here we set the canonical production URL.
+          npx supabase secrets set AGENT_SECRET="$AGENT_SECRET" ALLOWED_ORIGIN="https://speaksharp.vercel.app,https://speaksharp-public.vercel.app,http://localhost:5173" --project-ref "$SUPABASE_PROJECT_ID"
+          echo "✅ AGENT_SECRET and ALLOWED_ORIGIN synchronized to Supabase"
 
       - name: Deploy Edge Functions
         env:

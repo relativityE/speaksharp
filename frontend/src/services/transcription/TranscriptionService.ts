@@ -359,6 +359,19 @@ export default class TranscriptionService {
     const start = performance.now();
     logger.info('[TranscriptionService] [DEBUG-TIMING] Destroying service START.');
 
+    // CRITICAL: Stop microphone IMMEDIATELY to release hardware resources.
+    // Waiting for instance.terminate() (which might be async/slow) causes a race condition
+    // where the new service tries to acquire the mic while the old one is still holding it.
+    try {
+      if (this.mic) {
+        this.mic.stop();
+        this.mic = null;
+        logger.info('[TranscriptionService] Microphone stopped immediately.');
+      }
+    } catch (error) {
+      logger.debug({ error }, '[TranscriptionService] Error stopping mic during destroy');
+    }
+
     // Attempt strict termination first if available (for Private STT worker cleanup)
     if (this.instance && typeof this.instance.terminate === 'function') {
       try {
@@ -377,12 +390,6 @@ export default class TranscriptionService {
       }
     }
 
-    try {
-      this.mic?.stop();
-    } catch (error) {
-      logger.debug({ error }, '[TranscriptionService] Error stopping mic during destroy');
-    }
     this.instance = null;
-    this.mic = null;
   }
 }

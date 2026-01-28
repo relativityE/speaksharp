@@ -1,3 +1,4 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import TranscriptionService from '../TranscriptionService';
 import { TranscriptionPolicy } from '../TranscriptionPolicy';
 import { MicStream } from '../utils/types';
@@ -30,11 +31,11 @@ const mockPrivateInstance = {
 };
 
 vi.mock('../modes/NativeBrowser', () => ({
-    default: vi.fn(() => mockNativeInstance)
+    default: vi.fn().mockImplementation(() => mockNativeInstance)
 }));
 
 vi.mock('../modes/PrivateWhisper', () => ({
-    default: vi.fn(() => mockPrivateInstance)
+    default: vi.fn().mockImplementation(() => mockPrivateInstance)
 }));
 
 describe('TranscriptionService', () => {
@@ -123,5 +124,50 @@ describe('TranscriptionService', () => {
 
         // Assert
         expect(legacyInstance.stopTranscription).toHaveBeenCalled();
+    });
+
+    it('should release the microphone IMMEDIATELY on destroy', async () => {
+        // Arrange
+        const mockMicStop = vi.fn();
+        const policy: TranscriptionPolicy = {
+            allowNative: true,
+            allowCloud: false,
+            allowPrivate: true,
+            preferredMode: 'native',
+            allowFallback: true,
+            executionIntent: 'test'
+        };
+
+        const fastService = new TranscriptionService({
+            onTranscriptUpdate: mockOnTranscriptUpdate,
+            onModelLoadProgress: mockOnModelLoadProgress,
+            onReady: mockOnReady,
+            onStatusChange: mockOnStatusChange,
+            onModeChange: mockOnModeChange,
+            session: null,
+            navigate: mockNavigate,
+            getAssemblyAIToken: mockGetToken,
+            policy,
+            mockMic: {
+                stream: {} as MediaStream,
+                stop: mockMicStop,
+                clone: vi.fn(),
+            } as unknown as MicStream
+        });
+
+        // Setup engine that takes a while to terminate
+        mockNativeInstance.init.mockResolvedValueOnce(undefined);
+        mockNativeInstance.terminate.mockImplementation(() => new Promise(res => setTimeout(res, 50)));
+
+        await fastService.init();
+        await fastService.startTranscription();
+
+        // Act
+        const destroyPromise = fastService.destroy();
+
+        // Assert: Mic should be stopped IMMEDIATELY (sync/microtask), before destroy completes
+        expect(mockMicStop).toHaveBeenCalled();
+
+        await destroyPromise;
     });
 });

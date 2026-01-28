@@ -1,3 +1,5 @@
+import { FILLER_WORD_KEYS } from '../config';
+
 /**
  * HSL token palette for deterministic assignment.
  * Optimized for dark mode readability.
@@ -36,38 +38,66 @@ export const ERROR_TAG_REGEX = /\[(inaudible|blank_audio|music|applause|laughter
  * Parses a transcript into tokens for highlighting.
  */
 export const parseTranscriptForHighlighting = (text: string, customWords: string[] = []) => {
-    // 1. Split by spaces but keep delimiters if possible? 
-    // Simpler: split by spaces and check regex match.
-    // Note: This is a basic tokenizer; complex punctuation might need better handling.
-    return text.split(/\s+/).map((token, index) => {
-        const cleanToken = token.toLowerCase().replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, "");
+    if (!text) return [];
 
-        // Check for Error Tags
-        if (ERROR_TAG_REGEX.test(token)) {
+    // Combine standard filler keys and custom words
+    const standardFillers = Object.values(FILLER_WORD_KEYS);
+    // Sort by length descending to match longest phrases first (e.g. "you know" before "you")
+    const allFillers = [...standardFillers, ...customWords]
+        .filter(w => w && w.trim().length > 0)
+        .sort((a, b) => b.length - a.length);
+
+    // Escape special regex chars in fillers
+    const escapedFillers = allFillers.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+
+    // Create master regex for splitting: matches any filler or error tag
+    const errorPattern = ERROR_TAG_REGEX.source;
+    const fillerPattern = escapedFillers.join('|');
+
+    // Regex: (ErrorTags)|(Fillers) - case insensitive
+    const tokenRegex = new RegExp(`(${errorPattern})|\\b(${fillerPattern})\\b`, 'gi');
+
+    // Split the text. Capturing groups will be included in the array.
+    const parts = text.split(tokenRegex).filter(p => p !== undefined && p !== '');
+
+    // Map parts to tokens
+    return parts.map((part, index) => {
+        const cleanPart = part.toLowerCase().trim();
+
+        // Check exact match with fillers
+        const matchedFiller = allFillers.find(f => f.toLowerCase() === cleanPart);
+        if (matchedFiller) {
             return {
-                text: token,
-                type: 'error',
-                id: index
+                text: part,
+                type: 'filler',
+                color: getWordColor(matchedFiller.toLowerCase()),
+                id: String(index)
             };
         }
 
-        // Check for Custom Words / Fillers
-        // Standard fillers + Custom
-        const FILLERS = ['um', 'uh', 'like', 'you know', 'sort of', 'kind of', 'literally', 'basically', 'actually', ...customWords.map(w => w.toLowerCase())];
-
-        if (FILLERS.includes(cleanToken)) {
+        if (ERROR_TAG_REGEX.test(cleanPart)) {
             return {
-                text: token,
-                type: 'filler',
-                color: getWordColor(cleanToken),
-                id: index
+                text: part,
+                type: 'error',
+                id: String(index)
             };
         }
 
         return {
-            text: token,
+            text: part,
             type: 'text',
-            id: index
+            id: String(index)
         };
+    }).flatMap(token => {
+        if (token.type === 'text') {
+            // Split text block into words (preserving spaces)
+            const subWords = token.text.split(/(\s+)/).filter(s => s.length > 0);
+            return subWords.map((w, i) => ({
+                text: w,
+                type: 'text',
+                id: `${token.id}-${i}`
+            }));
+        }
+        return token;
     });
 };

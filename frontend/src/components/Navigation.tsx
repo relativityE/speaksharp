@@ -158,8 +158,8 @@ const Navigation = () => {
                   <Button variant="outline" size="sm" asChild>
                     <Link to="/auth">Sign In</Link>
                   </Button>
-                  <Button variant="hero" size="sm" asChild>
-                    <Link to="/auth/signup">Get Started</Link>
+                  <Button variant="ghost" size="sm" asChild>
+                    <Link to="/auth/signup" className="text-primary underline-offset-4 hover:underline">Get Started</Link>
                   </Button>
                 </>
               )}
