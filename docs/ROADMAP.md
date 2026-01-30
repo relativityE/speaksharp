@@ -17,7 +17,7 @@ Status Key: 🟡 In Progress | 🔴 Not Started | ✅ Complete | 🛡️ Gap Rem
 
 | ID | Title | Priority | Status | Notes |
 |----|-------|----------|--------|-------|
-| **V1** | **Cloud STT CORS** | **CRITICAL** | 🟡 Ready to Deploy | `ALLOWED_ORIGIN` secret missing in production. Fix prepared in `deploy-supabase-migrations.yml`. |
+| **V1** | **Cloud STT CORS** | **CRITICAL** | ✅ Complete | `ALLOWED_ORIGIN` set in Supabase production. Verified 2026-01-28. |
 | **V2** | **Private STT WASM Crash** | **CRITICAL** | ✅ Complete | Implemented buffer preservation and strict chunk validation to prevent RangeErrors. |
 | **V3** | **Transitions & Cleanup** | **CRITICAL** | ✅ Complete | Verified AudioContext cleanup and cross-component state synchronization. |
 | **V4** | **Real-time Analysis UI** | **HIGH** | ✅ Complete | Refactored Session Page with paired grid layout and matched component heights. |
