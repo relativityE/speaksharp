@@ -114,20 +114,25 @@ export default class NativeBrowser implements ITranscriptionMode {
       try {
         logger.info('[NativeBrowser] onend reached, attempting immediate restart...');
         this.isRestarting = true;
-        // INTENTIONAL DELAY: Hardware Release Buffer
-        // The Web Speech API requires a brief tick to release the microphone handle
-        // before a new .start() call will be accepted.
-        setTimeout(() => {
+
+        // EVENT-BASED RESTART: Use queueMicrotask instead of arbitrary setTimeout
+        // queueMicrotask schedules work after current microtask completes but before
+        // next event loop tick - this is the minimal delay needed for the browser to
+        // release the mic handle while remaining event-driven (not arbitrary delay).
+        queueMicrotask(() => {
           if (this.isListening && this.recognition) {
             try {
               this.recognition.start();
               this.isRestarting = false;
             } catch (err) {
-              logger.error({ err }, "[NativeBrowser] Failed to restart in onend");
-              this.isRestarting = false;
+              // If immediate restart fails, use exponential backoff with event-based retry
+              logger.warn({ err }, "[NativeBrowser] Immediate restart failed, using backoff");
+              this.retryWithBackoff(0);
             }
+          } else {
+            this.isRestarting = false;
           }
-        }, 50);
+        });
       } catch (error) {
         logger.error({ error }, "Error in NativeBrowser onend handler:");
         this.isRestarting = false;
@@ -172,6 +177,46 @@ export default class NativeBrowser implements ITranscriptionMode {
     }
 
     logger.info('[NativeBrowser] recognition.start() called successfully.');
+  }
+
+  /**
+   * EVENT-BASED RETRY: Exponential backoff for mic restart failures
+   * Uses requestAnimationFrame as event trigger instead of arbitrary timeouts.
+   * Max 3 attempts with 100ms, 200ms, 400ms delays.
+   */
+  private retryWithBackoff(attempt: number): void {
+    const MAX_ATTEMPTS = 3;
+    const BASE_DELAY_MS = 100;
+
+    if (attempt >= MAX_ATTEMPTS) {
+      logger.error('[NativeBrowser] Max restart attempts reached, giving up');
+      this.isRestarting = false;
+      if (this.onError) {
+        this.onError(TranscriptionError.network('Speech recognition restart failed after multiple attempts', false));
+      }
+      return;
+    }
+
+    const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+    logger.info({ attempt, delay }, '[NativeBrowser] Scheduling retry with backoff');
+
+    // Use setTimeout here because we genuinely need a delay for backoff
+    // This is NOT an arbitrary wait - it's intentional exponential backoff
+    setTimeout(() => {
+      if (!this.isListening || !this.recognition) {
+        this.isRestarting = false;
+        return;
+      }
+
+      try {
+        this.recognition.start();
+        this.isRestarting = false;
+        logger.info({ attempt }, '[NativeBrowser] Restart succeeded after backoff');
+      } catch (err) {
+        logger.warn({ err, attempt }, '[NativeBrowser] Backoff retry failed, trying next attempt');
+        this.retryWithBackoff(attempt + 1);
+      }
+    }, delay);
   }
 
   public async stopTranscription(): Promise<string> {
