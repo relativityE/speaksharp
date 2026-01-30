@@ -208,7 +208,7 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, className
             {label.includes('Pace') && (
                 <span className="flex items-center gap-1 text-sm text-emerald-500 font-medium">
                     <TrendingUp className="w-4 h-4" />
-                    Optimal
+                    Target: 130-150
                 </span>
             )}
         </div>
@@ -279,16 +279,24 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro,
 
                 {isPro && (
                     <div className="pl-4 border-l border-border hidden md:block">
-                        <Button variant="ghost" size="icon" className="hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors" onClick={() => generateSessionPdf(session, profileName)} title="Download Report">
-                            <Download className="h-5 w-5" />
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            className="gap-2 hover:bg-primary hover:text-primary-foreground transition-all shadow-sm"
+                            onClick={() => generateSessionPdf(session, profileName)}
+                            title="Download Session PDF"
+                            data-testid={`download-pdf-btn-${session.id}`}
+                        >
+                            <Download className="h-4 w-4" />
+                            PDF
                         </Button>
                     </div>
                 )}
             </div>
             {isPro && (
                 <div className="w-full flex justify-end md:hidden pt-4 border-t border-border mt-4">
-                    <Button variant="ghost" size="sm" className="w-full gap-2 text-muted-foreground" onClick={() => generateSessionPdf(session, profileName)}>
-                        <Download className="h-4 w-4" /> Download Report
+                    <Button variant="secondary" size="sm" className="w-full gap-2 text-muted-foreground" onClick={() => generateSessionPdf(session, profileName)} data-testid={`download-pdf-btn-mobile-${session.id}`}>
+                        <Download className="h-4 w-4" /> Download Session PDF
                     </Button>
                 </div>
             )}
@@ -715,7 +723,10 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                 <div id="session-history-section">
                     <Card className="bg-card border-border p-6 rounded-2xl shadow-sm">
                         <div className="flex items-center justify-between mb-6">
-                            <h2 className="text-lg font-semibold text-foreground">Session History</h2>
+                            <div>
+                                <h2 className="text-xl font-bold text-foreground">Export Reports</h2>
+                                <p className="text-sm text-muted-foreground mt-1">Download detailed session summaries and performance analysis</p>
+                            </div>
                             {selectedSessions.length === 2 && (
                                 <Button
                                     onClick={() => setShowComparison(true)}

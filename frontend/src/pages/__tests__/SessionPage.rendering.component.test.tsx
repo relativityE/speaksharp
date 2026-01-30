@@ -23,6 +23,7 @@ vi.mock('../../hooks/useSpeechRecognition', () => ({
         error: null,
         resetTranscript: vi.fn(),
         sttStatus: { type: 'ready', message: 'Ready' },
+        chunks: [],
     })),
 }));
 vi.mock('../../stores/useSessionStore', () => ({
@@ -124,6 +125,7 @@ describe('SessionPage Rendering', () => {
             error: null,
             resetTranscript: vi.fn(),
             sttStatus: { type: 'ready', message: 'Ready' },
+            chunks: [],
         } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
         mockUseSessionStore.mockReturnValue({
@@ -172,7 +174,7 @@ describe('SessionPage Rendering', () => {
     it('should render the live recording card', () => {
         renderWithRouter(<SessionPage />);
         expect(screen.getByTestId('live-recording-card')).toBeInTheDocument();
-        expect(screen.getByText('Ready to Record')).toBeInTheDocument();
+        expect(screen.getByText('Live Session')).toBeInTheDocument();
     });
 
     it('should render metrics cards', () => {

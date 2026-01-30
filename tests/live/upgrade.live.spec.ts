@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute } from '../e2e/helpers';
 
 test.describe('Upgrade Flow Payload Verification', () => {
 

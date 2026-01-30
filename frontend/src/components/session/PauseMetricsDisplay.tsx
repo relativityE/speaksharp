@@ -6,17 +6,18 @@ import type { PauseMetrics } from '@/services/audio/pauseDetector';
 interface PauseMetricsDisplayProps {
     metrics: PauseMetrics;
     isListening: boolean;
+    className?: string;
 }
 
-export const PauseMetricsDisplay: React.FC<PauseMetricsDisplayProps> = ({ metrics, isListening }) => {
+export const PauseMetricsDisplay: React.FC<PauseMetricsDisplayProps> = ({ metrics, isListening, className = "" }) => {
     const formatDuration = (seconds: number): string => {
         if (seconds < 1) return `${Math.round(seconds * 1000)}ms`;
         return `${seconds.toFixed(1)}s`;
     };
 
     return (
-        <Card>
-            <CardHeader>
+        <Card className={`h-full border-border rounded-xl flex flex-col ${className}`}>
+            <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-base">
                     <Pause className="h-4 w-4" />
                     Pause Analysis

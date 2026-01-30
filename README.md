@@ -5,6 +5,31 @@
 
 SpeakSharp is an AI-powered speech coaching application that helps users improve their public speaking skills. It provides real-time feedback on filler words, speaking pace, and more.
 
+### 🎙️ Core Features
+
+-   **Triple-Engine Transcription:** 
+    -   **Private Mode:** High-performance on-device processing via `whisper-turbo` (WebGPU/WASM) for maximum privacy.
+    -   **Cloud Mode:** High-fidelity transcription via AssemblyAI Streaming with custom vocabulary boosting.
+    -   **Native Mode:** Universal compatibility using the browser's Web Speech API.
+-   **Advanced Vocal Analytics:**
+    -   **Adaptive Noise Floor:** Intelligently filters background noise to provide precision pause detection.
+    -   **Rolling WPM:** Smooth, 15-second rolling window for real-time speaking pace feedback.
+    -   **Optimal Pace Targeting:** Real-time guidance toward the 130-150 WPM professional standard.
+-   **Session History & Insights:** 
+    -   Interactive dashboards with streak tracking.
+    -   AI-powered speaking tips and clarity scores.
+    -   Detailed PDF report export for every session.
+-   **Production Grade:** Full Sentry monitoring, PostHog product analytics, and Stripe payment integration.
+
+---
+
+## 🛠️ Tech Stack & Architecture
+
+-   **Frontend:** React 18, Vite, Tailwind CSS, TanStack Query, Zustand.
+-   **Backend:** Supabase (Auth, Postgres, Edge Functions).
+-   **Infrastructure:** GitHub Actions CI/CD with parallelized sharding and multi-stage audits.
+-   **Monitoring:** Sentry (Error Tracking), PostHog (Product Analytics).
+
 ## Project Structure
 
 The codebase is organized into clearly separated directories:
@@ -36,7 +61,8 @@ speaksharp/
 
 | Test Type | Location | Pattern |
 |-----------|----------|---------|
-| **Unit Tests** | `frontend/src/**/__tests__/` | `*.test.ts`, `*.test.tsx` |
+| **Unit Tests** | `frontend/src/**/__tests__/` | `*.test.ts` (Logic) |
+| **Component Tests** | `frontend/src/**/__tests__/` | `*.component.test.tsx` (DOM) |
 | **Integration Tests** | `frontend/tests/integration/` | `*.spec.ts` |
 | **E2E Tests** | `tests/e2e/` | `*.e2e.spec.ts` |
 | **Soak/Canary Tests** | `tests/soak/`, `tests/e2e/` | `*.spec.ts` |
@@ -218,11 +244,18 @@ pnpm test:all
 
 **🔥 Want to run tests against REAL live services?**
 ```bash
-pnpm test:e2e:live
+pnpm test:live
 ```
-- Runs specific E2E tests (`*-real.e2e.spec.ts`, `smoke/`) against a real database and real Whisper engine (simulating production environment locally)
+- Runs specific E2E tests (`tests/live/*.spec.ts`) against a real database and real Whisper engine (simulating production environment locally)
 - Requires proper `.env` setup with live credentials (DB, Stripe, etc.)
 - **Use for:** Verifying integrations that cannot be mocked (e.g., precise audio decoding, real database transactions)
+
+**🐦 Want to verify Staging/Production?**
+```bash
+pnpm test:canary
+```
+- Runs smoke tests against the deployed URL (or local via config config).
+- **Use for:** Post-deployment verification.
 
 ### E2E Debugging
 

@@ -8,6 +8,7 @@ interface LiveTranscriptPanelProps {
     isListening: boolean;
     containerRef?: React.RefObject<HTMLDivElement>;
     customWords?: string[];
+    className?: string;
 }
 
 /**
@@ -19,12 +20,13 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     isListening,
     containerRef,
     customWords = [],
+    className = "",
 }) => {
     const tokens = parseTranscriptForHighlighting(transcript, customWords);
 
     return (
         <div
-            className="bg-card border border-border rounded-2xl p-6 shadow-sm"
+            className={`bg-card border border-border rounded-2xl p-6 shadow-sm flex flex-col ${className}`}
             data-testid={TEST_IDS.TRANSCRIPT_PANEL}
         >
             <div className="flex items-center gap-2 mb-4">
@@ -33,7 +35,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
             </div>
             <div
                 ref={containerRef}
-                className="h-[250px] overflow-y-auto p-4 rounded-xl bg-muted/30 leading-relaxed transition-all"
+                className="flex-1 overflow-y-auto p-4 rounded-xl bg-muted/30 leading-relaxed transition-all min-h-[200px]"
                 data-testid={TEST_IDS.TRANSCRIPT_CONTAINER}
                 aria-live="polite"
                 aria-label="Live transcript of your speech"
@@ -55,7 +57,8 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                                 return (
                                     <span
                                         key={i}
-                                        className="bg-secondary/20 text-secondary px-1.5 py-0.5 rounded mx-0.5 font-medium transition-all"
+                                        style={{ color: token.color, backgroundColor: `${token.color}15` }}
+                                        className="px-1.5 py-0.5 rounded mx-0.5 font-bold transition-all border border-current"
                                     >
                                         {token.text}
                                     </span>

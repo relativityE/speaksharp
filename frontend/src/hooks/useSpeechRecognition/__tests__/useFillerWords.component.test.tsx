@@ -8,7 +8,7 @@ import * as fillerWordUtils from '../../../utils/fillerWordUtils';
 vi.mock('../../../utils/fillerWordUtils');
 
 describe('useFillerWords', () => {
-  const mockChunks: Chunk[] = [{ text: 'Hello um world', id: 1 }];
+  const mockChunks: Chunk[] = [{ text: 'Hello um world', id: 1, timestamp: Date.now() }];
   const customWords = ['like'];
 
   beforeEach(() => {

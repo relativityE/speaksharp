@@ -14,6 +14,9 @@ vi.mock('@/services/audio/pauseDetector', () => {
                 averagePauseDuration: 1.5,
                 longestPause: 2.0,
                 pausesPerMinute: 3.0,
+                silencePercentage: 10,
+                transitionPauses: 3,
+                extendedPauses: 2,
             }),
             reset: vi.fn(),
         })),
@@ -50,6 +53,9 @@ describe('useVocalAnalysis', () => {
             averagePauseDuration: 0,
             longestPause: 0,
             pausesPerMinute: 0,
+            silencePercentage: 0,
+            transitionPauses: 0,
+            extendedPauses: 0,
         });
 
         act(() => {
@@ -61,6 +67,9 @@ describe('useVocalAnalysis', () => {
             averagePauseDuration: 1.5,
             longestPause: 2.0,
             pausesPerMinute: 3.0,
+            silencePercentage: 10,
+            transitionPauses: 3,
+            extendedPauses: 2,
         });
     });
 
@@ -82,6 +91,9 @@ describe('useVocalAnalysis', () => {
             averagePauseDuration: 0,
             longestPause: 0,
             pausesPerMinute: 0,
+            silencePercentage: 0,
+            transitionPauses: 0,
+            extendedPauses: 0,
         });
     });
 

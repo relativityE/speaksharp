@@ -47,7 +47,7 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
 
         // Start session
         await startButton.click();
-        await expect(page.getByText('Stop').first()).toBeVisible({ timeout: 10000 });
+        await expect(page.getByRole('button', { name: /stop/i })).toBeVisible();
 
         // Verify Clarity Score displayed
         await expect(page.getByText('Clarity Score')).toBeVisible();
@@ -95,10 +95,13 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
         await navigateToRoute(page, '/analytics');
 
-        await expect(page.getByTestId('dashboard-heading')).toBeVisible();
-
         // Verify key analytics components
-        await expect(page.getByText('Session History')).toBeVisible();
+        // Wait for skeleton to disappear before checking content
+        await expect(page.getByTestId('analytics-dashboard-skeleton')).not.toBeVisible();
+
+        // "Session History" was renamed/reorganized under "Export Reports" or just the list itself
+        await expect(page.getByText('Export Reports')).toBeVisible();
+        await expect(page.getByTestId('session-history-list')).toBeVisible();
     });
 
     test('should show upgrade prompts for free users', async ({ page }) => {
@@ -107,7 +110,8 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
 
         // Free users should see upgrade options
         // Wait for dashboard to load (past skeleton state)
-        await expect(page.getByTestId('analytics-dashboard')).toBeVisible();
+        await expect(page.locator('.animate-spin')).not.toBeVisible({ timeout: 15000 });
+        await expect(page.getByTestId('analytics-dashboard')).toBeVisible({ timeout: 30000 });
 
         // Free users should see upgrade options
         const upgradeButton = page.getByTestId('analytics-dashboard-upgrade-button');

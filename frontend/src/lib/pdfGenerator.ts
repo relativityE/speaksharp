@@ -38,13 +38,29 @@ export const generateSessionPdf = async (session: Session, username: string = 'U
 
     // --- Analytics ---
     doc.setFontSize(16);
-    doc.text('Analytics', 14, 60);
+    doc.text('Vocal Analytics', 14, 60);
+
+    const analyticsData = [
+      ['Metric', 'Value'],
+      ['Speaking Pace (WPM)', session.wpm?.toString() || 'N/A'],
+      ['Silence Percentage', session.pause_metrics?.silencePercentage ? `${session.pause_metrics.silencePercentage.toFixed(1)}%` : 'N/A'],
+      ['Short Pauses (0.5-1.5s)', session.pause_metrics?.transitionPauses?.toString() || '0'],
+      ['Long Pauses (>1.5s)', session.pause_metrics?.extendedPauses?.toString() || '0'],
+      ['Longest Pause', session.pause_metrics?.longestPause ? `${session.pause_metrics.longestPause.toFixed(1)}s` : 'N/A'],
+    ];
+
+    autoTable(doc, {
+      startY: 70,
+      body: analyticsData,
+      theme: 'striped',
+      headStyles: { fillColor: [41, 128, 185] },
+    });
 
     if (session.filler_words) {
       const tableData = Object.entries(session.filler_words).map(([word, data]) => [word, data.count]);
       autoTable(doc, {
-        startY: 70,
-        head: [['Filler Word', 'Count']],
+        startY: (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10,
+        head: [['Filler Word', 'Frequency']],
         body: tableData,
         theme: 'striped',
         headStyles: { fillColor: [22, 160, 133] },

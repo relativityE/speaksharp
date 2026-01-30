@@ -156,7 +156,7 @@ const renderApp = async (initialSession: Session | null = null) => {
 
 const initialize = async () => {
   console.log('[main.tsx] 🏁 Initialize started');
-  console.info('[BUILD] Build ID:', __BUILD_ID__);
+  console.info('[BUILD] Build ID:', typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : 'unknown');
 
   // 🔧 ServiceWorker registration with timeout to prevent indefinite hangs
   // Fire-and-forget pattern - app continues loading in parallel

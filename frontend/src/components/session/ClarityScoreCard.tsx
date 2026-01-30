@@ -19,7 +19,7 @@ export const ClarityScoreCard: React.FC<ClarityScoreCardProps> = ({
             <div className="bg-muted/30 rounded-xl p-4">
                 <div className="flex items-center justify-between mb-2">
                     <span className="text-muted-foreground text-sm">Clarity Score</span>
-                    <span className="text-primary font-bold">{Math.round(clarityScore)}%</span>
+                    <span className="text-primary font-bold" data-testid="clarity-score-value">{Math.round(clarityScore)}%</span>
                 </div>
                 <div className="h-2 bg-muted rounded-full overflow-hidden mb-2">
                     <div

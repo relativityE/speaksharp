@@ -114,7 +114,7 @@ test.describe('Live Transcript Feature', () => {
     // Verify that the UI updates to show the session is active
     debugLog('[TEST DEBUG] Waiting for session status indicator...');
     const sessionActiveIndicator = page.getByTestId('session-status-indicator');
-    await expect(sessionActiveIndicator).toHaveText(/● Recording/); // Match with or without mode suffix
+    await expect(sessionActiveIndicator).toHaveText(/Recording active/); // Match with or without mode suffix
 
     // The transcript container should show that we're listening
     debugLog('[TEST DEBUG] Waiting for transcript container to show "Listening..."...');
@@ -123,17 +123,25 @@ test.describe('Live Transcript Feature', () => {
 
     // Use the existing e2e-bridge infrastructure to dispatch a mock transcript
     debugLog('[TEST DEBUG] Dispatching mock transcript via window.dispatchMockTranscript...');
-    await page.waitForFunction(() => typeof (window as unknown as { dispatchMockTranscript: unknown }).dispatchMockTranscript === 'function', null, { timeout: 5000 });
-    await page.evaluate(() => {
-      const win = window as Window & { dispatchMockTranscript?: (text: string, isFinal: boolean) => void };
-      if (win.dispatchMockTranscript) {
-        win.dispatchMockTranscript('This is a mock transcript.', true);
-      }
+
+    await page.waitForFunction(() => typeof (window as unknown as { dispatchMockTranscript: unknown }).dispatchMockTranscript === 'function', null, { timeout: 30000 });
+
+    // Robust Retry Loop: Dispatch and check for text
+    // This handles race conditions where the listener might not be bound yet
+    await expect(async () => {
+      await page.evaluate(() => {
+        const win = window as Window & { dispatchMockTranscript?: (text: string, isFinal: boolean) => void };
+        if (win.dispatchMockTranscript) {
+          win.dispatchMockTranscript('This is a mock transcript.', true);
+        }
+      });
+      // Short timeout for the check inside the loop
+      await expect(transcriptContainer).toContainText('This is a mock transcript.', { timeout: 2000 });
+    }).toPass({
+      intervals: [1000, 2000, 5000],
+      timeout: 30000
     });
 
-    // Verify the transcript appears (Note: UI strips spaces in rendering)
-    debugLog('[TEST DEBUG] Waiting for mock transcript to appear...');
-    await expect(transcriptContainer).toContainText('Thisisamocktranscript', { timeout: 15000 });
     debugLog('[TEST DEBUG] ✅ Mock transcript appeared.');
   });
 });

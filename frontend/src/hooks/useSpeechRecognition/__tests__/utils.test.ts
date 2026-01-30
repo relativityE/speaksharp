@@ -4,8 +4,8 @@ import type { Chunk } from '../types';
 
 describe('useSpeechRecognition utils', () => {
   const mockChunks: Chunk[] = [
-    { text: 'Hello', id: 1 },
-    { text: 'world', id: 2 }
+    { text: 'Hello', id: 1, timestamp: 1000 },
+    { text: 'world', id: 2, timestamp: 2000 }
   ];
 
   describe('combineChunksToText', () => {

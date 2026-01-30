@@ -115,8 +115,9 @@ test.describe('User Filler Words UI & Detection (Local)', () => {
         await mockLiveTranscript(page, ['This is a detectiontest for antigravity.']);
 
         // 7. Assert "Filler Words" count increased (custom word detected)
-        // Scroll to FillerWordsCard to ensure it's in view for detection updates
-        await page.getByText('Filler Words', { exact: true }).first().scrollIntoViewIfNeeded();
+        // Scroll to FillerWordsCard using test ID for reliability
+        const fillerWordsCard = page.getByTestId('filler-words-list').locator('..'); // Get parent card
+        await fillerWordsCard.scrollIntoViewIfNeeded();
 
         // Wait for filler detection to process
         await page.waitForTimeout(2000);

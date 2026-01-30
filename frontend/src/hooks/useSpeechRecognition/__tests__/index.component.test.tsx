@@ -192,7 +192,7 @@ describe('useSpeechRecognition', () => {
     });
 
     expect(mockUseTranscriptState.addChunk).toHaveBeenCalledWith('hello world', undefined);
-    expect(mockUseTranscriptState.setInterimTranscript).toHaveBeenCalledWith('');
+    expect(mockUseTranscriptState.setInterimTranscript).toHaveBeenCalledWith(expect.any(Function));
   });
 
   it('should return null from stopListening on failure', async () => {

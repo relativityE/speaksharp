@@ -23,6 +23,8 @@ test.describe('Goal Setting', () => {
     test('should display goals section in analytics', async ({ page }) => {
         await programmaticLoginWithRoutes(page);
         await navigateToRoute(page, '/analytics');
+        await page.waitForLoadState('networkidle');
+        await expect(page.getByTestId('dashboard-heading')).toBeVisible();
 
         // Verify Goals section exists
         const goalsSection = page.getByText('Current Goals');

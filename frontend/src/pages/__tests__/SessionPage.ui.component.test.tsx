@@ -77,6 +77,7 @@ describe('SessionPage - STT Mode Selection UI', () => {
             error: null,
             resetTranscript: vi.fn(),
             sttStatus: { type: 'ready', message: '' },
+            chunks: [],
         } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
         mockUseSessionStore.mockReturnValue({

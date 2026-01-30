@@ -6,21 +6,21 @@ describe('useSessionMetrics', () => {
     describe('formattedTime', () => {
         it('formats 0 seconds as 00:00', () => {
             const { result } = renderHook(() =>
-                useSessionMetrics({ transcript: '', fillerData: {}, elapsedTime: 0 })
+                useSessionMetrics({ transcript: '', chunks: [], fillerData: {}, elapsedTime: 0 })
             );
             expect(result.current.formattedTime).toBe('00:00');
         });
 
         it('formats 65 seconds as 01:05', () => {
             const { result } = renderHook(() =>
-                useSessionMetrics({ transcript: '', fillerData: {}, elapsedTime: 65 })
+                useSessionMetrics({ transcript: '', chunks: [], fillerData: {}, elapsedTime: 65 })
             );
             expect(result.current.formattedTime).toBe('01:05');
         });
 
         it('formats 3661 seconds as 61:01', () => {
             const { result } = renderHook(() =>
-                useSessionMetrics({ transcript: '', fillerData: {}, elapsedTime: 3661 })
+                useSessionMetrics({ transcript: '', chunks: [], fillerData: {}, elapsedTime: 3661 })
             );
             expect(result.current.formattedTime).toBe('61:01');
         });
@@ -31,6 +31,7 @@ describe('useSessionMetrics', () => {
             const { result } = renderHook(() =>
                 useSessionMetrics({
                     transcript: 'hello world',
+                    chunks: [],
                     fillerData: {},
                     elapsedTime: 0
                 })
@@ -43,6 +44,7 @@ describe('useSessionMetrics', () => {
             const { result } = renderHook(() =>
                 useSessionMetrics({
                     transcript: 'one two three four five six seven eight nine ten',
+                    chunks: [],
                     fillerData: {},
                     elapsedTime: 30
                 })
@@ -50,38 +52,40 @@ describe('useSessionMetrics', () => {
             expect(result.current.wpm).toBe(20);
         });
 
-        it('returns optimal label for 120-160 WPM', () => {
-            // 120 words in 60 seconds = 120 WPM
-            const words = Array(120).fill('word').join(' ');
+        it('returns optimal label for 130-150 WPM', () => {
+            // 140 words in 60 seconds = 140 WPM
+            const words = Array(140).fill('word').join(' ');
             const { result } = renderHook(() =>
-                useSessionMetrics({ transcript: words, fillerData: {}, elapsedTime: 60 })
+                useSessionMetrics({ transcript: words, chunks: [], fillerData: {}, elapsedTime: 60 })
             );
             expect(result.current.wpmLabel).toBe('Optimal Range');
         });
 
-        it('returns Too Fast for > 160 WPM', () => {
-            // 200 words in 60 seconds = 200 WPM
-            const words = Array(200).fill('word').join(' ');
+        it('returns Too Fast for > 150 WPM', () => {
+            // 160 words in 60 seconds = 160 WPM
+            const words = Array(160).fill('word').join(' ');
             const { result } = renderHook(() =>
-                useSessionMetrics({ transcript: words, fillerData: {}, elapsedTime: 60 })
+                useSessionMetrics({ transcript: words, chunks: [], fillerData: {}, elapsedTime: 60 })
             );
             expect(result.current.wpmLabel).toBe('Too Fast');
         });
     });
 
     describe('clarityScore', () => {
-        it('returns 87 when no words or fillers', () => {
+        it('returns 100 when no words or fillers', () => {
             const { result } = renderHook(() =>
-                useSessionMetrics({ transcript: '', fillerData: {}, elapsedTime: 60 })
+                useSessionMetrics({ transcript: '', chunks: [], fillerData: {}, elapsedTime: 60 })
             );
             expect(result.current.clarityScore).toBe(100);
         });
 
         it('calculates clarity score correctly with fillers', () => {
-            // 10 words, 2 fillers = 20% fillers = 80% clarity
+            // 10 words, 2 fillers = 20% fillers
+            // Penalty = 20 * 1.5 = 30 points off -> 70 clarity
             const { result } = renderHook(() =>
                 useSessionMetrics({
                     transcript: 'one two three four five six seven eight nine ten',
+                    chunks: [],
                     fillerData: {
                         um: { count: 1, color: '#FCA5A5' },
                         uh: { count: 1, color: '#BFDBFE' }
@@ -94,10 +98,12 @@ describe('useSessionMetrics', () => {
         });
 
         it('returns Keep practicing for low clarity', () => {
-            // 10 words, 5 fillers = 50% fillers = 50% clarity
+            // 10 words, 5 fillers = 50% fillers
+            // Penalty = 50 * 1.5 = 75 points off -> 25 clarity
             const { result } = renderHook(() =>
                 useSessionMetrics({
                     transcript: 'one two three four five six seven eight nine ten',
+                    chunks: [],
                     fillerData: {
                         um: { count: 3, color: '#FCA5A5' },
                         uh: { count: 2, color: '#BFDBFE' }
@@ -115,6 +121,7 @@ describe('useSessionMetrics', () => {
             const { result } = renderHook(() =>
                 useSessionMetrics({
                     transcript: 'test',
+                    chunks: [],
                     fillerData: {
                         um: { count: 3, color: '#FCA5A5' },
                         uh: { count: 2, color: '#BFDBFE' },

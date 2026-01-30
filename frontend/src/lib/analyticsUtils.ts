@@ -82,20 +82,38 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
 export const calculateFillerWordTrends = (sessionHistory: PracticeSession[]) => {
     const trendData: { [key: string]: { current: number; previous: number } } = {};
     if (sessionHistory.length > 0) {
-        const currentSession = sessionHistory[0];
-        const previousSession = sessionHistory[1];
+        // Industry Standard: Use 5-session rolling average for stable trend analysis
+        const getAvgForWindow = (window: PracticeSession[]): { [key: string]: number } => {
+            if (window.length === 0) return {};
+            const counts: { [key: string]: number } = {};
+            window.forEach(s => {
+                Object.entries(s.filler_words || {}).forEach(([word, data]) => {
+                    if (word !== 'total') {
+                        counts[word] = (counts[word] || 0) + data.count;
+                    }
+                });
+            });
+            const avgCounts: { [key: string]: number } = {};
+            Object.keys(counts).forEach(k => avgCounts[k] = counts[k] / window.length);
+            return avgCounts;
+        };
+
+        const currentWindow = sessionHistory.slice(0, 5);
+        const previousWindow = sessionHistory.slice(5, 10);
+
+        const currentAvgs = getAvgForWindow(currentWindow);
+        const previousAvgs = getAvgForWindow(previousWindow);
 
         const allKeys = new Set([
-            ...Object.keys(currentSession.filler_words || {}),
-            ...(previousSession ? Object.keys(previousSession.filler_words || {}) : [])
+            ...Object.keys(currentAvgs),
+            ...Object.keys(previousAvgs)
         ]);
 
         allKeys.forEach(key => {
-            if (key !== 'total') {
-                const currentCount = currentSession.filler_words?.[key]?.count || 0;
-                const previousCount = previousSession?.filler_words?.[key]?.count || 0;
-                trendData[key] = { current: currentCount, previous: previousCount };
-            }
+            trendData[key] = {
+                current: currentAvgs[key] || 0,
+                previous: previousAvgs[key] || 0
+            };
         });
     }
     return trendData;

@@ -2,8 +2,8 @@ import { test, expect } from '@playwright/test';
 import { programmaticLoginWithRoutes, navigateToRoute, attachLiveTranscript, debugLog } from './helpers';
 import { TEST_IDS, TIMEOUTS } from '../constants';
 
-test.describe('Smoke Test', () => {
-  test('should perform comprehensive app health check and full user journey @smoke @health-check', async ({ page }) => {
+test.describe('E2E Critical Path (Mocked)', () => {
+  test('should perform comprehensive app health check and full user journey @critical-path @health-check', async ({ page }) => {
     // Forward browser console logs with colorized ERROR/WARN output
     attachLiveTranscript(page);
 

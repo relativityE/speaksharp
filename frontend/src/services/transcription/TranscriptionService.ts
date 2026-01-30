@@ -262,6 +262,10 @@ export default class TranscriptionService {
       case 'private': {
         console.log('[TranscriptionService] 🔒 Starting Private (Whisper) mode');
         logger.info('[TranscriptionService] Starting Private (Whisper) mode');
+        console.log('[TranscriptionService] Checking Private Mock:', {
+          hasMockClass: !!window.MockPrivateWhisper,
+          mockFlag: window.__E2E_MOCK_LOCAL_WHISPER__
+        });
         // Check for E2E mock override (Must be explicitly enabled)
         if (window.MockPrivateWhisper && window.__E2E_MOCK_LOCAL_WHISPER__ === true) {
           console.log('[TranscriptionService] 🧪 Using MockPrivateWhisper for E2E');

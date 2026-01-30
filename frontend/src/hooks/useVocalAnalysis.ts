@@ -8,6 +8,9 @@ export const useVocalAnalysis = (isListening: boolean) => {
         averagePauseDuration: 0,
         longestPause: 0,
         pausesPerMinute: 0,
+        silencePercentage: 0,
+        transitionPauses: 0,
+        extendedPauses: 0,
     });
 
     useEffect(() => {
@@ -47,6 +50,9 @@ export const useVocalAnalysis = (isListening: boolean) => {
             averagePauseDuration: 0,
             longestPause: 0,
             pausesPerMinute: 0,
+            silencePercentage: 0,
+            transitionPauses: 0,
+            extendedPauses: 0,
         });
     };
 

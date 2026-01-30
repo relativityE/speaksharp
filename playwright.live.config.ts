@@ -25,8 +25,7 @@ process.env.VITE_USE_LIVE_DB = 'true';
 
 export default defineConfig({
     ...baseConfig,
-    testDir: './tests/e2e',
-    // Explicitly match .live.spec.ts files
+    testDir: './tests/live',
     testMatch: '**/*.live.spec.ts',
     // Clear the ignore list so these aren't skipped
     testIgnore: [],

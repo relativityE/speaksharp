@@ -180,6 +180,7 @@ describe('SessionPage Logic', () => {
             modelLoadingProgress: null,
             mode: 'native',
             sttStatus: { type: 'ready' },
+            chunks: [],
         });
     });
 
@@ -255,6 +256,7 @@ describe('SessionPage Logic', () => {
                 modelLoadingProgress: null,
                 mode: 'private',
                 sttStatus: { type: 'ready' },
+                chunks: [],
             });
 
             const { rerender } = render(
@@ -280,6 +282,7 @@ describe('SessionPage Logic', () => {
                     type: 'fallback',
                     newMode: 'cloud'
                 },
+                chunks: [],
             });
             console.log('[TEST] "fallback sync" Mock updated. Rerendering...');
 

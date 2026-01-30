@@ -62,7 +62,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
             className={`flex items-center gap-3 px-4 py-3 rounded-lg border ${config.bgClass} ${className}`}
             role="status"
             aria-live="polite"
-            data-testid="stt-status-bar"
+            data-testid={status.type === 'downloading' ? 'model-loading-indicator' : 'stt-status-bar'}
         >
             <Icon className={`h-5 w-5 ${config.textClass} ${isAnimated ? 'animate-spin' : ''}`} />
             <span data-testid="session-status-indicator" className={`text-sm font-bold ${config.textClass}`}>

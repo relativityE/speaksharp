@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-01-28
+**Last Reviewed:** 2026-01-30
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -148,7 +148,10 @@ To ensure data integrity and meaningful analysis:
 ### 3.3 Metric Calculation Standards
 
 *   **Filler Rate (FW/min):** `Total Fillers / (Total Duration Seconds / 60)`. Must use precise minutes for calculation to ensure accuracy in short sessions.
+*   **Rolling WPM:** Real-time speaking pace calculated on a **15-second rolling window** to provide dynamic feedback without excessive volatility.
+*   **Optimal WPM Range:** Professional speakers typically target **130-150 WPM**. UI highlights progress toward this target.
 *   **Aggregation:** Dashboard metrics represent the aggregate of the user's entire history (Single Source of Truth).
+*   **Trend Smoothing:** Trend visualizations use a **5-session rolling average** to reflect true progress and minimize session-specific noise.
 
 ---
 
@@ -184,16 +187,18 @@ For E2E infrastructure troubleshooting, see [tests/TROUBLESHOOTING.md](../tests/
 ### Active Constraints
 
 - **Theming:** Dark Theme fully implemented with polished UI (Inter font, glassmorphism). Light theme pending.
-- **Unit Test Coverage:** 57.03% (89 tests, 52 files). Expansion tracked in tech debt.
+- **Unit Test Coverage:** 57.72% (407 tests). Target: 75%. Tracked in tech debt.
 - **UX - Mobile Experience:** Controls on `SessionPage` scroll away ("thumb stretch" issue). Sticky footer required.
 - **🟡 Testimonials:** `TestimonialsSection` has placeholder content. Needs real user testimonials.
-- **🔴 Cloud STT (Production):** Currently blocked by CORS (`ALLOWED_ORIGIN` mismatch). Fix in progress.
 
 ### Tech Debt (Testing)
 
 - **🟡 Native STT Headless Test:** Web Speech API unavailable in headless Chrome. Use `--headed` for manual verification.
 - **🟡 PDF Content Extraction:** `pdf-parse` requires `DOMMatrix`. PDF structure validated only.
-- **🟡 Cloud STT E2E:** Mode selector issue under investigation.
+- ✅ **Cloud STT (Production) (2026-01-28):** Resolved CORS (`ALLOWED_ORIGIN` mismatch) blocking production usage.
+- ✅ **Cloud STT E2E (2026-01-28):** Resolved mode selector and button dropdown unresponsiveness.
+- ✅ **Initialization Crash (2026-01-28):** Resolved `__BUILD_ID__` ReferenceError causing 15s E2E timeouts.
+- ✅ **Session Page UI Polish (2026-01-28):** Implemented "Live Session" label, paired layout, and multi-color highlights.
 - **ℹ️ User Filler Words Native STT:** Native STT doesn't support user filler words (browser-controlled). Only Cloud STT (`word_boost`) supports this.
 
 ### Gap Analysis: Alpha Launch Blockers
@@ -221,7 +226,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Wed, 28 Jan 2026 01:53:22 GMT
+**Last Updated:** Fri, 30 Jan 2026 15:46:09 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -237,14 +242,14 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 545 (404 unit + 141 E2E) |
-| Unit tests              | 404   |
-| E2E tests (Playwright)  | 141  |
-| Passing tests           | 441 (404 unit + 37 E2E)   |
-| Failing tests           | 31   |
-| Disabled/skipped tests  | 73 (E2E only)   |
-| Passing unit tests      | 404/404 (100.0%)   |
-| Passing E2E tests       | 37/141 (26.2%)   |
+| Total tests             | 469 (407 unit + 62 E2E) |
+| Unit tests              | 407   |
+| E2E tests (Playwright)  | 62  |
+| Passing tests           | 468 (407 unit + 61 E2E)   |
+| Failing tests           | 1   |
+| Disabled/skipped tests  | 0 (E2E only)   |
+| Passing unit tests      | 407/407 (100.0%)   |
+| Passing E2E tests       | 61/62 (98.4%)   |
 | Total runtime           | See CI logs   |
 
 ---
@@ -253,10 +258,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | 57.98%   |
-| Branches   | 76.75%   |
-| Functions  | 70.13%   |
-| Lines      | 57.98%   |
+| Statements | 57.72%   |
+| Branches   | 75.81%   |
+| Functions  | 70.26%   |
+| Lines      | 57.72%   |
 
 ---
 
@@ -264,11 +269,11 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric              | Value |
 | ------------------- | ----- |
-| Total Source Size   | 6.0M   |
-| Total Project Size  | 1.6G   |
+| Total Source Size   | 5.8M   |
+| Total Project Size  | 2.1G   |
 | Initial Chunk Size  | 416K   |
-| Code Bloat Index    | 6.79%   |
-| Lighthouse Scores   | P: 0, A: 0, BP: 0, SEO: 0 |
+| Code Bloat Index    | 7.05%   |
+| Lighthouse Scores   | P: 95, A: 94, BP: 100, SEO: 91 |
 
 ---
 <!-- SQM:END -->

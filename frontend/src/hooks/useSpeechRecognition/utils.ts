@@ -13,5 +13,6 @@ export const generateChunkId = (): number =>
 export const createChunk = (text: string, speaker?: string): Chunk => ({
   text,
   speaker,
-  id: generateChunkId()
+  id: generateChunkId(),
+  timestamp: Date.now()
 });

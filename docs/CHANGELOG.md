@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-01-28
+**Last Reviewed:** 2026-01-30
 
 # Changelog
 
@@ -18,6 +18,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Fix:** Synced `highlightUtils` and `fillerWordUtils` to use Regex Tokenization, fixing detection of multi-word fillers (e.g., "you know").
 
 ### Unreleased
+
+- **Session Page UI Refactor (2026-01-28):**
+  - **Layout:** Implemented a balanced grid layout pairing "Live Session" with "Pause Analysis" and "Live Transcript" with "Filler Words" (matched heights).
+  - **Label:** Updated "Ready to Record" to "Live Session".
+  - **Highlighting:** Implemented deterministic multi-color highlighting for detected words in both transcript and filler card.
+  - **Label:** Updated PDF export label from "Download Report" to "Download Session PDF".
+  - **Fix:** Resolved unresponsive STT mode selection dropdown.
+
+- **Initialization Crash Fix (2026-01-28):**
+  - **Fix:** Resolved `ReferenceError: __BUILD_ID__ is not defined` in `main.tsx` which halted React execution and caused 15s E2E timeouts.
+  - **Verification:** Verified app mounts in ~1.1s in local test environment.
+  - **Tests:** Fixed selector mismatch in `pdf-export.e2e.spec.ts`.
+
+- **STT Dropdown Selection Fix (2026-01-28):**
+  - **Fix:** Resolved the issue where the STT mode selection dropdown was unresponsive.
+  - **UX:** The dropdown is now disabled during active recordings to prevent configuration conflicts and state-syncing bugs.
+  - **Behavior:** Immediately re-enables once the session stops (or if a session is cancelled), allowing users to switch modes for their next practice.
+  - **Improvement:** Added a title tooltip explaining that mode changes are locked during an active session.
 
 - **CI & Documentation Audit (2026-01-28):**
   - **Fix:** Resolved unit test regressions in `SessionPage.rendering.test.tsx` (labels "Speaking Pace", "Ready to Record").

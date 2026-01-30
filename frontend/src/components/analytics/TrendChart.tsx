@@ -18,8 +18,8 @@ interface TrendChartProps {
 
 export const TrendChart: React.FC<TrendChartProps> = ({ data, metric, title, description }) => {
     const metricConfig = {
-        wpm: { color: 'hsl(var(--primary))', label: 'WPM', unit: '' },
-        clarity: { color: 'hsl(var(--chart-2))', label: 'Clarity', unit: '%' }, // Usually green/emerald in theme
+        wpm: { color: 'hsl(var(--primary))', label: 'WPM (Target: 130-150)', unit: '' },
+        clarity: { color: 'hsl(var(--chart-2))', label: 'Clarity', unit: '%' },
         fillers: { color: 'hsl(var(--secondary))', label: 'Fillers', unit: '' },
     };
 

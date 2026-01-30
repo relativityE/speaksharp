@@ -1,6 +1,6 @@
 /**
- * @file private-stt-integration.spec.ts
- * @description E2E Integration Test for the "Reliable Path" (MockEngine).
+ * @file stt-integration.live.spec.ts
+ * @description Live Integration Test for Real STT Engines (No Mocks).
  * @strategy Triple-Engine Architecture (Reliable Path)
  * @verification_scope
  * - Verifies the full Application Flow in a browser environment.
@@ -10,7 +10,7 @@
  * - Uses `MockEngine` to avoid WASM deadlocks in headless CI.
  */
 import { test, expect } from '@playwright/test';
-import { programmaticLoginWithRoutes, navigateToRoute, goToPublicRoute, debugLog } from '../helpers';
+import { programmaticLoginWithRoutes, navigateToRoute, goToPublicRoute, debugLog } from '../e2e/helpers';
 
 // Extend Window interface for E2E flags
 declare global {

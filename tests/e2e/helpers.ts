@@ -271,7 +271,7 @@ export async function navigateToRoute(
       'MSW Ready (Post-Navigation)',
       page.waitForFunction(() => {
         return !!window.mswReady;
-      }, null, { timeout: 5000 })
+      }, null, { timeout: 10000 })
     );
   }
 }

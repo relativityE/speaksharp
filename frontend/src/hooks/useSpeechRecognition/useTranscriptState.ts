@@ -13,8 +13,18 @@ export const useTranscriptState = () => {
   const transcript = useMemo(() => combineChunksToText(finalChunks), [finalChunks]);
 
   const addChunk = useCallback((text: string, speaker?: string) => {
-    const chunk = createChunk(text, speaker);
-    setFinalChunks(prev => limitArray([...prev, chunk], MAX_CHUNKS));
+    const trimmedText = text.trim();
+    if (!trimmedText) return;
+
+    setFinalChunks(prev => {
+      // Deduplication: if the new text is identical to the last one, skip it
+      if (prev.length > 0 && prev[prev.length - 1].text === trimmedText) {
+        return prev;
+      }
+
+      const chunk = createChunk(trimmedText, speaker);
+      return limitArray([...prev, chunk], MAX_CHUNKS);
+    });
   }, []);
 
   const reset = useCallback(() => {

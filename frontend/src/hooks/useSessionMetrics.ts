@@ -1,8 +1,10 @@
 import { useMemo } from 'react';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
+import type { Chunk } from './useSpeechRecognition/types';
 
 interface UseSessionMetricsProps {
     transcript: string;
+    chunks: Chunk[];
     fillerData: FillerCounts;
     elapsedTime: number;
 }
@@ -12,16 +14,17 @@ interface SessionMetrics {
     clarityScore: number;
     clarityLabel: string;
     wpm: number;
+    rollingWpm: number; // Speed in the last 15 seconds
     wpmLabel: string;
     fillerCount: number;
 }
 
 /**
  * Custom hook to calculate session metrics
- * Extracted from SessionPage to comply with React Hooks rules
  */
 export const useSessionMetrics = ({
     transcript,
+    chunks,
     fillerData,
     elapsedTime,
 }: UseSessionMetricsProps): SessionMetrics => {
@@ -32,54 +35,40 @@ export const useSessionMetrics = ({
         const formattedTime = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 
         // Calculate filler word count
-        // Use the pre-calculated 'total' field if available, otherwise sum (but filter out 'total' key to avoid double counting)
         const fillerCount = fillerData.total
             ? fillerData.total.count
             : Object.entries(fillerData)
                 .filter(([key]) => key !== 'total')
                 .reduce((sum, [, data]) => sum + data.count, 0);
 
-        // Calculate words per minute
-        const wordCount = transcript.split(' ').filter(w => w.length > 0).length;
+        // --- WPM Calculations ---
+        const wordCount = transcript.split(/\s+/).filter(w => w.length > 0).length;
         const wpm = elapsedTime > 0 ? Math.round((wordCount / elapsedTime) * 60) : 0;
 
-        // Calculate clarity score (penalize filler words AND error tags)
-        // Formula: Start at 100. Deduct 2% for every 1% of fillers. Deduct 5 points for every error tag.
+        // Rolling WPM (last 15 seconds)
+        const now = Date.now();
+        const rollingWindowMs = 15000;
+        const recentChunks = chunks.filter(c => now - c.timestamp <= rollingWindowMs);
+        const recentWordCount = recentChunks.reduce((acc, c) => acc + c.text.split(/\s+/).filter(w => w.length > 0).length, 0);
 
-        // 1. Count error tags
+        // Effective time is the smaller of the window or elapsed time
+        const effectiveWindowSec = Math.min(elapsedTime, rollingWindowMs / 1000);
+        const rollingWpm = effectiveWindowSec > 0 ? Math.round((recentWordCount / effectiveWindowSec) * 60) : 0;
+
+        // --- Clarity & Labels ---
         const errorTagRegex = /\[(inaudible|blank_audio|music|applause|laughter|noise|mumbles)\]/gi;
-        const errorMatches = transcript.match(errorTagRegex) || [];
-        const errorCount = errorMatches.length;
-
-        // 2. Helper variables
+        const errorCount = (transcript.match(errorTagRegex) || []).length;
         const fillerPercentage = wordCount > 0 ? (fillerCount / wordCount) * 100 : 0;
 
-        // 3. Calculate Deductions
-        // - Filler Penalty: 1.5x deduction (e.g. 5% fillers = 7.5 points off)
-        const fillerPenalty = fillerPercentage * 1.5;
-        // - Error Tag Penalty: Fixed points per error (e.g. 3 points per [inaudible])
-        const errorPenalty = errorCount * 3;
-
-        let calculatedScore = 100 - fillerPenalty - errorPenalty;
-
-        // normalize
-        calculatedScore = Math.min(100, Math.max(0, Math.round(calculatedScore)));
-
+        const calculatedScore = Math.max(0, Math.min(100, Math.round(100 - (fillerPercentage * 1.5) - (errorCount * 3))));
         const clarityScore = wordCount > 0 ? calculatedScore : 100;
 
-        // Generate clarity label
-        const clarityLabel = clarityScore >= 90
-            ? 'Excellent clarity!'
-            : clarityScore >= 80
-                ? 'Great clarity'
-                : clarityScore >= 60
-                    ? 'Good clarity'
-                    : 'Keep practicing';
+        const clarityLabel = clarityScore >= 90 ? 'Excellent clarity!' : clarityScore >= 80 ? 'Great clarity' : clarityScore >= 60 ? 'Good clarity' : 'Keep practicing';
 
-        // Generate WPM label
-        const wpmLabel = wpm >= 120 && wpm <= 160
+        // Update WPM label with 130-150 optimal range
+        const wpmLabel = wpm >= 130 && wpm <= 150
             ? 'Optimal Range'
-            : wpm > 160
+            : wpm > 150
                 ? 'Too Fast'
                 : wpm < 60
                     ? ''
@@ -90,8 +79,9 @@ export const useSessionMetrics = ({
             clarityScore,
             clarityLabel,
             wpm,
+            rollingWpm,
             wpmLabel,
             fillerCount,
         };
-    }, [transcript, fillerData, elapsedTime]);
+    }, [transcript, chunks, fillerData, elapsedTime]);
 };

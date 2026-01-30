@@ -10,9 +10,12 @@ test.describe('Authentication', () => {
     await test.step('Verify user can access protected session page', async () => {
       // After login, the user is on the homepage. Navigate to a protected route using navigateToRoute.
       await navigateToRoute(page, '/analytics');
+      // ✅ Wait for analytics page to fully load (Senior Engineer Rec)
+      await page.waitForLoadState('networkidle');
 
       // Verify that the analytics page loads correctly by checking for its heading.
-      await expect(page.getByRole('heading', { name: 'Your Dashboard' })).toBeVisible();
+      // Verify that the analytics page loads correctly by checking for its heading.
+      await expect(page.getByTestId('dashboard-heading')).toContainText('Your Analytics', { timeout: 15000 });
     });
   });
 });

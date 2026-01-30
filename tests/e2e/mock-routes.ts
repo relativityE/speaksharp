@@ -417,7 +417,8 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
     // POST /functions/v1/check-usage-limit
     await registerRoute(page, '**/functions/v1/check-usage-limit', async (route) => {
         // Determine subscription status from mock profile injection
-        const profileOverride = await route.request().frame()?.page()?.evaluate(() => {
+        // Determine subscription status from mock profile injection
+        const profileOverride = await page.evaluate(() => {
             return (window as Window & { __E2E_MOCK_PROFILE__?: { id: string; subscription_status: string } }).__E2E_MOCK_PROFILE__;
         }).catch(() => undefined);
 

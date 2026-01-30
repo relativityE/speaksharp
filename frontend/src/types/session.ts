@@ -16,4 +16,10 @@ export interface PracticeSession {
   engine?: string;
   clarity_score?: number;
   wpm?: number;
+  pause_metrics?: {
+    silencePercentage: number;
+    transitionPauses: number;
+    extendedPauses: number;
+    longestPause: number;
+  };
 }

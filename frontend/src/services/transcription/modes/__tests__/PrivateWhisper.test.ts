@@ -162,4 +162,43 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         await privateWhisper.stopTranscription();
         vi.useRealTimers();
     });
+    it('REGRESSION: preserves audio chunks arriving during inference', async () => {
+        vi.useFakeTimers();
+        await privateWhisper.init();
+
+        let frameCallback: ((frame: Float32Array) => void) | undefined;
+        const mockMic: MicStream = {
+            sampleRate: 16000,
+            onFrame: vi.fn((cb) => { frameCallback = cb; }),
+            offFrame: vi.fn(),
+            stop: vi.fn(),
+            close: vi.fn(),
+            _mediaStream: new MediaStream(),
+        };
+
+        await privateWhisper.startTranscription(mockMic);
+
+        // 1. Send first frame
+        if (frameCallback) frameCallback(new Float32Array(8000).fill(0.5));
+
+        // 2. Trigger processing at 500ms
+        await vi.advanceTimersByTimeAsync(500);
+        expect(mocks.transcribe).toHaveBeenCalledTimes(1);
+
+        // 3. CRITICAL: While "thinking" (it's awaiting the 200ms mock delay), send more audio
+        if (frameCallback) frameCallback(new Float32Array(8000).fill(0.1));
+
+        // 4. Advance past the 200ms think time + microtask flush
+        await vi.advanceTimersByTimeAsync(250);
+        await vi.runOnlyPendingTimersAsync();
+
+        // 5. Advance to the next interval tick (at 1000ms total)
+        // We are currently at 750ms. Next tick is at 1000ms.
+        await vi.advanceTimersByTimeAsync(300);
+
+        expect(mocks.transcribe).toHaveBeenCalledTimes(2);
+
+        await privateWhisper.stopTranscription();
+        vi.useRealTimers();
+    });
 });

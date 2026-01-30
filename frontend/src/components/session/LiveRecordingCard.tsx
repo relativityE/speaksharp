@@ -56,15 +56,20 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
     };
 
     return (
-        <div className="bg-card border border-border rounded-2xl p-8 shadow-xl relative" data-testid="live-recording-card">
+        <div className="bg-card border border-border rounded-2xl p-6 shadow-xl relative" data-testid="live-recording-card">
 
             {/* Mode Selector - Absolute Top Right */}
             <div className="absolute top-6 right-6">
                 <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground">
+                    <DropdownMenuTrigger asChild disabled={isListening}>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="gap-2 text-muted-foreground hover:text-foreground disabled:opacity-80"
+                            title={isListening ? "Cannot change mode during recording" : "Select transcription mode"}
+                        >
                             {getModeLabel(mode)}
-                            <ChevronDown className="h-4 w-4" />
+                            {!isListening && <ChevronDown className="h-4 w-4" />}
                         </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
@@ -88,7 +93,7 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
                         ? "Initializing..."
                         : isListening
                             ? (isReady ? "Recording..." : "Connecting...")
-                            : "Ready to Record"}
+                            : "Live Session"}
                 </h1>
                 <p className="text-muted-foreground">
                     {modelLoadingProgress !== null
@@ -136,9 +141,11 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
                         disabled={isButtonDisabled}
                         data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
                         size="lg"
+                        aria-label="Start Recording"
                         className="w-24 h-24 rounded-full bg-secondary hover:bg-secondary/90 text-secondary-foreground shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 flex items-center justify-center"
                     >
                         <Mic className="w-10 h-10" />
+                        <span className="sr-only">Start</span>
                     </Button>
                 ) : (
                     <>
@@ -148,9 +155,11 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
                             disabled={isButtonDisabled}
                             data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
                             size="lg"
+                            aria-label="Stop Recording"
                             className="w-24 h-24 rounded-full bg-destructive hover:bg-destructive/90 text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 flex items-center justify-center"
                         >
                             <Square className="w-10 h-10 fill-current" />
+                            <span className="sr-only">Stop</span>
                         </Button>
                     </>
                 )}

@@ -164,13 +164,14 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
 
     test('should display all analytics metrics', async ({ page }) => {
         await navigateToRoute(page, '/analytics');
+        await page.waitForLoadState('networkidle');
 
         await expect(page.getByTestId('dashboard-heading')).toBeVisible();
         debugLog('[PRO] ✅ Analytics dashboard loaded');
 
         // Verify key analytics components
         const analytics = [
-            'Session History',
+            'Export Reports',
             'Total Sessions',
         ];
 
@@ -184,7 +185,8 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
 
     test('should allow PDF export', async ({ page }) => {
         await navigateToRoute(page, '/analytics');
-        await expect(page.getByTestId('dashboard-heading')).toBeVisible();
+        await page.waitForLoadState('networkidle');
+        await expect(page.getByTestId('dashboard-heading')).toBeVisible({ timeout: 5000 });
 
         // Look for PDF export button
         const pdfButton = page.getByRole('button', { name: /pdf|export|download/i });
@@ -211,8 +213,9 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
 
         // Analytics
         await navigateToRoute(page, '/analytics');
-        await expect(page.getByTestId('dashboard-heading')).toBeVisible();
-        await expect(page.getByText('Session History')).toBeVisible();
+        await page.waitForLoadState('networkidle');
+        await expect(page.getByTestId('dashboard-heading')).toBeVisible({ timeout: 15000 });
+        await expect(page.getByText('Export Reports')).toBeVisible();
         debugLog('[PRO] ✅ Analytics verified');
 
         // Return to session

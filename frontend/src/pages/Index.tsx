@@ -22,6 +22,8 @@ const Index = () => {
         return;
       }
 
+      // INTENTIONAL DELAY (UX): Show marketing content briefly before auto-redirecting
+      // CASE 5: Animation/UX Timing - This is NOT a wait for an event.
       const timer = setTimeout(() => {
         setShouldRedirect(true);
       }, LANDING_PAGE_REDIRECT_MS);

@@ -202,10 +202,10 @@ export default class PrivateWhisper implements ITranscriptionMode {
       }
     });
 
-    // Start processing loop (every 1 second)
+    // Start processing loop (every 500ms) for more responsive UI
     this.processingInterval = setInterval(() => {
       this.processAudio();
-    }, 1000);
+    }, 500);
 
     console.log('[PrivateWhisper] Streaming started.');
     logger.info('[PrivateWhisper] Streaming started.');
@@ -232,8 +232,10 @@ export default class PrivateWhisper implements ITranscriptionMode {
       }
       const rms = Math.sqrt(sum / concatenated.length);
 
-      // Threshold 0.01 (1%) is a safe silence threshold for 16-bit audio range (-1 to 1)
-      if (rms < 0.01) {
+      // Threshold 0.005 (0.5%) to capture quieter speech/whispers
+      if (rms < 0.005) {
+        // Even if silent, we still need to clear the processed chunks 
+        // to prevent them from staying in the buffer forever.
         this.audioChunks = [];
         return;
       }
@@ -260,6 +262,9 @@ export default class PrivateWhisper implements ITranscriptionMode {
       const processedAudio = concatenated; // Assuming MicStream gives 16k as promised
 
 
+      // CRITICAL FIX: Capture count BEFORE await to avoid wiping audio that arrives during AI inference.
+      const processedCount = this.audioChunks.length;
+
       // Perform transcription using the PrivateSTT facade
       const result = await this.privateSTT.transcribe(processedAudio);
 
@@ -273,13 +278,11 @@ export default class PrivateWhisper implements ITranscriptionMode {
       if (newText.trim()) {
         // Append with space if transcript already has content
         this.transcript = this.transcript ? `${this.transcript} ${newText}` : newText;
-        // CRITICAL FIX: Send ONLY the NEW text as final, not the whole history.
-        // useSpeechRecognition accumulates chunks. Sending the whole history causes duplication.
         this.onTranscriptUpdate({ transcript: { final: newText } });
       }
 
-      // CRITICAL FIX: Clear the buffer to prevent quadratic growth
-      this.audioChunks = [];
+      // CRITICAL FIX: Slice only what we processed to preserve incoming audio
+      this.audioChunks = this.audioChunks.slice(processedCount);
 
     } catch (err: unknown) {
       const error = err instanceof Error ? err : new Error(String(err));

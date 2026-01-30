@@ -1,11 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLoginWithRoutes, navigateToRoute, debugLog } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute, debugLog, attachLiveTranscript } from './helpers';
 
 // Extend Window interface for E2E mock flag
-declare global {
-    interface Window {
-        __E2E_MOCK_LOCAL_WHISPER__?: boolean;
-    }
+interface E2EWindow extends Window {
+    __E2E_MOCK_LOCAL_WHISPER__?: boolean;
+    __E2E_MANUAL_PROGRESS__?: boolean;
+    __E2E_ADVANCE_PROGRESS__?: (progress: number) => void;
 }
 
 /**
@@ -42,13 +42,16 @@ declare global {
 test.describe('Private STT (Whisper)', () => {
 
     test('should show download progress on first use', async ({ page }) => {
+        attachLiveTranscript(page);
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
         await navigateToRoute(page, '/session');
         await page.waitForSelector('[data-testid="app-main"]');
 
-        // Clear IndexedDB and set mock flag
+        // Clear IndexedDB and set mock flag with MANUAL CONTROL
         await page.evaluate(() => {
-            window.__E2E_MOCK_LOCAL_WHISPER__ = true;
+            const win = window as unknown as E2EWindow;
+            win.__E2E_MOCK_LOCAL_WHISPER__ = true;
+            win.__E2E_MANUAL_PROGRESS__ = true; // Enable deterministic mode
             return new Promise((resolve) => {
                 const request = indexedDB.deleteDatabase('whisper-turbo');
                 request.onsuccess = () => resolve(true);
@@ -63,11 +66,17 @@ test.describe('Private STT (Whisper)', () => {
         // Click Start - triggers model download
         await page.getByTestId('session-start-stop-button').click();
 
-        // Verify loading indicator appears
+        // Verify loading indicator appears (deterministic w/ infinite wait if needed, but 10s is plenty)
+        // With manual mode, it STAYS here until advanced
         const loadingIndicator = page.getByTestId('model-loading-indicator');
-        await expect(loadingIndicator).toBeVisible({ timeout: 5000 });
+        await expect(loadingIndicator).toBeVisible({ timeout: 10000 });
         await expect(loadingIndicator).toContainText(/downloading model/i);
-        await expect(loadingIndicator).toContainText(/%/);
+
+        // Manually advance to 50%
+        await page.evaluate(() => (window as unknown as E2EWindow).__E2E_ADVANCE_PROGRESS__?.(0.5));
+
+        // Manually advance to 100% (Complete)
+        await page.evaluate(() => (window as unknown as E2EWindow).__E2E_ADVANCE_PROGRESS__?.(1));
 
         // Verify button shows "Initializing..." (or already "Stop" if fast)
         const startButton = page.getByTestId('session-start-stop-button');
@@ -90,7 +99,7 @@ test.describe('Private STT (Whisper)', () => {
         await navigateToRoute(page, '/session');
 
         await page.evaluate(() => {
-            window.__E2E_MOCK_LOCAL_WHISPER__ = true;
+            (window as unknown as E2EWindow).__E2E_MOCK_LOCAL_WHISPER__ = true;
         });
 
         await page.getByRole('button', { name: /cloud|private|native/i }).click();
@@ -131,7 +140,7 @@ test.describe('Private STT (Whisper)', () => {
 
         // Clear IndexedDB and set mock flag
         await page.evaluate(() => {
-            window.__E2E_MOCK_LOCAL_WHISPER__ = true;
+            (window as unknown as E2EWindow).__E2E_MOCK_LOCAL_WHISPER__ = true;
             return indexedDB.deleteDatabase('whisper-turbo');
         });
 
@@ -162,7 +171,7 @@ test.describe('Private STT (Whisper)', () => {
         await page.waitForSelector('[data-testid="app-main"]');
 
         await page.evaluate(() => {
-            window.__E2E_MOCK_LOCAL_WHISPER__ = true;
+            (window as unknown as E2EWindow).__E2E_MOCK_LOCAL_WHISPER__ = true;
         });
 
         await page.getByRole('button', { name: /cloud|private|native/i }).click();

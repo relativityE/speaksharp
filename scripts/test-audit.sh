@@ -82,10 +82,23 @@ run_quality_checks() {
     echo "   🧪 Unit Tests..."
     # Run tests and capture exit code to allow artifact movement even on failure
     set +e
-    pnpm test > "$ARTIFACTS_DIR/unit-test.log" 2>&1
+    pnpm test:unit > "$ARTIFACTS_DIR/unit-test.log" 2>&1
     UNIT_EXIT=$?
     set -e
     
+    # Extract and print summary line from Vitest output (e.g., "Tests  407 passed (407)")
+    # Reformat to "X of Y passed"
+    if [ -f "$ARTIFACTS_DIR/unit-test.log" ]; then
+         SUMMARY=$(grep -E "Tests\\s+[0-9]+\\s+passed\\s+\\([0-9]+\\)" "$ARTIFACTS_DIR/unit-test.log" | head -1)
+         if [ -n "$SUMMARY" ]; then
+             PASSED=$(echo "$SUMMARY" | grep -oE "Tests\\s+[0-9]+" | grep -oE "[0-9]+")
+             TOTAL=$(echo "$SUMMARY" | grep -oE "\\([0-9]+\\)" | grep -oE "[0-9]+")
+             echo "   📊 Summary: $PASSED of $TOTAL passed"
+         else
+             echo "   ℹ️ No test summary found"
+         fi
+    fi
+
     # ARTIFACT MANAGEMENT RATIONALE:
     # 1. unit-metrics.json is moved to the root because ci.yml explicitly looks for it there 
     #    in the "Upload Prepare Artifacts" step (lines 30-38).
@@ -141,7 +154,10 @@ run_e2e_tests_shard() {
     echo "🧪 Preparing E2E Test Shard ${SHARD_NUM}/${TOTAL_SHARDS}..."
     echo "📋 Test files assigned to this shard:"
     # List files correctly using the --list flag and improved grep
-    pnpm exec playwright test tests/e2e --shard="${SHARD_NUM}/${TOTAL_SHARDS}" --list | grep -oE "[a-zA-Z0-9.-]+\.spec\.ts" | sort -u | sed 's|^|  - |'
+    FILES=$(pnpm exec playwright test tests/e2e --shard="${SHARD_NUM}/${TOTAL_SHARDS}" --list | grep -oE "[a-zA-Z0-9.-]+\.spec\.ts" | sort -u)
+    FILE_COUNT=$(echo "$FILES" | wc -l | tr -d ' ')
+    echo "$FILES" | sed 's|^|  - |'
+    echo "   📊 Total Files in Shard: $FILE_COUNT"
     
     # Ensure build artifact exists (required for preview:test)
     if [ ! -d "frontend/dist" ]; then
@@ -309,7 +325,8 @@ run_ci_simulation() {
     # 5. Lighthouse
     run_lighthouse_ci
     
-    run_sqm_report_ci
+    # 6. Generate and print SQM report to console (local runs should see metrics)
+    run_sqm_report_local
     echo "✅ CI Simulation Complete."
 }
 

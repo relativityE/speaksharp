@@ -41,10 +41,12 @@ frontend/
 
 tests/                  # Project-level tests (cross-cutting)
   ├── demo/             # Demo/example tests
-  ├── e2e/              # End-to-end Playwright tests
-  ├── pom/              # Page Object Models (shared by E2E)
+  ├── e2e/              # Mocked E2E tests (CI/Local)
+  ├── live/             # Live API Integration tests
+  ├── canary/           # Production Smoke tests (Staging)
+  ├── pom/              # Page Object Models (shared)
   ├── setup/            # Test setup utilities
-  └── soak/             # Performance/load tests (manual, not in CI)
+  └── soak/             # Performance/load tests
 
 backend/                # Backend services
   └── supabase/         # Supabase functions, migrations, seed data
@@ -478,10 +480,29 @@ The `whisper-turbo` engine uses a two-layer cache (Service Worker + IndexedDB) t
 |---|---|---|
 |**Initialization Failure**|Auto-fallback to Native Browser STT|[`TranscriptionService.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionService.ts)|
 |**Model Load Timeout**|**Removed.** The service now waits for the full download/load cycle regardless of network speed, preventing "First Load" crashes. User sees progress updates during the wait.|`PrivateSTT.ts` / `WhisperTurboEngine.ts`|
-|**Silence Hallucination**|**Dropped via RMS VAD.** Discards silent chunks (< 1% energy / RMS < 0.01) *before* they reach the model, eliminating `[inaudible]` or `[blank audio]` hallucinations.|`PrivateWhisper.ts`|
+|**Silence Hallucination**|**Dropped via Adaptive Noise Floor.** Discards silent chunks (< 1% energy / RMS < 0.01) *before* they reach the model, eliminating `[inaudible]` or `[blank audio]` hallucinations. Threshold adapts to environmental noise levels.|`PauseDetector.ts`|
 |**Hardware Race Condition**|**Synchronous Release.** Microphone is stopped immediately during `destroy()`, preventing "Device Busy" errors on session restart.|`TranscriptionService.ts`|
 |**Retry Limit Exceeded**|Limits to `STT_CONFIG.MAX_PRIVATE_ATTEMPTS` (Default: 2) | Static failure counter prevents infinite loops |
 |**"Dead" State**|User can "Clear Cache & Reload" via UI|`useTranscriptionService.ts` error handling|
+
+### 4. Vocal Analytics Engine
+
+The Vocal Analytics Engine provides real-time feedback on speech quality, rhythm, and clarity.
+
+#### 4.1 Pause Detection (Adaptive Noise Floor)
+The system uses an **RMS-based Energy Analysis** to detect meaningful pauses vs. background noise.
+- **Adaptive Thresholding:** The noise floor is not static. It adapts based on the lowest energy levels observed during the session, allowing it to remain accurate in varying environments (quiet office vs. loud cafe).
+- **Pauses vs. Silence:** A "Pause" is recorded when no high-energy chunks are received for >2 seconds. Silence is filtered out immediately to prevent STT hallucinations.
+
+#### 4.2 Rolling WPM (Smoothing)
+Speaking pace is calculated using a **15-second rolling window**.
+- **Pros:** Provides immediate feedback without the "jumpiness" of second-by-second counts or the "sluggishness" of whole-session averages.
+- **Goal:** Targets the professional optimal range of **130-150 WPM**.
+
+#### 4.3 Data Deduplication
+To handle "interim results" from streaming STT engines (like Google/AssemblyAI):
+- **CUID Tracking:** Each speech "chunk" is assigned a unique ID or hash.
+- **Sequence Buffering:** The system maintains a temporary buffer of recent word sequences to prevent counting the same word twice if it appears in both an interim and a final result.
 
 ## 3. Code Quality Standards
 
@@ -505,6 +526,41 @@ Every non-trivial component or hook must have:
 4.  **Fail Fast, Fail Hard:** Tests should never hang. Use aggressive timeouts (30s default for E2E) and explicit assertions to surface failures immediately.
 5.  **Event-Based Wait Over Static Timeout:** Never use `page.waitForTimeout(60000)` or similar "guessing" delays. Instead, inject code-level signals (e.g., `window.__e2eProfileLoaded`) and wait for them: `await page.waitForFunction(() => window.__e2eProfileLoaded)`. This ensures tests run at the speed of the app, not the speed of the worst-case scenario.
 6.  **Print/Log Negatives, Assert Positives:** Only log errors and warnings (`attachLiveTranscript` in E2E). Use assertions (`expect()`) for success—no `console.log("✅ Success")` noise.
+
+### Use of Timeouts vs Event-Based Waits
+
+**Principle:** Arbitrary timeouts for waiting are almost always wrong. Use event-based waiting (`waitForSelector`, `vi.waitUntil`) instead. Timeouts are only appropriate for intentional delays (rate limiting, backoff) and failsafes (upper bounds).
+
+**Why?**
+- **Determinism:** Event-based waits finish exactly when the condition is met (e.g., 100ms), whereas fixed timeouts waste time (sleeping 2s for a 100ms event) or cause flakiness (sleeping 2s for a 2.1s event).
+- **Self-Documentation:** `await page.waitForSelector('#submit-btn')` explains *what* we are waiting for. `await sleep(2000)` explains nothing.
+
+**Decision Matrix:**
+
+| Scenario | Preferred Approach | Anti-Pattern |
+|----------|-------------------|--------------|
+| **Wait for API/DOM** | ✅ `await expect.poll()` / `waitForSelector` | ❌ `sleep(2000)` |
+| **Retry Logic** | ✅ Exponential Backoff | ❌ Fixed sleep loop |
+| **Rate Limiting** | ✅ Enforce minimum interval | ❌ Arbitrary pauses |
+| **Failsafes** | ✅ `{ timeout: 5000 }` (upper bound) | ❌ Infinite polling |
+| **UX/Animation** | ✅ Intentional delay | ❌ Race condition |
+
+**Good Example (Event-Based):**
+```typescript
+// ✅ Good: Polls until text matches, fails safely after timeout
+await expect(async () => {
+  const text = await page.getByTestId('count').textContent();
+  return parseInt(text);
+}).toPass({ timeout: 5000 });
+```
+
+**Bad Example (Arbitrary Timeout):**
+```typescript
+// ❌ Bad: Flaky and slow
+await page.waitForTimeout(2000); 
+const text = await page.getByTestId('count').textContent();
+expect(text).toBe('5');
+```
 
 ### Architecture Decision Records (ADR) - Key Decisions
 
@@ -702,11 +758,11 @@ The project uses a tiered testing approach to balance speed, reliability, and re
 
 | Category | Command | Environment | Purpose |
 |----------|---------|-------------|---------|
-| **1. Unit Tests** | `pnpm test` | `happy-dom` | Fast, isolated logic tests. Mocks all external deps. |
-| **2. Integration Tests** | `pnpm test` | `happy-dom` | Component + Provider interaction. Mocks services. |
+| **1. Unit Tests** | `pnpm test:unit` | `happy-dom` | Fast, isolated logic tests. Mocks all external deps. |
+| **2. Integration Tests** | `pnpm test:unit` | `happy-dom` | Component + Provider interaction. Mocks services. |
 | **3. CI Simulation (E2E)** | `pnpm ci:local` | Playwright + **MSW** | **The Default.** Full app flow with **Mocked Backend**. Fast, reliable, runs on PRs. No secrets needed. |
-| **4. Live E2E (Real)** | `pnpm test:e2e:live` | Playwright + **Real Services** | Validates integration with **Real Supabase/Stripe/Edge Functions**. Requires `.env` secrets. Uses `playwright.live.config.ts` to auto-sawn dev server with COOP/COEP headers. |
-| **5. Smoke Tests** | (via Live E2E) | Real Hardware | specific capability checks (e.g., `REAL_WHISPER_TEST=true` for WebGPU). |
+| **4. Live Integrations** | `pnpm test:live` | Playwright + **Real APIs** | Validates integration with **Real Supabase/Stripe**. Requires `.env` secrets. |
+| **5. Canary Tests** | `pnpm test:canary` | Real App | Staging/Production validation. Runs post-deploy. |
 | **6. Soak Tests** | `pnpm test:soak` | Production | Long-running load tests on production infrastructure. |
 
 ##### CI Artifacts & Reporting
@@ -719,7 +775,7 @@ The automated CI pipeline requires specific JSON artifacts for tracking metrics.
 - **Mocking:** Heavy. Mocks `fetch`, `SupabaseClient`, `Worker`.
 - **Goal:** Verify logic correctness and component states.
 
-**2. CI Simulation (Mock E2E)** (`tests/e2e/*.e2e.spec.ts`)
+**2. CI Simulation (Mock E2E)** (`tests/e2e/*.e2e.spec.ts`, `mock.smoke.e2e.spec.ts`)
 - **Scope:** Full User Journeys (Signup -> Record -> Analytics).
 - **Mocking:** **Network Layer** (MSW/Playwright Routes) intercepts all requests.
 - **Environment:** `IS_TEST_ENVIRONMENT=true`.
@@ -779,14 +835,14 @@ curl -i -X POST "https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/create-us
 **1. Unit Tests** (`frontend/src/**/*.test.{ts,tsx}`)
 - Run with Vitest in happy-dom environment
 - Uses `createQueryWrapper` for React Query isolation
-- ~376 tests across 51 files
+- 407 tests across 52+ files (verified 2026-01-30)
 
 **2. Mock E2E Tests** (`tests/e2e/*.e2e.spec.ts`)
 - Uses Playwright with MSW (Mock Service Worker)
 - `programmaticLoginWithRoutes()` sets up mock auth/routes
 - `navigateToRoute()` for client-side navigation (preserves mock context)
 - `goToPublicRoute()` for public pages like signin
-- **Includes User Journey Tests** (`*-journey.e2e.spec.ts`): 21 tests covering core-journey, user-journey, free-user-journey, pro-user-journey, upgrade-journey, bypass-journey
+- **Includes User Journey Tests** (`*-journey.e2e.spec.ts`): 26+ tests covering core-journey, user-journey, free-user-journey, pro-user-journey, upgrade-journey, bypass-journey
 
 **3. Live E2E Tests** (`tests/e2e/*-real*.spec.ts`)
 - Runs against real Supabase with GitHub Secrets
@@ -1525,7 +1581,7 @@ Our E2E testing strategy includes a **health check** (`tests/e2e/core-journey.e2
 |----------|-------|----------|
 | **Frontend Unit Tests** | 51 | `frontend/src/**/__tests__/*.test.ts` |
 | **Backend Deno Tests** | 5 | `backend/supabase/functions/**/*.test.ts` |
-| **E2E Tests** | 38+ | `tests/e2e/*.e2e.spec.ts` |
+| **E2E Tests** | 61 | `tests/e2e/*.e2e.spec.ts` |
 | **Soak Tests** | 1 | `tests/soak/soak-test.spec.ts` |
 
 **Key Test Files:**

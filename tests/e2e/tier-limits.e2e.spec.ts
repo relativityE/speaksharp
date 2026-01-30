@@ -52,8 +52,8 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
         const startButton = page.getByTestId('session-start-stop-button');
         await startButton.click();
 
-        // 4. Verify session is recording
-        await expect(page.getByText(/Recording in progress/i)).toBeVisible();
+        // 4. Verify session is recording by checking button changed to Stop
+        await expect(startButton.getByText('Stop')).toBeVisible();
 
         // 5. Wait for auto-stop (should trigger at 5s)
         await expect(page.getByRole('heading', { name: /Daily Limit Reached/i })).toBeVisible({ timeout: 25000 });

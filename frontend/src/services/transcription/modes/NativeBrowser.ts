@@ -40,6 +40,7 @@ export default class NativeBrowser implements ITranscriptionMode {
   private isSupported: boolean;
   private transcript: string;
   private isListening: boolean;
+  private isRestarting: boolean = false;
 
   constructor({ onTranscriptUpdate, onReady, onError }: TranscriptionModeOptions) {
     this.onTranscriptUpdate = onTranscriptUpdate;
@@ -108,12 +109,28 @@ export default class NativeBrowser implements ITranscriptionMode {
     };
 
     this.recognition.onend = () => {
+      if (!this.isListening || this.isRestarting) return;
+
       try {
-        if (this.isListening && this.recognition) {
-          this.recognition.start();
-        }
+        logger.info('[NativeBrowser] onend reached, attempting immediate restart...');
+        this.isRestarting = true;
+        // INTENTIONAL DELAY: Hardware Release Buffer
+        // The Web Speech API requires a brief tick to release the microphone handle
+        // before a new .start() call will be accepted.
+        setTimeout(() => {
+          if (this.isListening && this.recognition) {
+            try {
+              this.recognition.start();
+              this.isRestarting = false;
+            } catch (err) {
+              logger.error({ err }, "[NativeBrowser] Failed to restart in onend");
+              this.isRestarting = false;
+            }
+          }
+        }, 50);
       } catch (error) {
         logger.error({ error }, "Error in NativeBrowser onend handler:");
+        this.isRestarting = false;
       }
     };
     logger.info('[NativeBrowser] Init complete.');

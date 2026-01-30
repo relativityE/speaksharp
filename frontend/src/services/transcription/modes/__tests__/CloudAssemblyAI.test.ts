@@ -1,192 +1,264 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import CloudAssemblyAI from '../CloudAssemblyAI';
-import { MicStream } from '../../utils/types';
 
-// Mock the global WebSocket
+// Mock Supabase client
+const mockGetSession = vi.fn();
+vi.mock('../../../../lib/supabaseClient', () => ({
+    getSupabaseClient: () => ({
+        auth: {
+            getSession: mockGetSession
+        }
+    })
+}));
+
+// Mock AudioProcessor
+vi.mock('../../utils/AudioProcessor', () => ({
+    floatToInt16: (input: Float32Array) => input // Identity for testing
+}));
+
+// Mock Logger
+vi.mock('../../../../lib/logger', () => ({
+    default: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+    }
+}));
+
+// Mock Global WebSocket
 class MockWebSocket {
-    url: string;
-    readyState: number = 0; // CONNECTING
-    onopen: (() => void) | null = null;
-    onmessage: ((event: { data: string }) => void) | null = null;
-    onclose: ((event: { code: number; reason: string; wasClean: boolean }) => void) | null = null;
-    onerror: ((error: unknown) => void) | null = null;
-    send = vi.fn();
-    close = vi.fn(function (this: MockWebSocket, code?: number) {
-        this.readyState = 3; // CLOSED
-        if (this.onclose) this.onclose({ code: code || 1000, reason: 'Normal Closure', wasClean: true });
-    });
-
+    static instances: MockWebSocket[] = [];
     static CONNECTING = 0;
     static OPEN = 1;
     static CLOSING = 2;
     static CLOSED = 3;
 
+    url: string;
+    onopen: (() => void) | null = null;
+    onmessage: ((event: MessageEvent) => void) | null = null;
+    onclose: ((event: CloseEvent) => void) | null = null;
+    onerror: ((event: Event) => void) | null = null;
+    readyState: number = MockWebSocket.CONNECTING;
+    send = vi.fn();
+    close = vi.fn(() => {
+        this.readyState = MockWebSocket.CLOSED;
+        // Trigger onclose automatically if desired, or manually in test
+    });
+
     constructor(url: string) {
         this.url = url;
-        MockWebSocket.lastInstance = this;
-        // Simulate async open
-        setTimeout(() => {
-            // Only open if we haven't been closed already
-            if (this.readyState === 0) {
-                this.readyState = 1; // OPEN
-                if (this.onopen) this.onopen();
-            }
-        }, 0);
+        MockWebSocket.instances.push(this);
     }
 
-    static lastInstance: MockWebSocket | null = null;
+    // Helper to simulate server events
+    simulateOpen() {
+        this.readyState = MockWebSocket.OPEN;
+        this.onopen?.();
+    }
+
+    simulateMessage(data: unknown) {
+        // cast to MessageEvent for test simplicity
+        this.onmessage?.({ data: JSON.stringify(data) } as MessageEvent);
+    }
+
+    simulateClose(code = 1000, reason = '') {
+        this.readyState = MockWebSocket.CLOSED;
+        this.onclose?.({ code, reason } as CloseEvent);
+    }
+
+    simulateError(error: unknown) {
+        this.onerror?.(error as Event);
+    }
 }
 
-vi.stubGlobal('WebSocket', MockWebSocket);
-
-describe('CloudAssemblyAI (Success Path & Resilience)', () => {
+describe('CloudAssemblyAI (Native WebSocket)', () => {
     let mode: CloudAssemblyAI;
     const onTranscriptUpdate = vi.fn();
     const onReady = vi.fn();
-    const getAssemblyAIToken = vi.fn();
-    const onConnectionStateChange = vi.fn();
     const onError = vi.fn();
+    let originalWebSocket: unknown;
 
     beforeEach(() => {
         vi.useFakeTimers();
         vi.resetAllMocks();
-        getAssemblyAIToken.mockResolvedValue('test-token');
+
+        // Setup WebSocket Mock
+        originalWebSocket = global.WebSocket;
+        global.WebSocket = MockWebSocket as unknown as typeof WebSocket;
+        MockWebSocket.instances = [];
+
+        // Setup Supabase Mock
+        mockGetSession.mockResolvedValue({
+            data: { session: { access_token: 'fake-access-token' } }
+        });
+
+        // Mock fetch for the token endpoint
+        global.fetch = vi.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({ token: 'temp-assemblyai-token' })
+        });
 
         mode = new CloudAssemblyAI({
             onTranscriptUpdate,
             onReady,
-            getAssemblyAIToken,
-            onConnectionStateChange,
             onError,
-            onModelLoadProgress: vi.fn(),
         });
     });
 
     afterEach(() => {
+        global.WebSocket = originalWebSocket as typeof WebSocket;
         vi.useRealTimers();
     });
 
-    const createMockMicStream = (): MicStream => ({
-        sampleRate: 16000,
-        onFrame: vi.fn(),
-        offFrame: vi.fn(),
-        close: vi.fn(),
-        stop: vi.fn(),
-        _mediaStream: new MediaStream(),
-    });
+    const LAST_SOCKET = () => MockWebSocket.instances[MockWebSocket.instances.length - 1];
 
-    describe('Core Transcription Logic', () => {
-        it('should get a token and open a websocket on startTranscription', async () => {
-            const micStream = createMockMicStream();
-            const startPromise = mode.startTranscription(micStream);
-            await vi.advanceTimersByTimeAsync(0);
+    describe('Connection & Generation ID', () => {
+        it('should fetch token and connect to WebSocket with correct URL', async () => {
+            await mode.startTranscription();
 
-            expect(getAssemblyAIToken).toHaveBeenCalled();
-            expect(MockWebSocket.lastInstance?.url).toContain('token=test-token');
+            // 1. Check fetch call
+            expect(global.fetch).toHaveBeenCalledWith(
+                expect.stringContaining('assemblyai-token'),
+                expect.objectContaining({
+                    method: 'POST',
+                    headers: expect.objectContaining({
+                        'Authorization': 'Bearer fake-access-token'
+                    })
+                })
+            );
 
-            // The startPromise resolves when onReady is called (simulated by timeout in MockWebSocket constructor)
-            await startPromise;
+            // 2. verify WebSocket creation
+            const socket = LAST_SOCKET();
+            expect(socket).toBeDefined();
+            expect(socket.url).toContain('token=temp-assemblyai-token');
+            expect(socket.url).toContain('sample_rate=16000');
+
+            // 3. Open connection
+            socket.simulateOpen();
+
             expect(onReady).toHaveBeenCalled();
-            expect(micStream.onFrame).toHaveBeenCalled();
         });
 
-        it('should send audio data when the websocket is open', async () => {
-            const micStream = createMockMicStream();
-            await mode.startTranscription(micStream);
-            await vi.advanceTimersByTimeAsync(0);
+        it('should ignore events from zombie connections (Generation ID guard)', async () => {
+            // Start connection 1
+            await mode.startTranscription();
+            const socket1 = LAST_SOCKET();
 
-            // Capture the frame handler
-            const mockOnFrame = micStream.onFrame as ReturnType<typeof vi.fn>;
-            const frameHandler = mockOnFrame.mock.calls[0][0];
+            // Stop and restart quickly
+            await mode.stopTranscription();
+            await mode.startTranscription();
 
-            // Send enough samples to trigger buffer flush (800 samples = 50ms @ 16kHz)
-            const samples = new Float32Array(800);
-            samples.fill(0.1);
-            frameHandler(samples);
+            const socket2 = LAST_SOCKET();
+            expect(socket2).not.toBe(socket1);
 
-            expect(MockWebSocket.lastInstance?.send).toHaveBeenCalled();
-        });
+            // Now "socket1" finally opens. It should be ignored.
+            socket1.simulateOpen();
+            expect(onReady).not.toHaveBeenCalled(); // Should not match current ID
 
-        it('should handle incoming transcript messages', async () => {
-            const micStream = createMockMicStream();
-            await mode.startTranscription(micStream);
-            await vi.advanceTimersByTimeAsync(0);
+            // socket1 receiving a message should be ignored
+            socket1.simulateMessage({ message_type: 'FinalTranscript', text: 'Ghost' });
+            expect(onTranscriptUpdate).not.toHaveBeenCalled();
 
-            // Simulate partial result
-            const partialEvent = { data: JSON.stringify({ type: 'Turn', transcript: 'hello', turn_is_formatted: false }) } as MessageEvent;
-            MockWebSocket.lastInstance!.onmessage!(partialEvent);
-            expect(onTranscriptUpdate).toHaveBeenCalledWith(expect.objectContaining({
-                transcript: { partial: 'hello' }
-            }));
+            // socket2 opens -> valid
+            socket2.simulateOpen();
+            expect(onReady).toHaveBeenCalled();
 
-            // Simulate final result
-            const finalEvent = { data: JSON.stringify({ type: 'Turn', transcript: 'hello world', turn_is_formatted: true, words: [] }) } as MessageEvent;
-            MockWebSocket.lastInstance!.onmessage!(finalEvent);
-            expect(onTranscriptUpdate).toHaveBeenCalledWith(expect.objectContaining({
-                transcript: { final: 'hello world' }
-            }));
+            // socket2 receives message -> valid
+            socket2.simulateMessage({ message_type: 'FinalTranscript', text: 'Real' });
+            expect(onTranscriptUpdate).toHaveBeenCalledWith({ transcript: { final: 'Real' } });
         });
     });
 
-    describe('Resilience & Reconnection', () => {
-        it('should reconnect with exponential backoff on unplanned closure', async () => {
-            const micStream = createMockMicStream();
-            await mode.startTranscription(micStream);
-            await vi.runOnlyPendingTimersAsync();
+    describe('Transcript Handling', () => {
+        it('should handle Partial and Final transcripts correctly', async () => {
+            await mode.startTranscription();
+            const socket = LAST_SOCKET();
+            socket.simulateOpen();
 
-            expect(onConnectionStateChange).toHaveBeenCalledWith('connected');
-            onConnectionStateChange.mockClear();
+            // Partial
+            socket.simulateMessage({
+                message_type: 'PartialTranscript',
+                text: 'Hello'
+            });
+            expect(onTranscriptUpdate).toHaveBeenCalledWith({ transcript: { partial: 'Hello' } });
 
-            // 1st failure: Reconnect after 3s
-            MockWebSocket.lastInstance!.onclose!({ code: 1006, reason: 'Abnormal Closure', wasClean: false });
-            expect(onConnectionStateChange).toHaveBeenCalledWith('reconnecting');
-            await vi.advanceTimersByTimeAsync(4000);
-            expect(getAssemblyAIToken).toHaveBeenCalledTimes(2);
+            // Final
+            socket.simulateMessage({
+                message_type: 'FinalTranscript',
+                text: 'Hello world.'
+            });
+            expect(onTranscriptUpdate).toHaveBeenCalledWith({ transcript: { final: 'Hello world.' } });
+        });
+    });
 
-            // 2nd failure: Reconnect after 6s
-            MockWebSocket.lastInstance!.onclose!({ code: 1006, reason: 'Abnormal Closure', wasClean: false });
-            await vi.advanceTimersByTimeAsync(7000);
-            expect(getAssemblyAIToken).toHaveBeenCalledTimes(3);
+    describe('Resilience & Backoff', () => {
+        it('should reconnect with exponential backoff on error', async () => {
+            await mode.startTranscription();
+            const socket = LAST_SOCKET();
+            socket.simulateOpen();
+
+            // Simulate connection loss (onerror + onclose)
+            socket.simulateClose(1006, 'Abnormal Closure');
+
+            // Should NOT reconnect immediately
+            await vi.advanceTimersByTimeAsync(500);
+            expect(MockWebSocket.instances.length).toBe(1); // No new instance yet
+
+            // Wait for backoff (base 1000ms + jitter)
+            await vi.advanceTimersByTimeAsync(1500);
+            // Wait for connection to be re-established
+            await vi.waitUntil(() => MockWebSocket.instances.length === 2);
+
+            expect(MockWebSocket.instances.length).toBe(2);
+
+            // 2nd failure
+            const socket2 = LAST_SOCKET();
+            socket2.simulateClose(1006, 'Abnormal');
+
+            // Backoff increase (approx 2000ms)
+            await vi.advanceTimersByTimeAsync(1500);
+            expect(MockWebSocket.instances.length).toBe(2); // Still waiting
+
+            await vi.advanceTimersByTimeAsync(2000);
+            await vi.waitUntil(() => MockWebSocket.instances.length === 3);
+            expect(MockWebSocket.instances.length).toBe(3);
         });
 
-        it('should stop reconnecting after max attempts', async () => {
-            getAssemblyAIToken
-                .mockResolvedValueOnce('token-1') // Initial
-                .mockResolvedValue(null);  // All reconnects fail
+        it('should give up after max retries', async () => {
+            await mode.startTranscription();
+            LAST_SOCKET().simulateOpen();
 
-            const micStream = createMockMicStream();
-            await mode.startTranscription(micStream);
-            await vi.runOnlyPendingTimersAsync();
-
-            // Trigger initial failure
-            MockWebSocket.lastInstance!.onclose!({ code: 1006, reason: 'Abnormal Closure', wasClean: false });
-
-            // Run through 5 attempts
-            for (let i = 0; i < 5; i++) {
-                // Delay: 3000, 6000, 12000, 24000, 30000(cap)
-                const delay = Math.min(3000 * Math.pow(2, i), 30000);
-                await vi.advanceTimersByTimeAsync(delay + 1000);
+            // Fail 6 times (max is 5)
+            for (let i = 0; i <= 5; i++) {
+                LAST_SOCKET().simulateClose(1006, 'Fail');
+                // Advance enough to cover backoff (max is 16s * 1000)
+                await vi.advanceTimersByTimeAsync(35000);
+                await Promise.resolve();
             }
 
-            expect(getAssemblyAIToken).toHaveBeenCalledTimes(6); // 1 initial + 5 attempts
             expect(onError).toHaveBeenCalledWith(expect.objectContaining({
-                message: expect.stringContaining('Max reconnection attempts reached')
+                message: expect.stringContaining('Connection lost')
             }));
-            expect(onConnectionStateChange).toHaveBeenLastCalledWith('disconnected');
-        });
-
-        it('should NOT reconnect if stop was manual', async () => {
-            const micStream = createMockMicStream();
-            await mode.startTranscription(micStream);
-            await vi.runOnlyPendingTimersAsync();
-
-            onConnectionStateChange.mockClear();
-            await mode.stopTranscription();
-
-            const states = onConnectionStateChange.mock.calls.map(call => call[0]);
-            expect(states).toContain('disconnected');
-            expect(states).not.toContain('reconnecting');
-            expect(getAssemblyAIToken).toHaveBeenCalledTimes(1);
         });
     });
+
+    describe('Audio Processing', () => {
+        it('should queue audio when connecting and flush on open', async () => {
+            await mode.startTranscription();
+            // Socket created but not open (readyState = CONNECTING)
+
+            const audioData = new Float32Array([0.5, -0.5]);
+            mode.processAudio(audioData);
+
+            const socket = LAST_SOCKET();
+
+            expect(socket.send).not.toHaveBeenCalled(); // Queued
+
+            socket.simulateOpen();
+            // Should flush queue
+            expect(socket.send).toHaveBeenCalledWith(expect.stringContaining('audio_data'));
+        });
+    });
+
 });

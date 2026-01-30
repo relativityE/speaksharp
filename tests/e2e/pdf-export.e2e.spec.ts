@@ -16,10 +16,12 @@ test.describe('PDF Export', () => {
 
         // Navigate to analytics page
         await navigateToRoute(page, '/analytics');
-        await page.waitForSelector('[data-testid="app-main"]');
+        await page.waitForLoadState('networkidle');
+        await expect(page.getByTestId('dashboard-heading')).toBeVisible();
 
         // Ensure download button is visible (Pro user)
-        const downloadButton = page.getByRole('button', { name: /download session pdf/i }).first();
+        // Use test ID to handle responsive button variants robustly - Select Desktop only
+        const downloadButton = page.getByTestId(/^download-pdf-btn-(?!mobile)/).first();
         await expect(downloadButton).toBeVisible();
 
         // Setup download listener BEFORE clicking
@@ -70,9 +72,10 @@ test.describe('PDF Export', () => {
     test('should download valid PDF file (E2E scope)', async ({ page }) => {
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
         await navigateToRoute(page, '/analytics');
-        await page.waitForSelector('[data-testid="app-main"]');
+        await page.waitForLoadState('networkidle');
+        await expect(page.getByTestId('dashboard-heading')).toBeVisible();
 
-        const downloadButton = page.getByRole('button', { name: /download session pdf/i }).first();
+        const downloadButton = page.getByTestId(/^download-pdf-btn-(?!mobile)/).first();
         await expect(downloadButton).toBeVisible();
 
         const downloadPromise = page.waitForEvent('download');
@@ -105,7 +108,8 @@ test.describe('PDF Export', () => {
     test('should have download button for each session in analytics', async ({ page }) => {
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
         await navigateToRoute(page, '/analytics');
-        await page.waitForSelector('[data-testid="app-main"]');
+        await page.waitForLoadState('networkidle');
+        await expect(page.getByTestId('dashboard-heading')).toBeVisible();
 
         // Wait for session items to load - MSW provides 5 mock sessions
         const sessionItems = page.getByTestId(/session-history-item-/);
@@ -116,7 +120,8 @@ test.describe('PDF Export', () => {
         expect(sessionCount).toBeGreaterThan(0);
 
         // Verify download buttons exist (mock user is Pro tier)
-        const downloadButtons = page.getByRole('button', { name: /download session pdf/i });
+        // Select only desktop buttons (exclude -mobile- IDs)
+        const downloadButtons = page.getByTestId(/^download-pdf-btn-(?!mobile)/);
         const buttonCount = await downloadButtons.count();
 
         // Mock user is Pro, so download buttons MUST exist

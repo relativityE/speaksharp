@@ -50,7 +50,7 @@ test.describe('User Journey - Full Onboarding to Trend Analysis', () => {
         debugLog('[TEST] ✅ Step 5: Analytics dashboard loaded');
 
         // Step 7: Verify session history is displayed
-        await expect(page.getByText('Session History')).toBeVisible();
+        await expect(page.getByText('Export Reports')).toBeVisible();
         debugLog('[TEST] ✅ Step 6: Session history visible');
 
         // Step 8: Navigate back to session for "return user" simulation

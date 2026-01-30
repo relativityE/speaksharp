@@ -10,7 +10,8 @@ test.describe('User Tier Flows', () => {
     await expect(page.getByTestId('app-main')).toBeVisible();
 
     await navigateToRoute(page, '/analytics');
-    await expect(page.getByRole('heading', { name: 'Your Dashboard' })).toBeVisible();
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByTestId('dashboard-heading')).toBeVisible();
 
     // For a 'pro' user, the upgrade banner should not be visible.
     await expect(page.getByTestId('analytics-page-upgrade-button')).not.toBeVisible();

@@ -102,6 +102,7 @@ describe('SessionPage Timer Logic', () => {
             error: null,
             resetTranscript: vi.fn(),
             sttStatus: { type: 'ready', message: 'Ready' },
+            chunks: [],
         } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
         mockUseSessionStore.mockReturnValue({

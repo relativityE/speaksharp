@@ -20,6 +20,9 @@ describe('PauseDetector', () => {
             averagePauseDuration: 0,
             longestPause: 0,
             pausesPerMinute: 0,
+            silencePercentage: 0,
+            transitionPauses: 0,
+            extendedPauses: 0,
         });
     });
 
@@ -97,5 +100,26 @@ describe('PauseDetector', () => {
         pd.processAudioFrame(loudFrame);
 
         expect(pd.getMetrics().totalPauses).toBe(1);
+    });
+    it('REGRESSION: should adapt to a constant noise floor', () => {
+        // 1. Send constant low-level noise (RMS ~0.2)
+        // Initial threshold is 0.1, so this is "silent" relative to 0.1 BUT it would normally break silence.
+        const loudNoiseFrame = new Float32Array(1024).fill(0.2);
+
+        // Process many frames to fill the rolling window
+        for (let i = 0; i < 60; i++) {
+            pauseDetector.processAudioFrame(loudNoiseFrame);
+        }
+
+        // 2. The threshold should have adapted to be ~0.3 (0.2 * 1.5)
+        // Now a frame at 0.25 (previously LOUD compared to default 0.1) should be "SILENT"
+        pauseDetector.processAudioFrame(new Float32Array(1024).fill(0.25));
+        vi.advanceTimersByTime(600);
+
+        // 3. Send real speech (RMS ~0.5) to break the pause
+        pauseDetector.processAudioFrame(new Float32Array(1024).fill(0.5));
+
+        const metrics = pauseDetector.getMetrics();
+        expect(metrics.totalPauses).toBe(1);
     });
 });

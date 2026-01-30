@@ -1,5 +1,12 @@
 import { FILLER_WORD_KEYS } from '../config';
 
+export interface HighlightToken {
+    text: string;
+    type: 'text' | 'filler' | 'error';
+    id: string;
+    color?: string;
+}
+
 /**
  * HSL token palette for deterministic assignment.
  * Optimized for dark mode readability.
@@ -37,7 +44,7 @@ export const ERROR_TAG_REGEX = /\[(inaudible|blank_audio|music|applause|laughter
 /**
  * Parses a transcript into tokens for highlighting.
  */
-export const parseTranscriptForHighlighting = (text: string, customWords: string[] = []) => {
+export const parseTranscriptForHighlighting = (text: string, customWords: string[] = []): HighlightToken[] => {
     if (!text) return [];
 
     // Combine standard filler keys and custom words
@@ -61,7 +68,7 @@ export const parseTranscriptForHighlighting = (text: string, customWords: string
     const parts = text.split(tokenRegex).filter(p => p !== undefined && p !== '');
 
     // Map parts to tokens
-    return parts.map((part, index) => {
+    const initialTokens: HighlightToken[] = parts.map((part, index) => {
         const cleanPart = part.toLowerCase().trim();
 
         // Check exact match with fillers
@@ -69,7 +76,7 @@ export const parseTranscriptForHighlighting = (text: string, customWords: string
         if (matchedFiller) {
             return {
                 text: part,
-                type: 'filler',
+                type: 'filler' as const,
                 color: getWordColor(matchedFiller.toLowerCase()),
                 id: String(index)
             };
@@ -78,21 +85,23 @@ export const parseTranscriptForHighlighting = (text: string, customWords: string
         if (ERROR_TAG_REGEX.test(cleanPart)) {
             return {
                 text: part,
-                type: 'error',
+                type: 'error' as const,
                 id: String(index)
             };
         }
 
         return {
             text: part,
-            type: 'text',
+            type: 'text' as const,
             id: String(index)
         };
-    }).flatMap(token => {
+    });
+
+    return initialTokens.flatMap((token): HighlightToken | HighlightToken[] => {
         if (token.type === 'text') {
             // Split text block into words (preserving spaces)
             const subWords = token.text.split(/(\s+)/).filter(s => s.length > 0);
-            return subWords.map((w, i) => ({
+            return subWords.map((w, i): HighlightToken => ({
                 text: w,
                 type: 'text',
                 id: `${token.id}-${i}`

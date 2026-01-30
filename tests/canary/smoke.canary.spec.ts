@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
-import { goToPublicRoute, navigateToRoute, debugLog } from '../helpers';
-import { ROUTES, TEST_IDS, CANARY_USER } from '../../constants';
+import { goToPublicRoute, navigateToRoute, debugLog } from '../e2e/helpers';
+import { ROUTES, TEST_IDS, CANARY_USER } from '../constants';
 
 /**
  * Canary test credentials from constants
@@ -15,7 +15,8 @@ const CANARY_PASSWORD = CANARY_USER.password;
  */
 async function canaryLogin(page: Page): Promise<void> {
     if (!CANARY_PASSWORD) {
-        throw new Error('Missing CANARY_PASSWORD environment variable');
+        test.skip(true, 'Missing CANARY_PASSWORD environment variable - skipping smoke canary');
+        return;
     }
 
     debugLog(`[CANARY] Logging in as ${CANARY_EMAIL}...`);

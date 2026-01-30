@@ -42,12 +42,12 @@ describe('analyticsUtils', () => {
     describe('calculateFillerWordTrends', () => {
         it('should calculate filler word trends correctly', () => {
             const trends = calculateFillerWordTrends(mockSessionHistory);
-            expect(trends.um.current).toBe(5);
-            expect(trends.um.previous).toBe(10);
-            expect(trends.uh.current).toBe(3);
+            expect(trends.um.current).toBe(7.5); // Average of (5 + 10) / 2
+            expect(trends.um.previous).toBe(0);
+            expect(trends.uh.current).toBe(1.5); // Average of (3 + 0) / 2
             expect(trends.uh.previous).toBe(0);
-            expect(trends.like.current).toBe(0);
-            expect(trends.like.previous).toBe(5);
+            expect(trends.like.current).toBe(2.5); // Average of (0 + 5) / 2
+            expect(trends.like.previous).toBe(0);
         });
     });
 });

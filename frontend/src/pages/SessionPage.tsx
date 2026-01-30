@@ -73,7 +73,7 @@ export const SessionPage: React.FC = () => {
 
     const speechRecognition = useSpeechRecognition(speechConfig);
 
-    const { transcript, fillerData, startListening, stopListening, isListening, isReady, modelLoadingProgress, sttStatus, mode: activeMode } = speechRecognition;
+    const { transcript, chunks, fillerData, startListening, stopListening, isListening, isReady, modelLoadingProgress, sttStatus, mode: activeMode } = speechRecognition;
     const { pauseMetrics } = useVocalAnalysis(isListening);
 
     // Sync UI mode with actual active mode from service (e.g. after fallback)
@@ -85,10 +85,6 @@ export const SessionPage: React.FC = () => {
     }, [isListening, activeMode, mode]);
 
     // Enhanced status derived from sttStatus + fallback history
-    // If we are in Native mode but requested Private/Cloud, effectively we fell back.
-    // However, tracking "requested" is tricky if we update `mode` to match active.
-    // We rely on `sttStatus` messages. If `sttStatus.type` is 'ready', it might hide the fallback error.
-    // We can use a local state to hold the last error/fallback message until session end.
     const [persistentStatus, setPersistentStatus] = useState<typeof sttStatus | null>(null);
 
     useEffect(() => {
@@ -115,9 +111,9 @@ export const SessionPage: React.FC = () => {
     }, [isListening]);
 
     // AUDIT FIX: Extract metrics calculation to custom hook
-    // Must be called before early returns to comply with React Hooks rules
     const metrics = useSessionMetrics({
         transcript: transcript.transcript,
+        chunks,
         fillerData,
         elapsedTime,
     });
@@ -365,102 +361,104 @@ export const SessionPage: React.FC = () => {
                 <h1 className="text-3xl font-bold text-foreground mb-2">Practice Session</h1>
                 <p className="text-sm text-muted-foreground">We'll analyze your speech patterns in real-time</p>
             </div>
-
+            {/* Status Bar */}
+            <div className="max-w-7xl mx-auto px-6 mb-6">
+                <StatusNotificationBar
+                    status={
+                        sessionFeedbackMessage
+                            ? { type: sessionFeedbackMessage.includes('⚠️') ? 'error' : 'ready', message: sessionFeedbackMessage }
+                            : showAnalyticsPrompt
+                                ? { type: 'ready', message: '✓ Session saved. Click Analytics above to review your performance.' }
+                                : modelLoadingProgress != null
+                                    ? { type: 'downloading', message: 'Downloading model...', progress: modelLoadingProgress }
+                                    : (usageLimit?.promo_just_expired)
+                                        ? { type: 'error', message: '⚠️ Promo code expired. Session limit reverted to 5 mins.' }
+                                        : displayStatus
+                    }
+                />
+            </div>
 
 
             {/* Main Content Grid */}
             <div className="max-w-7xl mx-auto px-6 pb-12">
-                <div className="grid lg:grid-cols-3 gap-6">
-
-                    {/* LEFT COLUMN: Recording & Transcript (Span 2) */}
-                    <div className="lg:col-span-2 space-y-6">
-                        {/* Status Bar */}
-                        <StatusNotificationBar
-                            status={
-                                sessionFeedbackMessage
-                                    ? { type: sessionFeedbackMessage.includes('⚠️') ? 'error' : 'ready', message: sessionFeedbackMessage }
-                                    : showAnalyticsPrompt
-                                        ? { type: 'ready', message: '✓ Session saved. Click Analytics above to review your performance.' }
-                                        : modelLoadingProgress != null
-                                            ? { type: 'downloading', message: 'Downloading model...', progress: modelLoadingProgress }
-                                            : (usageLimit?.promo_just_expired)
-                                                ? { type: 'error', message: '⚠️ Promo code expired. Session limit reverted to 5 mins.' }
-                                                : displayStatus
-                            }
-                        />
-
-                        {/* Main Recording Card */}
-                        <LiveRecordingCard
-                            mode={mode}
-                            isListening={isListening}
-                            isReady={isReady}
-                            isProUser={isProUser}
-                            modelLoadingProgress={modelLoadingProgress}
-                            formattedTime={metrics.formattedTime}
-                            elapsedSeconds={elapsedTime}
-                            isButtonDisabled={isButtonDisabled}
-                            onModeChange={(newMode) => {
-                                console.log(`[SessionPage] [DEBUG-SWITCH] UI Dropdown changed to: ${newMode}`);
-                                setMode(newMode);
-                            }}
-                            onStartStop={handleStartStop}
-                        />
-
-                        {/* Live Transcript */}
-                        <LiveTranscriptPanel
-                            transcript={transcript.transcript}
-                            isListening={isListening}
-                            containerRef={transcriptContainerRef}
-                            customWords={userFillerWords}
-                        />
+                <div className="space-y-6">
+                    {/* Row 1: Session Control & Pause Analysis */}
+                    <div className="grid lg:grid-cols-3 gap-6">
+                        <div className="lg:col-span-2">
+                            <LiveRecordingCard
+                                mode={mode}
+                                isListening={isListening}
+                                isReady={isReady}
+                                isProUser={isProUser}
+                                modelLoadingProgress={modelLoadingProgress}
+                                formattedTime={metrics.formattedTime}
+                                elapsedSeconds={elapsedTime}
+                                isButtonDisabled={isButtonDisabled}
+                                onModeChange={(newMode) => {
+                                    console.log(`[SessionPage] [DEBUG-SWITCH] UI Dropdown changed to: ${newMode}`);
+                                    setMode(newMode);
+                                }}
+                                onStartStop={handleStartStop}
+                            />
+                        </div>
+                        <div className="h-full">
+                            <PauseMetricsDisplay
+                                metrics={pauseMetrics}
+                                isListening={isListening}
+                                className="h-full"
+                            />
+                        </div>
                     </div>
 
-                    {/* RIGHT COLUMN: Real-time Stats Sidebar (Span 1) */}
-                    <div className="space-y-6">
-                        <FillerWordsCard
-                            fillerCount={metrics.fillerCount}
-                            fillerData={fillerData}
-                            headerAction={
-                                <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-                                    <PopoverTrigger asChild>
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            data-testid="add-custom-word-button"
-                                            className="text-primary underline-offset-4 hover:underline"
-                                        >
-                                            <Settings className="h-4 w-4" />
-                                            Custom
-                                        </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-80 bg-card border-border shadow-xl mr-6">
-                                        <UserFillerWordsManager onWordAdded={() => setIsSettingsOpen(false)} />
-                                    </PopoverContent>
-                                </Popover>
-                            }
-                        />
+                    {/* Row 2: Transcript & Filler Words */}
+                    <div className="grid lg:grid-cols-3 gap-6">
+                        <div className="lg:col-span-2">
+                            <LiveTranscriptPanel
+                                transcript={transcript.transcript}
+                                isListening={isListening}
+                                containerRef={transcriptContainerRef}
+                                customWords={userFillerWords}
+                                className="h-full"
+                            />
+                        </div>
+                        <div className="h-full">
+                            <FillerWordsCard
+                                fillerCount={metrics.fillerCount}
+                                fillerData={fillerData}
+                                headerAction={
+                                    <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+                                        <PopoverTrigger asChild>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                data-testid="add-custom-word-button"
+                                                className="text-primary underline-offset-4 hover:underline"
+                                            >
+                                                <Settings className="h-4 w-4" />
+                                                Custom
+                                            </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-80 bg-card border-border shadow-xl mr-6">
+                                            <UserFillerWordsManager onWordAdded={() => setIsSettingsOpen(false)} />
+                                        </PopoverContent>
+                                    </Popover>
+                                }
+                            />
+                        </div>
+                    </div>
 
-                        {/* Clarity Score */}
+                    {/* Row 3: Secondary Metrics & Tips */}
+                    <div className="grid lg:grid-cols-3 gap-6">
                         <ClarityScoreCard
                             clarityScore={metrics.clarityScore}
                             clarityLabel={metrics.clarityLabel}
                         />
-
-                        {/* Speaking Rate */}
                         <SpeakingRateCard
                             wpm={metrics.wpm}
                             wpmLabel={metrics.wpmLabel}
                         />
-
-                        {/* Pause Analysis */}
-                        <div className="bg-card border border-border rounded-xl overflow-hidden">
-                            <PauseMetricsDisplay metrics={pauseMetrics} isListening={isListening} />
-                        </div>
-
-                        {/* Tips */}
                         <SpeakingTipsCard />
                     </div>
-
                 </div>
             </div>
 

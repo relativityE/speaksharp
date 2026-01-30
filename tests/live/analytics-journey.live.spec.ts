@@ -24,7 +24,7 @@
  */
 
 import { test, expect, Page } from '@playwright/test';
-import { navigateToRoute, attachLiveTranscript, verifyCredentialsAndInjectSession } from './helpers';
+import { navigateToRoute, attachLiveTranscript, verifyCredentialsAndInjectSession } from '../e2e/helpers';
 
 // Configuration from environment
 // Use soak-test credentials for local E2E testing (same as CI)

@@ -15,9 +15,12 @@ test.describe('Analytics Page - Dashboard with Data', () => {
     // Verify dashboard heading
 
     // Verify dashboard heading
+    // Wait for loading to finish first (robustness against CI slowness)
+    await expect(page.locator('.animate-spin')).not.toBeVisible({ timeout: 15000 });
+
     const mainHeading = page.getByTestId('dashboard-heading');
-    await expect(mainHeading).toBeVisible({ timeout: 10000 });
-    await expect(mainHeading).toHaveText('Your Dashboard');
+    await expect(mainHeading).toBeVisible({ timeout: 30000 });
+    await expect(mainHeading).toHaveText('Your Analytics');
 
     // Verify dashboard renders with data
     const dashboard = page.getByTestId('analytics-dashboard');

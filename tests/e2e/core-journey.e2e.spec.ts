@@ -31,7 +31,7 @@ test.describe('Core User Journey', () => {
         await startButton.click();
 
         // 4. Simulate Speech - wait for recording to start
-        await expect(page.getByRole('button', { name: /stop/i })).toBeVisible({ timeout: 15000 });
+        await expect(page.getByRole('button', { name: /stop/i })).toBeVisible();
         await mockLiveTranscript(page, [
             "Hello everyone,",
             "um, today I want to talk about,",

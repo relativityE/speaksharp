@@ -115,6 +115,7 @@ describe('SessionPage Feedback Logic', () => {
             modelLoadingProgress: null,
             mode: 'native',
             sttStatus: { type: 'ready' },
+            chunks: [],
         });
 
         // Default mock for session store
@@ -136,6 +137,7 @@ describe('SessionPage Feedback Logic', () => {
             modelLoadingProgress: null,
             mode: 'native',
             sttStatus: { type: 'ready' },
+            chunks: [],
         });
 
         // Mock elapsed time to 2s
@@ -176,6 +178,7 @@ describe('SessionPage Feedback Logic', () => {
             modelLoadingProgress: null,
             mode: 'native',
             sttStatus: { type: 'ready' },
+            chunks: [],
         });
 
         (useSessionStore as unknown as Mock).mockReturnValue({
@@ -224,6 +227,7 @@ describe('SessionPage Feedback Logic', () => {
             modelLoadingProgress: null,
             mode: 'native',
             sttStatus: { type: 'listening', message: 'Listening...' },
+            chunks: [],
         });
 
         render(

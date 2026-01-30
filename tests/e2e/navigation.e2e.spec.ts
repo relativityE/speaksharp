@@ -8,7 +8,7 @@ test.describe('App Navigation', () => {
     // Test navigation to each route and verify URL + key element
     const routes = [
       { path: '/session', heading: 'Practice Session' },
-      { path: '/analytics', heading: 'Your Dashboard' },
+      { path: '/analytics', heading: 'Your Analytics' },
     ];
 
     for (const route of routes) {

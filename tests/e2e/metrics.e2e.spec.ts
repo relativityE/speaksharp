@@ -55,7 +55,9 @@ test.describe('Session Metrics', () => {
             const fillerText = await fillerValue.textContent();
             debugLog('[TEST] Polling filler count:', fillerText);
             // We sent 3 words, expect at least 1 (async detection might lag)
-            expect(parseInt(fillerText || '0')).toBeGreaterThanOrEqual(1);
+            // fillerText format is "(3)", so strip non-digits
+            const count = parseInt(fillerText?.replace(/\D/g, '') || '0');
+            expect(count).toBeGreaterThanOrEqual(1);
 
             // At least one badge should have a count > 0
             const counts = await page.getByTestId('filler-badge-count').allTextContents();

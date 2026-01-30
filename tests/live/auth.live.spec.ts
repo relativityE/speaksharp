@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { goToPublicRoute } from './helpers';
+import { goToPublicRoute } from '../e2e/helpers';
 
 // Skip this test if running against a mock backend
 
@@ -7,7 +7,8 @@ test.describe('Real Authentication Flow', () => {
     // Verify we are running in the Live environment context
     test.beforeAll(() => {
         if (process.env.VITE_USE_LIVE_DB !== 'true') {
-            throw new Error('Spec failed: VITE_USE_LIVE_DB=true is required for Live Auth tests.');
+            test.skip(true, 'Spec failed: VITE_USE_LIVE_DB=true is required for Live Auth tests.');
+            return;
         }
 
         const email = process.env.E2E_FREE_EMAIL;

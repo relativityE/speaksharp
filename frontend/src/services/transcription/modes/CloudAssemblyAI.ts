@@ -1,355 +1,303 @@
-import type { ITranscriptionMode, TranscriptionModeOptions, Transcript } from './types';
-import { TranscriptionError } from './types';
-import type { MicStream } from '../utils/types';
+import { ITranscriptionMode, TranscriptionModeOptions, Transcript, TranscriptionError } from './types';
+import { getSupabaseClient } from '../../../lib/supabaseClient';
 import { floatToInt16 } from '../utils/AudioProcessor';
 import logger from '../../../lib/logger';
-import { STT_CONFIG, AUDIO_CONFIG } from '../../../config';
 
-// Type definitions for AssemblyAI WebSocket messages
-interface AssemblyAIWord {
-  text: string;
-  start: number;
-  end: number;
-  confidence: number;
-}
-
+// Message types for AssemblyAI WebSocket
 interface AssemblyAIMessage {
-  type: 'Begin' | 'Turn' | 'Termination';
-  transcript?: string;
-  turn_is_formatted?: boolean;
-  end_of_turn?: boolean;
-  words?: AssemblyAIWord[];
+  message_type: 'SessionBegins' | 'PartialTranscript' | 'FinalTranscript' | 'SessionTerminated';
   session_id?: string;
-  id?: string;
-  expires_at?: number;
-  audio_start?: number;
-  audio_end?: number;
+  text?: string;
+  words?: Array<{
+    text: string;
+    start: number;
+    end: number;
+    confidence: number;
+  }>;
   confidence?: number;
-  created?: string;
+  error?: string;
 }
 
-// Connection state for WebSocket
-export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected' | 'error';
+// Internal connection state tracking
+type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
 export default class CloudAssemblyAI implements ITranscriptionMode {
-  private onTranscriptUpdate: (update: { transcript: Transcript; words?: AssemblyAIWord[] }) => void;
+  private onTranscriptUpdate: (update: { transcript: Transcript }) => void;
   private onReady: () => void;
-  private _getAssemblyAIToken: () => Promise<string | null>;
-  private customVocabulary: string[];
+  private onError?: (error: TranscriptionError) => void;
   private socket: WebSocket | null = null;
-  private mic: MicStream | null = null;
-  private frameHandler: (frame: Float32Array) => void;
-  private firstPacketSent: boolean = false;
-  private audioBuffer: Int16Array = new Int16Array(0);
-  // AssemblyAI requires audio packets between 50-1000ms (see STT_CONFIG)
-  private readonly MIN_SAMPLES = STT_CONFIG.ASSEMBLYAI_MIN_SAMPLES;
-  private readonly MAX_SAMPLES = STT_CONFIG.ASSEMBLYAI_MAX_SAMPLES;
+  private isListening: boolean = false;
+  private audioQueue: Float32Array[] = [];
+  private connectionState: ConnectionState = 'disconnected';
 
-  // Track last partial to preserve on unexpected disconnect
-  // AssemblyAI sample code shows partials overwrite until final is received
-  private lastPartialTranscript: string = '';
+  // Connection State Machine
+  private connectionId: number = 0;
 
   // Reconnection logic
-  private reconnectAttempts = 0;
-  private readonly maxReconnectAttempts = 5;
-  private reconnectTimeout: NodeJS.Timeout | null = null;
-  private heartbeatInterval: NodeJS.Timeout | null = null;
-  private readonly heartbeatIntervalMs = 30000; // 30 seconds
-  private connectionState: ConnectionState = 'disconnected';
-  private onConnectionStateChange?: (state: ConnectionState) => void;
-  private onError?: (error: TranscriptionError) => void;
-  private isManualStop = false; // Track if stop was intentional
+  private reconnectionAttempts: number = 0;
+  private maxReconnectionAttempts: number = 5;
+  private baseReconnectDelay: number = 1000;
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  private isReconnect: boolean = false;
 
-  constructor({ onTranscriptUpdate, onReady, getAssemblyAIToken, customVocabulary = [], onConnectionStateChange, onError }: TranscriptionModeOptions) {
-    if (!onTranscriptUpdate || !onReady || !getAssemblyAIToken) {
-      throw new Error("Missing required options for CloudAssemblyAI");
-    }
+  constructor({ onTranscriptUpdate, onReady, onError }: TranscriptionModeOptions) {
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onReady = onReady;
-    this._getAssemblyAIToken = getAssemblyAIToken;
-    this.customVocabulary = customVocabulary;
-    this.onConnectionStateChange = onConnectionStateChange;
     this.onError = onError;
-    this.frameHandler = this._handleAudioFrame.bind(this);
   }
 
   public async init(): Promise<void> {
-    // Initialization logic is handled in startTranscription where the token is fetched.
+    // No-op for init, connection happens on startTranscription
+    logger.info('[CloudAssemblyAI] Init complete (lazy connection strategy).');
   }
 
-  public async startTranscription(mic: MicStream): Promise<void> {
-    if (!mic || typeof mic.onFrame !== 'function') {
-      throw new Error("A valid MicStream object with an onFrame method is required.");
+  private async fetchToken(): Promise<string> {
+    try {
+      // Use our backend functionality to get a temporary token
+      const supabase = getSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/assemblyai-token`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch token: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data.token;
+    } catch (error) {
+      logger.error({ error }, '[CloudAssemblyAI] Failed to fetch auth token');
+      throw error;
     }
-    this.mic = mic;
+  }
+
+  public async startTranscription(): Promise<void> {
+    if (this.isListening) return;
+
+    this.isListening = true;
+    this.reconnectionAttempts = 0;
+    this.isReconnect = false;
+    await this.connect();
+  }
+
+  private async connect(): Promise<void> {
+    // Increment generation ID for this new connection attempt
+    const currentConnectionId = ++this.connectionId;
 
     try {
-      console.log('[AssemblyAI] 🔄 Starting Cloud STT connection...');
-      const token = await this._getAssemblyAIToken();
-      if (!token) {
-        throw new Error("Failed to retrieve AssemblyAI token.");
+      this.updateConnectionState('connecting');
+      logger.info(`[CloudAssemblyAI] Connecting... (Attempt ${this.reconnectionAttempts + 1}/${this.maxReconnectionAttempts}, ID: ${currentConnectionId})`);
+
+      const token = await this.fetchToken();
+
+      // Guard: If connection ID changed while awaiting token, abort
+      if (currentConnectionId !== this.connectionId) {
+        logger.warn(`[CloudAssemblyAI] Connection ID mismatch after token fetch. Aborting connect for ID ${currentConnectionId}`);
+        return;
       }
 
-      // Build WebSocket URL with AssemblyAI Universal Streaming parameters
-      // Settings from AssemblyAI Playground for optimal end-of-turn detection:
-      // - format_turns=true: Get formatted final transcripts
-      // - end_of_turn_confidence_threshold=0.7: Confidence for end-of-turn detection
-      // - min_end_of_turn_silence=160: Min silence (ms) when confident
-      // - max_turn_silence=2400: Max silence (ms) before forcing end-of-turn
-      let url = `wss://streaming.assemblyai.com/v3/ws?sample_rate=${mic.sampleRate}&token=${token}&format_turns=true&end_of_turn_confidence_threshold=0.7&min_end_of_turn_silence=160&max_turn_silence=2400`;
-      if (this.customVocabulary.length > 0) {
-        const boostParam = this.customVocabulary.join(',');
-        url += `&boost_param=${encodeURIComponent(boostParam)}`;
-      }
-      logger.info({ url: url.replace(/token=[^&]+/, 'token=REDACTED') }, '[CloudAssemblyAI] Creating WebSocket connection');
-      this.socket = new WebSocket(url);
+      const wsUrl = `wss://api.assemblyai.com/v2/realtime/ws?sample_rate=16000&token=${token}`;
+
+      this.socket = new WebSocket(wsUrl);
 
       this.socket.onopen = () => {
-        logger.info({ readyState: this.socket?.readyState }, '[CloudAssemblyAI] WebSocket OPEN event');
-        this.reconnectAttempts = 0; // Reset reconnect counter on successful connection
-        this.startHeartbeat(); // Start heartbeat
-        this.updateConnectionState('connected'); // Update state
-        this.onReady();
-        this.mic?.onFrame(this.frameHandler);
-      };
-
-      this.socket.onmessage = (event: MessageEvent<string>) => {
-        const data: AssemblyAIMessage = JSON.parse(event.data);
-        logger.info({ data }, '[CloudAssemblyAI] WebSocket message received');
-
-        if (data.type === 'Begin') {
-          logger.info({ session_id: data.session_id || data.id }, '[CloudAssemblyAI] Session started');
+        // Guard: zombie socket check
+        if (currentConnectionId !== this.connectionId) {
+          logger.warn(`[CloudAssemblyAI] closing zombie socket for ID ${currentConnectionId}`);
+          this.socket?.close();
           return;
         }
 
-        if (data.type === 'Turn' && data.transcript) {
-          // AssemblyAI v3 sends:
-          // - Partial transcripts: no end_of_turn, no turn_is_formatted
-          // - Unformatted final: end_of_turn=true, turn_is_formatted=false
-          // - Formatted final: turn_is_formatted=true (if format_turns=true)
-          // We treat BOTH end_of_turn and turn_is_formatted as finals to ensure accumulation
-          if (data.turn_is_formatted || data.end_of_turn) {
-            logger.info({ transcript: data.transcript, formatted: data.turn_is_formatted }, '[CloudAssemblyAI] Final transcript');
-            this.onTranscriptUpdate({ transcript: { final: data.transcript }, words: data.words || [] });
-            this.lastPartialTranscript = ''; // Clear after final
-          } else {
-            logger.info({ transcript: data.transcript }, '[CloudAssemblyAI] Partial transcript');
-            this.lastPartialTranscript = data.transcript; // Track for disconnect recovery
-            this.onTranscriptUpdate({ transcript: { partial: data.transcript } });
-          }
+        logger.info(`[CloudAssemblyAI] WebSocket connected (ID: ${currentConnectionId}).`);
+        this.updateConnectionState('connected');
+        this.reconnectionAttempts = 0; // Reset counters on successful connection
+
+        if (!this.isReconnect && this.onReady) {
+          this.onReady();
         }
 
-        // Handle Termination message per canonical sample
-        if (data.type === 'Termination') {
-          const audioDuration = (data as { audio_duration_seconds?: number }).audio_duration_seconds;
-          const sessionDuration = (data as { session_duration_seconds?: number }).session_duration_seconds;
-          logger.info({ audioDuration, sessionDuration }, '[CloudAssemblyAI] Session Terminated');
-        }
+        this.flushAudioQueue();
       };
 
-      this.socket.onerror = (error) => {
-        logger.error({ error, readyState: this.socket?.readyState }, '❌ [CloudAssemblyAI] WebSocket ERROR event');
-        this.onError?.(TranscriptionError.websocket('WebSocket connection error', true));
-        this.stopTranscription();
+      this.socket.onmessage = (event) => {
+        if (currentConnectionId !== this.connectionId) return;
+
+        try {
+          if (typeof event.data === 'string') {
+            const data = JSON.parse(event.data) as AssemblyAIMessage;
+            this.handleMessage(data);
+          }
+        } catch (err) {
+          logger.error({ err, data: event.data }, '[CloudAssemblyAI] Failed to parse message');
+        }
       };
 
       this.socket.onclose = (event) => {
-        logger.info({ code: event.code, reason: event.reason, wasClean: event.wasClean }, '[CloudAssemblyAI] WebSocket CLOSE event');
+        if (currentConnectionId !== this.connectionId) return;
+
+        logger.info({ code: event.code, reason: event.reason }, `[CloudAssemblyAI] WebSocket closed (ID: ${currentConnectionId}).`);
         this.socket = null;
-        this.mic?.offFrame(this.frameHandler);
-        this.stopHeartbeat(); // Stop heartbeat
 
-        // On unexpected close, save the last partial as a final to prevent transcript loss
-        // This matches AssemblyAI sample behavior where partials overwrite until commit
-        if (event.code !== 1000 && this.lastPartialTranscript) {
-          logger.info({ transcript: this.lastPartialTranscript }, '[CloudAssemblyAI] Saving partial before reconnect');
-          this.onTranscriptUpdate({ transcript: { final: this.lastPartialTranscript } });
-          this.lastPartialTranscript = '';
-        }
-
-        // Only attempt reconnect if not a normal closure (code 1000)
-        if (event.code !== 1000) {
-          this.attemptReconnect();
+        if (this.isListening) {
+          this.handleConnectionLoss();
         } else {
           this.updateConnectionState('disconnected');
         }
       };
 
+      this.socket.onerror = (event) => {
+        if (currentConnectionId !== this.connectionId) return;
+        logger.error({ event }, `[CloudAssemblyAI] WebSocket error (ID: ${currentConnectionId}).`);
+      };
+
     } catch (error) {
-      console.error('❌ [CloudAssemblyAI] Error starting cloud transcription:', error);
-      throw error;
+      if (currentConnectionId !== this.connectionId) return;
+      logger.error({ error }, '[CloudAssemblyAI] Connection failed.');
+      this.handleConnectionLoss();
     }
   }
 
-  private _handleAudioFrame(float32Array: Float32Array): void {
-    if (this.socket?.readyState !== WebSocket.OPEN) {
-      return;
+  private handleMessage(data: AssemblyAIMessage) {
+    switch (data.message_type) {
+      case 'SessionBegins':
+        logger.info(`[CloudAssemblyAI] Session started. ID: ${data.session_id}`);
+        break;
+
+      case 'PartialTranscript':
+        if (data.text) {
+          this.onTranscriptUpdate({ transcript: { partial: data.text } });
+        }
+        break;
+
+      case 'FinalTranscript':
+        if (data.text) {
+          // Strict Turn Assembly: Final overwrites partial
+          this.onTranscriptUpdate({ transcript: { final: data.text } });
+        }
+        break;
+
+      case 'SessionTerminated':
+        logger.info('[CloudAssemblyAI] Session terminated by server.');
+        this.stopTranscription();
+        break;
     }
 
-    // Convert Float32 to Int16 using shared utility
-    const int16Array = floatToInt16(float32Array);
+    if (data.error) {
+      logger.error({ error: data.error }, '[CloudAssemblyAI] API Error received');
+    }
+  }
 
-    // Buffer audio until we have at least MIN_SAMPLES (50ms at 16kHz)
-    // Web Audio provides ~2.6ms frames, but AssemblyAI requires 50-1000ms per packet
-    const newBuffer = new Int16Array(this.audioBuffer.length + int16Array.length);
-    newBuffer.set(this.audioBuffer);
-    newBuffer.set(int16Array, this.audioBuffer.length);
-    this.audioBuffer = newBuffer;
+  private handleConnectionLoss() {
+    if (!this.isListening) return;
 
-    // Send when we have enough samples (50ms minimum)
-    if (this.audioBuffer.length >= this.MIN_SAMPLES) {
-      // Validate packet duration is within AssemblyAI's 50-1000ms range
-      const durationMs = (this.audioBuffer.length / AUDIO_CONFIG.SAMPLE_RATE) * 1000;
+    this.updateConnectionState('reconnecting');
 
-      if (durationMs < STT_CONFIG.ASSEMBLYAI_MIN_PACKET_MS || durationMs > STT_CONFIG.ASSEMBLYAI_MAX_PACKET_MS) {
-        logger.error({
-          samples: this.audioBuffer.length,
-          durationMs: durationMs.toFixed(2),
-          expectedMin: STT_CONFIG.ASSEMBLYAI_MIN_PACKET_MS,
-          expectedMax: STT_CONFIG.ASSEMBLYAI_MAX_PACKET_MS
-        }, '[CloudAssemblyAI] Audio packet duration INVALID - expected between 50 and 1000 ms');
+    if (this.reconnectionAttempts < this.maxReconnectionAttempts) {
+      this.reconnectionAttempts++;
+      this.isReconnect = true;
+
+      // Exponential Backoff with Jitter
+      const exp = Math.min(Math.pow(2, this.reconnectionAttempts), 16);
+      const jitter = Math.random() * 200;
+      const delay = (this.baseReconnectDelay * exp) + jitter;
+
+      logger.warn(`[CloudAssemblyAI] Connection lost. Reconnecting in ${Math.round(delay)}ms...`);
+
+      this.reconnectTimer = setTimeout(() => {
+        this.connect();
+      }, delay);
+    } else {
+      logger.error('[CloudAssemblyAI] Max reconnection attempts reached.');
+      this.stopTranscription();
+      if (this.onError) {
+        this.onError(TranscriptionError.network('Connection lost. Unable to reconnect to transcription service.'));
       }
-
-      this.socket.send(this.audioBuffer.buffer);
-
-      if (!this.firstPacketSent) {
-        this.firstPacketSent = true;
-        logger.info({
-          samples: this.audioBuffer.length,
-          durationMs: durationMs.toFixed(2)
-        }, '[CloudAssemblyAI] First audio packet sent to WebSocket');
-      }
-
-      // Clear buffer after sending
-      this.audioBuffer = new Int16Array(0);
     }
   }
 
   public async stopTranscription(): Promise<string> {
-    // Set manual stop flag to prevent reconnection
-    this.isManualStop = true;
+    this.isListening = false;
 
-    // Cleanup reconnection timers
-    this.cleanupReconnection();
-
-    if (this.mic) {
-      this.mic.offFrame(this.frameHandler);
-      this.mic = null;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
     }
 
-    // Send any remaining buffered audio before closing
-    if (this.audioBuffer.length > 0 && this.socket?.readyState === WebSocket.OPEN) {
-      this.socket.send(this.audioBuffer.buffer);
-      this.audioBuffer = new Int16Array(0);
+    if (this.socket) {
+      // Send termination message if open
+      if (this.socket.readyState === WebSocket.OPEN) {
+        this.socket.send(JSON.stringify({ terminate_session: true }));
+      }
+      this.socket.close();
+      this.socket = null;
     }
 
-    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      // Send Terminate message before closing per canonical AssemblyAI sample
-      const terminateMessage = { type: 'Terminate' };
-      logger.info({ terminateMessage }, '[CloudAssemblyAI] Sending termination message');
-      this.socket.send(JSON.stringify(terminateMessage));
-      this.socket.close(1000); // Normal closure
-    }
-    this.socket = null;
-    this.firstPacketSent = false;
+    this.audioQueue = []; // Clear queue
     this.updateConnectionState('disconnected');
-
-    // Reset manual stop flag for next session
-    this.isManualStop = false;
-
-    return ""; // This mode does not maintain a full transcript itself
+    return ''; // Recent transcript is already handled via callbacks
   }
 
   public async getTranscript(): Promise<string> {
-    // This mode is event-driven and does not store the full transcript.
-    // The parent service is responsible for aggregating the final transcript parts.
     return "";
   }
 
-  /**
-   * Attempt to reconnect with exponential backoff
-   */
-  private attemptReconnect(): void {
-    // Don't reconnect if stop was manual
-    if (this.isManualStop) {
-      logger.info('[CloudAssemblyAI] Manual stop detected, skipping reconnect');
-      return;
-    }
+  public processAudio(audioData: Float32Array): void {
+    if (!this.isListening) return;
 
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      logger.error('[CloudAssemblyAI] Max reconnect attempts reached');
-      this.onError?.(TranscriptionError.websocket('Max reconnection attempts reached. Please check your network connection.', false));
-      this.updateConnectionState('disconnected');
-      return;
-    }
-
-    // Exponential backoff: 3s, 6s, 12s, max 30s
-    // 3005 errors are fixed, so we can use shorter delays now
-    const delay = Math.min(3000 * Math.pow(2, this.reconnectAttempts), 30000);
-    this.reconnectAttempts++;
-
-    logger.info({ delay, attempt: this.reconnectAttempts }, `[CloudAssemblyAI] Reconnecting in ${delay}ms`);
-    this.updateConnectionState('reconnecting');
-
-    this.reconnectTimeout = setTimeout(async () => {
-      logger.info('[CloudAssemblyAI] Attempting reconnect...');
-      // Clear audio buffer to prevent sending stale audio faster than real-time (error 3005)
-      this.audioBuffer = new Int16Array(0);
-      if (this.mic) {
-        try {
-          await this.startTranscription(this.mic);
-        } catch (error) {
-          logger.error({ error }, '❌ [CloudAssemblyAI] Reconnect transition failed');
-          // If startTranscription fails (e.g. token fetch error), it won't trigger onclose on a socket.
-          // We must manually trigger the next reconnect attempt here to ensure resilience.
-          this.attemptReconnect();
-        }
+    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+      this.sendAudioChunk(audioData);
+    } else {
+      // Buffer audio if connecting
+      if (this.audioQueue.length < 500) { // Limit queue size (~50s @ 100ms chunks)
+        this.audioQueue.push(audioData);
       }
-    }, delay);
-  }
-
-  /**
-   * Start heartbeat to detect dead connections
-   */
-  private startHeartbeat(): void {
-    this.heartbeatInterval = setInterval(() => {
-      if (this.socket?.readyState === WebSocket.OPEN) {
-        logger.debug('[CloudAssemblyAI] Heartbeat check - connection alive');
-        // AssemblyAI doesn't require explicit ping, just check readyState
-        // If connection is dead, onclose will fire
-      }
-    }, this.heartbeatIntervalMs);
-  }
-
-  /**
-   * Stop heartbeat interval
-   */
-  private stopHeartbeat(): void {
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-      this.heartbeatInterval = null;
     }
   }
 
-  /**
-   * Update connection state and notify callback
-   */
+  private sendAudioChunk(audioData: Float32Array) {
+    try {
+      // Convert to 16-bit PCM (required by AssemblyAI)
+      const pcmData = floatToInt16(audioData);
+
+      // Convert to Base64
+      // Optimization: Create a binary string from the buffer
+      let binary = '';
+      const bytes = new Uint8Array(pcmData.buffer);
+      const len = bytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      const base64Audio = btoa(binary);
+
+      if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+        this.socket.send(JSON.stringify({ audio_data: base64Audio }));
+      }
+    } catch (err) {
+      logger.error({ err }, '[CloudAssemblyAI] Error processing audio chunk');
+    }
+  }
+
+  private flushAudioQueue() {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+
+    logger.info(`[CloudAssemblyAI] Flushing ${this.audioQueue.length} queued audio chunks.`);
+
+    while (this.audioQueue.length > 0) {
+      const chunk = this.audioQueue.shift();
+      if (chunk) {
+        this.sendAudioChunk(chunk);
+      }
+    }
+  }
+
   private updateConnectionState(state: ConnectionState): void {
     this.connectionState = state;
-    logger.info({ state }, '[CloudAssemblyAI] Connection state changed');
-    this.onConnectionStateChange?.(state);
-  }
-
-  /**
-   * Cleanup reconnection timers
-   */
-  private cleanupReconnection(): void {
-    this.stopHeartbeat();
-
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = null;
-    }
+    logger.debug(`[CloudAssemblyAI] Connection state: ${state}`);
   }
 }
-

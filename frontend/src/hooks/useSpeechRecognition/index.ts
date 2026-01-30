@@ -90,7 +90,19 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
       }
       if (data.transcript?.final) {
         addChunk(data.transcript.final, data.speaker);
-        setInterimTranscript('');
+
+        // INTELLIGENT CLEAR: If the final text is a prefix of the current interim,
+        // subtract it instead of clearing completely to avoid UI flickering.
+        setInterimTranscript(prev => {
+          const trimmedFinal = data.transcript.final?.trim() || '';
+          const trimmedPrev = prev.trim();
+
+          if (trimmedPrev.startsWith(trimmedFinal)) {
+            const remainder = trimmedPrev.slice(trimmedFinal.length).trim();
+            return remainder;
+          }
+          return '';
+        });
       }
     },
     onReady: () => {

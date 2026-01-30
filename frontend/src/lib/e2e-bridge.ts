@@ -187,26 +187,48 @@ class MockPrivateWhisper {
         logger.info('[MockPrivateWhisper] init() called - simulating model load');
 
         return new Promise<void>((resolve) => {
-            // Simulate model download
+            const e2eWindow = window as unknown as E2EWindow & {
+                __E2E_MANUAL_PROGRESS__?: boolean;
+                __E2E_ADVANCE_PROGRESS__?: (progress: number) => void;
+            };
+
+            // Manual Deterministic Mode (Recommended)
+            if (e2eWindow.__E2E_MANUAL_PROGRESS__) {
+                logger.info('[MockPrivateWhisper] 🛠️ Manual progress mode enabled');
+
+                // Start with 10% to ensure UI shows "Downloading..."
+                if (this.onModelLoadProgress) this.onModelLoadProgress(0.1);
+
+                // Expose advance function to Playwright
+                e2eWindow.__E2E_ADVANCE_PROGRESS__ = (progress: number) => {
+                    logger.info(`[MockPrivateWhisper] Advancing progress to ${progress}`);
+                    if (this.onModelLoadProgress) this.onModelLoadProgress(progress);
+
+                    if (progress >= 1) {
+                        logger.info('[MockPrivateWhisper] Download complete via manual advance');
+                        import('sonner').then(({ toast }) => {
+                            toast.success('Model ready! You can now start your session.');
+                        });
+                        if (this.onReady) this.onReady();
+                        resolve();
+                    }
+                };
+                return;
+            }
+
+            // Fallback: Automatic Time-based Mode
             if (this.onModelLoadProgress) {
                 this.onModelLoadProgress(0);
-                // Simulate progress - slower for reliable E2E detection
                 setTimeout(() => this.onModelLoadProgress!(0.1), 1000);
                 setTimeout(() => this.onModelLoadProgress!(0.5), 2000);
                 setTimeout(() => this.onModelLoadProgress!(1), 2500);
             }
 
-            // Simulate ready state after download
             setTimeout(() => {
-                logger.info('[MockPrivateWhisper] Model loaded, triggering onReady and toast');
-
-                // Trigger toast to match real PrivateWhisper behavior
-                // This is needed for E2E tests that verify toast notification
+                logger.info('[MockPrivateWhisper] Model loaded (auto), triggering onReady');
                 import('sonner').then(({ toast }) => {
                     toast.success('Model ready! You can now start your session.');
-                    logger.info('[MockPrivateWhisper] Toast triggered');
                 });
-
                 if (this.onReady) this.onReady();
                 resolve();
             }, 3000);
