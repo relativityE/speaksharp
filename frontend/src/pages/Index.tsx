@@ -22,8 +22,20 @@ const Index = () => {
         return;
       }
 
-      // INTENTIONAL DELAY (UX): Show marketing content briefly before auto-redirecting
-      // CASE 5: Animation/UX Timing - This is NOT a wait for an event.
+      /**
+       * ARCHITECTURE NOTE (Senior Architect):
+       * This is an INTENTIONAL UX delay, NOT a wait-for-event pattern.
+       * 
+       * Purpose: Show marketing content to authenticated returning users
+       * before auto-redirecting them to /session.
+       * 
+       * Why setTimeout is correct here:
+       * 1. There's no event to wait for - it's a designed pause
+       * 2. Value is configurable via LANDING_PAGE_REDIRECT_MS config
+       * 3. Test environment bypasses entirely (IS_TEST_ENVIRONMENT)
+       * 
+       * This follows UX best practice for "welcome back" experiences.
+       */
       const timer = setTimeout(() => {
         setShouldRedirect(true);
       }, LANDING_PAGE_REDIRECT_MS);

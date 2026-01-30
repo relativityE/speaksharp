@@ -169,6 +169,22 @@ export class MockSpeechRecognition {
  * Set `window.__E2E_MOCK_LOCAL_WHISPER__ = true` before starting session.
  * TranscriptionService will use this mock instead of real PrivateWhisper.
  * 
+ * ARCHITECTURE NOTE (Senior Architect):
+ * This mock supports two modes for different testing scenarios:
+ * 
+ * 1. EVENT-CONTROLLED MODE (Recommended for E2E):
+ *    Set window.__E2E_MANUAL_PROGRESS__ = true before test
+ *    Then use window.__E2E_ADVANCE_PROGRESS__(progress) to control timing
+ *    This is deterministic and avoids flaky timing dependencies.
+ * 
+ * 2. AUTOMATIC MODE (Fallback for simple tests):
+ *    Uses setTimeout delays to simulate realistic loading
+ *    Delays: 1s→10%, 2s→50%, 2.5s→100%, 3s→ready
+ *    Use only when timing doesn't affect test assertions.
+ * 
+ * Design: The setTimeout delays in automatic mode are INTENTIONAL simulation
+ * of real-world model loading, not arbitrary waits for asynchronous events.
+ * 
  * @see frontend/src/services/transcription/modes/PrivateWhisper.ts - Real implementation
  * @see tests/e2e/private-stt.e2e.spec.ts - Uses this mock
  */
