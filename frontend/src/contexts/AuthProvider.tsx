@@ -1,6 +1,7 @@
 import React, { useState, useEffect, ReactNode, useMemo, useCallback, useContext, createContext } from 'react';
 import { getSupabaseClient } from '../lib/supabaseClient';
 import { Session, User } from '@supabase/supabase-js';
+import logger from '../lib/logger';
 
 /**
  * AUTHENTICATION PROVIDER
@@ -9,9 +10,11 @@ import { Session, User } from '@supabase/supabase-js';
  * 
  * NOTE (Gap Remediation 2026-01-05):
  * This provider has been refactored to focus exclusively on session management.
- * The User Profile state (formerly part of this context) is now managed by the 
- * `useUserProfile` hook, reducing unnecessary re-renders in components that 
- * only need auth status (like Navigation).
+ * 
+ * ARCHITECTURE NOTE (Senior Architect):
+ * - V5 Auth Token Refresh: Implemented structured logging for session events.
+ * - Handles INITIAL_SESSION, SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED, USER_UPDATED.
+ * - Captures timing metrics for session initialization and refresh events.
  */
 
 // Define the context value type right inside the provider file
@@ -71,12 +74,21 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     }
 
     // Initialize session
+    const initStartTime = Date.now();
     if (initialSession) {
+      logger.info('[AuthProvider] Using injected initialSession');
       setSessionState(initialSession);
     } else {
       supabase.auth.getSession().then(({ data: { session }, error }) => {
+        const duration = Date.now() - initStartTime;
         if (error) {
-          console.error('[AuthProvider] Error getting initial session:', error);
+          logger.error({ error, durationMs: duration }, '[AuthProvider] getSession failed');
+        } else {
+          logger.info({
+            hasSession: !!session,
+            userId: session?.user?.id,
+            durationMs: duration
+          }, '[AuthProvider] getSession complete');
         }
         setSessionState(session);
         // If no session, loading is done. If session exists, profile fetch will handle loading.
@@ -85,19 +97,43 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     }
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, newSession) => {
+      (event, newSession) => {
+        const timestamp = new Date().toISOString();
+
         // 🧪 E2E FIX: If we provided an initialSession (mock), don't let 
         // INITIAL_SESSION event overwrite it with 'null' if Supabase 
         // hasn't picked up the localStorage yet.
-        if (_event === 'INITIAL_SESSION' && initialSession && !newSession) {
-          console.log('[AuthProvider] 🧪 E2E: Ignoring INITIAL_SESSION(null) because initialSession is present');
+        if (event === 'INITIAL_SESSION' && initialSession && !newSession) {
+          logger.debug('[AuthProvider] 🧪 E2E: Ignoring INITIAL_SESSION(null) because initialSession is present');
           return;
         }
 
-        console.log(`[Supabase Auth] 🔐 Auth state changed: ${_event}`, newSession?.user?.id ? `User: ${newSession.user.id.slice(0, 8)}...` : 'No user');
+        logger.info({
+          event,
+          userId: newSession?.user?.id,
+          timestamp
+        }, `[Supabase Auth] 🔐 Auth event: ${event}`);
+
         setSessionState(newSession);
-        if (!newSession) {
-          setLoading(false);
+
+        // State-specific behavior
+        switch (event) {
+          case 'SIGNED_OUT':
+            logger.info('[AuthProvider] User signed out, clearing state');
+            setLoading(false);
+            break;
+          case 'TOKEN_REFRESHED':
+            logger.info('[AuthProvider] Token successfully refreshed');
+            break;
+          case 'USER_UPDATED':
+            logger.info('[AuthProvider] User metadata updated');
+            break;
+          case 'SIGNED_IN':
+            logger.info('[AuthProvider] User signed in');
+            break;
+          case 'INITIAL_SESSION':
+            if (!newSession) setLoading(false);
+            break;
         }
       }
     );
