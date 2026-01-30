@@ -2,6 +2,21 @@ import { useQuery, UseQueryOptions } from "@tanstack/react-query";
 import { useAuthProvider } from "../contexts/AuthProvider";
 import { profileService } from "../services/domainServices";
 import { UserProfile } from "../types/user";
+import logger from "../lib/logger";
+
+/**
+ * ARCHITECTURE NOTE (Senior Architect):
+ * 
+ * Profile loading failures are common due to Supabase Edge Function cold starts.
+ * This hook uses React Query's retry mechanism with exponential backoff.
+ * 
+ * OBSERVABILITY:
+ * - Retry attempts are logged via Pino (captured by Sentry)
+ * - Failures after max retries trigger error logging
+ * - Production monitoring should alert on high retry rates
+ * 
+ * CONFIGURATION: Retry behavior is injectable for testing.
+ */
 
 export interface UseUserProfileOptions {
   /** Override retry behavior (default: 3 retries with exponential backoff) */
@@ -22,34 +37,47 @@ export const useUserProfile = (options: UseUserProfileOptions = {}) => {
     queryKey: ['userProfile', session?.user?.id],
     queryFn: async () => {
       if (!session?.user?.id || isDevBypass) {
-        console.log('[useUserProfile] No session user or devBypass active, skipping fetch');
+        logger.debug('[useUserProfile] No session user or devBypass, skipping fetch');
         return null;
       }
 
-      // P2-6 FIX: Use domain service instead of direct Supabase call
-      const profile = await profileService.getById(session.user.id);
+      const startTime = Date.now();
 
-      // DEFENSIVE: Verify profile data returned
-      if (!profile) {
-        console.error('[useUserProfile WARNING] No profile found for user:', session.user.id);
-      } else if (!profile.subscription_status) {
-        console.error('[useUserProfile WARNING] Profile missing subscription_status:', profile);
+      try {
+        // P2-6 FIX: Use domain service instead of direct Supabase call
+        const profile = await profileService.getById(session.user.id);
+        const duration = Date.now() - startTime;
+
+        logger.info({ userId: session.user.id, durationMs: duration }, '[useUserProfile] Profile fetched successfully');
+
+        // DEFENSIVE: Verify profile data returned
+        if (!profile) {
+          logger.warn({ userId: session.user.id }, '[useUserProfile] No profile found for user');
+        } else if (!profile.subscription_status) {
+          logger.warn({ profile }, '[useUserProfile] Profile missing subscription_status');
+        }
+
+        // Signal for E2E tests that the profile is settled and available on the window
+        const win = window as unknown as {
+          __E2E_CONTEXT__?: boolean;
+          TEST_MODE?: boolean;
+          __e2eProfileLoaded__?: boolean;
+          dispatchEvent: (e: Event) => void
+        };
+
+        if (typeof window !== 'undefined' && (win.__E2E_CONTEXT__ || win.TEST_MODE)) {
+          win.__e2eProfileLoaded__ = true;
+          win.dispatchEvent(new CustomEvent('e2e:profile-loaded'));
+          logger.debug('[E2E Signal] Profile loaded');
+        }
+
+        return profile;
+      } catch (error) {
+        const duration = Date.now() - startTime;
+        // This error will cause React Query to retry - log for observability
+        logger.error({ error, userId: session.user.id, durationMs: duration }, '[useUserProfile] Profile fetch failed (will retry)');
+        throw error; // Re-throw to trigger React Query retry
       }
-      // Signal for E2E tests that the profile is settled and available on the window
-      const win = window as unknown as {
-        __E2E_CONTEXT__?: boolean;
-        TEST_MODE?: boolean;
-        __e2eProfileLoaded__?: boolean;
-        dispatchEvent: (e: Event) => void
-      };
-
-      if (typeof window !== 'undefined' && (win.__E2E_CONTEXT__ || win.TEST_MODE)) {
-        win.__e2eProfileLoaded__ = true;
-        win.dispatchEvent(new CustomEvent('e2e:profile-loaded'));
-        console.log('[E2E Signal] ✅ Profile Loaded (window.__e2eProfileLoaded__ = true)');
-      }
-
-      return profile;
     },
     enabled: !!session?.user && !isDevBypass,
     // Injectable retry config for testability
