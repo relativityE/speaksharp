@@ -40,8 +40,11 @@ export const getWordColor = (word: string): string => {
 };
 
 export const ERROR_TAG_REGEX = /\[(inaudible|blank_audio|music|applause|laughter|noise|mumbles)\]/i;
-let cachedTokenRegex: RegExp | null = null;
-let cachedFillersKey: string = '';
+
+
+// Cache for compiled regexes to avoid repeated compilation in render loops
+const REGEX_CACHE = new Map<string, { regex: RegExp, fillers: string[] }>();
+const MAX_CACHE_SIZE = 50;
 
 /**
  * Parses a transcript into tokens for highlighting.
@@ -49,16 +52,24 @@ let cachedFillersKey: string = '';
 export const parseTranscriptForHighlighting = (text: string, customWords: string[] = []): HighlightToken[] => {
     if (!text) return [];
 
-    // Combine standard filler keys and custom words
-    const standardFillers = Object.values(FILLER_WORD_KEYS);
-    // Sort by length descending to match longest phrases first (e.g. "you know" before "you")
-    const allFillers = [...standardFillers, ...customWords]
-        .filter(w => w && w.trim().length > 0)
-        .sort((a, b) => b.length - a.length);
+    // Use a cache key based on custom words (sorted for stability)
+    const cacheKey = [...customWords].sort().join('|');
+    const cached = REGEX_CACHE.get(cacheKey);
 
-    // Memoization: Reuse regex if fillers haven't changed
-    const currentKey = allFillers.join('|');
-    if (!cachedTokenRegex || currentKey !== cachedFillersKey) {
+    let tokenRegex: RegExp;
+    let allFillers: string[];
+
+    if (cached) {
+        tokenRegex = cached.regex;
+        allFillers = cached.fillers;
+    } else {
+        // Combine standard filler keys and custom words
+        const standardFillers = Object.values(FILLER_WORD_KEYS);
+        // Sort by length descending to match longest phrases first (e.g. "you know" before "you")
+        allFillers = [...standardFillers, ...customWords]
+            .filter(w => w && w.trim().length > 0)
+            .sort((a, b) => b.length - a.length);
+
         // Escape special regex chars in fillers
         const escapedFillers = allFillers.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
 
@@ -67,10 +78,15 @@ export const parseTranscriptForHighlighting = (text: string, customWords: string
         const fillerPattern = escapedFillers.join('|');
 
         // Regex: (ErrorTags)|(Fillers) - case insensitive
-        cachedTokenRegex = new RegExp(`(${errorPattern})|\\b(${fillerPattern})\\b`, 'gi');
-        cachedFillersKey = currentKey;
+        tokenRegex = new RegExp(`(${errorPattern})|\\b(${fillerPattern})\\b`, 'gi');
+
+        // Maintain cache size
+        if (REGEX_CACHE.size >= MAX_CACHE_SIZE) {
+            const firstKey = REGEX_CACHE.keys().next().value;
+            if (firstKey !== undefined) REGEX_CACHE.delete(firstKey);
+        }
+        REGEX_CACHE.set(cacheKey, { regex: tokenRegex, fillers: allFillers });
     }
-    const tokenRegex = cachedTokenRegex;
 
     // Split the text. Capturing groups will be included in the array.
     const parts = text.split(tokenRegex).filter(p => p !== undefined && p !== '');

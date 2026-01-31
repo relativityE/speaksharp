@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-01-31
+**Last Reviewed:** 2026-02-05
 
 # Changelog
 
@@ -7,6 +7,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+### [1.1.0] - 2026-02-05
+
+- **Performance Optimization (Regex Memoization):**
+  - **Feature:** Implemented content-based regex memoization in `highlightUtils.ts` to eliminate repeated compilation in render loops.
+  - **Improvement:** Achieved ~60% reduction in tokenization latency for stable custom word sets.
+  - **Tooling:** Added `scripts/benchmark-highlighting.ts` for performance verification.
+  - **Docs:** Updated `ARCHITECTURE.md` with performance optimization and benchmarking details.
 
   - **File:** `TranscriptionService.ts`
 

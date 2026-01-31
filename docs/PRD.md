@@ -1,11 +1,11 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-01-30
+**Last Reviewed:** 2026-02-05
 
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp Product Requirements Document
 
-**Version 9.0** | **Last Updated:** 2026-01-31
+**Version 9.1** | **Last Updated:** 2026-02-05
 
 ## 1. Executive Summary
 
@@ -99,6 +99,7 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Private Model Caching** | 3 | Service Worker caches Whisper model for faster subsequent loads (<5s). | ✅ Implemented | ✅ Yes |
 | **Gamification (Streaks)** | 2 | Tracks daily practice streaks with local storage + toast positive reinforcement. | ✅ Implemented | ✅ Yes |
 | **Design System Showcase** | 2 | `/design` route to visualize and test UI components in isolation. | ✅ Implemented | ✅ Yes |
+| **Performance Optimization** | 1 | Regex memoization in `highlightUtils` to prevent redundant compilation in render loops. | ✅ Implemented | ✅ Yes |
 
 
 
