@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo } from 'react';
 import { Chunk } from './types';
 import { combineChunksToText, createChunk } from './utils';
-import { limitArray } from '../../utils/fillerWordUtils';
+import { combineChunksToText, createChunk } from './utils';
 
 const MAX_CHUNKS = 1000;
 
@@ -23,7 +23,17 @@ export const useTranscriptState = () => {
       }
 
       const chunk = createChunk(trimmedText, speaker);
-      return limitArray([...prev, chunk], MAX_CHUNKS);
+
+      // Optimization: Avoid double allocation (spread + slice) when at limit
+      // Instead of [...prev, chunk] (N+1 copy) -> slice (N copy),
+      // we slice first (N-1 copy) -> push (amortized O(1)).
+      if (prev.length >= MAX_CHUNKS) {
+        const next = prev.slice(prev.length - MAX_CHUNKS + 1);
+        next.push(chunk);
+        return next;
+      }
+
+      return [...prev, chunk];
     });
   }, []);
 

@@ -98,11 +98,12 @@ Deno.serve(async (req: Request) => {
                 // Graceful recovery for existing users
                 // Check code, status (422), or message
                 if ((error as any).code === "email_exists" || (error as any).status === 422 || error.message?.includes("already registered")) {
-                    const { data: listData, error: listError } = await supabase.auth.admin.listUsers();
-                    if (listError) throw listError;
-                    const existing = listData.users.find((u: any) => u.email === email);
-                    if (existing) {
-                        userId = existing.id;
+                    // Scalability Fix: Use RPC instead of listUsers (O(N))
+                    const { data: existingId, error: lookupError } = await supabase.rpc('get_user_id_by_email', { p_email: email });
+                    if (lookupError) throw lookupError;
+
+                    if (existingId) {
+                        userId = existingId as string;
                         console.log(`User exists (${userId}), updating password...`);
                         const { error: updateError } = await supabase.auth.admin.updateUserById(userId, {
                             password,
@@ -130,12 +131,17 @@ Deno.serve(async (req: Request) => {
             }
         } else {
             // Profile-only update (requires user to already exist)
-            const { data: listData } = await supabase.auth.admin.listUsers();
-            const existing = listData.users.find((u: any) => u.email === email);
-            if (!existing) {
+            // Scalability Fix: Use RPC lookup
+            const { data: existingId, error: lookupError } = await supabase.rpc('get_user_id_by_email', { p_email: email });
+
+            if (lookupError) {
+                return new Response(JSON.stringify({ error: "user_lookup_failed", details: lookupError }), { status: 500 });
+            }
+
+            if (!existingId) {
                 return new Response(JSON.stringify({ error: "user_not_found", message: "password required for user creation" }), { status: 400 });
             }
-            userId = existing.id;
+            userId = existingId as string;
         }
 
         // 2. Provision / Upsert Profile (Tier Alignment)
