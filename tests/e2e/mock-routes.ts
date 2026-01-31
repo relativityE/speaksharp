@@ -543,7 +543,12 @@ export async function setupE2EMocks(
     // Reset per-test state
     statefulProfile = { ...MOCK_USER_PROFILE };
     userWordStore = new Map();
-    sessionStore = [...MOCK_SESSION_HISTORY]; // Reset to default mock history
+    // Implement emptySessions option
+    if (_emptySessions) {
+        sessionStore = [];
+    } else {
+        sessionStore = [...MOCK_SESSION_HISTORY]; // Reset to default mock history
+    }
 
     mockLog('[E2E MOCK] Setting up Playwright route interception...');
 

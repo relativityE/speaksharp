@@ -66,6 +66,8 @@ const getParsedDoc = (text: string): ReturnType<typeof nlp> => {
 };
 
 const FILLER_WORD_COLORS: string[] = ['#BFDBFE', '#FCA5A5', '#FDE68A', '#86EFAC', '#FDBA74', '#C4B5FD', '#6EE7B7'];
+let cachedPatterns: FillerPatterns | null = null;
+let cachedCustomWordsKey: string = '';
 
 export const createInitialFillerData = (customWords: string[] = []): FillerCounts => {
     const initial: FillerCounts = {
@@ -82,6 +84,13 @@ export const createInitialFillerData = (customWords: string[] = []): FillerCount
 };
 
 export const createFillerPatterns = (customWords: string[] = []): FillerPatterns => {
+    const currentKey = customWords.join('|');
+
+    // Memoization: Return cached patterns if custom words haven't changed
+    if (cachedPatterns && currentKey === cachedCustomWordsKey) {
+        return cachedPatterns;
+    }
+
     const patterns: FillerPatterns = { ...STATIC_FILLER_PATTERNS };
     customWords.forEach((word) => {
         let regex = customWordRegexCache.get(word);
@@ -91,6 +100,10 @@ export const createFillerPatterns = (customWords: string[] = []): FillerPatterns
         }
         patterns[word] = regex;
     });
+
+    cachedPatterns = patterns;
+    cachedCustomWordsKey = currentKey;
+
     return patterns;
 };
 
