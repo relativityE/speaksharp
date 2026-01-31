@@ -447,11 +447,16 @@ export async function programmaticLoginWithRoutes(
   options: {
     /** Defaults to 'free'. Set to 'pro' for pro feature tests. */
     subscriptionStatus?: 'free' | 'pro';
+    /** Start with empty session history. */
+    emptySessions?: boolean;
   } = {}
 ): Promise<void> {
 
   // 1. Setup Playwright routes BEFORE navigation
-  await setupE2EMocks(page, { subscriptionStatus: options.subscriptionStatus });
+  await setupE2EMocks(page, {
+    subscriptionStatus: options.subscriptionStatus,
+    emptySessions: options.emptySessions
+  });
 
   // 2. Set mock session flag and consolidated E2E context sentinel
   await page.addInitScript(() => {
