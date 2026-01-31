@@ -31,7 +31,7 @@ interface TranscriptStats {
     duration: number;
 }
 
-const defaultFillerPatterns: FillerPatterns = {
+const STATIC_FILLER_PATTERNS: FillerPatterns = {
     [FILLER_WORD_KEYS.UM]: /\b(um|umm|ummm|uhm)\b/gi,
     [FILLER_WORD_KEYS.UH]: /\b(uh|uhh|uhhh|er|err|erh)\b/gi,
     [FILLER_WORD_KEYS.AH]: /\b(ah|ahm|ahhh)\b/gi,
@@ -40,8 +40,29 @@ const defaultFillerPatterns: FillerPatterns = {
     [FILLER_WORD_KEYS.I_MEAN]: /\b(i mean)\b/gi,
     [FILLER_WORD_KEYS.KIND_OF]: /\b(kind of|kinda)\b/gi,
     [FILLER_WORD_KEYS.SORT_OF]: /\b(sort of|sorta)\b/gi,
-    // Ambiguous words processed via NLP below:
-    // LIKE, SO, ACTUALLY, BASICALLY, LITERALLY
+    // Crutch words integrated into static patterns for efficiency
+    [FILLER_WORD_KEYS.ACTUALLY]: /\b(actually)\b/gi,
+    [FILLER_WORD_KEYS.BASICALLY]: /\b(basically)\b/gi,
+    [FILLER_WORD_KEYS.LITERALLY]: /\b(literally)\b/gi,
+};
+
+// Cache for compiled custom word regex patterns
+const customWordRegexCache = new Map<string, RegExp>();
+
+// Single-item cache for the NLP document to avoid redundant parsing of the same text
+let lastTextForNlp: string | null = null;
+let lastNlpDoc: ReturnType<typeof nlp> | null = null;
+
+/**
+ * Returns a parsed compromise document, using a cached version if the text matches.
+ */
+const getParsedDoc = (text: string): ReturnType<typeof nlp> => {
+    if (text === lastTextForNlp && lastNlpDoc) {
+        return lastNlpDoc;
+    }
+    lastTextForNlp = text;
+    lastNlpDoc = nlp(text);
+    return lastNlpDoc;
 };
 
 const FILLER_WORD_COLORS: string[] = ['#BFDBFE', '#FCA5A5', '#FDE68A', '#86EFAC', '#FDBA74', '#C4B5FD', '#6EE7B7'];
@@ -61,9 +82,14 @@ export const createInitialFillerData = (customWords: string[] = []): FillerCount
 };
 
 export const createFillerPatterns = (customWords: string[] = []): FillerPatterns => {
-    const patterns: FillerPatterns = { ...defaultFillerPatterns };
+    const patterns: FillerPatterns = { ...STATIC_FILLER_PATTERNS };
     customWords.forEach((word) => {
-        patterns[word] = new RegExp(`\\b(${word})\\b`, 'gi');
+        let regex = customWordRegexCache.get(word);
+        if (!regex) {
+            regex = new RegExp(`\\b(${word})\\b`, 'gi');
+            customWordRegexCache.set(word, regex);
+        }
+        patterns[word] = regex;
     });
     return patterns;
 };
@@ -75,7 +101,7 @@ export const createFillerPatterns = (customWords: string[] = []): FillerPatterns
 export const countFillerWords = (text: string, customWords: string[] = []): FillerCounts => {
     const counts: FillerCounts = createInitialFillerData(customWords);
     const patterns: FillerPatterns = createFillerPatterns(customWords);
-    const doc = nlp(text);
+    const doc = getParsedDoc(text);
     let totalCount = 0;
 
     // 1. Process unambiguous fillers and custom words via Regex
@@ -136,16 +162,6 @@ export const countFillerWords = (text: string, customWords: string[] = []): Fill
     });
     counts[FILLER_WORD_KEYS.SO].count = soMatches.length;
     totalCount += soMatches.length;
-
-    // ACTUALLY, BASICALLY, LITERALLY: Always counted as "crutch words" in this app's context
-    // but we could refine them if needed. For now, standard regex behavior is fine.
-    [FILLER_WORD_KEYS.ACTUALLY, FILLER_WORD_KEYS.BASICALLY, FILLER_WORD_KEYS.LITERALLY].forEach(key => {
-        const matches = text.match(new RegExp(`\\b(${key})\\b`, 'gi'));
-        if (matches) {
-            counts[key].count = matches.length;
-            totalCount += matches.length;
-        }
-    });
 
     counts.total = { count: totalCount, color: '' };
     return counts;

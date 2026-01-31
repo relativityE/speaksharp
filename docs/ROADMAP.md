@@ -196,17 +196,10 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - **File:** `useSessionStore.ts:51-57`
   - **Fix:** `elapsedTime` reset moved to `resetSession()` only
 
-- 🟡 **Filler Word Regex False Positives:** Simple regex patterns for "like" and "so" will match legitimate uses (e.g., "I like pizza", "so what happened").
-  - **File:** `fillerWordUtils.ts:39-41`
-  - **Evidence:** `/\b(like)\b/gi` matches all instances, not just filler usage
-  - **Reviewer Comment:** "More advanced NLP techniques or context-aware models are typically required for high-accuracy filler word detection, which is a core feature."
-  - **Problem Explained:**
-    - "I **like** pizza" → Counted as filler (WRONG - it's a verb)
-    - "It's, **like**, really big" → Counted as filler (CORRECT - it's a filler)
-    - "**So** what happened?" → Counted as filler (WRONG - it's a conjunction)
-    - "**So**... I was thinking" → Counted as filler (CORRECT - it's a discourse marker)
-  - **Fix (Beta):** Integrate NLP library (e.g., `compromise` or `transformers.js`) for Part-of-Speech tagging to only flag words when used as interjections/discourse markers
-  - **Alpha Decision:** Current regex is acceptable for alpha. Users may see some false positives. Refinement based on real user feedback in Beta.
+- ✅ **Filler Word NLP Integration (2026-01-31):** Integrated `compromise` NLP for Part-of-Speech tagging and context-aware detection of "like" and "so" fillers.
+  - **Fix:** "I like pizza" (Verb) is correctly excluded; "It's, like, big" (Expression) is included.
+  - **Performance:** Optimized with single-item NLP memoization and pre-compiled regexes to handle long transcripts efficiently.
+  - **Files:** `fillerWordUtils.ts`
 
 - ✅ **Document Backend Secrets for Contributors (2025-12-12):** Added backend secrets documentation to `.env.example`.
   - **File:** `./.env.example` (project root)
@@ -513,7 +506,7 @@ This phase is about confirming the core feature set works as expected and polish
 | 1 | **TranscriptionService SRP Violation** | `TranscriptionService.ts` | P2 | ✅ REFACTORED - Split into specialized mode Providers |
 | 2 | **UI State Boolean Flags** | `RecordingControls.tsx` | P2 | ✅ REFACTORED - Decomposed into clean hooks and sub-components |
 | 3 | **Migration Idempotency** | `supabase/migrations/*` | P3 | Add `IF NOT EXISTS` guards before public launch |
-| 4 | **Filler Word Regex False Positives** | `fillerWordUtils.ts` | P3 | ✅ FIXED - Integrated `compromise` NLP for Part-of-Speech tagging |
+| 4 | **Filler Word Regex False Positives** | `fillerWordUtils.ts` | P3 | ✅ FIXED - Integrated `compromise` NLP and optimized for performance |
 | 5 | **React Router v7 Deprecation** | Console output | P3 | Add future flags before upgrading |
 | 6 | **SessionPage Mega Component** | `SessionPage.tsx` | P2 | ✅ DECOMPOSED - Logic moved to hooks, UI split into cards |
 | ~~7~~ | ~~**Filler/Min Rounding Edge Case**~~ | ~~`analyticsUtils.ts:61`~~ | ~~P3~~ | ✅ FIXED 2026-01-06 - Now uses precise minutes |
