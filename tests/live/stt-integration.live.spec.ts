@@ -11,6 +11,7 @@
  */
 import { test, expect } from '@playwright/test';
 import { programmaticLoginWithRoutes, navigateToRoute, goToPublicRoute, debugLog } from '../e2e/helpers';
+import { TEST_IDS, ROUTES } from '../constants';
 
 // Extend Window interface for E2E flags
 declare global {
@@ -141,8 +142,8 @@ test.describe('Private STT (Production Capability Smoke)', () => {
 
         // Login as Pro user (Private mode requires Pro tier)
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
-        await navigateToRoute(page, '/session');
-        await page.waitForSelector('[data-testid="app-main"]');
+        await navigateToRoute(page, ROUTES.SESSION);
+        await page.waitForSelector(`[data-testid="${TEST_IDS.APP_MAIN}"]`);
 
         // 2. Ensure Mocks are DISABLED
         await page.evaluate(() => {
@@ -191,10 +192,10 @@ test.describe('Private STT (Production Capability Smoke)', () => {
 
         // 6. Start session - triggers REAL model initialization
         debugLog('[TEST] Clicking Start Session...');
-        await page.getByTestId('session-start-stop-button').click();
+        await page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON).click();
 
         // 7. Verify Real Loading Indicator and Service Worker Interaction
-        const loadingIndicator = page.getByTestId('model-loading-indicator');
+        const loadingIndicator = page.getByTestId(TEST_IDS.MODEL_LOADING_INDICATOR);
         await expect(loadingIndicator).toBeVisible({ timeout: 5000 });
 
         // Wait for model to load (unmocked usually takes 2-8 seconds depending on CI hardware)
@@ -202,7 +203,7 @@ test.describe('Private STT (Production Capability Smoke)', () => {
         await expect(loadingIndicator).toBeHidden({ timeout: 30000 });
 
         // 8. Assert Success State
-        const startButton = page.getByTestId('session-start-stop-button');
+        const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
         await expect(startButton).toContainText(/stop/i);
 
         // 9. Verify Logs (Proven Real Execution - Dual Engine Mode)
@@ -244,7 +245,7 @@ test.describe('Private STT (Production Capability Smoke)', () => {
 
             // 13. Transcription Accuracy Verification (High-Fidelity)
             debugLog('[TEST] Starting Transcription Accuracy Verification with speech fixture...');
-            await expect(page.getByTestId('live-transcript-text')).toContainText(/weather/i, { timeout: 30000 });
+            await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_DISPLAY)).toContainText(/weather/i, { timeout: 30000 });
             await startButton.click();
             await expect(page.getByText(/session saved/i)).toBeVisible({ timeout: 15000 });
         }

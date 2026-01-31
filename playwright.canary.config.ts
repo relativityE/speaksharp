@@ -28,7 +28,7 @@ export default defineConfig({
     reporter: [['html', { outputFolder: 'playwright-report' }], ['list']],
     use: {
         ...baseConfig.use,
-        baseURL: 'http://localhost:5173',  // Dev server port (not preview)
+        baseURL: process.env.BASE_URL || 'http://localhost:5173',  // Dev server port or production URL
         video: 'retain-on-failure',
         trace: 'retain-on-failure',
     },

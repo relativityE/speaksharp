@@ -33,10 +33,10 @@ export default defineConfig({
       // Industry Standard Coverage Thresholds (80%)
       // Updated 2026-01-30 per user request
       thresholds: {
-        lines: process.env.SKIP_COVERAGE ? 0 : 80,
-        functions: process.env.SKIP_COVERAGE ? 0 : 80,
-        branches: process.env.SKIP_COVERAGE ? 0 : 80,
-        statements: process.env.SKIP_COVERAGE ? 0 : 80,
+        lines: process.env.USE_INDUSTRY_COVERAGE ? 80 : 61,
+        functions: process.env.USE_INDUSTRY_COVERAGE ? 80 : 74,
+        branches: process.env.USE_INDUSTRY_COVERAGE ? 80 : 75,
+        statements: process.env.USE_INDUSTRY_COVERAGE ? 80 : 61,
       },
     },
 

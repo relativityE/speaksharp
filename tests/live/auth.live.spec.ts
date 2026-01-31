@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { goToPublicRoute } from '../e2e/helpers';
+import { TEST_IDS, ROUTES } from '../constants';
 
 // Skip this test if running against a mock backend
 
@@ -7,7 +8,8 @@ test.describe('Real Authentication Flow', () => {
     // Verify we are running in the Live environment context
     test.beforeAll(() => {
         if (process.env.VITE_USE_LIVE_DB !== 'true') {
-            test.skip(true, 'Spec failed: VITE_USE_LIVE_DB=true is required for Live Auth tests.');
+            console.warn('⚠️ Skipping Live Auth test: VITE_USE_LIVE_DB=true is not set.');
+            test.skip();
             return;
         }
 
@@ -18,25 +20,25 @@ test.describe('Real Authentication Flow', () => {
         }
     });
 
-    const testEmail = process.env.E2E_FREE_EMAIL || 'e2e-free-user@test.com';
-    const testPassword = process.env.E2E_FREE_PASSWORD || 'TestPassword123!';
+    const testEmail = process.env.E2E_FREE_EMAIL;
+    const testPassword = process.env.E2E_FREE_PASSWORD;
 
     test('should sign in with real credentials and establish session', async ({ page }) => {
         // High-Fidelity AUTH test against real Supabase
 
         // 1. Navigate to Sign In (public route - uses goToPublicRoute per architecture)
-        await goToPublicRoute(page, '/auth/signin');
-        await expect(page.getByTestId('auth-form')).toBeVisible();
+        await goToPublicRoute(page, ROUTES.SIGN_IN);
+        await page.waitForSelector(`[data-testid="${TEST_IDS.AUTH_FORM}"]`, { timeout: 15000 });
 
         // 2. Interact with Real Form
-        await page.fill('input[type="email"]', testEmail);
-        await page.fill('input[type="password"]', testPassword);
+        await page.getByTestId(TEST_IDS.EMAIL_INPUT).fill(testEmail);
+        await page.getByTestId(TEST_IDS.PASSWORD_INPUT).fill(testPassword);
 
         // 3. Submit
         const loginPromise = page.waitForResponse(response =>
             response.url().includes('/auth/v1/token') && response.request().method() === 'POST'
         );
-        await page.click('button[type="submit"]');
+        await page.getByTestId(TEST_IDS.SIGN_IN_SUBMIT).click();
 
         // 4. Verify Network Request (High Fidelity)
         const response = await loginPromise;
@@ -46,7 +48,9 @@ test.describe('Real Authentication Flow', () => {
         expect(body.user).toBeDefined();
 
         // 5. Verify Redirect and Session State
-        await page.waitForURL('/session');
-        await expect(page.getByTestId('nav-sign-out-button')).toBeVisible();
+        await page.waitForURL(ROUTES.SESSION);
+
+        // 🚨 HYDRATION GUARD 🚨
+        await expect(page.getByTestId(TEST_IDS.NAV_SIGN_OUT_BUTTON)).toBeVisible({ timeout: 15000 });
     });
 });

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { programmaticLoginWithRoutes, navigateToRoute } from '../e2e/helpers';
+import { ROUTES } from '../constants';
 
 test.describe('Upgrade Flow Payload Verification', () => {
 
@@ -10,7 +11,7 @@ test.describe('Upgrade Flow Payload Verification', () => {
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
 
         // 2. Navigate to Analytics (Upgrade Entry Point) 
-        await navigateToRoute(page, '/analytics');
+        await navigateToRoute(page, ROUTES.ANALYTICS);
 
         let upgradeRequestCaptured = false;
 

@@ -1625,6 +1625,28 @@ This --mode test flag is the key. It instructs Vite to automatically look for an
 So, the framework itself ensures the correct .env file is used based on the mode it's running in. The fix I implemented to the package.json was essential to restore this intended behavior, ensuring pnpm dev uses development mode and leaves the test mode to be used exclusively by the testing framework.
 
 
+
+### Discovering GitHub Secrets
+
+If you are a new agent or developer entering this environment, you can quickly discover the available secrets for the repository using the GitHub CLI (`gh`). This is essential for configuring local `.env` files or understanding the CI pipeline dependencies.
+
+**Command:**
+```bash
+gh secret list
+```
+
+**Expected Output (Example):**
+```text
+NAME                    UPDATED
+AGENT_SECRET            about 13 days ago
+CANARY_PASSWORD         about 1 month ago
+E2E_FREE_EMAIL          about 1 month ago
+...
+```
+
+> [!TIP]
+> Use this command early in your planning phase to verify which credentials are available without searching through documentation or workflows.
+
 ### Canonical Health Check: Core User Journey
 
 Our E2E testing strategy includes a **health check** (`tests/e2e/core-journey.e2e.spec.ts`) that serves as the canonical verification of the application's integrity. This test verifies the complete end-to-end data flow in a single pass:

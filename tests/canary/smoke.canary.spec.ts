@@ -1,50 +1,7 @@
-import { test, expect, type Page } from '@playwright/test';
-import { goToPublicRoute, navigateToRoute, debugLog } from '../e2e/helpers';
+import { test, expect } from '@playwright/test';
+import { navigateToRoute, debugLog, canaryLogin } from '../e2e/helpers';
 import { ROUTES, TEST_IDS, CANARY_USER } from '../constants';
 
-/**
- * Canary test credentials from constants
- * Password is provided via CANARY_PASSWORD secret in GitHub Actions
- */
-const CANARY_EMAIL = CANARY_USER.email;
-const CANARY_PASSWORD = CANARY_USER.password;
-
-/**
- * Login helper for Canary tests - modeled after soak test's setupAuthenticatedUser()
- * Uses real form-based auth against real Supabase
- */
-async function canaryLogin(page: Page): Promise<void> {
-    if (!CANARY_PASSWORD) {
-        test.skip(true, 'Missing CANARY_PASSWORD environment variable - skipping smoke canary');
-        return;
-    }
-
-    debugLog(`[CANARY] Logging in as ${CANARY_EMAIL}...`);
-    const start = Date.now();
-
-    // Navigate to sign-in page using public route helper
-    await goToPublicRoute(page, ROUTES.SIGN_IN);
-
-    // Wait for React hydration and auth loading state to complete
-    // The sign-in page has a loading spinner that appears while checking auth state
-    await page.waitForLoadState('networkidle');
-    await page.waitForSelector('[data-testid="email-input"]', { timeout: 30000 });
-
-    // Fill credentials (like soak test)
-    await page.getByTestId('email-input').fill(CANARY_EMAIL);
-    await page.getByTestId('password-input').fill(CANARY_PASSWORD);
-    await page.getByTestId('sign-in-submit').click();
-
-    // Wait for redirect (like soak test)
-    await page.waitForURL((url) =>
-        url.pathname === '/session' || url.pathname === '/'
-        , { timeout: 30000 });
-
-    // Verify auth state (like soak test)
-    await expect(page.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 15000 });
-
-    debugLog(`[CANARY] Login successful in ${Date.now() - start}ms`);
-}
 
 /**
  * 🚨 CANARY SMOKE TEST 🚨
@@ -70,14 +27,14 @@ async function canaryLogin(page: Page): Promise<void> {
  */
 test.describe('Production Smoke Canary @canary', () => {
     test.beforeAll(() => {
-        if (!CANARY_PASSWORD) {
+        if (!CANARY_USER.password) {
             console.warn('⚠️ Skipping Canary test: Missing CANARY_PASSWORD');
         }
     });
 
     test('should complete a full session cycle on real infrastructure', async ({ page }) => {
         // 1. Real Login (modeled after soak test)
-        await canaryLogin(page);
+        await canaryLogin(page, CANARY_USER.email, CANARY_USER.password);
 
         // 2. Navigate to Session Page (use client-side navigation to preserve state)
         await navigateToRoute(page, ROUTES.SESSION);
@@ -85,8 +42,16 @@ test.describe('Production Smoke Canary @canary', () => {
 
         // 3. Configure for Native STT (Free/Low Risk)
         debugLog('[CANARY] Configuring Native STT mode...');
-        await page.getByRole('button', { name: /Native|Cloud AI|Private|On-Device/i }).click();
-        await page.getByRole('menuitemradio', { name: /Native/i }).click();
+        // Standardize: If STT_MODE_SELECT testid is present, use it. Fallback to roles if needed.
+        const modeSelect = page.getByTestId(TEST_IDS.STT_MODE_SELECT);
+        if (await modeSelect.isVisible()) {
+            await modeSelect.click();
+            await page.getByTestId(TEST_IDS.STT_MODE_NATIVE).click();
+        } else {
+            // High-fidelity fallback for legacy UI
+            await page.getByRole('button', { name: /Native|Cloud AI|Private|On-Device/i }).click();
+            await page.getByRole('menuitemradio', { name: /Native/i }).click();
+        }
 
         // 4. Start Session
         debugLog('[CANARY] Starting session...');

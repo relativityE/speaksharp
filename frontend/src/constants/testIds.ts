@@ -18,6 +18,7 @@ export const TEST_IDS = {
     SESSION_SETTINGS_BUTTON: 'add-custom-word-button', // Settings button in FillerWordsCard
 
     // Auth forms
+    AUTH_FORM: 'auth-form',
     EMAIL_INPUT: 'email-input',
     PASSWORD_INPUT: 'password-input',
     SIGN_IN_SUBMIT: 'sign-in-submit',
@@ -41,6 +42,7 @@ export const TEST_IDS = {
     // Analytics page
     ANALYTICS_DASHBOARD: 'analytics-dashboard',
     ANALYTICS_SKELETON: 'analytics-dashboard-skeleton',
+    ANALYTICS_UPGRADE_BUTTON: 'analytics-dashboard-upgrade-button',
     SESSION_HISTORY_LIST: 'session-history-list',
     SESSION_HISTORY_ITEM: 'session-history-item', // Base for dynamic IDs: session-history-item-${id}
     COMPARE_CHECKBOX: 'compare-checkbox',

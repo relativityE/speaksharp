@@ -8,6 +8,7 @@ import { type Page, expect } from '@playwright/test';
 import {
   MOCK_TRANSCRIPTS,
 } from './fixtures/mockData';
+import { TEST_IDS } from '../constants';
 
 // 1. Unified E2E Window interface (consolidated from various files)
 declare global {
@@ -636,4 +637,31 @@ export async function verifyCredentialsAndInjectSession(
     await expect(proBadge).not.toBeVisible();
     debugLog('[API Auth] ✅ Free status verified.');
   }
+}
+
+/**
+ * Robust login helper for Canary tests.
+ * 
+ * DESIGN RATIONALE:
+ * Uses verifyCredentialsAndInjectSession() for maximum stability in CI.
+ * This bypasses UI-based sign-in form flakiness while still verifying
+ * the real session can be adopted by the app.
+ * 
+ * @param page - Playwright Page object
+ * @param email - Canary user email
+ * @param password - Canary user password (from CANARY_PASSWORD secret)
+ */
+export async function canaryLogin(page: Page, email: string, password: string): Promise<void> {
+  if (!password) {
+    throw new Error('canaryLogin failed: Missing CANARY_PASSWORD. Ensure the secret is passed to the test step.');
+  }
+
+  debugLog(`[CANARY] Authenticating ${email}...`);
+
+  // Use the robust API-verification + Injection pattern
+  // Canary users are always 'pro' tier.
+  await verifyCredentialsAndInjectSession(page, email, password, 'pro');
+
+  // Extra safety: wait for hydration guard
+  await expect(page.getByTestId(TEST_IDS.NAV_SIGN_OUT_BUTTON)).toBeVisible({ timeout: 15000 });
 }

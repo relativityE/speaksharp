@@ -107,6 +107,7 @@ export const TEST_IDS = {
   SESSION_SETTINGS_BUTTON: 'add-custom-word-button', // Filler words popover trigger button
 
   // Auth forms
+  AUTH_FORM: 'auth-form',
   EMAIL_INPUT: 'email-input',
   PASSWORD_INPUT: 'password-input',
   SIGN_IN_SUBMIT: 'sign-in-submit',
@@ -130,14 +131,22 @@ export const TEST_IDS = {
   // Analytics page
   ANALYTICS_DASHBOARD: 'analytics-dashboard',
   ANALYTICS_SKELETON: 'analytics-dashboard-skeleton',
+  ANALYTICS_EMPTY_STATE: 'analytics-dashboard-empty-state',
+  ANALYTICS_UPGRADE_BUTTON: 'analytics-dashboard-upgrade-button',
   SESSION_HISTORY_LIST: 'session-history-list',
   SESSION_HISTORY_ITEM: 'session-history-item',
   COMPARE_CHECKBOX: 'compare-checkbox',
   STAT_CARD_TOTAL_SESSIONS: 'stat-card-total_sessions',
+  PRO_BADGE: 'pro-badge',
 
   // Landing page
   HERO_SECTION: 'hero-section',
   LANDING_FOOTER: 'landing-footer',
+
+  // Session Settings / Mode Select
+  STT_MODE_SELECT: 'stt-mode-select',
+  STT_MODE_NATIVE: 'stt-mode-native',
+  STT_MODE_CLOUD: 'stt-mode-cloud',
 
   // Loading states
   PROTECTED_ROUTE_LOADING: 'protected-route-loading',

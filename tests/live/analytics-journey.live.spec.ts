@@ -25,6 +25,7 @@
 
 import { test, expect, Page } from '@playwright/test';
 import { navigateToRoute, attachLiveTranscript, verifyCredentialsAndInjectSession } from '../e2e/helpers';
+import { TEST_IDS, ROUTES } from '../constants';
 
 // Configuration from environment
 // Use soak-test credentials for local E2E testing (same as CI)
@@ -64,14 +65,13 @@ test.describe('Visual Analytics & Private STT (Real-User Flow)', () => {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${process.env.VITE_SUPABASE_ANON_KEY}`,
+                    'Authorization': `Bearer ${agentSecret}`,
                     'apikey': `${process.env.VITE_SUPABASE_ANON_KEY}`
                 },
                 body: JSON.stringify({
-                    username: EMAIL,
+                    email: EMAIL,
                     password: PASSWORD,
-                    agent_secret: agentSecret,
-                    type: USER_TYPE
+                    subscription_status: USER_TYPE
                 })
             });
 
@@ -100,7 +100,7 @@ test.describe('Visual Analytics & Private STT (Real-User Flow)', () => {
         await verifyCredentialsAndInjectSession(page, EMAIL!, PASSWORD!, USER_TYPE);
 
         // Ensure we are on the main app page
-        await expect(page.getByTestId('app-main')).toBeVisible({ timeout: 10000 });
+        await expect(page.getByTestId(TEST_IDS.APP_MAIN)).toBeVisible({ timeout: 10000 });
 
 
         // 2. Apply Promo Code (only for Free users)
@@ -123,10 +123,10 @@ test.describe('Visual Analytics & Private STT (Real-User Flow)', () => {
         await runSession(page, 'cloud', 2);
 
         // 5. Verify Analytics
-        await navigateToRoute(page, '/analytics', { waitForMocks: false });
+        await navigateToRoute(page, ROUTES.ANALYTICS, { waitForMocks: false });
         await page.waitForTimeout(3000); // Allow data fetch
 
-        const rows = page.getByTestId('session-history-row');
+        const rows = page.getByTestId(new RegExp(`^${TEST_IDS.SESSION_HISTORY_ITEM}`));
         await expect(rows.first()).toBeVisible({ timeout: 10000 });
 
         // Capture Evidence
@@ -139,8 +139,8 @@ test.describe('Visual Analytics & Private STT (Real-User Flow)', () => {
 });
 
 async function runSession(page: Page, mode: 'private' | 'cloud' | 'native', index: number): Promise<void> {
-    await navigateToRoute(page, '/session', { waitForMocks: false });
-    await page.waitForSelector('[data-testid="live-recording-card"]', { timeout: 15000 });
+    await navigateToRoute(page, ROUTES.SESSION, { waitForMocks: false });
+    await page.waitForSelector(`[data-testid="${TEST_IDS.APP_MAIN}"]`, { timeout: 15000 });
 
     // Select Mode
     const modeTrigger = page.getByRole('button', { name: /native|cloud|private/i });

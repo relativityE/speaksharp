@@ -89,7 +89,7 @@ export class UserSimulator {
         const startTime = Date.now();
 
         console.log(`[User] 📍 Navigating to session page: ${ROUTES.SESSION}`);
-        await page.goto(ROUTES.SESSION, { waitUntil: 'networkidle' });
+        await navigateToRoute(page, ROUTES.SESSION);
         console.log(`[User] 📍 Current URL: ${page.url()}`);
 
         // Wait for the session page to fully load - look for the start/stop button
@@ -120,20 +120,20 @@ export class UserSimulator {
 
         // Select native mode if configured (to save API credits)
         if (this.config.useNativeMode) {
-            const modeButton = page.getByRole('button', { name: /Native|Cloud AI|On-Device/ });
+            const modeButton = page.getByRole('button', { name: /Native|Cloud AI|Private|On-Device/i });
             await modeButton.click();
 
             // Use menuitemradio role to target the actual menu item, not the trigger button
-            const nativeOption = page.getByRole('menuitemradio', { name: 'Native' });
+            const nativeOption = page.getByRole('menuitemradio', { name: /Native/i });
             await nativeOption.click();
         }
 
         // Click start session button
-        const startButton = page.getByTestId('session-start-stop-button');
+        const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
         await startButton.click();
 
-        // Wait for session to become active (status shows READY when ready)
-        await page.waitForSelector('[data-testid="session-status-indicator"]', {
+        // Wait for session to become active
+        await page.waitForSelector(`[data-testid="${TEST_IDS.SESSION_STATUS_INDICATOR}"]`, {
             timeout: 10000,
         });
 
@@ -142,8 +142,7 @@ export class UserSimulator {
     }
 
     /**
-     * Run session for the configured duration, monitoring memory
-     * In E2E mode, we simulate speech to keep the session active
+     * Run active session
      */
     private async runActiveSession(page: Page, userId: string): Promise<void> {
         const checkInterval = 10000;
@@ -169,7 +168,7 @@ export class UserSimulator {
             if (this.config.trackMemory) await this.metrics.recordMemoryUsage(page);
 
             // Verify session status
-            const statusIndicator = page.getByTestId('session-status-indicator');
+            const statusIndicator = page.getByTestId(TEST_IDS.SESSION_STATUS_INDICATOR);
             const statusText = (await statusIndicator.textContent()) || 'Unknown';
 
             // Log on status CHANGE
@@ -198,7 +197,7 @@ export class UserSimulator {
     private async stopPracticeSession(page: Page, userId: string): Promise<void> {
         const startTime = Date.now();
 
-        const stopButton = page.getByTestId('session-start-stop-button');
+        const stopButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
         const buttonText = await stopButton.textContent();
 
         // If session already stopped (button says "Start"), don't click it again
@@ -238,7 +237,7 @@ export class UserSimulator {
 
         // Wait for analytics dashboard to load (either stats or empty state)
         const statsLocator = page.locator(`[data-testid="${TEST_IDS.STAT_CARD_TOTAL_SESSIONS}"]`);
-        const emptyStateLocator = page.locator('[data-testid="analytics-dashboard-empty-state"]');
+        const emptyStateLocator = page.locator(`[data-testid="${TEST_IDS.ANALYTICS_EMPTY_STATE}"]`);
 
         await statsLocator.or(emptyStateLocator).first().waitFor({ timeout: TIMEOUTS.SHORT });
 

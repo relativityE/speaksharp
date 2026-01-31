@@ -23,6 +23,13 @@ jobs:
 
       - name: Install Playwright Browsers
         run: pnpm exec playwright install chromium
+      
+      - name: Provision Canary User
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD }}
+        run: node scripts/provision-canary.mjs
 
       - name: Run Canary Tests
         env:

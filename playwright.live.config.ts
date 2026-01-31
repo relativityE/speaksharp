@@ -14,12 +14,12 @@ loadEnv('development');
 const BASE_URL = urls.dev;
 
 // CRITICAL: Set env vars for the TEST RUNNER process (not just the webServer)
-process.env.EDGE_FN_URL = 'https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1';
-process.env.AGENT_SECRET = 'mock_agent_secret';
-process.env.E2E_FREE_EMAIL = 'test-user@example.com';
-process.env.E2E_FREE_PASSWORD = 'password123';
-process.env.E2E_PRO_EMAIL = 'test-user@example.com';
-process.env.E2E_PRO_PASSWORD = 'password123';
+process.env.EDGE_FN_URL = 'https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/create-user';
+process.env.AGENT_SECRET = process.env.AGENT_SECRET || 'mock_agent_secret';
+process.env.E2E_FREE_EMAIL = process.env.E2E_FREE_EMAIL || 'test-user@example.com';
+process.env.E2E_FREE_PASSWORD = process.env.E2E_FREE_PASSWORD || 'password123';
+process.env.E2E_PRO_EMAIL = process.env.E2E_PRO_EMAIL || 'test-user@example.com';
+process.env.E2E_PRO_PASSWORD = process.env.E2E_PRO_PASSWORD || 'password123';
 process.env.REAL_WHISPER_TEST = 'true';
 process.env.VITE_USE_LIVE_DB = 'true';
 
@@ -48,13 +48,12 @@ export default defineConfig({
             VITE_USE_LIVE_DB: 'true',
             REAL_WHISPER_TEST: 'true',
             // Credentials & Secrets for Live Tests
-            // Credentials & Secrets for Live Tests
-            EDGE_FN_URL: 'https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/create-user', // From .env.development based on URL
-            AGENT_SECRET: 'mock_agent_secret', // Live tests usually mock the agent invocation or need a real secret
-            E2E_FREE_EMAIL: 'test-user@example.com',
-            E2E_FREE_PASSWORD: 'password123',
-            E2E_PRO_EMAIL: 'test-user@example.com',
-            E2E_PRO_PASSWORD: 'password123',
+            EDGE_FN_URL: 'https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/create-user',
+            AGENT_SECRET: process.env.AGENT_SECRET || 'mock_agent_secret',
+            E2E_FREE_EMAIL: process.env.E2E_FREE_EMAIL || 'test-user@example.com',
+            E2E_FREE_PASSWORD: process.env.E2E_FREE_PASSWORD || 'password123',
+            E2E_PRO_EMAIL: process.env.E2E_PRO_EMAIL || 'test-user@example.com',
+            E2E_PRO_PASSWORD: process.env.E2E_PRO_PASSWORD || 'password123',
             // Use the static user for visual analytics test
             VISUAL_TEST_EMAIL: 'test-user@example.com',
             VISUAL_TEST_PASSWORD: 'password123',

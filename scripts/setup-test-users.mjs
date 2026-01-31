@@ -74,14 +74,30 @@ async function getConfigCounts() {
 
 async function listExistingSoakUsers(log = true) {
     if (log) console.log('📊 Querying Supabase...');
-    const { data: users, error } = await supabase.auth.admin.listUsers();
 
-    if (error) {
-        console.error('❌ Failed to list users:', error.message);
-        process.exit(1);
+    let allUsers = [];
+    let pageNum = 1;
+
+    while (true) {
+        if (log) console.log(`  Scanning page ${pageNum}...`);
+        const { data, error } = await supabase.auth.admin.listUsers({
+            page: pageNum,
+            perPage: 100
+        });
+
+        if (error) {
+            console.error('❌ Failed to list users:', error.message);
+            process.exit(1);
+        }
+
+        const users = data?.users || [];
+        allUsers = allUsers.concat(users);
+
+        if (users.length < 100) break;
+        pageNum++;
     }
 
-    const soakUsers = users.users.filter(u => u.email && u.email.match(/^soak-test\d*@test\.com$/));
+    const soakUsers = allUsers.filter(u => u.email && u.email.match(/^soak-test\d*@test\.com$/));
 
     if (soakUsers.length === 0) return [];
 
@@ -275,9 +291,26 @@ async function main() {
         if (!existingIndices.has(i)) {
             const email = getEmailForIndex(i);
             const tier = i < finalFree ? 'free' : 'pro';
-            console.log(`  [+] Creating User [${i}]: ${email} (${tier})`);
-            const user = await createUserWithTier(email, tier);
-            if (user) created++;
+            console.log(`  [+] Provisioning User [${i}]: ${email} (${tier})...`);
+
+            // Try to create
+            const { data, error } = await supabase.auth.admin.createUser({
+                email,
+                password: SOAK_TEST_PASSWORD,
+                email_confirm: true
+            });
+
+            if (error) {
+                if (error.message.includes('already been registered')) {
+                    console.log(`      User already exists, skipping creation.`);
+                    created++; // Count as "available"
+                } else {
+                    console.error(`      ❌ Failed to create ${email}:`, error.message);
+                }
+            } else {
+                console.log(`      ✅ Created ${data.user.id}`);
+                created++;
+            }
         }
     }
     if (created > 0) console.log(`  ✅ Successfully created ${created} users`);
