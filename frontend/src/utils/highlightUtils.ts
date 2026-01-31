@@ -40,8 +40,7 @@ export const getWordColor = (word: string): string => {
 };
 
 export const ERROR_TAG_REGEX = /\[(inaudible|blank_audio|music|applause|laughter|noise|mumbles)\]/i;
-let cachedTokenRegex: RegExp | null = null;
-let cachedFillersKey: string = '';
+
 
 // Cache for compiled regexes to avoid repeated compilation in render loops
 const REGEX_CACHE = new Map<string, { regex: RegExp, fillers: string[] }>();
