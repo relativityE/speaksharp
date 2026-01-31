@@ -1,6 +1,5 @@
 import { useState, useCallback, useMemo } from 'react';
 import { Chunk } from './types';
-
 import { combineChunksToText, createChunk } from './utils';
 
 const MAX_CHUNKS = 1000;

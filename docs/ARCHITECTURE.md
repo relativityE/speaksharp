@@ -2058,6 +2058,22 @@ This approach is simpler, more robust, and ensures true offline capability after
 | Subsequent Loads (cached) | <1s | 0 bytes |
 | With Pre-downloaded Models | <1s (first load) | 0 bytes |
 
+### 3.2.2 Performance Optimization: State Updates
+
+For high-frequency state updates involving bounded arrays (e.g., speech transcript chunks in `useTranscriptState`), the application avoids the double-copying overhead of spread syntax combined with external limit functions.
+
+**Pattern:**
+Instead of `limitArray([...prev, item], MAX)`, we use:
+```typescript
+if (prev.length >= MAX) {
+  const next = prev.slice(1);
+  next.push(item);
+  return next;
+}
+return [...prev, item];
+```
+This reduces array allocations and element copies by 50% when the limit is reached, ensuring UI responsiveness during long transcription sessions.
+
 #### Setup for Development
 
 ```bash
