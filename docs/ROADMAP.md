@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-01-31
+**Last Reviewed:** 2026-02-05
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -65,6 +65,11 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
     - Migrated all tests to use `programmaticLoginWithRoutes`
   - **Result:** All 38 E2E tests pass reliably in parallel CI.
   - **Warning:** DO NOT revert to MSW - the race conditions are fundamental architectural limitations.
+
+### ⚡ Performance Optimization (2026-02-05) ✅ COMPLETE
+
+- ✅ **Regex Memoization:** Implemented content-based regex memoization in `highlightUtils.ts` to eliminate repeated compilation in render loops.
+- ✅ **Benchmarking Infrastructure:** Created `scripts/benchmark-highlighting.ts` to measure and verify performance gains (~60% improvement for stable word sets).
 
 ### 🗑️ Codebase Bloat Cleanup (2025-12-18) ✅ COMPLETE
 

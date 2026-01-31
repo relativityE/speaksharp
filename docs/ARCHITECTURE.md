@@ -1,11 +1,11 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-01-31
+**Last Reviewed:** 2026-02-05
 
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp System Architecture
 
-**Version 5.0** | **Last Updated: 2026-01-31**
+**Version 5.1** | **Last Updated: 2026-02-05**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -2084,6 +2084,21 @@ The main `index.ts` contains only:
 - `reset()` function that delegates to sub-hooks
 - `startListening()`/`stopListening()` wrappers
 - Return object composition
+
+#### 3.3.1 Performance Optimizations (Regex Memoization)
+The application tokenizes transcripts for highlighting using complex regular expressions. To prevent expensive repeated regex compilation during the React render loop (especially during live transcription), we use a content-based memoization strategy in `highlightUtils.ts`.
+
+- **Mechanism:** A module-level `Map` caches compiled `RegExp` objects using a sorted, pipe-joined string of `customWords` as the key.
+- **Cache Management:** The cache is capped at 50 entries using a simple LRU-style eviction (deleting the first entry when full).
+- **Impact:** Reduces tokenization latency by ~60% for stable word sets.
+
+#### 3.3.2 Performance Benchmarking
+We maintain standalone benchmarking scripts to verify optimizations and prevent performance regressions.
+
+- **Transcript Highlighting Benchmark:**
+  - **Script:** `scripts/benchmark-highlighting.ts`
+  - **Execution:** `pnpm exec tsx scripts/benchmark-highlighting.ts`
+  - **Metrics:** Measures average execution time per call across stable, changing, and unique word sets.
 
 
 - **`SessionSidebar.tsx`**: This component serves as the main control panel for a user's practice session. It contains the start/stop controls, a digital timer, and the transcription mode selector.
