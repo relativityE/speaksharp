@@ -69,120 +69,32 @@ serve(async (req: Request) => {
 
         const { promoCode } = await req.json()
 
-        // 1. Look up the promo code
-        const { data: promo, error: promoLookupError } = await adminClient
-            .from('promo_codes')
-            .select('*')
-            .eq('code', promoCode)
-            .eq('active', true)
-            .single()
+        // --- ATOMIC REDEMPTION (RPC) ---
+        // Mitigation for Database Race Condition
+        const { data: result, error: rpcError } = await adminClient.rpc('redeem_promo', {
+            p_code: promoCode,
+            p_user_id: user.id
+        });
 
-        if (promoLookupError || !promo) {
-            console.error('Promo Lookup Error:', promoLookupError);
+        if (rpcError) {
+            console.error('RPC Error:', rpcError);
+            throw rpcError;
+        }
+
+        // RPC returns standardized object: { success: boolean, error?: string, message?: string, ... }
+        if (!result.success) {
             return new Response(
-                JSON.stringify({
-                    success: false,
-                    error: `Invalid promo code (Lookup Failed).`,
-                    debug: promoLookupError
-                }),
+                JSON.stringify({ success: false, error: result.error }),
                 { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-            )
+            );
         }
 
-        // 2. Check if user already redeemed THIS code
-        const { data: redemption, error: _redemptionError } = await adminClient
-            .from('promo_redemptions')
-            .select('*')
-            .eq('promo_code_id', promo.id)
-            .eq('user_id', user.id)
-            .single();
-
-        if (redemption) {
-            // User has used this code before. Check if it's still within the window.
-            const durationMs = (promo.duration_minutes || 30) * 60 * 1000;
-            const redeemedAt = new Date(redemption.redeemed_at).getTime();
-            const expiresAt = redeemedAt + durationMs;
-            const now = Date.now();
-
-            if (now > expiresAt) {
-                return new Response(
-                    JSON.stringify({ success: false, error: 'code already used' }), // Expired
-                    { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-                );
-            } else {
-                // Active reuse - return success but DO NOT update anything
-                const remainingMinutes = Math.ceil((expiresAt - now) / 60000);
-                return new Response(
-                    JSON.stringify({
-                        success: true,
-                        message: `Promo active! You have ${remainingMinutes} minutes remaining.`,
-                        proFeatureMinutes: remainingMinutes
-                    }),
-                    { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-                );
-            }
-        }
-
-        // 3. If NOT redeemed, check global limits
-        if (promo.used_count >= promo.max_uses) {
-            return new Response(
-                JSON.stringify({ success: false, error: 'code already used' }), // Fully converted by others
-                { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-            )
-        }
-
-        if (promo.valid_until && new Date(promo.valid_until) < new Date()) {
-            return new Response(
-                JSON.stringify({ success: false, error: 'Promo code expired' }),
-                { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-            )
-        }
-
-        // 4. Register Redemption (Atomic-ish)
-        const { error: redemptionInsertError } = await adminClient
-            .from('promo_redemptions')
-            .insert({
-                promo_code_id: promo.id,
-                user_id: user.id
-            });
-
-        if (redemptionInsertError) {
-            throw redemptionInsertError;
-        }
-
-        // 5. Increment usage count
-        await adminClient
-            .from('promo_codes')
-            .update({ used_count: promo.used_count + 1 })
-            .eq('id', promo.id)
-
-        // 6. Apply the upgrade
-        const durationMinutes = promo.duration_minutes || PROMO_DURATION_MINUTES
-        const expiresAt = new Date(Date.now() + durationMinutes * 60 * 1000).toISOString()
-
-        // Use upsert to handle new users who don't have a profile row yet
-        const { error: updateError } = await adminClient
-            .from('user_profiles')
-            .upsert({
-                id: user.id,  // Required for upsert to work
-                subscription_status: 'pro',
-                promo_expires_at: expiresAt
-            }, { onConflict: 'id' })
-
-        if (updateError) {
-            throw updateError
-        }
-
-        console.log(`[apply-promo] User ${user.id} upgraded via code ${promoCode} (expires: ${expiresAt})`);
+        console.log(`[apply-promo] Success: ${result.message} (Is Reuse: ${result.is_reuse})`);
 
         return new Response(
-            JSON.stringify({
-                success: true,
-                message: `Promo code applied! You have Pro features for ${durationMinutes} minutes.`,
-                proFeatureMinutes: durationMinutes
-            }),
+            JSON.stringify(result),
             { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        )
+        );
 
     } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : String(error);

@@ -40,6 +40,8 @@ export const getWordColor = (word: string): string => {
 };
 
 export const ERROR_TAG_REGEX = /\[(inaudible|blank_audio|music|applause|laughter|noise|mumbles)\]/i;
+let cachedTokenRegex: RegExp | null = null;
+let cachedFillersKey: string = '';
 
 /**
  * Parses a transcript into tokens for highlighting.
@@ -54,15 +56,21 @@ export const parseTranscriptForHighlighting = (text: string, customWords: string
         .filter(w => w && w.trim().length > 0)
         .sort((a, b) => b.length - a.length);
 
-    // Escape special regex chars in fillers
-    const escapedFillers = allFillers.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    // Memoization: Reuse regex if fillers haven't changed
+    const currentKey = allFillers.join('|');
+    if (!cachedTokenRegex || currentKey !== cachedFillersKey) {
+        // Escape special regex chars in fillers
+        const escapedFillers = allFillers.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
 
-    // Create master regex for splitting: matches any filler or error tag
-    const errorPattern = ERROR_TAG_REGEX.source;
-    const fillerPattern = escapedFillers.join('|');
+        // Create master regex for splitting: matches any filler or error tag
+        const errorPattern = ERROR_TAG_REGEX.source;
+        const fillerPattern = escapedFillers.join('|');
 
-    // Regex: (ErrorTags)|(Fillers) - case insensitive
-    const tokenRegex = new RegExp(`(${errorPattern})|\\b(${fillerPattern})\\b`, 'gi');
+        // Regex: (ErrorTags)|(Fillers) - case insensitive
+        cachedTokenRegex = new RegExp(`(${errorPattern})|\\b(${fillerPattern})\\b`, 'gi');
+        cachedFillersKey = currentKey;
+    }
+    const tokenRegex = cachedTokenRegex;
 
     // Split the text. Capturing groups will be included in the array.
     const parts = text.split(tokenRegex).filter(p => p !== undefined && p !== '');
