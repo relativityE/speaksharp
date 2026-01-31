@@ -242,20 +242,16 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
         }).catch(() => false);
 
         if (isEmpty) {
-            mockLog('[E2E MOCK] Returning empty sessions (flag set)');
-            await route.fulfill({
-                status: 200,
-                contentType: 'application/json',
-                body: JSON.stringify([]),
-            });
-        } else {
-            // Return stateful session store
-            await route.fulfill({
-                status: 200,
-                contentType: 'application/json',
-                body: JSON.stringify(sessionStore),
-            });
+            mockLog('[E2E MOCK] Returning sessionStore (flag set, might be empty)');
         }
+
+        // Return stateful session store. If emptySessions was true, this starts as []
+        // but can grow if sessions are POSTed. sessionStore is the Source of Truth.
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(sessionStore),
+        });
     });
 
     // POST /rest/v1/rpc/create_session_and_update_usage
@@ -526,11 +522,7 @@ export async function setupE2EMocks(
         subscriptionStatus?: 'free' | 'pro';
     } = {}
 ): Promise<void> {
-    const { strictMode = false, emptySessions: _emptySessions = false, subscriptionStatus } = options;
-
-    // TODO: Implement emptySessions option to return empty session history
-    // Currently unused but kept for future implementation
-    void _emptySessions;
+    const { strictMode = false, emptySessions = false, subscriptionStatus } = options;
 
     // Inject profile override if subscriptionStatus is explicitly set
     // This must happen BEFORE navigation so it's available when routes are intercepted
@@ -543,7 +535,15 @@ export async function setupE2EMocks(
     // Reset per-test state
     statefulProfile = { ...MOCK_USER_PROFILE };
     userWordStore = new Map();
-    sessionStore = [...MOCK_SESSION_HISTORY]; // Reset to default mock history
+    // Initialize session history (start empty if option is set)
+    sessionStore = emptySessions ? [] : [...MOCK_SESSION_HISTORY];
+
+    // Set window flag for components or MSW handlers that check it
+    if (emptySessions) {
+        await page.addInitScript(() => {
+            (window as Window & { __E2E_EMPTY_SESSIONS__?: boolean }).__E2E_EMPTY_SESSIONS__ = true;
+        });
+    }
 
     mockLog('[E2E MOCK] Setting up Playwright route interception...');
 

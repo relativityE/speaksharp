@@ -3,12 +3,8 @@ import { programmaticLoginWithRoutes, navigateToRoute, debugLog } from './helper
 
 test.describe('Analytics Page - Empty State', () => {
     test('should display empty state when user has no session history', async ({ page }) => {
-        // Set the flag using addInitScript to ensure it's available before any code runs
-        await page.addInitScript(() => {
-            Object.assign(window, { __E2E_EMPTY_SESSIONS__: true });
-        });
-
-        await programmaticLoginWithRoutes(page);
+        // Use the new emptySessions option in the mock setup
+        await programmaticLoginWithRoutes(page, { emptySessions: true });
 
         // Ensure fresh state and synchronize MSW
         await page.reload();
@@ -36,6 +32,7 @@ test.describe('Analytics Page - Empty State', () => {
 
         // Verify CTA links to session page
         await expect(ctaButton).toHaveAttribute('href', '/session');
+
         debugLog('[TEST] ✅ Empty state test passed');
     });
 });
