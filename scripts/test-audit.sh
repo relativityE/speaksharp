@@ -17,6 +17,12 @@ ensure_artifacts_dir() {
 
 # Filter Playwright output to remove attachment and usage noise (unless CI_DEBUG=true)
 filter_playwright_output() {
+    # 🎨 Color codes
+    RED='\033[0;31m'
+    RED_BOLD='\033[1;31m'
+    YELLOW_BOLD='\033[1;33m'
+    RESET='\033[0m'
+
     # Silence verbose Playwright output unless CI_DEBUG is set
     if [ "${CI_DEBUG:-false}" = "true" ]; then
         cat
@@ -24,9 +30,15 @@ filter_playwright_output() {
         # 1. Filter out attachment noise, usage instructions, and trace messages
         # 2. Strip browser prefixes like '[chromium] › ' 
         # 3. Strip line numbers like ':12:3 › '
+        # 4. Colorize FAILED/ERROR (Red) and WARN/WARNING (Yellow)
         grep --line-buffered -vE "^\s+attachment #[0-9]+:|Usage:|pnpm exec playwright show-trace|^\s+test-results/playwright/.*|^\s*──+|^\s*──+$|useUsageLimit.*FunctionsFetchError" | \
         sed -u -E 's/^.*\[(chromium|firefox|webkit|mobile).*\] › //' | \
-        sed -u -E 's/:[0-9]+:[0-9]+ › / › /g' || true
+        sed -u -E 's/:[0-9]+:[0-9]+ › / › /g' | \
+        sed -u "s/FAILED/${RED_BOLD}FAILED${RESET}/g" | \
+        sed -u "s/ERROR/${RED_BOLD}ERROR${RESET}/g" | \
+        sed -u "s/FAILURE/${RED_BOLD}FAILURE${RESET}/g" | \
+        sed -u "s/WARNING/${YELLOW_BOLD}WARNING${RESET}/g" | \
+        sed -u "s/WARN/${YELLOW_BOLD}WARN${RESET}/g" || true
     fi
 }
 

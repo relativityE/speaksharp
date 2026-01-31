@@ -71,7 +71,7 @@ export const MOCK_SESSION_HISTORY = [
     {
         id: 'session-1',
         user_id: 'test-user-123',
-        created_at: new Date(Date.now() - 7 * 86400000).toISOString(),
+        created_at: new Date(Date.now() - 6 * 86400000).toISOString(),
         duration: 180,
         transcript: 'Um, so today I wanted to talk about my presentation skills.',
         title: 'First Practice Session',
@@ -575,10 +575,11 @@ export async function setupE2EMocks(
         await setupStrictAllowList(page);
     }
 
-    // Setup all mock handlers (These are registered LATER, so they run EARLIER)
+    // Setup all mock handlers
+    // Register Edge Functions FIRST to ensure they catch early pings during hydration
+    await setupEdgeFunctionMocks(page);
     await setupSupabaseAuthMocks(page);
     await setupSupabaseDatabaseMocks(page);
-    await setupEdgeFunctionMocks(page);
 
     mockLog('[E2E MOCK] ✅ All routes configured');
 }

@@ -1,3 +1,18 @@
+/**
+ * SessionPage Feedback Tests
+ *
+ * Tests validate real user-facing behavior:
+ * - "Session too short" warning when stopped < 5s
+ * - "Session saved" success with streak update
+ * - Feedback clears on new session start
+ *
+ * Mock Count Justification:
+ * The 15+ mocks silence child components (cards, panels) that are tested
+ * separately. This isolates SessionPage's feedback orchestration logic.
+ * The StatusNotificationBar mock captures props to verify correct messages.
+ *
+ * @see SessionPage.tsx for the component under test
+ */
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import SessionPage from '../SessionPage';

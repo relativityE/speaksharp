@@ -95,16 +95,8 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     const isProUser = isPro(profile?.subscription_status);
 
     // Show loading state while fetching data
-    if (loading || isProfileLoading) {
-        return (
-            <div className="flex items-center justify-center py-24">
-                <div className="text-center">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-                    <p className="text-muted-foreground">Loading analytics...</p>
-                </div>
-            </div>
-        );
-    }
+    // Loading state is now handled inside AnalyticsDashboard to provide consistent data-testids for E2E
+    const isLoading = loading || isProfileLoading;
 
     // Show error state if either query failed
     if (error || profileError) {
@@ -142,7 +134,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
                 sessionHistory={sessionHistory || []}
                 overallStats={overallStats}
                 fillerWordTrends={fillerWordTrends}
-                loading={loading}
+                loading={isLoading}
                 error={error}
                 onUpgrade={handleUpgrade}
             />

@@ -74,3 +74,6 @@ jobs:
             playwright-report/
             test-results/canary/
           retention-days: 30
+      - name: Cleanup Secrets
+        if: always()
+        run: rm -f .env.development

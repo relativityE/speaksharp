@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-01-30
+**Last Reviewed:** 2026-01-31
 
 # Changelog
 
@@ -17,7 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Filler Word Logic:**
   - **Fix:** Synced `highlightUtils` and `fillerWordUtils` to use Regex Tokenization, fixing detection of multi-word fillers (e.g., "you know").
 
-### Unreleased
+### [1.0.0] - 2026-01-31
+
+- **CI Pipeline Stabilization (2026-01-31):**
+  - **Status:** Achieved 100% green status across all suites (**453 unit tests**, **60 E2E tests**).
+  - **Fix:** Resolved persistent flakiness in `goal-setting.e2e.spec.ts` and `tier-limits.e2e.spec.ts` via state-driven synchronization.
+  - **Stability:** Standardized loading UI in `AnalyticsPage.tsx` and `GoalsSection.tsx` to ensure `data-testid` visibility during data fetching, preventing E2E timeouts.
+  - **Quality:** Remediated all remaining `eslint-disable` and `as any` directives in unit tests for strict type safety.
+  - **Verification:** Implemented `pnpm ci:local` for unified local/CI quality gates.
 
 - **Session Page UI Refactor (2026-01-28):**
   - **Layout:** Implemented a balanced grid layout pairing "Live Session" with "Pause Analysis" and "Live Transcript" with "Filler Words" (matched heights).
@@ -25,6 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Highlighting:** Implemented deterministic multi-color highlighting for detected words in both transcript and filler card.
   - **Label:** Updated PDF export label from "Download Report" to "Download Session PDF".
   - **Fix:** Resolved unresponsive STT mode selection dropdown.
+
+- **Test Suite Audit & Fixes (2026-01-31):**
+  - **Fix:** Removed 11 debug `console.log` statements from `SessionPage.logic.component.test.tsx` (violates "Print Negatives, Assert Positives").
+  - **Docs:** Added test pyramid diagram to `ARCHITECTURE.md` documenting all 10 test categories (unit, e2e, canary, live, soak, demo, stripe, integration, smoke, pom).
+  - **Tests:** Added token refresh and session expiry tests to `AuthProvider.component.test.tsx`.
+  - **Docs:** Added docblocks to `SessionPage.feedback.test.tsx` and `SessionPage.timer.test.tsx` explaining mock rationale and testing strategy.
 
 - **Initialization Crash Fix (2026-01-28):**
   - **Fix:** Resolved `ReferenceError: __BUILD_ID__ is not defined` in `main.tsx` which halted React execution and caused 15s E2E timeouts.

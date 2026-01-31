@@ -13,7 +13,7 @@ import { generateSessionPdf } from '../lib/pdfGenerator';
 import { formatDate, formatDateTime } from '../lib/dateUtils';
 import { FillerWordTable } from './analytics/FillerWordTable';
 import { TopFillerWords } from './analytics/TopFillerWords';
-// import { STTAccuracyComparison } from './analytics/STTAccuracyComparison'; // Deferred: STT engine accuracy comparison
+import { STTAccuracyComparison } from './analytics/STTAccuracyComparison';
 import { WeeklyActivityChart } from './analytics/WeeklyActivityChart';
 import { GoalsSection } from './analytics/GoalsSection';
 import { SessionComparisonDialog } from './analytics/SessionComparisonDialog';
@@ -188,6 +188,11 @@ const ANALYSIS_SLIDE_OPTIONS: AnalysisSlideConfig[] = [
         id: 'filler_analysis',
         label: 'Detailed Filler Analysis',
         description: 'Breakdown of specific filler words usage'
+    },
+    {
+        id: 'stt_comparison',
+        label: 'STT Accuracy Comparison',
+        description: 'Compare transcription engine performance'
     },
 
 ];
@@ -503,270 +508,266 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
     console.log('[AnalyticsDashboard] Rendering. Loading:', loading, 'Error:', error, 'SessionHistory length:', sessionHistory?.length);
 
-    if (loading) {
-        console.log('[AnalyticsDashboard] Showing skeleton (loading)');
-        return <AnalyticsDashboardSkeleton />;
-    }
-    if (error) {
-        console.log('[AnalyticsDashboard] Showing error display:', error);
-        return <ErrorDisplay error={error} />;
-    }
-    if (!sessionHistory || sessionHistory.length === 0) {
-        console.log('[AnalyticsDashboard] Showing empty state (no sessions)');
-        return (
-            <EmptyState
-                title="Your Dashboard Awaits!"
-                description="Record your next session to unlock your progress trends and full analytics!"
-                action={{
-                    label: "Get Started",
-                    href: "/session"
-                }}
-                icon={<BarChart className="w-10 h-10 text-primary" />}
-                testId="analytics-dashboard-empty-state"
-                // Subtle upgrade option for FREE users - triggers Stripe checkout directly
-                secondaryAction={!isProUser ? {
-                    prefix: "Want unlimited sessions?",
-                    label: "Upgrade to Pro",
-                    onClick: onUpgrade,
-                    testId: "analytics-dashboard-upgrade-button"
-                } : undefined}
-            />
-        );
-    }
-    console.log('[AnalyticsDashboard] Showing full dashboard with', sessionHistory.length, 'sessions');
-
-
     return (
         <div className="space-y-8" data-testid={TEST_IDS.ANALYTICS_DASHBOARD}>
-            {/* Upgrade Banner for Free Users */}
-            {isUpgradeBannerVisible && (
-                <Card className="bg-gradient-to-r from-primary/10 to-secondary/10 border-primary/20" data-testid="analytics-dashboard-upgrade-button">
-                    <CardContent className="flex flex-col sm:flex-row items-center justify-between p-6 gap-4">
-                        <div className="space-y-1 text-center sm:text-left">
-                            <h3 className="font-semibold text-lg text-foreground">Upgrade to Pro</h3>
-                            <p className="text-sm text-muted-foreground max-w-md">
-                                Unlock unlimited sessions coverage, advanced PDF reports, and detailed filler word analysis.
-                            </p>
-                        </div>
-                        <Button onClick={onUpgrade} className="w-full sm:w-auto gap-2 shadow-lg">
-                            <span className="font-bold">Upgrade Now</span>
-                        </Button>
-                    </CardContent>
-                </Card>
-            )}
+            {loading ? (
+                <AnalyticsDashboardSkeleton />
+            ) : error ? (
+                <ErrorDisplay error={error} />
+            ) : !sessionHistory || sessionHistory.length === 0 ? (
+                <EmptyState
+                    title="Your Dashboard Awaits!"
+                    description="Record your next session to unlock your progress trends and full analytics!"
+                    action={{
+                        label: "Get Started",
+                        href: "/session"
+                    }}
+                    icon={<BarChart className="w-10 h-10 text-primary" />}
+                    testId="analytics-dashboard-empty-state"
+                    // Subtle upgrade option for FREE users - triggers Stripe checkout directly
+                    secondaryAction={!isProUser ? {
+                        prefix: "Want unlimited sessions?",
+                        label: "Upgrade to Pro",
+                        onClick: onUpgrade,
+                        testId: "analytics-dashboard-upgrade-button"
+                    } : undefined}
+                />
+            ) : (
+                <>
+                    {/* Upgrade Banner for Free Users */}
+                    {isUpgradeBannerVisible && (
+                        <Card className="bg-gradient-to-r from-primary/10 to-secondary/10 border-primary/20" data-testid="analytics-dashboard-upgrade-button">
+                            <CardContent className="flex flex-col sm:flex-row items-center justify-between p-6 gap-4">
+                                <div className="space-y-1 text-center sm:text-left">
+                                    <h3 className="font-semibold text-lg text-foreground">Upgrade to Pro</h3>
+                                    <p className="text-sm text-muted-foreground max-w-md">
+                                        Unlock unlimited sessions coverage, advanced PDF reports, and detailed filler word analysis.
+                                    </p>
+                                </div>
+                                <Button onClick={onUpgrade} className="w-full sm:w-auto gap-2 shadow-lg">
+                                    <span className="font-bold">Upgrade Now</span>
+                                </Button>
+                            </CardContent>
+                        </Card>
+                    )}
 
-            {/* Stats Section Header with Settings */}
-            <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-foreground">Overview</h2>
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" className="gap-2 hover:bg-secondary hover:text-gray-900">
-                            <Settings className="h-4 w-4" />
-                            <span className="hidden sm:inline">Customize Stats</span>
-                        </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-56">
-                        <DropdownMenuLabel>Display Stats ({selectedStatCards.length}/4)</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        {STAT_CARD_OPTIONS.map(option => (
-                            <DropdownMenuCheckboxItem
-                                key={option.id}
-                                checked={selectedStatCards.includes(option.id)}
-                                onCheckedChange={() => toggleStatCard(option.id)}
-                                disabled={
-                                    (!selectedStatCards.includes(option.id) && selectedStatCards.length >= 4) ||
-                                    (selectedStatCards.includes(option.id) && selectedStatCards.length <= 1)
-                                }
-                            >
-                                {option.label}
-                            </DropdownMenuCheckboxItem>
-                        ))}
-                    </DropdownMenuContent>
-                </DropdownMenu>
-            </div>
+                    {/* Stats Section Header with Settings */}
+                    <div className="flex items-center justify-between">
+                        <h2 className="text-lg font-semibold text-foreground">Overview</h2>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm" className="gap-2 hover:bg-secondary hover:text-gray-900">
+                                    <Settings className="h-4 w-4" />
+                                    <span className="hidden sm:inline">Customize Stats</span>
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-56">
+                                <DropdownMenuLabel>Display Stats ({selectedStatCards.length}/4)</DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                {STAT_CARD_OPTIONS.map(option => (
+                                    <DropdownMenuCheckboxItem
+                                        key={option.id}
+                                        checked={selectedStatCards.includes(option.id)}
+                                        onCheckedChange={() => toggleStatCard(option.id)}
+                                        disabled={
+                                            (!selectedStatCards.includes(option.id) && selectedStatCards.length >= 4) ||
+                                            (selectedStatCards.includes(option.id) && selectedStatCards.length <= 1)
+                                        }
+                                    >
+                                        {option.label}
+                                    </DropdownMenuCheckboxItem>
+                                ))}
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
 
-            {/* Dynamic Stat Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                {STAT_CARD_OPTIONS
-                    .filter(option => selectedStatCards.includes(option.id))
-                    .map(option => (
-                        <StatCard
-                            key={option.id}
-                            icon={option.icon}
-                            label={option.label}
-                            value={option.getValue(overallStats)}
-                            unit={option.unit}
-                            testId={`stat-card-${option.id}`}
-                        />
-                    ))
-                }
-            </div>
-
-            {/* Analysis Section Header with Settings */}
-            <div className="flex items-center justify-between pt-4">
-                <div className="space-y-1">
-                    <h2 className="text-xl font-semibold text-foreground">Speech Pattern Analysis</h2>
-                    <p className="text-sm text-muted-foreground">Deep dive into your speaking performance</p>
-                </div>
-                <DropdownMenu open={isAnalysisMenuOpen} onOpenChange={setIsAnalysisMenuOpen}>
-                    <DropdownMenuTrigger asChild onMouseEnter={openAnalysisMenu} onMouseLeave={closeAnalysisMenu}>
-                        <Button variant="ghost" size="sm" className="gap-2 hover:bg-secondary hover:text-gray-900">
-                            <Settings className="h-4 w-4" />
-                            <span className="hidden sm:inline">Customize Analysis</span>
-                        </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-56" onMouseEnter={openAnalysisMenu} onMouseLeave={closeAnalysisMenu}>
-                        <DropdownMenuLabel>Display Analysis ({selectedAnalysisSlides.length}/4)</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        {ANALYSIS_SLIDE_OPTIONS.map(option => (
-                            <DropdownMenuCheckboxItem
-                                key={option.id}
-                                checked={selectedAnalysisSlides.includes(option.id)}
-                                onCheckedChange={() => toggleAnalysisSlide(option.id)}
-                                disabled={
-                                    selectedAnalysisSlides.includes(option.id) && selectedAnalysisSlides.length <= 1
-                                }
-                            >
-                                {option.label}
-                            </DropdownMenuCheckboxItem>
-                        ))}
-                    </DropdownMenuContent>
-                </DropdownMenu>
-            </div>
-
-            {/* Analysis Carousel */}
-            <div className="space-y-4">
-                <Carousel className="w-full" opts={{ loop: true }} setApi={setApi}>
-                    <CarouselContent>
-                        {ANALYSIS_SLIDE_OPTIONS
-                            .filter(option => selectedAnalysisSlides.includes(option.id))
+                    {/* Dynamic Stat Cards */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                        {STAT_CARD_OPTIONS
+                            .filter(option => selectedStatCards.includes(option.id))
                             .map(option => (
-                                <CarouselItem key={option.id} className="basis-full">
-                                    <div className="p-1">
-                                        {/* Render content based on ID */}
-                                        {option.id === 'pace_trend' && (
-                                            <div>
-                                                <TrendChart
-                                                    title="Speaking Pace Trend"
-                                                    description="Track your words per minute over time"
-                                                    data={trendData}
-                                                    metric="wpm"
-                                                />
-                                            </div>
-                                        )}
-                                        {option.id === 'clarity_trend' && (
-                                            <div>
-                                                <TrendChart
-                                                    title="Clarity Trend"
-                                                    description="Monitor your speech clarity percentage"
-                                                    data={trendData}
-                                                    metric="clarity"
-                                                />
-                                            </div>
-                                        )}
-                                        {option.id === 'weekly_activity' && (
-                                            <WeeklyActivityChart />
-                                        )}
-                                        {option.id === 'goals_progress' && (
-                                            <GoalsSection />
-                                        )}
-                                        {option.id === 'filler_trend' && (
-                                            <Card>
-                                                <CardHeader><CardTitle>Filler Word Trend</CardTitle></CardHeader>
-                                                <CardContent className="pl-2">
-                                                    {overallStats.chartData.length > 1 ? (
-                                                        <div className="h-[300px] w-full">
-                                                            <ResponsiveContainer width="100%" height="100%">
-                                                                <LineChart data={overallStats.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                                                                    <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
-                                                                    <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
-                                                                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
-                                                                    <Tooltip cursor={{ fill: 'hsla(var(--secondary))' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
-                                                                    <Line type="monotone" dataKey="FW/min" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                                                                </LineChart>
-                                                            </ResponsiveContainer>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="flex items-center justify-center h-[300px] text-center text-muted-foreground"><p>Complete at least two sessions to see your progress trend.</p></div>
-                                                    )}
-                                                </CardContent>
-                                            </Card>
-                                        )}
-                                        {option.id === 'filler_analysis' && (
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                                <TopFillerWords />
-                                                <FillerWordTable trendData={fillerWordTrends} />
-                                            </div>
-                                        )}
-
-                                    </div>
-                                </CarouselItem>
+                                <StatCard
+                                    key={option.id}
+                                    icon={option.icon}
+                                    label={option.label}
+                                    value={option.getValue(overallStats)}
+                                    unit={option.unit}
+                                    testId={`stat-card-${option.id}`}
+                                />
                             ))
                         }
-                    </CarouselContent>
-                    <CarouselPrevious />
-                    <CarouselNext />
-                </Carousel>
-                {/* Carousel Indicators */}
-                <div className="flex justify-center gap-2 py-2">
-                    {Array.from({ length: count }).map((_, index) => (
-                        <button
-                            key={index}
-                            className={`h-2 rounded-full transition-all duration-300 ${index + 1 === current ? 'w-8 bg-secondary' : 'w-2 bg-muted-foreground/30'}`}
-                            onClick={() => api?.scrollTo(index)}
-                            aria-label={`Go to slide ${index + 1}`}
-                        />
-                    ))}
-                </div>
+                    </div>
 
-                {/* Session History Section - Moved below carousel */}
-                <div id="session-history-section">
-                    <Card className="bg-card border-border p-6 rounded-2xl shadow-sm">
-                        <div className="flex items-center justify-between mb-6">
-                            <div>
-                                <h2 className="text-xl font-bold text-foreground">Export Reports</h2>
-                                <p className="text-sm text-muted-foreground mt-1">Download detailed session summaries and performance analysis</p>
-                            </div>
-                            {selectedSessions.length === 2 && (
-                                <Button
-                                    onClick={() => setShowComparison(true)}
-                                    className="bg-primary text-primary-foreground hover:bg-primary/90"
-                                >
-                                    Compare Selected (2)
+                    {/* Analysis Section Header with Settings */}
+                    <div className="flex items-center justify-between pt-4">
+                        <div className="space-y-1">
+                            <h2 className="text-xl font-semibold text-foreground">Speech Pattern Analysis</h2>
+                            <p className="text-sm text-muted-foreground">Deep dive into your speaking performance</p>
+                        </div>
+                        <DropdownMenu open={isAnalysisMenuOpen} onOpenChange={setIsAnalysisMenuOpen}>
+                            <DropdownMenuTrigger asChild onMouseEnter={openAnalysisMenu} onMouseLeave={closeAnalysisMenu}>
+                                <Button variant="ghost" size="sm" className="gap-2 hover:bg-secondary hover:text-gray-900">
+                                    <Settings className="h-4 w-4" />
+                                    <span className="hidden sm:inline">Customize Analysis</span>
                                 </Button>
-                            )}
-                        </div>
-                        <div className="space-y-4" data-testid={TEST_IDS.SESSION_HISTORY_LIST}>
-                            {sessionHistory && sessionHistory.length > 0 ? (
-                                sessionHistory.slice(0, 10).map((session) => (
-                                    <SessionHistoryItem
-                                        key={session.id}
-                                        session={session}
-                                        isPro={isProUser}
-                                        isSelected={selectedSessions.includes(session.id)}
-                                        onToggleSelect={toggleSessionSelection}
-                                        profileName={profile?.email || 'User'}
-                                    />
-                                ))
-                            ) : (
-                                <div className="text-center py-12 text-muted-foreground bg-muted/20 rounded-xl border border-dashed border-border">
-                                    <p>No sessions recorded yet.</p>
-                                </div>
-                            )}
-                        </div>
-                    </Card>
-                </div>
-            </div>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-56" onMouseEnter={openAnalysisMenu} onMouseLeave={closeAnalysisMenu}>
+                                <DropdownMenuLabel>Display Analysis ({selectedAnalysisSlides.length}/4)</DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                {ANALYSIS_SLIDE_OPTIONS.map(option => (
+                                    <DropdownMenuCheckboxItem
+                                        key={option.id}
+                                        checked={selectedAnalysisSlides.includes(option.id)}
+                                        onCheckedChange={() => toggleAnalysisSlide(option.id)}
+                                        disabled={
+                                            selectedAnalysisSlides.includes(option.id) && selectedAnalysisSlides.length <= 1
+                                        }
+                                    >
+                                        {option.label}
+                                    </DropdownMenuCheckboxItem>
+                                ))}
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
 
-            {
-                selectedSessionData && (
-                    <SessionComparisonDialog
-                        open={showComparison}
-                        onOpenChange={setShowComparison}
-                        sessions={selectedSessionData}
-                    />
-                )
-            }
-        </div >
+                    {/* Analysis Carousel */}
+                    <div className="space-y-4">
+                        <Carousel className="w-full" opts={{ loop: true }} setApi={setApi}>
+                            <CarouselContent>
+                                {ANALYSIS_SLIDE_OPTIONS
+                                    .filter(option => selectedAnalysisSlides.includes(option.id))
+                                    .map(option => (
+                                        <CarouselItem key={option.id} className="basis-full">
+                                            <div className="p-1">
+                                                {/* Render content based on ID */}
+                                                {option.id === 'pace_trend' && (
+                                                    <div>
+                                                        <TrendChart
+                                                            title="Speaking Pace Trend"
+                                                            description="Track your words per minute over time"
+                                                            data={trendData}
+                                                            metric="wpm"
+                                                        />
+                                                    </div>
+                                                )}
+                                                {option.id === 'clarity_trend' && (
+                                                    <div>
+                                                        <TrendChart
+                                                            title="Clarity Trend"
+                                                            description="Monitor your speech clarity percentage"
+                                                            data={trendData}
+                                                            metric="clarity"
+                                                        />
+                                                    </div>
+                                                )}
+                                                {option.id === 'weekly_activity' && (
+                                                    <WeeklyActivityChart />
+                                                )}
+                                                {option.id === 'goals_progress' && (
+                                                    <GoalsSection />
+                                                )}
+                                                {option.id === 'filler_trend' && (
+                                                    <Card>
+                                                        <CardHeader><CardTitle>Filler Word Trend</CardTitle></CardHeader>
+                                                        <CardContent className="pl-2">
+                                                            {overallStats.chartData.length > 1 ? (
+                                                                <div className="h-[300px] w-full">
+                                                                    <ResponsiveContainer width="100%" height="100%">
+                                                                        <LineChart data={overallStats.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                                                                            <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
+                                                                            <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
+                                                                            <YAxis stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
+                                                                            <Tooltip cursor={{ fill: 'hsla(var(--secondary))' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
+                                                                            <Line type="monotone" dataKey="FW/min" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                                                                        </LineChart>
+                                                                    </ResponsiveContainer>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="flex items-center justify-center h-[300px] text-center text-muted-foreground"><p>Complete at least two sessions to see your progress trend.</p></div>
+                                                            )}
+                                                        </CardContent>
+                                                    </Card>
+                                                )}
+                                                {option.id === 'filler_analysis' && (
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                        <TopFillerWords />
+                                                        <FillerWordTable trendData={fillerWordTrends} />
+                                                    </div>
+                                                )}
+                                                {option.id === 'stt_comparison' && (
+                                                    <STTAccuracyComparison />
+                                                )}
+
+                                            </div>
+                                        </CarouselItem>
+                                    ))
+                                }
+                            </CarouselContent>
+                            <CarouselPrevious />
+                            <CarouselNext />
+                        </Carousel>
+                        {/* Carousel Indicators */}
+                        <div className="flex justify-center gap-2 py-2">
+                            {Array.from({ length: count }).map((_, index) => (
+                                <button
+                                    key={index}
+                                    className={`h-2 rounded-full transition-all duration-300 ${index + 1 === current ? 'w-8 bg-secondary' : 'w-2 bg-muted-foreground/30'}`}
+                                    onClick={() => api?.scrollTo(index)}
+                                    aria-label={`Go to slide ${index + 1}`}
+                                />
+                            ))}
+                        </div>
+
+                        {/* Session History Section - Moved below carousel */}
+                        <div id="session-history-section">
+                            <Card className="bg-card border-border p-6 rounded-2xl shadow-sm">
+                                <div className="flex items-center justify-between mb-6">
+                                    <div>
+                                        <h2 className="text-xl font-bold text-foreground">Export Reports</h2>
+                                        <p className="text-sm text-muted-foreground mt-1">Download detailed session summaries and performance analysis</p>
+                                    </div>
+                                    {selectedSessions.length === 2 && (
+                                        <Button
+                                            onClick={() => setShowComparison(true)}
+                                            className="bg-primary text-primary-foreground hover:bg-primary/90"
+                                        >
+                                            Compare Selected (2)
+                                        </Button>
+                                    )}
+                                </div>
+                                <div className="space-y-4" data-testid={TEST_IDS.SESSION_HISTORY_LIST}>
+                                    {sessionHistory && sessionHistory.length > 0 ? (
+                                        sessionHistory.slice(0, 10).map((session) => (
+                                            <SessionHistoryItem
+                                                key={session.id}
+                                                session={session}
+                                                isPro={isProUser}
+                                                isSelected={selectedSessions.includes(session.id)}
+                                                onToggleSelect={toggleSessionSelection}
+                                                profileName={profile?.email || 'User'}
+                                            />
+                                        ))
+                                    ) : (
+                                        <div className="text-center py-12 text-muted-foreground bg-muted/20 rounded-xl border border-dashed border-border">
+                                            <p>No sessions recorded yet.</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </Card>
+                        </div>
+                    </div>
+
+                    {
+                        selectedSessionData && (
+                            <SessionComparisonDialog
+                                open={showComparison}
+                                onOpenChange={setShowComparison}
+                                sessions={selectedSessionData}
+                            />
+                        )
+                    }
+                </>
+            )}
+        </div>
     );
 };

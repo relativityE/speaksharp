@@ -1,11 +1,11 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-01-28
+**Last Reviewed:** 2026-01-31
 
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp System Architecture
 
-**Version 4.0** | **Last Updated: 2025-12-21**
+**Version 5.0** | **Last Updated: 2026-01-31**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -519,6 +519,39 @@ SpeakSharp enforces strict code quality standards to maintain long-term maintain
 
 ### Testing Strategy (The "Gold Standard")
 
+#### Test Pyramid
+
+SpeakSharp uses a comprehensive test pyramid with 10 distinct categories:
+
+```
+                          ┌─────────┐
+                          │  Soak   │ (Load Testing)
+                         ┌┴─────────┴┐
+                         │   Live    │ (Real Supabase)
+                        ┌┴───────────┴┐
+                        │   Canary    │ (Staging)
+                       ┌┴─────────────┴┐
+                       │     E2E       │ (MSW Mocked)
+          ┌────────────┴───────────────┴────────────┐
+          │            Unit Tests (453)              │
+          └─────────────────────────────────────────┘
+```
+
+| Category | Directory | Config | Infrastructure |
+|----------|-----------|--------|----------------|
+| **Unit** | `frontend/src/**/__tests__/` | `vitest.config.ts` | Mocked |
+| **E2E (Mock)** | `tests/e2e/` | `playwright.config.ts` | MSW Mocks |
+| **Canary** | `tests/canary/` | `playwright.canary.config.ts` | Real Staging |
+| **Live** | `tests/live/` | `playwright.live.config.ts` | Real Supabase |
+| **Soak** | `tests/soak/` | `playwright.soak.config.ts` | Load Testing |
+| **Demo** | `tests/demo/` | `playwright.demo.config.ts` | Video Recording |
+| **Stripe** | `tests/stripe/` | `playwright.stripe.config.ts` | Real Payments |
+| **Integration** | `frontend/tests/integration/` | Vitest + Playwright | Mixed |
+| **Smoke** | `tests/e2e/smoke/` | Custom | Real/Mock |
+| **POM** | `tests/pom/` | — | Page Objects |
+
+#### Gold Standard Principles
+
 Every non-trivial component or hook must have:
 1.  **Unit Tests (`.test.tsx`):** component logic in isolation (Vitest + React Testing Library).
 2.  **Type Safety:** No implicit `any` in mocks; strict typing for `vi.mock` implementations.
@@ -704,7 +737,7 @@ Both the local test runner and CI use the same `test-audit.sh` script, ensuring 
 
 **Local Test Runner (`pnpm test:all`):**
 - Runs `./test-audit.sh local` as a single process
-- Executes all 38 E2E tests serially
+- Executes all 60 E2E tests serially
 - Quality checks (lint/typecheck/test) run in parallel via `concurrently`
 - Purpose: Pre-commit verification and local validation
 - Speed: ~2-3 minutes
@@ -764,6 +797,39 @@ The project uses a tiered testing approach to balance speed, reliability, and re
 | **4. Live Integrations** | `pnpm test:live` | Playwright + **Real APIs** | Validates integration with **Real Supabase/Stripe**. Requires `.env` secrets. |
 | **5. Canary Tests** | `pnpm test:canary` | Real App | Staging/Production validation. Runs post-deploy. |
 | **6. Soak Tests** | `pnpm test:soak` | Production | Long-running load tests on production infrastructure. |
+
+##### Canary Test Architecture (Live Smoke Tests)
+
+Canary tests (`tests/canary/*.spec.ts`) are specialized smoke tests that run against the real production/staging infrastructure. Unlike standard E2E tests, they do NOT use MSW or Playwright route interception for the core app logic.
+
+**How it works:**
+1. **Trigger**: The process is triggered manually via `workflow_dispatch` in `canary.yml` or locally via `pnpm test:canary`.
+2. **Environment Preparation**: 
+   - In CI, the workflow dynamically generates a `.env.development` file using GitHub Secrets (`SUPABASE_URL`, `SUPABASE_ANON_KEY`).
+   - The `CANARY_PASSWORD` secret is mapped to a `CANARY_PASSWORD` environment variable.
+3. **Server Lifecycle**: 
+   - `start-server-and-test` initiates `pnpm dev` (Vite on port 5173).
+   - It polls the health endpoint until the server is ready.
+4. **Credential Propagation**:
+   - `tests/constants.ts` resolves `CANARY_USER.password` from `process.env.CANARY_PASSWORD`.
+   - The `canaryLogin` helper in `tests/canary/smoke.canary.spec.ts` uses these credentials to perform a real login against the live Supabase project.
+5. **Execution**: Playwright runs the tests using the `playwright.canary.config.ts`, which targets the local Vite server but communicates with the live backend.
+6. **Safety Mechanism**: If `CANARY_PASSWORD` is not detected in the environment, the tests will automatically skip using `test.skip()` to prevent false failures in local development environments where secrets aren't present.
+7. **Security Cleanup**: The workflow includes an `if: always()` cleanup step that deletes the `.env.development` file immediately after the test run finishes (success or failure) to prevent secret leakage in the transient runner environment.
+
+**Workflow Visualization:**
+```mermaid
+graph TD
+    A[GitHub Action / Local CLI] --> B[Generate .env.development]
+    B --> C[Inject CANARY_PASSWORD Variable]
+    C --> D[start-server-and-test]
+    D --> E[pnpm dev]
+    E --> F[Vite Server @ 5173]
+    F --> G[Playwright test:canary]
+    G --> H[canaryLogin]
+    H --> I[Real Supabase Auth]
+    I --> J[Critical Path Validation]
+```
 
 ##### CI Artifacts & Reporting
 The automated CI pipeline requires specific JSON artifacts for tracking metrics. The `test-audit.sh` script is configured to allow Vitest to generate `unit-metrics.json` (via `vitest.config.mjs`) by avoiding conflicting reporter flags. This artifact is critical for the "Report" stage of the CI pipeline.

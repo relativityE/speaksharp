@@ -1,8 +1,18 @@
+/**
+ * SessionPage Timer Tests
+ *
+ * Tests the useSessionLifecycle hook directly (not the full component).
+ * Uses fake timers to validate timer increment logic without real delays.
+ *
+ * Invariants validated:
+ * - Timer increments elapsed time when listening
+ * - Timer resets to 0 when session stops
+ *
+ * @see useSessionLifecycle.ts for the hook under test
+ */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, act } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { SessionPage } from '../SessionPage';
+import { renderHook, act } from '@testing-library/react';
+import { useSessionLifecycle } from '../../hooks/useSessionLifecycle';
 import * as SpeechRecognitionHook from '../../hooks/useSpeechRecognition';
 import * as SessionStore from '../../stores/useSessionStore';
 import * as VocalAnalysisHook from '../../hooks/useVocalAnalysis';
@@ -20,22 +30,21 @@ vi.mock('@/hooks/useUsageLimit');
 vi.mock('@/hooks/useUserFillerWords', () => ({
     useUserFillerWords: () => ({
         userFillerWords: ['mock-word'],
-        fullVocabularyObjects: [{ id: '1', word: 'mock-word', user_id: 'test', created_at: new Date().toISOString() }],
         isLoading: false,
-        error: null,
-        addWord: vi.fn(),
-        removeWord: vi.fn(),
-        isAdding: false,
-        isRemoving: false,
-        count: 1,
-        maxWords: 100,
-        isPro: false,
     }),
 }));
 vi.mock('@/hooks/useSessionManager', () => ({
     useSessionManager: () => ({
-        saveSession: vi.fn().mockResolvedValue({ session: null, usageExceeded: false }),
+        saveSession: vi.fn(),
     }),
+}));
+vi.mock('@/hooks/useStreak', () => ({
+    useStreak: () => ({
+        updateStreak: vi.fn().mockReturnValue({ isNewDay: false, currentStreak: 1 }),
+    }),
+}));
+vi.mock('@/hooks/useSessionMetrics', () => ({
+    useSessionMetrics: () => ({ wpm: 0, clarityScore: 0, fillerCount: 0 }),
 }));
 vi.mock('posthog-js', () => ({
     default: {
@@ -43,32 +52,16 @@ vi.mock('posthog-js', () => ({
     },
 }));
 
-// Helper to render with router
-const renderWithRouter = (ui: React.ReactElement) => {
-    const queryClient = new QueryClient({
-        defaultOptions: {
-            queries: {
-                retry: false,
-            },
-        },
-    });
-    return render(
-        <QueryClientProvider client={queryClient}>
-            <MemoryRouter>{ui}</MemoryRouter>
-        </QueryClientProvider>
-    );
-};
-
-// Mock child components
-vi.mock('@/components/session/PauseMetricsDisplay', () => ({
-    PauseMetricsDisplay: () => <div data-testid="pause-metrics-display">Pause Metrics</div>,
-}));
-vi.mock('@/components/session/StatusNotificationBar', () => ({
-    StatusNotificationBar: () => <div data-testid="status-notification-bar">Status Bar</div>,
+// Mock react-router-dom
+vi.mock('react-router-dom', () => ({
+    useNavigate: () => vi.fn(),
 }));
 
-vi.mock('@/components/session/UserFillerWordsManager', () => ({
-    UserFillerWordsManager: () => <div data-testid="user-filler-words-manager">User Filler Words Manager</div>,
+// Mock react-query
+vi.mock('@tanstack/react-query', () => ({
+    useQueryClient: () => ({
+        invalidateQueries: vi.fn(),
+    }),
 }));
 
 const mockUseSpeechRecognition = vi.mocked(SpeechRecognitionHook.useSpeechRecognition);
@@ -78,15 +71,13 @@ const mockUseAuthProvider = vi.mocked(AuthProvider.useAuthProvider);
 const mockUseUserProfile = vi.mocked(UserProfileHook.useUserProfile);
 const mockUseUsageLimit = vi.mocked(UsageLimitHook.useUsageLimit);
 
-describe('SessionPage Timer Logic', () => {
+describe('useSessionLifecycle Timer Logic', () => {
     const mockStartListening = vi.fn();
     const mockStopListening = vi.fn();
     const mockUpdateElapsedTime = vi.fn();
 
     beforeEach(() => {
         vi.clearAllMocks();
-
-        // CRITICAL: Clear timers before setting fake timers
         vi.clearAllTimers();
         vi.useFakeTimers();
 
@@ -103,6 +94,7 @@ describe('SessionPage Timer Logic', () => {
             resetTranscript: vi.fn(),
             sttStatus: { type: 'ready', message: 'Ready' },
             chunks: [],
+            mode: 'native',
         } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
         mockUseSessionStore.mockReturnValue({
@@ -142,32 +134,30 @@ describe('SessionPage Timer Logic', () => {
         vi.useRealTimers();
     });
 
-    describe('Timer Logic', () => {
-        it('should update elapsed time when listening', () => {
-            mockUseSpeechRecognition.mockReturnValue({
-                ...mockUseSpeechRecognition(),
-                isListening: true,
-            } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
+    it('should update elapsed time when listening', () => {
+        mockUseSpeechRecognition.mockReturnValue({
+            ...mockUseSpeechRecognition(),
+            isListening: true,
+        } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
-            renderWithRouter(<SessionPage />);
+        renderHook(() => useSessionLifecycle());
 
-            // Advance time by 1 second
-            act(() => {
-                vi.advanceTimersByTime(1000);
-            });
-
-            expect(mockUpdateElapsedTime).toHaveBeenCalled();
+        // Advance time by 1 second
+        act(() => {
+            vi.advanceTimersByTime(1000);
         });
 
-        it('should reset elapsed time when stopped', () => {
-            mockUseSpeechRecognition.mockReturnValue({
-                ...mockUseSpeechRecognition(),
-                isListening: false,
-            } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
+        expect(mockUpdateElapsedTime).toHaveBeenCalled();
+    });
 
-            renderWithRouter(<SessionPage />);
+    it('should reset elapsed time when stopped (on mount)', () => {
+        mockUseSpeechRecognition.mockReturnValue({
+            ...mockUseSpeechRecognition(),
+            isListening: false,
+        } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
-            expect(mockUpdateElapsedTime).toHaveBeenCalledWith(0);
-        });
+        renderHook(() => useSessionLifecycle());
+
+        expect(mockUpdateElapsedTime).toHaveBeenCalledWith(0);
     });
 });

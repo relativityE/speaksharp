@@ -5,7 +5,7 @@
 
 # SpeakSharp Product Requirements Document
 
-**Version 8.6** | **Last Updated:** 2026-01-27
+**Version 9.0** | **Last Updated:** 2026-01-31
 
 ## 1. Executive Summary
 
@@ -82,7 +82,7 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Filler Word Detection** | 1 | Detects and counts common filler words (um, uh, like, etc.). | ✅ Implemented | ✅ Yes |
 | **Speaking Pace (WPM)** | 2 | Provides real-time words-per-minute analysis. | ✅ Implemented | ✅ Yes |
 | **Clarity Score** | 2 | Score based on filler word usage. | ✅ Implemented | ✅ Yes |
-| **Goal Setting** | 2 | Weekly/Daily targets for practice consistency. | ✅ Implemented | ❌ No (E2E Only) |
+| **Goal Setting** | 2 | Weekly/Daily targets for practice consistency. | ✅ Implemented | ✅ Yes |
 | **User-Friendly Error Handling** | 2 | Specific, user-facing error messages. | ✅ Implemented | ✅ Yes |
 | **User Filler Words** | 2 | User's personalized filler words to track (in addition to defaults like "um", "uh"). Stored in Supabase, passed to Cloud STT for improved recognition. Free: 100 words max. Pro: 100 words max. | ✅ Implemented | ✅ Yes |
 | **Vocal Variety / Pause Detection** | 2 | Analyzes pause duration and frequency. | ✅ Implemented | ✅ Yes |
@@ -90,21 +90,14 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Speaker Identification**| 4 | Distinguishes between multiple speakers in a transcript. | 📅 Planned | ❌ No |
 | **Screen Reader Accessibility** | 2 | Live transcript uses ARIA live regions so screen readers announce new text automatically. | ✅ Implemented | ✅ Yes |
 | **Usage Limit Pre-Check** | 2 | Checks remaining usage BEFORE session starts. Shows upgrade prompt if exceeded. | ✅ Implemented | ✅ Yes |
-
-#### 🚧 Should-Have
-
-| Feature | Phase | Description | Status | Unit Test |
-| :--- | :--- | :--- | :--- | :--- |
-| **AI Suggestions** | 1 | Provides AI-driven feedback on transcripts. | ✅ Implemented | ✅ Yes |
-| **Filler Word Trend** | 1 | Analyzes the trend of filler word usage across sessions. | ✅ Implemented | ✅ Yes |
-| **Session Comparison** | 1 | Compares stats from the 4 most recent sessions. | ✅ Implemented | ❌ No (E2E Only) |
+| **Session Comparison** | 1 | Compares stats from the 4 most recent sessions. | ✅ Implemented | ✅ Yes |
 | **PDF Export** | 1 | Allows users to download a PDF report of their session (FileSaver.js). | ✅ Implemented | ✅ Yes |
 | **STT Accuracy Comparison** | 1 | Rolling average comparison of STT engine accuracy against a ground truth. | ✅ Implemented | ✅ Yes |
 | **Top 2 Filler Words**| 1 | Maintains the top 2 highest filler words for the most recent 4 sessions. | ✅ Implemented | ✅ Yes |
-| **Weekly Activity Chart** | 2 | Visual chart showing practice frequency over the past week. | ✅ Implemented | ❌ No (E2E Only) |
+| **Weekly Activity Chart** | 2 | Visual chart showing practice frequency over the past week. | ✅ Implemented | ✅ Yes |
 | **Premium Loading States** | 2.5 | Skeleton loading UI for premium user experience. | ✅ Implemented | ✅ Yes |
 | **Private Model Caching** | 3 | Service Worker caches Whisper model for faster subsequent loads (<5s). | ✅ Implemented | ✅ Yes |
-| **Gamification (Streaks)** | 2 | Tracks daily practice streaks with local storage + toast positive reinforcement. | ✅ Implemented | ❌ No (E2E Only) |
+| **Gamification (Streaks)** | 2 | Tracks daily practice streaks with local storage + toast positive reinforcement. | ✅ Implemented | ✅ Yes |
 | **Design System Showcase** | 2 | `/design` route to visualize and test UI components in isolation. | ✅ Implemented | ✅ Yes |
 
 
@@ -158,6 +151,8 @@ To ensure data integrity and meaningful analysis:
 ## 4. Testing Strategy
 
 The project's testing strategy prioritizes stability, reliability, and a tight alignment between the local development environment and the CI/CD pipeline.
+
+> **See Also:** [ARCHITECTURE.md § Test Pyramid](./ARCHITECTURE.md#test-pyramid) for technical implementation details of all 10 test categories.
 
 *   **Unit & Integration Tests (Vitest):** These form the foundation of our testing pyramid. They are fast, focused, and verify the correctness of individual components and hooks in isolation. **Target: ≥75% line coverage with integrity-preserving validation (avoiding implementation coupling).**
 *   **End-to-End Tests (Playwright):** E2E tests validate complete user flows from start to finish. To combat the flakiness often associated with UI-driven tests, we have adopted a critical strategic decision:
@@ -226,7 +221,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Fri, 30 Jan 2026 15:46:09 GMT
+**Last Updated:** Sat, 31 Jan 2026 11:20:00 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -242,15 +237,15 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 469 (407 unit + 62 E2E) |
-| Unit tests              | 407   |
-| E2E tests (Playwright)  | 62  |
-| Passing tests           | 468 (407 unit + 61 E2E)   |
-| Failing tests           | 1   |
-| Disabled/skipped tests  | 0 (E2E only)   |
-| Passing unit tests      | 407/407 (100.0%)   |
-| Passing E2E tests       | 61/62 (98.4%)   |
-| Total runtime           | See CI logs   |
+| Total tests             | 513 (453 unit + 60 E2E) |
+| Unit tests              | 453   |
+| E2E tests (Playwright)  | 60  |
+| Passing tests           | 513 (453 unit + 60 E2E)   |
+| Failing tests           | 0   |
+| Disabled/skipped tests  | 1 (Headless Audio Drift)   |
+| Passing unit tests      | 453/453 (100.0%)   |
+| Passing E2E tests       | 60/60 (100.0%)   |
+| Total runtime           | ~12m (Cloud CI)   |
 
 ---
 
@@ -258,10 +253,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | 57.72%   |
-| Branches   | 75.81%   |
-| Functions  | 70.26%   |
-| Lines      | 57.72%   |
+| Statements | 82.14%   |
+| Branches   | 85.32%   |
+| Functions  | 80.11%   |
+| Lines      | 82.14%   |
 
 ---
 
@@ -272,8 +267,8 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 | Total Source Size   | 5.8M   |
 | Total Project Size  | 2.1G   |
 | Initial Chunk Size  | 416K   |
-| Code Bloat Index    | 7.05%   |
-| Lighthouse Scores   | P: 95, A: 94, BP: 100, SEO: 91 |
+| Code Bloat Index    | 6.78%   |
+| Lighthouse Scores   | P: 100, A: 100, BP: 100, SEO: 100 |
 
 ---
 <!-- SQM:END -->

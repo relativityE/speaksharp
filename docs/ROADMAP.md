@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-01-30
+**Last Reviewed:** 2026-01-31
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -11,7 +11,7 @@ This document outlines the forward-looking development plan for SpeakSharp. Comp
 Status Key: 🟡 In Progress | 🔴 Not Started | ✅ Complete | 🛡️ Gap Remediation
 ---
 
-## 🧪 Frontend Verification & Defect Resolution (Jan 2026) 🟡 IN PROGRESS
+## 🧪 Frontend Verification & Defect Resolution (Jan 2026) ✅ COMPLETE
 
 > **Goal:** Resolve critical defects identified during the Jan 26 production verification to ensure a stable Alpha user experience.
 
@@ -21,7 +21,7 @@ Status Key: 🟡 In Progress | 🔴 Not Started | ✅ Complete | 🛡️ Gap Rem
 | **V2** | **Private STT WASM Crash** | **CRITICAL** | ✅ Complete | Implemented buffer preservation and strict chunk validation to prevent RangeErrors. |
 | **V3** | **Transitions & Cleanup** | **CRITICAL** | ✅ Complete | Verified AudioContext cleanup and cross-component state synchronization. |
 | **V4** | **Real-time Analysis UI** | **HIGH** | ✅ Complete | Refactored Session Page with paired grid layout and matched component heights. |
-| **V5** | **Auth Token Refresh** | **MEDIUM** | 🔴 Investigating | 400 Bad Request on refresh_token calls. |
+| **V5** | **Auth Token Refresh** | **HIGH** | ✅ FIXED | Resolved race conditions in session initialization and added safety timeouts. |
 | **V6** | **STT Dropdown Selection**| **HIGH** | ✅ Complete | Resolved unresponsive selector and polished labels. (2026-01-28) |
 | **V7** | **Initialization Crash** | **CRITICAL** | ✅ Complete | Fixed `__BUILD_ID__` ReferenceError in `main.tsx` causing E2E timeouts. (2026-01-28) |
 
@@ -96,9 +96,9 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 
 | **Metric** | **Target** | **Current** | **Status** |
 | :--- | :--- | :--- | :--- |
-| **Unit Test Coverage** | > 80% | **407 tests** | 🟢 ON TRACK |
-| **E2E Pass Rate** | 100% | 100% (local) | 🟢 ON TRACK (Local) |
-| **Code Bloat** | < 10% | **6.79%** | 🟢 HEALTHY |
+| **Unit Test Coverage** | > 80% | **453 tests** | 🟢 ON TRACK |
+| **E2E Pass Rate** | 100% | 100% (60 tests) | 🟢 ON TRACK |
+| **Code Bloat** | < 10% | **6.78%** | 🟢 HEALTHY |
 | **Largest Chunk** | < 500KB | **822KB** | 🔴 BLOCKED (Post-Alpha) |
 
 ### 🛡️ Gap Analysis Audit (2025-12-22) - In Progress
@@ -510,14 +510,14 @@ This phase is about confirming the core feature set works as expected and polish
 
 | # | Finding | Location | Priority | Notes |
 |---|---------|----------|----------|-------|
-| 1 | **TranscriptionService SRP Violation** | `TranscriptionService.ts` | P2 | Split into `TranscriptionCoordinator` + mode Providers |
-| 2 | **UI State Boolean Flags** | `RecordingControls.tsx` | P2 | Implement XState or reducer with enumerated states |
+| 1 | **TranscriptionService SRP Violation** | `TranscriptionService.ts` | P2 | ✅ REFACTORED - Split into specialized mode Providers |
+| 2 | **UI State Boolean Flags** | `RecordingControls.tsx` | P2 | ✅ REFACTORED - Decomposed into clean hooks and sub-components |
 | 3 | **Migration Idempotency** | `supabase/migrations/*` | P3 | Add `IF NOT EXISTS` guards before public launch |
-| 4 | **Filler Word Regex False Positives** | `fillerWordUtils.ts` | P3 | Integrate NLP for Part-of-Speech tagging |
+| 4 | **Filler Word Regex False Positives** | `fillerWordUtils.ts` | P3 | ✅ FIXED - Integrated `compromise` NLP for Part-of-Speech tagging |
 | 5 | **React Router v7 Deprecation** | Console output | P3 | Add future flags before upgrading |
-| 6 | **SessionPage Mega Component** | `SessionPage.tsx` | P2 | Decompose into smaller sub-components |
+| 6 | **SessionPage Mega Component** | `SessionPage.tsx` | P2 | ✅ DECOMPOSED - Logic moved to hooks, UI split into cards |
 | ~~7~~ | ~~**Filler/Min Rounding Edge Case**~~ | ~~`analyticsUtils.ts:61`~~ | ~~P3~~ | ✅ FIXED 2026-01-06 - Now uses precise minutes |
-| 8 | **Minimum Session Duration UX** | `SessionPage.tsx` | P2 | Add toast warning when session < 5 sec |
+| 8 | **Minimum Session Duration UX** | `SessionPage.tsx` | P2 | ✅ FIXED - Added HUD indicator and feedback message |
 
 ### ℹ️ Known Limitations (Accepted)
 

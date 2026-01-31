@@ -95,6 +95,8 @@ describe('TranscriptionService - Max Attempts', () => {
         expect(mockNativeInit).toHaveBeenCalledTimes(1); // Standard fallback
         // Behavior check confirms logic without peeking
 
+        await service.stopTranscription();
+
         // Reset mocks
         mockPrivateInit.mockClear();
         mockNativeInit.mockClear();
@@ -108,6 +110,8 @@ describe('TranscriptionService - Max Attempts', () => {
 
         expect(mockPrivateInit).toHaveBeenCalledTimes(1);
         // Behavior check
+
+        await service.stopTranscription();
 
         // Reset mocks
         mockPrivateInit.mockClear();

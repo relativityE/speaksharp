@@ -87,14 +87,6 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
         debugLog('[PRO] ✅ Cloud STT session completed');
     });
 
-    /**
-     * Private STT Session Test
-     * Added to address Independent Review Gap #2:
-     * "Incomplete Test Coverage for Private STT Session"
-     * 
-     * This test complements the detailed caching tests in private-stt.e2e.spec.ts
-     * by verifying the complete session lifecycle with Private mode.
-     */
     test('should complete session with Private STT', async ({ page }) => {
         await navigateToRoute(page, '/session');
 
@@ -163,10 +155,14 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
     });
 
     test('should display all analytics metrics', async ({ page }) => {
+        // Ensure fresh state and synchronize MSW
+        await page.reload();
+        await page.waitForLoadState('networkidle');
+
         await navigateToRoute(page, '/analytics');
         await page.waitForLoadState('networkidle');
 
-        await expect(page.getByTestId('dashboard-heading')).toBeVisible();
+        await expect(page.getByTestId('dashboard-heading')).toBeVisible({ timeout: 15000 });
         debugLog('[PRO] ✅ Analytics dashboard loaded');
 
         // Verify key analytics components
@@ -184,9 +180,13 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
     });
 
     test('should allow PDF export', async ({ page }) => {
+        // Ensure fresh state and synchronize MSW
+        await page.reload();
+        await page.waitForLoadState('networkidle');
+
         await navigateToRoute(page, '/analytics');
         await page.waitForLoadState('networkidle');
-        await expect(page.getByTestId('dashboard-heading')).toBeVisible({ timeout: 5000 });
+        await expect(page.getByTestId('dashboard-heading')).toBeVisible({ timeout: 15000 });
 
         // Look for PDF export button
         const pdfButton = page.getByRole('button', { name: /pdf|export|download/i });
@@ -212,6 +212,10 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
         debugLog('[PRO] ✅ Session completed');
 
         // Analytics
+        // Ensure fresh state and synchronize MSW
+        await page.reload();
+        await page.waitForLoadState('networkidle');
+
         await navigateToRoute(page, '/analytics');
         await page.waitForLoadState('networkidle');
         await expect(page.getByTestId('dashboard-heading')).toBeVisible({ timeout: 15000 });

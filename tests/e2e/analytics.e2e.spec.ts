@@ -9,6 +9,10 @@ test.describe('Analytics Page - Dashboard with Data', () => {
     // MSW provides mock session data by default
     await programmaticLoginWithRoutes(page);
 
+    // Ensure fresh state and synchronize MSW
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+
     // Use client-side navigation to avoid full page reload issues
     await navigateToRoute(page, '/analytics');
 

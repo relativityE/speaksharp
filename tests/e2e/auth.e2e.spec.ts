@@ -8,6 +8,10 @@ test.describe('Authentication', () => {
     });
 
     await test.step('Verify user can access protected session page', async () => {
+      // Ensure fresh state and synchronize MSW
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+
       // After login, the user is on the homepage. Navigate to a protected route using navigateToRoute.
       await navigateToRoute(page, '/analytics');
       // ✅ Wait for analytics page to fully load (Senior Engineer Rec)

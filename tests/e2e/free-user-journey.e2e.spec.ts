@@ -25,6 +25,11 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
 
     test('should verify only Native Browser STT is available', async ({ page }) => {
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
+
+        // Ensure fresh state and synchronize MSW
+        await page.reload();
+        await page.waitForLoadState('networkidle');
+
         await navigateToRoute(page, '/session');
         await expect(page.getByText('Practice Session')).toBeVisible();
 
@@ -40,6 +45,11 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
 
     test('should complete session with Native Browser STT', async ({ page }) => {
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
+
+        // Ensure fresh state and synchronize MSW
+        await page.reload();
+        await page.waitForLoadState('networkidle');
+
         await navigateToRoute(page, '/session');
 
         const startButton = page.getByTestId('session-start-stop-button').first();
@@ -61,6 +71,11 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
 
     test('should add custom vocabulary word', async ({ page }) => {
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
+
+        // Ensure fresh state and synchronize MSW
+        await page.reload();
+        await page.waitForLoadState('networkidle');
+
         await navigateToRoute(page, '/session');
 
         // Wait for page to load
@@ -93,6 +108,11 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
 
     test('should display analytics after session', async ({ page }) => {
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
+
+        // Ensure fresh state and synchronize MSW
+        await page.reload();
+        await page.waitForLoadState('networkidle');
+
         await navigateToRoute(page, '/analytics');
 
         // Verify key analytics components
@@ -106,6 +126,11 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
 
     test('should show upgrade prompts for free users', async ({ page }) => {
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
+
+        // Ensure fresh state and synchronize MSW
+        await page.reload();
+        await page.waitForLoadState('networkidle');
+
         await navigateToRoute(page, '/analytics');
 
         // Free users should see upgrade options

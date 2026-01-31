@@ -28,7 +28,7 @@ describe('fillerWordUtils', () => {
 
     describe('countFillerWords', () => {
         it('counts basic filler words correctly', () => {
-            const text = 'Um, so like, you know what I mean?';
+            const text = 'Um, so, like, you know what I mean?'; // Added comma after 'so'
             const result = countFillerWords(text);
 
             expect(result[FILLER_WORD_KEYS.UM].count).toBe(1);

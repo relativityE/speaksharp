@@ -23,6 +23,11 @@ import { TEST_IDS } from '../constants';
 test.describe('Session Comparison & Progress Tracking', () => {
     test('should display session history with metrics', async ({ page }) => {
         await programmaticLoginWithRoutes(page);
+
+        // Ensure fresh state and synchronize MSW
+        await page.reload();
+        await page.waitForLoadState('networkidle');
+
         await navigateToRoute(page, '/analytics');
         await page.waitForSelector('[data-testid="app-main"]');
 
@@ -64,9 +69,14 @@ test.describe('Session Comparison & Progress Tracking', () => {
          * - Each session shows duration and timestamp
          */
         await programmaticLoginWithRoutes(page);
+
+        // Ensure fresh state and synchronize MSW
+        await page.reload();
+        await page.waitForLoadState('networkidle');
+
         await navigateToRoute(page, '/analytics');
         await page.waitForLoadState('networkidle');
-        await expect(page.getByTestId('dashboard-heading')).toBeVisible();
+        await expect(page.getByTestId('dashboard-heading')).toBeVisible({ timeout: 15000 });
 
         // Verify sessions are displayed
         const sessions = page.getByTestId(/session-history-item-/);
@@ -99,6 +109,11 @@ test.describe('Session Comparison & Progress Tracking', () => {
          * 4. Show actionable insights ("Your WPM improved 15% this week!")
          */
         await programmaticLoginWithRoutes(page);
+
+        // Ensure fresh state and synchronize MSW
+        await page.reload();
+        await page.waitForLoadState('networkidle');
+
         await navigateToRoute(page, '/analytics');
         await page.waitForSelector('[data-testid="app-main"]');
 

@@ -10,6 +10,10 @@ test.describe('Analytics Page - Empty State', () => {
 
         await programmaticLoginWithRoutes(page);
 
+        // Ensure fresh state and synchronize MSW
+        await page.reload();
+        await page.waitForLoadState('networkidle');
+
         // Navigate to analytics page using client-side navigation (NOT page.goto!)
         await navigateToRoute(page, '/analytics');
         await page.waitForSelector('[data-testid="app-main"]');

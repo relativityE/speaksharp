@@ -35,22 +35,21 @@ interface AuthProviderProps {
 }
 
 export function AuthProvider({ children, initialSession = null }: AuthProviderProps) {
-  const [sessionState, setSessionState] = useState<Session | null>(null);
+  const [sessionState, setSessionState] = useState<Session | null | undefined>(undefined);
   const [loading, setLoading] = useState(true);
-
 
   const supabase = getSupabaseClient();
 
   useEffect(() => {
     // DEV BYPASS: Add ?devBypass=true to URL to skip auth for UI testing
     if (import.meta.env.DEV && window.location.search.includes('devBypass=true')) {
-      console.log('[AuthProvider] DEV BYPASS ENABLED - using mock session');
+      logger.info('[AuthProvider] DEV BYPASS ENABLED - using mock session');
       const devUserId = '00000000-0000-0000-0000-000000000000';
       const mockSession = {
         access_token: 'dev-bypass-token',
         refresh_token: 'dev-bypass-refresh',
         expires_in: 3600,
-        expires_at: Date.now() / 1000 + 3600,
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
         token_type: 'bearer',
         user: {
           id: devUserId,
@@ -68,7 +67,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     }
 
     if (!supabase) {
-      console.error('Supabase client is not available.');
+      logger.error('[AuthProvider] Supabase client is not available.');
       setLoading(false);
       return;
     }
@@ -76,25 +75,47 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     // Initialize session
     const initStartTime = Date.now();
     if (initialSession) {
-      logger.info('[AuthProvider] Using injected initialSession');
+      logger.info({ userId: initialSession.user.id }, '[AuthProvider] Using injected initialSession');
       setSessionState(initialSession);
+      setLoading(false);
     } else {
       supabase.auth.getSession().then(({ data: { session }, error }) => {
         const duration = Date.now() - initStartTime;
         if (error) {
-          logger.error({ error, durationMs: duration }, '[AuthProvider] getSession failed');
+          logger.error({
+            error: error.message,
+            code: error.status,
+            durationMs: duration
+          }, '[AuthProvider] getSession failed');
+          setSessionState(null);
         } else {
           logger.info({
             hasSession: !!session,
             userId: session?.user?.id,
+            expiresAt: session?.expires_at,
             durationMs: duration
           }, '[AuthProvider] getSession complete');
+          setSessionState(session);
         }
-        setSessionState(session);
-        // If no session, loading is done. If session exists, profile fetch will handle loading.
-        if (!session) setLoading(false);
+        setLoading(false);
+      }).catch(err => {
+        logger.error({ err }, '[AuthProvider] Fatal error in getSession');
+        setSessionState(null);
+        setLoading(false);
       });
     }
+
+    // Safety timeout for loading state to prevent infinite spinner
+    const timeoutId = setTimeout(() => {
+      setLoading(currentLoading => {
+        if (currentLoading) {
+          logger.warn('[AuthProvider] Safety timeout reached, forcing loading false');
+          setSessionState(prev => prev === undefined ? null : prev);
+          return false;
+        }
+        return currentLoading;
+      });
+    }, 5000);
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, newSession) => {
@@ -111,6 +132,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
         logger.info({
           event,
           userId: newSession?.user?.id,
+          expiresAt: newSession?.expires_at,
           timestamp
         }, `[Supabase Auth] 🔐 Auth event: ${event}`);
 
@@ -119,48 +141,50 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
         // State-specific behavior
         switch (event) {
           case 'SIGNED_OUT':
-            logger.info('[AuthProvider] User signed out, clearing state');
+            logger.info({ timestamp }, '[AuthProvider] User signed out or refresh failed, clearing state');
             setLoading(false);
             break;
           case 'TOKEN_REFRESHED':
-            logger.info('[AuthProvider] Token successfully refreshed');
+            logger.info({
+              expiresAt: newSession?.expires_at,
+              timestamp
+            }, '[AuthProvider] Token successfully refreshed');
             break;
           case 'USER_UPDATED':
-            logger.info('[AuthProvider] User metadata updated');
+            logger.info({ userId: newSession?.user?.id }, '[AuthProvider] User metadata updated');
             break;
           case 'SIGNED_IN':
-            logger.info('[AuthProvider] User signed in');
+            logger.info({ userId: newSession?.user?.id }, '[AuthProvider] User signed in');
+            setLoading(false);
             break;
           case 'INITIAL_SESSION':
-            if (!newSession) setLoading(false);
+            setLoading(false);
             break;
         }
       }
     );
 
     return () => {
+      clearTimeout(timeoutId);
       subscription?.unsubscribe();
     };
   }, [initialSession, supabase]);
 
-  // Loading state management
-  useEffect(() => {
-    if (sessionState !== undefined) {
-      setLoading(false);
-    }
-  }, [sessionState]);
-
   const signOut = useCallback(async () => {
-    await supabase.auth.signOut();
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      logger.error({ err }, '[AuthProvider] Error during signOut');
+    }
     setSessionState(null);
   }, [supabase]);
 
   const value = useMemo((): AuthContextType => ({
-    session: sessionState,
+    session: sessionState ?? null,
     user: sessionState?.user ?? null,
     loading,
     signOut,
-    setSession: setSessionState,
+    setSession: (s: Session | null) => setSessionState(s),
   }), [sessionState, loading, signOut]);
 
   // Don't block app rendering while loading - landing page is PUBLIC

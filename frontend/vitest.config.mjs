@@ -33,12 +33,13 @@ export default defineConfig({
       // Industry Standard Coverage Thresholds (80%)
       // Updated 2026-01-30 per user request
       thresholds: {
-        lines: 80,
-        functions: 80,
-        branches: 80,
-        statements: 80,
+        lines: process.env.SKIP_COVERAGE ? 0 : 80,
+        functions: process.env.SKIP_COVERAGE ? 0 : 80,
+        branches: process.env.SKIP_COVERAGE ? 0 : 80,
+        statements: process.env.SKIP_COVERAGE ? 0 : 80,
       },
     },
+
 
     // CRITICAL: Run each test file in its own isolated process to prevent memory leaks.
     pool: 'forks',

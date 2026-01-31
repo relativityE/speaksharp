@@ -161,7 +161,6 @@ import { useSpeechRecognition } from '../../hooks/useSpeechRecognition';
 
 describe('SessionPage Logic', () => {
     beforeEach(() => {
-        console.log('[TEST] beforeEach START');
         vi.clearAllMocks();
         // Default mocks
         (useUserProfile as unknown as Mock).mockReturnValue({
@@ -219,7 +218,6 @@ describe('SessionPage Logic', () => {
 
     describe('Mode Switching Logic', () => {
         it('should update mode when user changes it via dropdown', () => {
-            console.log('[TEST] "update mode" START');
             render(
                 <MemoryRouter>
                     <SessionPage />
@@ -228,23 +226,16 @@ describe('SessionPage Logic', () => {
 
             const display = screen.getByTestId('mode-display');
             expect(display).toHaveTextContent('native');
-            console.log('[TEST] "update mode" Initial state OK');
 
             const btn = screen.getByTestId('switch-mode-btn');
-            console.time('act-click');
             act(() => {
                 btn.click();
             });
-            console.timeEnd('act-click');
 
-            console.log('[TEST] "update mode" After click');
             expect(screen.getByTestId('mode-display')).toHaveTextContent('cloud');
-            console.log('[TEST] "update mode" DONE');
         });
 
         it('should SYNC UI mode when a fallback event occurs', () => {
-            console.log('[TEST] "fallback sync" START');
-
             // Start with isListening=true and mode='private' (emulating active Private STT)
             (useSpeechRecognition as unknown as Mock).mockReturnValue({
                 transcript: { transcript: '' },
@@ -265,9 +256,7 @@ describe('SessionPage Logic', () => {
                 </MemoryRouter>
             );
             expect(screen.getByTestId('mode-display')).toHaveTextContent('private');
-            console.log('[TEST] "fallback sync" Initial render complete');
 
-            console.log('[TEST] "fallback sync" Updating mock to fallback...');
             // Simulate fallback: service changes `mode` (activeMode) to 'cloud' after fallback
             (useSpeechRecognition as unknown as Mock).mockReturnValue({
                 transcript: { transcript: '' },
@@ -284,9 +273,7 @@ describe('SessionPage Logic', () => {
                 },
                 chunks: [],
             });
-            console.log('[TEST] "fallback sync" Mock updated. Rerendering...');
 
-            console.time('rerender');
             act(() => {
                 rerender(
                     <MemoryRouter>
@@ -294,11 +281,8 @@ describe('SessionPage Logic', () => {
                     </MemoryRouter>
                 );
             });
-            console.timeEnd('rerender');
 
-            console.log('[TEST] "fallback sync" Verifying result...');
             expect(screen.getByTestId('mode-display')).toHaveTextContent('cloud');
-            console.log('[TEST] "fallback sync" DONE');
         });
     });
 });

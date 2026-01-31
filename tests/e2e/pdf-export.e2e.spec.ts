@@ -14,10 +14,13 @@ test.describe('PDF Export', () => {
     test('should trigger PDF download and verify filename', async ({ page }) => {
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
 
-        // Navigate to analytics page
+        // Ensure fresh state and synchronize MSW
+        await page.reload();
+        await page.waitForLoadState('networkidle');
+
         await navigateToRoute(page, '/analytics');
         await page.waitForLoadState('networkidle');
-        await expect(page.getByTestId('dashboard-heading')).toBeVisible();
+        await expect(page.getByTestId('dashboard-heading')).toBeVisible({ timeout: 15000 });
 
         // Ensure download button is visible (Pro user)
         // Use test ID to handle responsive button variants robustly - Select Desktop only
@@ -71,9 +74,13 @@ test.describe('PDF Export', () => {
      */
     test('should download valid PDF file (E2E scope)', async ({ page }) => {
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
+        // Ensure fresh state and synchronize MSW
+        await page.reload();
+        await page.waitForLoadState('networkidle');
+
         await navigateToRoute(page, '/analytics');
         await page.waitForLoadState('networkidle');
-        await expect(page.getByTestId('dashboard-heading')).toBeVisible();
+        await expect(page.getByTestId('dashboard-heading')).toBeVisible({ timeout: 15000 });
 
         const downloadButton = page.getByTestId(/^download-pdf-btn-(?!mobile)/).first();
         await expect(downloadButton).toBeVisible();
@@ -107,9 +114,13 @@ test.describe('PDF Export', () => {
 
     test('should have download button for each session in analytics', async ({ page }) => {
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
+        // Ensure fresh state and synchronize MSW
+        await page.reload();
+        await page.waitForLoadState('networkidle');
+
         await navigateToRoute(page, '/analytics');
         await page.waitForLoadState('networkidle');
-        await expect(page.getByTestId('dashboard-heading')).toBeVisible();
+        await expect(page.getByTestId('dashboard-heading')).toBeVisible({ timeout: 15000 });
 
         // Wait for session items to load - MSW provides 5 mock sessions
         const sessionItems = page.getByTestId(/session-history-item-/);

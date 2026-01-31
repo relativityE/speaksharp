@@ -483,9 +483,11 @@ export async function programmaticLoginWithRoutes(
 
   // 7. Wait for authenticated state
   // Note: app-main confirms auth is complete. Profile is now fetched via useUserProfile hook (C2 refactor).
+  // 7. Wait for authenticated state
+  // FIX: app-main is now present on all pages. Wait for implicit auth signal (Sign Out button)
   await debugWait(
-    'Authenticated State ([data-testid="app-main"])',
-    page.waitForSelector('[data-testid="app-main"]', { timeout: 30000 })
+    'Authenticated State (Sign Out Button)',
+    page.waitForSelector('[data-testid="nav-sign-out-button"]', { timeout: 30000 })
   );
 }
 

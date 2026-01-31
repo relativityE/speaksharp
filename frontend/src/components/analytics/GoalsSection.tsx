@@ -14,7 +14,7 @@ export const GoalsSection: React.FC = () => {
 
     if (loading) {
         return (
-            <Card>
+            <Card data-testid="goals-section">
                 <CardHeader><CardTitle className="flex items-center gap-2"><Target className="h-5 w-5 text-primary" />Current Goals</CardTitle></CardHeader>
                 <CardContent className="space-y-6">
                     <div className="space-y-2"><Skeleton className="h-4 w-full" /><Skeleton className="h-2 w-full" /></div>
@@ -71,7 +71,10 @@ export const GoalsSection: React.FC = () => {
     };
 
     return (
-        <Card className="bg-card border-border p-6 rounded-xl shadow-sm">
+        <Card
+            data-testid="goals-section"
+            className="bg-card border-border p-6 rounded-xl shadow-sm"
+        >
             <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-2">
                     <div className="p-2 bg-primary/10 rounded-lg">
@@ -89,7 +92,7 @@ export const GoalsSection: React.FC = () => {
                             <Calendar className="h-4 w-4 text-muted-foreground" />
                             Weekly Sessions
                         </span>
-                        <span className="font-bold text-foreground">{weeklySessions} <span className="text-muted-foreground font-normal">/ {weeklyGoal}</span></span>
+                        <span className="font-bold text-foreground" data-testid="weekly-sessions-value">{weeklySessions} <span className="text-muted-foreground font-normal">/ {weeklyGoal}</span></span>
                     </div>
                     <Progress value={weeklyProgress} className="h-2 bg-muted/50" />
                 </div>
@@ -100,7 +103,7 @@ export const GoalsSection: React.FC = () => {
                             <Trophy className="h-4 w-4 text-muted-foreground" />
                             Clarity Score Avg
                         </span>
-                        <span className="font-bold text-foreground">{avgClarityScore.toFixed(0)}% <span className="text-muted-foreground font-normal">/ {clarityGoal}%</span></span>
+                        <span className="font-bold text-foreground" data-testid="clarity-avg-value">{avgClarityScore.toFixed(0)}% <span className="text-muted-foreground font-normal">/ {clarityGoal}%</span></span>
                     </div>
                     <Progress value={clarityProgress} className="h-2 bg-muted/50" />
                 </div>

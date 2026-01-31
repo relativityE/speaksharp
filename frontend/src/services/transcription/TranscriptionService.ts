@@ -23,6 +23,14 @@ export interface TranscriptUpdate {
 
 export type SttStatusType = 'idle' | 'initializing' | 'downloading' | 'ready' | 'fallback' | 'error';
 
+/**
+ * ARCHITECTURE (Senior Architect):
+ * Explicit states for TranscriptionService FSM.
+ * IDLE -> INITIALIZING -> READY -> STARTING -> RECORDING -> STOPPING -> IDLE
+ * Any state -> ERROR
+ */
+export type ServiceState = 'IDLE' | 'INITIALIZING' | 'READY' | 'STARTING' | 'RECORDING' | 'STOPPING' | 'ERROR';
+
 export interface SttStatus {
   type: SttStatusType;
   message: string;
@@ -68,6 +76,7 @@ declare global {
 export default class TranscriptionService {
   private static privateInitFailures = 0;
   private mode: TranscriptionMode | null = null;
+  private state: ServiceState = 'IDLE';
   // ... existing private properties ...
   private onTranscriptUpdate: (update: TranscriptUpdate) => void;
   private onModelLoadProgress: (progress: number | null) => void;
@@ -112,7 +121,6 @@ export default class TranscriptionService {
     this.getAssemblyAIToken = getAssemblyAIToken;
     this.customVocabulary = customVocabulary;
     this.policy = policy;
-    this.policy = policy;
     this.mockMic = mockMic ?? null;
     this.onAudioData = onAudioData;
   }
@@ -127,42 +135,83 @@ export default class TranscriptionService {
 
   private micError: Error | null = null;
 
+  private transitionTo(newState: ServiceState): void {
+    logger.info({ from: this.state, to: newState }, `[TranscriptionService] State transition: ${this.state} -> ${newState}`);
+    this.state = newState;
+
+    // Sync external status if applicable
+    const statusMap: Partial<Record<ServiceState, SttStatusType>> = {
+      IDLE: 'idle',
+      INITIALIZING: 'initializing',
+      READY: 'ready',
+      RECORDING: 'ready',
+      ERROR: 'error',
+      STOPPING: 'idle'
+    };
+
+    if (statusMap[newState]) {
+      this.onStatusChange?.({
+        type: statusMap[newState]!,
+        message: `State: ${newState}`
+      });
+    }
+  }
+
   public async init(): Promise<{ success: boolean }> {
+    if (this.state !== 'IDLE' && this.state !== 'ERROR') {
+      logger.warn({ currentState: this.state }, '[TranscriptionService] init() called in non-IDLE state');
+      return { success: this.state === 'READY' || this.state === 'RECORDING' || this.state === 'STARTING' };
+    }
+
+    this.transitionTo('INITIALIZING');
+
     // If a mock mic was injected (for E2E), use it directly
     if (this.mockMic) {
       logger.info('[TranscriptionService] Using injected mock microphone');
       this.mic = this.mockMic;
+      this.transitionTo('READY');
       return { success: true };
     }
 
-    console.log('[TranscriptionService] Initializing mic stream...');
+    logger.info('[TranscriptionService] Initializing mic stream...');
     try {
       this.mic = await createMicStream({ sampleRate: 16000, frameSize: 1024 });
-      console.log('[TranscriptionService] Mic stream created.');
+      logger.info('[TranscriptionService] Mic stream created.');
       this.micError = null;
+      this.transitionTo('READY');
       return { success: true };
     } catch (error) {
-      console.error('[TranscriptionService] Failed to initialize mic:', error);
-      // Sentry.captureException(error, ...); // Optional: keep or remove noise
-
-      // CRITICAL CHANGE: Don't throw yet. Store error and allow "native" mode to try.
+      logger.error({ error }, '[TranscriptionService] Failed to initialize mic');
       this.micError = error instanceof Error ? error : new Error(String(error));
-
-      // Return success=false but don't explode.
-      // The calling hook should check this check, or we handle it in startTranscription.
+      this.transitionTo('ERROR');
       return { success: false };
     }
   }
 
   public async startTranscription(): Promise<void> {
-    console.log('[TranscriptionService] Attempting to start transcription...');
+    if (this.state === 'RECORDING' || this.state === 'STARTING') {
+      logger.warn({ currentState: this.state }, '[TranscriptionService] startTranscription() called while already active');
+      return;
+    }
+
+    if (this.state !== 'READY') {
+      // Auto-init if called while IDLE
+      if (this.state === 'IDLE' || this.state === 'ERROR') {
+        const initResult = await this.init();
+        if (!initResult.success && resolveMode(this.policy) !== 'native') {
+          throw new Error('Transcription cannot start: Initializing failed and no fallback possible.');
+        }
+      } else {
+        throw new Error(`Invalid state for startTranscription: ${this.state}`);
+      }
+    }
+
+    this.transitionTo('STARTING');
+    logger.info('[TranscriptionService] Attempting to start transcription...');
 
     // Resolve the mode using the injected policy
     let resolvedMode = resolveMode(this.policy);
-    console.log(`[TranscriptionService] 🎯 Mode resolved: ${resolvedMode} (policy: ${this.policy.executionIntent})`);
-
-    // CHECK MICROPHONE REQUIREMENT MOVED INSIDE TRY/CATCH
-
+    logger.info({ resolvedMode, policy: this.policy.executionIntent }, `[TranscriptionService] 🎯 Mode resolved`);
 
     const providerConfig: TranscriptionModeOptions = {
       onTranscriptUpdate: this.onTranscriptUpdate,
@@ -174,18 +223,15 @@ export default class TranscriptionService {
       customVocabulary: this.customVocabulary,
       onAudioData: this.onAudioData,
       onError: (err) => {
-        // Propagate error to status change or main error handler if needed
-        // For now, we can log it or let specific modes handle it.
-        // Actually, useTranscriptionService doesn't pass onError in init options yet, 
-        // but we can at least log it or map it to status.
-        console.error('[TranscriptionService] Error from mode:', err);
+        logger.error({ err }, '[TranscriptionService] Error from mode provider');
+        this.transitionTo('ERROR');
         this.onStatusChange?.({ type: 'error', message: err.message });
       }
     };
 
     // CHECK MAX ATTEMPTS FOR PRIVATE MODE
     if (resolvedMode === 'private' && TranscriptionService.privateInitFailures >= STT_CONFIG.MAX_PRIVATE_ATTEMPTS) {
-      console.warn(`[TranscriptionService] ⚠️ Max Private STT attempts (${STT_CONFIG.MAX_PRIVATE_ATTEMPTS}) reached. Forcing Native.`);
+      logger.warn({ attempts: STT_CONFIG.MAX_PRIVATE_ATTEMPTS }, `[TranscriptionService] ⚠️ Max Private STT attempts reached. Forcing Native.`);
 
       this.onStatusChange?.({
         type: 'fallback',
@@ -196,22 +242,15 @@ export default class TranscriptionService {
       resolvedMode = 'native';
     }
 
-    logger.info(
-      { resolvedMode, policy: this.policy.executionIntent },
-      `[TranscriptionService] Resolved mode: ${resolvedMode}`
-    );
-
     try {
       // CHECK MICROPHONE REQUIREMENT
-      // Native mode does NOT need our custom mic stream (it uses browser native API)
-      // Cloud and Private DO need it.
       if (resolvedMode !== 'native') {
         if (this.micError) {
-          console.error('[TranscriptionService] Blocking start: Mic initialization failed previously.');
+          logger.error('[TranscriptionService] Blocking start: Mic initialization failed previously.');
           throw this.micError;
         }
         if (!this.mic) {
-          console.error('[TranscriptionService] Microphone not initialized.');
+          logger.error('[TranscriptionService] Microphone not initialized.');
           throw new Error("Microphone not initialized. Call init() first.");
         }
       }
@@ -221,15 +260,15 @@ export default class TranscriptionService {
       // TRACK FAILURE
       if (resolvedMode === 'private') {
         TranscriptionService.privateInitFailures++;
-        console.warn(`[TranscriptionService] Private mode failed. Failure count: ${TranscriptionService.privateInitFailures}`);
+        logger.warn({ failures: TranscriptionService.privateInitFailures }, `[TranscriptionService] Private mode failed`);
       }
 
       // If fallback is allowed, try alternatives
       if (this.policy.allowFallback) {
-        console.warn(`[TranscriptionService] ⚠️ ${resolvedMode} failed, attempting fallback...`);
-        logger.warn({ error }, `[TranscriptionService] ${resolvedMode} failed, attempting fallback`);
+        logger.warn({ error, failedMode: resolvedMode }, `[TranscriptionService] ⚠️ Mode failed, attempting fallback...`);
         await this.executeFallback(resolvedMode, providerConfig);
       } else {
+        this.transitionTo('ERROR');
         throw error;
       }
     }
@@ -281,12 +320,20 @@ export default class TranscriptionService {
         throw new Error(`Unknown transcription mode: ${mode}`);
     }
 
-    await this.instance.init();
-    await this.instance.startTranscription(this.mic!);
-    this.mode = mode;
-    this.onModeChange?.(this.mode);
-    // Notify status: ready
-    this.onStatusChange?.({ type: 'ready', message: `Recording active (${modeLabel})` });
+    try {
+      await this.instance.init();
+      await this.instance.startTranscription(this.mic!);
+      this.mode = mode;
+      this.onModeChange?.(this.mode);
+      this.transitionTo('RECORDING');
+
+      // Notify status: ready
+      this.onStatusChange?.({ type: 'ready', message: `Recording active (${modeLabel})` });
+    } catch (error) {
+      logger.error({ error, mode }, '[TranscriptionService] execution failed');
+      this.transitionTo('ERROR');
+      throw error;
+    }
   }
 
   /**
@@ -344,10 +391,23 @@ export default class TranscriptionService {
   }
 
   public async stopTranscription(): Promise<string> {
+    if (this.state !== 'RECORDING') {
+      logger.warn({ currentState: this.state }, '[TranscriptionService] stopTranscription() called while not RECORDING');
+      return '';
+    }
+
+    this.transitionTo('STOPPING');
     logger.info('[TranscriptionService] Stopping transcription.');
-    if (!this.instance) return '';
-    const result = await this.instance.stopTranscription();
-    return result;
+
+    try {
+      const result = await this.instance!.stopTranscription();
+      this.transitionTo('READY');
+      return result;
+    } catch (error) {
+      logger.error({ error }, '[TranscriptionService] stopTranscription failed');
+      this.transitionTo('ERROR');
+      return '';
+    }
   }
 
   public async getTranscript(): Promise<string> {
@@ -360,40 +420,38 @@ export default class TranscriptionService {
   }
 
   public async destroy(): Promise<void> {
+    if (this.state === 'IDLE') return;
+
     const start = performance.now();
-    logger.info('[TranscriptionService] [DEBUG-TIMING] Destroying service START.');
+    logger.info({ currentState: this.state }, '[TranscriptionService] Destroying service.');
+    this.transitionTo('STOPPING');
 
     // CRITICAL: Stop microphone IMMEDIATELY to release hardware resources.
-    // Waiting for instance.terminate() (which might be async/slow) causes a race condition
-    // where the new service tries to acquire the mic while the old one is still holding it.
     try {
       if (this.mic) {
         this.mic.stop();
         this.mic = null;
-        logger.info('[TranscriptionService] Microphone stopped immediately.');
+        logger.info('[TranscriptionService] Microphone stopped.');
       }
     } catch (error) {
       logger.debug({ error }, '[TranscriptionService] Error stopping mic during destroy');
     }
 
-    // Attempt strict termination first if available (for Private STT worker cleanup)
-    if (this.instance && typeof this.instance.terminate === 'function') {
+    // Attempt strict termination if available
+    if (this.instance) {
       try {
-        await this.instance.terminate();
-        logger.info(`[TranscriptionService] [DEBUG-TIMING] Terminate completed in ${performance.now() - start}ms`);
+        if (typeof this.instance.terminate === 'function') {
+          await this.instance.terminate();
+        } else {
+          await this.instance.stopTranscription();
+        }
+        logger.info(`[TranscriptionService] Instance cleanup completed in ${performance.now() - start}ms`);
       } catch (error) {
-        logger.error({ error }, '[TranscriptionService] Error terminating instance');
+        logger.error({ error }, '[TranscriptionService] Error cleaning up instance during destroy');
       }
-    } else {
-      // Fallback to standard stop
-      try {
-        await this.stopTranscription();
-        logger.info(`[TranscriptionService] [DEBUG-TIMING] StopTranscription completed in ${performance.now() - start}ms`);
-      } catch (error) {
-        logger.debug({ error }, '[TranscriptionService] Error stopping transcription during destroy');
-      }
+      this.instance = null;
     }
 
-    this.instance = null;
+    this.transitionTo('IDLE');
   }
 }

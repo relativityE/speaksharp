@@ -11,9 +11,10 @@ vi.mock('../../hooks/useAnalytics');
 vi.mock('../../contexts/AuthProvider');
 vi.mock('@/hooks/useUserProfile');
 vi.mock('../../components/AnalyticsDashboard', () => ({
-    AnalyticsDashboard: vi.fn(({ profile }) => (
+    AnalyticsDashboard: vi.fn(({ profile, loading }) => (
         <div data-testid="analytics-dashboard-mock">
             Mock Dashboard - {profile ? 'Has Profile' : 'No Profile'}
+            {loading && <span data-testid="loading-indicator">Loading...</span>}
         </div>
     ))
 }));
@@ -65,7 +66,7 @@ describe('AnalyticsPage', () => {
     };
 
     describe('Loading States', () => {
-        it('should render loading spinner when analytics are loading', () => {
+        it('should render loading state when analytics are loading', () => {
             mockUseAnalytics.mockReturnValue({
                 sessionHistory: [],
                 loading: true,
@@ -73,10 +74,10 @@ describe('AnalyticsPage', () => {
             } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
             renderAnalyticsPage();
-            expect(screen.getByText('Loading analytics...')).toBeInTheDocument();
+            expect(screen.getByTestId('loading-indicator')).toBeInTheDocument();
         });
 
-        it('should render loading spinner when profile is loading', () => {
+        it('should render loading state when profile is loading', () => {
             mockUseUserProfile.mockReturnValue({
                 data: null,
                 isLoading: true,
@@ -84,7 +85,7 @@ describe('AnalyticsPage', () => {
             } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
 
             renderAnalyticsPage();
-            expect(screen.getByText('Loading analytics...')).toBeInTheDocument();
+            expect(screen.getByTestId('loading-indicator')).toBeInTheDocument();
         });
     });
 
