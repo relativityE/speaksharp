@@ -23,9 +23,11 @@ export const useTranscriptState = () => {
 
       const chunk = createChunk(trimmedText, speaker);
 
+      // Optimization: Avoid double allocation (spread + slice) when at limit
+      // Instead of [...prev, chunk] (N+1 copy) -> slice (N copy),
+      // we slice first (N-1 copy) -> push (amortized O(1)).
       if (prev.length >= MAX_CHUNKS) {
-        // Optimization: Avoid double-copying by slicing and pushing instead of spread + limitArray
-        const next = prev.slice(1);
+        const next = prev.slice(prev.length - MAX_CHUNKS + 1);
         next.push(chunk);
         return next;
       }
