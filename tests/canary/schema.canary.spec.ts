@@ -18,9 +18,8 @@ test.describe('Schema Canary: Database Contract Validation @canary', () => {
     test.describe.configure({ mode: 'serial' });
 
     test.beforeAll(() => {
-        if (!CANARY_USER.password) {
-            console.warn('⚠️ Skipping Schema Canary: Missing CANARY_PASSWORD');
-        }
+        // Dynamic skip if password is missing (Local Run)
+        test.skip(!CANARY_USER.password, 'Skipping Schema Canary: Missing CANARY_PASSWORD');
     });
 
     test('validate user_profiles schema integrity', async ({ page }) => {

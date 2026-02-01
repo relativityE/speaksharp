@@ -57,9 +57,9 @@ test.describe('Private STT (Production Capability Smoke)', () => {
     // ARCHITECTURAL CLASSIFICATION: Production-Only Smoke Test
     // This validates WhisperTurbo execution in correctly configured environments (COOP/COEP).
     // Skip in dev E2E - the Triple-Engine fallback handles mocked tests via private-stt.e2e.spec.ts
-    test.skip(!process.env.REAL_WHISPER_TEST, 'Requires REAL_WHISPER_TEST=true + COOP/COEP headers');
-
+    // Updated: Now runs via `ci:local:full` with COOP/COEP headers enabled in Vite
     test('should initialize real Whisper engine and intercept with Service Worker', async ({ page }) => {
+        if (!process.env.REAL_WHISPER_TEST) test.skip();
         // 1. Setup: Initial page load (must use page.goto before programmaticLoginWithRoutes)
         await goToPublicRoute(page, '/');
 

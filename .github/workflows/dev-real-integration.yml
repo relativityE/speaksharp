@@ -1,12 +1,20 @@
 name: Dev Integration (Real Supabase)
 
 on: 
-  workflow_dispatch: # Manual trigger only
+  workflow_dispatch: # Manual trigger
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/src/**'
+      - 'tests/live/**'
+      - '.github/workflows/dev-real-integration.yml'
+  schedule:
+    - cron: '0 2 * * *' # Daily validation (2 AM UTC)
 
 jobs:
   real-db-validation:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       
@@ -24,6 +32,18 @@ jobs:
 
       - name: Install Playwright Browsers
         run: pnpm exec playwright install --with-deps chromium
+
+      - name: Validate Secrets
+        run: |
+          if [ -z "${{ secrets.SUPABASE_URL }}" ]; then
+            echo "❌ SUPABASE_URL secret not set"
+            exit 1
+          fi
+          if [ -z "${{ secrets.AGENT_SECRET }}" ]; then
+             echo "❌ AGENT_SECRET secret not set"
+             exit 1
+          fi
+          echo "✅ Critical secrets present"
 
       - name: Run Live User Flow & E2E Tests
         env:
@@ -45,7 +65,17 @@ jobs:
           E2E_PRO_PASSWORD: ${{ secrets.E2E_PRO_PASSWORD }}
           E2E_FREE_EMAIL: ${{ secrets.E2E_FREE_EMAIL }}
           E2E_FREE_PASSWORD: ${{ secrets.E2E_FREE_PASSWORD }}
+          AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
         
-        # Run only tests that require real Supabase auth (not mocked)
-        # Note: upgrade-real and stt-resilience use route mocks, they run in normal E2E
-        run: pnpm exec playwright test tests/e2e/auth-real.e2e.spec.ts --project=chromium
+        # Run Full Live Suite
+        run: pnpm test:live
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-test-results
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

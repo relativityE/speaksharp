@@ -10,9 +10,8 @@ import { ROUTES, TEST_IDS, CANARY_USER } from '../constants';
  */
 test.describe('User Filler Words Canary @canary', () => {
     test.beforeAll(() => {
-        if (!CANARY_USER.password) {
-            console.warn('⚠️ Skipping Canary test: Missing CANARY_PASSWORD');
-        }
+        // Dynamic skip if password is missing (Local Run)
+        test.skip(!CANARY_USER.password, 'Skipping Canary test: Missing CANARY_PASSWORD');
     });
 
     // UI tests for adding/removing words are covered in tests/e2e/user-filler-words.e2e.spec.ts (Mocks)

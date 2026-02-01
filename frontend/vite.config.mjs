@@ -37,7 +37,7 @@ export default defineConfig(({ mode }) => {
           'docs/PRD.md'
         ]
       },
-      headers: process.env.REAL_WHISPER_TEST === 'true' ? {
+      headers: (process.env.REAL_WHISPER_TEST === 'true' || isTestMode) ? {
         'Cross-Origin-Opener-Policy': 'same-origin',
         'Cross-Origin-Embedder-Policy': 'require-corp',
       } : undefined

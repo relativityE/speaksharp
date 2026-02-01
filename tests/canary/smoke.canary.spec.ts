@@ -27,9 +27,8 @@ import { ROUTES, TEST_IDS, CANARY_USER } from '../constants';
  */
 test.describe('Production Smoke Canary @canary', () => {
     test.beforeAll(() => {
-        if (!CANARY_USER.password) {
-            console.warn('⚠️ Skipping Canary test: Missing CANARY_PASSWORD');
-        }
+        // Dynamic skip if password is missing (Local Run)
+        test.skip(!CANARY_USER.password, 'Skipping Canary test: Missing CANARY_PASSWORD');
     });
 
     test('should complete a full session cycle on real infrastructure', async ({ page }) => {

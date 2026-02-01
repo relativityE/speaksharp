@@ -40,7 +40,7 @@
     "test:soak": "playwright test --config=playwright.soak.config.ts --project=chromium",
     "// CI Shortcuts": "",
     "ci:local": "./scripts/test-audit.sh ci-simulate",
-    "ci:full": "pnpm ci:local && pnpm test:live && pnpm test:canary",
+    "ci:local:full": "pnpm ci:local && pnpm test:live && pnpm test:canary",
     "// ============ Git Hooks ============": "",
     "prepare": "HUSKY=0 husky install"
   },
