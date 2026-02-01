@@ -158,7 +158,7 @@ The project's testing strategy prioritizes stability, reliability, and a tight a
 *   **Unit & Integration Tests (Vitest):** These form the foundation of our testing pyramid. They are fast, focused, and verify the correctness of individual components and hooks in isolation. **Target: ≥75% line coverage with integrity-preserving validation (avoiding implementation coupling).**
 *   **End-to-End Tests (Playwright):** E2E tests validate complete user flows from start to finish. To combat the flakiness often associated with UI-driven tests, we have adopted a critical strategic decision:
     *   **Programmatic Login Only:** All E2E tests that require an authenticated state **must** use the `programmaticLogin` helper. This method directly injects a session into `localStorage`, bypassing the UI for sign-up and login. This approach is significantly faster and more reliable than attempting to simulate user input in the auth form.
-    *   **Secure User Provisioning:** We use a dedicated Supabase Edge Function (`create-user`) authorized by CI secrets to provision test data. This avoids the fragility of UI registration automation and guarantees a clean slate for every test.
+    *   **Secure User Provisioning:** We use a dedicated Supabase Edge Function (`create-user`) authorized by CI secrets (`SUPABASE_SERVICE_ROLE_KEY`) to provision test data. This avoids the fragility of UI registration automation and guarantees a clean slate for every test.
     *   **Canonical Health Check:** The `pnpm test:health-check` command is the primary quality gate for daily development. It focuses exclusively on the canonical `core-journey.e2e.spec.ts`, verifying the full data flow (Home -> Session -> Analytics) without the overhead of the full unit test suite.
     *   **No UI-Driven Auth Tests:** Tests that attempt to validate the sign-up or login forms via UI interaction have been removed. The stability and speed gained by using programmatic login are considered a higher priority than testing the auth form itself in the E2E suite.
     *   **Canary Deployment Tests:** A subset of E2E tests (marked `@canary`) are designed to hit real staging endpoints periodically to detect API contract drift and production-specific failures that mocks might hide.
@@ -190,7 +190,7 @@ For E2E infrastructure troubleshooting, see [tests/TROUBLESHOOTING.md](../tests/
 ### Tech Debt (Testing)
 
 - **✅ Native STT Headless Test:** Resolved via `MockNativeBrowser` injection (see `tier-limits.e2e.spec.ts`).
-- **⚠️ Tier Limit Test Constraint:** `tier-limits.e2e.spec.ts` requires a mock duration of **6s** (vs 2s) to satisfy `MIN_SESSION_DURATION_SECONDS` (5s) before triggering the auto-stop. The "Monthly usage limit reached" notification assertion is **VITAL** and must not be removed.
+- **✅ Tier Limit Logic:** `tier-limits.e2e.spec.ts` now dynamically verifies "Daily" (Edge Function) or "Monthly" (RPC) limits based on backend response. Mock duration remains 6s to satisfy `MIN_SESSION_DURATION_SECONDS` (5s).
 - **🟡 PDF Content Extraction:** `pdf-parse` requires `DOMMatrix`. PDF structure validated only.
 - ✅ **Cloud STT (Production) (2026-01-28):** Resolved CORS (`ALLOWED_ORIGIN` mismatch) blocking production usage.
 - ✅ **Cloud STT E2E (2026-01-28):** Resolved mode selector and button dropdown unresponsiveness.

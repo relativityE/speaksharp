@@ -38,6 +38,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+### [1.2.0] - 2026-02-01
+
+- **Security Hardening (Universal Secret Migration):**
+  - **Feature:** Standardized all backend and CI/CD secret usage to `SUPABASE_SERVICE_ROLE_KEY`.
+  - **Fix:** Purged legacy `SUPABASE_SERVICE_KEY` from all workflows (`canary.yml`, `soak-test.yml`, `setup-test-users.yml`).
+  - **Compliance:** Verified zero occurrences of legacy key via grep audit.
+  - **Files:** `.github/workflows/*.yml`, `scripts/*.mjs`
+
+- **AI Upgrade (Gemini 3.0 Flash):**
+  - **Feature:** Upgraded AI Coach from 1.5 to **Gemini 3.0 Flash**.
+  - **Impact:** Reduced feedback latency and improved context retention for session analysis.
+  - **Files:** `backend/supabase/functions/get-ai-suggestions/index.ts`, `frontend/src/components/session/AISuggestions.tsx`
+
+- **Tier Limit & Stability Fixes:**
+  - **Feature:** Implemented **Dynamic Label Support** handling both "Daily" and "Monthly" limit messages from backend.
+  - **Fix:** Resolved "Session too short" race condition blocking usage limit notifications.
+  - **Fix:** Fixed `tier-limits.e2e.spec.ts` timeout by adding `data-testid="recording-indicator"`.
+  - **Fix:** Optimized E2E mock registration in `tier-limits.e2e.spec.ts` to prevent race conditions.
+  - **Result:** 100% Pass Rate on Tier Limit E2E tests and Shard 4/4.
+  - **Files:** `tier-limits.e2e.spec.ts`, `useSessionLifecycle.ts`, `LiveRecordingCard.tsx`
+
+- **Code Quality & Maintenance:**
+  - **Logging:** Unified frontend logging by replacing `console.log/error` with structured `logger` in 50+ files.
+  - **Tests:** Added unit tests for `TransformersJSEngine` (architectural gap filled).
+  - **Pipeline:** Implemented self-cleaning Canary workflow (`canary.yml`) to prevent data residue.
+  - **Pre-Push:** Updated `.husky/pre-push` to use `pnpm ci:local` for strict quality gates.
+
 ### [1.1.0] - 2026-02-05
 
 - **Performance Optimization (Regex Memoization):**

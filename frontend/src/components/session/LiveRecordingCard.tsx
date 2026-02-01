@@ -105,7 +105,10 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
             </div>
 
             {/* Waveform Visualization */}
-            <div className="flex items-center justify-center gap-1 h-24 mb-8 bg-muted/30 rounded-xl p-4 overflow-hidden">
+            <div
+                className="flex items-center justify-center gap-1 h-24 mb-8 bg-muted/30 rounded-xl p-4 overflow-hidden"
+                data-testid="recording-indicator"
+            >
                 {[...Array(40)].map((_, i) => (
                     <div
                         key={i}

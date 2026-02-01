@@ -65,7 +65,8 @@ export const useSessionLifecycle = () => {
 
     const handleStartStop = useCallback(async (options?: { skipRedirect?: boolean; stopReason?: string }) => {
         if (isListening) {
-            if (elapsedTime < MIN_SESSION_DURATION_SECONDS) {
+            // Bypass minimum duration check if there is an external stop reason (e.g. tier limits)
+            if (elapsedTime < MIN_SESSION_DURATION_SECONDS && !options?.stopReason) {
                 await stopListening();
                 setShowAnalyticsPrompt(false);
                 setSessionFeedbackMessage(`⚠️ Session too short (${elapsedTime}s). Minimum ${MIN_SESSION_DURATION_SECONDS}s required.`);
@@ -112,7 +113,9 @@ export const useSessionLifecycle = () => {
             }
         } else {
             if (!isProUser && usageLimit && !usageLimit.can_start) {
-                setSessionFeedbackMessage('⛔ Daily usage limit reached.');
+                const errorMsg = usageLimit.error || 'Daily usage limit reached.';
+                const prefix = errorMsg.startsWith('⚠️') || errorMsg.startsWith('⛔') ? '' : '⛔ ';
+                setSessionFeedbackMessage(`${prefix}${errorMsg}`);
                 return;
             }
 
@@ -153,9 +156,11 @@ export const useSessionLifecycle = () => {
         if (!isProUser && isListening && usageLimit && usageLimit.remaining_seconds > 0) {
             if (elapsedTime >= usageLimit.remaining_seconds) {
                 logger.warn('[useSessionLifecycle] ⚠️ AUTO-STOPPING: limit reached');
+                const errorMsg = usageLimit.error || 'Daily usage limit reached.';
+                const prefix = errorMsg.startsWith('⚠️') || errorMsg.startsWith('⛔') ? '' : '⛔ ';
                 handleStartStop({
                     skipRedirect: true,
-                    stopReason: '⛔ Daily usage limit reached.'
+                    stopReason: `${prefix}${errorMsg}`
                 });
             }
         }

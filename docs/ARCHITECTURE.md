@@ -228,9 +228,15 @@ SpeakSharp is built on a modern, serverless technology stack designed for real-t
     *   **Serverless Functions:** Deno Edge Functions (for AssemblyAI token generation, Stripe integration, etc.)
 *   **Third-Party Services:**
     *   **Cloud Transcription:** AssemblyAI (v3 Streaming API)
+    *   **AI Coaching:** Google Gemini 3.0 Flash (via `get-ai-suggestions`)
     *   **Payments:** Stripe
     *   **Error Reporting:** Sentry
     *   **Product Analytics:** PostHog (New: 2025-12-07)
+
+### Security Hardening (2026-02-01)
+
+- **Universal Service Role Key:** All backend operations and CI/CD pipelines (Canary, Soak) now strictly use `SUPABASE_SERVICE_ROLE_KEY`. The legacy `SUPABASE_SERVICE_KEY` has been deprecated and purged to prevent privilege escalation risks.
+- **AI Security:** Gemini 3.0 Flash integration uses server-side key management in Edge Functions, never exposing API keys to the client.
 
 ### Production Readiness Features
 

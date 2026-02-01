@@ -25,7 +25,20 @@ Status Key: 🟡 In Progress | 🔴 Not Started | ✅ Complete | 🛡️ Gap Rem
 | **V6** | **STT Dropdown Selection**| **HIGH** | ✅ Complete | Resolved unresponsive selector and polished labels. (2026-01-28) |
 | **V7** | **Initialization Crash** | **CRITICAL** | ✅ Complete | Fixed `__BUILD_ID__` ReferenceError in `main.tsx` causing E2E timeouts. (2026-01-28) |
 
+
 ---
+
+## 🔒 Security & Infrastructure Hardening (Feb 2026) ✅ COMPLETE
+
+> **Goal:** Standardize security credentials and upgrade AI capabilities for Release 1.2.0.
+
+| ID | Title | Priority | Status | Notes |
+|----|-------|----------|--------|-------|
+| **S1** | **Universal Secret Migration** | **CRITICAL** | ✅ Complete | Migrated all workflows to `SUPABASE_SERVICE_ROLE_KEY`. Verified 0 legacy key usage. |
+| **S2** | **Gemini 3.0 Flash Upgrade** | **HIGH** | ✅ Complete | Upgraded AI Coach for faster, smarter feedback. |
+| **S3** | **Tier Limit Dynamic Labels** | **HIGH** | ✅ Complete | Unified ensuring "Daily" and "Monthly" limits are correctly handled in UI/Tests. |
+| **S4** | **Canary Cleanup** | **MEDIUM** | ✅ Complete | Implemented self-cleaning logic in canary pipeline to prevent data residue. |
+
 
 ## 📽️ Marketing & Growth
 
@@ -54,6 +67,8 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 - 🟡 **Console Error Highlighting (P0 - Debugging) [HIGH PRIORITY]:** Add automatic ANSI color highlighting for ERROR/FAILED/FATAL (red bold) and WARNING/WARN (yellow bold) in all terminal output. Should apply globally to any console usage (not require agents to remember a specific script). Improves developer experience for spotting issues.
 - ✅ **Independent Documentation Review (2026-01-28):** Conducted full audit of all project documents against `docs/OUTLINE.md` requirements. Verified sync across PRD, Architecture, and Roadmap.
 - 🟡 **Gap Analysis [HIGH PRIORITY]:** Do a Gap Analysis of current implementation against the Current Phase requirements.
+- ✅ **Side-by-Side Session Comparison:** Implemented `SessionComparisonDialog.tsx` supporting 2-session diffs (WPM, Clarity, Fillers).
+- 🔴 **Speaker Identification:** Not started. `CloudAssemblyAI.ts` implementation does not currently request `speaker_labels`.
 - ✅ **COMPLETED (2025-12-15) - E2E Test Infrastructure: MSW-to-Playwright Routes Migration:**
   - **Problem:** MSW service workers are browser-global per-origin. Parallel shards race for registration, causing intermittent `ui-state-capture` flakiness.
   - **Root Cause:** 99.5% confidence - service worker race conditions in parallel CI.
