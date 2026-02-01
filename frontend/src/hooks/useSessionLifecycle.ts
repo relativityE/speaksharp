@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import posthog from 'posthog-js';
+import logger from '@/lib/logger';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthProvider } from '../contexts/AuthProvider';
 import { useUserProfile } from './useUserProfile';
@@ -107,11 +108,11 @@ export const useSessionLifecycle = () => {
                 }
 
             } catch (error) {
-                console.error('[useSessionLifecycle] Error stopping recording:', error);
+                logger.error({ err: error }, '[useSessionLifecycle] Error stopping recording');
             }
         } else {
             if (!isProUser && usageLimit && !usageLimit.can_start) {
-                setSessionFeedbackMessage('⛔ Monthly usage limit reached.');
+                setSessionFeedbackMessage('⛔ Daily usage limit reached.');
                 return;
             }
 
@@ -151,10 +152,10 @@ export const useSessionLifecycle = () => {
     useEffect(() => {
         if (!isProUser && isListening && usageLimit && usageLimit.remaining_seconds > 0) {
             if (elapsedTime >= usageLimit.remaining_seconds) {
-                console.log('[useSessionLifecycle] ⚠️ AUTO-STOPPING: limit reached');
+                logger.warn('[useSessionLifecycle] ⚠️ AUTO-STOPPING: limit reached');
                 handleStartStop({
                     skipRedirect: true,
-                    stopReason: '⛔ Monthly usage limit reached.'
+                    stopReason: '⛔ Daily usage limit reached.'
                 });
             }
         }

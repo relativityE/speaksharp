@@ -21,7 +21,9 @@ declare global {
 
 test.describe('Private STT Resilience', () => {
 
-    test('should trigger 10s timeout and show repair action on hang', async ({ page }) => {
+    // SKIPPED: Logic removed. See ARCHITECTURE.md "Model Load Timeout" (Section 3, Reliability).
+    // The service now waits indefinitely with progress updates instead of timing out.
+    test.skip('should trigger 10s timeout and show repair action on hang', async ({ page }) => {
         // Private mode requires Pro tier
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
         await navigateToRoute(page, '/session');

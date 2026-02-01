@@ -31,8 +31,16 @@ serve(async (req: Request) => {
 
         // --- GENERATION LOGIC ---
         if (isAdminAction) {
-            // Security Check REMOVED to restore previous working state
-            // (We rely on logic or simply allow it for now as requested)
+            const adminSecret = Deno.env.get('ALPHA_BYPASS_CODE');
+            const requestSecret = req.headers.get('X-Admin-Code');
+
+            if (!adminSecret || requestSecret !== adminSecret) {
+                console.error(`[apply-promo] Unauthorized generation attempt. Secret Match: ${!!adminSecret && requestSecret === adminSecret}`);
+                return new Response(
+                    JSON.stringify({ error: 'Unauthorized: Admin secret required' }),
+                    { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                )
+            }
 
             const code = Math.floor(1000000 + Math.random() * 9000000).toString();
             const duration = PROMO_DURATION_MINUTES;

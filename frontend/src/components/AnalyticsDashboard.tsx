@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { NavLink } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { toast } from 'sonner';
 import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic } from 'lucide-react';
@@ -9,6 +10,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious, type CarouselApi } from '@/components/ui/carousel';
 import { ErrorDisplay } from './ErrorDisplay';
+import AISuggestions from './session/AISuggestions';
 import { generateSessionPdf } from '../lib/pdfGenerator';
 import { formatDate, formatDateTime } from '../lib/dateUtils';
 import { FillerWordTable } from './analytics/FillerWordTable';
@@ -47,6 +49,7 @@ interface AnalyticsDashboardProps {
     loading: boolean;
     error: Error | null;
     onUpgrade: () => void;
+    sessionId?: string;
 }
 
 interface StatCardProps {
@@ -239,7 +242,8 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro,
     const clarity = session.clarity_score ?? (session.accuracy ? (session.accuracy * 100) : 0);
 
     return (
-        <div
+        <NavLink
+            to={`/analytics/${session.id}`}
             className="group flex flex-col md:flex-row items-center justify-between p-4 bg-muted/30 rounded-xl hover:bg-muted/50 transition-all border border-transparent hover:border-border mb-3 last:mb-0"
             data-testid={`${TEST_IDS.SESSION_HISTORY_ITEM}-${session.id}`}
         >
@@ -305,7 +309,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro,
                     </Button>
                 </div>
             )}
-        </div>
+        </NavLink>
     );
 };
 
@@ -333,7 +337,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     fillerWordTrends,
     loading,
     error,
-    onUpgrade
+    onUpgrade,
+    sessionId
 }) => {
     const [selectedSessions, setSelectedSessions] = useState<string[]>([]);
     const [showComparison, setShowComparison] = useState(false);
@@ -508,12 +513,93 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
     console.log('[AnalyticsDashboard] Rendering. Loading:', loading, 'Error:', error, 'SessionHistory length:', sessionHistory?.length);
 
+    const targetSession = useMemo(() => {
+        if (!sessionId || !sessionHistory) return null;
+        return sessionHistory.find(s => s.id === sessionId);
+    }, [sessionId, sessionHistory]);
+
     return (
         <div className="space-y-8" data-testid={TEST_IDS.ANALYTICS_DASHBOARD}>
             {loading ? (
                 <AnalyticsDashboardSkeleton />
             ) : error ? (
                 <ErrorDisplay error={error} />
+            ) : targetSession ? (
+                /* Session Detail View */
+                <div className="space-y-8">
+                    {/* Session Metrics Summary */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                        <StatCard
+                            icon={<Gauge />}
+                            label="Speaking Pace"
+                            value={targetSession.wpm ?? (targetSession.duration > 0 && targetSession.total_words ? Math.round((targetSession.total_words / targetSession.duration) * 60) : 0)}
+                            unit="WPM"
+                        />
+                        <StatCard
+                            icon={<Target />}
+                            label="Clarity Score"
+                            value={targetSession.clarity_score ?? (targetSession.accuracy ? (targetSession.accuracy * 100).toFixed(0) : 0)}
+                            unit="%"
+                        />
+                        <StatCard
+                            icon={<TrendingUp />}
+                            label="Filler Words"
+                            value={Object.values(targetSession.filler_words || {}).reduce((sum, data) => sum + (data.count || 0), 0)}
+                        />
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        {/* Transcript Panel */}
+                        <Card className="lg:col-span-2">
+                            <CardHeader className="flex flex-row items-center justify-between">
+                                <CardTitle className="flex items-center gap-2">
+                                    <Mic className="h-5 w-5 text-primary" />
+                                    Transcript
+                                </CardTitle>
+                                {isProUser && (
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => generateSessionPdf(targetSession, profile?.email || 'User')}
+                                        className="gap-2"
+                                    >
+                                        <Download className="h-4 w-4" />
+                                        Export PDF
+                                    </Button>
+                                )}
+                            </CardHeader>
+                            <CardContent>
+                                <div className="p-4 bg-muted/30 rounded-lg min-h-[200px] max-h-[400px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed">
+                                    {targetSession.transcript || "No transcript available for this session."}
+                                </div>
+                            </CardContent>
+                        </Card>
+
+                        {/* AI Suggestions Panel */}
+                        <div className="h-full">
+                            <AISuggestions
+                                transcript={targetSession.transcript || ""}
+                                metrics={{
+                                    wpm: targetSession.wpm,
+                                    clarity_score: targetSession.clarity_score,
+                                    total_words: targetSession.total_words,
+                                    duration: targetSession.duration,
+                                    filler_words: targetSession.filler_words,
+                                    pause_metrics: targetSession.pause_metrics
+                                }}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="flex justify-center pt-4">
+                        <Button asChild variant="ghost" className="gap-2">
+                            <NavLink to="/analytics">
+                                <BarChart className="h-4 w-4" />
+                                Back to Dashboard
+                            </NavLink>
+                        </Button>
+                    </div>
+                </div>
             ) : !sessionHistory || sessionHistory.length === 0 ? (
                 <EmptyState
                     title="Your Dashboard Awaits!"

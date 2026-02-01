@@ -41,6 +41,10 @@
     "// CI Shortcuts": "",
     "ci:local": "./scripts/test-audit.sh ci-simulate",
     "ci:local:full": "pnpm ci:local && pnpm test:live && pnpm test:canary",
+    "test:all": "./scripts/test-audit.sh local",
+    "test:health-check": "./scripts/test-audit.sh health-check",
+    "pw:install": "playwright install chromium --with-deps",
+    "pw:install:all": "playwright install --with-deps",
     "// ============ Git Hooks ============": "",
     "prepare": "HUSKY=0 husky install"
   },

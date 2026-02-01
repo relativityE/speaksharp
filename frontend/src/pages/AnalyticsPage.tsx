@@ -118,7 +118,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     if (sessionId && !sessionExists && !loading && !error) {
         return (
             <div className="text-center py-24">
-                <h2 className="text-2xl font-semibold mb-4">Session Not Found</h2>
+                <h2 className="text-2xl font-semibold mb-4" data-testid="session-not-found-heading">Session Not Found</h2>
                 <p className="text-muted-foreground mb-6">We couldn't find the session you're looking for.</p>
                 <Button asChild>
                     <NavLink to="/analytics"><BarChart className="mr-2 h-4 w-4" /> View Dashboard</NavLink>
@@ -137,6 +137,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
                 loading={isLoading}
                 error={error}
                 onUpgrade={handleUpgrade}
+                sessionId={sessionId}
             />
         </div>
     );

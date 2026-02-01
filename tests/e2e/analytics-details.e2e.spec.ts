@@ -30,14 +30,15 @@ test.describe('Analytics Details', () => {
     });
 
     test('Journey 8.3: Invalid Session ID', async ({ page }) => {
-        // Use navigateToRoute to preserve auth context (page.goto resets everything)
+        // Use navigateToRoute to preserve auth context
         await navigateToRoute(page, '/analytics/invalid-session-id');
 
-        // Wait for loading to finish and error state to appear
-        // The page shows "Session Not Found" when ID doesn't exist
-        await expect(page.getByText('Loading analytics...')).not.toBeVisible({ timeout: 15000 });
+        // Wait for profile signal + skeleton to vanish (Robust Event-Based Wait)
+        await page.waitForFunction(() => (window as unknown as { __e2eProfileLoaded__?: boolean }).__e2eProfileLoaded__ === true);
+        await expect(page.getByTestId('analytics-dashboard-skeleton')).not.toBeVisible();
 
-        await expect(page.getByText('Session Not Found')).toBeVisible({ timeout: 10000 });
+        // The page shows "Session Not Found" when ID doesn't exist
+        await expect(page.getByTestId('session-not-found-heading')).toBeVisible();
 
         // Verify link back to dashboard
         const dashboardLink = page.getByRole('link', { name: /view dashboard/i });

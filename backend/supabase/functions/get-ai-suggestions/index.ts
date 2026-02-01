@@ -7,7 +7,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent';
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
 
 type SupabaseClientFactory = (authHeader: string | null) => SupabaseClient;
 
@@ -53,7 +53,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       });
     }
 
-    const { transcript } = await req.json();
+    const { transcript, metrics } = await req.json();
     if (!transcript) {
       return new Response(JSON.stringify({ error: 'Transcript is required' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -70,21 +70,32 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       });
     }
 
+    const metricsText = metrics ? `
+      Metrics:
+      - Words Per Minute (WPM): ${metrics.wpm || 'N/A'}
+      - Clarity Score: ${metrics.clarity_score || 'N/A'}%
+      - Total Words: ${metrics.total_words || 'N/A'}
+      - Duration: ${metrics.duration || 'N/A'} seconds
+      - Pause Metrics: ${metrics.pause_metrics ? JSON.stringify(metrics.pause_metrics) : 'N/A'}
+      - Filler Words: ${metrics.filler_words ? JSON.stringify(metrics.filler_words) : 'N/A'}
+    ` : '';
+
     const prompt = `
-      You are an expert public speaking coach. Analyze the following speech transcript and provide constructive feedback.
+      You are an expert public speaking coach. Analyze the following speech transcript and metrics to provide constructive, data-driven feedback.
       The user wants to improve their communication skills. Focus on clarity, pacing, filler words, and overall impact.
 
       Transcript:
       "${transcript}"
+      ${metricsText}
 
       Your response MUST be a JSON object with the following structure:
       {
         "summary": "A one-sentence overall summary of the feedback.",
         "suggestions": [
-          { "title": "Clarity", "description": "Specific feedback on clarity." },
-          { "title": "Pacing", "description": "Specific feedback on pacing." },
-          { "title": "Filler Words", "description": "Specific feedback on filler words." },
-          { "title": "Engagement", "description": "Specific feedback on audience engagement." }
+          { "title": "Clarity", "description": "Specific feedback on clarity based on score and transcript." },
+          { "title": "Pacing", "description": "Specific feedback on pacing based on WPM and pauses." },
+          { "title": "Filler Words", "description": "Specific feedback on filler word usage." },
+          { "title": "Engagement", "description": "Specific feedback on audience engagement and tone." }
         ]
       }
     `;

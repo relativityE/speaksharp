@@ -6,10 +6,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import SignUpPage from '../SignUpPage';
 import * as AuthProvider from '@/contexts/AuthProvider';
 import * as supabaseClient from '@/lib/supabaseClient';
+import logger from '@/lib/logger';
 
 // Mock modules
 vi.mock('@/contexts/AuthProvider');
 vi.mock('@/lib/supabaseClient');
+vi.mock('@/lib/logger');
 
 const mockUseAuthProvider = vi.mocked(AuthProvider.useAuthProvider);
 const mockGetSupabaseClient = vi.mocked(supabaseClient.getSupabaseClient);
@@ -331,9 +333,9 @@ describe('SignUpPage', () => {
             });
         });
 
-        it('should log errors to console', async () => {
+        it('should log errors to logger', async () => {
             const user = userEvent.setup();
-            const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => { });
+            const loggerErrorSpy = vi.spyOn(logger, 'error').mockImplementation(() => { });
             const testError = new Error('Test error');
             mockSignUp.mockRejectedValue(testError);
 
@@ -344,10 +346,10 @@ describe('SignUpPage', () => {
             await user.click(screen.getByTestId('sign-up-submit'));
 
             await waitFor(() => {
-                expect(consoleErrorSpy).toHaveBeenCalledWith('[AUTH] Error during sign up', testError);
+                expect(loggerErrorSpy).toHaveBeenCalledWith({ err: testError }, '[AUTH] Error during sign up');
             });
 
-            consoleErrorSpy.mockRestore();
+            loggerErrorSpy.mockRestore();
         });
     });
 });

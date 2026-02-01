@@ -81,12 +81,9 @@ describe('TransformersJSEngine (Unit)', () => {
         const result = await engine.transcribe(pcmBuffer);
 
         expect(result.isOk).toBe(true);
-        if (result.isOk) {
-            // The first init captured the first mock, which returns 'Mocked transcription result'
-            // To test dynamic behavior we would need to inspect internal state, 
-            // but effectively verification of success path is enough.
-            expect(result.value).toBeTruthy();
-        }
+        // Cast to success type to access .value strictly
+        const successResult = result as unknown as { isOk: true; value: { text: string } };
+        expect(successResult.value).toBeTruthy();
     });
 
     it('should fail if transcriber is not initialized', async () => {
@@ -94,9 +91,8 @@ describe('TransformersJSEngine (Unit)', () => {
         const result = await engine.transcribe(pcmBuffer);
 
         expect(result.isErr).toBe(true);
-        if (result.isErr) {
-            expect(result.error.message).toContain('not initialized');
-        }
+        const errorResult = result as { isErr: true; error: Error };
+        expect(errorResult.error.message).toContain('not initialized');
     });
 
     it('should handle initialization errors', async () => {
@@ -105,8 +101,7 @@ describe('TransformersJSEngine (Unit)', () => {
         const result = await engine.init({});
 
         expect(result.isErr).toBe(true);
-        if (result.isErr) {
-            expect(result.error.message).toContain('Network failure');
-        }
+        const errorResult = result as { isErr: true; error: Error };
+        expect(errorResult.error.message).toContain('Network failure');
     });
 });

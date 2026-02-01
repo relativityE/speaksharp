@@ -9,6 +9,7 @@ import { Session } from '@supabase/supabase-js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
+import logger from '@/lib/logger';
 
 // --- Types ---
 type AuthView = 'sign_in' | 'sign_up' | 'forgot_password';
@@ -55,7 +56,7 @@ export default function AuthPage() {
     // 1. Priority Check: Handle Promo Bypass Code if provided
     const val = promoCode.trim();
     if (val) {
-      console.log('[AuthPage] Applying promo bypass code:', val);
+      logger.debug({ val }, '[AuthPage] Applying promo bypass code');
       try {
         const { error: promoError, data: promoData } = await getSupabaseClient()!.functions.invoke('apply-promo', {
           body: { promoCode: val }
@@ -72,18 +73,18 @@ export default function AuthPage() {
         }
 
         // If successful, redirect to dashboard immediately as Pro
-        console.log('[AuthPage] Promo upgrade successful!');
+        logger.debug('[AuthPage] Promo upgrade successful!');
         const expiryMsg = promoData?.proFeatureMinutes ? ` for ${promoData.proFeatureMinutes} minutes` : '';
         toast.success(`🎉 Promo code applied! You have Pro features${expiryMsg}.`, { id: 'promo-success' });
 
         // CRITICAL: Invalidate the userProfile cache so SessionPage fetches fresh Pro status
         await queryClient.invalidateQueries({ queryKey: ['userProfile'] });
-        console.log('[AuthPage] User profile cache invalidated');
+        logger.debug('[AuthPage] User profile cache invalidated');
 
         // Don't force reload - allow standard auth flow to proceed
         return true;
       } catch (pe) {
-        console.error('[AuthPage] Promo bypass failed:', pe);
+        logger.error({ err: pe }, '[AuthPage] Promo bypass failed');
         const errText = pe instanceof Error ? pe.message : 'Invalid code';
         // Use toast for error so it persists across redirects (since user is already logged in)
         toast.error(`Promo failed: ${errText}. Please try applying it later from the dashboard.`, { id: 'promo-error' });
@@ -93,7 +94,7 @@ export default function AuthPage() {
     }
 
     // 2. Fallback: Stripe Checkout
-    console.log('[AuthPage] Pro plan selected, redirecting to Stripe...');
+    logger.debug('[AuthPage] Pro plan selected, redirecting to Stripe');
     try {
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/stripe-checkout`, {
         method: 'POST',
@@ -110,7 +111,7 @@ export default function AuthPage() {
         throw new Error('No checkout URL returned');
       }
     } catch (stripeErr) {
-      console.error('[AuthPage] Stripe redirect failed:', stripeErr);
+      logger.error({ err: stripeErr }, '[AuthPage] Stripe redirect failed');
       setError('Account created, but we couldn\'t start the Pro upgrade. You can upgrade later from the dashboard.');
     }
   };
@@ -125,7 +126,7 @@ export default function AuthPage() {
     try {
       const supabase = getSupabaseClient();
       if (!supabase) {
-        console.error('[AuthPage CRITICAL] Supabase client is null/undefined!');
+        logger.error('[AuthPage CRITICAL] Supabase client is null/undefined!');
         throw new Error("Supabase client not available");
       }
 
@@ -153,14 +154,14 @@ export default function AuthPage() {
         });
 
         if (signUpError) {
-          console.error('[AuthPage] Sign-up error:', signUpError.message);
+          logger.error({ err: signUpError }, '[AuthPage] Sign-up error');
           throw signUpError;
         }
 
         // 1. Log the user in to get a session
         const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
         if (signInError) {
-          console.error('[AuthPage] Post-signup sign-in failed:', signInError.message);
+          logger.error({ err: signInError }, '[AuthPage] Post-signup sign-in failed');
           throw signInError;
         }
 
@@ -189,8 +190,7 @@ export default function AuthPage() {
       }
 
       if (authResult.error) {
-        console.error('[AuthPage] Auth error returned by Supabase:', authResult.error.message);
-        console.error('[AuthPage] Error code:', authResult.error.status);
+        logger.error({ err: authResult.error }, '[AuthPage] Auth error returned by Supabase');
         throw authResult.error;
       }
 
@@ -201,11 +201,11 @@ export default function AuthPage() {
         console.log('[AuthPage] Sign-up successful, awaiting email confirmation');
         setMessage('Success! Please check your email for a confirmation link.');
       } else {
-        console.error('[AuthPage CRITICAL] No session returned from Supabase for sign-in! authResult.data:', authResult.data);
+        logger.error({ data: authResult.data }, '[AuthPage CRITICAL] No session returned from Supabase for sign-in!');
         throw new Error('No session returned from Supabase for sign-in.');
       }
     } catch (err: unknown) {
-      console.error('[AuthPage] Fatal error during auth:', err);
+      logger.error({ err }, '[AuthPage] Fatal error during auth');
       let errorMessage = 'Unknown error';
       if (err instanceof Error) {
         errorMessage = err.message;

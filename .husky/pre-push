@@ -1,0 +1,15 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+echo "[husky] Running pre-push quality checks... 🚀"
+
+# Run lint, typecheck, and unit tests
+# These must pass before a push is allowed to ensure the CI pipeline stays green.
+pnpm lint && pnpm typecheck && pnpm test:unit
+
+if [ $? -ne 0 ]; then
+  echo "❌ [husky] Pre-push checks failed. Push aborted. Please fix errors before pushing."
+  exit 1
+fi
+
+echo "✅ [husky] Pre-push checks passed. Pushing to remote..."

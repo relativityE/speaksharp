@@ -73,7 +73,7 @@ jobs:
       - name: Setup test users
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SOAK_TEST_PASSWORD: ${{ env.SOAK_TEST_PASSWORD || secrets.SOAK_TEST_PASSWORD }}
           MODE: ${{ github.event.inputs.mode }}
           NEW_FREE_COUNT: ${{ github.event.inputs.new_free_count }}

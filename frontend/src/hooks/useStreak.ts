@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import logger from '@/lib/logger';
 
 interface StreakData {
     currentStreak: number;
@@ -19,7 +20,7 @@ export function useStreak() {
             try {
                 setStreak(JSON.parse(stored));
             } catch (e) {
-                console.error('Failed to parse streak data', e);
+                logger.error({ err: e }, 'Failed to parse streak data');
             }
         }
     }, []);

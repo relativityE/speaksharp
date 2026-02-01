@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { goalsService } from '@/services/domainServices';
+import logger from '@/lib/logger';
 
 export interface UserGoals {
     weeklyGoal: number;
@@ -62,7 +63,7 @@ export function useGoals() {
                     localStorage.setItem(STORAGE_KEY, JSON.stringify(supabaseGoals));
                 }
             } catch (err) {
-                console.error('[useGoals] Failed to fetch goals:', err);
+                logger.error({ err }, '[useGoals] Failed to fetch goals');
                 // Keep localStorage goals on error
             }
         };
@@ -89,7 +90,7 @@ export function useGoals() {
                     clarity_goal: newGoals.clarityGoal,
                 });
             } catch (err) {
-                console.error('[useGoals] Failed to sync goals:', err);
+                logger.error({ err }, '[useGoals] Failed to sync goals');
             }
         }
     }, [user]);

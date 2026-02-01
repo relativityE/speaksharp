@@ -25,7 +25,7 @@ export const TEST_USER_PASSWORD = 'password123';
 
 export const SOAK_TEST_USER = {
   email: 'soak-test0@test.com',
-  password: process.env.SOAK_TEST_PASSWORD || 'speaksharp1',
+  password: process.env.SOAK_TEST_PASSWORD || 'password123',
 };
 
 // Canary test user for production smoke tests
@@ -63,7 +63,7 @@ export const SOAK_TEST_USERS = Array.from(
   { length: CONCURRENT_USER_COUNT },
   (_, i) => ({
     email: `soak-test${i}@test.com`,
-    password: process.env.SOAK_TEST_PASSWORD || `speaksharp${i + 1}`,
+    password: process.env.SOAK_TEST_PASSWORD || 'password123',
     tier: SOAK_USER_TIERS[i],
   })
 );

@@ -7,6 +7,23 @@ All notable changes to this project will be documented in this file.
 
 ### [Unreleased]
 
+- **Security Hardening:**
+  - **Feature:** Secured the `apply-promo/generate` endpoint by restoring `X-Admin-Code` verification against `ALPHA_BYPASS_CODE`.
+  - **Files:** `backend/supabase/functions/apply-promo/index.ts`
+
+- **AI Suggestions Upgrade & Integration:**
+  - **Feature:** Upgraded AI coaching to **Gemini 3.0 Flash** for faster and more intelligent feedback.
+  - **Integration:** Integrated `AISuggestions` into a new **Analytics Session Detail** view, providing data-driven recommendations based on WPM, Clarity, Fillers, and Pauses.
+  - **UX:** Enabled navigation from history items to detailed analysis pages.
+  - **Files:** `get-ai-suggestions/index.ts`, `AnalyticsDashboard.tsx`, `AnalyticsPage.tsx`, `AISuggestions.tsx`
+
+- **Core Stability & Quality:**
+  - **Logging:** Unified 50+ `console.error` calls into the structured `logger` system for better observability.
+  - **Scripts:** Added missing `package.json` scripts (`test:all`, `test:health-check`, `pw:install`) to align with project standards.
+  - **UX Fix:** Synchronized frontend usage limit messaging ("Daily" vs "Monthly") with backend enforcement.
+  - **Reliability:** Stabilized E2E tests using robust `data-testid` selectors.
+  - **Files:** `package.json`, `useSessionLifecycle.ts`, `tier-limits.e2e.spec.ts`, `analytics-details.e2e.spec.ts`
+
 - **Performance Optimization:**
   - **Optimization:** Optimized `useTranscriptState` hook by eliminating $O(N)$ double-copying during state updates.
   - **Impact:** Reduced array allocations and element copies by 50% once the 1000-chunk limit is reached, resulting in a ~58% speed improvement for transcript updates.

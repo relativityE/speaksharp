@@ -517,6 +517,17 @@ SpeakSharp enforces strict code quality standards to maintain long-term maintain
 | **Strict Null Checks** | `strictNullChecks` in `tsconfig` | Forces explicit handling of `null` and `undefined` to prevent runtime crashes. |
 | **Zod Validation** | Runtime validation for external data | All API responses and specialized inputs must be validated with Zod schemas. |
 
+### Test Definitions (Glossary)
+
+| Term | Definition | SpeakSharp Implementation |
+|------|------------|---------------------------|
+| **Smoke** | Lightweight "sanity check" to ensure critical paths work. | `tests/canary/smoke.canary.spec.ts` (Login -> Record -> Save) |
+| **Canary** | Smoke tests running against **Production** with restricted users. | `pnpm test:canary` (Runs on deploy against `app.speaksharp.com`) |
+| **Integration** | Verification that multiple components work together (e.g. Auth + DB). | `tests/live/` (Frontend + Real Supabase) |
+| **Live** | Tests executing against **Real API/Databases** (No Mocks). | `pnpm test:live` (Requires `AGENT_SECRET`) |
+| **Staging** | A pre-production environment mirroring Prod configuration. | *Not currently active.* (We use "Canary Users" in Prod instead) |
+| **Soak** | Long-duration load tests to find memory leaks or timeouts. | `pnpm test:soak` (5 mins/user, 10 users concurrent) |
+
 ### Testing Strategy (The "Gold Standard")
 
 #### Test Pyramid
@@ -529,25 +540,23 @@ SpeakSharp uses a comprehensive test pyramid with 10 distinct categories:
                          ┌┴─────────┴┐
                          │   Live    │ (Real Supabase)
                         ┌┴───────────┴┐
-                        │   Canary    │ (Staging)
+                        │   Canary    │ (Production)
                        ┌┴─────────────┴┐
                        │     E2E       │ (MSW Mocked)
           ┌────────────┴───────────────┴────────────┐
-          │            Unit Tests (453)              │
+          │            Unit Tests (453)             │
           └─────────────────────────────────────────┘
 ```
 
 | Category | Directory | Config | Infrastructure |
 |----------|-----------|--------|----------------|
-| **Unit** | `frontend/src/**/__tests__/` | `vitest.config.ts` | Mocked |
-| **E2E (Mock)** | `tests/e2e/` | `playwright.config.ts` | MSW Mocks |
-| **Canary** | `tests/canary/` | `playwright.canary.config.ts` | Real Staging |
-| **Live** | `tests/live/` | `playwright.live.config.ts` | Real Supabase |
-| **Soak** | `tests/soak/` | `playwright.soak.config.ts` | Load Testing |
+| **Unit** | `frontend/src/**/__tests__/` | `vitest.config.ts` | Mocked logic isolation |
+| **E2E (Mock)** | `tests/e2e/` | `playwright.config.ts` | MSW Mocks (Standard CI) |
+| **Canary/Smoke** | `tests/canary/` | `playwright.canary.config.ts` | Production (Canary Users) |
+| **Live/Integration** | `tests/live/` | `playwright.live.config.ts` | Real Supabase (Feature verification) |
+| **Soak** | `tests/soak/` | `playwright.soak.config.ts` | Load Testing (Longevity) |
 | **Demo** | `tests/demo/` | `playwright.demo.config.ts` | Video Recording |
 | **Stripe** | `tests/stripe/` | `playwright.stripe.config.ts` | Real Payments |
-| **Integration** | `frontend/tests/integration/` | Vitest + Playwright | Mixed |
-| **Smoke** | `tests/e2e/smoke/` | Custom | Real/Mock |
 | **POM** | `tests/pom/` | — | Page Objects |
 
 #### Gold Standard Principles
@@ -874,7 +883,7 @@ The automated CI pipeline requires specific JSON artifacts for tracking metrics.
 **3. Live E2E Tests** (`tests/e2e/*-real*.spec.ts` and `*.live.spec.ts`)
 - **Scope:** Critical paths ensuring backend compatibility (Auth, Payments, Edge Functions).
 - **Mocking:** **None.** Uses `VITE_USE_LIVE_DB=true`.
-- **Environment:** Requires `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `EDGE_FN_URL`, `AGENT_SECRET`.
+- **Environment:** Requires `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `EDGE_FN_URL`, `AGENT_SECRET`.
     - *Why `AGENT_SECRET`?* Tests like `visual-analytics` programmatically create users via admin Edge Functions to ensure a clean state, rather than relying on UI-based signup which might be captcha-gated or slower.
 - **Goal:** Verify that the frontend correctly communicates with the real backend APIs.
 
@@ -986,7 +995,7 @@ curl -i -X POST "https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/create-us
 |--------|---------|
 | `SUPABASE_URL` | Real Supabase project URL |
 | `SUPABASE_ANON_KEY` | Real Supabase anon/public key |
-| `SUPABASE_SERVICE_KEY` | Service role key for admin operations |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service role key for admin operations |
 | `SOAK_TEST_PASSWORD` | Shared password for all soak test users (auto-generated if using `generate_new_credentials`) |
 
 ##### CI/CD Workflow
@@ -1064,7 +1073,7 @@ Due to the sensitivity of Stripe `secret keys`, we employ a "Negative Verificati
 |--------|---------|
 | `SUPABASE_URL` | Real Supabase project URL |
 | `SUPABASE_ANON_KEY` | Real Supabase anon key |
-| `SUPABASE_SERVICE_KEY` | Service role key for backend operations |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service role key for backend operations |
 | `STRIPE_PUBLISHABLE_KEY` | Stripe test mode publishable key (pk_test_...) |
 | `E2E_FREE_EMAIL` | Email of a FREE tier user in Supabase |
 | `E2E_FREE_PASSWORD` | That user's password |
@@ -1099,7 +1108,7 @@ Due to the sensitivity of Stripe `secret keys`, we employ a "Negative Verificati
 
 **Required Secrets:**
 - `SUPABASE_URL`
-- `SUPABASE_SERVICE_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
 - `SOAK_TEST_PASSWORD` (managed by workflow)
 - `GH_PAT` (Required for `generate_new_credentials` action)
 
@@ -2482,7 +2491,7 @@ Maintainers should consult the ROADMAP.md Tech Debt sections before starting maj
 **Required Secrets:**
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_KEY` (For provisioning)
+- `SUPABASE_SERVICE_ROLE_KEY` (For provisioning)
 - `CANARY_PASSWORD` (**Required** - no default)
 
 **Environment Variables (Hardcoded Defaults):**

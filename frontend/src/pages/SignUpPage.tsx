@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import posthog from 'posthog-js';
+import logger from '@/lib/logger';
 
 import { useQueryClient } from '@tanstack/react-query'; // Import query client
 
@@ -54,14 +55,14 @@ export default function SignUpPage() {
                         });
 
                         if (promoError) {
-                            console.error('Failed to apply promo during signup:', promoError);
+                            logger.error({ err: promoError }, 'Failed to apply promo during signup');
                         } else {
                             console.log('Promo applied during signup:', promoData);
                             // Force refresh of user profile to show Pro status immediately
                             await queryClient.invalidateQueries({ queryKey: ['userProfile'] });
                         }
                     } catch (e) {
-                        console.error('Failed to apply promo during signup (exception):', e);
+                        logger.error({ err: e }, 'Failed to apply promo during signup (exception)');
                     }
                 }
             } else {
@@ -72,7 +73,7 @@ export default function SignUpPage() {
             }
 
         } catch (err: unknown) {
-            console.error('[AUTH] Error during sign up', err);
+            logger.error({ err }, '[AUTH] Error during sign up');
             setError(err instanceof Error ? err.message : 'An unexpected error occurred');
         } finally {
             setIsSubmitting(false);

@@ -44,7 +44,7 @@ jobs:
       - name: Provision Canary User
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           # Note: CANARY_PASSWORD exists in GitHub Secrets; linter can't verify remote secrets
           CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD }}
           # Unique email to avoid collision and ensure test isolation
@@ -70,7 +70,7 @@ jobs:
         if: always() # Run even if tests fail
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           CANARY_EMAIL: canary-${{ github.run_id }}@speaksharp.app
         run: node scripts/cleanup-canary.mjs
 

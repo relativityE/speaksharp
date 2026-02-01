@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import logger from '@/lib/logger';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getSupabaseClient } from '../lib/supabaseClient';
 import { useAuthProvider } from '../contexts/AuthProvider';
@@ -33,7 +34,7 @@ export const useUserFillerWords = () => {
                 .eq('user_id', session.user.id);
 
             if (error) {
-                console.error('[useUserFillerWords] Error fetching:', error);
+                logger.error({ err: error }, '[useUserFillerWords] Error fetching');
                 throw error;
             }
             return data as CustomWord[];
@@ -79,7 +80,7 @@ export const useUserFillerWords = () => {
             toast.success('Word added to detection list');
         },
         onError: (err: Error) => {
-            console.error('[useUserFillerWords] Add error:', err);
+            logger.error({ err }, '[useUserFillerWords] Add error');
             toast.error(err.message);
         }
     });
@@ -99,7 +100,7 @@ export const useUserFillerWords = () => {
         },
         onError: (err) => {
             toast.error('Failed to remove word');
-            console.error(err);
+            logger.error({ err }, '[useUserFillerWords] Remove error');
         }
     });
 

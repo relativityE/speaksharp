@@ -18,9 +18,22 @@ interface AISuggestionsData {
 
 interface AISuggestionsProps {
   transcript: string;
+  metrics?: {
+    wpm?: number;
+    clarity_score?: number;
+    total_words?: number;
+    duration?: number;
+    filler_words?: Record<string, { count: number }>;
+    pause_metrics?: {
+      silencePercentage: number;
+      transitionPauses: number;
+      extendedPauses: number;
+      longestPause: number;
+    };
+  };
 }
 
-const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript }) => {
+const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, metrics }) => {
   const [suggestions, setSuggestions] = useState<AISuggestionsData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +47,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript }) => {
       const supabase = getSupabaseClient();
       if (!supabase) throw new Error("Supabase client not available");
       const { data, error: invokeError } = await supabase.functions.invoke('get-ai-suggestions', {
-        body: { transcript },
+        body: { transcript, metrics },
       });
 
       if (invokeError) {

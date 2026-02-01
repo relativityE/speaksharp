@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { useAuthProvider } from '@/contexts/AuthProvider';
+import logger from '@/lib/logger';
 
 /**
  * Response from check-usage-limit Edge Function
@@ -33,7 +34,7 @@ export function useUsageLimit() {
         queryFn: async (): Promise<UsageLimitCheck> => {
             const supabase = getSupabaseClient();
             if (!supabase) {
-                console.error('[useUsageLimit] Supabase client not available');
+                logger.error('[useUsageLimit] Supabase client not available');
                 return {
                     can_start: false,
                     remaining_seconds: 0,
@@ -52,7 +53,7 @@ export function useUsageLimit() {
             });
 
             if (error) {
-                console.error('[useUsageLimit] Error checking usage limit:', error);
+                logger.error({ err: error }, '[useUsageLimit] Error checking usage limit');
                 // Default to allowing start on error to not block users
                 return {
                     can_start: true,
@@ -64,7 +65,7 @@ export function useUsageLimit() {
                 };
             }
 
-            console.log('[useUsageLimit] Usage limit check result:', data);
+            logger.debug('[useUsageLimit] Usage limit check result:', data);
             return data as UsageLimitCheck;
         },
         enabled: !!user && !!session, // Only run when user is authenticated with session

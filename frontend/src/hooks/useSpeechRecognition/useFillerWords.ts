@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import logger from '@/lib/logger';
 import { Chunk } from './types';
 import { createFullTranscript } from './utils';
 import {
@@ -22,7 +23,7 @@ export const useFillerWords = (
     try {
       return countFillerWords(finalText, customWords);
     } catch (err) {
-      console.error('Error counting final filler words:', err);
+      logger.error({ err }, 'Error counting final filler words');
       return createInitialFillerData(customWords);
     }
   }, [finalChunks, customWords]);
@@ -45,7 +46,7 @@ export const useFillerWords = (
           return counts;
         });
       } catch (err) {
-        console.error('Error counting live filler words:', err);
+        logger.error({ err }, 'Error counting live filler words');
       }
     }, 50);
 
