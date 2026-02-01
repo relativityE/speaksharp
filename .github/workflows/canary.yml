@@ -47,6 +47,8 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           # Note: CANARY_PASSWORD exists in GitHub Secrets; linter can't verify remote secrets
           CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD }}
+          # Unique email to avoid collision and ensure test isolation
+          CANARY_EMAIL: canary-${{ github.run_id }}@speaksharp.app
         run: node scripts/provision-canary.mjs
 
       - name: Run Smoke Test
@@ -56,14 +58,21 @@ jobs:
           # Real Supabase auth (skip MSW)
           VITE_USE_LIVE_DB: "true"
           # Canary credentials (CANARY_PASSWORD is a GitHub Secret; linter can't verify)
-          CANARY_EMAIL: 'canary-user@speaksharp.app'
           CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD }}
+          CANARY_EMAIL: canary-${{ github.run_id }}@speaksharp.app
         run: |
-          # Use start-server-and-test for clean process lifecycle (like soak test)
           npx start-server-and-test \
             "pnpm dev" \
             http://localhost:5173 \
             "pnpm test:canary"
+
+      - name: Cleanup Canary User
+        if: always() # Run even if tests fail
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          CANARY_EMAIL: canary-${{ github.run_id }}@speaksharp.app
+        run: node scripts/cleanup-canary.mjs
 
       - name: Upload Test Results
         if: always()

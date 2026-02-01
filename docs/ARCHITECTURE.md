@@ -644,6 +644,30 @@ expect(text).toBe('5');
 
 ## Testing and CI/CD
 
+##### 5. Canary Tests (`pnpm test:canary`)
+
+*   **Infrastructure:** Runs against the real staging environment (or local dev with real secrets).
+*   **Purpose:** Smoke tests critical user journeys (Login -> STT -> Analytics) on production-like infrastructure to detect integration failures before full rollout.
+*   **Configuration:** `playwright.canary.config.ts`.
+*   **Credentials:**
+
+> [!CAUTION]
+> **Canary Credential Management**
+>
+> The `CANARY_PASSWORD` is **NOT** committed to the repo. It is injected dynamically into `.env.development` during the CI workflow (`canary.yml`) using the `secrets.CANARY_PASSWORD` GitHub Secret.
+>
+> **For Local Execution:** You must manually add `CANARY_PASSWORD=...` to your local `.env.development` file. Agents and developers should verify this file exists before attempting to run canary tests locally.
+
+*   **Remote Execution (Technical Bridge):**
+    *   Command: `node scripts/trigger-canary.mjs`
+    *   Purpose: Dispatches the `canary.yml` workflow via GitHub Actions (`gh` CLI).
+    *   Benefit: Bypasses local `CANARY_PASSWORD` requirements by leveraging remote GitHub Secrets.
+
+##### 6. Soak Tests (`pnpm test:soak`)
+
+*   **Infrastructure:** Runs against production.
+*   **Purpose:** Long-running load tests to identify leaks and resource contention.
+
 SpeakSharp employs a unified and resilient testing strategy designed for speed and reliability. The entire process is orchestrated by a single script, `test-audit.sh`, which ensures that the local development experience perfectly mirrors the Continuous Integration (CI) pipeline.
 
 ### The Canonical Audit Script (`test-audit.sh`)

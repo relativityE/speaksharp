@@ -245,12 +245,52 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
             mockLog('[E2E MOCK] Returning sessionStore (flag set, might be empty)');
         }
 
-        // Return stateful session store. If emptySessions was true, this starts as []
-        // but can grow if sessions are POSTed. sessionStore is the Source of Truth.
+        // Check for specific ID filter (e.g., id=eq.xxx)
+        const url = new URL(route.request().url());
+        const idParam = url.searchParams.get('id');
+        let filteredSessions = [...sessionStore];
+
+        if (idParam && idParam.startsWith('eq.')) {
+            const targetId = idParam.replace('eq.', '');
+            filteredSessions = sessionStore.filter(s => (s as unknown as { id: string }).id === targetId);
+            if (filteredSessions.length === 0) {
+                mockLog(`[E2E MOCK] Session ID ${targetId} not found, returning empty array`);
+            }
+        }
+
+        // Handle .single() requests (Accept: application/vnd.pgrst.object+json)
+        const acceptHeader = route.request().headers()['accept'];
+        const isSingleObject = acceptHeader === 'application/vnd.pgrst.object+json';
+
+        if (isSingleObject) {
+            if (filteredSessions.length === 0) {
+                // Emulate PostgREST 406 Not Acceptable (PGRST116)
+                await route.fulfill({
+                    status: 406,
+                    contentType: 'application/json',
+                    body: JSON.stringify({
+                        code: 'PGRST116',
+                        details: 'The result contains 0 rows',
+                        hint: null,
+                        message: 'JSON object requested, multiple (or no) rows returned'
+                    }),
+                });
+                return;
+            }
+            // Return single object
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify(filteredSessions[0]),
+            });
+            return;
+        }
+
+        // Return array (default)
         await route.fulfill({
             status: 200,
             contentType: 'application/json',
-            body: JSON.stringify(sessionStore),
+            body: JSON.stringify(filteredSessions),
         });
     });
 

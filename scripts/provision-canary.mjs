@@ -18,11 +18,11 @@ import { createClient } from '@supabase/supabase-js';
 // --- Configuration ---
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
-const CANARY_EMAIL = process.env.CANARY_EMAIL || 'canary-user@speaksharp.app';
+const CANARY_EMAIL = process.env.CANARY_EMAIL;
 const CANARY_PASSWORD = process.env.CANARY_PASSWORD;
 
-if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY || !CANARY_PASSWORD) {
-    console.error('❌ Missing required env vars: SUPABASE_URL, SUPABASE_SERVICE_KEY, CANARY_PASSWORD');
+if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY || !CANARY_PASSWORD || !CANARY_EMAIL) {
+    console.error('❌ Missing required env vars: SUPABASE_URL, SUPABASE_SERVICE_KEY, CANARY_PASSWORD, CANARY_EMAIL');
     process.exit(1);
 }
 
@@ -71,7 +71,7 @@ async function main() {
                 pageNum++;
             }
 
-            if (getError || !existingUser) {
+            if (!existingUser) {
                 console.error('  ❌ Failed to locate existing user ID.');
                 process.exit(1);
             }

@@ -62,7 +62,7 @@ export const useSessionLifecycle = () => {
         elapsedTime,
     });
 
-    const handleStartStop = useCallback(async (_options?: { skipRedirect?: boolean }) => {
+    const handleStartStop = useCallback(async (options?: { skipRedirect?: boolean; stopReason?: string }) => {
         if (isListening) {
             if (elapsedTime < MIN_SESSION_DURATION_SECONDS) {
                 await stopListening();
@@ -92,9 +92,15 @@ export const useSessionLifecycle = () => {
                 });
 
                 if (result.session) {
-                    const finalMsg = streakResult.isNewDay
+                    let finalMsg = streakResult.isNewDay
                         ? ` 🔥 ${streakResult.currentStreak} Day Streak! Session saved.`
                         : '✓ Great practice! Session saved.';
+
+                    // Override with specific stop reason if provided (e.g. usage limit)
+                    if (options?.stopReason) {
+                        finalMsg = options.stopReason;
+                    }
+
                     setSessionFeedbackMessage(finalMsg);
                     queryClient.invalidateQueries({ queryKey: ['usageLimit'] });
                     setShowAnalyticsPrompt(true);
@@ -146,7 +152,10 @@ export const useSessionLifecycle = () => {
         if (!isProUser && isListening && usageLimit && usageLimit.remaining_seconds > 0) {
             if (elapsedTime >= usageLimit.remaining_seconds) {
                 console.log('[useSessionLifecycle] ⚠️ AUTO-STOPPING: limit reached');
-                handleStartStop({ skipRedirect: true });
+                handleStartStop({
+                    skipRedirect: true,
+                    stopReason: '⛔ Monthly usage limit reached.'
+                });
             }
         }
     }, [elapsedTime, isListening, usageLimit, isProUser, handleStartStop]);

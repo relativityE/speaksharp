@@ -70,6 +70,8 @@ declare global {
   interface Window {
     MockPrivateWhisper?: new (config: TranscriptionModeOptions) => ITranscriptionMode;
     __E2E_MOCK_LOCAL_WHISPER__?: boolean;
+    MockNativeBrowser?: new (config: TranscriptionModeOptions) => ITranscriptionMode;
+    __E2E_MOCK_NATIVE__?: boolean;
   }
 }
 
@@ -289,6 +291,13 @@ export default class TranscriptionService {
       case 'native':
         console.log('[TranscriptionService] 🌐 Starting Native Browser mode');
         logger.info('[TranscriptionService] Starting Native Browser mode');
+
+        if (window.MockNativeBrowser && window.__E2E_MOCK_NATIVE__ === true) {
+          console.log('[TranscriptionService] 🧪 Using MockNativeBrowser for E2E');
+          this.instance = new window.MockNativeBrowser(config);
+          break;
+        }
+
         this.instance = new NativeBrowser(config);
         break;
 

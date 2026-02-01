@@ -31,7 +31,7 @@ export const SOAK_TEST_USER = {
 // Canary test user for production smoke tests
 // Password is shared via CANARY_PASSWORD secret in GitHub Actions
 export const CANARY_USER = {
-  email: 'canary-user@speaksharp.app',
+  email: process.env.CANARY_EMAIL!, // Required env var (injected by CI or .env)
   password: process.env.CANARY_PASSWORD || '',
 };
 

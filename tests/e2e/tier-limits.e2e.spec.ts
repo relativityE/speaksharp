@@ -38,7 +38,7 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
         await expect(startButton.getByText('Stop')).not.toBeVisible();
     });
 
-    test.skip('Daily limit auto-stops an active session', async ({ page }) => {
+    test('Daily limit auto-stops an active session', async ({ page }) => {
         // SKIPPED: Feature works in production but fails in Headless CI due to Audio Context hangs.
         // Logic covered by Unit Tests in `useSessionLifecycle.test.ts`.
         // See: tier_limits_incident_report.md
@@ -49,10 +49,22 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
         // 2. Start with very low time (5s) to trigger auto-stop quickly
         await registerEdgeFunctionMock(page, 'check-usage-limit', {
             can_start: true,
-            remaining_seconds: 5,
+            remaining_seconds: 6,
             limit_seconds: 3600,
-            used_seconds: 3595,
+            used_seconds: 3594,
             subscription_status: 'free'
+        });
+
+        // 2b. Inject Mock Native Browser to bypass AudioContext issues in Headless
+        await page.addInitScript(() => {
+            (window as unknown as { __E2E_MOCK_NATIVE__: boolean }).__E2E_MOCK_NATIVE__ = true;
+            (window as unknown as { MockNativeBrowser: unknown }).MockNativeBrowser = class {
+                constructor() { }
+                async init() { }
+                async startTranscription() { console.log('MockNativeBrowser started'); }
+                async stopTranscription() { return ''; }
+                async getTranscript() { return ''; }
+            };
         });
 
         // 3. Go to session page and reload
@@ -64,7 +76,19 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
         await expect(startButton.getByText('Stop')).toBeVisible();
 
         // 4. Wait for auto-stop (should trigger at 5s)
-        // verify session status indicator shows the message
+
+        /**
+         * 🚨 CRITICAL DISCLAIMER 🚨
+         * 
+         * This assertion verifies that the user is explicitly notified when their session 
+         * is auto-stopped due to tier limits.
+         * 
+         * It is VITAL that the user sees "Monthly usage limit reached" (via Toast, Banner, 
+         * or Status Indicator). Do NOT remove or weak this check. If the UI changes (e.g. to a Toast),
+         * update this selector to target the new notification element.
+         * 
+         * The user MUST know why their session stopped.
+         */
         await expect(page.getByTestId('session-status-indicator')).toHaveText(/Monthly usage limit reached/i, { timeout: 20000 });
 
         // Verify session stopped (Button reverted to 'Start')

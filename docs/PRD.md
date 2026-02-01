@@ -189,7 +189,8 @@ For E2E infrastructure troubleshooting, see [tests/TROUBLESHOOTING.md](../tests/
 
 ### Tech Debt (Testing)
 
-- **🟡 Native STT Headless Test:** Web Speech API unavailable in headless Chrome. Use `--headed` for manual verification.
+- **✅ Native STT Headless Test:** Resolved via `MockNativeBrowser` injection (see `tier-limits.e2e.spec.ts`).
+- **⚠️ Tier Limit Test Constraint:** `tier-limits.e2e.spec.ts` requires a mock duration of **6s** (vs 2s) to satisfy `MIN_SESSION_DURATION_SECONDS` (5s) before triggering the auto-stop. The "Monthly usage limit reached" notification assertion is **VITAL** and must not be removed.
 - **🟡 PDF Content Extraction:** `pdf-parse` requires `DOMMatrix`. PDF structure validated only.
 - ✅ **Cloud STT (Production) (2026-01-28):** Resolved CORS (`ALLOWED_ORIGIN` mismatch) blocking production usage.
 - ✅ **Cloud STT E2E (2026-01-28):** Resolved mode selector and button dropdown unresponsiveness.
