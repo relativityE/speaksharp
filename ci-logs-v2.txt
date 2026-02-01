@@ -1,0 +1,1460 @@
+
+> speaksharp@0.0.0 ci:local /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
+> ./scripts/test-audit.sh ci-simulate
+
+🚀 Starting Test Audit (Stage: ci-simulate)...
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 SpeakSharp Test Audit Pipeline
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🤖 Running Full CI Simulation...
+🔧 CI Setup: Installing dependencies...
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 0, reused 1, downloaded 0, added 0
+Packages: -77
+-----------------------------------------------------------------------------
+Progress: resolved 0, reused 77, downloaded 0, added 0, done
+
+. prepare$ HUSKY=0 husky install
+. prepare: husky - HUSKY env variable is set to 0, skipping install
+. prepare: Done
+Done in 1.6s using pnpm v10.12.2
+🔧 CI Setup: Installing Playwright browsers...
+🔐 Validating environment variables...
+✅ All required environment variables are set
+✅ [1/6] Running Preflight Checks...
+🔍 Running preflight checks...
+✅ Preflight checks passed
+✅ [1/6] Preflight Checks Passed.
+✅ [2/6] Running Code Quality Checks Sequentially...
+Running Lint...
+
+> speaksharp@0.0.0 lint /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
+> eslint 'frontend/src/**/*.{js,jsx,ts,tsx}' 'tests/**/*.{js,jsx,ts,tsx}' --report-unused-disable-directives --max-warnings 0
+
+Running Typecheck...
+
+> speaksharp@0.0.0 typecheck /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
+> cd frontend && tsc --build --verbose
+
+5:36:39 PM - Projects in this build: 
+    * tsconfig.node.json
+    * tsconfig.json
+
+5:36:39 PM - Project 'tsconfig.node.json' is up to date because newest input 'tailwind.config.ts' is older than output 'tsconfig.node.tsbuildinfo'
+
+5:36:39 PM - Project 'tsconfig.json' is out of date because output 'tsconfig.tsbuildinfo' is older than input 'src/pages/__tests__/SessionPage.test.tsx'
+
+5:36:39 PM - Building project '/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tsconfig.json'...
+
+Running Unit Tests...
+
+> speaksharp@0.0.0 test /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
+> cd frontend && vitest --coverage
+
+
+ RUN  v3.2.4 /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend
+      Coverage enabled with v8
+
+ ✓ tests/integration/SessionSidebar.test.tsx > SessionSidebar > for a Free user > renders with "Native" as the default mode and disables advanced modes 70ms
+ ✓ tests/integration/SessionSidebar.test.tsx > SessionSidebar > for a Free user > calls startListening with native mode 12ms
+ ✓ tests/integration/SessionSidebar.test.tsx > SessionSidebar > for a Pro user > renders with all modes enabled and "Cloud" as default 26ms
+ ✓ tests/integration/SessionSidebar.test.tsx > SessionSidebar > for a Pro user > calls startListening with cloud mode by default 9ms
+ ✓ tests/integration/SessionSidebar.test.tsx > SessionSidebar > for a Pro user > can switch to and start in on-device mode 45ms
+ ✓ tests/integration/SessionSidebar.test.tsx > SessionSidebar > for a Dev user > renders with all modes enabled, even on a free subscription 23ms
+ × tests/integration/SessionSidebar.test.tsx > SessionSidebar > for a Dev user > can switch to and start in any mode 93ms
+   → expected last "spy" call to have been called with [ { forceCloud: false, …(2) } ]
+ ✓ tests/integration/SessionSidebar.test.tsx > SessionSidebar > Session Flow > calls stopListening and shows the end session dialog when stopping a session 34ms
+stdout | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Rendering > should render the session page title
+[DEBUG] Button state changed: { isButtonDisabled: [33mfalse[39m, isListening: [33mfalse[39m, isReady: [33mtrue[39m }
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+
+stderr | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Rendering > should render the session page title
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+stdout | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Rendering > should render the live recording card
+[DEBUG] Button state changed: { isButtonDisabled: [33mfalse[39m, isListening: [33mfalse[39m, isReady: [33mtrue[39m }
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+
+stdout | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Rendering > should render metrics cards
+[DEBUG] Button state changed: { isButtonDisabled: [33mfalse[39m, isListening: [33mfalse[39m, isReady: [33mtrue[39m }
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+
+stdout | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Rendering > should render pause metrics display
+[DEBUG] Button state changed: { isButtonDisabled: [33mfalse[39m, isListening: [33mfalse[39m, isReady: [33mtrue[39m }
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+
+stdout | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Rendering > should render settings button
+[DEBUG] Button state changed: { isButtonDisabled: [33mfalse[39m, isListening: [33mfalse[39m, isReady: [33mtrue[39m }
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+
+stdout | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Loading States > should render loading state when profile is loading
+[DEBUG] SessionPage: Loading profile...
+
+stdout | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Loading States > should render error state when profile fails to load
+[DEBUG] SessionPage: Profile error: { message: [32m'Failed to load'[39m }
+
+stdout | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should start listening when start button is clicked
+[DEBUG] Button state changed: { isButtonDisabled: [33mfalse[39m, isListening: [33mfalse[39m, isReady: [33mtrue[39m }
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+[SessionPage] Starting session with mode: native
+
+stdout | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should stop listening when stop button is clicked
+[DEBUG] Button state changed: { isButtonDisabled: [33mfalse[39m, isListening: [33mtrue[39m, isReady: [33mtrue[39m }
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+
+stderr | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should stop listening when stop button is clicked
+Warning: An update to SessionPage inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at SessionPage (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SessionPage.tsx:61:57)
+    at Router (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1207:17)
+    at MemoryRouter (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1101:7)
+
+stdout | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should stop listening when stop button is clicked
+[SessionPage] 💾 Saving session via useSessionManager...
+[SessionPage] Session Data: { duration: [33m0[39m, transcriptLength: [33m0[39m, wpm: [33m0[39m }
+
+stdout | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should stop listening when stop button is clicked
+[SessionPage] Save result received: { session: [1mnull[22m, usageExceeded: [33mfalse[39m }
+
+stderr | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should stop listening when stop button is clicked
+[SessionPage] Session save failed or returned null session.
+
+ ✓ src/pages/__tests__/SessionPage.test.tsx > SessionPage > Rendering > should render the session page title 36ms
+ ✓ src/pages/__tests__/SessionPage.test.tsx > SessionPage > Rendering > should render the live recording card 12ms
+ ✓ src/pages/__tests__/SessionPage.test.tsx > SessionPage > Rendering > should render metrics cards 16ms
+ ✓ src/pages/__tests__/SessionPage.test.tsx > SessionPage > Rendering > should render pause metrics display 7ms
+ ✓ src/pages/__tests__/SessionPage.test.tsx > SessionPage > Rendering > should render settings button 8ms
+ ✓ src/pages/__tests__/SessionPage.test.tsx > SessionPage > Loading States > should render loading state when profile is loading 4ms
+ ✓ src/pages/__tests__/SessionPage.test.tsx > SessionPage > Loading States > should render error state when profile fails to load 1ms
+ ✓ src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should start listening when start button is clicked 8ms
+stdout | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should disable start button when listening but not ready
+[DEBUG] Button state changed: { isButtonDisabled: [33mtrue[39m, isListening: [33mtrue[39m, isReady: [33mfalse[39m }
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+
+stdout | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should show Ready status when not listening
+[DEBUG] Button state changed: { isButtonDisabled: [33mfalse[39m, isListening: [33mfalse[39m, isReady: [33mtrue[39m }
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+
+stdout | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should show Connecting status when listening but not ready
+[DEBUG] Button state changed: { isButtonDisabled: [33mtrue[39m, isListening: [33mtrue[39m, isReady: [33mfalse[39m }
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+
+stdout | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Timer Logic > should update elapsed time when listening
+[DEBUG] Button state changed: { isButtonDisabled: [33mfalse[39m, isListening: [33mtrue[39m, isReady: [33mtrue[39m }
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+
+stdout | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Timer Logic > should reset elapsed time when stopped
+[DEBUG] Button state changed: { isButtonDisabled: [33mfalse[39m, isListening: [33mfalse[39m, isReady: [33mtrue[39m }
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+
+stdout | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Metrics Display > should display formatted time
+[DEBUG] Button state changed: { isButtonDisabled: [33mfalse[39m, isListening: [33mfalse[39m, isReady: [33mtrue[39m }
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+
+stdout | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Metrics Display > should calculate and display WPM
+[DEBUG] Button state changed: { isButtonDisabled: [33mfalse[39m, isListening: [33mfalse[39m, isReady: [33mtrue[39m }
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+
+stdout | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Metrics Display > should display filler word count
+[DEBUG] Button state changed: { isButtonDisabled: [33mfalse[39m, isListening: [33mfalse[39m, isReady: [33mtrue[39m }
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+
+stdout | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Transcript Display > should display "Listening..." when listening but no transcript
+[DEBUG] Button state changed: { isButtonDisabled: [33mfalse[39m, isListening: [33mtrue[39m, isReady: [33mtrue[39m }
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+
+stdout | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Transcript Display > should display transcript text
+[DEBUG] Button state changed: { isButtonDisabled: [33mfalse[39m, isListening: [33mtrue[39m, isReady: [33mtrue[39m }
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+
+stdout | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Transcript Display > should display placeholder when not listening and no transcript
+[DEBUG] Button state changed: { isButtonDisabled: [33mfalse[39m, isListening: [33mfalse[39m, isReady: [33mtrue[39m }
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+
+ ✓ src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should stop listening when stop button is clicked 20ms
+ ✓ src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should disable start button when listening but not ready 10ms
+ ✓ src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should show Ready status when not listening 8ms
+ ✓ src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should show Connecting status when listening but not ready 8ms
+ ✓ src/pages/__tests__/SessionPage.test.tsx > SessionPage > Timer Logic > should update elapsed time when listening 11ms
+ ✓ src/pages/__tests__/SessionPage.test.tsx > SessionPage > Timer Logic > should reset elapsed time when stopped 7ms
+ ✓ src/pages/__tests__/SessionPage.test.tsx > SessionPage > Metrics Display > should display formatted time 8ms
+ ✓ src/pages/__tests__/SessionPage.test.tsx > SessionPage > Metrics Display > should calculate and display WPM 10ms
+ ✓ src/pages/__tests__/SessionPage.test.tsx > SessionPage > Metrics Display > should display filler word count 8ms
+ ✓ src/pages/__tests__/SessionPage.test.tsx > SessionPage > Transcript Display > should display "Listening..." when listening but no transcript 18ms
+ ✓ src/pages/__tests__/SessionPage.test.tsx > SessionPage > Transcript Display > should display transcript text 37ms
+ ✓ src/pages/__tests__/SessionPage.test.tsx > SessionPage > Transcript Display > should display placeholder when not listening and no transcript 12ms
+stdout | src/services/transcription/__tests__/PrivateWhisper.test.ts > PrivateWhisper (whisper-turbo backend) > initializes correctly
+[PrivateWhisper] 🔄 init() START - Dual-Engine Mode
+
+stdout | src/services/transcription/__tests__/PrivateWhisper.test.ts > PrivateWhisper (whisper-turbo backend) > initializes correctly
+[PrivateWhisper] ✅ Engine initialized: mock-engine
+
+stdout | src/services/transcription/__tests__/PrivateWhisper.test.ts > PrivateWhisper (whisper-turbo backend) > starts transcription and emits update
+[PrivateWhisper] 🔄 init() START - Dual-Engine Mode
+
+stdout | src/services/transcription/__tests__/PrivateWhisper.test.ts > PrivateWhisper (whisper-turbo backend) > starts transcription and emits update
+[PrivateWhisper] ✅ Engine initialized: mock-engine
+
+stdout | src/services/transcription/__tests__/PrivateWhisper.test.ts > PrivateWhisper (whisper-turbo backend) > starts transcription and emits update
+[PrivateWhisper] Streaming started.
+[PrivateWhisper] 🎤 Processing first audio chunk: 16000 samples
+
+ ✓ src/services/transcription/__tests__/PrivateWhisper.test.ts > PrivateWhisper (whisper-turbo backend) > initializes correctly 2ms
+ ✓ src/services/transcription/__tests__/PrivateWhisper.test.ts > PrivateWhisper (whisper-turbo backend) > starts transcription and emits update 3ms
+stderr | src/pages/__tests__/SignUpPage.test.tsx > SignUpPage > Rendering > should render the sign-up form
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/pages/__tests__/SignUpPage.test.tsx > SignUpPage > Rendering > should render the sign-up form 21ms
+ ✓ src/pages/__tests__/SignUpPage.test.tsx > SignUpPage > Rendering > should render loading spinner when auth is loading 1ms
+ ✓ src/pages/__tests__/SignUpPage.test.tsx > SignUpPage > Rendering > should redirect to home when user is already signed in 2ms
+ ✓ src/pages/__tests__/SignUpPage.test.tsx > SignUpPage > Rendering > should render link to sign-in page 6ms
+ ✓ src/pages/__tests__/SignUpPage.test.tsx > SignUpPage > Form Validation > should require email field 2ms
+ ✓ src/pages/__tests__/SignUpPage.test.tsx > SignUpPage > Form Validation > should require password field 2ms
+ ✓ src/pages/__tests__/SignUpPage.test.tsx > SignUpPage > Form Validation > should accept email input 58ms
+ ✓ src/pages/__tests__/SignUpPage.test.tsx > SignUpPage > Form Validation > should accept password input 84ms
+ ✓ src/pages/__tests__/SignUpPage.test.tsx > SignUpPage > Form Submission - Auto-confirm Flow > should call signUp and signIn on form submit 120ms
+ ✓ src/pages/__tests__/SignUpPage.test.tsx > SignUpPage > Form Submission - Auto-confirm Flow > should set session on successful auto-confirm sign-up 78ms
+stderr | src/pages/__tests__/SignUpPage.test.tsx > SignUpPage > Form Submission - Auto-confirm Flow > should display error message on sign-up failure
+[AUTH] Error during sign up Error: User already registered
+    at [90m/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/[39msrc/pages/__tests__/SignUpPage.test.tsx:211:33
+    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:155:11
+    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:752:26
+    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1897:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1863:10)
+    at runTest (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1574:12)
+    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1729:8)
+    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1729:8)
+    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1729:8)
+
+ ✓ src/pages/__tests__/SignUpPage.test.tsx > SignUpPage > Form Submission - Auto-confirm Flow > should show confirmation message when email verification required 104ms
+ ✓ src/pages/__tests__/SignUpPage.test.tsx > SignUpPage > Form Submission - Auto-confirm Flow > should display error message on sign-up failure 111ms
+ ✓ src/pages/__tests__/SignUpPage.test.tsx > SignUpPage > Form Submission - Auto-confirm Flow > should disable submit button while submitting 71ms
+stderr | src/pages/__tests__/SignUpPage.test.tsx > SignUpPage > Form Submission - Auto-confirm Flow > should handle missing Supabase client
+[AUTH] Error during sign up TypeError: Cannot destructure property 'error' of '(intermediate value)' as it is undefined.
+    at handleSubmit [90m(/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/[39msrc/pages/SignUpPage.tsx:31:28[90m)[39m
+[90m    at runNextTicks (node:internal/process/task_queues:65:5)[39m
+[90m    at processTimers (node:internal/timers:526:9)[39m
+
+stderr | src/pages/__tests__/SignUpPage.test.tsx > SignUpPage > Form Submission - Auto-confirm Flow > should handle missing Supabase client
+[AUTH] Error during sign up Error: Supabase client not available
+    at handleSubmit [90m(/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/[39msrc/pages/SignUpPage.tsx:28:34[90m)[39m
+    at HTMLUnknownElement.callCallback (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4mreact-dom[24m/cjs/react-dom.development.js:4164:14)
+    at HTMLUnknownElement.#callDispatchEventListeners (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4mhappy-dom[24m/src/event/EventTarget.ts:299:42)
+    at HTMLUnknownElement.dispatchEvent (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4mhappy-dom[24m/src/event/EventTarget.ts:136:35)
+    at HTMLUnknownElement.#goThroughDispatchEventPhases (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4mhappy-dom[24m/src/event/EventTarget.ts:208:33)
+    at HTMLUnknownElement.dispatchEvent (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4mhappy-dom[24m/src/event/EventTarget.ts:129:38)
+    at Object.invokeGuardedCallbackDev (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4mreact-dom[24m/cjs/react-dom.development.js:4213:16)
+    at invokeGuardedCallback (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4mreact-dom[24m/cjs/react-dom.development.js:4277:31)
+    at invokeGuardedCallbackAndCatchFirstError (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4mreact-dom[24m/cjs/react-dom.development.js:4291:25)
+    at executeDispatch (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4mreact-dom[24m/cjs/react-dom.development.js:9041:3)
+
+stderr | src/pages/__tests__/SignUpPage.test.tsx > SignUpPage > Form Submission - Auto-confirm Flow > should clear error message on new submission
+[AUTH] Error during sign up Error: User already registered
+    at [90m/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/[39msrc/pages/__tests__/SignUpPage.test.tsx:261:33
+    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:155:11
+    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:752:26
+    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1897:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1863:10)
+    at runTest (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1574:12)
+    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1729:8)
+    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1729:8)
+    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1729:8)
+
+ ✓ src/pages/__tests__/SignUpPage.test.tsx > SignUpPage > Form Submission - Auto-confirm Flow > should handle missing Supabase client 117ms
+stderr | src/pages/__tests__/SignUpPage.test.tsx > SignUpPage > Form Submission - Auto-confirm Flow > should handle unexpected errors gracefully
+[AUTH] Error during sign up Error: Network error
+    at [90m/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/[39msrc/pages/__tests__/SignUpPage.test.tsx:299:42
+    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:155:11
+    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:752:26
+    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1897:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1863:10)
+    at runTest (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1574:12)
+    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1729:8)
+    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1729:8)
+    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1729:8)
+
+ ✓ src/pages/__tests__/SignUpPage.test.tsx > SignUpPage > Form Submission - Auto-confirm Flow > should clear error message on new submission 140ms
+stderr | src/pages/__tests__/SignUpPage.test.tsx > SignUpPage > Form Submission - Auto-confirm Flow > should handle non-Error exceptions
+[AUTH] Error during sign up String error
+
+ ✓ src/pages/__tests__/SignUpPage.test.tsx > SignUpPage > Form Submission - Auto-confirm Flow > should handle unexpected errors gracefully 89ms
+ ✓ src/pages/__tests__/SignUpPage.test.tsx > SignUpPage > Form Submission - Auto-confirm Flow > should handle non-Error exceptions 100ms
+ ✓ src/pages/__tests__/SignUpPage.test.tsx > SignUpPage > Form Submission - Auto-confirm Flow > should log errors to console 107ms
+stderr | src/pages/__tests__/SignInPage.test.tsx > SignInPage > Rendering > should render the sign-in form
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/pages/__tests__/SignInPage.test.tsx > SignInPage > Rendering > should render the sign-in form 22ms
+ ✓ src/pages/__tests__/SignInPage.test.tsx > SignInPage > Rendering > should render loading spinner when auth is loading 1ms
+ ✓ src/pages/__tests__/SignInPage.test.tsx > SignInPage > Rendering > should redirect to home when user is already signed in 2ms
+ ✓ src/pages/__tests__/SignInPage.test.tsx > SignInPage > Rendering > should render link to sign-up page 49ms
+ ✓ src/pages/__tests__/SignInPage.test.tsx > SignInPage > Form Validation > should require email field 22ms
+ ✓ src/pages/__tests__/SignInPage.test.tsx > SignInPage > Form Validation > should require password field 4ms
+ ✓ src/pages/__tests__/SignInPage.test.tsx > SignInPage > Form Validation > should accept email input 114ms
+ ✓ src/pages/__tests__/SignInPage.test.tsx > SignInPage > Form Validation > should accept password input 35ms
+ ✓ src/pages/__tests__/SignInPage.test.tsx > SignInPage > Form Submission > should call signInWithPassword on form submit 121ms
+ ✓ src/pages/__tests__/SignInPage.test.tsx > SignInPage > Form Submission > should set session on successful sign-in 108ms
+ ✓ src/pages/__tests__/SignInPage.test.tsx > SignInPage > Form Submission > should display error message on sign-in failure 96ms
+ ✓ src/pages/__tests__/SignInPage.test.tsx > SignInPage > Form Submission > should disable submit button while submitting 92ms
+ ✓ src/pages/__tests__/SignInPage.test.tsx > SignInPage > Form Submission > should clear error message on new submission 192ms
+ ✓ src/pages/__tests__/SignInPage.test.tsx > SignInPage > Form Submission > should handle unexpected errors gracefully 72ms
+ ✓ src/pages/__tests__/SignInPage.test.tsx > SignInPage > Form Submission > should handle non-Error exceptions 70ms
+stderr | tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign In Flow > renders sign-in form by default
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign In Flow > renders sign-in form by default 27ms
+stdout | tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign In Flow > calls signInWithPassword with valid credentials
+[AuthPage] handleSubmit called, view: sign_in
+[AuthPage] Attempting sign_in for: test@example.com
+
+stdout | tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign In Flow > calls signInWithPassword with valid credentials
+[AuthPage] Session received, setting session for user: [90mundefined[39m
+
+ ✓ tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign In Flow > validates email format 97ms
+ ✓ tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign In Flow > calls signInWithPassword with valid credentials 90ms
+stdout | tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign In Flow > displays error on failed sign-in
+[AuthPage] handleSubmit called, view: sign_in
+[AuthPage] Attempting sign_in for: test@example.com
+
+stderr | tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign In Flow > displays error on failed sign-in
+[AuthPage] Auth error returned by Supabase: Invalid login credentials
+[AuthPage] Error code: [90mundefined[39m
+[AuthPage] Fatal error during auth: { message: [32m'Invalid login credentials'[39m }
+
+stdout | tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign Up Flow > validates password strength for sign-up
+[AuthPage] handleSubmit called, view: sign_up
+[AuthPage] Password too short, rejecting
+
+stdout | tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign Up Flow > calls signUp with valid credentials
+[AuthPage] handleSubmit called, view: sign_up
+[AuthPage] Attempting sign_up for: newuser@example.com with plan: free
+
+stderr | tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign Up Flow > calls signUp with valid credentials
+[AuthPage] Post-signup sign-in failed: Invalid login credentials
+[AuthPage] Fatal error during auth: { message: [32m'Invalid login credentials'[39m }
+
+ ✓ tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign In Flow > displays error on failed sign-in 152ms
+ ✓ tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign Up Flow > switches to sign-up form when clicking sign-up link 14ms
+ ✓ tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign Up Flow > validates password strength for sign-up 77ms
+stdout | tests/integration/AuthPage.test.tsx > AuthPage Integration > Password Reset Flow > sends password reset email
+[AuthPage] handleSubmit called, view: forgot_password
+[AuthPage] Attempting password reset for: reset@example.com
+
+ ✓ tests/integration/AuthPage.test.tsx > AuthPage Integration > Sign Up Flow > calls signUp with valid credentials 124ms
+ ✓ tests/integration/AuthPage.test.tsx > AuthPage Integration > Password Reset Flow > switches to password reset form 9ms
+ ✓ tests/integration/AuthPage.test.tsx > AuthPage Integration > Password Reset Flow > sends password reset email 53ms
+ ✓ tests/integration/FillerWordAnalysis.test.tsx > FillerWordAnalysis Integration > Filler Word Display > displays all filler words with their counts 21ms
+ ✓ tests/integration/FillerWordAnalysis.test.tsx > FillerWordAnalysis Integration > Filler Word Display > sorts filler words by count (highest first) 3ms
+ ✓ tests/integration/FillerWordAnalysis.test.tsx > FillerWordAnalysis Integration > Filler Word Display > applies severity-based color coding 6ms
+ ✓ tests/integration/FillerWordAnalysis.test.tsx > FillerWordAnalysis Integration > Filler Word Display > shows zero counts for words not detected 4ms
+ ✓ tests/integration/FillerWordAnalysis.test.tsx > FillerWordAnalysis Integration > Custom Word Addition > allows adding a custom filler word 50ms
+ ✓ tests/integration/FillerWordAnalysis.test.tsx > FillerWordAnalysis Integration > Custom Word Addition > normalizes custom words to lowercase 36ms
+ ✓ tests/integration/FillerWordAnalysis.test.tsx > FillerWordAnalysis Integration > Custom Word Addition > prevents adding duplicate custom words 36ms
+ ✓ tests/integration/FillerWordAnalysis.test.tsx > FillerWordAnalysis Integration > Custom Word Addition > prevents adding words that are already in default list 19ms
+ ✓ tests/integration/FillerWordAnalysis.test.tsx > FillerWordAnalysis Integration > Custom Word Addition > clears input field after successful addition 30ms
+ ✓ tests/integration/FillerWordAnalysis.test.tsx > FillerWordAnalysis Integration > Custom Words Integration > displays custom words alongside default words 7ms
+ ✓ tests/integration/FillerWordAnalysis.test.tsx > FillerWordAnalysis Integration > Custom Words Integration > sorts custom and default words together by count 18ms
+ ✓ tests/integration/FillerWordAnalysis.test.tsx > FillerWordAnalysis Integration > Empty State > shows all default words with zero counts when no filler data 19ms
+stdout | tests/integration/CustomVocabularyManager.test.tsx > CustomVocabularyManager Integration > Authenticated User > allows adding a new custom word
+[CustomVocabularyManager] handleSubmit called, newWord: microservices
+[CustomVocabularyManager] Calling addWord mutation with: microservices
+
+stdout | tests/integration/CustomVocabularyManager.test.tsx > CustomVocabularyManager Integration > Authenticated User > validates word before adding
+[CustomVocabularyManager] handleSubmit called, newWord: a
+[CustomVocabularyManager] Calling addWord mutation with: a
+
+ ✓ tests/integration/CustomVocabularyManager.test.tsx > CustomVocabularyManager Integration > Anonymous User > shows sign-in message for anonymous users 16ms
+ ✓ tests/integration/CustomVocabularyManager.test.tsx > CustomVocabularyManager Integration > Anonymous User > does not allow adding words when not signed in 1ms
+ ✓ tests/integration/CustomVocabularyManager.test.tsx > CustomVocabularyManager Integration > Authenticated User > displays existing vocabulary words 4ms
+ ✓ tests/integration/CustomVocabularyManager.test.tsx > CustomVocabularyManager Integration > Authenticated User > allows adding a new custom word 59ms
+ ✓ tests/integration/CustomVocabularyManager.test.tsx > CustomVocabularyManager Integration > Authenticated User > validates word before adding 19ms
+stdout | tests/integration/CustomVocabularyManager.test.tsx > CustomVocabularyManager Integration > Authenticated User > clears input after successful word addition
+[CustomVocabularyManager] handleSubmit called, newWord: devops
+[CustomVocabularyManager] Calling addWord mutation with: devops
+
+stderr | tests/integration/CustomVocabularyManager.test.tsx > CustomVocabularyManager Integration > Authenticated User > clears input after successful word addition
+Warning: An update to CustomVocabularyManager inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at CustomVocabularyManager (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/components/session/CustomVocabularyManager.tsx:23:67)
+    at QueryClientProvider (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:20:3)
+    at MockAuthProvider (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/integration/CustomVocabularyManager.test.tsx:58:3)
+
+stdout | tests/integration/CustomVocabularyManager.test.tsx > CustomVocabularyManager Integration > Authenticated User > clears input after successful word addition
+[CustomVocabularyManager] onSuccess callback - clearing input
+
+ ✓ tests/integration/CustomVocabularyManager.test.tsx > CustomVocabularyManager Integration > Authenticated User > allows removing a custom word 10ms
+ ✓ tests/integration/CustomVocabularyManager.test.tsx > CustomVocabularyManager Integration > Authenticated User > clears input after successful word addition 35ms
+ ✓ tests/integration/CustomVocabularyManager.test.tsx > CustomVocabularyManager Integration > Loading State > shows loading skeleton while fetching vocabulary 2ms
+stdout | src/components/__tests__/AnalyticsDashboard.test.tsx > AnalyticsDashboard > should render loading skeleton when loading
+[AnalyticsDashboard] Rendering. Loading: [33mtrue[39m Error: [1mnull[22m SessionHistory length: [33m0[39m
+[AnalyticsDashboard] Showing skeleton (loading)
+
+stderr | src/components/__tests__/AnalyticsDashboard.test.tsx > AnalyticsDashboard > should render loading skeleton when loading
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+stdout | src/components/__tests__/AnalyticsDashboard.test.tsx > AnalyticsDashboard > should render error display when error occurs
+[AnalyticsDashboard] Rendering. Loading: [33mfalse[39m Error: Error: Test error
+    at [90m/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/[39msrc/components/__tests__/AnalyticsDashboard.test.tsx:105:34
+    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:155:11
+    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:752:26
+    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1897:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1863:10)
+    at runTest (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1574:12)
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1729:8)
+    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1729:8) SessionHistory length: [33m0[39m
+[AnalyticsDashboard] Showing error display: Error: Test error
+    at [90m/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/[39msrc/components/__tests__/AnalyticsDashboard.test.tsx:105:34
+    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:155:11
+    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:752:26
+    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1897:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1863:10)
+    at runTest (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1574:12)
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1729:8)
+    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@vitest[24m/runner/dist/chunk-hooks.js:1729:8)
+
+stdout | src/components/__tests__/AnalyticsDashboard.test.tsx > AnalyticsDashboard > should render empty state when no sessions
+[AnalyticsDashboard] Rendering. Loading: [33mfalse[39m Error: [1mnull[22m SessionHistory length: [33m0[39m
+[AnalyticsDashboard] Showing empty state (no sessions)
+
+stdout | src/components/__tests__/AnalyticsDashboard.test.tsx > AnalyticsDashboard > should render dashboard content when data exists
+[AnalyticsDashboard] Rendering. Loading: [33mfalse[39m Error: [1mnull[22m SessionHistory length: [33m1[39m
+[AnalyticsDashboard] Showing full dashboard with [33m1[39m sessions
+[AnalyticsDashboard] Rendering. Loading: [33mfalse[39m Error: [1mnull[22m SessionHistory length: [33m1[39m
+[AnalyticsDashboard] Showing full dashboard with [33m1[39m sessions
+[AnalyticsDashboard] Rendering. Loading: [33mfalse[39m Error: [1mnull[22m SessionHistory length: [33m1[39m
+[AnalyticsDashboard] Showing full dashboard with [33m1[39m sessions
+
+stdout | src/components/__tests__/AnalyticsDashboard.test.tsx > AnalyticsDashboard > should show upgrade banner for free users
+[AnalyticsDashboard] Rendering. Loading: [33mfalse[39m Error: [1mnull[22m SessionHistory length: [33m1[39m
+[AnalyticsDashboard] Showing full dashboard with [33m1[39m sessions
+[AnalyticsDashboard] Rendering. Loading: [33mfalse[39m Error: [1mnull[22m SessionHistory length: [33m1[39m
+[AnalyticsDashboard] Showing full dashboard with [33m1[39m sessions
+[AnalyticsDashboard] Rendering. Loading: [33mfalse[39m Error: [1mnull[22m SessionHistory length: [33m1[39m
+[AnalyticsDashboard] Showing full dashboard with [33m1[39m sessions
+
+stdout | src/components/__tests__/AnalyticsDashboard.test.tsx > AnalyticsDashboard > should NOT show upgrade banner for pro users
+[AnalyticsDashboard] Rendering. Loading: [33mfalse[39m Error: [1mnull[22m SessionHistory length: [33m1[39m
+[AnalyticsDashboard] Showing full dashboard with [33m1[39m sessions
+[AnalyticsDashboard] Rendering. Loading: [33mfalse[39m Error: [1mnull[22m SessionHistory length: [33m1[39m
+[AnalyticsDashboard] Showing full dashboard with [33m1[39m sessions
+[AnalyticsDashboard] Rendering. Loading: [33mfalse[39m Error: [1mnull[22m SessionHistory length: [33m1[39m
+[AnalyticsDashboard] Showing full dashboard with [33m1[39m sessions
+
+stdout | src/components/__tests__/AnalyticsDashboard.test.tsx > AnalyticsDashboard > should call onUpgrade when upgrade button is clicked
+[AnalyticsDashboard] Rendering. Loading: [33mfalse[39m Error: [1mnull[22m SessionHistory length: [33m1[39m
+[AnalyticsDashboard] Showing full dashboard with [33m1[39m sessions
+[AnalyticsDashboard] Rendering. Loading: [33mfalse[39m Error: [1mnull[22m SessionHistory length: [33m1[39m
+[AnalyticsDashboard] Showing full dashboard with [33m1[39m sessions
+[AnalyticsDashboard] Rendering. Loading: [33mfalse[39m Error: [1mnull[22m SessionHistory length: [33m1[39m
+[AnalyticsDashboard] Showing full dashboard with [33m1[39m sessions
+
+ ✓ src/components/__tests__/AnalyticsDashboard.test.tsx > AnalyticsDashboard > should render loading skeleton when loading 17ms
+ ✓ src/components/__tests__/AnalyticsDashboard.test.tsx > AnalyticsDashboard > should render error display when error occurs 4ms
+ ✓ src/components/__tests__/AnalyticsDashboard.test.tsx > AnalyticsDashboard > should render empty state when no sessions 3ms
+ ✓ src/components/__tests__/AnalyticsDashboard.test.tsx > AnalyticsDashboard > should render dashboard content when data exists 40ms
+ ✓ src/components/__tests__/AnalyticsDashboard.test.tsx > AnalyticsDashboard > should show upgrade banner for free users 18ms
+ ✓ src/components/__tests__/AnalyticsDashboard.test.tsx > AnalyticsDashboard > should NOT show upgrade banner for pro users 15ms
+ ✓ src/components/__tests__/AnalyticsDashboard.test.tsx > AnalyticsDashboard > should call onUpgrade when upgrade button is clicked 78ms
+stdout | src/pages/__tests__/SessionPage.ui.test.tsx > SessionPage - STT Mode Selection UI > should disable Pro options (Private, Cloud) for Free users
+[DEBUG] Button state changed: { isButtonDisabled: [33mfalse[39m, isListening: [33mfalse[39m, isReady: [33mtrue[39m }
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+
+stderr | src/pages/__tests__/SessionPage.ui.test.tsx > SessionPage - STT Mode Selection UI > should disable Pro options (Private, Cloud) for Free users
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+stdout | src/pages/__tests__/SessionPage.ui.test.tsx > SessionPage - STT Mode Selection UI > should enable options for Pro users
+[DEBUG] Button state changed: { isButtonDisabled: [33mfalse[39m, isListening: [33mfalse[39m, isReady: [33mtrue[39m }
+[LiveRecordingCard] 🚀 VERSION: RUN_2026_01_02_10AM | Mode: native
+
+ ✓ src/pages/__tests__/SessionPage.ui.test.tsx > SessionPage - STT Mode Selection UI > should disable Pro options (Private, Cloud) for Free users 83ms
+ ✓ src/pages/__tests__/SessionPage.ui.test.tsx > SessionPage - STT Mode Selection UI > should enable options for Pro users 89ms
+ ✓ tests/integration/AISuggestions.test.tsx > AISuggestions Integration > Initial State > renders with call-to-action when no suggestions 19ms
+ ✓ tests/integration/AISuggestions.test.tsx > AISuggestions Integration > Initial State > disables button when no transcript provided 2ms
+ ✓ tests/integration/AISuggestions.test.tsx > AISuggestions Integration > Fetching Suggestions > shows loading state while fetching 17ms
+ ✓ tests/integration/AISuggestions.test.tsx > AISuggestions Integration > Fetching Suggestions > calls Supabase edge function with transcript 11ms
+ ✓ tests/integration/AISuggestions.test.tsx > AISuggestions Integration > Displaying Suggestions > displays AI summary when suggestions are received 9ms
+ ✓ tests/integration/AISuggestions.test.tsx > AISuggestions Integration > Displaying Suggestions > displays individual suggestion items 11ms
+ ✓ tests/integration/AISuggestions.test.tsx > AISuggestions Integration > Error Handling > displays error when Supabase function fails 11ms
+ ✓ tests/integration/AISuggestions.test.tsx > AISuggestions Integration > Error Handling > displays error when function returns error in body 9ms
+ ✓ tests/integration/AISuggestions.test.tsx > AISuggestions Integration > Error Handling > handles missing Supabase client gracefully 9ms
+ ✓ tests/integration/AISuggestions.test.tsx > AISuggestions Integration > Button State Management > disables button while loading 9ms
+ ✓ tests/integration/AISuggestions.test.tsx > AISuggestions Integration > Button State Management > allows fetching suggestions multiple times 15ms
+ ✓ src/hooks/__tests__/useUserProfile.test.tsx > useUserProfile > should return null when no user is authenticated 11ms
+ ✓ src/hooks/__tests__/useUserProfile.test.tsx > useUserProfile > should fetch and return user profile when user is authenticated 54ms
+ ✓ src/hooks/__tests__/useUserProfile.test.tsx > useUserProfile > should handle errors gracefully with injectable retry disabled 53ms
+stderr | src/pages/__tests__/PricingPage.test.tsx > PricingPage > Rendering > should render the pricing page header
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/pages/__tests__/PricingPage.test.tsx > PricingPage > Rendering > should render the pricing page header 23ms
+ ✓ src/pages/__tests__/PricingPage.test.tsx > PricingPage > Rendering > should render Free tier 6ms
+ ✓ src/pages/__tests__/PricingPage.test.tsx > PricingPage > Rendering > should render Pro tier 6ms
+ ✓ src/pages/__tests__/PricingPage.test.tsx > PricingPage > Rendering > should render Free tier features 5ms
+ ✓ src/pages/__tests__/PricingPage.test.tsx > PricingPage > Rendering > should render Pro tier features 8ms
+ ✓ src/pages/__tests__/PricingPage.test.tsx > PricingPage > Rendering > should render CTA buttons 5ms
+ ✓ src/pages/__tests__/PricingPage.test.tsx > PricingPage > Button States > should disable Free tier button 6ms
+ ✓ src/pages/__tests__/PricingPage.test.tsx > PricingPage > Button States > should enable Pro tier button 5ms
+ ✓ src/pages/__tests__/PricingPage.test.tsx > PricingPage > Stripe Checkout > should call stripe-checkout function when clicking Upgrade to Pro 20ms
+ ✓ src/pages/__tests__/PricingPage.test.tsx > PricingPage > Stripe Checkout > should handle Supabase client not available 27ms
+ ✓ src/pages/__tests__/PricingPage.test.tsx > PricingPage > Stripe Checkout > should handle checkout error gracefully 50ms
+ ✓ src/pages/__tests__/PricingPage.test.tsx > PricingPage > Layout > should render pricing cards in a grid 5ms
+stderr | src/components/__tests__/Navigation.test.tsx > Navigation > Rendering > should render the logo and app name
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/components/__tests__/Navigation.test.tsx > Navigation > Rendering > should render the logo and app name 18ms
+ ✓ src/components/__tests__/Navigation.test.tsx > Navigation > Rendering > should render Sign In and Get Started buttons when not authenticated 2ms
+ ✓ src/components/__tests__/Navigation.test.tsx > Navigation > Rendering > should render navigation items when authenticated 7ms
+ ✓ src/components/__tests__/Navigation.test.tsx > Navigation > Rendering > should render Sign Out button when authenticated 6ms
+ ✓ src/components/__tests__/Navigation.test.tsx > Navigation > Authentication Actions > should call signOut when Sign Out button is clicked 6ms
+ ✓ src/components/__tests__/Navigation.test.tsx > Navigation > Navigation Links > should have correct href for Home link 9ms
+ ✓ src/components/__tests__/Navigation.test.tsx > Navigation > Navigation Links > should have correct href for Session link 6ms
+ ✓ src/components/__tests__/Navigation.test.tsx > Navigation > Navigation Links > should have correct href for Analytics link 6ms
+ ✓ src/components/__tests__/Navigation.test.tsx > Navigation > Mobile Navigation > should render mobile navigation when authenticated 7ms
+ ✓ src/components/__tests__/Navigation.test.tsx > Navigation > Mobile Navigation > should not render mobile navigation when not authenticated 2ms
+ ✓ src/components/__tests__/Navigation.test.tsx > Navigation > Active Link Highlighting > should highlight Home link when on home page 4ms
+ ✓ src/components/__tests__/Navigation.test.tsx > Navigation > Active Link Highlighting > should highlight Session link when on session page 5ms
+ ✓ src/components/__tests__/Navigation.test.tsx > Navigation > Active Link Highlighting > should highlight Analytics link when on analytics page 4ms
+stdout | src/hooks/__tests__/useCustomVocabulary.test.tsx > useCustomVocabulary > should fetch vocabulary for authenticated user
+[useCustomVocabulary] GET queryKey: [ [32m'customVocabulary'[39m, [32m'test-user'[39m ]
+[useCustomVocabulary] Fetching vocabulary for user: test-user
+
+stdout | src/hooks/__tests__/useCustomVocabulary.test.tsx > useCustomVocabulary > should fetch vocabulary for authenticated user
+[useCustomVocabulary] Got [33m1[39m words
+
+stdout | src/hooks/__tests__/useCustomVocabulary.test.tsx > useCustomVocabulary > should validate word before adding
+[useCustomVocabulary] GET queryKey: [ [32m'customVocabulary'[39m, [32m'test-user'[39m ]
+[useCustomVocabulary] Fetching vocabulary for user: test-user
+
+stdout | src/hooks/__tests__/useCustomVocabulary.test.tsx > useCustomVocabulary > should validate word before adding
+[useCustomVocabulary] ADD MUTATION STARTED for word: ab
+[useCustomVocabulary] Current vocabulary length: [33m0[39m
+[useCustomVocabulary] User: test-user Profile: [90mundefined[39m
+[useCustomVocabulary] Trimmed word: ab
+[useCustomVocabulary] Max words for tier: [33m10[39m Current: [33m0[39m
+[useCustomVocabulary] Validation passed, making POST request...
+
+stderr | src/hooks/__tests__/useCustomVocabulary.test.tsx > useCustomVocabulary > should validate word before adding
+[useCustomVocabulary] ADD MUTATION ERROR: TypeError: supabase.from is not a function
+    at Object.mutationFn [90m(/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/[39msrc/hooks/useCustomVocabulary.ts:83:18[90m)[39m
+    at Object.fn (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@tanstack[24m/query-core/src/mutation.ts:190:29)
+    at run (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@tanstack[24m/query-core/src/retryer.ts:155:49)
+    at Object.start (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@tanstack[24m/query-core/src/retryer.ts:221:9)
+    at Mutation.execute (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/[4m@tanstack[24m/query-core/src/mutation.ts:233:40)
+[useCustomVocabulary] Error message: supabase.from is not a function
+[useCustomVocabulary] Error stack: TypeError: supabase.from is not a function
+    at Object.mutationFn (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/hooks/useCustomVocabulary.ts:83:18)
+    at Object.fn (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@tanstack/query-core/src/mutation.ts:190:29)
+    at run (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@tanstack/query-core/src/retryer.ts:155:49)
+    at Object.start (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@tanstack/query-core/src/retryer.ts:221:9)
+    at Mutation.execute (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@tanstack/query-core/src/mutation.ts:233:40)
+
+ ✓ src/hooks/__tests__/useCustomVocabulary.test.tsx > useCustomVocabulary > should return empty vocabulary when no user 9ms
+ ✓ src/hooks/__tests__/useCustomVocabulary.test.tsx > useCustomVocabulary > should fetch vocabulary for authenticated user 54ms
+ ✓ src/hooks/__tests__/useCustomVocabulary.test.tsx > useCustomVocabulary > should validate word before adding 6ms
+ ✓ src/hooks/__tests__/usePracticeHistory.test.tsx > usePracticeHistory > should not fetch history when no user is authenticated 9ms
+ ✓ src/hooks/__tests__/usePracticeHistory.test.tsx > usePracticeHistory > should fetch history when user is authenticated 54ms
+ ✓ src/components/__tests__/UpgradePromptDialog.test.tsx > UpgradePromptDialog > does not render the dialog when open is false 13ms
+ ✓ src/components/__tests__/UpgradePromptDialog.test.tsx > UpgradePromptDialog > renders the dialog when open is true 20ms
+ ✓ src/components/__tests__/UpgradePromptDialog.test.tsx > UpgradePromptDialog > calls onOpenChange with false when "Maybe Later" is clicked 9ms
+ ✓ src/components/__tests__/UpgradePromptDialog.test.tsx > UpgradePromptDialog > calls the upgrade function and redirects on "View Plans" click 9ms
+stdout | src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Loading States > should render loading spinner when analytics are loading
+[AnalyticsPage] Rendering. sessionId: [90mundefined[39m loading: [33mtrue[39m isProfileLoading: [33mfalse[39m
+[AnalyticsPage] sessionHistory length: [33m0[39m error: [1mnull[22m profileError: [1mnull[22m
+[AnalyticsPage] Showing loading state
+
+stderr | src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Loading States > should render loading spinner when analytics are loading
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+stdout | src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Loading States > should render loading spinner when profile is loading
+[AnalyticsPage] Rendering. sessionId: [90mundefined[39m loading: [33mfalse[39m isProfileLoading: [33mtrue[39m
+[AnalyticsPage] sessionHistory length: [33m1[39m error: [1mnull[22m profileError: [1mnull[22m
+[AnalyticsPage] Showing loading state
+
+stdout | src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Error Handling > should render error message when analytics fails
+[AnalyticsPage] Rendering. sessionId: [90mundefined[39m loading: [33mfalse[39m isProfileLoading: [33mfalse[39m
+[AnalyticsPage] sessionHistory length: [33m0[39m error: { message: [32m'Failed to load sessions'[39m } profileError: [1mnull[22m
+
+stdout | src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Error Handling > should render error message when profile fails
+[AnalyticsPage] Rendering. sessionId: [90mundefined[39m loading: [33mfalse[39m isProfileLoading: [33mfalse[39m
+[AnalyticsPage] sessionHistory length: [33m1[39m error: [1mnull[22m profileError: { message: [32m'Failed to load profile'[39m }
+
+stdout | src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Error Handling > should reload page when refresh button is clicked
+[AnalyticsPage] Rendering. sessionId: [90mundefined[39m loading: [33mfalse[39m isProfileLoading: [33mfalse[39m
+[AnalyticsPage] sessionHistory length: [33m0[39m error: { message: [32m'Error'[39m } profileError: [1mnull[22m
+
+stdout | src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Dashboard View (No Session ID) > should render dashboard heading
+[AnalyticsPage] Rendering. sessionId: [90mundefined[39m loading: [33mfalse[39m isProfileLoading: [33mfalse[39m
+[AnalyticsPage] sessionHistory length: [33m1[39m error: [1mnull[22m profileError: [1mnull[22m
+
+stdout | src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Dashboard View (No Session ID) > should render AnalyticsDashboard component
+[AnalyticsPage] Rendering. sessionId: [90mundefined[39m loading: [33mfalse[39m isProfileLoading: [33mfalse[39m
+[AnalyticsPage] sessionHistory length: [33m1[39m error: [1mnull[22m profileError: [1mnull[22m
+
+stdout | src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Dashboard View (No Session ID) > should pass profile to AnalyticsDashboard
+[AnalyticsPage] Rendering. sessionId: [90mundefined[39m loading: [33mfalse[39m isProfileLoading: [33mfalse[39m
+[AnalyticsPage] sessionHistory length: [33m1[39m error: [1mnull[22m profileError: [1mnull[22m
+
+stdout | src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Session View (With Session ID) > should render session analysis heading when session exists
+[AnalyticsPage] Rendering. sessionId: session-1 loading: [33mfalse[39m isProfileLoading: [33mfalse[39m
+[AnalyticsPage] sessionHistory length: [33m1[39m error: [1mnull[22m profileError: [1mnull[22m
+
+stdout | src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Session View (With Session ID) > should render "Session Not Found" when session ID does not exist in history
+[AnalyticsPage] Rendering. sessionId: missing-session loading: [33mfalse[39m isProfileLoading: [33mfalse[39m
+[AnalyticsPage] sessionHistory length: [33m0[39m error: [1mnull[22m profileError: [1mnull[22m
+
+stdout | src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Session View (With Session ID) > should render link to dashboard in not found state
+[AnalyticsPage] Rendering. sessionId: missing-session loading: [33mfalse[39m isProfileLoading: [33mfalse[39m
+[AnalyticsPage] sessionHistory length: [33m0[39m error: [1mnull[22m profileError: [1mnull[22m
+
+stdout | src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Upgrade Banner > should render upgrade banner for free users on dashboard
+[AnalyticsPage] Rendering. sessionId: [90mundefined[39m loading: [33mfalse[39m isProfileLoading: [33mfalse[39m
+[AnalyticsPage] sessionHistory length: [33m1[39m error: [1mnull[22m profileError: [1mnull[22m
+
+stdout | src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Upgrade Banner > should NOT render upgrade banner for pro users
+[AnalyticsPage] Rendering. sessionId: [90mundefined[39m loading: [33mfalse[39m isProfileLoading: [33mfalse[39m
+[AnalyticsPage] sessionHistory length: [33m1[39m error: [1mnull[22m profileError: [1mnull[22m
+
+stdout | src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Upgrade Banner > should NOT render upgrade banner when viewing specific session
+[AnalyticsPage] Rendering. sessionId: session-1 loading: [33mfalse[39m isProfileLoading: [33mfalse[39m
+[AnalyticsPage] sessionHistory length: [33m1[39m error: [1mnull[22m profileError: [1mnull[22m
+
+ ✓ src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Loading States > should render loading spinner when analytics are loading 12ms
+ ✓ src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Loading States > should render loading spinner when profile is loading 2ms
+ ✓ src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Error Handling > should render error message when analytics fails 5ms
+ ✓ src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Error Handling > should render error message when profile fails 1ms
+ ✓ src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Error Handling > should reload page when refresh button is clicked 3ms
+ ✓ src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Dashboard View (No Session ID) > should render dashboard heading 3ms
+ ✓ src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Dashboard View (No Session ID) > should render AnalyticsDashboard component 2ms
+ ✓ src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Dashboard View (No Session ID) > should pass profile to AnalyticsDashboard 2ms
+ ✓ src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Session View (With Session ID) > should render session analysis heading when session exists 1ms
+ ✓ src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Session View (With Session ID) > should render "Session Not Found" when session ID does not exist in history 3ms
+ ✓ src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Session View (With Session ID) > should render link to dashboard in not found state 11ms
+ ✓ src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Upgrade Banner > should render upgrade banner for free users on dashboard 2ms
+ ✓ src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Upgrade Banner > should NOT render upgrade banner for pro users 1ms
+ ✓ src/pages/__tests__/AnalyticsPage.test.tsx > AnalyticsPage > Upgrade Banner > should NOT render upgrade banner when viewing specific session 1ms
+stderr | src/pages/__tests__/Index.test.tsx > Index > Loading State > should render landing page immediately even when loading (public page)
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/pages/__tests__/Index.test.tsx > Index > Loading State > should render landing page immediately even when loading (public page) 22ms
+ ✓ src/pages/__tests__/Index.test.tsx > Index > Authenticated State > should redirect to /session when authenticated 6ms
+ ✓ src/pages/__tests__/Index.test.tsx > Index > Unauthenticated State > should render the landing page when not authenticated 5ms
+ ✓ src/pages/__tests__/Index.test.tsx > Index > Unauthenticated State > should have correct page structure 7ms
+ ✓ src/pages/__tests__/Index.test.tsx > Index > Unauthenticated State > should render main element with flex-1 class 7ms
+stderr | src/pages/__tests__/DesignSystemPage.test.tsx > DesignSystemPage > renders correctly
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/pages/__tests__/DesignSystemPage.test.tsx > DesignSystemPage > renders correctly 24ms
+ ✓ src/pages/__tests__/DesignSystemPage.test.tsx > DesignSystemPage > renders all component sections 9ms
+ ✓ src/pages/__tests__/DesignSystemPage.test.tsx > DesignSystemPage > renders component examples 11ms
+ ✓ src/components/session/__tests__/FillerWordAnalysis.test.tsx > FillerWordAnalysis > renders filler word cards sorted by count 20ms
+ ✓ src/components/session/__tests__/FillerWordAnalysis.test.tsx > FillerWordAnalysis > adds a new custom filler word 11ms
+ ✓ src/components/session/__tests__/FillerWordAnalysis.test.tsx > FillerWordAnalysis > does not add a duplicate custom filler word 5ms
+ ✓ src/components/session/__tests__/FillerWordAnalysis.test.tsx > FillerWordAnalysis > does not add a duplicate default filler word 4ms
+ ✓ src/components/session/__tests__/AISuggestions.test.tsx > AISuggestions > renders the initial state with a disabled button when there is no transcript 18ms
+ ✓ src/components/session/__tests__/AISuggestions.test.tsx > AISuggestions > fetches and displays suggestions when the button is clicked 12ms
+ ✓ src/components/session/__tests__/AISuggestions.test.tsx > AISuggestions > displays an error message when fetching suggestions fails 7ms
+stdout | src/contexts/__tests__/AuthProvider.test.tsx > AuthProvider > renders authenticated user and fetches profile
+[AuthProvider] Fetching profile for: user-123
+
+stdout | src/contexts/__tests__/AuthProvider.test.tsx > AuthProvider > renders authenticated user and fetches profile
+[AuthProvider] Profile loaded: user-123
+
+stdout | src/contexts/__tests__/AuthProvider.test.tsx > AuthProvider > handles sign out
+[AuthProvider] Fetching profile for: user-123
+
+stderr | src/contexts/__tests__/AuthProvider.test.tsx > AuthProvider > handles sign out
+[AuthProvider] Failed to fetch profile after retries: TypeError: Cannot read properties of null (reading 'id')
+    at fetchProfile [90m(/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/[39msrc/contexts/AuthProvider.tsx:140:62[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+
+stdout | src/contexts/__tests__/AuthProvider.test.tsx > AuthProvider > sets test flags when in test mode
+[AuthProvider] Fetching profile for: test-user
+
+stdout | src/contexts/__tests__/AuthProvider.test.tsx > AuthProvider > sets test flags when in test mode
+[AuthProvider] Profile loaded: test-user
+[E2E DIAGNOSTIC] Profile found for test-user, setting flag and dispatching event.
+
+ ✓ src/contexts/__tests__/AuthProvider.test.tsx > AuthProvider > renders loading state initially 10ms
+ ✓ src/contexts/__tests__/AuthProvider.test.tsx > AuthProvider > renders unauthenticated when no session exists 6ms
+ ✓ src/contexts/__tests__/AuthProvider.test.tsx > AuthProvider > renders authenticated user and fetches profile 8ms
+ ✓ src/contexts/__tests__/AuthProvider.test.tsx > AuthProvider > handles sign out 8ms
+ ✓ src/contexts/__tests__/AuthProvider.test.tsx > AuthProvider > sets test flags when in test mode 4ms
+ ✓ src/components/session/__tests__/TranscriptPanel.test.tsx > TranscriptPanel > renders the transcript and highlights filler words correctly 15ms
+ ✓ src/components/session/__tests__/TranscriptPanel.test.tsx > TranscriptPanel > renders interim transcript correctly 2ms
+ ✓ src/components/session/__tests__/TranscriptPanel.test.tsx > TranscriptPanel > renders waiting message when listening but no text is available 1ms
+ ✓ src/components/session/__tests__/TranscriptPanel.test.tsx > TranscriptPanel > renders speaker labels when provided 1ms
+ ✓ src/components/session/__tests__/TranscriptPanel.test.tsx > TranscriptPanel > renders the initial state panel before any session activity 3ms
+ ✓ src/components/session/__tests__/TranscriptPanel.test.tsx > TranscriptPanel > renders the loading state panel when loading 4ms
+ ✓ src/components/session/__tests__/TranscriptPanel.test.tsx > TranscriptPanel > renders the error state panel when an error is provided 1ms
+ ✓ src/components/session/__tests__/TranscriptPanel.test.tsx > TranscriptPanel > renders the empty state panel after a session with no speech 2ms
+ ✓ src/components/__tests__/ErrorBoundary.test.tsx > ErrorBoundary > should catch errors and display fallback UI 20ms
+ ✓ src/components/__tests__/ErrorBoundary.test.tsx > ErrorBoundary > should reload the page when Refresh button is clicked 7ms
+ ✓ src/components/__tests__/ErrorBoundary.test.tsx > ErrorBoundary > should render children when no error occurs 1ms
+ ✓ tests/integration/TranscriptPanel.test.tsx > TranscriptPanel Integration > Initial State > shows initial state when not listening and no transcript 10ms
+ ✓ tests/integration/TranscriptPanel.test.tsx > TranscriptPanel Integration > Listening State > shows listening message when ready but no transcript yet 2ms
+ ✓ tests/integration/TranscriptPanel.test.tsx > TranscriptPanel Integration > Transcript Display > renders transcript chunks 2ms
+ ✓ tests/integration/TranscriptPanel.test.tsx > TranscriptPanel Integration > Transcript Display > highlights filler words in transcript 2ms
+ ✓ tests/integration/TranscriptPanel.test.tsx > TranscriptPanel Integration > Transcript Display > displays interim transcript 1ms
+ ✓ tests/integration/TranscriptPanel.test.tsx > TranscriptPanel Integration > Empty State > shows empty state after session ends with no transcript 1ms
+ ✓ tests/integration/TranscriptPanel.test.tsx > TranscriptPanel Integration > Error Handling > displays error state when error occurs 1ms
+ ✓ tests/integration/TranscriptPanel.test.tsx > TranscriptPanel Integration > Loading State > shows loading state 1ms
+ ✓ tests/integration/TranscriptPanel.test.tsx > TranscriptPanel Integration > Multiple Filler Words > highlights multiple different filler words 1ms
+stdout | src/hooks/__tests__/useAnalytics.test.ts > useAnalytics > should process analytics data correctly from usePracticeHistory
+[useAnalytics] Hook called. SessionId: [90mundefined[39m IsLoading: [33mfalse[39m Sessions found: [33m2[39m DevBypass: [33mfalse[39m
+[useAnalytics] Raw sessions data: [
+  {
+    id: [32m's1'[39m,
+    created_at: [32m'2023-10-27T10:00:00.000Z'[39m,
+    duration: [33m60[39m,
+    total_words: [33m100[39m,
+    accuracy: [33m0.9[39m,
+    filler_words: { um: [36m[Object][39m, uh: [36m[Object][39m, total: [36m[Object][39m },
+    transcript: [32m'um uh hello world'[39m,
+    ground_truth: [32m'hello world'[39m,
+    engine: [32m'Cloud AI'[39m
+  },
+  {
+    id: [32m's2'[39m,
+    created_at: [32m'2023-10-26T10:00:00.000Z'[39m,
+    duration: [33m120[39m,
+    total_words: [33m200[39m,
+    accuracy: [33m0.8[39m,
+    filler_words: { um: [36m[Object][39m, like: [36m[Object][39m, total: [36m[Object][39m },
+    transcript: [32m'um like hi there'[39m,
+    ground_truth: [32m'hi there'[39m,
+    engine: [32m'Private'[39m
+  }
+]
+[useAnalytics] Returning all sessions: [33m2[39m
+[useAnalytics] Computing analytics data. SessionHistory length: [33m2[39m
+[useAnalytics] Computing stats for [33m2[39m sessions
+
+stdout | src/hooks/__tests__/useAnalytics.test.ts > useAnalytics > should filter sessions when sessionId is present in URL
+[useAnalytics] Hook called. SessionId: s1 IsLoading: [33mfalse[39m Sessions found: [33m2[39m DevBypass: [33mfalse[39m
+[useAnalytics] Raw sessions data: [
+  { id: [32m's1'[39m, duration: [33m60[39m, filler_words: {} },
+  { id: [32m's2'[39m, duration: [33m120[39m, filler_words: {} }
+]
+[useAnalytics] Filtering for specific sessionId: s1
+[useAnalytics] Computing analytics data. SessionHistory length: [33m1[39m
+[useAnalytics] Computing stats for [33m1[39m sessions
+
+ ✓ src/hooks/__tests__/useAnalytics.test.ts > useAnalytics > should process analytics data correctly from usePracticeHistory 25ms
+ ✓ src/hooks/__tests__/useAnalytics.test.ts > useAnalytics > should filter sessions when sessionId is present in URL 4ms
+ ✓ src/components/analytics/__tests__/STTAccuracyComparison.test.tsx > STTAccuracyComparison > renders loading state 14ms
+ ✓ src/components/analytics/__tests__/STTAccuracyComparison.test.tsx > STTAccuracyComparison > renders error state 1ms
+ ✓ src/components/analytics/__tests__/STTAccuracyComparison.test.tsx > STTAccuracyComparison > renders accuracy comparison chart 5ms
+ ✓ src/components/analytics/__tests__/STTAccuracyComparison.test.tsx > STTAccuracyComparison > renders empty state 1ms
+ ✓ src/components/analytics/__tests__/TopFillerWords.test.tsx > TopFillerWords > renders loading state 13ms
+ ✓ src/components/analytics/__tests__/TopFillerWords.test.tsx > TopFillerWords > renders error state 1ms
+ ✓ src/components/analytics/__tests__/TopFillerWords.test.tsx > TopFillerWords > renders top filler words 2ms
+ ✓ src/components/analytics/__tests__/TopFillerWords.test.tsx > TopFillerWords > renders empty state 1ms
+stderr | src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should initialize and return expected interface
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should initialize and return expected interface 8ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should call sub-hooks with correct parameters 2ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should handle stopListening with stats 1ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should call reset on all sub-hooks when startListening is called 1ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should call reset on all sub-hooks when reset is called 1ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should handle partial transcript updates from the service 1ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should handle final transcript updates from the service 1ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should return null from stopListening on failure 1ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/index.test.tsx > useSpeechRecognition > should handle errors during startListening 1ms
+stdout | src/mocks/__tests__/handlers.test.ts > MSW Handlers > GET /auth/v1/user > should return a mock user
+[MSW DEBUG] Intercepted: GET /auth/v1/user
+
+stdout | src/mocks/__tests__/handlers.test.ts > MSW Handlers > POST /auth/v1/signup > should return a mock session
+[MSW DEBUG] Intercepted: POST /auth/v1/signup
+
+stdout | src/mocks/__tests__/handlers.test.ts > MSW Handlers > POST /auth/v1/token > should return a mock session for token exchange
+[MSW DEBUG] Intercepted: POST /auth/v1/token
+
+stdout | src/mocks/__tests__/handlers.test.ts > MSW Handlers > GET /rest/v1/user_profiles > should return a single profile object when Accept header requests it
+[MSW DEBUG] Intercepted: GET /rest/v1/user_profiles
+[MSW DEBUG] Returning single user_profile object
+
+stdout | src/mocks/__tests__/handlers.test.ts > MSW Handlers > GET /rest/v1/user_profiles > should return an array of profiles by default
+[MSW DEBUG] Intercepted: GET /rest/v1/user_profiles
+[MSW DEBUG] Returning user_profiles array
+
+stdout | src/mocks/__tests__/handlers.test.ts > MSW Handlers > GET /rest/v1/sessions > should return mock session history by default
+[MSW DEBUG] Intercepted: GET /rest/v1/sessions
+[MSW DEBUG] window.__E2E_EMPTY_SESSIONS__: [33mfalse[39m
+[MSW DEBUG] x-e2e-empty-sessions header: [33mfalse[39m
+
+stdout | src/mocks/__tests__/handlers.test.ts > MSW Handlers > GET /rest/v1/sessions > should return empty array when x-e2e-empty-sessions header is set
+[MSW DEBUG] Intercepted: GET /rest/v1/sessions
+[MSW DEBUG] window.__E2E_EMPTY_SESSIONS__: [33mfalse[39m
+[MSW DEBUG] x-e2e-empty-sessions header: [33mtrue[39m
+[MSW DEBUG] Returning empty sessions array
+
+stdout | src/mocks/__tests__/handlers.test.ts > MSW Handlers > GET /rest/v1/sessions > should include filler words data in sessions
+[MSW DEBUG] Intercepted: GET /rest/v1/sessions
+[MSW DEBUG] window.__E2E_EMPTY_SESSIONS__: [33mfalse[39m
+[MSW DEBUG] x-e2e-empty-sessions header: [33mfalse[39m
+
+stdout | src/mocks/__tests__/handlers.test.ts > MSW Handlers > GET /rest/v1/sessions > should return sessions with valid dates
+[MSW DEBUG] Intercepted: GET /rest/v1/sessions
+[MSW DEBUG] window.__E2E_EMPTY_SESSIONS__: [33mfalse[39m
+[MSW DEBUG] x-e2e-empty-sessions header: [33mfalse[39m
+
+ ✓ src/mocks/__tests__/handlers.test.ts > MSW Handlers > GET /auth/v1/user > should return a mock user 7ms
+ ✓ src/mocks/__tests__/handlers.test.ts > MSW Handlers > POST /auth/v1/signup > should return a mock session 2ms
+ ✓ src/mocks/__tests__/handlers.test.ts > MSW Handlers > POST /auth/v1/token > should return a mock session for token exchange 1ms
+ ✓ src/mocks/__tests__/handlers.test.ts > MSW Handlers > GET /rest/v1/user_profiles > should return a single profile object when Accept header requests it 1ms
+ ✓ src/mocks/__tests__/handlers.test.ts > MSW Handlers > GET /rest/v1/user_profiles > should return an array of profiles by default 0ms
+ ✓ src/mocks/__tests__/handlers.test.ts > MSW Handlers > GET /rest/v1/sessions > should return mock session history by default 1ms
+ ✓ src/mocks/__tests__/handlers.test.ts > MSW Handlers > GET /rest/v1/sessions > should return empty array when x-e2e-empty-sessions header is set 1ms
+ ✓ src/mocks/__tests__/handlers.test.ts > MSW Handlers > GET /rest/v1/sessions > should include filler words data in sessions 1ms
+ ✓ src/mocks/__tests__/handlers.test.ts > MSW Handlers > GET /rest/v1/sessions > should return sessions with valid dates 1ms
+stdout | src/hooks/useSpeechRecognition/__tests__/useTranscriptionService.test.tsx > useTranscriptionService > should start listening successfully
+[useTranscriptionService] Creating new service with forceOptions: {}
+
+stdout | src/hooks/useSpeechRecognition/__tests__/useTranscriptionService.test.tsx > useTranscriptionService > should stop listening successfully
+[useTranscriptionService] Creating new service with forceOptions: {}
+
+stdout | src/hooks/useSpeechRecognition/__tests__/useTranscriptionService.test.tsx > useTranscriptionService > should handle start listening errors
+[useTranscriptionService] Creating new service with forceOptions: {}
+
+stdout | src/hooks/useSpeechRecognition/__tests__/useTranscriptionService.test.tsx > useTranscriptionService > should cleanup on unmount
+[useTranscriptionService] Creating new service with forceOptions: {}
+
+ ✓ src/hooks/useSpeechRecognition/__tests__/useTranscriptionService.test.tsx > useTranscriptionService > should initialize with correct default state 6ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/useTranscriptionService.test.tsx > useTranscriptionService > should start listening successfully 2ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/useTranscriptionService.test.tsx > useTranscriptionService > should stop listening successfully 2ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/useTranscriptionService.test.tsx > useTranscriptionService > should handle start listening errors 1ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/useTranscriptionService.test.tsx > useTranscriptionService > should cleanup on unmount 1ms
+ ✓ src/lib/__tests__/dateUtils.test.ts > formatDate > should format a valid date string 12ms
+ ✓ src/lib/__tests__/dateUtils.test.ts > formatDate > should format a valid Date object 0ms
+ ✓ src/lib/__tests__/dateUtils.test.ts > formatDate > should return an empty string for a null input 0ms
+ ✓ src/lib/__tests__/dateUtils.test.ts > formatDate > should return an empty string for an undefined input 0ms
+ ✓ src/lib/__tests__/dateUtils.test.ts > formatDate > should return an empty string for an invalid date string 0ms
+ ✓ src/lib/__tests__/dateUtils.test.ts > formatDate > should return an empty string for an invalid Date object 0ms
+ ✓ src/lib/__tests__/dateUtils.test.ts > formatDateTime > should format a valid date-time string 0ms
+ ✓ src/lib/__tests__/dateUtils.test.ts > formatDateTime > should return an empty string for a null input 0ms
+ ✓ src/lib/__tests__/dateUtils.test.ts > formatDateTime > should return an empty string for an invalid date string 0ms
+ ✓ src/lib/__tests__/analyticsUtils.test.ts > analyticsUtils > calculateOverallStats > should calculate overall stats correctly 12ms
+ ✓ src/lib/__tests__/analyticsUtils.test.ts > analyticsUtils > calculateFillerWordTrends > should calculate filler word trends correctly 0ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/useFillerWords.test.tsx > useFillerWords > should initialize with initial filler data 8ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/useFillerWords.test.tsx > useFillerWords > should update final filler data when chunks change 1ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/useFillerWords.test.tsx > useFillerWords > should debounce live filler word counting 1ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/useFillerWords.test.tsx > useFillerWords > should reset filler data 1ms
+ ✓ src/hooks/__tests__/useVocalAnalysis.test.tsx > useVocalAnalysis > should initialize PauseDetector when listening starts 8ms
+ ✓ src/hooks/__tests__/useVocalAnalysis.test.tsx > useVocalAnalysis > should update metrics periodically when listening 2ms
+ ✓ src/hooks/__tests__/useVocalAnalysis.test.tsx > useVocalAnalysis > should reset metrics 1ms
+ ✓ src/hooks/__tests__/useVocalAnalysis.test.tsx > useVocalAnalysis > should process audio frames 0ms
+stdout | src/hooks/__tests__/useSessionManager.test.tsx > useSessionManager > should save to DB for authenticated user
+[useSessionManager] 💾 Saving session for user: test-user
+
+stdout | src/hooks/__tests__/useSessionManager.test.tsx > useSessionManager > should save to DB for authenticated user
+[useSessionManager] ✅ Session saved successfully: session-1
+
+ ✓ src/hooks/__tests__/useSessionManager.test.tsx > useSessionManager > should save to sessionStorage for anonymous user 7ms
+ ✓ src/hooks/__tests__/useSessionManager.test.tsx > useSessionManager > should save to DB for authenticated user 2ms
+ ✓ src/hooks/__tests__/useSessionManager.test.tsx > useSessionManager > should handle delete session 1ms
+ ✓ src/hooks/__tests__/useSessionManager.test.tsx > useSessionManager > should handle anonymous session delete (client-side only) 0ms
+ ✓ src/hooks/__tests__/useStreak.test.ts > useStreak > initializes with 0 streak 7ms
+ ✓ src/hooks/__tests__/useStreak.test.ts > useStreak > increments streak on first practice 1ms
+ ✓ src/hooks/__tests__/useStreak.test.ts > useStreak > increments streak if practiced yesterday 1ms
+ ✓ src/hooks/__tests__/useStreak.test.ts > useStreak > does not increment if already practiced today 1ms
+ ✓ src/hooks/__tests__/useStreak.test.ts > useStreak > resets streak if missed a day 1ms
+ ✓ src/hooks/__tests__/useSessionMetrics.test.ts > useSessionMetrics > formattedTime > formats 0 seconds as 00:00 7ms
+ ✓ src/hooks/__tests__/useSessionMetrics.test.ts > useSessionMetrics > formattedTime > formats 65 seconds as 01:05 0ms
+ ✓ src/hooks/__tests__/useSessionMetrics.test.ts > useSessionMetrics > formattedTime > formats 3661 seconds as 61:01 0ms
+ ✓ src/hooks/__tests__/useSessionMetrics.test.ts > useSessionMetrics > wpm (words per minute) > returns 0 when elapsed time is 0 0ms
+ ✓ src/hooks/__tests__/useSessionMetrics.test.ts > useSessionMetrics > wpm (words per minute) > calculates WPM correctly 1ms
+ ✓ src/hooks/__tests__/useSessionMetrics.test.ts > useSessionMetrics > wpm (words per minute) > returns optimal label for 120-160 WPM 0ms
+ ✓ src/hooks/__tests__/useSessionMetrics.test.ts > useSessionMetrics > wpm (words per minute) > returns Too Fast for > 160 WPM 0ms
+ ✓ src/hooks/__tests__/useSessionMetrics.test.ts > useSessionMetrics > clarityScore > returns 87 when no words or fillers 0ms
+ ✓ src/hooks/__tests__/useSessionMetrics.test.ts > useSessionMetrics > clarityScore > calculates clarity score correctly with fillers 0ms
+ ✓ src/hooks/__tests__/useSessionMetrics.test.ts > useSessionMetrics > clarityScore > returns Keep practicing for low clarity 0ms
+ ✓ src/hooks/__tests__/useSessionMetrics.test.ts > useSessionMetrics > fillerCount > sums all filler word counts 0ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/useTranscriptState.test.tsx > useTranscriptState > should initialize with empty state 7ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/useTranscriptState.test.tsx > useTranscriptState > should add a chunk with a speaker and update the transcript 1ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/useTranscriptState.test.tsx > useTranscriptState > should set the interim transcript 0ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/useTranscriptState.test.tsx > useTranscriptState > should reset the state 1ms
+ ✓ tests/unit/main.test.tsx > main.tsx rendering logic > renders ConfigurationNeededPage when required env vars are missing 8ms
+ ✓ tests/unit/main.test.tsx > main.tsx rendering logic > renders the main App when all required env vars are present 1ms
+stdout | src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI Resilience > should reconnect with exponential backoff on unplanned closure
+[AssemblyAI] 🔄 Starting Cloud STT connection...
+
+stdout | src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI Resilience > should reconnect with exponential backoff on unplanned closure
+[AssemblyAI] 🔄 Starting Cloud STT connection...
+
+stdout | src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI Resilience > should reconnect with exponential backoff on unplanned closure
+[AssemblyAI] 🔄 Starting Cloud STT connection...
+
+stdout | src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI Resilience > should reconnect with exponential backoff on unplanned closure
+[AssemblyAI] 🔄 Starting Cloud STT connection...
+
+stdout | src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI Resilience > should stop reconnecting after max attempts
+[AssemblyAI] 🔄 Starting Cloud STT connection...
+
+stdout | src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI Resilience > should stop reconnecting after max attempts
+[AssemblyAI] 🔄 Starting Cloud STT connection...
+
+stderr | src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI Resilience > should stop reconnecting after max attempts
+❌ [CloudAssemblyAI] Error starting cloud transcription: Error: Failed to retrieve AssemblyAI token.
+    at CloudAssemblyAI.startTranscription [90m(/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/[39msrc/services/transcription/modes/CloudAssemblyAI.ts:82:15[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90m/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/[39msrc/services/transcription/modes/CloudAssemblyAI.ts:249:11
+
+stdout | src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI Resilience > should stop reconnecting after max attempts
+[AssemblyAI] 🔄 Starting Cloud STT connection...
+
+stderr | src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI Resilience > should stop reconnecting after max attempts
+❌ [CloudAssemblyAI] Error starting cloud transcription: Error: Failed to retrieve AssemblyAI token.
+    at CloudAssemblyAI.startTranscription [90m(/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/[39msrc/services/transcription/modes/CloudAssemblyAI.ts:82:15[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90m/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/[39msrc/services/transcription/modes/CloudAssemblyAI.ts:249:11
+
+stdout | src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI Resilience > should stop reconnecting after max attempts
+[AssemblyAI] 🔄 Starting Cloud STT connection...
+
+stderr | src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI Resilience > should stop reconnecting after max attempts
+❌ [CloudAssemblyAI] Error starting cloud transcription: Error: Failed to retrieve AssemblyAI token.
+    at CloudAssemblyAI.startTranscription [90m(/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/[39msrc/services/transcription/modes/CloudAssemblyAI.ts:82:15[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90m/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/[39msrc/services/transcription/modes/CloudAssemblyAI.ts:249:11
+
+stdout | src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI Resilience > should stop reconnecting after max attempts
+[AssemblyAI] 🔄 Starting Cloud STT connection...
+
+stderr | src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI Resilience > should stop reconnecting after max attempts
+❌ [CloudAssemblyAI] Error starting cloud transcription: Error: Failed to retrieve AssemblyAI token.
+    at CloudAssemblyAI.startTranscription [90m(/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/[39msrc/services/transcription/modes/CloudAssemblyAI.ts:82:15[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90m/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/[39msrc/services/transcription/modes/CloudAssemblyAI.ts:249:11
+
+stdout | src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI Resilience > should stop reconnecting after max attempts
+[AssemblyAI] 🔄 Starting Cloud STT connection...
+
+stderr | src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI Resilience > should stop reconnecting after max attempts
+❌ [CloudAssemblyAI] Error starting cloud transcription: Error: Failed to retrieve AssemblyAI token.
+    at CloudAssemblyAI.startTranscription [90m(/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/[39msrc/services/transcription/modes/CloudAssemblyAI.ts:82:15[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90m/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/[39msrc/services/transcription/modes/CloudAssemblyAI.ts:249:11
+
+stdout | src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI Resilience > should NOT reconnect if stop was manual
+[AssemblyAI] 🔄 Starting Cloud STT connection...
+
+ ✓ src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI Resilience > should reconnect with exponential backoff on unplanned closure 4ms
+ ✓ src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI Resilience > should stop reconnecting after max attempts 4ms
+ ✓ src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI Resilience > should NOT reconnect if stop was manual 1ms
+stdout | src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should get a token and open a websocket on startTranscription
+[AssemblyAI] 🔄 Starting Cloud STT connection...
+
+stdout | src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should send audio data when the websocket is open
+[AssemblyAI] 🔄 Starting Cloud STT connection...
+
+stdout | src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should handle incoming partial transcript messages
+[AssemblyAI] 🔄 Starting Cloud STT connection...
+
+stdout | src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should handle incoming final transcript messages
+[AssemblyAI] 🔄 Starting Cloud STT connection...
+
+stdout | src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should close the websocket and unregister frame handler on stopTranscription
+[AssemblyAI] 🔄 Starting Cloud STT connection...
+
+ ✓ src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should get a token and open a websocket on startTranscription 4ms
+ ✓ src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should send audio data when the websocket is open 1ms
+ ✓ src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should handle incoming partial transcript messages 1ms
+ ✓ src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should handle incoming final transcript messages 1ms
+ ✓ src/services/transcription/__tests__/CloudAssemblyAI.test.ts > CloudAssemblyAI > should close the websocket and unregister frame handler on stopTranscription 1ms
+ ✓ src/services/__tests__/domainServices.test.ts > domainServices > sessionService > getHistory > should return session history on success 2ms
+ ✓ src/services/__tests__/domainServices.test.ts > domainServices > sessionService > getHistory > should throw on error 1ms
+ ✓ src/services/__tests__/domainServices.test.ts > domainServices > sessionService > getById > should return session on success 0ms
+ ✓ src/services/__tests__/domainServices.test.ts > domainServices > sessionService > getById > should return null when not found 0ms
+ ✓ src/services/__tests__/domainServices.test.ts > domainServices > sessionService > create > should create session on success 0ms
+ ✓ src/services/__tests__/domainServices.test.ts > domainServices > sessionService > update > should update session on success 0ms
+ ✓ src/services/__tests__/domainServices.test.ts > domainServices > sessionService > delete > should delete session on success 0ms
+ ✓ src/services/__tests__/domainServices.test.ts > domainServices > profileService > getById > should return profile on success 0ms
+ ✓ src/services/__tests__/domainServices.test.ts > domainServices > profileService > getById > should return null when not found 0ms
+ ✓ src/services/__tests__/domainServices.test.ts > domainServices > profileService > getById > should throw on other errors 0ms
+ ✓ src/services/__tests__/domainServices.test.ts > domainServices > profileService > update > should update profile on success 0ms
+ ✓ src/services/__tests__/domainServices.test.ts > domainServices > vocabularyService > getWords > should return vocabulary list on success 0ms
+ ✓ src/services/__tests__/domainServices.test.ts > domainServices > vocabularyService > addWord > should add word on success 0ms
+ ✓ src/services/__tests__/domainServices.test.ts > domainServices > vocabularyService > removeWord > should remove word on success 0ms
+ ✓ src/services/__tests__/domainServices.test.ts > domainServices > goalsService > get > should return goals on success 0ms
+ ✓ src/services/__tests__/domainServices.test.ts > domainServices > goalsService > get > should return null when not found 0ms
+ ✓ src/services/__tests__/domainServices.test.ts > domainServices > goalsService > upsert > should upsert goals on success 0ms
+stdout | src/utils/__tests__/fetchWithRetry.test.ts > fetchWithRetry > should retry on failure and eventually succeed
+[fetchWithRetry] Attempt 1 failed, retrying in 100ms...
+
+stdout | src/utils/__tests__/fetchWithRetry.test.ts > fetchWithRetry > should retry on failure and eventually succeed
+[fetchWithRetry] Attempt 2 failed, retrying in 200ms...
+
+stdout | src/utils/__tests__/fetchWithRetry.test.ts > fetchWithRetry > should throw error after exhausting all retries
+[fetchWithRetry] Attempt 1 failed, retrying in 100ms...
+
+stdout | src/utils/__tests__/fetchWithRetry.test.ts > fetchWithRetry > should throw error after exhausting all retries
+[fetchWithRetry] Attempt 2 failed, retrying in 200ms...
+
+stdout | src/utils/__tests__/fetchWithRetry.test.ts > fetchWithRetry > should use exponential backoff timing
+[fetchWithRetry] Attempt 1 failed, retrying in 100ms...
+
+stdout | src/utils/__tests__/fetchWithRetry.test.ts > fetchWithRetry > should use exponential backoff timing
+[fetchWithRetry] Attempt 2 failed, retrying in 200ms...
+
+stdout | src/utils/__tests__/fetchWithRetry.test.ts > fetchWithRetry > should respect custom retry count (retries=1)
+[fetchWithRetry] Attempt 1 failed, retrying in 100ms...
+
+stdout | src/utils/__tests__/fetchWithRetry.test.ts > fetchWithRetry > should respect custom delay value
+[fetchWithRetry] Attempt 1 failed, retrying in 500ms...
+
+stdout | src/utils/__tests__/fetchWithRetry.test.ts > fetchWithRetry > should preserve original error message when all retries fail
+[fetchWithRetry] Attempt 1 failed, retrying in 100ms...
+
+ ✓ src/utils/__tests__/fetchWithRetry.test.ts > fetchWithRetry > should return data on first successful attempt 2ms
+ ✓ src/utils/__tests__/fetchWithRetry.test.ts > fetchWithRetry > should retry on failure and eventually succeed 1ms
+ ✓ src/utils/__tests__/fetchWithRetry.test.ts > fetchWithRetry > should throw error after exhausting all retries 2ms
+ ✓ src/utils/__tests__/fetchWithRetry.test.ts > fetchWithRetry > should use exponential backoff timing 0ms
+ ✓ src/utils/__tests__/fetchWithRetry.test.ts > fetchWithRetry > should respect custom retry count (retries=1) 0ms
+ ✓ src/utils/__tests__/fetchWithRetry.test.ts > fetchWithRetry > should respect custom delay value 0ms
+ ✓ src/utils/__tests__/fetchWithRetry.test.ts > fetchWithRetry > should preserve original error message when all retries fail 0ms
+stdout | src/lib/__tests__/pdfGenerator.test.ts > generateSessionPdf > should generate a PDF with correct content
+[TEST] Wrote PDF content to: /var/folders/l2/9hvj39r16nb6m2njn2l52y0h0000gn/T/session_20250923_TestUser.pdf
+
+ ✓ src/lib/__tests__/pdfGenerator.test.ts > generateSessionPdf > should generate a PDF with correct content 5ms
+ ✓ src/lib/__tests__/pdfGenerator.test.ts > generateSessionPdf > handles sessions with no filler words 0ms
+ ✓ src/lib/__tests__/pdfGenerator.test.ts > generateSessionPdf > handles sessions with no transcript 0ms
+ ✓ src/lib/__tests__/utils.test.ts > utils.ts > cn > should merge class names correctly 4ms
+ ✓ src/lib/__tests__/utils.test.ts > utils.ts > cn > should handle conditional classes 0ms
+ ✓ src/lib/__tests__/utils.test.ts > utils.ts > cn > should merge tailwind classes correctly (override) 0ms
+ ✓ src/lib/__tests__/utils.test.ts > utils.ts > getSyncSession > should return null if no session key found 1ms
+ ✓ src/lib/__tests__/utils.test.ts > utils.ts > getSyncSession > should return null if session data is empty 0ms
+ ✓ src/lib/__tests__/utils.test.ts > utils.ts > getSyncSession > should return session if valid session data found 0ms
+ ✓ src/lib/__tests__/utils.test.ts > utils.ts > getSyncSession > should return null if session data is invalid (missing token) 0ms
+ ✓ src/lib/__tests__/utils.test.ts > utils.ts > getSyncSession > should return null and log error if parsing fails 0ms
+stdout | src/lib/__tests__/storage.test.ts > storage.ts > getSessionHistory > should return session history on success
+[Supabase DB] 📥 Fetching sessions for user: user1...
+[Supabase DB] Request URL: https://mock.supabase.co/rest/v1/sessions
+
+stdout | src/lib/__tests__/storage.test.ts > storage.ts > getSessionHistory > should return session history on success
+[Supabase DB] ✅ Sessions fetched: [33m1[39m
+
+stdout | src/lib/__tests__/storage.test.ts > storage.ts > getSessionHistory > should throw error with descriptive message on failure
+[Supabase DB] 📥 Fetching sessions for user: user1...
+[Supabase DB] Request URL: https://mock.supabase.co/rest/v1/sessions
+
+stdout | src/lib/__tests__/storage.test.ts > storage.ts > getSessionHistory > should throw error with descriptive message on failure
+[Supabase DB] ✅ Sessions fetched: [33m0[39m
+
+stderr | src/lib/__tests__/storage.test.ts > storage.ts > getSessionHistory > should throw error with descriptive message on failure
+[getSessionHistory] Failed to fetch from https://mock.supabase.co/rest/v1/sessions: Failed to fetch sessions from https://mock.supabase.co/rest/v1/sessions: DB Error
+
+stdout | src/lib/__tests__/storage.test.ts > storage.ts > saveSession > should call rpc and return session on success
+[Supabase DB] 💾 Saving session via RPC: { userId: [32m'user1'[39m, duration: [33m60[39m }
+
+stdout | src/lib/__tests__/storage.test.ts > storage.ts > saveSession > should handle rpc error
+[Supabase DB] 💾 Saving session via RPC: { userId: [32m'user1'[39m, duration: [33m60[39m }
+
+stdout | src/lib/__tests__/storage.test.ts > storage.ts > exportData > should return object with sessions
+[Supabase DB] 📥 Fetching sessions for user: user1...
+[Supabase DB] Request URL: https://mock.supabase.co/rest/v1/sessions
+
+stdout | src/lib/__tests__/storage.test.ts > storage.ts > exportData > should return object with sessions
+[Supabase DB] ✅ Sessions fetched: [33m1[39m
+
+ ✓ src/lib/__tests__/storage.test.ts > storage.ts > getSessionHistory > should return empty array if userId is missing 2ms
+ ✓ src/lib/__tests__/storage.test.ts > storage.ts > getSessionHistory > should return session history on success 1ms
+ ✓ src/lib/__tests__/storage.test.ts > storage.ts > getSessionHistory > should throw error with descriptive message on failure 1ms
+ ✓ src/lib/__tests__/storage.test.ts > storage.ts > saveSession > should return null session if sessionData or userId is missing 0ms
+ ✓ src/lib/__tests__/storage.test.ts > storage.ts > saveSession > should call rpc and return session on success 0ms
+ ✓ src/lib/__tests__/storage.test.ts > storage.ts > saveSession > should handle rpc error 0ms
+ ✓ src/lib/__tests__/storage.test.ts > storage.ts > deleteSession > should return false if sessionId is missing 0ms
+ ✓ src/lib/__tests__/storage.test.ts > storage.ts > deleteSession > should return true on success 0ms
+ ✓ src/lib/__tests__/storage.test.ts > storage.ts > deleteSession > should return false and log error on failure 0ms
+ ✓ src/lib/__tests__/storage.test.ts > storage.ts > exportData > should return object with sessions 0ms
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should initialize successfully
+[TranscriptionService] Constructor options: { forceCloud: [33mfalse[39m, forcePrivate: [33mfalse[39m, forceNative: [33mfalse[39m }
+
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should initialize successfully
+[TranscriptionService] Initializing mic stream...
+
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should initialize successfully
+[TranscriptionService] Mic stream created.
+
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should return correct mode
+[TranscriptionService] Constructor options: { forceCloud: [33mfalse[39m, forcePrivate: [33mfalse[39m, forceNative: [33mfalse[39m }
+
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should handle destroy gracefully
+[TranscriptionService] Constructor options: { forceCloud: [33mfalse[39m, forcePrivate: [33mfalse[39m, forceNative: [33mfalse[39m }
+
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should use NativeBrowser by default
+[TranscriptionService] Constructor options: { forceCloud: [33mfalse[39m, forcePrivate: [33mfalse[39m, forceNative: [33mfalse[39m }
+
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should use NativeBrowser by default
+[TranscriptionService] Initializing mic stream...
+
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should use NativeBrowser by default
+[TranscriptionService] Mic stream created.
+
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should use NativeBrowser by default
+[TranscriptionService] Attempting to start transcription...
+[TranscriptionService] Decision logic: {
+  isProUser: [33mfalse[39m,
+  usePrivate: [33mfalse[39m,
+  forcePrivate: [33mfalse[39m,
+  preferred_mode: [90mundefined[39m
+}
+
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should use CloudAssemblyAI for Pro users
+[TranscriptionService] Constructor options: { forceCloud: [33mfalse[39m, forcePrivate: [33mfalse[39m, forceNative: [33mfalse[39m }
+
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should use CloudAssemblyAI for Pro users
+[TranscriptionService] Constructor options: { forceCloud: [33mfalse[39m, forcePrivate: [33mfalse[39m, forceNative: [33mfalse[39m }
+[TranscriptionService] Initializing mic stream...
+
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should use CloudAssemblyAI for Pro users
+[TranscriptionService] Mic stream created.
+
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should use CloudAssemblyAI for Pro users
+[TranscriptionService] Attempting to start transcription...
+[TranscriptionService] Decision logic: {
+  isProUser: [33mtrue[39m,
+  usePrivate: [33mfalse[39m,
+  forcePrivate: [33mfalse[39m,
+  preferred_mode: [90mundefined[39m
+}
+
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should fallback to NativeBrowser if Cloud token fails
+[TranscriptionService] Constructor options: { forceCloud: [33mfalse[39m, forcePrivate: [33mfalse[39m, forceNative: [33mfalse[39m }
+
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should fallback to NativeBrowser if Cloud token fails
+[TranscriptionService] Constructor options: { forceCloud: [33mfalse[39m, forcePrivate: [33mfalse[39m, forceNative: [33mfalse[39m }
+[TranscriptionService] Initializing mic stream...
+
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should fallback to NativeBrowser if Cloud token fails
+[TranscriptionService] Mic stream created.
+
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should fallback to NativeBrowser if Cloud token fails
+[TranscriptionService] Attempting to start transcription...
+[TranscriptionService] Decision logic: {
+  isProUser: [33mtrue[39m,
+  usePrivate: [33mfalse[39m,
+  forcePrivate: [33mfalse[39m,
+  preferred_mode: [90mundefined[39m
+}
+
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should fallback to NativeBrowser if Private model fails to load
+[TranscriptionService] Constructor options: { forceCloud: [33mfalse[39m, forcePrivate: [33mfalse[39m, forceNative: [33mfalse[39m }
+
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should fallback to NativeBrowser if Private model fails to load
+[TranscriptionService] Constructor options: { forceCloud: [33mfalse[39m, forcePrivate: [33mfalse[39m, forceNative: [33mfalse[39m }
+[TranscriptionService] Initializing mic stream...
+
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should fallback to NativeBrowser if Private model fails to load
+[TranscriptionService] Mic stream created.
+
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should fallback to NativeBrowser if Private model fails to load
+[TranscriptionService] Attempting to start transcription...
+[TranscriptionService] Decision logic: {
+  isProUser: [33mtrue[39m,
+  usePrivate: [33mtrue[39m,
+  forcePrivate: [33mfalse[39m,
+  preferred_mode: [32m'private'[39m
+}
+[TranscriptionService] Entering Private block
+
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should throw error if mic not initialized
+[TranscriptionService] Constructor options: { forceCloud: [33mfalse[39m, forcePrivate: [33mfalse[39m, forceNative: [33mfalse[39m }
+
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should throw error if mic not initialized
+[TranscriptionService] Attempting to start transcription...
+
+stderr | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should throw error if mic not initialized
+[TranscriptionService] Microphone not initialized.
+
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should stop transcription
+[TranscriptionService] Constructor options: { forceCloud: [33mfalse[39m, forcePrivate: [33mfalse[39m, forceNative: [33mfalse[39m }
+
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should stop transcription
+[TranscriptionService] Initializing mic stream...
+
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should stop transcription
+[TranscriptionService] Mic stream created.
+
+stdout | src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should stop transcription
+[TranscriptionService] Attempting to start transcription...
+[TranscriptionService] Decision logic: {
+  isProUser: [33mfalse[39m,
+  usePrivate: [33mfalse[39m,
+  forcePrivate: [33mfalse[39m,
+  preferred_mode: [90mundefined[39m
+}
+
+ ✓ src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should initialize successfully 2ms
+ ✓ src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should return correct mode 0ms
+ ✓ src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should handle destroy gracefully 1ms
+ ✓ src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should use NativeBrowser by default 1ms
+ ✓ src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should use CloudAssemblyAI for Pro users 0ms
+ ✓ src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should fallback to NativeBrowser if Cloud token fails 0ms
+ ✓ src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should fallback to NativeBrowser if Private model fails to load 0ms
+ ✓ src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should throw error if mic not initialized 1ms
+ ✓ src/services/transcription/__tests__/TranscriptionService.test.ts > TranscriptionService > should stop transcription 0ms
+stdout | src/lib/__tests__/supabaseClient.test.ts > supabaseClient.ts > should create mock client if VITE_USE_MOCK_AUTH is true
+⚠️ Using MOCK Supabase client for development
+[supabaseClient] Creating mock Supabase client
+
+stdout | src/lib/__tests__/supabaseClient.test.ts > supabaseClient.ts > should create real client with valid env vars
+[Supabase] ✅ Real client connected to: real-project...
+
+stdout | src/lib/__tests__/supabaseClient.test.ts > supabaseClient.ts > should return cached client on subsequent calls
+[Supabase] ✅ Real client connected to: real-project...
+
+ ✓ src/lib/__tests__/supabaseClient.test.ts > supabaseClient.ts > should return window.supabase if it exists 2ms
+ ✓ src/lib/__tests__/supabaseClient.test.ts > supabaseClient.ts > should create mock client if VITE_USE_MOCK_AUTH is true 1ms
+ ✓ src/lib/__tests__/supabaseClient.test.ts > supabaseClient.ts > should create real client with valid env vars 1ms
+ ✓ src/lib/__tests__/supabaseClient.test.ts > supabaseClient.ts > should throw error if env vars are missing 1ms
+ ✓ src/lib/__tests__/supabaseClient.test.ts > supabaseClient.ts > should return cached client on subsequent calls 0ms
+stdout | src/services/transcription/modes/__tests__/PrivateWhisper.test.ts > PrivateWhisper (Facade Wrapper) > initializes by delegating to PrivateSTT
+[PrivateWhisper] 🔄 init() START - Dual-Engine Mode
+
+stdout | src/services/transcription/modes/__tests__/PrivateWhisper.test.ts > PrivateWhisper (Facade Wrapper) > initializes by delegating to PrivateSTT
+[PrivateWhisper] ✅ Engine initialized: whisper-turbo
+
+stdout | src/services/transcription/modes/__tests__/PrivateWhisper.test.ts > PrivateWhisper (Facade Wrapper) > buffers audio and transcribes periodically
+[PrivateWhisper] 🔄 init() START - Dual-Engine Mode
+
+stdout | src/services/transcription/modes/__tests__/PrivateWhisper.test.ts > PrivateWhisper (Facade Wrapper) > buffers audio and transcribes periodically
+[PrivateWhisper] ✅ Engine initialized: whisper-turbo
+
+stdout | src/services/transcription/modes/__tests__/PrivateWhisper.test.ts > PrivateWhisper (Facade Wrapper) > buffers audio and transcribes periodically
+[PrivateWhisper] Streaming started.
+
+stdout | src/services/transcription/modes/__tests__/PrivateWhisper.test.ts > PrivateWhisper (Facade Wrapper) > buffers audio and transcribes periodically
+[PrivateWhisper] 🎤 Processing first audio chunk: 16000 samples
+
+ ✓ src/services/transcription/modes/__tests__/PrivateWhisper.test.ts > PrivateWhisper (Facade Wrapper) > initializes by delegating to PrivateSTT 2ms
+ ✓ src/services/transcription/modes/__tests__/PrivateWhisper.test.ts > PrivateWhisper (Facade Wrapper) > buffers audio and transcribes periodically 2ms
+stdout | src/services/transcription/__tests__/NativeBrowser.test.ts > NativeBrowser Transcription Mode > should initialize and set up recognition properties
+[NativeBrowser] Starting init...
+[NativeBrowser] SpeechRecognition API supported: [33mtrue[39m
+[NativeBrowser] SpeechRecognition constructor name: spy
+[NativeBrowser] Creating SpeechRecognition instance...
+[NativeBrowser] Configuring recognition handlers...
+
+stdout | src/services/transcription/__tests__/NativeBrowser.test.ts > NativeBrowser Transcription Mode > should call start on the recognition object when startTranscription is called
+[NativeBrowser] Starting init...
+[NativeBrowser] SpeechRecognition API supported: [33mtrue[39m
+[NativeBrowser] SpeechRecognition constructor name: spy
+[NativeBrowser] Creating SpeechRecognition instance...
+[NativeBrowser] Configuring recognition handlers...
+
+stdout | src/services/transcription/__tests__/NativeBrowser.test.ts > NativeBrowser Transcription Mode > should call stop on the recognition object when stopTranscription is called
+[NativeBrowser] Starting init...
+[NativeBrowser] SpeechRecognition API supported: [33mtrue[39m
+[NativeBrowser] SpeechRecognition constructor name: spy
+[NativeBrowser] Creating SpeechRecognition instance...
+[NativeBrowser] Configuring recognition handlers...
+
+stdout | src/services/transcription/__tests__/NativeBrowser.test.ts > NativeBrowser Transcription Mode > should handle final transcript results correctly
+[NativeBrowser] Starting init...
+[NativeBrowser] SpeechRecognition API supported: [33mtrue[39m
+[NativeBrowser] SpeechRecognition constructor name: spy
+[NativeBrowser] Creating SpeechRecognition instance...
+[NativeBrowser] Configuring recognition handlers...
+
+stdout | src/services/transcription/__tests__/NativeBrowser.test.ts > NativeBrowser Transcription Mode > should handle interim transcript results correctly
+[NativeBrowser] Starting init...
+[NativeBrowser] SpeechRecognition API supported: [33mtrue[39m
+[NativeBrowser] SpeechRecognition constructor name: spy
+[NativeBrowser] Creating SpeechRecognition instance...
+[NativeBrowser] Configuring recognition handlers...
+
+ ✓ src/services/transcription/__tests__/NativeBrowser.test.ts > NativeBrowser Transcription Mode > should initialize and set up recognition properties 2ms
+ ✓ src/services/transcription/__tests__/NativeBrowser.test.ts > NativeBrowser Transcription Mode > should call start on the recognition object when startTranscription is called 0ms
+ ✓ src/services/transcription/__tests__/NativeBrowser.test.ts > NativeBrowser Transcription Mode > should call stop on the recognition object when stopTranscription is called 0ms
+ ✓ src/services/transcription/__tests__/NativeBrowser.test.ts > NativeBrowser Transcription Mode > should handle final transcript results correctly 1ms
+ ✓ src/services/transcription/__tests__/NativeBrowser.test.ts > NativeBrowser Transcription Mode > should handle interim transcript results correctly 0ms
+ ✓ src/services/audio/__tests__/pauseDetector.test.ts > PauseDetector > should initialize with default values 2ms
+ ✓ src/services/audio/__tests__/pauseDetector.test.ts > PauseDetector > should detect silence start 0ms
+ ✓ src/services/audio/__tests__/pauseDetector.test.ts > PauseDetector > should detect a valid pause 1ms
+ ✓ src/services/audio/__tests__/pauseDetector.test.ts > PauseDetector > should ignore short silences 0ms
+ ✓ src/services/audio/__tests__/pauseDetector.test.ts > PauseDetector > should reset state 0ms
+ ✓ src/services/audio/__tests__/pauseDetector.test.ts > PauseDetector > should calculate RMS correctly 0ms
+stdout | src/services/transcription/modes/__tests__/NativeBrowser.test.ts > NativeBrowser Transcription Mode > should initialize correctly
+[NativeBrowser] Starting init...
+[NativeBrowser] SpeechRecognition API supported: [33mtrue[39m
+[NativeBrowser] SpeechRecognition constructor name: spy
+[NativeBrowser] Creating SpeechRecognition instance...
+[NativeBrowser] Configuring recognition handlers...
+
+stdout | src/services/transcription/modes/__tests__/NativeBrowser.test.ts > NativeBrowser Transcription Mode > should start transcription
+[NativeBrowser] Starting init...
+[NativeBrowser] SpeechRecognition API supported: [33mtrue[39m
+[NativeBrowser] SpeechRecognition constructor name: spy
+[NativeBrowser] Creating SpeechRecognition instance...
+[NativeBrowser] Configuring recognition handlers...
+
+stdout | src/services/transcription/modes/__tests__/NativeBrowser.test.ts > NativeBrowser Transcription Mode > should stop transcription
+[NativeBrowser] Starting init...
+[NativeBrowser] SpeechRecognition API supported: [33mtrue[39m
+[NativeBrowser] SpeechRecognition constructor name: spy
+[NativeBrowser] Creating SpeechRecognition instance...
+[NativeBrowser] Configuring recognition handlers...
+
+stdout | src/services/transcription/modes/__tests__/NativeBrowser.test.ts > NativeBrowser Transcription Mode > should handle transcript updates
+[NativeBrowser] Starting init...
+[NativeBrowser] SpeechRecognition API supported: [33mtrue[39m
+[NativeBrowser] SpeechRecognition constructor name: spy
+[NativeBrowser] Creating SpeechRecognition instance...
+[NativeBrowser] Configuring recognition handlers...
+
+ ✓ src/services/transcription/modes/__tests__/NativeBrowser.test.ts > NativeBrowser Transcription Mode > should initialize correctly 1ms
+ ✓ src/services/transcription/modes/__tests__/NativeBrowser.test.ts > NativeBrowser Transcription Mode > should start transcription 0ms
+ ✓ src/services/transcription/modes/__tests__/NativeBrowser.test.ts > NativeBrowser Transcription Mode > should stop transcription 0ms
+ ✓ src/services/transcription/modes/__tests__/NativeBrowser.test.ts > NativeBrowser Transcription Mode > should handle transcript updates 1ms
+ ✓ tests/unit/fillerWordUtils.test.ts > fillerWordUtils > createInitialFillerData > creates initial data structure with default filler words 1ms
+ ✓ tests/unit/fillerWordUtils.test.ts > fillerWordUtils > createInitialFillerData > includes custom words in data structure 0ms
+ ✓ tests/unit/fillerWordUtils.test.ts > fillerWordUtils > countFillerWords > counts basic filler words correctly 0ms
+ ✓ tests/unit/fillerWordUtils.test.ts > fillerWordUtils > countFillerWords > is case insensitive 0ms
+ ✓ tests/unit/fillerWordUtils.test.ts > fillerWordUtils > countFillerWords > counts custom words 0ms
+ ✓ tests/unit/fillerWordUtils.test.ts > fillerWordUtils > countFillerWords > only matches whole words 0ms
+ ✓ tests/unit/fillerWordUtils.test.ts > fillerWordUtils > calculateTranscriptStats > calculates basic stats correctly 0ms
+ ✓ tests/unit/fillerWordUtils.test.ts > fillerWordUtils > calculateTranscriptStats > handles empty inputs 0ms
+ ✓ tests/unit/fillerWordUtils.test.ts > fillerWordUtils > calculateTranscriptStats > includes interim transcript 0ms
+ ✓ tests/unit/fillerWordUtils.test.ts > fillerWordUtils > limitArray > limits array to max length 0ms
+ ✓ tests/unit/fillerWordUtils.test.ts > fillerWordUtils > limitArray > returns original array if under limit 0ms
+ ✓ src/services/transcription/__tests__/AudioProcessor.test.ts > AudioProcessor > floatToInt16 > should convert Float32Array to Int16Array 1ms
+ ✓ src/services/transcription/__tests__/AudioProcessor.test.ts > AudioProcessor > floatToInt16 > should map 0 to 0 0ms
+ ✓ src/services/transcription/__tests__/AudioProcessor.test.ts > AudioProcessor > floatToInt16 > should map 1 to max positive (32767) 0ms
+ ✓ src/services/transcription/__tests__/AudioProcessor.test.ts > AudioProcessor > floatToInt16 > should map -1 to max negative (-32767) 0ms
+ ✓ src/services/transcription/__tests__/AudioProcessor.test.ts > AudioProcessor > floatToInt16 > should clamp values beyond range 0ms
+ ✓ src/services/transcription/__tests__/AudioProcessor.test.ts > AudioProcessor > floatToWav > should generate valid WAV header 0ms
+ ✓ src/services/transcription/__tests__/AudioProcessor.test.ts > AudioProcessor > floatToWav > should have correct file size 0ms
+ ✓ src/services/transcription/__tests__/AudioProcessor.test.ts > AudioProcessor > floatToWav > should use specified sample rate 0ms
+ ✓ src/services/transcription/__tests__/AudioProcessor.test.ts > AudioProcessor > floatToWav > should default to 16kHz sample rate 0ms
+ ✓ src/services/transcription/__tests__/AudioProcessor.test.ts > AudioProcessor > concatenateFloat32Arrays > should concatenate multiple arrays 0ms
+ ✓ src/services/transcription/__tests__/AudioProcessor.test.ts > AudioProcessor > concatenateFloat32Arrays > should handle empty array input 0ms
+ ✓ src/services/transcription/__tests__/AudioProcessor.test.ts > AudioProcessor > concatenateFloat32Arrays > should handle single array 0ms
+ ✓ src/services/transcription/__tests__/AudioProcessor.test.ts > AudioProcessor > AudioBuffer > should accumulate samples until threshold 0ms
+ ✓ src/services/transcription/__tests__/AudioProcessor.test.ts > AudioProcessor > AudioBuffer > should clear buffer after returning data 0ms
+ ✓ src/services/transcription/__tests__/AudioProcessor.test.ts > AudioProcessor > AudioBuffer > should flush remaining samples 0ms
+ ✓ src/services/transcription/__tests__/AudioProcessor.test.ts > AudioProcessor > AudioBuffer > should clear buffer 0ms
+ ✓ src/constants/__tests__/subscriptionTiers.test.ts > subscriptionTiers > isPro > returns true for "pro" 1ms
+ ✓ src/constants/__tests__/subscriptionTiers.test.ts > subscriptionTiers > isPro > returns false for "free" 0ms
+ ✓ src/constants/__tests__/subscriptionTiers.test.ts > subscriptionTiers > isPro > returns false for null 0ms
+ ✓ src/constants/__tests__/subscriptionTiers.test.ts > subscriptionTiers > isPro > returns false for undefined 0ms
+ ✓ src/constants/__tests__/subscriptionTiers.test.ts > subscriptionTiers > isPro > returns false for empty string 0ms
+ ✓ src/constants/__tests__/subscriptionTiers.test.ts > subscriptionTiers > isFree > returns true for "free" 0ms
+ ✓ src/constants/__tests__/subscriptionTiers.test.ts > subscriptionTiers > isFree > returns false for "pro" 0ms
+ ✓ src/constants/__tests__/subscriptionTiers.test.ts > subscriptionTiers > isFree > returns false for null 0ms
+ ✓ src/constants/__tests__/subscriptionTiers.test.ts > subscriptionTiers > getTierLabel > returns "Pro" for pro users 0ms
+ ✓ src/constants/__tests__/subscriptionTiers.test.ts > subscriptionTiers > getTierLabel > returns "Free" for free users 0ms
+ ✓ src/constants/__tests__/subscriptionTiers.test.ts > subscriptionTiers > getTierLabel > returns "Free" for null/undefined 0ms
+ ✓ src/constants/__tests__/subscriptionTiers.test.ts > subscriptionTiers > getTierLimits > returns FREE limits for null 0ms
+ ✓ src/constants/__tests__/subscriptionTiers.test.ts > subscriptionTiers > getTierLimits > returns FREE limits for "free" 0ms
+ ✓ src/constants/__tests__/subscriptionTiers.test.ts > subscriptionTiers > getTierLimits > returns PRO limits for "pro" 0ms
+ ✓ src/constants/__tests__/subscriptionTiers.test.ts > subscriptionTiers > getTierLimits > PRO limits have Infinity for unbounded values 0ms
+ ✓ src/constants/__tests__/subscriptionTiers.test.ts > subscriptionTiers > TIER_LIMITS > FREE tier has correct limits 0ms
+ ✓ src/constants/__tests__/subscriptionTiers.test.ts > subscriptionTiers > TIER_LIMITS > PRO tier has higher limits 0ms
+ ✓ src/services/transcription/__tests__/TranscriptionError.test.ts > TranscriptionError > constructor > should create error with correct properties 1ms
+ ✓ src/services/transcription/__tests__/TranscriptionError.test.ts > TranscriptionError > constructor > should extend Error class 0ms
+ ✓ src/services/transcription/__tests__/TranscriptionError.test.ts > TranscriptionError > factory methods > should create network error 0ms
+ ✓ src/services/transcription/__tests__/TranscriptionError.test.ts > TranscriptionError > factory methods > should create non-recoverable network error 0ms
+ ✓ src/services/transcription/__tests__/TranscriptionError.test.ts > TranscriptionError > factory methods > should create permission error 0ms
+ ✓ src/services/transcription/__tests__/TranscriptionError.test.ts > TranscriptionError > factory methods > should create model load error 0ms
+ ✓ src/services/transcription/__tests__/TranscriptionError.test.ts > TranscriptionError > factory methods > should create websocket error 0ms
+ ✓ src/services/transcription/__tests__/TranscriptionError.test.ts > TranscriptionError > factory methods > should create non-recoverable websocket error 0ms
+ ✓ src/services/transcription/__tests__/TranscriptionError.test.ts > TranscriptionError > error codes > should accept all valid codes 0ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/utils.test.ts > useSpeechRecognition utils > combineChunksToText > should combine chunks into single text 1ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/utils.test.ts > useSpeechRecognition utils > combineChunksToText > should return empty string for empty chunks 0ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/utils.test.ts > useSpeechRecognition utils > createFullTranscript > should combine chunks and interim text 0ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/utils.test.ts > useSpeechRecognition utils > createFullTranscript > should handle empty interim text 0ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/utils.test.ts > useSpeechRecognition utils > createChunk > should create chunk with text and unique id 0ms
+ ✓ src/hooks/useSpeechRecognition/__tests__/utils.test.ts > useSpeechRecognition utils > generateChunkId > should generate unique ids 0ms
+ ✓ src/lib/__tests__/wer.test.ts > calculateWordErrorRate > should return 0 for identical strings 1ms
+ ✓ src/lib/__tests__/wer.test.ts > calculateWordErrorRate > should handle a single substitution 0ms
+ ✓ src/lib/__tests__/wer.test.ts > calculateWordErrorRate > should handle a single deletion 0ms
+ ✓ src/lib/__tests__/wer.test.ts > calculateWordErrorRate > should handle a single insertion 0ms
+ ✓ src/lib/__tests__/wer.test.ts > calculateWordErrorRate > should handle multiple errors 0ms
+ ✓ src/lib/__tests__/wer.test.ts > calculateWordErrorRate > should handle empty reference string 0ms
+ ✓ src/lib/__tests__/wer.test.ts > calculateWordErrorRate > should handle empty hypothesis string 0ms
+ ✓ src/lib/__tests__/wer.test.ts > calculateWordErrorRate > should handle both strings being empty 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/SessionSidebar.test.tsx > SessionSidebar > for a Dev user > can switch to and start in any mode
+AssertionError: expected last "spy" call to have been called with [ { forceCloud: false, …(2) } ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    {[22m
+[2m      "forceCloud": false,[22m
+[2m      "forceNative": false,[22m
+[32m-     "forceOnDevice": true,[39m
+[31m+     "forcePrivate": true,[39m
+[2m    },[22m
+[2m  ][22m
+
+ ❯ tests/integration/SessionSidebar.test.tsx:245:34
+    243|       await user.click(await screen.findByRole('menuitemradio', { name…
+    244|       await user.click(screen.getByText('Start Speaking'));
+    245|       expect(mockStartListening).toHaveBeenLastCalledWith({
+       |                                  ^
+    246|         forceCloud: false,
+    247|         forceOnDevice: true,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 59 passed (60)
+      Tests  1 failed | 431 passed (432)
+   Start at  17:36:52
+   Duration  34.59s (transform 668ms, setup 1.59s, collect 6.33s, tests 5.50s, environment 7.39s, prepare 3.99s)
+
+JSON report written to /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/unit-metrics.json
+ HTML  Report is generated
+       You can run npx vite preview --outDir html to see the test results.
+ ELIFECYCLE  Test failed. See above for more details.
+❌ Unit Tests failed.
+ ELIFECYCLE  Command failed with exit code 1.

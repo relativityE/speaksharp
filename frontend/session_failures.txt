@@ -1,0 +1,326 @@
+
+> speaksharp-frontend@0.0.0 test /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend
+> vitest SessionPage
+
+
+ RUN  v3.2.4 /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend
+
+stderr | src/pages/__tests__/SessionPage.ui.test.tsx > SessionPage - STT Mode Selection UI > should disable Pro options (Private, Cloud) for Free users
+The above error occurred in the <SessionPage> component:
+
+    at SessionPage (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SessionPage.tsx:69:57)
+    at Router (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1207:17)
+    at MemoryRouter (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1101:7)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+
+stderr | src/pages/__tests__/SessionPage.ui.test.tsx > SessionPage - STT Mode Selection UI > should enable options for Pro users
+The above error occurred in the <SessionPage> component:
+
+    at SessionPage (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SessionPage.tsx:69:57)
+    at Router (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1207:17)
+    at MemoryRouter (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1101:7)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+
+ × src/pages/__tests__/SessionPage.ui.test.tsx > SessionPage - STT Mode Selection UI > should disable Pro options (Private, Cloud) for Free users 13ms
+   → No QueryClient set, use QueryClientProvider to set one
+ × src/pages/__tests__/SessionPage.ui.test.tsx > SessionPage - STT Mode Selection UI > should enable options for Pro users 2ms
+   → No QueryClient set, use QueryClientProvider to set one
+stderr | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Rendering > should render the session page title
+The above error occurred in the <SessionPage> component:
+
+    at SessionPage (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SessionPage.tsx:69:57)
+    at Router (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1207:17)
+    at MemoryRouter (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1101:7)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+
+stderr | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Rendering > should render the live recording card
+The above error occurred in the <SessionPage> component:
+
+    at SessionPage (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SessionPage.tsx:69:57)
+    at Router (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1207:17)
+    at MemoryRouter (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1101:7)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+
+stderr | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Rendering > should render metrics cards
+The above error occurred in the <SessionPage> component:
+
+    at SessionPage (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SessionPage.tsx:69:57)
+    at Router (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1207:17)
+    at MemoryRouter (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1101:7)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+
+stderr | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Rendering > should render pause metrics display
+The above error occurred in the <SessionPage> component:
+
+    at SessionPage (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SessionPage.tsx:69:57)
+    at Router (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1207:17)
+    at MemoryRouter (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1101:7)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+
+stderr | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Rendering > should render settings button
+The above error occurred in the <SessionPage> component:
+
+    at SessionPage (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SessionPage.tsx:69:57)
+    at Router (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1207:17)
+    at MemoryRouter (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1101:7)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+
+stderr | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Loading States > should render loading state when profile is loading
+The above error occurred in the <SessionPage> component:
+
+    at SessionPage (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SessionPage.tsx:69:57)
+    at Router (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1207:17)
+    at MemoryRouter (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1101:7)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+
+stderr | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Loading States > should render error state when profile fails to load
+The above error occurred in the <SessionPage> component:
+
+    at SessionPage (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SessionPage.tsx:69:57)
+    at Router (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1207:17)
+    at MemoryRouter (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1101:7)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+
+stderr | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should start listening when start button is clicked
+The above error occurred in the <SessionPage> component:
+
+    at SessionPage (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SessionPage.tsx:69:57)
+    at Router (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1207:17)
+    at MemoryRouter (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1101:7)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+
+stderr | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should stop listening when stop button is clicked
+The above error occurred in the <SessionPage> component:
+
+    at SessionPage (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SessionPage.tsx:69:57)
+    at Router (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1207:17)
+    at MemoryRouter (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1101:7)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+
+stderr | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should disable start button when listening but not ready
+The above error occurred in the <SessionPage> component:
+
+    at SessionPage (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SessionPage.tsx:69:57)
+    at Router (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1207:17)
+    at MemoryRouter (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1101:7)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+
+stderr | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should show Ready status when not listening
+The above error occurred in the <SessionPage> component:
+
+    at SessionPage (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SessionPage.tsx:69:57)
+    at Router (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1207:17)
+    at MemoryRouter (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1101:7)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+
+stderr | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should show Connecting status when listening but not ready
+The above error occurred in the <SessionPage> component:
+
+    at SessionPage (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SessionPage.tsx:69:57)
+    at Router (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1207:17)
+    at MemoryRouter (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1101:7)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+
+stderr | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Timer Logic > should update elapsed time when listening
+The above error occurred in the <SessionPage> component:
+
+    at SessionPage (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SessionPage.tsx:69:57)
+    at Router (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1207:17)
+    at MemoryRouter (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1101:7)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+
+stderr | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Timer Logic > should reset elapsed time when stopped
+The above error occurred in the <SessionPage> component:
+
+    at SessionPage (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SessionPage.tsx:69:57)
+    at Router (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1207:17)
+    at MemoryRouter (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1101:7)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+
+stderr | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Metrics Display > should display formatted time
+The above error occurred in the <SessionPage> component:
+
+    at SessionPage (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SessionPage.tsx:69:57)
+    at Router (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1207:17)
+    at MemoryRouter (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1101:7)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+
+stderr | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Metrics Display > should calculate and display WPM
+The above error occurred in the <SessionPage> component:
+
+    at SessionPage (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SessionPage.tsx:69:57)
+    at Router (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1207:17)
+    at MemoryRouter (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1101:7)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+
+stderr | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Metrics Display > should display filler word count
+The above error occurred in the <SessionPage> component:
+
+    at SessionPage (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SessionPage.tsx:69:57)
+    at Router (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1207:17)
+    at MemoryRouter (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1101:7)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+
+stderr | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Transcript Display > should display "Listening..." when listening but no transcript
+The above error occurred in the <SessionPage> component:
+
+    at SessionPage (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SessionPage.tsx:69:57)
+    at Router (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1207:17)
+    at MemoryRouter (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1101:7)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+
+stderr | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Transcript Display > should display transcript text
+The above error occurred in the <SessionPage> component:
+
+    at SessionPage (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SessionPage.tsx:69:57)
+    at Router (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1207:17)
+    at MemoryRouter (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1101:7)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+
+stderr | src/pages/__tests__/SessionPage.test.tsx > SessionPage > Transcript Display > should display placeholder when not listening and no transcript
+The above error occurred in the <SessionPage> component:
+
+    at SessionPage (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SessionPage.tsx:69:57)
+    at Router (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1207:17)
+    at MemoryRouter (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1101:7)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+
+ × src/pages/__tests__/SessionPage.test.tsx > SessionPage > Rendering > should render the session page title 13ms
+   → No QueryClient set, use QueryClientProvider to set one
+ × src/pages/__tests__/SessionPage.test.tsx > SessionPage > Rendering > should render the live recording card 2ms
+   → No QueryClient set, use QueryClientProvider to set one
+ × src/pages/__tests__/SessionPage.test.tsx > SessionPage > Rendering > should render metrics cards 2ms
+   → No QueryClient set, use QueryClientProvider to set one
+ × src/pages/__tests__/SessionPage.test.tsx > SessionPage > Rendering > should render pause metrics display 1ms
+   → No QueryClient set, use QueryClientProvider to set one
+ × src/pages/__tests__/SessionPage.test.tsx > SessionPage > Rendering > should render settings button 2ms
+   → No QueryClient set, use QueryClientProvider to set one
+ × src/pages/__tests__/SessionPage.test.tsx > SessionPage > Loading States > should render loading state when profile is loading 1ms
+   → No QueryClient set, use QueryClientProvider to set one
+ × src/pages/__tests__/SessionPage.test.tsx > SessionPage > Loading States > should render error state when profile fails to load 1ms
+   → No QueryClient set, use QueryClientProvider to set one
+ × src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should start listening when start button is clicked 1ms
+   → No QueryClient set, use QueryClientProvider to set one
+ × src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should stop listening when stop button is clicked 2ms
+   → No QueryClient set, use QueryClientProvider to set one
+ × src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should disable start button when listening but not ready 1ms
+   → No QueryClient set, use QueryClientProvider to set one
+ × src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should show Ready status when not listening 1ms
+   → No QueryClient set, use QueryClientProvider to set one
+ × src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should show Connecting status when listening but not ready 1ms
+   → No QueryClient set, use QueryClientProvider to set one
+ × src/pages/__tests__/SessionPage.test.tsx > SessionPage > Timer Logic > should update elapsed time when listening 1ms
+   → No QueryClient set, use QueryClientProvider to set one
+ × src/pages/__tests__/SessionPage.test.tsx > SessionPage > Timer Logic > should reset elapsed time when stopped 1ms
+   → No QueryClient set, use QueryClientProvider to set one
+ × src/pages/__tests__/SessionPage.test.tsx > SessionPage > Metrics Display > should display formatted time 1ms
+   → No QueryClient set, use QueryClientProvider to set one
+ × src/pages/__tests__/SessionPage.test.tsx > SessionPage > Metrics Display > should calculate and display WPM 1ms
+   → No QueryClient set, use QueryClientProvider to set one
+ × src/pages/__tests__/SessionPage.test.tsx > SessionPage > Metrics Display > should display filler word count 1ms
+   → No QueryClient set, use QueryClientProvider to set one
+ × src/pages/__tests__/SessionPage.test.tsx > SessionPage > Transcript Display > should display "Listening..." when listening but no transcript 1ms
+   → No QueryClient set, use QueryClientProvider to set one
+ × src/pages/__tests__/SessionPage.test.tsx > SessionPage > Transcript Display > should display transcript text 1ms
+   → No QueryClient set, use QueryClientProvider to set one
+ × src/pages/__tests__/SessionPage.test.tsx > SessionPage > Transcript Display > should display placeholder when not listening and no transcript 1ms
+   → No QueryClient set, use QueryClientProvider to set one
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 22 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/pages/__tests__/SessionPage.test.tsx > SessionPage > Rendering > should render the session page title
+ FAIL  src/pages/__tests__/SessionPage.test.tsx > SessionPage > Rendering > should render the live recording card
+ FAIL  src/pages/__tests__/SessionPage.test.tsx > SessionPage > Rendering > should render metrics cards
+ FAIL  src/pages/__tests__/SessionPage.test.tsx > SessionPage > Rendering > should render pause metrics display
+ FAIL  src/pages/__tests__/SessionPage.test.tsx > SessionPage > Rendering > should render settings button
+ FAIL  src/pages/__tests__/SessionPage.test.tsx > SessionPage > Loading States > should render loading state when profile is loading
+ FAIL  src/pages/__tests__/SessionPage.test.tsx > SessionPage > Loading States > should render error state when profile fails to load
+ FAIL  src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should start listening when start button is clicked
+ FAIL  src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should stop listening when stop button is clicked
+ FAIL  src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should disable start button when listening but not ready
+ FAIL  src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should show Ready status when not listening
+ FAIL  src/pages/__tests__/SessionPage.test.tsx > SessionPage > Session Control > should show Connecting status when listening but not ready
+ FAIL  src/pages/__tests__/SessionPage.test.tsx > SessionPage > Timer Logic > should update elapsed time when listening
+ FAIL  src/pages/__tests__/SessionPage.test.tsx > SessionPage > Timer Logic > should reset elapsed time when stopped
+ FAIL  src/pages/__tests__/SessionPage.test.tsx > SessionPage > Metrics Display > should display formatted time
+ FAIL  src/pages/__tests__/SessionPage.test.tsx > SessionPage > Metrics Display > should calculate and display WPM
+ FAIL  src/pages/__tests__/SessionPage.test.tsx > SessionPage > Metrics Display > should display filler word count
+ FAIL  src/pages/__tests__/SessionPage.test.tsx > SessionPage > Transcript Display > should display "Listening..." when listening but no transcript
+ FAIL  src/pages/__tests__/SessionPage.test.tsx > SessionPage > Transcript Display > should display transcript text
+ FAIL  src/pages/__tests__/SessionPage.test.tsx > SessionPage > Transcript Display > should display placeholder when not listening and no transcript
+ FAIL  src/pages/__tests__/SessionPage.ui.test.tsx > SessionPage - STT Mode Selection UI > should disable Pro options (Private, Cloud) for Free users
+ FAIL  src/pages/__tests__/SessionPage.ui.test.tsx > SessionPage - STT Mode Selection UI > should enable options for Pro users
+Error: No QueryClient set, use QueryClientProvider to set one
+ ❯ useQueryClient ../node_modules/@tanstack/react-query/src/QueryClientProvider.tsx:18:11
+ ❯ SessionPage src/pages/SessionPage.tsx:49:25
+     47|     const { updateStreak } = useStreak();
+     48|     const { saveSession } = useSessionManager();
+     49|     const queryClient = useQueryClient();
+       |                         ^
+     50| 
+     51|     // Renaming for clarity: Custom Vocabulary = User Defined Filler W…
+ ❯ renderWithHooks ../node_modules/react-dom/cjs/react-dom.development.js:15486:18
+ ❯ mountIndeterminateComponent ../node_modules/react-dom/cjs/react-dom.development.js:20103:13
+ ❯ beginWork ../node_modules/react-dom/cjs/react-dom.development.js:21626:16
+ ❯ HTMLUnknownElement.callCallback ../node_modules/react-dom/cjs/react-dom.development.js:4164:14
+ ❯ HTMLUnknownElement.#callDispatchEventListeners ../node_modules/happy-dom/src/event/EventTarget.ts:299:42
+ ❯ HTMLUnknownElement.dispatchEvent ../node_modules/happy-dom/src/event/EventTarget.ts:136:35
+ ❯ HTMLUnknownElement.#goThroughDispatchEventPhases ../node_modules/happy-dom/src/event/EventTarget.ts:208:33
+ ❯ HTMLUnknownElement.dispatchEvent ../node_modules/happy-dom/src/event/EventTarget.ts:129:38
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/22]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  22 failed (22)
+   Start at  22:19:52
+   Duration  2.08s (transform 231ms, setup 125ms, collect 1.04s, tests 50ms, environment 450ms, prepare 119ms)
+
+JSON report written to /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/unit-metrics.json
+ HTML  Report is generated
+       You can run npx vite preview --outDir html to see the test results.
+ ELIFECYCLE  Test failed. See above for more details.

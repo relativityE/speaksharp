@@ -1,0 +1,134 @@
+feat: SpeakSharp v1.0 - Privacy-first real-time speech coaching platform
+
+## Overview
+
+SpeakSharp is an AI-powered speech coaching SaaS that helps professionals
+improve public speaking through real-time feedback on filler words, speaking
+pace, and vocal clarity.
+
+## Development Arc (1,625 commits)
+
+### Phase 0: MVP Foundation (PR #153-165)
+- Core application features and MVP UI
+- Fixed blank screen and microphone bugs
+- Migrated from Jest to Vitest for test stability
+- Established documentation-first workflow (PRD, ARCHITECTURE, ROADMAP)
+
+### Phase 1: Stabilize & Harden (PR #166-300)
+- Session duration limits and tier enforcement
+- AI-powered suggestions feature
+- Custom vocabulary for Pro users
+- Codebase restructuring (frontend/, backend/, tests/)
+- CI/CD pipeline with Playwright sharding
+
+### Phase 2: User Validation & Polish (PR #301-600)
+- Speaking pace (WPM) analysis
+- Clarity score visualization
+- Goal setting (daily/weekly targets)
+- Lighthouse CI integration (Performance 100%)
+- WebSocket reconnect with exponential backoff
+- Session comparison and progress tracking
+
+### Phase 2.5: UI/UX Premium Polish
+- CVA-based design system with elegant shadows
+- Premium skeleton loading states
+- Mobile sticky controls
+- Gamification (practice streaks)
+
+### Phase 3: Integration Safety (PR #601-800)
+- Schema canary tests for API drift detection
+- Stripe billing with webhook idempotency
+- Independent code reviews (2 external audits)
+- Coverage expansion (56% → 75% target)
+
+### Phase 4: Launch Hardening (PR #801-1625)
+- Soak testing (concurrent user simulation)
+- Canary smoke tests against staging
+- fetchWithRetry for resilient profile loading
+- MSW-to-Playwright routes migration
+- Toast notification deduplication
+
+## Core Value Proposition
+
+- **Privacy-First Design**: On-device transcription via Whisper (speech never
+  leaves the browser) for users who cannot risk sensitive conversations
+  going to the cloud
+
+- **Real-Time Feedback**: Instant filler word detection (um, uh, like, you know),
+  words-per-minute analysis, and clarity scoring as you speak
+
+- **Accessible & Affordable**: Web-based (no app install), freemium model with
+  generous free tier (30 min/month), more affordable than Poised
+
+## Architecture
+
+### Frontend (React + Vite)
+- TypeScript-first with strict type safety
+- Zustand for global state management
+- CVA-based design system with premium dark theme
+- Lighthouse: Performance 100%, Accessibility 95%, Best Practices 100%
+
+### Backend (Supabase + Edge Functions)
+- PostgreSQL with Row Level Security
+- Deno-based Edge Functions
+- Stripe integration for subscriptions
+
+### Speech-to-Text Engines (3 modes)
+├── On-Device (Whisper): Privacy-first, WebAssembly, cached via SW
+├── Cloud AI (AssemblyAI): High-accuracy professional transcription
+└── Native Browser: Zero-cost fallback using Web Speech API
+
+### Testing Infrastructure
+- 406 unit tests with Vitest (57% coverage)
+- 38 E2E tests with Playwright (4-shard parallel)
+- Canary smoke tests against production staging
+- Soak tests for 10 concurrent users
+- Lighthouse CI for performance regression
+
+## Key Features
+
+### Must-Have (All Implemented)
+- [x] Real-time transcription (3 STT modes)
+- [x] Filler word detection & counting
+- [x] Speaking pace (WPM) analysis
+- [x] Clarity score with trend visualization
+- [x] Session history with comparison
+- [x] Custom vocabulary (Free: 10, Pro: 100)
+- [x] Goal setting (daily/weekly targets)
+- [x] PDF export of session reports
+- [x] Screen reader accessibility (ARIA live)
+- [x] Usage limit pre-check with upgrade prompts
+
+### Should-Have (All Implemented)
+- [x] AI-powered feedback suggestions
+- [x] Filler word trend analysis
+- [x] Weekly activity charts
+- [x] Gamification (practice streaks)
+- [x] On-device model caching (<5s load)
+- [x] Premium skeleton loading states
+
+## Security & Reliability
+
+- Stripe webhook idempotency (replay attack protection)
+- Exponential backoff for transient failures (1s → 30s)
+- Service Worker caching for offline model access
+- CORS hardening with ALLOWED_ORIGIN validation
+- Processed webhook event deduplication table
+
+## Documentation
+
+- ARCHITECTURE.md: Complete system design (1,800 lines)
+- PRD.md: Product requirements with feature matrix
+- ROADMAP.md: Development phases and tech debt
+- CHANGELOG.md: Version history
+
+## Known Limitations (Alpha Acceptable)
+
+- Light theme not implemented (dark theme only)
+- Filler word detection uses regex (NLP upgrade planned for beta)
+- Supabase security hardening blocked (requires Pro account)
+
+---
+
+Squashed from main (1,625 commits)
+Backup preserved at: origin/main_backup

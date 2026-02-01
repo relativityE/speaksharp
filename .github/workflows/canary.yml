@@ -1,0 +1,88 @@
+name: Production Canary Smoke Test
+
+on:
+  workflow_dispatch: # Manual trigger
+  # schedule:
+  #   - cron: '0 8 * * *' # Daily at 8am UTC (enable after validation)
+
+jobs:
+  canary-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install chromium --with-deps
+
+      - name: Create .env.development from Secrets
+        # Required for real Supabase connection during dev server
+        run: |
+          cat > .env.development <<EOF
+          VITE_SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          VITE_STRIPE_PUBLISHABLE_KEY=pk_test_mock
+          VITE_SENTRY_DSN=https://placeholder@sentry.io/0
+          EOF
+          echo "Created .env.development with $(wc -l < .env.development) lines"
+
+      - name: Provision Canary User
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Note: CANARY_PASSWORD exists in GitHub Secrets; linter can't verify remote secrets
+          CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD }}
+          # Unique email to avoid collision and ensure test isolation
+          CANARY_EMAIL: canary-${{ github.run_id }}@speaksharp.app
+        run: node scripts/provision-canary.mjs
+
+      - name: Run Smoke Test
+        env:
+          # Test mode for MockSpeechRecognition (e2e-bridge.ts)
+          VITE_TEST_MODE: "true"
+          # Real Supabase auth (skip MSW)
+          VITE_USE_LIVE_DB: "true"
+          # Canary credentials (CANARY_PASSWORD is a GitHub Secret; linter can't verify)
+          CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD }}
+          CANARY_EMAIL: canary-${{ github.run_id }}@speaksharp.app
+        run: |
+          npx start-server-and-test \
+            "pnpm dev" \
+            http://localhost:5173 \
+            "pnpm test:canary"
+
+      - name: Cleanup Canary User
+        if: always() # Run even if tests fail
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CANARY_EMAIL: canary-${{ github.run_id }}@speaksharp.app
+        run: node scripts/cleanup-canary.mjs
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: canary-test-results
+          path: |
+            playwright-report/
+            test-results/canary/
+          retention-days: 30
+      - name: Cleanup Secrets
+        if: always()
+        run: rm -f .env.development

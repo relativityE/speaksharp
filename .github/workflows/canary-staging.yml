@@ -1,0 +1,47 @@
+name: Canary - Staging
+
+on:
+  push:
+    branches: [main, staging]
+  schedule:
+    - cron: '0 */6 * * *' # Every 6 hours
+  workflow_dispatch:
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+      
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Browsers
+        run: pnpm exec playwright install chromium
+      
+      - name: Provision Canary User
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD }}
+        run: node scripts/provision-canary.mjs
+
+      - name: Run Canary Tests
+        env:
+          CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD }}
+          BASE_URL: https://speaksharp.app
+          # Set flags if needed, though canary config handles base URL
+          VITE_USE_LIVE_DB: "true" 
+        run: pnpm test:canary
+
+      - name: Upload Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: canary-report
+          path: playwright-report/

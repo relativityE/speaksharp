@@ -1,0 +1,86 @@
+{
+  "timestamp": "2025-10-13T08:02:13.122Z",
+  "success": false,
+  "pageState": {
+    "title": "SpeakSharp - Real-Time Filler Word Detection",
+    "url": "http://localhost:5175/auth",
+    "hasRoot": true,
+    "rootHTML": "(empty)",
+    "bodyHTML": "\n    <div id=\"root\"></div>\n    <script type=\"module\" src=\"/src/main.tsx\"></script>\n  \n\n",
+    "readyState": "complete",
+    "scriptTags": [
+      {
+        "src": "",
+        "type": "module",
+        "hasContent": true
+      },
+      {
+        "src": "http://localhost:5175/@vite/client",
+        "type": "module",
+        "hasContent": false
+      },
+      {
+        "src": "http://localhost:5175/src/main.tsx",
+        "type": "module",
+        "hasContent": false
+      }
+    ],
+    "hasReact": false,
+    "hasReactDOM": false,
+    "hasVite": false,
+    "appErrors": [],
+    "localStorageKeys": []
+  },
+  "testIdElements": {},
+  "testIdCount": 0,
+  "diagnostics": {
+    "consoleLogs": [
+      {
+        "type": "debug",
+        "text": "[vite] connecting...",
+        "location": {
+          "url": "http://localhost:5175/@vite/client",
+          "lineNumber": 732,
+          "columnNumber": 8
+        },
+        "timestamp": "2025-10-13T08:02:08.949Z"
+      },
+      {
+        "type": "debug",
+        "text": "[vite] connected.",
+        "location": {
+          "url": "http://localhost:5175/@vite/client",
+          "lineNumber": 826,
+          "columnNumber": 11
+        },
+        "timestamp": "2025-10-13T08:02:08.973Z"
+      },
+      {
+        "type": "info",
+        "text": "%cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold",
+        "location": {
+          "url": "http://localhost:5175/node_modules/.vite/deps/chunk-YQ5BCTVV.js?v=396bd447",
+          "lineNumber": 21608,
+          "columnNumber": 24
+        },
+        "timestamp": "2025-10-13T08:02:10.036Z"
+      }
+    ],
+    "consoleErrors": [],
+    "pageErrors": [
+      {
+        "message": "Supabase URL and Anon Key are missing. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env file.",
+        "stack": "Error: Supabase URL and Anon Key are missing. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env file.\n    at http://localhost:5175/src/lib/supabaseClient.ts:6:11",
+        "timestamp": "2025-10-13T08:02:10.054Z"
+      }
+    ],
+    "failedRequests": []
+  },
+  "analysis": {
+    "hasPageErrors": true,
+    "hasConsoleErrors": false,
+    "hasFailedRequests": false,
+    "rootIsEmpty": true,
+    "reactLoaded": false
+  }
+}

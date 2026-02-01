@@ -1,0 +1,65 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here.
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 215 25% 18%;
+    --foreground: 210 40% 98%;
+
+    --card: 215 22% 22%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 215 22% 22%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 199 89% 48%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 25 85% 55%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 215 20% 25%;
+    --muted-foreground: 215 20% 70%;
+
+    --accent: 199 89% 48%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 215 20% 28%;
+    --input: 215 20% 28%;
+    --ring: 199 89% 48%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 215 25% 14%;
+    --sidebar-foreground: 210 40% 95%;
+    --sidebar-primary: 199 89% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 25 85% 55%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 215 20% 25%;
+    --sidebar-ring: 199 89% 48%;
+  }
+
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    feature-settings: "rlig" 1, "calt" 1;
+  }
+}

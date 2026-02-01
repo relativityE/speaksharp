@@ -1,0 +1,149 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - region "Notifications alt+T"
+  - navigation [ref=e4]:
+    - generic [ref=e6]:
+      - link "SpeakSharp Home" [ref=e7] [cursor=pointer]:
+        - /url: /
+        - img [ref=e9]
+        - generic [ref=e12]: SpeakSharp
+      - generic [ref=e13]:
+        - link "Home" [ref=e14] [cursor=pointer]:
+          - /url: /
+          - img
+          - generic [ref=e15]: Home
+        - link "Session" [ref=e16] [cursor=pointer]:
+          - /url: /session
+          - img
+          - generic [ref=e17]: Session
+        - link "Analytics" [ref=e18] [cursor=pointer]:
+          - /url: /analytics
+          - img
+          - generic [ref=e19]: Analytics
+      - generic [ref=e20]:
+        - button "Upgrade to Pro" [ref=e21] [cursor=pointer]:
+          - img
+          - text: Upgrade to Pro
+        - generic [ref=e22]: test@example.com
+        - button "Sign Out" [ref=e23] [cursor=pointer]:
+          - img
+          - text: Sign Out
+  - main [ref=e24]:
+    - generic [ref=e25]:
+      - generic [ref=e26]:
+        - heading "Practice Session" [level=1] [ref=e27]
+        - paragraph [ref=e28]: We'll analyze your speech patterns in real-time
+      - status [ref=e30]:
+        - img [ref=e31]
+        - generic [ref=e33]: Ready to record
+      - generic [ref=e35]:
+        - generic [ref=e36]:
+          - generic [ref=e38]:
+            - button "Native" [ref=e40] [cursor=pointer]:
+              - text: Native
+              - img
+            - generic [ref=e41]:
+              - heading "Live Session" [level=1] [ref=e42]
+              - paragraph [ref=e43]: Click the microphone to start your session
+            - generic [ref=e85]: 00:00
+            - button "Start Recording" [ref=e87] [cursor=pointer]:
+              - img
+              - generic [ref=e88]: Start
+          - generic [ref=e90]:
+            - heading "Pause Analysis" [level=3] [ref=e92]:
+              - img [ref=e93]
+              - text: Pause Analysis
+            - generic [ref=e96]:
+              - generic [ref=e97]:
+                - generic [ref=e98]:
+                  - paragraph [ref=e99]: Total Pauses
+                  - paragraph [ref=e100]: "0"
+                - generic [ref=e101]:
+                  - paragraph [ref=e102]: Per Minute
+                  - paragraph [ref=e103]: "0.0"
+              - generic [ref=e104]:
+                - generic [ref=e105]:
+                  - generic [ref=e106]:
+                    - img [ref=e107]
+                    - text: Average
+                  - generic [ref=e110]: 0ms
+                - generic [ref=e111]:
+                  - generic [ref=e112]:
+                    - img [ref=e113]
+                    - text: Longest
+                  - generic [ref=e116]: 0ms
+        - generic [ref=e117]:
+          - generic [ref=e119]:
+            - heading "Live Transcript" [level=3] [ref=e122]
+            - log "Live transcript of your speech" [ref=e123]:
+              - paragraph [ref=e124]: words appear here...
+          - generic [ref=e126]:
+            - generic [ref=e127]:
+              - heading "Filler Words" [level=2] [ref=e128]: Filler Words
+              - button "Custom" [ref=e129] [cursor=pointer]:
+                - img
+                - text: Custom
+            - generic [ref=e130]:
+              - generic [ref=e131]:
+                - generic [ref=e132]: "\"um\""
+                - generic [ref=e133]: "0"
+              - generic [ref=e134]:
+                - generic [ref=e135]: "\"uh\""
+                - generic [ref=e136]: "0"
+              - generic [ref=e137]:
+                - generic [ref=e138]: "\"ah\""
+                - generic [ref=e139]: "0"
+              - generic [ref=e140]:
+                - generic [ref=e141]: "\"like\""
+                - generic [ref=e142]: "0"
+              - generic [ref=e143]:
+                - generic [ref=e144]: "\"You Know\""
+                - generic [ref=e145]: "0"
+              - generic [ref=e146]:
+                - generic [ref=e147]: "\"so\""
+                - generic [ref=e148]: "0"
+              - generic [ref=e149]:
+                - generic [ref=e150]: "\"actually\""
+                - generic [ref=e151]: "0"
+              - generic [ref=e152]:
+                - generic [ref=e153]: "\"oh\""
+                - generic [ref=e154]: "0"
+              - generic [ref=e155]:
+                - generic [ref=e156]: "\"I Mean\""
+                - generic [ref=e157]: "0"
+              - generic [ref=e158]:
+                - generic [ref=e159]: "\"basically\""
+                - generic [ref=e160]: "0"
+              - generic [ref=e161]:
+                - generic [ref=e162]: "\"literally\""
+                - generic [ref=e163]: "0"
+              - generic [ref=e164]:
+                - generic [ref=e165]: "\"Kind Of\""
+                - generic [ref=e166]: "0"
+              - generic [ref=e167]:
+                - generic [ref=e168]: "\"Sort Of\""
+                - generic [ref=e169]: "0"
+        - generic [ref=e170]:
+          - generic [ref=e171]:
+            - heading "Live Stats" [level=3] [ref=e172]
+            - generic [ref=e173]:
+              - generic [ref=e174]:
+                - generic [ref=e175]: Clarity Score
+                - generic [ref=e176]: 100%
+              - paragraph [ref=e179]: Excellent clarity!
+          - generic [ref=e180]:
+            - heading "Speaking Pace" [level=3] [ref=e181]
+            - generic [ref=e182]:
+              - generic [ref=e183]: "0"
+              - paragraph [ref=e184]: Words Per Minute
+              - generic [ref=e185]: Optimal
+          - generic [ref=e186]:
+            - heading "Quick Tip" [level=2] [ref=e187]:
+              - img [ref=e188]
+              - text: Quick Tip
+            - generic [ref=e190]:
+              - heading "Practice Daily" [level=4] [ref=e191]
+              - paragraph [ref=e192]: Regular practice builds confident speaking habits
+```

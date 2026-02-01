@@ -1,0 +1,18 @@
+# Exclude media/binary from archives
+*.bin export-ignore
+*.png export-ignore
+*.jpg export-ignore
+*.jpeg export-ignore
+*.gif export-ignore
+*.wav export-ignore
+*.mp3 export-ignore
+*.mp4 export-ignore
+
+# Exclude build artifacts
+dist/ export-ignore
+build/ export-ignore
+node_modules/ export-ignore
+
+# Exclude secrets
+.env export-ignore
+.env.* export-ignore

@@ -1,0 +1,81 @@
+name: Dev Integration (Real Supabase)
+
+on: 
+  workflow_dispatch: # Manual trigger
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/src/**'
+      - 'tests/live/**'
+      - '.github/workflows/dev-real-integration.yml'
+  schedule:
+    - cron: '0 2 * * *' # Daily validation (2 AM UTC)
+
+jobs:
+  real-db-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          
+      - name: Install Dependencies
+        run: pnpm install
+
+      - name: Install Playwright Browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Validate Secrets
+        run: |
+          if [ -z "${{ secrets.SUPABASE_URL }}" ]; then
+            echo "❌ SUPABASE_URL secret not set"
+            exit 1
+          fi
+          if [ -z "${{ secrets.AGENT_SECRET }}" ]; then
+             echo "❌ AGENT_SECRET secret not set"
+             exit 1
+          fi
+          echo "✅ Critical secrets present"
+
+      - name: Run Live User Flow & E2E Tests
+        env:
+          # TOGGLE: This tells our code to use Real Secrets
+          VITE_USE_LIVE_DB: "true"
+          REAL_WHISPER_TEST: "true"
+          
+          # MAPPING: Inject GitHub Secrets into the App's expected variables
+          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          
+          # Stripe (for upgrade tests)
+          VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          STRIPE_PRO_PRICE_ID: ${{ secrets.STRIPE_PRO_PRICE_ID }}
+          
+          # Test Credentials
+          E2E_PRO_EMAIL: ${{ secrets.E2E_PRO_EMAIL }}
+          E2E_PRO_PASSWORD: ${{ secrets.E2E_PRO_PASSWORD }}
+          E2E_FREE_EMAIL: ${{ secrets.E2E_FREE_EMAIL }}
+          E2E_FREE_PASSWORD: ${{ secrets.E2E_FREE_PASSWORD }}
+          AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
+        
+        # Run Full Live Suite
+        run: pnpm test:live
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-test-results
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

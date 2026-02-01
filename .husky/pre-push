@@ -1,0 +1,15 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+echo "[husky] Running pre-push quality checks... 🚀"
+
+# Run the canonical local CI simulation
+# This is the single source of truth for build/test health.
+pnpm ci:local
+
+if [ $? -ne 0 ]; then
+  echo "❌ [husky] Pre-push checks failed. Push aborted. Please fix errors before pushing."
+  exit 1
+fi
+
+echo "✅ [husky] Pre-push checks passed. Pushing to remote..."

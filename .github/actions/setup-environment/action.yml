@@ -1,0 +1,58 @@
+name: 'Setup Environment'
+description: 'Sets up Node.js, pnpm, dependencies, and Playwright for CI/CD'
+inputs:
+  install-playwright:
+    description: 'Whether to install Playwright browsers'
+    required: false
+    default: 'false'
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 10
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: 'pnpm'
+
+    - name: Get pnpm store directory
+      shell: bash
+      run: |
+        echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+    - name: Setup pnpm cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.STORE_PATH }}
+        key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+        restore-keys: |
+          ${{ runner.os }}-pnpm-store-
+
+    - name: Install System Dependencies (Canvas/Sharp)
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev
+      if: runner.os == 'Linux'
+
+    - name: Install Dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile
+
+    - name: Remove Problematic Package Repositories
+      if: inputs.install-playwright == 'true'
+      shell: bash
+      run: |
+        # Remove Microsoft repos that are causing 403 errors in GitHub Actions
+        sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list
+        sudo rm -f /etc/apt/sources.list.d/azure-cli.list
+        echo "Removed problematic Microsoft package repositories"
+    
+    - name: Install Playwright Browsers
+      if: inputs.install-playwright == 'true'
+      shell: bash
+      run: pnpm exec playwright install --with-deps chromium

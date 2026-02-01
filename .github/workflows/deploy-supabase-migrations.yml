@@ -1,0 +1,130 @@
+name: Deploy Supabase Migrations (Manual Approval Required)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "DEPLOY" to confirm migration'
+        required: true
+        default: ''
+
+jobs:
+  deploy-migrations:
+    environment: production-db
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Validate confirmation
+        run: |
+          user_input="$(echo "${{ github.event.inputs.confirm }}" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
+          if [ "$user_input" != "DEPLOY" ]; then
+            echo "❌ Deployment cancelled - confirmation not provided"
+            exit 1
+          fi
+          echo "✅ Deployment confirmed"
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Supabase CLI
+        run: |
+          # Use npx to run supabase CLI (no global install needed)
+          npx supabase@latest --version
+
+      - name: Validate environment secrets
+        env:
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+        run: |
+          if [ -z "$SUPABASE_PROJECT_ID" ]; then
+            echo "❌ Missing SUPABASE_PROJECT_ID (expected as GitHub secret)" >&2
+            exit 1
+          fi
+          echo "✅ Project ID validated"
+
+      - name: Link to Supabase project
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+        run: |
+          cd backend/supabase
+          # SUPABASE_ACCESS_TOKEN env var is used automatically by CLI
+          npx supabase link --project-ref "$SUPABASE_PROJECT_ID"
+          echo "✅ Linked to Supabase project"
+
+      - name: Push migrations to production
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+        run: |
+          cd backend/supabase
+          # Repair history for the baseline migration that was moved correctly but is flagged as missing
+          echo "🛠️ Repairing migration history..."
+          npx supabase migration repair 20260116000000 --status applied
+          
+          echo "🚀 Pushing migrations to production..."
+          npx supabase db push
+          echo "✅ Migrations applied successfully"
+
+      - name: Set Supabase Secrets
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+          AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
+        run: |
+          if [ -z "$AGENT_SECRET" ]; then
+            echo "❌ AGENT_SECRET not available in GitHub Secrets!"
+            exit 1
+          fi
+          cd backend/supabase
+          # Set the secret in Supabase Cloud
+          # Using wildcard or multiple origins if needed, but here we set the canonical production URL.
+          npx supabase secrets set AGENT_SECRET="$AGENT_SECRET" ALLOWED_ORIGIN="https://speaksharp.vercel.app,https://speaksharp-public.vercel.app,http://localhost:5173" --project-ref "$SUPABASE_PROJECT_ID"
+          echo "✅ AGENT_SECRET and ALLOWED_ORIGIN synchronized to Supabase"
+
+      - name: Deploy Edge Functions
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          cd backend/supabase
+          echo "🚀 Deploying Edge Functions..."
+          npx supabase functions deploy assemblyai-token --no-verify-jwt
+          npx supabase functions deploy check-usage-limit --no-verify-jwt
+          npx supabase functions deploy get-ai-suggestions --no-verify-jwt
+          npx supabase functions deploy stripe-checkout --no-verify-jwt
+          npx supabase functions deploy stripe-webhook --no-verify-jwt
+          npx supabase functions deploy apply-promo --no-verify-jwt
+          npx supabase functions deploy create-user --no-verify-jwt
+          echo "✅ Edge Functions deployed successfully"
+
+      - name: Save migration list to file
+        run: |
+          cd backend/supabase
+          npx supabase migration list > migration_list.txt || true
+          head -n 300 migration_list.txt > migration_list_trimmed.txt || true
+          echo "Saved migration list"
+
+      - name: Add migration list to job summary
+        run: |
+          echo "### Migration list" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          sed -n '1,200p' backend/supabase/migration_list_trimmed.txt >> $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "✅ Migration list added to job summary"
+
+      - name: Post-deployment summary
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ Deployment Complete"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "⚠️  IMPORTANT - Post-Deployment Actions:"
+          echo "  1. Rotate/delete the temporary service key in Supabase Dashboard"
+          echo "  2. Verify migrations in Supabase Dashboard"
+          echo "  3. Test affected features in production"
+          echo "  4. Monitor error logs for 24h"

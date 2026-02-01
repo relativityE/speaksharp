@@ -1,0 +1,93 @@
+name: Manual Call Edge Function
+
+# ARCHITECTURE: "2-Stage Key" Synchronized Auth
+# This workflow provisions local/E2E test users onto the live Supabase instance.
+# - Stage 1 (Routing): Uses 'apikey' header with ANON key to clear the Supabase Gateway (Kong).
+# - Stage 2 (Auth): Uses 'Authorization: Bearer' header with AGENT_SECRET for function authorization.
+
+on:
+  workflow_dispatch:
+    inputs:
+      username:
+        description: 'Email (username)'
+        required: true
+      password:
+        description: 'Password (>6 alphanumeric, or leave blank for random)'
+        required: false
+      type:
+        description: 'User Type (free or pro)'
+        required: false
+        default: 'free'
+        type: choice
+        options:
+          - free
+          - pro
+
+jobs:
+  deploy-and-call:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Manual Call Edge Function
+        env:
+          AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+
+          # Generate 24-char POSIX password if none provided
+          PASSWORD="${{ github.event.inputs.password }}"
+          if [ -z "$PASSWORD" ] || [ "$PASSWORD" = "dummy-password" ]; then
+            PASSWORD=$(LC_ALL=C tr -dc 'A-Za-z0-9@#%_-+' < /dev/urandom | head -c 24)
+          fi
+          echo "::add-mask::$PASSWORD"
+
+          EMAIL="${{ github.event.inputs.username }}"
+          TYPE="${{ github.event.inputs.type }}" # free|pro
+
+          # Build the payload
+          PAYLOAD=$(jq -n \
+            --arg email "$EMAIL" \
+            --arg password "$PASSWORD" \
+            --arg subscription_status "$TYPE" \
+            '{ email: $email, password: $password, subscription_status: $subscription_status }')
+
+          echo "Calling Edge Function for: $EMAIL (Synchronized Auth Mode)"
+
+          # Call Edge Function: apikey header (Stage 1 Routing) + AGENT_SECRET (Stage 2 Auth)
+          HTTP_STATUS=$(curl -sS -o /tmp/create_user_response.json -w "%{http_code}" -X POST "${SUPABASE_URL}/functions/v1/create-user" \
+            -H "Content-Type: application/json" \
+            -H "apikey: ${SUPABASE_ANON_KEY}" \
+            -H "Authorization: Bearer ${AGENT_SECRET}" \
+            -d "$PAYLOAD")
+
+          RESP_BODY=$(cat /tmp/create_user_response.json || true)
+          if [ "$HTTP_STATUS" -ne 200 ]; then
+            echo "❌ API Gateway or Edge Function returned HTTP $HTTP_STATUS"
+            echo "Body: $RESP_BODY" | sed -e "s/$PASSWORD/[REDACTED]/g"
+            exit 1
+          fi
+
+          if command -v jq >/dev/null 2>&1; then
+            OK=$(printf '%s' "$RESP_BODY" | jq -r '.success // false')
+            if [ "$OK" != "true" ]; then
+              echo "❌ Edge Function returned success=false:"
+              printf '%s\n' "$RESP_BODY" | jq .
+              exit 1
+            fi
+          fi
+
+          echo "✅ Successfully provisioned: $EMAIL"
+          
+          # Store password for job summary reference (masked)
+          echo "TEST_USER_PASSWORD=$PASSWORD" >> $GITHUB_ENV
+
+      - name: Add Summary
+        run: |
+          echo "### Provisioning Complete" >> $GITHUB_STEP_SUMMARY
+          echo "- **User:** ${{ github.event.inputs.username }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tier:** ${{ github.event.inputs.type }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status:** ✅ Success" >> $GITHUB_STEP_SUMMARY
