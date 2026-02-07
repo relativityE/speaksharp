@@ -94,8 +94,8 @@ run_quality_checks() {
     echo "   🧪 Unit Tests..."
     # Run tests and capture exit code to allow artifact movement even on failure
     set +e
-    pnpm test:unit > "$ARTIFACTS_DIR/unit-test.log" 2>&1
-    UNIT_EXIT=$?
+    pnpm test:unit 2>&1 | tee "$ARTIFACTS_DIR/unit-test.log"
+    UNIT_EXIT=${PIPESTATUS[0]}
     set -e
     
     # Extract and print summary line from Vitest output (e.g., "Tests  407 passed (407)")
