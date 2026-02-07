@@ -960,6 +960,32 @@ curl -i -X POST "https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/create-us
 - Skipped in dev (requires `REAL_WHISPER_TEST=true`)
 - Tests production-only capabilities (SharedArrayBuffer, WebGPU)
 
+##### Intentionally Skipped Tests Registry
+
+The following tests are **intentionally skipped** by design. This is the canonical reference for understanding why certain tests show as "skipped" in CI reports.
+
+| Test File | Test Name | Skip Condition | Reason | CI Risk |
+|-----------|-----------|----------------|--------|---------|
+| `tier-limits.e2e.spec.ts` | Daily limit auto-stops | `process.env.CI` | Resilience test requires long timeout; not suitable for CI | ✅ None |
+| `private-stt-resilience.spec.ts` | 10s timeout hang detection | `process.env.CI` | Tests 10-second timeout behavior; too slow for CI matrix | ✅ None |
+| `analytics-journey.live.spec.ts` | Full analytics journey | `!AGENT_SECRET` | Requires provisioning secret for isolated user creation | ✅ None |
+| `live-transcript.live.spec.ts` | Native STT transcription | `browserName !== 'chromium'` | Web Speech API only works in Chromium | ✅ None |
+| `private-stt.live.spec.ts` | TransformersJS real audio | **Permanently skipped** | Playwright fake media streams don't inject PCM into AudioWorklet; TransformersJS ONNX engine receives silence | ✅ None |
+| `stt-integration.live.spec.ts` | Real Whisper test | `!REAL_WHISPER_TEST` | Opt-in only; requires real hardware and model download | ✅ None |
+| `schema.canary.spec.ts` | Schema integrity | `!CANARY_PASSWORD` | Requires staging credentials from GitHub Secrets | ✅ None |
+| `smoke.canary.spec.ts` | Production smoke | `!CANARY_PASSWORD` | Requires staging credentials from GitHub Secrets | ✅ None |
+| `user-filler-words.canary.spec.ts` | Filler words canary | `!CANARY_PASSWORD` | Requires staging credentials from GitHub Secrets | ✅ None |
+
+> [!NOTE]
+> **Blocked Test: Private STT Real Audio**
+> 
+> The `private-stt.live.spec.ts › should transcribe real audio using TransformersJS` test is **permanently blocked** due to a Playwright limitation:
+> - Playwright's `--use-file-for-fake-audio-capture` flag injects audio at the browser level
+> - However, TransformersJS reads raw PCM data from `AudioWorklet`, which receives silence from fake streams
+> - This is a fundamental architectural mismatch, not a test bug
+> - **Workaround:** TransformersJS inference is tested via unit tests (`TransformersJSEngine.test.ts`) instead
+
+
 > [!CAUTION]
 > **CANARY TESTS REQUIRE CI ENVIRONMENT**
 > 

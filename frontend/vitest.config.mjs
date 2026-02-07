@@ -15,10 +15,9 @@ export default defineConfig({
     include: ['src/**/*.test.{js,jsx,ts,tsx}', 'tests/**/*.test.{js,jsx,ts,tsx}'],
     exclude: ['node_modules/', 'dist/', 'build/'],
     setupFiles: './tests/unit/setup.ts',
-    // Longer timeouts in CI to handle slower runners
-    testTimeout: process.env.CI ? 60000 : 30000,
-    hookTimeout: process.env.CI ? 20000 : 10000,
-    teardownTimeout: process.env.CI ? 20000 : 10000,
+    testTimeout: 30000,
+    hookTimeout: 10000,
+    teardownTimeout: 10000,
     // CLEAN CI OUTPUT: Use 'basic' for minimal noise, 'verbose' only when debugging
     // Set CI_DEBUG=true for verbose output
     reporters: process.env.CI_DEBUG
@@ -59,8 +58,7 @@ export default defineConfig({
     env: {
       VITE_TEST_MODE: 'true',
       NODE_ENV: 'test',
-      // Increase heap size for CI runners
-      NODE_OPTIONS: process.env.CI ? '--max-old-space-size=4096' : '--max-old-space-size=2048'
+      NODE_OPTIONS: '--max-old-space-size=2048'
     },
     // Fix deprecation: "deps.inline" -> "server.deps.inline"
     server: {
