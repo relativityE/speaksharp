@@ -19,10 +19,7 @@
 import { Result } from 'true-myth';
 import { IPrivateSTTEngine, EngineCallbacks, EngineType } from './IPrivateSTTEngine';
 import logger from '../../../lib/logger';
-import { IS_TEST_ENVIRONMENT } from '../../../config/env';
-
-
-
+import { TestFlags, shouldUseMockTranscription } from '../../../config/TestFlags';
 
 /**
  * Check if WebGPU is available for fast path
@@ -58,6 +55,15 @@ export class PrivateSTT {
         console.log('[PrivateSTT] 🚀 Automatic engine selection started...');
         logger.info('[PrivateSTT] Automatic engine selection started.');
 
+        if (TestFlags.DEBUG_ENABLED) {
+            console.log('[PrivateSTT] Checking flags:', {
+                isTestMode: TestFlags.IS_TEST_MODE,
+                useRealTranscription: TestFlags.USE_REAL_TRANSCRIPTION,
+                shouldMock: shouldUseMockTranscription(),
+                forceCPU: TestFlags.FORCE_CPU_TRANSCRIPTION
+            });
+        }
+
         const callbacks = options;
 
         // 1. Check for manual engine override (Testability/Deep-linking)
@@ -68,16 +74,17 @@ export class PrivateSTT {
             if (options.forceEngine === 'mock') return this.initMockEngine(callbacks);
         }
 
-        // 2. Force mock engine in CI/test environments unless specifically bypassed
-        if (IS_TEST_ENVIRONMENT) {
+        // 2. Force mock engine in CI/test environments unless specifically bypassed.
+        if (shouldUseMockTranscription()) {
             console.log('[PrivateSTT] 🧪 Test environment detected. Using MockEngine.');
             logger.info('[PrivateSTT] Test environment detected. Using MockEngine.');
             return this.initMockEngine(callbacks);
         }
 
         // Try fast engine first if WebGPU is available
-        const webGPUAvailable = hasWebGPU();
-        console.log(`[PrivateSTT] 🔍 WebGPU support check: ${webGPUAvailable}`);
+        const forceSafe = TestFlags.FORCE_CPU_TRANSCRIPTION;
+        const webGPUAvailable = hasWebGPU() && !forceSafe;
+        console.log(`[PrivateSTT] 🔍 WebGPU support check: ${webGPUAvailable} (forceSafe: ${forceSafe})`);
 
         if (webGPUAvailable) {
             console.log('[PrivateSTT] ⚡ WebGPU available. Attempting to initialize WhisperTurbo (Fast Path)...');

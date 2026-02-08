@@ -49,4 +49,31 @@ describe('calculateWordErrorRate', () => {
     const hyp = '';
     expect(calculateWordErrorRate(ref, hyp)).toBe(0);
   });
+
+  it('should unify whitespace handling (multiple spaces, tabs, newlines)', () => {
+    const ref = 'this   is\ta\ntest';
+    const hyp = 'this is a test';
+    expect(calculateWordErrorRate(ref, hyp)).toBe(0);
+  });
+
+  it('should handle leading/trailing whitespace and mixed case', () => {
+    const ref = '  This IS a test  ';
+    const hyp = 'this is a TEST';
+    expect(calculateWordErrorRate(ref, hyp)).toBe(0);
+  });
+
+  it('should utilize the cache for repeated calls', () => {
+    const ref = 'consistent reference';
+    const hyp = 'consistent hypothesis';
+    const result1 = calculateWordErrorRate(ref, hyp);
+    const result2 = calculateWordErrorRate(ref, hyp);
+    expect(result1).toBe(result2);
+    expect(result1).toBeGreaterThan(0);
+  });
+
+  it('should correctly calculate WER for very long strings (testing 1D DP robustness)', () => {
+    const ref = Array(1000).fill('word').join(' ');
+    const hyp = Array(900).fill('word').join(' ');
+    expect(calculateWordErrorRate(ref, hyp)).toBeCloseTo(0.1, 5);
+  });
 });

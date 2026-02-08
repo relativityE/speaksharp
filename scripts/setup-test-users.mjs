@@ -14,6 +14,10 @@
 import { createClient } from '@supabase/supabase-js';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as dotenv from 'dotenv';
+
+// Load environment from .env.development (Standard for Soak/Canary tests)
+dotenv.config({ path: path.resolve(process.cwd(), '.env.development') });
 
 // ============================================
 // Configuration
@@ -47,8 +51,8 @@ function getEmailForIndex(index) {
 
 function getNewUserCounts() {
     return {
-        newFreeCount: parseInt(process.env.NEW_FREE_COUNT || '0', 10),
-        newProCount: parseInt(process.env.NEW_PRO_COUNT || '0', 10)
+        newFreeCount: parseInt(process.env.NUM_FREE_USERS || '0', 10),
+        newProCount: parseInt(process.env.NUM_PRO_USERS || '0', 10)
     };
 }
 
@@ -58,8 +62,8 @@ async function getConfigCounts() {
         const content = fs.readFileSync(constantsPath, 'utf8');
 
         // Extract defaults using robust regex
-        const freeMatch = content.match(/FREE_USER_COUNT = getEnvNum\('.*', (\d+)\)/);
-        const proMatch = content.match(/PRO_USER_COUNT = getEnvNum\('.*', (\d+)\)/);
+        const freeMatch = content.match(/FREE_USER_COUNT = getEnvNum\('NUM_FREE_USERS', (\d+)/);
+        const proMatch = content.match(/PRO_USER_COUNT = getEnvNum\('NUM_PRO_USERS', (\d+)/);
         const maxMatch = content.match(/MAX_TOTAL_TEST_USERS = (\d+)/);
 
         const free = freeMatch ? parseInt(freeMatch[1], 10) : 7;

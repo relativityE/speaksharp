@@ -64,7 +64,7 @@ jobs:
           npx start-server-and-test \
             "pnpm dev" \
             http://localhost:5173 \
-            "pnpm test:canary"
+            "cross-env BASE_URL=https://speaksharp-public.vercel.app/ pnpm test:canary"
 
       - name: Cleanup Canary User
         if: always() # Run even if tests fail

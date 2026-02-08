@@ -3,6 +3,7 @@ import { useAuthProvider } from "../contexts/AuthProvider";
 import { profileService } from "../services/domainServices";
 import { UserProfile } from "../types/user";
 import logger from "../lib/logger";
+import { IS_TEST_ENVIRONMENT } from "../config/env";
 
 /**
  * ARCHITECTURE NOTE (Senior Architect):
@@ -65,7 +66,7 @@ export const useUserProfile = (options: UseUserProfileOptions = {}) => {
           dispatchEvent: (e: Event) => void
         };
 
-        if (typeof window !== 'undefined' && (win.__E2E_CONTEXT__ || win.TEST_MODE)) {
+        if (typeof window !== 'undefined' && IS_TEST_ENVIRONMENT) {
           win.__e2eProfileLoaded__ = true;
           win.dispatchEvent(new CustomEvent('e2e:profile-loaded'));
           logger.debug('[E2E Signal] Profile loaded');

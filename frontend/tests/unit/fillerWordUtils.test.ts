@@ -56,6 +56,23 @@ describe('fillerWordUtils', () => {
             const result = countFillerWords(text);
             expect(result[FILLER_WORD_KEYS.UM].count).toBe(1);
         });
+
+        it('uses cached NLP document for identical text', () => {
+            const text = 'He said like maybe it is time.';
+            // First call
+            countFillerWords(text);
+            // Second call (hits branch 61-62)
+            const result = countFillerWords(text);
+            expect(result[FILLER_WORD_KEYS.LIKE].count).toBe(1);
+        });
+
+        it('handles non-filler "like" correctly (fallback coverage)', () => {
+            // "I like apples" -> "like" is clearly a verb
+            const text = 'I like apples';
+            const result = countFillerWords(text);
+            // Heuristic should reject this "like" (hits branch 156)
+            expect(result[FILLER_WORD_KEYS.LIKE].count).toBe(0);
+        });
     });
 
     describe('calculateTranscriptStats', () => {

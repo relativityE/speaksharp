@@ -1,3 +1,5 @@
+import { IS_TEST_ENVIRONMENT } from './env';
+
 /**
  * Centralized access to global test flags.
  * Used to decouple application logic from 'window' access.
@@ -6,7 +8,7 @@ export const getTestConfig = () => {
     const win = typeof window !== 'undefined' ? (window as unknown as Record<string, unknown>) : {};
 
     return {
-        isTestMode: !!(win.TEST_MODE || import.meta.env.VITE_TEST_MODE === 'true'),
+        isTestMode: IS_TEST_ENVIRONMENT,
         useMockPrivateWhisper: !!win.__E2E_MOCK_LOCAL_WHISPER__,
         mockSession: !!win.__E2E_MOCK_SESSION__,
         // Helper to check if we should skip heavy inits

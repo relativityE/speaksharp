@@ -16,6 +16,7 @@
 
 import { Result } from 'true-myth';
 import { IPrivateSTTEngine, EngineCallbacks, EngineType } from './IPrivateSTTEngine';
+import { TestFlags } from '../../../config/TestFlags';
 import logger from '../../../lib/logger';
 
 // Lazy-load transformers.js to avoid bundle bloat
@@ -30,12 +31,39 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
 
         try {
             // Lazy import transformers.js
-            const { pipeline, env } = await import('@xenova/transformers');
+            const transformers = await import('@xenova/transformers');
+            const { pipeline, env } = transformers;
+
+            if (TestFlags.DEBUG_ENABLED) {
+                console.log('[TransformersJS] Import check:', {
+                    hasPipeline: !!pipeline,
+                    hasEnv: !!env,
+                    allKeys: Object.keys(transformers)
+                });
+            }
+
+            if (!env) {
+                throw new Error('TransformersJS environment (env) is undefined. Check import logic.');
+            }
 
             // Force use of remote models (CDN) to avoid "Unexpected token <" error (HTML returned for JSON)
             // This is required in Vite dev environment where local model paths might be intercepted
             env.allowLocalModels = false;
-            env.useBrowserCache = true;
+
+            // Browser cache is only available in a real browser, not Happy-DOM/Node
+            const isBrowser = typeof window !== 'undefined' &&
+                typeof window.document !== 'undefined' &&
+                !navigator.userAgent.includes('HappyDOM');
+
+            env.useBrowserCache = isBrowser && !TestFlags.IS_TEST_MODE;
+
+            if (TestFlags.DEBUG_ENABLED) {
+                console.log('[TransformersJS] Env check:', {
+                    isBrowser,
+                    cacheEnabled: env.useBrowserCache,
+                    userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'none'
+                });
+            }
 
             // Report progress (transformers.js manages its own download progress callbacks)
             if (callbacks.onModelLoadProgress) {

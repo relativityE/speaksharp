@@ -3,14 +3,14 @@ import { setupE2EMocks } from './mock-routes';
 import { goToPublicRoute, navigateToRoute } from './helpers';
 
 /**
- * Bypass Code Journey E2E Test
+ * Promo Admin Journey E2E Test
  * 
  * This test validates the promo code UI flow using MOCKED backend responses.
  * For real backend testing, use manual verification:
  *   1. pnpm generate-promo → get code
  *   2. Use code in app signup → verify Pro access
  */
-test.describe('Bypass Code Journey', () => {
+test.describe('Promo Admin Journey', () => {
 
     test.beforeEach(async ({ page }) => {
         await setupE2EMocks(page);

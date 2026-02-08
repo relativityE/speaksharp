@@ -87,6 +87,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 - ✅ **CI Stabilization:** Upgraded pnpm, increased memory limits, and tuned timeouts for 100% reliable CI runs.
 - ✅ **Regex Memoization:** Implemented content-based regex memoization in `highlightUtils.ts` to eliminate repeated compilation in render loops.
 - ✅ **Benchmarking Infrastructure:** Created `scripts/benchmark-highlighting.ts` to measure and verify performance gains (~60% improvement for stable word sets).
+- ✅ **Soak Test Infrastructure (2026-02-08):** Implemented `api-load-test.ts` for dynamic concurrency and stabilized `soak-test.spec.ts` for UI smoke testing. Standardized `NUM_*_USERS` config.
 
 ### 🗑️ Codebase Bloat Cleanup (2025-12-18) ✅ COMPLETE
 
@@ -344,9 +345,8 @@ This phase is about confirming the core feature set works as expected and polish
   - ✅ Migrations deployed to production
 -  **ℹ️ CAVEAT - User Filler Words Native STT (2026-01-02):** Native STT (Web Speech API) does **NOT** support user filler words - it's entirely browser-controlled. Only Cloud STT (`word_boost` param via AssemblyAI) supports this feature. **Testing Impact:** User filler words E2E verification can only be done with Cloud STT, which requires API keys.
 - [ ] **Alpha Deployment Checklist**
-    - [ ] Deploy `apply-promo` Edge Function (`supabase functions deploy apply-promo`)
-    - ✅ **Set `ALPHA_BYPASS_CODE` secret in Supabase Dashboard (2025-12-31):** Implemented secret-driven validation in `apply-promo` Edge Function. Code is no longer hardcoded in frontend.
-    - [ ] Verify 7-digit numeric rotation via `scripts/generate-alpha-code.ts`
+    - ✅ **Set `PROMO_GEN_ADMIN_SECRET` secret in Supabase Dashboard (2026-02-08):** Finalized secure, server-side validated promo generation. Legacy ALPHA_BYPASS_CODE purged.
+    - [ ] Verify rotation via `scripts/generate-promo.ts`
 - [ ] **Infrastructure Cleanup**
 - ✅ **Restructure Codebase:** Reorganize the project structure for better maintainability before alpha soft launch.\
   - **Implemented Structure:**\
@@ -370,7 +370,7 @@ This phase is about confirming the core feature set works as expected and polish
 - ✅ **Analytics Integrity Fix (2025-12-19):** Resolved regression in clarity score aggregation to correctly use grounded DB fields.
 - ✅ **Plan Selection at Signup (2025-12-21):** Users choose Free or Pro plan during signup. Pro selection redirects to Stripe Checkout after account creation (as Free). Webhook upgrades to Pro on successful payment. Added persistent "Upgrade to Pro" button in Navigation for Free users.
   - **Files:** `AuthPage.tsx`, `Navigation.tsx`, `App.tsx`, `stripe-checkout/index.ts`
-- ✅ **Alpha Bypass Mechanism (2025-12-31):** Implemented secure, secret-driven upgrade path using Supabase Vault. Removed legacy hardcoded codes and updated E2E suite to use automated code generation.
+- ✅ **Promo Admin Migration (2026-02-08):** Migrated from legacy Alpha Bypass to a professional, server-side validated Promo Code system. Replaced `ALPHA_BYPASS_CODE` with `PROMO_GEN_ADMIN_SECRET` and implemented `generate-promo.ts`.
 - ✅ **Analytics UI Restoration & Consolidation (2025-12-31):** Resolved MSW initialization regression. Consolidated redundant upgrade prompts and merged plan status indicators for a cleaner Analytics dashboard.
 - ✅ **Port Centralization (2025-12-21):** Eliminated hardcoded port numbers. Created `scripts/build.config.ts` with `PORTS.DEV` (5173) and `PORTS.PREVIEW` (4173). Updated 10+ files.
 - 🔄 **PERPETUAL - Documentation Audit:** Verify PRD Known Issues, ROADMAP, and CHANGELOG match actual codebase state. Run test suite and cross-reference with documented issues to eliminate drift. **Frequency:** Before each release and after major feature work.

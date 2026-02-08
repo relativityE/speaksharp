@@ -234,11 +234,16 @@ export default class PrivateWhisper implements ITranscriptionMode {
 
       // Threshold 0.005 (0.5%) to capture quieter speech/whispers
       if (rms < 0.005) {
+        if (concatenated.length > 500) {
+          console.log(`[PrivateWhisper] 🤫 Silent chunk skipped (RMS: ${rms.toFixed(6)}, samples: ${concatenated.length})`);
+        }
         // Even if silent, we still need to clear the processed chunks 
         // to prevent them from staying in the buffer forever.
         this.audioChunks = [];
         return;
       }
+
+      console.log(`[PrivateWhisper] 🔊 Audio detected (RMS: ${rms.toFixed(6)}, samples: ${concatenated.length})`);
 
       // CRITICAL FIX: The MicStream ALREADY downsamples to 16kHz (confirmed in audioUtils.impl.ts).
       // Double downsampling (16k -> 16k) is harmless, but if we guessed 44k -> 16k on 16k input, we'd decimate it.

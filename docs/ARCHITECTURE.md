@@ -134,21 +134,28 @@ Data Flow:
   SessionPage → check-usage-limit → Expiry Modal (if promo expired)
 ```
 
-### Promo Bypass Mechanism
+### Promo Admin System
 We prioritize a secure, dynamic promo code system for internal access/testing.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                         DYNAMIC PROMO CODE FLOW                              │
+│                         DYNAMIC PROMO ADMIN FLOW                             │
 └──────────────────────────────────────────────────────────────────────────────┘
 
   STEP 1: GENERATE CODE (Admin/Tester)
   ════════════════════════════════════
   ┌─────────────────┐      POST /generate       ┌──────────────────────────┐
   │  Terminal       │ ────────────────────────▶ │  apply-promo Edge Func   │
-  │  pnpm generate- │                           │  (Uses Service Role Key) │
-  │  promo          │ ◀──────────────────────── │                          │
+  │  pnpm generate- │                           │ (Gated by:               │
+  │  promo          │ ◀──────────────────────── │  PROMO_GEN_ADMIN_SECRET) │
   └─────────────────┘   { code: "7423974" }     └──────────────────────────┘
+                                                           │
+                                                           ▼
+                                                ┌──────────────────────────┐
+                                                │  Supabase Database       │
+                                                │ (Auth via:               │
+                                                │  SERVICE_ROLE_KEY)       │
+                                                └──────────────────────────┘
                                                            │
                                                            ▼
                                                 ┌──────────────────────────┐
@@ -480,6 +487,30 @@ The `whisper-turbo` engine uses a two-layer cache (Service Worker + IndexedDB) t
 > All automated tests use MockEngine for reliability and speed.
 > To test real engine behavior, use a production build in a real browser.
 
+### 🧪 Driver-Dependent (Unmocked) Testing
+
+Standard CI environments (like GitHub Actions) are "headless" and lack access to real audio drivers, microphones, and GPUs. To allow deep verification of real engine performance without polluting the fast CI path, we use the `REAL_WHISPER_TEST=true` flag.
+
+#### 1. Directory Structure: `tests/live/driver-dependent/`
+- **Purpose**: Home for tests that require real hardware (Audio/GPU) or OS-level drivers.
+- **Isolation**: These tests are isolated from standard `pnpm test` and `pnpm test:live` runs by default.
+- **Manual Execution**: Run via `pnpm test:live tests/live/driver-dependent/`.
+
+#### 2. Flag Centralization (`TestFlags.ts`)
+We centralize testing logic in `frontend/src/config/TestFlags.ts` to prevent "Flag Soup". This provides a single source of truth for:
+- **`VITE_TEST_ENABLE_MOCKING`**: Master toggle for all mocks.
+- **`VITE_TEST_USE_REAL_TRANSCRIPTION`**: Enables real ML engines while keeping other mocks active.
+- **`VITE_TEST_TRANSCRIPTION_FORCE_CPU`**: Forces TransformersJS (CPU) even if WebGPU is available.
+
+#### 3. Microphone Readiness Handshake
+To eliminate race conditions in E2E tests (the "Listening..." hang), the `MicStream` interface provides a `state` property:
+1.  **`initializing`**: Mic is requested but AudioWorklet/Context are not yet ready.
+2.  **`ready`**: AudioWorklet is bound and processing; PCM flow is guaranteed.
+
+Tests MUST wait for this signal via `window.micStream.state === 'ready'` before attempting to verify transcription output.
+
+**Recommended Usage:** Use this mode for **Word Error Rate (WER) validation** or **Performance Profiling** where a mock transcript is insufficient.
+
 ### Reliability & Failure Handling
 
 |Scenario|Behavior|Implementation|
@@ -539,38 +570,48 @@ SpeakSharp enforces strict code quality standards to maintain long-term maintain
 | Term | Definition | SpeakSharp Implementation |
 |------|------------|---------------------------|
 | **Smoke** | Lightweight "sanity check" to ensure critical paths work. | `tests/canary/smoke.canary.spec.ts` (Login -> Record -> Save) |
-| **Canary** | Smoke tests running against **Production** with restricted users. | `pnpm test:canary` (Runs on deploy against `app.speaksharp.com`) |
-| **Integration** | Verification that multiple components work together (e.g. Auth + DB). | `tests/live/` (Frontend + Real Supabase) |
-| **Live** | Tests executing against **Real API/Databases** (No Mocks). | `pnpm test:live` (Requires `AGENT_SECRET`) |
+| **Canary** | Smoke tests running against **Production** with restricted users. | `pnpm test:canary` (Runs on deploy against `VISUAL_TEST_BASE_URL=https://speaksharp-public.vercel.app`) |
+| **Soak** | Long-running concurrency tests to identify memory leaks/deadlocks. | `pnpm test:soak` (Simulates 10 concurrent users for 5min) |
+| **Driver-Dependent** | High-fidelity hardware tests (Audio/WebGPU). | `pnpm test:live` (With `REAL_WHISPER_TEST=true` flag) |
 | **Staging** | A pre-production environment mirroring Prod configuration. | *Not currently active.* (We use "Canary Users" in Prod instead) |
 | **Soak** | Long-duration load tests to find memory leaks or timeouts. | `pnpm test:soak` (5 mins/user, 10 users concurrent) |
 
 ### Testing Strategy (The "Gold Standard")
 
-#### Test Pyramid
+#### 7.3 Soak Testing
+The project uses a hybrid soak testing strategy:
+1.  **UI Soak Test (`soak-test.spec.ts`):** Controlled Playwright test (3-5 users) to verify UI stability and memory leaks over time.
+2.  **API Load Test (`api-load-test.ts`):** Lightweight Node.js script for higher concurrency/stress testing. Directly hits backend APIs (Auth, Session, Edge Functions) to simulate heavy load without browser overhead.
+    *   **Config:** `CONCURRENT_USERS` (or `NUM_FREE_USERS` + `NUM_PRO_USERS`).
+    *   **Execution:** `pnpm tsx tests/soak/api-load-test.ts`
+
+### 7.4 Test Pyramid
 
 SpeakSharp uses a comprehensive test pyramid with 10 distinct categories:
 
 ```
-                          ┌─────────┐
-                          │  Soak   │ (Load Testing)
-                         ┌┴─────────┴┐
-                         │   Live    │ (Real Supabase)
-                        ┌┴───────────┴┐
-                        │   Canary    │ (Production)
-                       ┌┴─────────────┴┐
-                       │     E2E       │ (MSW Mocked)
-          ┌────────────┴───────────────┴────────────┐
-          │            Unit Tests (453)             │
-          └─────────────────────────────────────────┘
+                          ┌───────────┐
+                          │   Soak    │ (Load Testing)
+                         ┌┴───────────┴┐
+                         │   Canary    │ (Production)
+                        ┌┴─────────────┴┐
+                        │    Live       │ (Real Supabase)
+                       ┌┴───────────────┴┐
+                       │Driver-Dependent │ (Real Audio/GPU)
+                      ┌┴─────────────────┴┐
+                      │      E2E          │ (MSW Mocked)
+         ┌────────────┴───────────────────┴────────────┐
+         │            Unit Tests (453+)                │
+         └─────────────────────────────────────────────┘
 ```
 
 | Category | Directory | Config | Infrastructure |
 |----------|-----------|--------|----------------|
 | **Unit** | `frontend/src/**/__tests__/` | `vitest.config.ts` | Mocked logic isolation |
 | **E2E (Mock)** | `tests/e2e/` | `playwright.config.ts` | MSW Mocks (Standard CI) |
+| **Driver-Dependent**| `tests/live/driver-dependent/` | `playwright.live.config.ts` | REAL Audio/WebGPU (HW Verif) |
 | **Canary/Smoke** | `tests/canary/` | `playwright.canary.config.ts` | Production (Canary Users) |
-| **Live/Integration** | `tests/live/` | `playwright.live.config.ts` | Real Supabase (Feature verification) |
+| **Live/Integration**| `tests/live/` | `playwright.live.config.ts` | Real Supabase (Feature verification) |
 | **Soak** | `tests/soak/` | `playwright.soak.config.ts` | Load Testing (Longevity) |
 | **Demo** | `tests/demo/` | `playwright.demo.config.ts` | Video Recording |
 | **Stripe** | `tests/stripe/` | `playwright.stripe.config.ts` | Real Payments |
@@ -691,8 +732,18 @@ expect(text).toBe('5');
 
 ##### 6. Soak Tests (`pnpm test:soak`)
 
-*   **Infrastructure:** Runs against production.
+*   **Infrastructure:** Runs against production (or local dev with production-like constraints).
 *   **Purpose:** Long-running load tests to identify leaks and resource contention.
+*   **Strategy (Tiered):**
+    1.  **API Stress (Path B):** `pnpm test:soak:api`. Native Node.js script using `fetch` to simulate 10+ concurrent users hitting Supabase directly. Bypassess browser overhead.
+    2.  **UI Smoke:** `pnpm test:soak`. Lightweight Playwright test (3 users) to verify frontend integration.
+*   **User Provisioning:**
+    *   **Script:** `scripts/setup-test-users.mjs`
+    *   **Purpose:** Idempotent script to create/sync 10 dedicated soak test users (`soak-test0@`...`soak-test9@`).
+    *   **Configurable:** Supports `NUM_FREE_USERS` / `NUM_PRO_USERS` env overrides (Defaults: 7 Free, 3 Pro).
+    *   **Secrets:** Requires `SUPABASE_SERVICE_ROLE_KEY`.
+        *   **CI:** Injected via GitHub Secrets.
+        *   **Local:** Must be present in `.env.development`.
 
 SpeakSharp employs a unified and resilient testing strategy designed for speed and reliability. The entire process is orchestrated by a single script, `test-audit.sh`, which ensures that the local development experience perfectly mirrors the Continuous Integration (CI) pipeline.
 
@@ -958,7 +1009,7 @@ curl -i -X POST "https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/create-us
 - `programmaticLoginWithRoutes()` sets up mock auth/routes
 - `navigateToRoute()` for client-side navigation (preserves mock context)
 - `goToPublicRoute()` for public pages like signin
-- **Includes User Journey Tests** (`*-journey.e2e.spec.ts`): 26+ tests covering core-journey, user-journey, free-user-journey, pro-user-journey, upgrade-journey, bypass-journey
+- **Includes User Journey Tests** (`*-journey.e2e.spec.ts`): 26+ tests covering core-journey, user-journey, free-user-journey, pro-user-journey, upgrade-journey, promo-admin-journey
 
 **3. Live E2E Tests** (`tests/e2e/*-real*.spec.ts`)
 - Runs against real Supabase with GitHub Secrets

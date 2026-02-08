@@ -28,8 +28,20 @@ export default defineConfig({
         baseURL: urls.dev,
         video: 'off', // No video - performance focused
         trace: 'off',
+        actionTimeout: 15_000,
+        navigationTimeout: 30_000,
     },
-    // No webServer - assumes dev server is running
+    webServer: {
+        command: 'pnpm dev --force',
+        url: urls.dev,
+        reuseExistingServer: true,
+        timeout: 120 * 1000,
+        env: {
+            DOTENV_CONFIG_PATH: '.env.development',
+            VITE_USE_LIVE_DB: 'true',
+            REAL_WHISPER_TEST: 'true',
+        },
+    },
     projects: [
         {
             name: 'chromium',

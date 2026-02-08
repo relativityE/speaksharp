@@ -1,5 +1,6 @@
 import logger from '../../../lib/logger';
 import { ITranscriptionMode, TranscriptionModeOptions, Transcript, TranscriptionError } from './types';
+import { IS_TEST_ENVIRONMENT } from '../../../config/env';
 
 // A simplified interface for the SpeechRecognition event
 interface SpeechRecognitionEvent extends Event {
@@ -170,7 +171,7 @@ export default class NativeBrowser implements ITranscriptionMode {
     }
     const win = window as unknown as E2EWindow;
 
-    if (win.TEST_MODE || win.dispatchMockTranscript) {
+    if (IS_TEST_ENVIRONMENT || win.dispatchMockTranscript) {
       win.__activeSpeechRecognition = this.recognition;
       // Signal ready state for tests to avoid race conditions
       window.dispatchEvent(new CustomEvent('e2e:speech-recognition-ready'));

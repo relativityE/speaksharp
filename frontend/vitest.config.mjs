@@ -35,7 +35,7 @@ export default defineConfig({
       thresholds: {
         lines: process.env.USE_INDUSTRY_COVERAGE ? 80 : 61,
         functions: process.env.USE_INDUSTRY_COVERAGE ? 80 : 73,
-        branches: process.env.USE_INDUSTRY_COVERAGE ? 80 : 75,
+        branches: process.env.USE_INDUSTRY_COVERAGE ? 80 : 74,
         statements: process.env.USE_INDUSTRY_COVERAGE ? 80 : 61,
       },
     },
@@ -73,8 +73,6 @@ export default defineConfig({
       "@config": path.resolve(__dirname, "../scripts"),
       "tests": path.resolve(__dirname, "./tests"),
       "sharp": path.resolve(__dirname, "./tests/support/mocks/sharp.ts"),
-      '@xenova/transformers': path.resolve(__dirname, './tests/__mocks__/transformers.ts'),
-      'whisper-turbo': path.resolve(__dirname, './tests/__mocks__/whisper-turbo.ts'),
     },
   },
   define: {

@@ -53,3 +53,4 @@ merged-reports/
 .lighthouseci/
 speaksharp-review.zip
 repomix-output.xml
+coverage_output.txt

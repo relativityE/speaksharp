@@ -143,12 +143,12 @@ export const countFillerWords = (text: string, customWords: string[] = []): Fill
         if (tags.includes('Expression')) return true;
 
         // Context-based:
-        const isStart = m.has('^like');
+        const isStart = m.has('#Start');
         const hasCommaPost = (term.post || '').includes(',');
         const hasCommaPre = (term.pre || '').includes(',');
 
         if (isStart || hasCommaPost || hasCommaPre) {
-            // Even if tagged as Verb, if it has commas it's likely a filler in spoken transcript
+            // Even if tagged as Verb, if it has commas or starts a sentence it's likely a filler in spoken transcript
             return true;
         }
 
@@ -165,8 +165,8 @@ export const countFillerWords = (text: string, customWords: string[] = []): Fill
         if (!term) return false;
 
         // Discourse marker 'so' is dominant at start of phrase or with a pause (comma)
-        const isStart = m.has('^so');
-        const isEnd = m.has('so$');
+        const isStart = m.has('#Start');
+        const isEnd = m.has('#End');
         const hasCommaPost = (term.post || '').includes(',');
         const hasCommaPre = (term.pre || '').includes(',');
 

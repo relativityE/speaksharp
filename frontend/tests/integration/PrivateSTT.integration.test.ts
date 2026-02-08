@@ -30,12 +30,18 @@ vi.mock('@/services/transcription/engines/MockEngine', () => ({
     }))
 }));
 
-// Mock the environment config to control IS_TEST_ENVIRONMENT
-vi.mock('@/config/env', () => ({
-    IS_TEST_ENVIRONMENT: false,
-    E2E_CONTEXT_FLAG: '__E2E_CONTEXT__',
-    // Mock other exports if needed, or use vi.importActual if possible
-    getEnvVar: vi.fn(),
+// Mock the flagging system
+vi.mock('@/config/TestFlags', () => ({
+    TestFlags: {
+        IS_TEST_MODE: false,
+        USE_REAL_DATABASE: false,
+        USE_REAL_TRANSCRIPTION: false,
+        FORCE_CPU_TRANSCRIPTION: false,
+        DEBUG_ENABLED: false,
+        IS_SESSION_MOCKED: false,
+    },
+    shouldUseMockTranscription: vi.fn(() => false),
+    shouldEnableMocks: vi.fn(() => false),
 }));
 
 describe('PrivateSTT Integration (Facade Logic)', () => {
@@ -63,11 +69,9 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
         }
     });
 
-    it('should use MockEngine when IS_TEST_ENVIRONMENT is active', async () => {
-        // Dynamically update the mock to return true
-        const env = await import('@/config/env');
-        // @ts-expect-error - overriding readonly export for test
-        env.IS_TEST_ENVIRONMENT = true;
+    it('should use MockEngine when TestFlags indicates mocking', async () => {
+        const { shouldUseMockTranscription } = await import('@/config/TestFlags');
+        (shouldUseMockTranscription as any).mockReturnValue(true);
 
         const { MockEngine } = await import('@/services/transcription/engines/MockEngine');
         const mockInit = vi.fn().mockResolvedValue(Result.ok(undefined));
@@ -83,9 +87,8 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
         expect(result.isOk ? result.value : null).toBe('mock');
         expect(mockInit).toHaveBeenCalled();
 
-        // Reset for other tests
-        // @ts-expect-error
-        env.IS_TEST_ENVIRONMENT = false;
+        // Reset
+        (shouldUseMockTranscription as any).mockReturnValue(false);
     });
 
     it('should select WhisperTurbo when WebGPU is available', async () => {
@@ -157,9 +160,8 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
 
     it('should delegate transcription to the active engine', async () => {
         // Initialize with Mock
-        const env = await import('@/config/env');
-        // @ts-expect-error
-        env.IS_TEST_ENVIRONMENT = true;
+        const { shouldUseMockTranscription } = await import('@/config/TestFlags');
+        (shouldUseMockTranscription as any).mockReturnValue(true);
 
         const { MockEngine } = await import('@/services/transcription/engines/MockEngine');
         const mockTranscribe = vi.fn().mockResolvedValue(Result.ok('transcribed text'));
@@ -178,7 +180,49 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
         expect(mockTranscribe).toHaveBeenCalled();
 
         // Reset
+        (shouldUseMockTranscription as any).mockReturnValue(false);
+    });
+
+    it('should exercise debug logging in init', async () => {
+        const { TestFlags } = await import('@/config/TestFlags');
         // @ts-expect-error
-        env.IS_TEST_ENVIRONMENT = false;
+        TestFlags.DEBUG_ENABLED = true;
+        const spy = vi.spyOn(console, 'log').mockImplementation(() => { });
+
+        await privateSTT.init(mockCallbacks);
+
+        expect(spy).toHaveBeenCalledWith(expect.stringContaining('[PrivateSTT] Checking flags:'), expect.anything());
+
+        // @ts-expect-error
+        TestFlags.DEBUG_ENABLED = false;
+        spy.mockRestore();
+    });
+
+    it('should handle WhisperTurbo initialization failure (Line 156 coverage)', async () => {
+        // Mock WebGPU presence
+        Object.defineProperty(navigator, 'gpu', { value: {}, configurable: true });
+
+        const { WhisperTurboEngine } = await import('@/services/transcription/engines/WhisperTurboEngine');
+        const { TransformersJSEngine } = await import('@/services/transcription/engines/TransformersJSEngine');
+
+        // WhisperTurbo fails with Result.err
+        const mockError = new Error('Low-level WASM crash');
+        (WhisperTurboEngine as any).mockImplementationOnce(() => ({
+            type: 'whisper-turbo',
+            init: vi.fn().mockResolvedValue(Result.err(mockError)),
+            destroy: vi.fn(),
+        }));
+
+        // TransformersJS succeeds
+        (TransformersJSEngine as any).mockImplementationOnce(() => ({
+            type: 'transformers-js',
+            init: vi.fn().mockResolvedValue(Result.ok(undefined)),
+            destroy: vi.fn(),
+        }));
+
+        const result = await privateSTT.init(mockCallbacks);
+
+        expect(result.isOk).toBe(true);
+        expect(result.isOk ? result.value : 'none').toBe('transformers-js');
     });
 });

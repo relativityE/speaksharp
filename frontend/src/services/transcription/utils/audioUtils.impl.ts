@@ -1,5 +1,6 @@
 import logger from '../../../lib/logger';
 import { MicStream, MicStreamOptions } from './types';
+import { TestFlags } from '../../../config/TestFlags';
 
 // This file contains the actual implementation for creating a microphone stream
 // and is dynamically imported by the 'safe' wrapper file (audioUtils.ts).
@@ -20,15 +21,18 @@ const getWorkletUrl = (audioContext: AudioContext): Promise<string | null> => {
 
 interface WindowWithwebkitAudioContext extends Window {
   webkitAudioContext: typeof AudioContext;
+  micStream?: MicStream;
 }
 
 export async function createMicStreamImpl(
   { sampleRate = 16000, frameSize = 1024 }: MicStreamOptions = {}
 ): Promise<MicStream> {
-  // In test mode, return a mock stream to avoid hardware errors in CI
-  if (window.TEST_MODE) {
-    logger.info('Mocking microphone stream for TEST_MODE');
-    return {
+  // In test mode, return a mock stream to avoid hardware errors in CI.
+  // CRITICAL: Bypass mock if we are explicitly running driver-dependent tests.
+  if (TestFlags.IS_TEST_MODE && !TestFlags.USE_REAL_TRANSCRIPTION) {
+    logger.info('Mocking microphone stream for TEST_ENVIRONMENT');
+    const mockStream: MicStream = {
+      state: 'ready',
       sampleRate,
       onFrame: () => { },
       offFrame: () => { },
@@ -36,6 +40,13 @@ export async function createMicStreamImpl(
       close: () => { },
       _mediaStream: new MediaStream(),
     };
+
+    // Expose for E2E synchronization
+    if (TestFlags.DEBUG_ENABLED && typeof window !== 'undefined') {
+      (window as unknown as WindowWithwebkitAudioContext).micStream = mockStream;
+    }
+
+    return mockStream;
   }
 
   // Early environment check
@@ -52,6 +63,11 @@ export async function createMicStreamImpl(
     throw new Error('Audio worklet failed to load');
   }
 
+  // Ensure context is running (required in many browsers)
+  if (audioCtx.state === 'suspended') {
+    await audioCtx.resume();
+  }
+
   await audioCtx.audioWorklet.addModule(workletUrl);
 
   const source = audioCtx.createMediaStreamSource(mediaStream);
@@ -66,7 +82,7 @@ export async function createMicStreamImpl(
   };
 
   const gainNode = audioCtx.createGain();
-  gainNode.gain.value = 0; // Mute the aoutput to prevent feedback
+  gainNode.gain.value = 0; // Mute the output to prevent feedback
   source.connect(node).connect(gainNode).connect(audioCtx.destination); // destination keeps graph alive
 
   const stopAndClose = () => {
@@ -78,12 +94,21 @@ export async function createMicStreamImpl(
     mediaStream.getTracks().forEach(t => t.stop());
   };
 
-  return {
+  const stream: MicStream = {
+    state: 'ready',
     sampleRate,
-    onFrame: (cb) => listeners.add(cb),
-    offFrame: (cb) => listeners.delete(cb),
+    onFrame: (cb: (frame: Float32Array) => void) => listeners.add(cb),
+    offFrame: (cb: (frame: Float32Array) => void) => listeners.delete(cb),
     stop: stopAndClose,
     close: stopAndClose,
     _mediaStream: mediaStream,
   };
+
+  // Expose for E2E synchronization
+  if (TestFlags.DEBUG_ENABLED && typeof window !== 'undefined') {
+    (window as unknown as WindowWithwebkitAudioContext).micStream = stream;
+    console.log('[MicStream] 🎤 Ready and exposed to window.micStream');
+  }
+
+  return stream;
 }

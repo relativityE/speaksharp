@@ -165,7 +165,10 @@ The project's testing strategy prioritizes stability, reliability, and a tight a
 *   **API Mocking (MSW & Playwright Routes):** External services and backend APIs are mocked for deterministic testing. However, mocks are audited against real production response shapes to prevent "Green Illusion" (tests passing while production is broken).
 *   **Adversarial Audit Mandate:** All new tests must pass an adversarial review—ensuring they validate design intent (e.g., tier gating, SLOs, resilience) and would fail if production code deviates from intended behavior, even if the structural implementation remains similar.
 *   **Private STT Integration Strategy:** To ensure high-fidelity verification of the triple-engine architecture, `PrivateSTT.integration.test.ts` validates engine selection, WebGPU detection, and fallback logic. For headless CI environments, the engine automatically switches to a reliable `MockEngine` when `window.__E2E_PLAYWRIGHT__` is detected.
-*   **Single Source of Truth (`pnpm test:all`):** A single command, `pnpm test:all`, is the user-facing entry point for all validation. It runs an underlying orchestration script (`test-audit.sh`) that executes all checks (lint, type-check, tests) in a parallelized, multi-stage process both locally and in CI, guaranteeing consistency and speed.
+*   **Single Source of Truth (`pnpm test:all` & `pnpm ci:local`):**
+    *   `pnpm test:all`: User-facing entry point for quick validation.
+    *   `pnpm ci:local`: Full simulation of the CI pipeline (including build and lighthouse), ensuring that "it works on my machine" means it works in CI.
+    *   Both run an underlying orchestration script (`test-audit.sh`) that executes all checks (lint, type-check, tests) in a parallelized, multi-stage process.
 
 ### Testing Principles
 
@@ -207,7 +210,7 @@ For E2E infrastructure troubleshooting, see [tests/TROUBLESHOOTING.md](../tests/
 | Error Reporting | ✅ RESOLVED - Sentry integration |
 | Documentation Drift | ✅ RESOLVED - ARCHITECTURE.md updated |
 | E2E Error States | ✅ RESOLVED - `error-states.e2e.spec.ts` |
-| Alpha Bypass | ✅ RESOLVED - `apply-promo` Edge Function |
+| Promo Admin | ✅ RESOLVED - `apply-promo` Edge Function |
 | **C1-C3, H2, H3**| ✅ RESOLVED - Jan 2026 Audit Complete |
 | **Performance (1.1, 2.1)**| ✅ RESOLVED - Bundle & CI Optimized |
 

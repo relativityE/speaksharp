@@ -6,7 +6,7 @@ Welcome to SpeakSharp! This guide will help you get the most out of your real-ti
 
 ## 🚀 Quick Start
 
-1.  **Sign Up:** Create an account at [speaksharp.app/auth/signup](https://speaksharp.app/auth/signup). Choose between the **Free** and **Pro** plans.
+1.  **Sign Up:** Create an account at [speaksharp-public.vercel.app/auth/signup](https://speaksharp-public.vercel.app/auth/signup). Choose between the **Free** and **Pro** plans.
 2.  **Grant Microphone Access:** When you start your first session, your browser will ask for permission to use your microphone. Click **Allow**.
 3.  **Start Recording:** Click the **"Start Session"** button and begin speaking.
 4.  **Real-Time Feedback:** Watch your transcript appear live, along with real-time stats like your current **WPM (Words Per Minute)** and **Filler Word Count**.
@@ -74,7 +74,7 @@ A: Navigate to your **Settings** or click the **"Upgrade to Pro"** button in the
 
 If you've been provided with a **One-Time Code**, follow these steps to activate your account:
 
-1.  Navigate to the [Sign Up page](https://speaksharp.app/auth/signup).
+1.  Navigate to the [Sign Up page](https://speaksharp-public.vercel.app/auth/signup). Production: Stripe sends webhooks to `https://speaksharp-public.vercel.app/api/webhook`
 2.  Click the **"Pro Plan"** card.
 3.  Click the link that says **"Have a one-time 'pro' user promo code?"** below the password field.
 4.  Enter your 7-digit numeric code into the field.

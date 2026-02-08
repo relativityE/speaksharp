@@ -38,18 +38,21 @@ export const CANARY_USER = {
 // Array of soak test users for concurrent testing
 // Emails follow pattern: soak-test{N}@test.com (0-indexed)
 // Password is shared via SOAK_TEST_PASSWORD env var
-// Can be overridden via NEW_FREE_COUNT and NEW_PRO_COUNT env vars in CI
+// Can be overridden via NUM_FREE_USERS and NUM_PRO_USERS env vars in CI
 const getEnvNum = (key: string, def: number) => {
   if (typeof process !== 'undefined' && process.env && process.env[key]) {
     const val = parseInt(process.env[key] as string, 10);
-    return isNaN(val) || val <= 0 ? def : val;
+    return isNaN(val) || val < 0 ? def : val;
   }
   return def;
 };
 
-export const FREE_USER_COUNT = getEnvNum('NEW_FREE_COUNT', 7);
-export const PRO_USER_COUNT = getEnvNum('NEW_PRO_COUNT', 3);
-export const CONCURRENT_USER_COUNT = FREE_USER_COUNT + PRO_USER_COUNT; // 10 total by default
+// Allow explicit CONCURRENT_USERS override, defaulting to sum of types if not present
+// If CONCURRENT_USERS is set, we scale the types proportionally or default to mostly free
+const PREFERRED_TOTAL = getEnvNum('CONCURRENT_USERS', 0);
+export const FREE_USER_COUNT = getEnvNum('NUM_FREE_USERS', PREFERRED_TOTAL > 0 ? PREFERRED_TOTAL : 7);
+export const PRO_USER_COUNT = getEnvNum('NUM_PRO_USERS', PREFERRED_TOTAL > 0 ? 0 : 3);
+export const CONCURRENT_USER_COUNT = FREE_USER_COUNT + PRO_USER_COUNT;
 export const MAX_TOTAL_TEST_USERS = 100; // Safety cap to prevent provisioning overload
 
 // Auto-generate tiers: first FREE_USER_COUNT are free, next PRO_USER_COUNT are pro
@@ -172,8 +175,8 @@ export const TIMEOUTS = {
 
 export const SOAK_CONFIG = {
   CONCURRENT_USERS: CONCURRENT_USER_COUNT,
-  SESSION_DURATION_MS: 5 * 60 * 1000, // 5 minutes per session
-  PLAYWRIGHT_TIMEOUT_MS: 10 * 60 * 1000, // 10 minute Playwright test timeout
+  SESSION_DURATION_MS: 300 * 1000, // 5 minutes per session (Restored)
+  PLAYWRIGHT_TIMEOUT_MS: 300 * 1000, // 5 minute Playwright test timeout
   P95_THRESHOLD_MS: 10000, // Max acceptable P95 response time (Increased for CI variance)
   MAX_MEMORY_MB: 200, // Max acceptable memory per tab
   USE_NATIVE_MODE: true,

@@ -47,6 +47,23 @@ describe('storage.ts', () => {
             expect(mockSupabase.from).toHaveBeenCalledWith('sessions');
         });
 
+        it('should use default limit of 50 and offset 0', async () => {
+            const mockSelect = vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                    order: vi.fn().mockReturnValue({
+                        range: vi.fn().mockResolvedValue({ data: [], error: null }),
+                    }),
+                }),
+            });
+            mockSupabase.from.mockReturnValue({ select: mockSelect } as unknown as ReturnType<SupabaseClient['from']>);
+
+            await getSessionHistory('user1');
+
+            // offset=0, limit=50 => range(0, 49)
+            // We need to drill down to the mock call
+            expect(mockSelect().eq().order().range).toHaveBeenCalledWith(0, 49);
+        });
+
         it('should throw error with descriptive message on failure', async () => {
             const mockError = { message: 'DB Error' };
             const mockSelect = vi.fn().mockReturnValue({

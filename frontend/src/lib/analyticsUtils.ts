@@ -1,4 +1,5 @@
 import type { PracticeSession } from '@/types/session';
+import { calculateWordErrorRate } from './wer';
 
 /**
  * P1 TECH DEBT: Client-side Aggregation
@@ -137,58 +138,14 @@ export const calculateTopFillerWords = (sessionHistory: PracticeSession[]) => {
         .slice(0, 2);
 };
 
-// Function to calculate Word Error Rate (WER)
-const werCache = new Map<string, number>();
-
-const calculateWER = (groundTruth: string, hypothesis: string): number => {
-    const cacheKey = `${groundTruth}|${hypothesis}`;
-    if (werCache.has(cacheKey)) {
-        return werCache.get(cacheKey)!;
-    }
-
-    const gtWords = groundTruth.toLowerCase().split(' ').filter(Boolean);
-    const hypWords = hypothesis.toLowerCase().split(' ').filter(Boolean);
-
-    if (gtWords.length === 0) return hypWords.length;
-
-    const dp = Array(gtWords.length + 1)
-        .fill(0)
-        .map(() => Array(hypWords.length + 1).fill(0));
-
-    for (let i = 0; i <= gtWords.length; i++) {
-        for (let j = 0; j <= hypWords.length; j++) {
-            if (i === 0) {
-                dp[i][j] = j;
-            } else if (j === 0) {
-                dp[i][j] = i;
-            } else if (gtWords[i - 1] === hypWords[j - 1]) {
-                dp[i][j] = dp[i - 1][j - 1];
-            } else {
-                dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
-            }
-        }
-    }
-
-    const result = dp[gtWords.length][hypWords.length] / gtWords.length;
-
-    // Simple cache eviction if it grows too large (e.g., 1000 items)
-    if (werCache.size > 1000) {
-        const firstKey = werCache.keys().next().value;
-        if (firstKey !== undefined) werCache.delete(firstKey);
-    }
-
-    werCache.set(cacheKey, result);
-    return result;
-};
-
 export const calculateAccuracyData = (sessionHistory: PracticeSession[]) => {
     return sessionHistory
         .filter(s => s.ground_truth && s.transcript && s.engine)
         .map(s => {
-            const wer = calculateWER(s.ground_truth!, s.transcript!);
+            const wer = calculateWordErrorRate(s.ground_truth!, s.transcript!);
             return {
                 date: new Date(s.created_at).toLocaleDateString(),
-                accuracy: (1 - wer) * 100,
+                accuracy: Math.max(0, (1 - wer) * 100),
                 engine: s.engine!,
             };
         })

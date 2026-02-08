@@ -114,10 +114,10 @@ To get started with SpeakSharp, you'll need to have Node.js (version 22.12.0 or 
     STRIPE_SECRET_KEY=sk_test_your-key        # For payment processing
     STRIPE_WEBHOOK_SECRET=whsec_your-secret   # For webhook verification
     SUPABASE_SERVICE_ROLE_KEY=your-role-key   # For admin DB operations
-    ALPHA_BYPASS_CODE=1234567                 # For alpha tester bypass (secret-driven)
+    PROMO_GEN_ADMIN_SECRET=1234567            # For promo generation (secret-driven)
     ```
 
-    > **Alpha Testing:** We use a secret-driven bypass mechanism for alpha testers. You can rotate this code at any time using `pnpm exec tsx scripts/generate-alpha-code.ts`, which will update the local test configuration and provide the new code to set in the Supabase Dashboard.
+    > **Promo Administration:** We use a secure, secret-driven system for generating tester promo codes. You can generate a new one-time code at any time using `pnpm generate-promo`, which calls the backend Admin Edge Function (gated by `PROMO_GEN_ADMIN_SECRET`).
 
 5.  **Run the development server:**
     ```bash
@@ -269,6 +269,22 @@ pnpm run test:e2e:debug     # Headed mode with trace
 ```bash
 pnpm run lighthouse:ci
 ```
+
+### Soak & Load Testing
+
+**🌊 Want to stress test the backend APIs?**
+```bash
+pnpm test:soak:api
+```
+- Runs a lightweight Node.js load test against standard APIs (Auth, Session, Edge Functions).
+- Bypasses UI to simulate high concurrency (default: 10 concurrent users).
+- **Configuration:** Control user counts with `NUM_FREE_USERS=N` and `NUM_PRO_USERS=N` in `.env`.
+
+**⏳ Want to verify UI stability over time?**
+```bash
+pnpm test:soak
+```
+- Runs Playwright-based soak tests to check for memory leaks and UI stability.
 
 ### Build & Preview
 

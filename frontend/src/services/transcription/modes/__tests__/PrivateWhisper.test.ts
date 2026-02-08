@@ -70,6 +70,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         let frameCallback: ((frame: Float32Array) => void) | undefined;
         // Mock the mic stream to capture the callback
         const mockMic: MicStream = {
+            state: 'ready',
             sampleRate: 16000,
             onFrame: vi.fn((cb) => {
                 frameCallback = cb;
@@ -106,6 +107,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
 
         let frameCallback: ((frame: Float32Array) => void) | undefined;
         const mockMic: MicStream = {
+            state: 'ready',
             sampleRate: 16000,
             onFrame: vi.fn((cb) => { frameCallback = cb; }),
             offFrame: vi.fn(),
@@ -137,6 +139,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
 
         let frameCallback: ((frame: Float32Array) => void) | undefined;
         const mockMic: MicStream = {
+            state: 'ready',
             sampleRate: 16000,
             onFrame: vi.fn((cb) => { frameCallback = cb; }),
             offFrame: vi.fn(),
@@ -168,6 +171,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
 
         let frameCallback: ((frame: Float32Array) => void) | undefined;
         const mockMic: MicStream = {
+            state: 'ready',
             sampleRate: 16000,
             onFrame: vi.fn((cb) => { frameCallback = cb; }),
             offFrame: vi.fn(),

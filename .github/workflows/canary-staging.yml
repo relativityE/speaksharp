@@ -34,7 +34,7 @@ jobs:
       - name: Run Canary Tests
         env:
           CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD }}
-          BASE_URL: https://speaksharp.app
+          BASE_URL: https://speaksharp-public.vercel.app/
           # Set flags if needed, though canary config handles base URL
           VITE_USE_LIVE_DB: "true" 
         run: pnpm test:canary

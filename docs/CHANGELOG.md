@@ -7,9 +7,20 @@ All notable changes to this project will be documented in this file.
 
 ### [Unreleased]
 
-- **Security Hardening:**
-  - **Feature:** Secured the `apply-promo/generate` endpoint by restoring `X-Admin-Code` verification against `ALPHA_BYPASS_CODE`.
-  - **Files:** `backend/supabase/functions/apply-promo/index.ts`
+- **Soak Test & CI Infrastructure (2026-02-08):**
+  - **Feature:** Implemented `tests/soak/api-load-test.ts` for lightweight, high-concurrency Node.js load testing (bypassing UI overhead).
+  - **Tooling:** Introduced `pnpm ci:local` to simulate the full GitHub Actions pipeline locally (Lint + Typecheck + Unit + Build + E2E + Lighthouse).
+  - **Configuration:** Standardized environment variables: `NUM_FREE_USERS` / `NUM_PRO_USERS` (formerly `NEW_*_COUNT`) for consistent user provisioning.
+  - **Fix:** Resolved `verify-users.ts` syntax errors and `TransformersJSEngine.test.ts` assertion gaps.
+  - **Documentation:** Updated `ARCHITECTURE.md` with new user provisioning standards.
+  - **Files:** `tests/soak/*`, `package.json`, `scripts/test-audit.sh`, `docs/ARCHITECTURE.md`
+
+- **Security Hardening (Promo Admin Migration):**
+  - **Feature:** Migrated from legacy "Alpha Bypass" to a professional **Promo Code Admin** system.
+  - **Logic:** Replaced `ALPHA_BYPASS_CODE` with `PROMO_GEN_ADMIN_SECRET` and `X-Admin-Code` with `X-Promo-Admin-Key`.
+  - **Automation:** Replaced `generate-alpha-code.ts` with the modern `generate-promo.ts` script which interacts with the server-side Edge Function.
+  - **Cleanup:** Deleted legacy configuration `alpha-bypass.ts` and generator script.
+  - **Files:** `backend/supabase/functions/apply-promo/index.ts`, `scripts/generate-promo.ts`, `README.md`, `docs/ARCHITECTURE.md`
 
 - **Performance & Architectural Optimizations:**
   - **Feature:** Offloaded heavy audio processing (Float32 to Int16 conversion, WAV encoding, Base64 encoding) to a **Web Worker** (`audio-processor.worker.ts`).
@@ -363,8 +374,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Alpha Bypass Enhancement:** Implemented a secure, secret-driven 7-digit numeric upgrade format. Validation is now handled via Supabase Vault secrets rather than hardcoded client-side values. Added `scripts/generate-alpha-code.ts` for automated rotation and local testing orchestration.
 - **New User Documentation:** Created `docs/USER_GUIDE.md` for end-user onboarding.
 - **Redirect Optimization:** Authenticated users now redirect directly to `/session` to improve startup speed.
-  - Created `apply-promo` Edge Function to handle server-side upgrades via promo codes.
-  - **Files:** `frontend/src/pages/AuthPage.tsx`, `backend/supabase/functions/apply-promo/index.ts`
+- **Promo Admin Mechanism (2025-12-31):** Implemented secure, secret-driven upgrade path using Supabase Vault. Replaced with `PROMO_GEN_ADMIN_SECRET` architecture in 2026-02-08.
 
 - **Analytics UI Restoration:**
   - Resolved `net::ERR_NAME_NOT_RESOLVED` errors for `mock.supabase.co` by restoring MSW initialization in `initializeE2EEnvironment`.

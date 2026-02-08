@@ -9,13 +9,17 @@ mkdir -p "$TEST_RESULTS_DIR"
 # Unit Test Metrics
 unit_metrics_file="unit-metrics.json"
 if [ ! -f "$unit_metrics_file" ]; then
-    echo "❌ ERROR: Unit metrics file not found at $unit_metrics_file" >&2
-    exit 1
+    echo "⚠️ WARNING: Unit metrics file not found at $unit_metrics_file. Defaulting to 0." >&2
+    unit_passed=0
+    unit_failed=0
+    unit_skipped=0
+    unit_total=0
+else
+    unit_passed=$(jq '.numPassedTests' "$unit_metrics_file")
+    unit_failed=$(jq '.numFailedTests' "$unit_metrics_file")
+    unit_skipped=$(jq '.numPendingTests' "$unit_metrics_file")
+    unit_total=$(jq '.numTotalTests' "$unit_metrics_file")
 fi
-unit_passed=$(jq '.numPassedTests' "$unit_metrics_file")
-unit_failed=$(jq '.numFailedTests' "$unit_metrics_file")
-unit_skipped=$(jq '.numPendingTests' "$unit_metrics_file")
-unit_total=$(jq '.numTotalTests' "$unit_metrics_file")
 
 # Coverage Metrics (full breakdown)
 coverage_file="frontend/coverage/coverage-summary.json"

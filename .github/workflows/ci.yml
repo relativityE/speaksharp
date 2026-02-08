@@ -119,6 +119,7 @@ jobs:
 
       - name: Run Lighthouse CI
         run: |
+          mkdir -p .lighthouseci
           node scripts/generate-lhci-config.js
           npx lhci autorun --config=lighthouserc.json
 
@@ -127,7 +128,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: lighthouse-report
-          path: .lighthouseci
+          path: .lighthouseci/
           retention-days: 30
           if-no-files-found: warn
 

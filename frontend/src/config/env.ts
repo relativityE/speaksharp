@@ -19,10 +19,16 @@ export const E2E_PROFILE_LOADED_FLAG = '__e2eProfileLoaded__';
 export const E2E_SESSION_DATA_LOADED_FLAG = '__e2eSessionDataLoaded__';
 export const E2E_MSW_READY_FLAG = 'mswReady'; // Legacy compat
 
-export const IS_TEST_ENVIRONMENT =
-  getEnvVar('VITE_TEST_MODE') === 'true' ||
-  import.meta.env.MODE === 'test' ||
-  (typeof window !== 'undefined' && (window as unknown as { [key: string]: unknown })[E2E_CONTEXT_FLAG] === true);
+import { TestFlags } from './TestFlags';
+
+export const IS_TEST_ENVIRONMENT = TestFlags.IS_TEST_MODE;
+
+/**
+ * SOURCE OF TRUTH: Driver-Dependent Tests
+ * Gated by REAL_WHISPER_TEST. When true, we bypass all mocks (Audio/Worker)
+ * to verify real engine performance against real audio hardware/drivers.
+ */
+export const IS_DRIVER_DEPENDENT_TEST = TestFlags.USE_REAL_TRANSCRIPTION;
 
 // ServiceWorker registration timeout (in milliseconds)
 export const SW_TIMEOUT_MS = 2000;

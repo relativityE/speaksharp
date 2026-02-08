@@ -347,6 +347,8 @@ run_ci_simulation() {
 # --- Main Execution Logic ---
 STAGE=${1:-"local"}
 
+ensure_artifacts_dir
+
 echo "🚀 Starting Test Audit (Stage: $STAGE)..."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "📊 SpeakSharp Test Audit Pipeline"

@@ -31,8 +31,10 @@ serve(async (req: Request) => {
 
         // --- GENERATION LOGIC ---
         if (isAdminAction) {
-            const adminSecret = Deno.env.get('ALPHA_BYPASS_CODE');
-            const requestSecret = req.headers.get('X-Admin-Code');
+            // PROMO_GEN_ADMIN_SECRET is a highly sensitive key used to 
+            // generate single-use promo codes programmatically.
+            const adminSecret = Deno.env.get('PROMO_GEN_ADMIN_SECRET');
+            const requestSecret = req.headers.get('X-Promo-Admin-Key');
 
             if (!adminSecret || requestSecret !== adminSecret) {
                 console.error(`[apply-promo] Unauthorized generation attempt. Secret Match: ${!!adminSecret && requestSecret === adminSecret}`);

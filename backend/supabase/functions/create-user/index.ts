@@ -42,7 +42,7 @@ Deno.serve(async (req: Request) => {
 
         console.log(`[Provisioning] Inputs - Email: ${email}, Status: ${subscription_status} (Raw Body Type: ${body.subscription_status} / ${body.type})`);
 
-        // Agent Auth Extraction (2nd Stage Verification)
+        // Authentication (2nd Stage Verification)
         const authHeader = req.headers.get("Authorization") || "";
         const bearer = authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : null;
 

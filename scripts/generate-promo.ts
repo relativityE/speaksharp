@@ -11,8 +11,11 @@ const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 // We try to use Service Key if available, otherwise Anon Key (which worked before security check)
 const API_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
 
-if (!SUPABASE_URL || !API_KEY) {
-    console.error('❌ Missing VITE_SUPABASE_URL or API KEY.');
+// Load environment variable: PROMO_GEN_ADMIN_SECRET
+const ADMIN_SECRET = process.env.PROMO_GEN_ADMIN_SECRET;
+
+if (!SUPABASE_URL || !ADMIN_SECRET) {
+    console.error('❌ Missing VITE_SUPABASE_URL or PROMO_GEN_ADMIN_SECRET.');
     process.exit(1);
 }
 
@@ -23,13 +26,13 @@ interface PromoData {
 }
 
 async function main() {
-    console.log(`Generating promo code via Edge Function...`);
+    console.log(`Generating promo code via Admin Edge Function...`);
 
     try {
         const response = await fetch(`${SUPABASE_URL}/functions/v1/apply-promo/generate`, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${API_KEY}`,
+                'X-Promo-Admin-Key': ADMIN_SECRET as string,
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({})
