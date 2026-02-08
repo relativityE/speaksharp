@@ -101,9 +101,10 @@ run_quality_checks() {
     # Extract and print summary line from Vitest output (e.g., "Tests  407 passed (407)")
     # Reformat to "X of Y passed"
     if [ -f "$ARTIFACTS_DIR/unit-test.log" ]; then
-         SUMMARY=$(grep -E "Tests\\s+[0-9]+\\s+passed\\s+\\([0-9]+\\)" "$ARTIFACTS_DIR/unit-test.log" | head -1)
+         # Use portable [[:space:]] instead of \s and wrap in || true to avoid set -e exit
+         SUMMARY=$(grep -E "Tests[[:space:]]+[0-9]+[[:space:]]+passed[[:space:]]+\\([0-9]+\\)" "$ARTIFACTS_DIR/unit-test.log" | head -1 || true)
          if [ -n "$SUMMARY" ]; then
-             PASSED=$(echo "$SUMMARY" | grep -oE "Tests\\s+[0-9]+" | grep -oE "[0-9]+")
+             PASSED=$(echo "$SUMMARY" | grep -oE "Tests[[:space:]]+[0-9]+" | grep -oE "[0-9]+")
              TOTAL=$(echo "$SUMMARY" | grep -oE "\\([0-9]+\\)" | grep -oE "[0-9]+")
              echo "   📊 Summary: $PASSED of $TOTAL passed"
          else

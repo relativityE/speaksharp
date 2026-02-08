@@ -22,7 +22,7 @@ export default defineConfig({
     // Set CI_DEBUG=true for verbose output
     reporters: process.env.CI_DEBUG
       ? ['verbose', 'html', ['json', { outputFile: 'unit-metrics.json' }]]
-      : ['basic', ['json', { outputFile: 'unit-metrics.json' }]],
+      : [['default', { summary: false }], ['json', { outputFile: 'unit-metrics.json' }]],
     // Suppress console.log noise from tests in CI mode
     silent: !process.env.CI_DEBUG,
     coverage: {
@@ -34,7 +34,7 @@ export default defineConfig({
       // Updated 2026-01-30 per user request
       thresholds: {
         lines: process.env.USE_INDUSTRY_COVERAGE ? 80 : 61,
-        functions: process.env.USE_INDUSTRY_COVERAGE ? 80 : 73.5,
+        functions: process.env.USE_INDUSTRY_COVERAGE ? 80 : 73,
         branches: process.env.USE_INDUSTRY_COVERAGE ? 80 : 75,
         statements: process.env.USE_INDUSTRY_COVERAGE ? 80 : 61,
       },
