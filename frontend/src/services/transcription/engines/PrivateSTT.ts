@@ -69,15 +69,18 @@ export class PrivateSTT {
         }
 
         // 2. Force mock engine in CI/test environments unless specifically bypassed
-        if (IS_TEST_ENVIRONMENT) {
+        const isMockExplicitlyDisabled = typeof window !== 'undefined' && (window as any).__E2E_MOCK_LOCAL_WHISPER__ === false;
+
+        if (IS_TEST_ENVIRONMENT && !isMockExplicitlyDisabled) {
             console.log('[PrivateSTT] 🧪 Test environment detected. Using MockEngine.');
             logger.info('[PrivateSTT] Test environment detected. Using MockEngine.');
             return this.initMockEngine(callbacks);
         }
 
         // Try fast engine first if WebGPU is available
-        const webGPUAvailable = hasWebGPU();
-        console.log(`[PrivateSTT] 🔍 WebGPU support check: ${webGPUAvailable}`);
+        const forceSafe = typeof window !== 'undefined' && (window as any).__FORCE_TRANSFORMERS_JS__ === true;
+        const webGPUAvailable = hasWebGPU() && !forceSafe;
+        console.log(`[PrivateSTT] 🔍 WebGPU support check: ${webGPUAvailable} (forceSafe: ${forceSafe})`);
 
         if (webGPUAvailable) {
             console.log('[PrivateSTT] ⚡ WebGPU available. Attempting to initialize WhisperTurbo (Fast Path)...');

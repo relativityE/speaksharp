@@ -38,7 +38,7 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { programmaticLoginWithRoutes, navigateToRoute, debugLog } from '../e2e/helpers';
+import { programmaticLoginWithRoutes, navigateToRoute, debugLog, attachLiveTranscript } from '../e2e/helpers';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -65,8 +65,8 @@ test.use({
     permissions: ['microphone']
 });
 
-// Mark as slow test (30s default timeout - CAPPED)
-test.describe.configure({ timeout: 30000 });
+// Mark as slow test (60s timeout for model loading + inference)
+test.describe.configure({ timeout: 60000 });
 
 test.describe('Private STT Real Audio (High Fidelity)', () => {
 
@@ -80,20 +80,17 @@ test.describe('Private STT Real Audio (High Fidelity)', () => {
         // CRITICAL: Disable MockEngine and force TransformersJS
         await page.addInitScript(() => {
             // Do NOT use MockEngine
-            window.__E2E_MOCK_LOCAL_WHISPER__ = false;
-            window.__E2E_PLAYWRIGHT__ = true;
+            (window as any).__E2E_MOCK_LOCAL_WHISPER__ = false;
+            (window as any).__E2E_PLAYWRIGHT__ = true;
             // Force TransformersJS (skip WhisperTurbo WebGPU)
-            window.__FORCE_TRANSFORMERS_JS__ = true;
-            debugLog('[E2E] Real audio test: MockEngine DISABLED, TransformersJS FORCED');
+            (window as any).__FORCE_TRANSFORMERS_JS__ = true;
+            // Force Real Audio (bypass TEST_MODE mic mock)
+            (window as any).__FORCE_REAL_AUDIO__ = true;
+            debugLog('[E2E] Real audio test: MockEngine DISABLED, TransformersJS FORCED, Real Audio ENABLED');
         });
     });
 
-    // SKIP: Playwright fake media streams don't provide actual audio data to TransformersJS ONNX engine.
-    // The audio injection works at the browser level but TransformersJS processes raw PCM data from
-    // AudioWorklet which receives silence from fake streams. This test requires a real browser with
-    // real microphone input or a different approach to audio injection.
-    // See: https://github.com/nickarellano/speaksharp/issues/XXX for tracking.
-    test.skip('should transcribe real audio using TransformersJS (no mocks, no cost)', async ({ page }) => {
+    test('should transcribe real audio using TransformersJS (no mocks, no cost)', async ({ page }) => {
         debugLog('🎤 Running High-Fidelity Private STT test with REAL audio');
         debugLog(`📂 Audio file: ${audioFile}`);
 

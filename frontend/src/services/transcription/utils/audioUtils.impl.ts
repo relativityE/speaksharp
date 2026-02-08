@@ -26,7 +26,9 @@ export async function createMicStreamImpl(
   { sampleRate = 16000, frameSize = 1024 }: MicStreamOptions = {}
 ): Promise<MicStream> {
   // In test mode, return a mock stream to avoid hardware errors in CI
-  if (window.TEST_MODE) {
+  // UNLESS real audio is explicitly forced for high-fidelity tests
+  const forceRealAudio = typeof window !== 'undefined' && (window as any).__FORCE_REAL_AUDIO__ === true;
+  if (window.TEST_MODE && !forceRealAudio) {
     logger.info('Mocking microphone stream for TEST_MODE');
     return {
       sampleRate,
