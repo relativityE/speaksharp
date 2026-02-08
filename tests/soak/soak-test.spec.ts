@@ -73,8 +73,10 @@ test.describe('Soak Test - Concurrent User Simulation', () => {
 
     test.afterEach(async () => {
         // Generate metrics for console summary
-        // Note: SMOKE_CONCURRENCY is defined in the test block, so we'll use a fall-back or dynamic count
-        const activeUsers = 3;
+        const numFree = parseInt(process.env.NUM_FREE_USERS || '0', 10);
+        const numPro = parseInt(process.env.NUM_PRO_USERS || '0', 10);
+        const activeUsers = (numFree + numPro) || 3;
+
         const report = metrics.generateReport(activeUsers);
 
         // Print summary to console only (No file bloat as requested)
@@ -82,7 +84,9 @@ test.describe('Soak Test - Concurrent User Simulation', () => {
     });
 
     test('should verify UI stability under moderate concurrency (Smoke Test)', async ({ browser }) => {
-        const SMOKE_CONCURRENCY = 3; // Reduced for UI stability
+        const numFree = parseInt(process.env.NUM_FREE_USERS || '0', 10);
+        const numPro = parseInt(process.env.NUM_PRO_USERS || '0', 10);
+        const SMOKE_CONCURRENCY = (numFree + numPro) || 3;
         const startTime = Date.now();
         console.log(`\n🚀 Starting Performance Smoke Test with ${SMOKE_CONCURRENCY} concurrent users...`);
         console.log(`📅 Start time: ${new Date(startTime).toISOString()}`);

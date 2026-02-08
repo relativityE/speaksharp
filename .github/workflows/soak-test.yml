@@ -20,7 +20,24 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      # ... (checkout, setup, etc.) ...
+      - uses: actions/checkout@v4
+      
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: |
+            - recursive: true
+              args: [--frozen-lockfile, --strict-peer-dependencies]
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Install Playwright Browsers
+        run: pnpm exec playwright install chromium --with-deps
       
       - name: Run soak test
         env:
@@ -33,7 +50,7 @@ jobs:
         run: |
           # Using start-server-and-test for clean process lifecycle
           # (avoids ELIFECYCLE from orphaned node/esbuild processes)
-          npx start-server-and-test \
+          pnpm exec start-server-and-test \
             "pnpm dev" \
             http://localhost:5173 \
             "pnpm exec playwright test --config=playwright.soak.config.ts --project=chromium"

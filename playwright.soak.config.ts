@@ -1,5 +1,5 @@
 import { defineConfig } from '@playwright/test';
-import { loadEnv, getChromeWithMic, baseConfig, urls } from './playwright.base.config';
+import { loadEnv, getChromeWithMic, getChromeBasic, baseConfig, urls } from './playwright.base.config';
 import { SOAK_CONFIG } from './tests/constants';
 
 /**
@@ -31,7 +31,7 @@ export default defineConfig({
         actionTimeout: 15_000,
         navigationTimeout: 30_000,
     },
-    webServer: {
+    /* webServer: {
         command: 'pnpm dev --force',
         url: urls.dev,
         reuseExistingServer: true,
@@ -41,11 +41,11 @@ export default defineConfig({
             VITE_USE_LIVE_DB: 'true',
             REAL_WHISPER_TEST: 'true',
         },
-    },
+    }, */
     projects: [
         {
             name: 'chromium',
-            use: getChromeWithMic(),
+            use: getChromeBasic(),
         },
     ],
 });
