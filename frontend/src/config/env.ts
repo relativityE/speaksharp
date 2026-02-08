@@ -16,6 +16,7 @@ export const E2E_CONTEXT_FLAG = '__E2E_CONTEXT__';
 export const E2E_MOCK_SESSION_FLAG = '__E2E_MOCK_SESSION__';
 export const E2E_BRIDGE_READY_FLAG = '__e2eBridgeReady__';
 export const E2E_PROFILE_LOADED_FLAG = '__e2eProfileLoaded__';
+export const E2E_SESSION_DATA_LOADED_FLAG = '__e2eSessionDataLoaded__';
 export const E2E_MSW_READY_FLAG = 'mswReady'; // Legacy compat
 
 export const IS_TEST_ENVIRONMENT =

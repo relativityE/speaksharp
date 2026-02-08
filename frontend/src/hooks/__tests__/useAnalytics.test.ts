@@ -2,10 +2,12 @@ import { renderHook } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
 import { useAnalytics } from '../useAnalytics';
 import { usePracticeHistory } from '../usePracticeHistory';
+import { useSession } from '../useSession';
 import { useParams } from 'react-router-dom';
 
 // Mock dependencies
 vi.mock('../usePracticeHistory');
+vi.mock('../useSession');
 vi.mock('react-router-dom', () => ({
     useParams: vi.fn(),
 }));
@@ -14,6 +16,7 @@ describe('useAnalytics', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         (useParams as Mock).mockReturnValue({});
+        (useSession as Mock).mockReturnValue({ data: null, isLoading: false });
     });
 
     it('should process analytics data correctly from usePracticeHistory', async () => {

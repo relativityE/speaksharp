@@ -17,7 +17,7 @@
 import { Result } from 'true-myth';
 import { SessionManager, AvailableModels, InferenceSession } from 'whisper-turbo';
 import { IPrivateSTTEngine, EngineCallbacks, EngineType } from './IPrivateSTTEngine';
-import { floatToWav } from '../utils/AudioProcessor';
+import { floatToWavAsync } from '../utils/AudioProcessor';
 import logger from '../../../lib/logger';
 
 export class WhisperTurboEngine implements IPrivateSTTEngine {
@@ -92,7 +92,8 @@ export class WhisperTurboEngine implements IPrivateSTTEngine {
         }
 
         try {
-            const wavData = floatToWav(audio);
+            // PERFORMANCE OPTIMIZATION: Moving WAV conversion off the main thread
+            const wavData = await floatToWavAsync(audio);
             const result = await this.session.transcribe(wavData, false, {});
 
             if (result.isErr) {

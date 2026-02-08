@@ -13,7 +13,10 @@ vi.mock('../../../../lib/supabaseClient', () => ({
 
 // Mock AudioProcessor
 vi.mock('../../utils/AudioProcessor', () => ({
-    floatToInt16: (input: Float32Array) => input // Identity for testing
+    floatToInt16Async: vi.fn(async (input: Float32Array) => ({
+        result: new Int16Array(input.length),
+        base64: 'fake-base64'
+    }))
 }));
 
 // Mock Logger
@@ -256,7 +259,8 @@ describe('CloudAssemblyAI (Native WebSocket)', () => {
             expect(socket.send).not.toHaveBeenCalled(); // Queued
 
             socket.simulateOpen();
-            // Should flush queue
+            // Should flush queue - wait for async operations
+            await vi.waitUntil(() => socket.send.mock.calls.length > 0);
             expect(socket.send).toHaveBeenCalledWith(expect.stringContaining('audio_data'));
         });
     });

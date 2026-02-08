@@ -510,6 +510,17 @@ To handle "interim results" from streaming STT engines (like Google/AssemblyAI):
 - **CUID Tracking:** Each speech "chunk" is assigned a unique ID or hash.
 - **Sequence Buffering:** The system maintains a temporary buffer of recent word sequences to prevent counting the same word twice if it appears in both an interim and a final result.
 
+#### 4.4 Audio Processing Pipeline (Web Worker)
+To maintain 60FPS UI performance during high-intensity transcription, heavy audio processing is offloaded to a dedicated Web Worker (`audio-processor.worker.ts`).
+
+- **Offloaded Tasks:**
+    - **Downsampling:** Linear interpolation to convert varied input rates (e.g., 44.1kHz/48kHz) to the 16kHz required by AI models.
+    - **PCM Conversion:** Converting `Float32Array` samples to `Int16Array`.
+    - **WAV Packaging:** Encoding raw PCM into WAV format with headers for Whisper engines.
+    - **Base64 Encoding:** High-throughput encoding of audio buffers for WebSocket streaming.
+- **Worker Communication:** Uses `postMessage` with **Transferable Objects** (ArrayBuffers) to eliminate the overhead of data copying between threads.
+- **Type Safety:** Built with specialized Web Worker type definitions, ensuring standard browser APIs (like `onmessage` and `postMessage`) are correctly typed without global namespace pollution.
+
 ## 3. Code Quality Standards
 
 SpeakSharp enforces strict code quality standards to maintain long-term maintainability and type safety. These standards are enforced via CI checks (`test-audit.sh`) and pre-commit hooks.
@@ -1512,12 +1523,15 @@ To avoid conflicts and ensure predictable testing, we maintain a strict list of 
 | `window.TEST_MODE` | E2E Environment Signal. | Skips heavy WASM dynamic imports (stops browser crashes). |
 | `window.__E2E_MODE__` | Test Environment check. | Used globally in `testEnv.ts`. |
 | `window.mswReady` | Mock Readiness. | Set by `e2e-bridge.ts`; tests wait for this before starting. |
+| `window.__e2eProfileLoaded__` | Profile Data Loaded. | Set by `useUserProfile` hook; signals profile fetch complete. |
+| `window.__e2eSessionDataLoaded__` | Session Data Loaded. | Set by `AnalyticsPage`; signals session history fetch complete. |
 | `window.__E2E_EMPTY_SESSIONS__` | Edge Case Testing. | Tells MSW to return an empty session array. |
 | `window.__E2E_MOCK_SESSION__` | Session Injection. | Injects a pre-built mock user session for `programmaticLogin`. |
 | `window.__E2E_MOCK_LOCAL_WHISPER__` | Perf Optimization. | Substitutes real heavy Whisper model for a fast mock. |
 | `window.dispatchMockTranscript` | Mock Input. | Allows tests to "speak" text into the live transcript stream. |
 | `window._speakSharpRootInitialized` | Anti-Double Mount. | Prevents React root from re-initializing in unstable dev setups. |
 | `window.supabase` | Singleton Registry. | Stores the active Supabase client instance. |
+
 
 #### Centralized Test IDs (2025-12-10)
 

@@ -1,6 +1,6 @@
 import { ITranscriptionMode, TranscriptionModeOptions, Transcript, TranscriptionError } from './types';
 import { getSupabaseClient } from '../../../lib/supabaseClient';
-import { floatToInt16 } from '../utils/AudioProcessor';
+import { floatToInt16Async } from '../utils/AudioProcessor';
 import logger from '../../../lib/logger';
 
 // Message types for AssemblyAI WebSocket
@@ -106,7 +106,7 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
 
       this.socket = new WebSocket(wsUrl);
 
-      this.socket.onopen = () => {
+      this.socket.onopen = async () => {
         // Guard: zombie socket check
         if (currentConnectionId !== this.connectionId) {
           logger.warn(`[CloudAssemblyAI] closing zombie socket for ID ${currentConnectionId}`);
@@ -260,30 +260,21 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
     }
   }
 
-  private sendAudioChunk(audioData: Float32Array) {
+  private async sendAudioChunk(audioData: Float32Array) {
     try {
-      // Convert to 16-bit PCM (required by AssemblyAI)
-      const pcmData = floatToInt16(audioData);
-
-      // Convert to Base64
-      // Optimization: Create a binary string from the buffer
-      let binary = '';
-      const bytes = new Uint8Array(pcmData.buffer);
-      const len = bytes.byteLength;
-      for (let i = 0; i < len; i++) {
-        binary += String.fromCharCode(bytes[i]);
-      }
-      const base64Audio = btoa(binary);
+      // PERFORMANCE OPTIMIZATION: Moving heavy audio processing off the main thread.
+      // The worker now handles both Float32 -> Int16 conversion and Base64 encoding.
+      const { base64 } = await floatToInt16Async(audioData);
 
       if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-        this.socket.send(JSON.stringify({ audio_data: base64Audio }));
+        this.socket.send(JSON.stringify({ audio_data: base64 }));
       }
     } catch (err) {
       logger.error({ err }, '[CloudAssemblyAI] Error processing audio chunk');
     }
   }
 
-  private flushAudioQueue() {
+  private async flushAudioQueue() {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
 
     logger.info(`[CloudAssemblyAI] Flushing ${this.audioQueue.length} queued audio chunks.`);
@@ -291,7 +282,7 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
     while (this.audioQueue.length > 0) {
       const chunk = this.audioQueue.shift();
       if (chunk) {
-        this.sendAudioChunk(chunk);
+        await this.sendAudioChunk(chunk);
       }
     }
   }

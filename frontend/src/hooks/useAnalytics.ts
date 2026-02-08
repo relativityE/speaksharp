@@ -1,15 +1,17 @@
 import { useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { usePracticeHistory } from './usePracticeHistory';
+import { useSession } from './useSession';
 import {
     calculateOverallStats,
     calculateFillerWordTrends,
     calculateTopFillerWords,
     calculateAccuracyData
 } from '../lib/analyticsUtils';
+import type { PracticeSession } from '../types/session';
 
 // DEV BYPASS: Mock session data for UI testing (defined outside hook to prevent re-creation)
-const MOCK_SESSIONS = [
+const MOCK_SESSIONS: PracticeSession[] = [
     {
         id: 'mock-session-1',
         user_id: 'dev-bypass-user-id',
@@ -43,23 +45,23 @@ const MOCK_SESSIONS = [
         filler_words: { 'um': { count: 12 } } as { [key: string]: { count: number } },
         created_at: '2025-01-12T10:00:00.000Z',
     },
-];
+] as unknown as PracticeSession[];
 
 // Empty fallback array (defined outside hook to prevent re-creation)
-const EMPTY_SESSIONS: typeof MOCK_SESSIONS = [];
+const EMPTY_SESSIONS: PracticeSession[] = [];
 
 export const useAnalytics = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
 
     // 3.2 SCALABILITY FIX: Limit fetch to 20 sessions for dashboard/trends.
     // This prevents performance bottlenecks for users with many sessions.
-    // In a future update, this could be expanded to full pagination.
-    // CRITICAL: Memoize options to prevent new queryKey on every render
     const paginationOptions = useMemo(() => ({
-        limit: sessionId ? 50 : 20
-    }), [sessionId]);
+        limit: 20
+    }), []);
 
     const { data, isLoading, error } = usePracticeHistory(paginationOptions);
+    const { data: specificSession, isLoading: isSessionLoading } = useSession(sessionId);
+
     const allSessions = data ?? EMPTY_SESSIONS;
 
     // DEV BYPASS: Add mock session data for UI testing
@@ -69,16 +71,20 @@ export const useAnalytics = () => {
     const sessionsToUse = isDevBypass ? MOCK_SESSIONS : allSessions;
 
     console.log('[useAnalytics] Hook called. SessionId:', sessionId, 'IsLoading:', isLoading, 'Sessions found:', sessionsToUse?.length, 'DevBypass:', isDevBypass);
-    console.log('[useAnalytics] Raw sessions data:', sessionsToUse);
 
     const sessionHistory = useMemo(() => {
         if (sessionId) {
             console.log('[useAnalytics] Filtering for specific sessionId:', sessionId);
+            // If we have a specific session fetch result, use that. 
+            // Otherwise try to find it in the current list.
+            if (specificSession) {
+                return [specificSession];
+            }
             return sessionsToUse.filter(s => s.id === sessionId);
         }
         console.log('[useAnalytics] Returning all sessions:', sessionsToUse.length);
         return sessionsToUse;
-    }, [sessionId, sessionsToUse]);
+    }, [sessionId, sessionsToUse, specificSession]);
 
     const analyticsData = useMemo(() => {
         console.log('[useAnalytics] Computing analytics data. SessionHistory length:', sessionHistory?.length);
@@ -112,7 +118,7 @@ export const useAnalytics = () => {
         sessionHistory,
         ...analyticsData,
         // DEV BYPASS: Force loading to false when devBypass is active so UI renders with mock data
-        loading: isDevBypass ? false : isLoading,
+        loading: isDevBypass ? false : (isLoading || (!!sessionId && isSessionLoading)),
         error
     };
 };

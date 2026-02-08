@@ -175,3 +175,85 @@ export function downsampleAudio(audio: Float32Array, inputSampleRate: number, ta
 
     return result;
 }
+
+/**
+ * ASYNC AUDIO PROCESSING VIA WEB WORKER
+ * -------------------------------------
+ * Offloads heavy audio processing to a background thread to keep UI smooth.
+ */
+
+import { AudioWorkerResponse } from './audio-processor.worker';
+
+let audioWorker: Worker | null = null;
+
+function getWorker(): Worker {
+    if (!audioWorker) {
+        // Vite syntax for workers
+        audioWorker = new Worker(new URL('./audio-processor.worker.ts', import.meta.url), { type: 'module' });
+    }
+    return audioWorker;
+}
+
+/**
+ * Asynchronously downsamples audio in a background worker.
+ */
+export async function downsampleAudioAsync(audio: Float32Array, inputRate: number, targetRate: number = 16000): Promise<Float32Array> {
+    const worker = getWorker();
+    return new Promise((resolve, reject) => {
+        const handler = (event: MessageEvent<AudioWorkerResponse>) => {
+            const data = event.data;
+            if (data.type === 'DOWNSAMPLE_RESULT') {
+                worker.removeEventListener('message', handler);
+                resolve(data.result);
+            } else if (data.type === 'ERROR') {
+                worker.removeEventListener('message', handler);
+                reject(new Error(data.message));
+            }
+        };
+        worker.addEventListener('message', handler);
+        worker.postMessage({ type: 'DOWNSAMPLE', audio, inputRate, targetRate }, [audio.buffer]);
+    });
+}
+
+/**
+ * Asynchronously converts Float32 to WAV in a background worker.
+ */
+export async function floatToWavAsync(samples: Float32Array, sampleRate: number = 16000): Promise<Uint8Array> {
+    const worker = getWorker();
+    return new Promise((resolve, reject) => {
+        const handler = (event: MessageEvent<AudioWorkerResponse>) => {
+            const data = event.data;
+            if (data.type === 'FLOAT_TO_WAV_RESULT') {
+                worker.removeEventListener('message', handler);
+                resolve(data.result);
+            } else if (data.type === 'ERROR') {
+                worker.removeEventListener('message', handler);
+                reject(new Error(data.message));
+            }
+        };
+        worker.addEventListener('message', handler);
+        worker.postMessage({ type: 'FLOAT_TO_WAV', samples, sampleRate }, [samples.buffer]);
+    });
+}
+
+/**
+ * Asynchronously converts Float32 to Int16 in a background worker.
+ * Returns both the raw Int16Array and a Base64-encoded string for convenience.
+ */
+export async function floatToInt16Async(float32Array: Float32Array): Promise<{ result: Int16Array, base64: string }> {
+    const worker = getWorker();
+    return new Promise((resolve, reject) => {
+        const handler = (event: MessageEvent<AudioWorkerResponse>) => {
+            const data = event.data;
+            if (data.type === 'FLOAT_TO_INT16_RESULT') {
+                worker.removeEventListener('message', handler);
+                resolve({ result: data.result, base64: data.base64 || '' });
+            } else if (data.type === 'ERROR') {
+                worker.removeEventListener('message', handler);
+                reject(new Error(data.message));
+            }
+        };
+        worker.addEventListener('message', handler);
+        worker.postMessage({ type: 'FLOAT_TO_INT16', float32Array }, [float32Array.buffer]);
+    });
+}

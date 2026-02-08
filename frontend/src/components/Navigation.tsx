@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Mic, BarChart3, Home, LogOut, Zap } from "lucide-react";
 import { useState } from "react";
 import { TEST_IDS } from '@/constants/testIds';
@@ -144,6 +145,16 @@ const Navigation = () => {
                         </>
                       )}
                     </Button>
+                  )}
+                  {session && profile?.subscription_status === 'pro' && (
+                    <Badge
+                      variant="secondary"
+                      className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white border-none shadow-sm animate-in fade-in zoom-in duration-300 px-3 py-1"
+                      data-testid="pro-badge"
+                    >
+                      <Zap className="w-3 h-3 mr-1 fill-current" />
+                      PRO
+                    </Badge>
                   )}
                   <span className="hidden md:inline text-sm text-muted-foreground">
                     {session.user?.email}

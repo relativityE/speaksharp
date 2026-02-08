@@ -9,6 +9,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { WhisperTurboEngine } from '../WhisperTurboEngine';
 
+// Mock AudioProcessor
+vi.mock('../../utils/AudioProcessor', () => ({
+    floatToWavAsync: vi.fn(async (samples: Float32Array) => new Uint8Array(samples.length))
+}));
+
 // Hoist mocks to be accessible inside vi.mock factory
 const mocks = vi.hoisted(() => {
     return {

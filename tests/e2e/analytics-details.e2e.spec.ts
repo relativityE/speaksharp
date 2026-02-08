@@ -33,9 +33,9 @@ test.describe('Analytics Details', () => {
         // Use navigateToRoute to preserve auth context
         await navigateToRoute(page, '/analytics/invalid-session-id');
 
-        // Wait for profile signal + skeleton to vanish (Robust Event-Based Wait)
-        await page.waitForFunction(() => (window as unknown as { __e2eProfileLoaded__?: boolean }).__e2eProfileLoaded__ === true);
-        await expect(page.getByTestId('analytics-dashboard-skeleton')).not.toBeVisible();
+        // Wait for session data to finish loading (not just profile)
+        // This ensures the component has determined the session doesn't exist
+        await page.waitForFunction(() => (window as unknown as { __e2eSessionDataLoaded__?: boolean }).__e2eSessionDataLoaded__ === true);
 
         // The page shows "Session Not Found" when ID doesn't exist
         await expect(page.getByTestId('session-not-found-heading')).toBeVisible();

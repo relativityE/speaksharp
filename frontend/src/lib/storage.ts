@@ -60,6 +60,41 @@ export const getSessionHistory = async (
 };
 
 /**
+ * Fetches a single session by its ID.
+ * @param {string} sessionId - The ID of the session.
+ * @returns {Promise<PracticeSession | null>} A promise that resolves to the session object or null if not found.
+ */
+export const getSessionById = async (sessionId: string): Promise<PracticeSession | null> => {
+  const supabase = getSupabaseClient();
+  if (!sessionId) {
+    logger.error('Get Session By ID: Session ID is required.');
+    return null;
+  }
+
+  try {
+    const { data, error }: { data: PracticeSession | null, error: PostgrestError | null } = await supabase
+      .from('sessions')
+      .select('*')
+      .eq('id', sessionId)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        // No rows returned
+        return null;
+      }
+      logger.error({ error }, `Error fetching session by ID ${sessionId}:`);
+      throw new Error(`Failed to fetch session ${sessionId}: ${error.message}`);
+    }
+    return data;
+  } catch (fetchError) {
+    const errorMessage = fetchError instanceof Error ? fetchError.message : String(fetchError);
+    console.error(`[getSessionById] Failed for ${sessionId}:`, errorMessage);
+    throw new Error(`Failed to fetch session ${sessionId}: ${errorMessage}`);
+  }
+};
+
+/**
  * Saves a new session to the database and checks usage limits for free users.
  * This function is now architected to be atomic by using a single RPC call.
  * @param {object} sessionData - The session data to save.

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { NavLink, useParams } from 'react-router-dom';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
 import { useAnalytics } from '../hooks/useAnalytics';
@@ -9,6 +9,7 @@ import { useUserProfile } from '@/hooks/useUserProfile';
 import { isPro } from '@/constants/subscriptionTiers';
 import { Button } from '@/components/ui/button';
 import { Mic, BarChart } from 'lucide-react';
+import { IS_TEST_ENVIRONMENT, E2E_SESSION_DATA_LOADED_FLAG } from '@/config/env';
 
 /**
  * AnalyticsPage is the CONTAINER component for the analytics feature.
@@ -74,6 +75,14 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
     const { sessionHistory, overallStats, fillerWordTrends, loading, error } = useAnalytics();
     const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
+
+    // Signal to E2E tests when session data has finished loading
+    useEffect(() => {
+        if (IS_TEST_ENVIRONMENT && !loading && !isProfileLoading) {
+            const win = window as unknown as { [key: string]: boolean };
+            win[E2E_SESSION_DATA_LOADED_FLAG] = true;
+        }
+    }, [loading, isProfileLoading]);
 
     const handleUpgrade = async () => {
         try {

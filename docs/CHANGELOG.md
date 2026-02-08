@@ -11,6 +11,18 @@ All notable changes to this project will be documented in this file.
   - **Feature:** Secured the `apply-promo/generate` endpoint by restoring `X-Admin-Code` verification against `ALPHA_BYPASS_CODE`.
   - **Files:** `backend/supabase/functions/apply-promo/index.ts`
 
+- **Performance & Architectural Optimizations:**
+  - **Feature:** Offloaded heavy audio processing (Float32 to Int16 conversion, WAV encoding, Base64 encoding) to a **Web Worker** (`audio-processor.worker.ts`).
+  - **Impact:** Eliminated UI thread blocking during transcription, particularly for long audio chunks, improving overall app responsiveness.
+  - **Type Safety:** Implemented triple-slash reference for specialized Web Worker type definitions without needing lint suppression.
+  - **Files:** `AudioProcessor.ts`, `CloudAssemblyAI.ts`, `WhisperTurboEngine.ts`, `audio-processor.worker.ts`
+
+- **CI/CD Pipeline Stabilization:**
+  - **Tooling:** Upgraded to **pnpm v10.29.1** and enforced it via the `packageManager` field.
+  - **Reliability:** Increased Node.js heap limit to 4GB and extended vitest timeouts to 60s for CI stability.
+  - **Observability:** Enabled real-time output streaming for unit tests in `test-audit.sh` using `tee`.
+  - **Files:** `package.json`, `pnpm-lock.yaml`, `vitest.config.mjs`, `test-audit.sh`
+
 - **AI Suggestions Upgrade & Integration:**
   - **Feature:** Upgraded AI coaching to **Gemini 3.0 Flash** for faster and more intelligent feedback.
   - **Integration:** Integrated `AISuggestions` into a new **Analytics Session Detail** view, providing data-driven recommendations based on WPM, Clarity, Fillers, and Pauses.

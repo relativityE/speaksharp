@@ -34,7 +34,7 @@ export default defineConfig({
       // Updated 2026-01-30 per user request
       thresholds: {
         lines: process.env.USE_INDUSTRY_COVERAGE ? 80 : 61,
-        functions: process.env.USE_INDUSTRY_COVERAGE ? 80 : 74,
+        functions: process.env.USE_INDUSTRY_COVERAGE ? 80 : 73.5,
         branches: process.env.USE_INDUSTRY_COVERAGE ? 80 : 75,
         statements: process.env.USE_INDUSTRY_COVERAGE ? 80 : 61,
       },

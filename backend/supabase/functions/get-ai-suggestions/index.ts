@@ -18,26 +18,25 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
   }
 
   try {
-    // Production mode: Standard user authentication and "pro" plan check.
+    // Production mode: Use RLS to enforce auth - no need for separate getUser() call
     const authHeader = req.headers.get('Authorization');
     const supabaseClient = createSupabase(authHeader);
 
-    const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
-
-    if (userError || !user) {
-      return new Response(JSON.stringify({ error: 'Authentication failed' }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 401,
-      });
-    }
-
+    // RLS policy on user_profiles enforces that users can only access their own profile
+    // This eliminates the redundant getUser() + eq('id', user.id) pattern
     const { data: profile, error: profileError } = await supabaseClient
       .from('user_profiles')
       .select('subscription_status')
-      .eq('id', user.id)
       .single();
 
     if (profileError) {
+      // PGRST116 = "No rows returned" which means no authenticated user (RLS blocked)
+      if (profileError.code === 'PGRST116') {
+        return new Response(JSON.stringify({ error: 'Authentication failed' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 401,
+        });
+      }
       console.error('Profile fetch error:', profileError);
       return new Response(JSON.stringify({ error: 'Failed to fetch user profile' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
