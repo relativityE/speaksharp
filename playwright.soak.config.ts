@@ -31,17 +31,16 @@ export default defineConfig({
         actionTimeout: 15_000,
         navigationTimeout: 30_000,
     },
-    /* webServer: {
-        command: 'pnpm dev --force',
+    webServer: {
+        command: 'pnpm dev',
         url: urls.dev,
-        reuseExistingServer: true,
+        reuseExistingServer: !process.env.CI,
         timeout: 120 * 1000,
         env: {
-            DOTENV_CONFIG_PATH: '.env.development',
+            VITE_TEST_MODE: 'true',
             VITE_USE_LIVE_DB: 'true',
-            REAL_WHISPER_TEST: 'true',
         },
-    }, */
+    },
     projects: [
         {
             name: 'chromium',

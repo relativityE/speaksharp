@@ -48,12 +48,7 @@ jobs:
           NUM_FREE_USERS: ${{ inputs.num_free_users }}
           NUM_PRO_USERS: ${{ inputs.num_pro_users }}
         run: |
-          # Using start-server-and-test for clean process lifecycle
-          # (avoids ELIFECYCLE from orphaned node/esbuild processes)
-          pnpm exec start-server-and-test \
-            "pnpm dev" \
-            http://localhost:5173 \
-            "pnpm exec playwright test --config=playwright.soak.config.ts --project=chromium"
+          pnpm test:soak
 
       - name: Upload test results
         if: always()
