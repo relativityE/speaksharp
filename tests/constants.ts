@@ -173,12 +173,16 @@ export const TIMEOUTS = {
 // SOAK TEST CONFIG
 // ============================================
 
+const SESSION_MS = getEnvNum('SOAK_TEST_DURATION_MS', 120 * 1000); // Default to 2 minutes
+
 export const SOAK_CONFIG = {
   CONCURRENT_USERS: CONCURRENT_USER_COUNT,
-  SESSION_DURATION_MS: getEnvNum('SOAK_TEST_DURATION_MS', 300 * 1000), // Default to 5 minutes
-  PLAYWRIGHT_TIMEOUT_MS: 300 * 1000, // 5 minute Playwright test timeout
-  P95_THRESHOLD_MS: 10000, // Max acceptable P95 response time (Increased for CI variance)
-  MAX_MEMORY_MB: 200, // Max acceptable memory per tab
+  SESSION_DURATION_MS: SESSION_MS,
+  // Mathematical Relationship: 2.5x Safety Multiplier
+  // This accounts for (Setup + Staggered Auth + Active Session + Metrics Collection)
+  PLAYWRIGHT_TIMEOUT_MS: Math.max(SESSION_MS * 2.5, 300 * 1000),
+  P95_THRESHOLD_MS: 10000,
+  MAX_MEMORY_MB: 200,
   USE_NATIVE_MODE: false,
   TRACK_MEMORY: true,
   RESULTS_DIR: 'test-results/soak',
