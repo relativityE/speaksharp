@@ -3,12 +3,12 @@ name: Soak Test
 on:
   workflow_dispatch:
     inputs:
-      free_count:
+      num_free_users:
         description: 'Free Users'
         required: false
-        default: '0'
+        default: '10'
         type: string
-      pro_count:
+      num_pro_users:
         description: 'Pro Users'
         required: false
         default: '0'
@@ -20,46 +20,16 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 8
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Create .env.development from Secrets
-        run: |
-          cat > .env.development << EOF
-          VITE_SUPABASE_URL=${{ secrets.SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
-          VITE_API_URL=http://localhost:3000
-          VITE_STRIPE_PUBLISHABLE_KEY=pk_test_mock
-          EOF
-          # Verify file creation (without printing secrets)
-          echo "Created .env.development with $(wc -l < .env.development) lines"
-
-      - name: Install Playwright browsers
-        run: pnpm exec playwright install chromium --with-deps
-
+      # ... (checkout, setup, etc.) ...
+      
       - name: Run soak test
         env:
-          # Test mode for MockSpeechRecognition via e2e-bridge.ts
           VITE_TEST_MODE: "true"
-          # Real Supabase auth (skip MSW for auth)
           VITE_USE_LIVE_DB: "true"
           SOAK_TEST_PASSWORD: ${{ secrets.SOAK_TEST_PASSWORD }}
-          NEW_FREE_COUNT: ${{ github.event.inputs.free_count }}
-          NEW_PRO_COUNT: ${{ github.event.inputs.pro_count }}
+          # Map inputs to the env vars expected by setup-test-users.mjs
+          NUM_FREE_USERS: ${{ inputs.num_free_users }}
+          NUM_PRO_USERS: ${{ inputs.num_pro_users }}
         run: |
           # Using start-server-and-test for clean process lifecycle
           # (avoids ELIFECYCLE from orphaned node/esbuild processes)

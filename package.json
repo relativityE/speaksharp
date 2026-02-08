@@ -41,6 +41,8 @@
     "test:soak": "playwright test --config=playwright.soak.config.ts --project=chromium",
     "test:soak:api": "dotenv -e .env.development -- tsx tests/soak/api-load-test.ts",
     "test:soak:verify": "dotenv -e .env.development -- tsx tests/soak/verify-users.ts",
+    "test:soak:remote": "node scripts/trigger-soak.mjs",
+    "test:soak:remote:wait": "node scripts/trigger-soak.mjs --wait",
     "// CI Shortcuts": "",
     "ci:local": "./scripts/test-audit.sh ci-simulate",
     "ci:local:full": "pnpm ci:local && pnpm test:live && pnpm test:canary",

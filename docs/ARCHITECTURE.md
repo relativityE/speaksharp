@@ -741,9 +741,33 @@ expect(text).toBe('5');
     *   **Script:** `scripts/setup-test-users.mjs`
     *   **Purpose:** Idempotent script to create/sync 10 dedicated soak test users (`soak-test0@`...`soak-test9@`).
     *   **Configurable:** Supports `NUM_FREE_USERS` / `NUM_PRO_USERS` env overrides (Defaults: 7 Free, 3 Pro).
-    *   **Secrets:** Requires `SUPABASE_SERVICE_ROLE_KEY`.
-        *   **CI:** Injected via GitHub Secrets.
-        *   **Local:** Must be present in `.env.development`.
+    *   **Secrets:** requires `SUPABASE_SERVICE_ROLE_KEY`.
+
+**Remote Execution (The "Correct Way"):**
+
+To ensure security, soak tests are designed to run on GitHub Actions where `SOAK_TEST_PASSWORD` is injected safely.
+
+```
+┌─────────────────┐
+│  Your Terminal  │  ← Execute here (trigger script)
+└────────┬────────┘
+         │ GitHub API
+         ↓
+┌─────────────────┐
+│ GitHub Actions  │  ← Run here (with secrets)
+│   Runners       │
+└────────┬────────┘
+         │
+         ↓
+   ┌─────────────────────┐
+   │  SOAK_TEST_PASSWORD │  ← Secrets stay in GitHub
+   │  (GitHub Secret)    │
+   └─────────────────────┘
+```
+
+*   **Command:** `pnpm test:soak:remote:wait`
+*   **Mechanism:** `scripts/trigger-soak.mjs` triggers `soak-test.yml` via GitHub API.
+*   **Benefit:** Zero-secret leakage to local environment.
 
 SpeakSharp employs a unified and resilient testing strategy designed for speed and reliability. The entire process is orchestrated by a single script, `test-audit.sh`, which ensures that the local development experience perfectly mirrors the Continuous Integration (CI) pipeline.
 

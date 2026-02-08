@@ -272,6 +272,8 @@ pnpm run lighthouse:ci
 
 ### Soak & Load Testing
 
+### Soak & Load Testing
+
 **🌊 Want to stress test the backend APIs?**
 ```bash
 pnpm test:soak:api
@@ -285,6 +287,19 @@ pnpm test:soak:api
 pnpm test:soak
 ```
 - Runs Playwright-based soak tests to check for memory leaks and UI stability.
+
+**📡 Want to run the Soak Test remotely (GitHub Actions)?**
+```bash
+pnpm test:soak:remote
+# OR with custom user counts
+pnpm test:soak:remote 15 5
+# OR wait for completion
+pnpm test:soak:remote:wait
+```
+- Dispatches the "Soak Test" workflow to GitHub Actions (secure execution).
+- Uses remote secrets securely without local configuration.
+- Returns a link to view the live run.
+- `--wait` flag monitors execution until completion.
 
 ### Build & Preview
 
