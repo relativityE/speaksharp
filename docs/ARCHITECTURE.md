@@ -982,7 +982,7 @@ This section documents common CI failures and their root causes to prevent futur
 
 | Issue | Root Cause | Solution | Date Fixed |
 |-------|------------|----------|------------|
-| **Canary: `undefined` email** | `start-server-and-test` spawns a subprocess; `env:` block only affects outer shell | Use `cross-env` to propagate vars: `cross-env CANARY_EMAIL=... pnpm test:canary` | 2026-02-09 |
+| **Canary: `undefined` email** | `start-server-and-test` spawns subprocess; `CANARY_EMAIL` not inherited (`CANARY_PASSWORD` worked via GitHub secret injection) | Use `cross-env CANARY_EMAIL=... CANARY_PASSWORD=... pnpm test:canary` | 2026-02-09 |
 | **LHCI: "No files found"** | Lighthouse crashes before writing reports; artifact upload step fails | Add `continue-on-error: true` and diagnostic `ls -la .lighthouseci/` | 2026-02-09 |
 | **LHCI: Server timeout** | Preview server doesn't print "ready/listen" pattern that LHCI expects | Increase timeout or use custom health check; warning is often benign | - |
 | **LHCI: Crash in CI only** | Build artifacts not restored properly before LHCI runs | Verify `frontend/dist/` exists via `ls -R artifacts/` step | 2026-02-09 |
