@@ -611,6 +611,8 @@ export async function verifyCredentialsAndInjectSession(
 
   await page.addInitScript(({ key, value }) => {
     window.localStorage.setItem(key, JSON.stringify(value));
+    // Set E2E context flag so useUserProfile emits __e2eProfileLoaded__ signal
+    window.__E2E_CONTEXT__ = true;
   }, { key: localStorageKey, value: sessionPayload });
 
   // 3. App Verification
