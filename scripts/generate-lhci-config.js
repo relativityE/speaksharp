@@ -6,7 +6,7 @@ const config = {
     ci: {
         collect: {
             startServerCommand: `pnpm preview --port ${PORTS.PREVIEW}`,
-            url: [`http://localhost:${PORTS.PREVIEW}/`],
+            url: [`http://127.0.0.1:${PORTS.PREVIEW}/`],
             numberOfRuns: 3,
             settings: {
                 preset: 'desktop',
