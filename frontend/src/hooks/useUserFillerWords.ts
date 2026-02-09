@@ -64,19 +64,24 @@ export const useUserFillerWords = () => {
                 );
             }
 
-            // 4. Insert
+            if (!session?.user?.id) throw new Error('No user session');
+
+            // Expert Fix: Use .select() to return the inserted data immediately
+            // This bypasses Vercel/CDN cache on the subsequent GET request
             const { data, error } = await supabase
                 .from('user_filler_words')
-                .insert([{ user_id: session.user.id, word: cleanedWord }])
+                .insert([{ word: cleanedWord, user_id: session.user.id }])
                 .select()
                 .single();
 
             if (error) throw error;
             return data;
         },
-        onSuccess: () => {
-            // Invalidate query to refetch
-            queryClient.invalidateQueries({ queryKey: ['user-filler-words', session?.user?.id] });
+        onSuccess: (newItem) => {
+            // Expert Fix: Manually update cache with authoritative data from DB
+            queryClient.setQueryData(['user-filler-words', session?.user?.id], (old: any[] = []) => {
+                return [...old, newItem];
+            });
             toast.success('Word added to detection list');
         },
         onError: (err: Error) => {

@@ -76,34 +76,31 @@ test.describe('User Filler Words Canary @canary', () => {
         await expect(addBtn).toBeEnabled();
         await addBtn.click();
 
-        // Prevent lint error: ensure promise is handled (even if we don't await purely for timing)
-        void addWordPromise;
+        // Wait for the successful network response containing the new word
+        const response = await addWordPromise;
+        const body = await response.json();
 
-        // Debugging: Polling loop to log UI state while waiting
-        const timeoutMs = 20000;
-        const start = Date.now();
-        let found = false;
-
-        console.warn('[CANARY] Starting polling for badge availability...');
-
-        while (Date.now() - start < timeoutMs) {
-            const badges = page.getByTestId('filler-word-badge');
-            const words = await badges.allInnerTexts();
-            const count = words.length;
-
-            console.warn(`[CANARY-POLL] ${Math.round((Date.now() - start) / 1000)}s: Visible words (${count}): ${words.join(', ')}`);
-
-            if (words.some(w => /canaryboosttest/i.test(w))) {
-                found = true;
-                break;
-            }
-            // Wait for 1s before next check
-            await page.waitForTimeout(1000);
+        // Expert Verification: Ensure backend returned the single inserted record
+        if (Array.isArray(body)) {
+            expect(body).toHaveLength(1); // Standard .select() returns array unless .single() used?
+            // Wait, I used .single() in the hook.
+            // If I used .single(), Supabase returns Object.
+            // But Network Response might be different?
+            // PostgREST with Accept: application/vnd.pgrst.object+json returns Object.
+            // Supabase Client handles this. 
+            // Let's inspect body structure if we aren't sure.
+            // If .select().single() is used, the response body is usually the object.
+            // But if we used standard .insert().select(), it is array.
+            // My hook (Step 11375) used .single().
         }
+        // Let's assume object if single(), or array if not.
+        // Actually, safer to just check visibility first. 
+        // But to follow instructions:
+        expect(JSON.stringify(body)).toContain('CanaryBoostTest');
 
-        if (!found) {
-            throw new Error('[CANARY-FAIL] Timed out waiting for CanaryBoostTest badge.');
-        }
+        // Assertion: Item should appear immediately (from .select() response injected into cache)
+        const badges = page.getByTestId('filler-word-badge');
+        await expect(badges.filter({ hasText: /canaryboosttest/i })).toBeVisible({ timeout: 5000 });
 
         logStep('Word Added & Verified');
 
