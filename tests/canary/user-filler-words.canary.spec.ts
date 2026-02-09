@@ -23,6 +23,7 @@ test.describe('User Filler Words Canary @canary', () => {
      * Tests that custom vocabulary is correctly sent to AssemblyAI via word_boost param.
      */
     test('should pass custom words to Cloud STT engine (High Fidelity)', async ({ page }) => {
+        test.setTimeout(130000); // Allow 2m+ for staging latency/WebSocket connection
         // 1. Real Login
         await canaryLogin(page, CANARY_USER.email, CANARY_USER.password);
 
