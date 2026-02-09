@@ -25,9 +25,41 @@ const DEV_PORT = 5173;
 // Read from environment, default to localhost for development
 const ALLOWED_ORIGIN = Deno.env.get("ALLOWED_ORIGIN") ?? `http://localhost:${DEV_PORT}`;
 
-export const corsHeaders = () => ({
-  "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-});
+export const corsHeaders = (req?: Request) => {
+  const origin = req?.headers.get("Origin");
+
+  // Dynamic Origin Matching for Vercel Previews and Staging
+  if (origin) {
+    // Allow localhost (Dev)
+    if (origin.includes("localhost") || origin.includes("127.0.0.1")) {
+      return {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+      };
+    }
+    // Allow Vercel Deployments (Preview/Staging) and Production Domain
+    if (originalMatches(origin)) {
+      return {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+      };
+    }
+  }
+
+  // Fallback to configured ALLOWED_ORIGIN
+  return {
+    "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  };
+};
+
+function originalMatches(origin: string): boolean {
+  return (
+    origin.endsWith(".vercel.app") ||
+    origin.endsWith("speaksharp.ai") ||
+    origin === ALLOWED_ORIGIN
+  );
+}

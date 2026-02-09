@@ -18,7 +18,7 @@ if (!ASSEMBLYAI_KEY) {
 Deno.serve(async (req: Request) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: corsHeaders() });
+    return new Response(null, { status: 204, headers: corsHeaders(req) });
   }
 
   try {
@@ -36,7 +36,7 @@ Deno.serve(async (req: Request) => {
       console.warn("🚫 Token request rejected: Missing Authorization header");
       return new Response(JSON.stringify({ error: "Missing Authorization header" }), {
         status: 401,
-        headers: { "Content-Type": "application/json", ...corsHeaders() },
+        headers: { "Content-Type": "application/json", ...corsHeaders(req) },
       });
     }
 
@@ -49,7 +49,7 @@ Deno.serve(async (req: Request) => {
       console.warn("🚫 Token request rejected: Invalid or expired token", authError?.message);
       return new Response(JSON.stringify({ error: "Invalid or expired token" }), {
         status: 401,
-        headers: { "Content-Type": "application/json", ...corsHeaders() },
+        headers: { "Content-Type": "application/json", ...corsHeaders(req) },
       });
     }
 
@@ -64,7 +64,7 @@ Deno.serve(async (req: Request) => {
       console.error("🚫 Failed to fetch user profile:", profileError.message);
       return new Response(JSON.stringify({ error: "Failed to verify subscription" }), {
         status: 500,
-        headers: { "Content-Type": "application/json", ...corsHeaders() },
+        headers: { "Content-Type": "application/json", ...corsHeaders(req) },
       });
     }
 
@@ -72,7 +72,7 @@ Deno.serve(async (req: Request) => {
       console.warn(`🚫 Token request rejected: User ${user.id} is not Pro (status: ${profile?.subscription_status})`);
       return new Response(JSON.stringify({ error: "Pro subscription required for AssemblyAI features" }), {
         status: 403,
-        headers: { "Content-Type": "application/json", ...corsHeaders() },
+        headers: { "Content-Type": "application/json", ...corsHeaders(req) },
       });
     }
 
@@ -94,7 +94,7 @@ Deno.serve(async (req: Request) => {
       console.error("AssemblyAI v3 token request failed:", errData);
       return new Response(JSON.stringify({ error: "Failed to generate AssemblyAI token", details: errData }), {
         status: resp.status,
-        headers: { "Content-Type": "application/json", ...corsHeaders() },
+        headers: { "Content-Type": "application/json", ...corsHeaders(req) },
       });
     }
 
@@ -104,14 +104,14 @@ Deno.serve(async (req: Request) => {
 
     return new Response(JSON.stringify({ token: data.token, expires_in: data.expires_in_seconds }), {
       status: 200,
-      headers: { "Content-Type": "application/json", ...corsHeaders() },
+      headers: { "Content-Type": "application/json", ...corsHeaders(req) },
     });
 
   } catch (err) {
     console.error("Unexpected error in assemblyai-token function:", err);
     return new Response(JSON.stringify({ error: "Internal server error" }), {
       status: 500,
-      headers: { "Content-Type": "application/json", ...corsHeaders() },
+      headers: { "Content-Type": "application/json", ...corsHeaders(req) },
     });
   }
 });

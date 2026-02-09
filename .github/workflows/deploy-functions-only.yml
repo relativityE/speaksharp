@@ -18,3 +18,9 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
           supabase functions deploy create-user --project-ref yxlapjuovrsvjswkwnrk --no-verify-jwt
+
+      - name: Deploy assemblyai-token function
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          supabase functions deploy assemblyai-token --project-ref yxlapjuovrsvjswkwnrk --no-verify-jwt
