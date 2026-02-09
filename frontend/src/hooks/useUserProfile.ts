@@ -3,7 +3,6 @@ import { useAuthProvider } from "../contexts/AuthProvider";
 import { profileService } from "../services/domainServices";
 import { UserProfile } from "../types/user";
 import logger from "../lib/logger";
-import { IS_TEST_ENVIRONMENT } from "../config/env";
 
 /**
  * ARCHITECTURE NOTE (Senior Architect):
