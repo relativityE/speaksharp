@@ -51,6 +51,15 @@ test.describe('User Filler Words Canary @canary', () => {
             }
         });
 
+        // 0. Cleanup: Ensure clean state
+        const existingBadge = page.getByTestId('filler-word-badge').filter({ hasText: /canaryboosttest/i });
+        if (await existingBadge.count() > 0) {
+            logStep('Cleaning up existing test word');
+            const deleteBtn = page.locator('div').filter({ has: existingBadge }).getByRole('button');
+            await deleteBtn.click();
+            await expect(existingBadge).toBeHidden();
+        }
+
         // Add word
         logStep('Adding CanaryBoostTest word');
         await page.getByTestId(TEST_IDS.USER_FILLER_WORDS_INPUT).fill('CanaryBoostTest');
@@ -70,9 +79,17 @@ test.describe('User Filler Words Canary @canary', () => {
         // Wait for response but don't fail if UI updates first
         // await addWordPromise; // Intentionally skipping await to rely on UI truth
 
-        // Optimization: Badge should appear immediately after 201 response
-        await expect(page.getByTestId('filler-word-badge').filter({ hasText: /canaryboosttest/i })).toBeVisible({ timeout: 10000 });
-        logStep('Word Added & Verified');
+        // Debugging: Log all visible words to check if it's rendered but mismatching
+        const badges = page.getByTestId('filler-word-badge');
+        try {
+            await expect(badges.filter({ hasText: /canaryboosttest/i })).toBeVisible({ timeout: 10000 });
+            logStep('Word Added & Verified');
+        } catch (e) {
+            const count = await badges.count();
+            const words = await badges.allInnerTexts();
+            console.warn(`[CANARY-FAIL] UI failed to update. Visible words (${count}): ${words.join(', ')}`);
+            throw e;
+        }
 
         // Close settings
         await page.keyboard.press('Escape');
