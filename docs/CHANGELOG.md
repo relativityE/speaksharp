@@ -7,6 +7,13 @@ All notable changes to this project will be documented in this file.
 
 ### [Unreleased]
 
+- **CI Stabilization & Canary Refinement (2026-02-09):**
+  - **Fix:** Resolved `real-db-validation` failure in live integration tests by ensuring the E2E bridge respects `TestFlags.USE_REAL_DATABASE`.
+  - **Canary Strategy:** Transitioned to a "Unique Email Persistence" strategy (`canary-${run_id}@speaksharp.app`). Automated cleanup (`cleanup-canary.mjs`) has been removed to facilitate post-mortem debugging.
+  - **Performance:** Verified Lighthouse Performance score recovery to **95** following lazy-loading optimizations for `SessionPage`.
+  - **Standardization:** Audited and standardized all CI workflows to use the `setup-environment` action for consistent `pnpm` and `node` versions.
+  - **Files:** `frontend/src/lib/e2e-bridge.ts`, `.github/workflows/canary*`, `scripts/cleanup-canary.mjs` (deleted).
+
 - **Soak Test & CI Infrastructure (2026-02-08):**
   - **Feature:** Implemented `tests/soak/api-load-test.ts` for lightweight, high-concurrency Node.js load testing (bypassing UI overhead).
   - **Tooling:** Introduced `pnpm ci:local` to simulate the full GitHub Actions pipeline locally (Lint + Typecheck + Unit + Build + E2E + Lighthouse).

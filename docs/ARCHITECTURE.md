@@ -1,11 +1,11 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-02-05
+**Last Reviewed:** 2026-02-09
 
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp System Architecture
 
-**Version 5.1** | **Last Updated: 2026-02-05**
+**Version 5.2** | **Last Updated: 2026-02-09**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -940,7 +940,7 @@ Canary tests (`tests/canary/*.spec.ts`) are specialized smoke tests that run aga
    - The `canaryLogin` helper in `tests/canary/smoke.canary.spec.ts` uses these credentials to perform a real login against the live Supabase project.
 5. **Execution**: Playwright runs the tests using the `playwright.canary.config.ts`, which targets the local Vite server but communicates with the live backend.
 6. **Safety Mechanism**: If `CANARY_PASSWORD` is not detected in the environment, the tests will automatically skip using `test.skip()` to prevent false failures in local development environments where secrets aren't present.
-7. **Security Cleanup**: The workflow includes an `if: always()` cleanup step that deletes the `.env.development` file immediately after the test run finishes (success or failure) to prevent secret leakage in the transient runner environment.
+7. **Debuggable Users**: Automated cleanup (previously `cleanup-canary.mjs`) has been removed as of 2026-02-09. Instead, each run uses a unique email (`canary-${run_id}@speaksharp.app`) and persists the user in the database to allow for post-run forensic debugging.
 
 **Workflow Visualization:**
 ```mermaid
@@ -1601,7 +1601,7 @@ To avoid conflicts and ensure predictable testing, we maintain a strict list of 
 | `window.__e2eProfileLoaded__` | Profile Data Loaded. | Set by `useUserProfile` hook; signals profile fetch complete. |
 | `window.__e2eSessionDataLoaded__` | Session Data Loaded. | Set by `AnalyticsPage`; signals session history fetch complete. |
 | `window.__E2E_EMPTY_SESSIONS__` | Edge Case Testing. | Tells MSW to return an empty session array. |
-| `window.__E2E_MOCK_SESSION__` | Session Injection. | Injects a pre-built mock user session for `programmaticLogin`. |
+| `window.__E2E_MOCK_SESSION__` | Session Injection. | Injects a pre-built mock user session for `programmaticLogin`. **Note:** Respects `TestFlags.USE_REAL_DATABASE` to prevent hijacking real live-DB sessions. |
 | `window.__E2E_MOCK_LOCAL_WHISPER__` | Perf Optimization. | Substitutes real heavy Whisper model for a fast mock. |
 | `window.dispatchMockTranscript` | Mock Input. | Allows tests to "speak" text into the live transcript stream. |
 | `window._speakSharpRootInitialized` | Anti-Double Mount. | Prevents React root from re-initializing in unstable dev setups. |

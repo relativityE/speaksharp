@@ -213,6 +213,7 @@ For E2E infrastructure troubleshooting, see [tests/TROUBLESHOOTING.md](../tests/
 | Promo Admin | ✅ RESOLVED - `apply-promo` Edge Function |
 | **C1-C3, H2, H3**| ✅ RESOLVED - Jan 2026 Audit Complete |
 | **Performance (1.1, 2.1)**| ✅ RESOLVED - Bundle & CI Optimized |
+| CI Stabilization | ✅ RESOLVED - Identity Bridge Hub Fixed |
 
 **All P0/P1 blockers resolved.** See `CHANGELOG.md` for details.
 
@@ -272,8 +273,8 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 | Total Source Size   | 6.4M   |
 | Total Project Size  | 1.3G   |
 | Initial Chunk Size  | 496K   |
-| Code Bloat Index    | 7.59%   |
-| Lighthouse Scores   | P: 0, A: 0, BP: 0, SEO: 0 |
+| Code Bloat Index    | 7.75%   |
+| Lighthouse Scores   | P: 95, A: 98, BP: 100, SEO: 100 |
 
 ---
 <!-- SQM:END -->

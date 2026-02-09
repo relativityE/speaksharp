@@ -37,7 +37,7 @@ Status Key: 🟡 In Progress | 🔴 Not Started | ✅ Complete | 🛡️ Gap Rem
 | **S1** | **Universal Secret Migration** | **CRITICAL** | ✅ Complete | Migrated all workflows to `SUPABASE_SERVICE_ROLE_KEY`. Verified 0 legacy key usage. |
 | **S2** | **Gemini 3.0 Flash Upgrade** | **HIGH** | ✅ Complete | Upgraded AI Coach for faster, smarter feedback. |
 | **S3** | **Tier Limit Dynamic Labels** | **HIGH** | ✅ Complete | Unified ensuring "Daily" and "Monthly" limits are correctly handled in UI/Tests. |
-| **S4** | **Canary Cleanup** | **MEDIUM** | ✅ Complete | Implemented self-cleaning logic in canary pipeline to prevent data residue. |
+| **S4** | **Canary User Persistence** | **MEDIUM** | ✅ Complete | Migrated from automated cleanup to unique email persistence for easier debugging. |
 
 
 ## 📽️ Marketing & Growth

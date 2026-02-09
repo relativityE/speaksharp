@@ -54,14 +54,6 @@ jobs:
             http://localhost:5173 \
             "cross-env BASE_URL=https://speaksharp-public.vercel.app/ pnpm test:canary"
 
-      - name: Cleanup Canary User
-        if: always() # Run even if tests fail
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          CANARY_EMAIL: canary-${{ github.run_id }}@speaksharp.app
-        run: node scripts/cleanup-canary.mjs
-
       - name: Upload Test Results
         if: always()
         uses: actions/upload-artifact@v4
