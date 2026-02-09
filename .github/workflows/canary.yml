@@ -1,9 +1,11 @@
 name: Production Canary Smoke Test
 
 on:
-  workflow_dispatch: # Manual trigger
-  # schedule:
-  #   - cron: '0 8 * * *' # Daily at 8am UTC (enable after validation)
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */6 * * *' # Every 6 hours
 
 jobs:
   canary-check:
@@ -18,41 +20,23 @@ jobs:
         with:
           install-playwright: 'true'
 
-      - name: Create .env.development from Secrets
-        # Required for real Supabase connection during dev server
-        run: |
-          cat > .env.development <<EOF
-          VITE_SUPABASE_URL=${{ secrets.SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
-          VITE_STRIPE_PUBLISHABLE_KEY=pk_test_mock
-          VITE_SENTRY_DSN=https://placeholder@sentry.io/0
-          EOF
-          echo "Created .env.development with $(wc -l < .env.development) lines"
-
       - name: Provision Canary User
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          # Note: CANARY_PASSWORD exists in GitHub Secrets; linter can't verify remote secrets
           CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD }}
-          # Unique email to avoid collision and ensure test isolation
+          # Unique email to avoid collision
           CANARY_EMAIL: canary-${{ github.run_id }}@speaksharp.app
         run: node scripts/provision-canary.mjs
 
       - name: Run Smoke Test
         env:
-          # Test mode for MockSpeechRecognition (e2e-bridge.ts)
           VITE_TEST_MODE: "true"
-          # Real Supabase auth (skip MSW)
           VITE_USE_LIVE_DB: "true"
-          # Canary credentials (CANARY_PASSWORD is a GitHub Secret; linter can't verify)
           CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD }}
           CANARY_EMAIL: canary-${{ github.run_id }}@speaksharp.app
-        run: |
-          npx start-server-and-test \
-            "pnpm dev" \
-            http://localhost:5173 \
-            "cross-env CANARY_EMAIL=canary-${{ github.run_id }}@speaksharp.app CANARY_PASSWORD=${{ secrets.CANARY_PASSWORD }} BASE_URL=https://speaksharp-public.vercel.app/ pnpm test:canary"
+          BASE_URL: https://speaksharp-public.vercel.app/
+        run: pnpm test:canary
 
       - name: Upload Test Results
         if: always()
@@ -62,7 +46,11 @@ jobs:
           path: |
             playwright-report/
             test-results/canary/
-          retention-days: 30
+          retention-days: 7
+
+      - name: Cleanup Secrets
+        if: always()
+        run: rm -f .env.development
       - name: Cleanup Secrets
         if: always()
         run: rm -f .env.development
