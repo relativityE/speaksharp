@@ -499,7 +499,7 @@ export async function programmaticLoginWithRoutes(
   // 8. Wait for profile to be fully loaded (ensures hooks like useUserProfile are settled)
   await debugWait(
     'Profile Loaded Flag (__e2eProfileLoaded__)',
-    page.waitForFunction(() => !!(window as any).__e2eProfileLoaded__, null, { timeout: 15000 })
+    page.waitForFunction(() => !!window.__e2eProfileLoaded__, null, { timeout: 15000 })
   );
 }
 
@@ -637,9 +637,15 @@ export async function verifyCredentialsAndInjectSession(
 
   if (userType === 'pro') {
     // Check for Pro Badge
+    // Hardening: wait for profile loaded flag first to ensure navigation has settled
+    await debugWait(
+      'Profile Loaded Flag (Pro Verification)',
+      page.waitForFunction(() => !!(window as any).__e2eProfileLoaded__, null, { timeout: 15000 })
+    );
+
     await debugWait(
       'Pro Badge Visible',
-      page.waitForSelector('[data-testid="pro-badge"]', { timeout: 10000 })
+      page.waitForSelector('[data-testid="pro-badge"]', { timeout: 30000 })
     );
     debugLog('[API Auth] ✅ Pro features verified.');
   } else {

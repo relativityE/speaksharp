@@ -28,6 +28,9 @@ declare global {
         __FORCE_TRANSFORMERS_JS__?: boolean;
         __E2E_MOCK_SESSION__?: boolean;
         __E2E_MOCK_PROFILE__?: { id: string; subscription_status: string };
+        __e2eProfileLoaded__?: boolean;
+        __e2eBridgeReady__?: boolean;
+        __e2eSessionDataLoaded__?: boolean;
         REAL_WHISPER_TEST?: boolean;
         TEST_MODE?: boolean;
     }

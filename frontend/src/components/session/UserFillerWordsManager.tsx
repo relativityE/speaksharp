@@ -114,7 +114,7 @@ export const UserFillerWordsManager: React.FC<UserFillerWordsManagerProps> = ({ 
                                 key={word.id}
                                 className="flex items-center justify-between p-1.5 rounded-md bg-secondary/30 hover:bg-secondary/50 transition-colors group"
                             >
-                                <span className="text-sm font-medium pl-1">{word.word}</span>
+                                <span className="text-sm font-medium pl-1" data-testid="filler-word-badge">{word.word}</span>
                                 <Button
                                     variant="ghost"
                                     size="icon"

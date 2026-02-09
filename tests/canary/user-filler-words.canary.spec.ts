@@ -35,7 +35,7 @@ test.describe('User Filler Words Canary @canary', () => {
         // Updated placeholder and button names for "User Filler Words"
         await page.getByTestId(TEST_IDS.USER_FILLER_WORDS_INPUT).fill('CanaryBoostTest');
         await page.getByRole('button', { name: /add word/i }).click();
-        await expect(page.getByText(/canaryboosttest/i)).toBeVisible();
+        await expect(page.getByTestId('filler-word-badge').filter({ hasText: 'CanaryBoostTest' })).toBeVisible();
 
         // Close settings sheet
         await page.keyboard.press('Escape');
@@ -47,9 +47,12 @@ test.describe('User Filler Words Canary @canary', () => {
         await page.getByRole('menuitemradio', { name: /Cloud/i }).click();
 
         // 4. Set up WebSocket listener BEFORE starting session
-        const wsPromise = page.waitForEvent('websocket', ws => {
-            const url = ws.url();
-            return url.includes('streaming.assemblyai.com');
+        const wsPromise = page.waitForEvent('websocket', {
+            predicate: ws => {
+                const url = ws.url();
+                return url.includes('streaming.assemblyai.com');
+            },
+            timeout: 120000 // Increase to 2 mins for staging latency
         });
 
         // 5. Start Session
