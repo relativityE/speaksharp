@@ -989,6 +989,7 @@ This section documents common CI failures and their root causes to prevent futur
 | **Canary cleanup: Delete fails** | RLS policies prevent deleting sessions/profiles for user; foreign key constraints | Switched to "unique email persistence" strategy; no cleanup | 2026-02-09 |
 | **real-db-validation: Empty sessions** | `VISUAL_TEST_*` credentials didn't match `E2E_PRO_*`; user ID mismatch | Sync `VISUAL_TEST_EMAIL = process.env.E2E_PRO_EMAIL` in config | 2026-02-09 |
 | **E2E bridge identity hijack** | `getInitialSession()` returned mock user even with `VITE_USE_LIVE_DB` | Added `!TestFlags.USE_REAL_DATABASE` guard to mock session logic | 2026-02-08 |
+| **Canary: MSW wait timeout** | `navigateToRoute()` defaults to waiting for `window.mswReady` which doesn't exist in live tests | Pass `{ waitForMocks: false }` to `navigateToRoute()` in canary/live tests | 2026-02-09 |
 
 **Key Principle:** When using `start-server-and-test` or any process-spawning utility, environment variables set via GitHub Actions `env:` blocks are NOT automatically inherited by subprocess commands. Always use `cross-env` to explicitly pass critical variables.
 
