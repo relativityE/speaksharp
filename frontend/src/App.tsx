@@ -7,10 +7,8 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { Loader2 } from 'lucide-react';
 
 // Lazy load pages for better performance
-import SessionPage from './pages/SessionPage';
-
-// Lazy load other pages for better performance
 const Index = React.lazy(() => import('./pages/Index'));
+const SessionPage = React.lazy(() => import('./pages/SessionPage'));
 const AnalyticsPage = React.lazy(() => import('./pages/AnalyticsPage'));
 const SignInPage = React.lazy(() => import('./pages/SignInPage'));
 const AuthPage = React.lazy(() => import('./pages/AuthPage'));

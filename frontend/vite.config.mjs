@@ -53,7 +53,7 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       target: 'esnext',
-      sourcemap: true,
+      sourcemap: false,
       outDir: 'dist',
       rollupOptions: {
         output: {
