@@ -7,20 +7,18 @@ jobs:
   deploy-functions:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Supabase CLI
-        run: npm install -g supabase
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
-      - name: Deploy create-user function
+      - name: Deploy Features
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
-          supabase functions deploy create-user --project-ref yxlapjuovrsvjswkwnrk --no-verify-jwt
-
-      - name: Deploy assemblyai-token function
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-        run: |
-          supabase functions deploy assemblyai-token --project-ref yxlapjuovrsvjswkwnrk --no-verify-jwt
+          cd backend/supabase
+          npx supabase functions deploy create-user --project-ref yxlapjuovrsvjswkwnrk --no-verify-jwt
+          npx supabase functions deploy assemblyai-token --project-ref yxlapjuovrsvjswkwnrk --no-verify-jwt
