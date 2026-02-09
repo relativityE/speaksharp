@@ -55,8 +55,7 @@ test.describe('User Filler Words Canary @canary', () => {
         const existingBadge = page.getByTestId('filler-word-badge').filter({ hasText: /canaryboosttest/i });
         if (await existingBadge.count() > 0) {
             logStep('Cleaning up existing test word');
-            const deleteBtn = page.locator('div').filter({ has: existingBadge }).getByRole('button');
-            await deleteBtn.click();
+            await page.getByRole('button', { name: /remove canaryboosttest/i }).click();
             await expect(existingBadge).toBeHidden();
         }
 
@@ -65,6 +64,7 @@ test.describe('User Filler Words Canary @canary', () => {
         await page.getByTestId(TEST_IDS.USER_FILLER_WORDS_INPUT).fill('CanaryBoostTest');
 
         // Robustness: Wait for the valid network response (Non-blocking)
+        // Note: validating response helps debug, but we don't await it to avoid blocking UI tests
         const addWordPromise = page.waitForResponse(response =>
             response.url().includes('/user_filler_words') &&
             response.status() >= 200 && response.status() < 300
@@ -76,20 +76,36 @@ test.describe('User Filler Words Canary @canary', () => {
         await expect(addBtn).toBeEnabled();
         await addBtn.click();
 
-        // Wait for response but don't fail if UI updates first
-        // await addWordPromise; // Intentionally skipping await to rely on UI truth
+        // Prevent lint error: ensure promise is handled (even if we don't await purely for timing)
+        void addWordPromise;
 
-        // Debugging: Log all visible words to check if it's rendered but mismatching
-        const badges = page.getByTestId('filler-word-badge');
-        try {
-            await expect(badges.filter({ hasText: /canaryboosttest/i })).toBeVisible({ timeout: 10000 });
-            logStep('Word Added & Verified');
-        } catch (e) {
-            const count = await badges.count();
+        // Debugging: Polling loop to log UI state while waiting
+        const timeoutMs = 20000;
+        const start = Date.now();
+        let found = false;
+
+        console.warn('[CANARY] Starting polling for badge availability...');
+
+        while (Date.now() - start < timeoutMs) {
+            const badges = page.getByTestId('filler-word-badge');
             const words = await badges.allInnerTexts();
-            console.warn(`[CANARY-FAIL] UI failed to update. Visible words (${count}): ${words.join(', ')}`);
-            throw e;
+            const count = words.length;
+
+            console.warn(`[CANARY-POLL] ${Math.round((Date.now() - start) / 1000)}s: Visible words (${count}): ${words.join(', ')}`);
+
+            if (words.some(w => /canaryboosttest/i.test(w))) {
+                found = true;
+                break;
+            }
+            // Wait for 1s before next check
+            await page.waitForTimeout(1000);
         }
+
+        if (!found) {
+            throw new Error('[CANARY-FAIL] Timed out waiting for CanaryBoostTest badge.');
+        }
+
+        logStep('Word Added & Verified');
 
         // Close settings
         await page.keyboard.press('Escape');
