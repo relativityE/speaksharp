@@ -203,7 +203,7 @@ test.describe('Private STT (Production Capability Smoke)', () => {
             debugLog('[TEST] ✅ Loading indicator verified');
             await expect(loadingIndicator).toBeHidden({ timeout: 30000 });
         } catch (e) {
-            console.warn('[TEST] ⚠️ Loading indicator missed or too fast. Proceeding to verify Engine Start...');
+            console.warn('[TEST] ⚠️ Loading indicator missed or too fast. Proceeding to verify Engine Start...', e);
         }
 
         // 8. Assert Success State
