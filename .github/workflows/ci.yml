@@ -127,7 +127,9 @@ jobs:
           
           # Debug: Verify preview command works (in subshell to preserve cwd)
           # Preview server test removed to prevent port conflicts
-
+          # User Request: "Print port in use each time"
+          echo "=== Port 4173 Status Check ==="
+          lsof -i :4173 || echo "Port 4173 is free"
           
           # Run LHCI
           mkdir -p .lighthouseci

@@ -23,56 +23,72 @@ test.describe('User Filler Words Canary @canary', () => {
      * Tests that custom vocabulary is correctly sent to AssemblyAI via word_boost param.
      */
     test('should pass custom words to Cloud STT engine (High Fidelity)', async ({ page }) => {
-        test.setTimeout(130000); // Allow 2m+ for staging latency/WebSocket connection
-        // 1. Real Login
-        await canaryLogin(page, CANARY_USER.email, CANARY_USER.password);
+        const logStep = (step: string) => debugLog(`[${new Date().toISOString()}] [CANARY-STEP] ${step}`);
 
-        // 2. Navigate to Session and add custom word
+        test.setTimeout(130000); // Keeping high timeout for debugging, but logging will reveal actual times
+
+        // 1. Real Login
+        logStep('Starting Login');
+        await canaryLogin(page, CANARY_USER.email, CANARY_USER.password);
+        logStep('Login Complete');
+
+        // 2. Navigate to Session
+        logStep('Navigating to Session');
         await navigateToRoute(page, ROUTES.SESSION, { waitForMocks: false });
+        logStep('Session Page Loaded');
+
         const settingsBtn = page.getByTestId(TEST_IDS.SESSION_SETTINGS_BUTTON);
         await expect(settingsBtn).toBeVisible({ timeout: 15000 });
         await settingsBtn.click();
+        logStep('Opened Settings');
 
-        // Updated placeholder and button names for "User Filler Words"
+        // Add word
+        logStep('Adding CanaryBoostTest word');
         await page.getByTestId(TEST_IDS.USER_FILLER_WORDS_INPUT).fill('CanaryBoostTest');
         await page.getByRole('button', { name: /add word/i }).click();
         await expect(page.getByTestId('filler-word-badge').filter({ hasText: /canaryboosttest/i })).toBeVisible();
+        logStep('Word Added & Verified');
 
-        // Close settings sheet
+        // Close settings
         await page.keyboard.press('Escape');
         await expect(page.getByText('Session Settings')).toBeHidden();
+        logStep('Closed Settings');
 
         // 3. Select Cloud Mode
-        debugLog('[CANARY] Selecting Cloud STT mode...');
+        logStep('Selecting Cloud Mode');
         await page.getByRole('button', { name: /Native|Cloud AI|Private|On-Device/i }).click();
         await page.getByRole('menuitemradio', { name: /Cloud/i }).click();
+        logStep('Cloud Mode Selected');
 
-        // 4. Set up WebSocket listener BEFORE starting session
+        // 4. Set up WebSocket listener
+        logStep('Setting up WebSocket Listener');
         const wsPromise = page.waitForEvent('websocket', {
             predicate: ws => {
                 const url = ws.url();
+                logStep(`WebSocket Connection Detected: ${url}`);
                 return url.includes('streaming.assemblyai.com');
             },
-            timeout: 120000 // Increase to 2 mins for staging latency
+            timeout: 120000
         });
+        logStep('WebSocket Listener Ready');
 
         // 5. Start Session
-        debugLog('[CANARY] Starting Cloud STT session...');
+        logStep('Clicking Start Session');
         await page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON).click();
+        logStep('Start Session Clicked');
 
-        // 6. Verify WebSocket was opened to AssemblyAI
+        // 6. Verify WebSocket
         const ws = await wsPromise;
+        logStep('WebSocket Promise Resolved');
         const wsUrl = ws.url();
         debugLog(`[CANARY] 📡 Captured Cloud STT WebSocket: ${wsUrl} `);
 
-        // 7. Verify word_boost (boost_param) is present
         expect(wsUrl).toContain('boost_param');
         const decodedUrl = decodeURIComponent(wsUrl);
         expect(decodedUrl.toLowerCase()).toContain('canaryboosttest');
 
-        debugLog('[CANARY] ✅ User Filler Words verified in Cloud STT request');
-
-        // Cleanup - stop session
+        logStep('Stopping Session');
         await page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON).click();
+        logStep('Test Complete');
     });
 });
