@@ -126,13 +126,8 @@ jobs:
           ls -la frontend/dist/ || echo "frontend/dist/ not found"
           
           # Debug: Verify preview command works (in subshell to preserve cwd)
-          (
-            echo "=== Preview server test ==="
-            cd frontend
-            timeout 10 pnpm preview --port 4173 &
-            sleep 5
-            curl -s http://127.0.0.1:4173/ | head -20 || echo "Preview server not responding"
-          )
+          # Preview server test removed to prevent port conflicts
+
           
           # Run LHCI
           mkdir -p .lighthouseci
