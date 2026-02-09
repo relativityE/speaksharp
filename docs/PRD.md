@@ -1,11 +1,11 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-02-05
+**Last Reviewed:** 2026-02-09
 
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp Product Requirements Document
 
-**Version 9.1** | **Last Updated:** 2026-02-05
+**Version 9.2** | **Last Updated:** 2026-02-09
 
 ## 1. Executive Summary
 
@@ -186,7 +186,7 @@ For E2E infrastructure troubleshooting, see [tests/TROUBLESHOOTING.md](../tests/
 ### Active Constraints
 
 - **Theming:** Dark Theme fully implemented with polished UI (Inter font, glassmorphism). Light theme pending.
-- **Unit Test Coverage:** 57.72% (407 tests). Target: 75%. Tracked in tech debt.
+- **Unit Test Coverage:** 61.34% (478 tests). Target: 75%. Tracked in tech debt.
 - **UX - Mobile Experience:** Controls on `SessionPage` scroll away ("thumb stretch" issue). Sticky footer required.
 - **🟡 Testimonials:** `TestimonialsSection` has placeholder content. Needs real user testimonials.
 
@@ -199,6 +199,9 @@ For E2E infrastructure troubleshooting, see [tests/TROUBLESHOOTING.md](../tests/
 - ✅ **Cloud STT E2E (2026-01-28):** Resolved mode selector and button dropdown unresponsiveness.
 - ✅ **Initialization Crash (2026-01-28):** Resolved `__BUILD_ID__` ReferenceError causing 15s E2E timeouts.
 - ✅ **Session Page UI Polish (2026-01-28):** Implemented "Live Session" label, paired layout, and multi-color highlights.
+- ✅ **CI Path Resolution (2026-02-09):** Resolved Lighthouse CI `MODULE_NOT_FOUND` by implementing subshells `()` for backgrounded preview processes, ensuring stable CWD for subsequent steps.
+- ✅ **Live Test Identity Stability (2026-02-09):** Prevented MSW from hijacking live database sessions by ensuring `shouldEnableMocks` respects `USE_REAL_DATABASE`.
+- ✅ **Model Loading Indicator (2026-02-09):** Normalized progress reporting to a standard 0-100% scale and fixed UI display multipliers.
 - **ℹ️ User Filler Words Native STT:** Native STT doesn't support user filler words (browser-controlled). Only Cloud STT (`word_boost`) supports this.
 
 ### Gap Analysis: Alpha Launch Blockers
@@ -225,17 +228,11 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 ---
 
 <!-- SQM:START -->
-## 6. Software Quality Metrics
+## 7. Software Quality Metrics
 
 **Last Updated:** Mon, 09 Feb 2026 04:06:08 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
-
-**Metric Definitions:**
-- **Total Source Size:** Sum of all code in src, backend, tests, docs, and scripts.
-- **Total Project Size:** Total disk footprint including node_modules and assets.
-- **Initial Chunk Size:** The size of the largest initial JavaScript bundle.
-- **Code Bloat Index:** Ratio of Initial Chunk Size to Total Source Size (lower is better).
 
 ---
 
@@ -243,15 +240,14 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 602 (478 unit + 124 E2E) |
+| Total tests             | 539 (478 unit + 61 E2E) |
 | Unit tests              | 478   |
-| E2E tests (Playwright)  | 124  |
-| Passing tests           | 538 (478 unit + 60 E2E)   |
-| Failing tests           | 0   |
-| Disabled/skipped tests  | 64 (E2E only)   |
-| Passing unit tests      | 478/478 (100.0%)   |
-| Passing E2E tests       | 60/124 (48.4%)   |
-| Total runtime           | See CI logs   |
+| E2E tests (Playwright)  | 61    |
+| Passing tests           | 539 (478 unit + 61 E2E) |
+| Failing tests           | 0     |
+| Disabled/skipped tests  | 1     |
+| Passing unit tests      | 478/478 (100.0%) |
+| Passing E2E tests       | 61/61 (100.0%) |
 
 ---
 
@@ -259,10 +255,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | 61.99%   |
-| Branches   | 75.39%   |
-| Functions  | 73.86%   |
-| Lines      | 61.99%   |
+| Statements | 61.34% |
+| Branches   | 75.21% |
+| Functions  | 73.63% |
+| Lines      | 61.34% |
 
 ---
 
@@ -270,11 +266,11 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric              | Value |
 | ------------------- | ----- |
-| Total Source Size   | 6.4M   |
-| Total Project Size  | 1.3G   |
+| Total Source Size   | 6.1M   |
+| Total Project Size  | 2.3G   |
 | Initial Chunk Size  | 496K   |
 | Code Bloat Index    | 7.58%   |
-| Lighthouse Scores   | P: 0, A: 0, BP: 0, SEO: 0 |
+| Lighthouse Scores   | P: 94, A: 94, BP: 93, SEO: 91 |
 
 ---
 <!-- SQM:END -->
@@ -443,7 +439,7 @@ Before deploying, verify:
 | Item | Command | Expected Result |
 |------|---------|-----------------|
 | Whisper model files | `ls -lh frontend/public/models/` | `tiny-q8g16.bin` (~30MB), `tokenizer.json` (~2MB) |
-| Full test suite | `pnpm test:all` | All 484+ tests passing |
+| Full test suite | `pnpm test:all` | All 539 tests passing |
 | Production build | `pnpm build` | Builds successfully |
 | Database migrations | Check Supabase Dashboard → SQL Editor | 14 migrations applied |
 

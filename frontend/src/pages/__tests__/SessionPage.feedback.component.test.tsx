@@ -23,7 +23,13 @@ const mockNavigate = vi.fn();
 const mockUpdateElapsedTime = vi.fn();
 const mockSaveSession = vi.fn();
 const mockStartListening = vi.fn();
-const mockStopListening = vi.fn();
+const mockStopListening = vi.fn().mockResolvedValue({
+    transcript: 'test transcript',
+    duration: 10,
+    total_words: 2,
+    filler_words: { total: 0 },
+    accuracy: 95
+});
 
 // Mock dependencies
 vi.mock('posthog-js', () => ({

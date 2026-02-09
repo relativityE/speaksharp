@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Plus, X } from 'lucide-react';
 import { useUserFillerWords } from '@/hooks/useUserFillerWords';
 import { VOCABULARY_LIMITS } from '@/config';
+import logger from '@/lib/logger';
 
 interface UserFillerWordsManagerProps {
     onWordAdded?: () => void;
@@ -31,28 +32,28 @@ export const UserFillerWordsManager: React.FC<UserFillerWordsManagerProps> = ({ 
 
     const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
-        console.log('[UserFillerWordsManager] handleSubmit called, newWord:', newWord);
+        logger.info({ newWord }, '[UserFillerWordsManager] handleSubmit called');
 
         if (newWord.trim()) {
-            console.log('[UserFillerWordsManager] Calling addWord mutation with:', newWord.trim());
+            logger.info({ word: newWord.trim() }, '[UserFillerWordsManager] Calling addWord mutation');
             try {
                 addWord(newWord.trim(), {
                     onSuccess: () => {
-                        console.log('[UserFillerWordsManager] onSuccess callback - clearing input');
+                        logger.info('[UserFillerWordsManager] onSuccess callback - clearing input');
                         setNewWord('');
                         if (onWordAdded) {
                             onWordAdded();
                         }
                     },
                     onError: (error) => {
-                        console.error('[UserFillerWordsManager] onError callback:', error);
+                        logger.error({ error }, '[UserFillerWordsManager] onError callback');
                     }
                 });
             } catch (error) {
-                console.error('[UserFillerWordsManager] Error calling addWord:', error);
+                logger.error({ error }, '[UserFillerWordsManager] Error calling addWord');
             }
         } else {
-            console.log('[UserFillerWordsManager] newWord is empty after trim, not submitting');
+            logger.info('[UserFillerWordsManager] newWord is empty after trim, not submitting');
         }
     };
 
@@ -77,9 +78,10 @@ export const UserFillerWordsManager: React.FC<UserFillerWordsManagerProps> = ({ 
                         type="text"
                         value={newWord}
                         onChange={(e) => setNewWord(e.target.value)}
-                        placeholder="e.g. literally"
+                        placeholder="e.g., literally, basic"
                         disabled={isAdding || isAtLimit}
                         className="flex-1 h-8 text-sm"
+                        data-testid="user-filler-words-input"
                     />
                     <Button
                         type="submit"

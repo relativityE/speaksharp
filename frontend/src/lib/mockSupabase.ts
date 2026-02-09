@@ -1,4 +1,5 @@
 import { MOCK_USER, MOCK_USER_PROFILE, MOCK_SESSIONS } from '../../../tests/e2e/fixtures/mockData';
+import logger from './logger';
 
 export const createMockSupabase = () => {
     const listeners = new Set<(event: string, session: unknown) => void>();
@@ -50,7 +51,7 @@ export const createMockSupabase = () => {
                         if (table === 'sessions' && column === 'user_id' && value === MOCK_USER.id) {
                             // Check for E2E empty state flag
                             const isEmpty = typeof window !== 'undefined' && '__E2E_EMPTY_SESSIONS__' in window && Boolean(window['__E2E_EMPTY_SESSIONS__' as keyof typeof window]);
-                            console.log('[MockSupabase] Checking __E2E_EMPTY_SESSIONS__:', isEmpty);
+                            logger.debug({ isEmpty }, '[MockSupabase] Checking __E2E_EMPTY_SESSIONS__');
                             if (isEmpty) {
                                 return Promise.resolve({ data: [], error: null });
                             }

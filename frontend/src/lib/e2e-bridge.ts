@@ -140,6 +140,10 @@ export const getInitialSession = (fallbackSession: Session | null = null): Sessi
     }
 
     // Fallback: Return null to allow AuthProvider to fetch from localStorage
+    logger.debug({
+        hasMockFlag: !!window.__E2E_MOCK_SESSION__,
+        useRealDb: TestFlags.USE_REAL_DATABASE
+    }, '[E2E Bridge] Deferring to real session (null returned)');
     return null;
 };
 

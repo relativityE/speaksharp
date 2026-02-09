@@ -185,6 +185,11 @@ export function downsampleAudio(audio: Float32Array, inputSampleRate: number, ta
 import { AudioWorkerResponse } from './audio-processor.worker';
 
 let audioWorker: Worker | null = null;
+let workerRequestId = 0;
+
+function generateCorrelationId(): string {
+    return `req-${++workerRequestId}-${Date.now()}`;
+}
 
 function getWorker(): Worker {
     if (!audioWorker) {
@@ -199,9 +204,14 @@ function getWorker(): Worker {
  */
 export async function downsampleAudioAsync(audio: Float32Array, inputRate: number, targetRate: number = 16000): Promise<Float32Array> {
     const worker = getWorker();
+    const correlationId = generateCorrelationId();
+
     return new Promise((resolve, reject) => {
         const handler = (event: MessageEvent<AudioWorkerResponse>) => {
             const data = event.data;
+            // Only handle responses for THIS request
+            if (data.correlationId !== correlationId) return;
+
             if (data.type === 'DOWNSAMPLE_RESULT') {
                 worker.removeEventListener('message', handler);
                 resolve(data.result);
@@ -211,7 +221,7 @@ export async function downsampleAudioAsync(audio: Float32Array, inputRate: numbe
             }
         };
         worker.addEventListener('message', handler);
-        worker.postMessage({ type: 'DOWNSAMPLE', audio, inputRate, targetRate }, [audio.buffer]);
+        worker.postMessage({ type: 'DOWNSAMPLE', correlationId, audio, inputRate, targetRate }, [audio.buffer]);
     });
 }
 
@@ -220,9 +230,14 @@ export async function downsampleAudioAsync(audio: Float32Array, inputRate: numbe
  */
 export async function floatToWavAsync(samples: Float32Array, sampleRate: number = 16000): Promise<Uint8Array> {
     const worker = getWorker();
+    const correlationId = generateCorrelationId();
+
     return new Promise((resolve, reject) => {
         const handler = (event: MessageEvent<AudioWorkerResponse>) => {
             const data = event.data;
+            // Only handle responses for THIS request
+            if (data.correlationId !== correlationId) return;
+
             if (data.type === 'FLOAT_TO_WAV_RESULT') {
                 worker.removeEventListener('message', handler);
                 resolve(data.result);
@@ -232,7 +247,7 @@ export async function floatToWavAsync(samples: Float32Array, sampleRate: number 
             }
         };
         worker.addEventListener('message', handler);
-        worker.postMessage({ type: 'FLOAT_TO_WAV', samples, sampleRate }, [samples.buffer]);
+        worker.postMessage({ type: 'FLOAT_TO_WAV', correlationId, samples, sampleRate }, [samples.buffer]);
     });
 }
 
@@ -242,9 +257,14 @@ export async function floatToWavAsync(samples: Float32Array, sampleRate: number 
  */
 export async function floatToInt16Async(float32Array: Float32Array): Promise<{ result: Int16Array, base64: string }> {
     const worker = getWorker();
+    const correlationId = generateCorrelationId();
+
     return new Promise((resolve, reject) => {
         const handler = (event: MessageEvent<AudioWorkerResponse>) => {
             const data = event.data;
+            // Only handle responses for THIS request
+            if (data.correlationId !== correlationId) return;
+
             if (data.type === 'FLOAT_TO_INT16_RESULT') {
                 worker.removeEventListener('message', handler);
                 resolve({ result: data.result, base64: data.base64 || '' });
@@ -254,6 +274,6 @@ export async function floatToInt16Async(float32Array: Float32Array): Promise<{ r
             }
         };
         worker.addEventListener('message', handler);
-        worker.postMessage({ type: 'FLOAT_TO_INT16', float32Array }, [float32Array.buffer]);
+        worker.postMessage({ type: 'FLOAT_TO_INT16', correlationId, float32Array }, [float32Array.buffer]);
     });
 }

@@ -17,7 +17,12 @@ vi.mock('../../../services/transcription/TranscriptionService', () => ({
 }));
 
 vi.mock('../../../lib/logger', () => ({
-  default: { error: vi.fn() }
+  default: {
+    error: vi.fn(),
+    info: vi.fn(),
+    log: vi.fn(),
+    warn: vi.fn(),
+  }
 }));
 
 describe('useTranscriptionService', () => {

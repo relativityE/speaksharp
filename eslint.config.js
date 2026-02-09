@@ -35,6 +35,7 @@ export default tseslint.config(
       '@typescript-eslint/no-empty-object-type': 'error',
       '@typescript-eslint/no-require-imports': 'error',
       'no-empty': 'error',
+      'no-console': ['error', { allow: ['warn', 'info', 'debug'] }], // Enforce structured logger, allow warn/info for now but error is forbidden
       'react-refresh/only-export-components': [
         'warn',  // Downgrade to warning - this is a dev-time optimization hint, not a critical error
         {

@@ -107,7 +107,7 @@ export async function createMicStreamImpl(
   // Expose for E2E synchronization
   if (TestFlags.DEBUG_ENABLED && typeof window !== 'undefined') {
     (window as unknown as WindowWithwebkitAudioContext).micStream = stream;
-    console.log('[MicStream] 🎤 Ready and exposed to window.micStream');
+    logger.info('[MicStream] 🎤 Ready and exposed to window.micStream');
   }
 
   return stream;

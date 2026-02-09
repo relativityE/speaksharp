@@ -24,7 +24,7 @@ describe('TransformersJSEngine (Integration - Real Audio)', () => {
     it('should transcribe test_speech_16k.wav correctly', async () => {
         // 1. Read the audio file
         const fixturePath = path.resolve(process.cwd(), '../tests/fixtures/test_speech_16k.wav');
-        console.log(`[IntegrationTest] Reading fixture from: ${fixturePath}`);
+        console.info(`[IntegrationTest] Reading fixture from: ${fixturePath}`);
 
         if (!fs.existsSync(fixturePath)) {
             throw new Error(`Fixture not found at ${fixturePath}`);
@@ -46,29 +46,29 @@ describe('TransformersJSEngine (Integration - Real Audio)', () => {
             float32Data[i] = pcmDataInt16[i] / 32768.0;
         }
 
-        console.log(`[IntegrationTest] Processed ${float32Data.length} samples (${(float32Data.length / 16000).toFixed(2)}s)`);
+        console.info(`[IntegrationTest] Processed ${float32Data.length} samples (${(float32Data.length / 16000).toFixed(2)}s)`);
 
         // 4. Initialize engine
         const initResult = await engine.init({
             onModelLoadProgress: (p) => {
-                if (p % 25 === 0) console.log(`[IntegrationTest] Model loading: ${p}%`);
+                if (p % 25 === 0) console.info(`[IntegrationTest] Model loading: ${p}%`);
             }
         });
 
         expect(initResult.isOk, `Init failed: ${initResult.isErr ? initResult.error.message : 'Unknown'}`).toBe(true);
 
         // 5. Transcribe
-        console.log('[IntegrationTest] Starting transcription...');
+        console.info('[IntegrationTest] Starting transcription...');
         const startTime = Date.now();
         const result = await engine.transcribe(float32Data);
         const duration = Date.now() - startTime;
 
-        console.log(`[IntegrationTest] Transcription took ${duration}ms`);
+        console.info(`[IntegrationTest] Transcription took ${duration}ms`);
 
         // 6. Assert result
         expect(result.isOk).toBe(true);
         const text = result.isOk ? result.value : '';
-        console.log(`[IntegrationTest] Transcript: "${text}"`);
+        console.info(`[IntegrationTest] Transcript: "${text}"`);
 
         // Check for key words from the generated speech
         const lowerText = text.toLowerCase();

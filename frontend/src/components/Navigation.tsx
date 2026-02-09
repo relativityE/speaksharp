@@ -6,6 +6,7 @@ import { TEST_IDS } from '@/constants/testIds';
 import { useLocation, Link, useNavigate } from "react-router-dom";
 import { useAuthProvider } from "@/contexts/AuthProvider";
 import { useUserProfile } from "@/hooks/useUserProfile";
+import logger from "@/lib/logger";
 
 const Navigation = () => {
   const location = useLocation();
@@ -37,7 +38,7 @@ const Navigation = () => {
         throw new Error('No checkout URL');
       }
     } catch (err) {
-      console.error('Upgrade failed:', err);
+      logger.error({ err }, 'Upgrade failed');
       setIsUpgrading(false);
     }
   };

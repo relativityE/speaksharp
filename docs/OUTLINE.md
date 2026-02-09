@@ -12,7 +12,7 @@ It serves as a **map** to help developers, contributors, and stakeholders quickl
 
 **This is a strict requirement for all contributors, including AI agents.**
 
-With every commit, you **must** review the following eight documents to ensure they are synchronized with your changes. If no updates are needed for a file, you must still verify it. This is not optional.
+With every commit, you **must** review the following seven documents to ensure they are synchronized with your changes. If no updates are needed for a file, you must still verify it. This is not optional.
 
 1.  `README.md`
 2.  `AGENTS.md`

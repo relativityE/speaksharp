@@ -75,8 +75,19 @@ declare global {
   }
 }
 
+/**
+ * Track failures with timestamps for time-based decay.
+ * Failures expire after FAILURE_DECAY_MS to prevent permanent lockout.
+ */
+const FAILURE_DECAY_MS = 5 * 60 * 1000; // 5 minutes
+
+interface FailureRecord {
+  count: number;
+  lastFailureTime: number;
+}
+
 export default class TranscriptionService {
-  private static privateInitFailures = 0;
+  private static privateFailures: FailureRecord = { count: 0, lastFailureTime: 0 };
   private mode: TranscriptionMode | null = null;
   private state: ServiceState = 'IDLE';
   // ... existing private properties ...
@@ -132,7 +143,31 @@ export default class TranscriptionService {
    * STRICTLY FOR TESTING PURPOSES ONLY.
    */
   public static resetFailureCount(): void {
-    TranscriptionService.privateInitFailures = 0;
+    TranscriptionService.privateFailures = { count: 0, lastFailureTime: 0 };
+  }
+
+  /**
+   * Get effective failure count with time-based decay.
+   * Failures older than FAILURE_DECAY_MS are ignored.
+   */
+  private static getEffectiveFailureCount(): number {
+    const now = Date.now();
+    if (now - TranscriptionService.privateFailures.lastFailureTime > FAILURE_DECAY_MS) {
+      // Failures have decayed, reset count
+      TranscriptionService.privateFailures = { count: 0, lastFailureTime: 0 };
+      return 0;
+    }
+    return TranscriptionService.privateFailures.count;
+  }
+
+  /**
+   * Record a private mode failure with timestamp.
+   */
+  private static recordPrivateFailure(): void {
+    TranscriptionService.privateFailures = {
+      count: TranscriptionService.getEffectiveFailureCount() + 1,
+      lastFailureTime: Date.now()
+    };
   }
 
   private micError: Error | null = null;
@@ -231,9 +266,10 @@ export default class TranscriptionService {
       }
     };
 
-    // CHECK MAX ATTEMPTS FOR PRIVATE MODE
-    if (resolvedMode === 'private' && TranscriptionService.privateInitFailures >= STT_CONFIG.MAX_PRIVATE_ATTEMPTS) {
-      logger.warn({ attempts: STT_CONFIG.MAX_PRIVATE_ATTEMPTS }, `[TranscriptionService] ⚠️ Max Private STT attempts reached. Forcing Native.`);
+    // CHECK MAX ATTEMPTS FOR PRIVATE MODE (with time-based decay)
+    const effectiveFailures = TranscriptionService.getEffectiveFailureCount();
+    if (resolvedMode === 'private' && effectiveFailures >= STT_CONFIG.MAX_PRIVATE_ATTEMPTS) {
+      logger.warn({ attempts: effectiveFailures }, `[TranscriptionService] ⚠️ Max Private STT attempts reached. Forcing Native.`);
 
       this.onStatusChange?.({
         type: 'fallback',
@@ -259,10 +295,10 @@ export default class TranscriptionService {
 
       await this.executeMode(resolvedMode, providerConfig);
     } catch (error) {
-      // TRACK FAILURE
+      // TRACK FAILURE with timestamp
       if (resolvedMode === 'private') {
-        TranscriptionService.privateInitFailures++;
-        logger.warn({ failures: TranscriptionService.privateInitFailures }, `[TranscriptionService] Private mode failed`);
+        TranscriptionService.recordPrivateFailure();
+        logger.warn({ failures: TranscriptionService.getEffectiveFailureCount() }, `[TranscriptionService] Private mode failed`);
       }
 
       // If fallback is allowed, try alternatives
@@ -289,11 +325,11 @@ export default class TranscriptionService {
 
     switch (mode) {
       case 'native':
-        console.log('[TranscriptionService] 🌐 Starting Native Browser mode');
+        logger.info('[TranscriptionService] 🌐 Starting Native Browser mode');
         logger.info('[TranscriptionService] Starting Native Browser mode');
 
         if (window.MockNativeBrowser && window.__E2E_MOCK_NATIVE__ === true) {
-          console.log('[TranscriptionService] 🧪 Using MockNativeBrowser for E2E');
+          logger.info('[TranscriptionService] 🧪 Using MockNativeBrowser for E2E');
           this.instance = new window.MockNativeBrowser(config);
           break;
         }
@@ -302,21 +338,22 @@ export default class TranscriptionService {
         break;
 
       case 'cloud':
-        console.log('[TranscriptionService] ☁️ Starting Cloud (AssemblyAI) mode');
+        logger.info('[TranscriptionService] ☁️ Starting Cloud (AssemblyAI) mode');
         logger.info('[TranscriptionService] Starting Cloud (AssemblyAI) mode');
         this.instance = new CloudAssemblyAI(config);
         break;
 
       case 'private': {
-        console.log('[TranscriptionService] 🔒 Starting Private (Whisper) mode');
+        logger.info('[TranscriptionService] 🔒 Starting Private (Whisper) mode');
         logger.info('[TranscriptionService] Starting Private (Whisper) mode');
-        console.log('[TranscriptionService] Checking Private Mock:', {
+        logger.info({
           hasMockClass: !!window.MockPrivateWhisper,
           mockFlag: window.__E2E_MOCK_LOCAL_WHISPER__
-        });
+        }, '[TranscriptionService] Checking Private Mock');
+
         // Check for E2E mock override (Must be explicitly enabled)
         if (window.MockPrivateWhisper && window.__E2E_MOCK_LOCAL_WHISPER__ === true) {
-          console.log('[TranscriptionService] 🧪 Using MockPrivateWhisper for E2E');
+          logger.info('[TranscriptionService] 🧪 Using MockPrivateWhisper for E2E');
           this.instance = new window.MockPrivateWhisper(config);
           break;
         }
@@ -363,13 +400,13 @@ export default class TranscriptionService {
 
     // Native is the base tier - no further fallback available
     if (failedMode === 'native') {
-      console.error('[TranscriptionService] ❌ Native mode failed. No fallback available.');
+      logger.error('[TranscriptionService] ❌ Native mode failed. No fallback available.');
       this.onStatusChange?.({ type: 'error', message: '❌ Native STT failed. No fallback available.' });
       throw new Error('[TranscriptionService] Native mode failed. No fallback available.');
     }
 
     // Cloud and Private both fall back to Native only
-    console.log(`[TranscriptionService] 🔄 Fallback: ${failedMode} → native`);
+    logger.info({ failedMode, targetMode: 'native' }, '[TranscriptionService] 🔄 Fallback');
     logger.info(`[TranscriptionService] Attempting fallback to native`);
 
     try {
@@ -380,7 +417,7 @@ export default class TranscriptionService {
       });
       await this.executeMode('native', config);
     } catch (nativeError) {
-      console.error('[TranscriptionService] ❌ Native fallback also failed');
+      logger.error('[TranscriptionService] ❌ Native fallback also failed');
       logger.error({ error: nativeError }, '[TranscriptionService] Native fallback also failed');
       this.onStatusChange?.({ type: 'error', message: '❌ All transcription modes failed' });
       throw new Error('[TranscriptionService] All fallback modes failed');

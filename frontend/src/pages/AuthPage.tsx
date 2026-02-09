@@ -121,7 +121,7 @@ export default function AuthPage() {
     setIsSubmitting(true);
     setError(null);
     setMessage(null);
-    console.log('[AuthPage] handleSubmit called, view:', view);
+    logger.info({ view }, '[AuthPage] handleSubmit called');
 
     try {
       const supabase = getSupabaseClient();
@@ -131,7 +131,7 @@ export default function AuthPage() {
       }
 
       if (password.length < 6 && view !== 'forgot_password') {
-        console.log('[AuthPage] Password too short, rejecting');
+        logger.info('[AuthPage] Password too short, rejecting');
         setError(friendlyErrors['Password should be at least 6 characters']);
         setIsSubmitting(false);
         return;
@@ -139,10 +139,10 @@ export default function AuthPage() {
 
       let authResult;
       if (view === 'sign_in') {
-        console.log('[AuthPage] Attempting sign_in for:', email);
+        logger.info({ email }, '[AuthPage] Attempting sign_in');
         authResult = await supabase.auth.signInWithPassword({ email, password });
       } else if (view === 'sign_up') {
-        console.log('[AuthPage] Attempting sign_up for:', email, 'with plan:', selectedPlan);
+        logger.info({ email, selectedPlan }, '[AuthPage] Attempting sign_up');
         const { error: signUpError } = await supabase.auth.signUp({
           email,
           password,
@@ -177,12 +177,12 @@ export default function AuthPage() {
           }
         }
       } else { // forgot_password
-        console.log('[AuthPage] Attempting password reset for:', email);
+        logger.info({ email }, '[AuthPage] Attempting password reset');
         const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
           redirectTo: `${window.location.origin}/`,
         });
         if (resetError) {
-          console.error('[AuthPage] Password reset error:', resetError.message);
+          logger.error({ error: resetError }, '[AuthPage] Password reset error');
           throw resetError;
         }
         setMessage('Password reset link sent if account exists.');
@@ -195,10 +195,10 @@ export default function AuthPage() {
       }
 
       if (authResult.data.session) {
-        console.log('[AuthPage] Session received, setting session for user:', authResult.data.session.user?.id);
+        logger.info({ userId: authResult.data.session.user?.id }, '[AuthPage] Session received');
         setSession(authResult.data.session);
       } else if (view === 'sign_up') {
-        console.log('[AuthPage] Sign-up successful, awaiting email confirmation');
+        logger.info('[AuthPage] Sign-up successful, awaiting email confirmation');
         setMessage('Success! Please check your email for a confirmation link.');
       } else {
         logger.error({ data: authResult.data }, '[AuthPage CRITICAL] No session returned from Supabase for sign-in!');
@@ -209,7 +209,7 @@ export default function AuthPage() {
       let errorMessage = 'Unknown error';
       if (err instanceof Error) {
         errorMessage = err.message;
-        console.error('[AuthPage] Error stack:', err.stack);
+        logger.error({ err }, '[AuthPage] Error details');
       } else if (typeof err === 'object' && err !== null && 'message' in err) {
         errorMessage = (err as { message: string }).message;
       }

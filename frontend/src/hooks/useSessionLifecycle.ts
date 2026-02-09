@@ -74,24 +74,44 @@ export const useSessionLifecycle = () => {
             }
 
             try {
-                await stopListening();
+                // Use the result from stopListening() to avoid stale closures
+                // The closure captures React state at invocation time, but stopListening() 
+                // returns the absolute final transcript and metrics after all processing completes.
+                const finalStats = await stopListening();
+
+                if (!finalStats) {
+                    logger.warn('[useSessionLifecycle] stopListening returned null, skipping save');
+                    return;
+                }
+
+                // Calculate wpm from final stats (total_words / duration_in_minutes)
+                const finalWpm = finalStats.duration > 0
+                    ? Math.round((finalStats.total_words / finalStats.duration) * 60)
+                    : 0;
+
+                // Sum filler counts from FillerCounts object (each value is a FillerData with .count)
+                const finalFillerCount = Object.entries(finalStats.filler_words)
+                    .filter(([key]) => key !== 'total') // Exclude the 'total' key, we'll sum ourselves
+                    .reduce((sum, [, data]) => sum + (data?.count ?? 0), 0);
+
                 posthog.capture('session_ended', {
                     duration: elapsedTime,
-                    wpm: metrics.wpm,
-                    clarity_score: metrics.clarityScore,
-                    filler_count: metrics.fillerCount
+                    wpm: finalWpm,
+                    clarity_score: finalStats.accuracy,
+                    filler_count: finalFillerCount
                 });
 
                 const streakResult = updateStreak();
 
                 const result = await saveSession({
-                    transcript: transcript.transcript,
+                    transcript: finalStats.transcript,
                     duration: elapsedTime,
-                    filler_words: fillerData,
-                    wpm: metrics.wpm,
-                    clarity_score: metrics.clarityScore,
+                    filler_words: finalStats.filler_words,
+                    wpm: finalWpm,
+                    clarity_score: finalStats.accuracy,
                     title: `Session ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`
                 });
+
 
                 if (result.session) {
                     let finalMsg = streakResult.isNewDay
@@ -124,7 +144,7 @@ export const useSessionLifecycle = () => {
             await startListening(policy);
             posthog.capture('session_started', { mode });
         }
-    }, [isListening, elapsedTime, stopListening, metrics, updateStreak, saveSession, transcript, fillerData, queryClient, isProUser, usageLimit, updateElapsedTime, mode, startListening]);
+    }, [isListening, elapsedTime, stopListening, updateStreak, saveSession, queryClient, isProUser, usageLimit, updateElapsedTime, mode, startListening]);
 
     // Timer logic
     useEffect(() => {

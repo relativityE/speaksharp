@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import logger from '../lib/logger';
 import { useParams } from 'react-router-dom';
 import { usePracticeHistory } from './usePracticeHistory';
 import { useSession } from './useSession';
@@ -70,11 +71,11 @@ export const useAnalytics = () => {
     // Use stable reference: allSessions from react-query is stable, MOCK_SESSIONS is a constant
     const sessionsToUse = isDevBypass ? MOCK_SESSIONS : allSessions;
 
-    console.log('[useAnalytics] Hook called. SessionId:', sessionId, 'IsLoading:', isLoading, 'Sessions found:', sessionsToUse?.length, 'DevBypass:', isDevBypass);
+    logger.debug({ sessionId, isLoading, sessions: sessionsToUse?.length, isDevBypass }, '[useAnalytics] Hook called');
 
     const sessionHistory = useMemo(() => {
         if (sessionId) {
-            console.log('[useAnalytics] Filtering for specific sessionId:', sessionId);
+            logger.debug({ sessionId }, '[useAnalytics] Filtering for specific session');
             // If we have a specific session fetch result, use that. 
             // Otherwise try to find it in the current list.
             if (specificSession) {
@@ -82,14 +83,14 @@ export const useAnalytics = () => {
             }
             return sessionsToUse.filter(s => s.id === sessionId);
         }
-        console.log('[useAnalytics] Returning all sessions:', sessionsToUse.length);
+        logger.debug({ count: sessionsToUse.length }, '[useAnalytics] Returning all sessions');
         return sessionsToUse;
     }, [sessionId, sessionsToUse, specificSession]);
 
     const analyticsData = useMemo(() => {
-        console.log('[useAnalytics] Computing analytics data. SessionHistory length:', sessionHistory?.length);
+        logger.debug({ count: sessionHistory?.length }, '[useAnalytics] Computing analytics data');
         if (!sessionHistory || sessionHistory.length === 0) {
-            console.log('[useAnalytics] No sessions - returning empty analytics data');
+            logger.debug('[useAnalytics] No sessions - returning empty analytics data');
             return {
                 overallStats: {
                     totalSessions: 0,
@@ -105,7 +106,7 @@ export const useAnalytics = () => {
             };
         }
 
-        console.log('[useAnalytics] Computing stats for', sessionHistory.length, 'sessions');
+        logger.debug({ count: sessionHistory.length }, '[useAnalytics] Computing stats');
         return {
             overallStats: calculateOverallStats(sessionHistory),
             fillerWordTrends: calculateFillerWordTrends(sessionHistory.slice(0, 5)),

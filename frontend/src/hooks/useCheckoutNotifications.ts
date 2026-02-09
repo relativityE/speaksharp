@@ -1,4 +1,5 @@
 import { useRef, useEffect } from 'react';
+import logger from '../lib/logger';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { CheckCircle2, AlertCircle } from 'lucide-react';
@@ -23,7 +24,7 @@ export function useCheckoutNotifications() {
         if (checkoutStatus && lastToastId.current !== currentToastId) {
             lastToastId.current = currentToastId;
 
-            console.log(`[useCheckoutNotifications] 🔔 Triggering checkout toast: ${checkoutStatus}`);
+            logger.info({ checkoutStatus }, '[useCheckoutNotifications] 🔔 Triggering checkout toast');
 
             if (checkoutStatus === 'success') {
                 toast.success('Welcome to Pro!', {

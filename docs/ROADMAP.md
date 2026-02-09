@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-02-05
+**Last Reviewed:** 2026-02-09
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -119,8 +119,8 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 
 | **Metric** | **Target** | **Current** | **Status** |
 | :--- | :--- | :--- | :--- |
-| **Unit Test Coverage** | > 80% | **453 tests** | 🟢 ON TRACK |
-| **E2E Pass Rate** | 100% | 100% (60 tests) | 🟢 ON TRACK |
+| **Unit Test Coverage** | > 80% | **478 tests** (100% pass) | 🟢 ON TRACK |
+| **E2E Pass Rate** | 100% | 100% (61 tests) | 🟢 ON TRACK |
 | **Code Bloat** | < 10% | **6.78%** | 🟢 HEALTHY |
 | **Largest Chunk** | < 500KB | **822KB** | 🔴 BLOCKED (Post-Alpha) |
 
@@ -132,7 +132,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 
 | Finding | Priority | Status | Notes |
 |---------|----------|--------|-------|
-| **Testing Pyramid** | CRITICAL | ✅ Done | **404 unit tests** across 100+ files. Integration-to-unit ratio optimized. Coverage thresholds enforced. |
+| **Testing Pyramid** | CRITICAL | ✅ Done | **478 unit tests** across 100+ files. Integration-to-unit ratio optimized. Coverage thresholds enforced. |
 | **Documentation Drift & Hallucination** | CRITICAL | 🔄 PERPETUAL | PRD metrics now auto-updated by CI. Manual audit required per OUTLINE.md. |
 
 #### 2. Core Architectural Flaws
@@ -373,7 +373,7 @@ This phase is about confirming the core feature set works as expected and polish
 - ✅ **Promo Admin Migration (2026-02-08):** Migrated from legacy Alpha Bypass to a professional, server-side validated Promo Code system. Replaced `ALPHA_BYPASS_CODE` with `PROMO_GEN_ADMIN_SECRET` and implemented `generate-promo.ts`.
 - ✅ **Analytics UI Restoration & Consolidation (2025-12-31):** Resolved MSW initialization regression. Consolidated redundant upgrade prompts and merged plan status indicators for a cleaner Analytics dashboard.
 - ✅ **Port Centralization (2025-12-21):** Eliminated hardcoded port numbers. Created `scripts/build.config.ts` with `PORTS.DEV` (5173) and `PORTS.PREVIEW` (4173). Updated 10+ files.
-- 🔄 **PERPETUAL - Documentation Audit:** Verify PRD Known Issues, ROADMAP, and CHANGELOG match actual codebase state. Run test suite and cross-reference with documented issues to eliminate drift. **Frequency:** Before each release and after major feature work.
+- ✅ **PERPETUAL - Documentation Audit (2026-02-09):** Verified PRD Known Issues, ROADMAP, and CHANGELOG match actual codebase state. Resolved CI path resolution and MSW identity issues. **Frequency:** Before each release and after major feature work.
 - 🔴 **Side-by-Side Session Comparison:** Implement full comparison UI to complement existing trend analysis.
   - **Context:** Session history list currently displays metrics for trend analysis. Full comparison requires additional UI and logic.
   - **Requirements:**
@@ -439,7 +439,7 @@ This phase is about confirming the core feature set works as expected and polish
     - **Limitation:** GitHub Actions workflow_dispatch does not support conditional field visibility, greyed-out fields, or dynamic data.
     - **Future Option:** Build custom web UI that queries Supabase for current state and triggers workflow via GitHub API.
 - **✅ COMPLETED - Expand Unit Test Coverage (2025-12-08):**
-  - **Note:** Test suite expanded significantly. Current: **407 unit tests + 61 E2E tests** (verified 2026-01-30).
+  - **Note:** Test suite expanded significantly. Current: **478 unit tests + 60 E2E tests** (verified 2026-02-09).
   - ✅ Authentication pages: SignInPage (14), SignUpPage (15)
   - ✅ Core pages: AnalyticsPage (14), SessionPage (18)
   - ✅ Utilities: storage.ts (10), utils.ts (8), supabaseClient.ts (5)

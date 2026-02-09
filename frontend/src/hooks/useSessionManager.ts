@@ -40,19 +40,19 @@ export const useSessionManager = (): UseSessionManager => {
       }
 
       // Handle real users
-      console.log('[useSessionManager] 💾 Saving session for user:', user.id);
+      logger.info({ userId: user.id }, '[useSessionManager] 💾 Saving session');
       const { session: newSession, usageExceeded } = await saveSessionToDb({ ...sessionData, user_id: user.id }, profile);
 
       if (newSession) {
-        console.log('[useSessionManager] ✅ Session saved successfully:', newSession.id);
+        logger.info({ sessionId: newSession.id }, '[useSessionManager] ✅ Session saved successfully');
 
         // CRITICAL: Invalidate session history cache so analytics page shows new data
         await queryClient.invalidateQueries({ queryKey: ['sessionHistory'] });
-        console.log('[useSessionManager] 🔄 Session history cache invalidated');
+        logger.debug('[useSessionManager] 🔄 Session history cache invalidated');
 
         return { session: newSession, usageExceeded: usageExceeded || false };
       }
-      console.warn('[useSessionManager] ⚠️ Session save returned null');
+      logger.warn('[useSessionManager] ⚠️ Session save returned null');
       return { session: null, usageExceeded: usageExceeded || false };
     } catch (err: unknown) {
       logger.error({ err }, "Error in useSessionManager -> saveSession:");

@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { toast } from 'sonner';
 import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic } from 'lucide-react';
+import logger from '@/lib/logger';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -356,7 +357,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                 }
             }
         } catch (e) {
-            console.warn('Failed to load saved analysis slide preferences');
+            logger.warn('Failed to load saved analysis slide preferences');
         }
         return DEFAULT_ANALYSIS_SLIDES;
     });
@@ -377,7 +378,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                 }
             }
         } catch (e) {
-            console.warn('Failed to load saved stat card preferences');
+            logger.warn('Failed to load saved stat card preferences');
         }
         return DEFAULT_SELECTED_CARDS;
     });
@@ -387,7 +388,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         try {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(selectedStatCards));
         } catch (e) {
-            console.warn('Failed to save stat card preferences');
+            logger.warn('Failed to save stat card preferences');
         }
     }, [selectedStatCards]);
 
@@ -457,7 +458,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         try {
             localStorage.setItem(ANALYSIS_STORAGE_KEY, JSON.stringify(selectedAnalysisSlides));
         } catch (e) {
-            console.warn('Failed to save analysis slide preferences');
+            logger.warn('Failed to save analysis slide preferences');
         }
     }, [selectedAnalysisSlides]);
 
@@ -511,7 +512,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         }));
     }, [sessionHistory]);
 
-    console.log('[AnalyticsDashboard] Rendering. Loading:', loading, 'Error:', error, 'SessionHistory length:', sessionHistory?.length);
+    logger.debug({ loading, error, sessions: sessionHistory?.length }, '[AnalyticsDashboard] Rendering');
 
     const targetSession = useMemo(() => {
         if (!sessionId || !sessionHistory) return null;

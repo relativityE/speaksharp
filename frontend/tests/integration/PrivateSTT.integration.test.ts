@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PrivateSTT } from '@/services/transcription/engines/PrivateSTT';
 import { Result } from 'true-myth';
+import logger from '@/lib/logger';
 
 // Mock the engines
 vi.mock('@/services/transcription/engines/WhisperTurboEngine', () => ({
@@ -187,11 +188,11 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
         const { TestFlags } = await import('@/config/TestFlags');
         // @ts-expect-error
         TestFlags.DEBUG_ENABLED = true;
-        const spy = vi.spyOn(console, 'log').mockImplementation(() => { });
+        const spy = vi.spyOn(logger, 'info').mockImplementation(() => { });
 
         await privateSTT.init(mockCallbacks);
 
-        expect(spy).toHaveBeenCalledWith(expect.stringContaining('[PrivateSTT] Checking flags:'), expect.anything());
+        expect(spy).toHaveBeenCalledWith(expect.anything(), expect.stringContaining('[PrivateSTT] Checking flags'));
 
         // @ts-expect-error
         TestFlags.DEBUG_ENABLED = false;

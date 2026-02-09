@@ -115,7 +115,7 @@ export default class PrivateWhisper implements ITranscriptionMode {
 
     // Check for test environment and expose instance for E2E verification
     if (IS_TEST_ENVIRONMENT) {
-      console.log('[PrivateWhisper] 🧪 Exposing instance for E2E testing as window.__PrivateWhisper_INT_TEST__');
+      logger.info('[PrivateWhisper] 🧪 Exposing instance for E2E testing');
       window.__PrivateWhisper_INT_TEST__ = this;
     }
 
@@ -123,7 +123,7 @@ export default class PrivateWhisper implements ITranscriptionMode {
   }
 
   public async init(): Promise<void> {
-    console.log('[PrivateWhisper] 🔄 init() START - Dual-Engine Mode');
+    logger.info('[PrivateWhisper] 🔄 init() START - Dual-Engine Mode');
     logger.info('[PrivateWhisper] Initializing PrivateSTT facade...');
     this.status = 'loading';
 
@@ -136,7 +136,7 @@ export default class PrivateWhisper implements ITranscriptionMode {
       // Initialize the PrivateSTT facade (auto-selects best engine)
       const result = await this.privateSTT.init({
         onModelLoadProgress: (progress) => {
-          console.log(`[PrivateWhisper] 📊 Progress: ${progress}%`);
+          logger.info({ progress }, '[PrivateWhisper] 📊 Progress');
           if (this.onModelLoadProgress) {
             this.onModelLoadProgress(progress);
           }
@@ -152,7 +152,7 @@ export default class PrivateWhisper implements ITranscriptionMode {
 
       this.engineType = result.value;
       this.status = 'idle';
-      console.log(`[PrivateWhisper] ✅ Engine initialized: ${this.engineType}`);
+      logger.info({ engineType: this.engineType }, '[PrivateWhisper] ✅ Engine initialized');
       logger.info(`[PrivateWhisper] Engine initialized: ${this.engineType}`);
 
       // Show toast notification with engine type
@@ -164,8 +164,7 @@ export default class PrivateWhisper implements ITranscriptionMode {
       }
     } catch (err: unknown) {
       const error = err instanceof Error ? err : new Error(String(err));
-      console.error('[PrivateWhisper] ❌ Init failed:', error);
-      logger.error({ err: error }, '[PrivateWhisper] Failed to initialize.');
+      logger.error({ err: error }, '[PrivateWhisper] ❌ Init failed');
       this.status = 'error';
 
       throw error;
@@ -207,7 +206,6 @@ export default class PrivateWhisper implements ITranscriptionMode {
       this.processAudio();
     }, 500);
 
-    console.log('[PrivateWhisper] Streaming started.');
     logger.info('[PrivateWhisper] Streaming started.');
   }
 
@@ -235,7 +233,7 @@ export default class PrivateWhisper implements ITranscriptionMode {
       // Threshold 0.005 (0.5%) to capture quieter speech/whispers
       if (rms < 0.005) {
         if (concatenated.length > 500) {
-          console.log(`[PrivateWhisper] 🤫 Silent chunk skipped (RMS: ${rms.toFixed(6)}, samples: ${concatenated.length})`);
+          logger.debug({ rms, samples: concatenated.length }, '[PrivateWhisper] 🤫 Silent chunk skipped');
         }
         // Even if silent, we still need to clear the processed chunks 
         // to prevent them from staying in the buffer forever.
@@ -243,7 +241,7 @@ export default class PrivateWhisper implements ITranscriptionMode {
         return;
       }
 
-      console.log(`[PrivateWhisper] 🔊 Audio detected (RMS: ${rms.toFixed(6)}, samples: ${concatenated.length})`);
+      logger.debug({ rms, samples: concatenated.length }, '[PrivateWhisper] 🔊 Audio detected');
 
       // CRITICAL FIX: The MicStream ALREADY downsamples to 16kHz (confirmed in audioUtils.impl.ts).
       // Double downsampling (16k -> 16k) is harmless, but if we guessed 44k -> 16k on 16k input, we'd decimate it.
@@ -253,7 +251,7 @@ export default class PrivateWhisper implements ITranscriptionMode {
       if (this.transcript.length === 0) {
         // Calculate estimated duration based on 16kHz
         const expectedDurationSec = concatenated.length / 16000;
-        console.log(`[PrivateWhisper] 🎤 Processing chunk: ${concatenated.length} samples (${expectedDurationSec.toFixed(2)}s)`);
+        logger.info({ samples: concatenated.length, expectedDurationSec }, '[PrivateWhisper] 🎤 Processing chunk');
 
         // If the duration is wildly different from wall clock, we have a sample rate issue
         // (This is just a heuristic for logs, not control logic)

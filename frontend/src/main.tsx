@@ -44,7 +44,7 @@ const queryClient = new QueryClient({
     },
   },
 });
-console.log('[React Query] ✅ QueryClient initialized');
+logger.info('[React Query] ✅ QueryClient initialized');
 
 // 🔴 CRITICAL: Initialize Sentry FIRST before any async operations
 // This ensures errors during initialization are captured
@@ -67,24 +67,24 @@ if (!IS_TEST_ENVIRONMENT && import.meta.env.VITE_SENTRY_DSN) {
       replaysOnErrorSampleRate: 1.0,
       sendDefaultPii: true,
     });
-    console.log('[Sentry] ✅ Initialized successfully (early init)');
+    logger.info('[Sentry] ✅ Initialized successfully (early init)');
   } catch (err) {
-    console.warn('[Sentry] ⚠️ Failed to initialize:', err);
+    logger.warn({ err }, '[Sentry] ⚠️ Failed to initialize');
   }
 } else if (IS_TEST_ENVIRONMENT) {
-  console.log('[Sentry] ⏭️ Skipped in test environment');
-  console.warn('[Sentry] ⚠️ No DSN provided (expected in test mode)');
+  logger.info('[Sentry] ⏭️ Skipped in test environment');
+  logger.warn('[Sentry] ⚠️ No DSN provided (expected in test mode)');
 } else {
-  console.warn('[Sentry] ⚠️ No DSN provided - error tracking disabled');
+  logger.warn('[Sentry] ⚠️ No DSN provided - error tracking disabled');
 }
 
 const renderApp = async (initialSession: Session | null = null) => {
   if (rootElement && !window._speakSharpRootInitialized) {
     window._speakSharpRootInitialized = true;
-    console.log('[main.tsx] 🚀 Starting app render...');
+    logger.info('[main.tsx] 🚀 Starting app render...');
 
     if (areEnvVarsPresent()) {
-      console.log('[E2E DIAGNOSTIC] ./App imported successfully:', !!App);
+      logger.info({ appExists: !!App }, '[E2E DIAGNOSTIC] ./App imported successfully');
 
       // 🛑 Skip ALL analytics in test mode (Sentry already initialized above)
       if (!IS_TEST_ENVIRONMENT) {
@@ -97,14 +97,14 @@ const renderApp = async (initialSession: Session | null = null) => {
                 capture_exceptions: true,
                 debug: import.meta.env.MODE === 'development',
               });
-              console.log('[PostHog] ✅ Initialized successfully');
+              logger.info('[PostHog] ✅ Initialized successfully');
             } catch (error) {
               logger.warn({ error }, "PostHog failed to initialize:");
             }
           }, 0);
         }
       } else {
-        console.warn('[E2E MODE] Analytics disabled entirely.');
+        logger.warn('[E2E MODE] Analytics disabled entirely.');
       }
 
       // Defer Stripe loading - create promise but don't await it
@@ -116,7 +116,7 @@ const renderApp = async (initialSession: Session | null = null) => {
           loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY!)
         ).catch((error) => {
           // Gracefully handle ad-blocker blocking Stripe CDN
-          console.warn('[Stripe] ⚠️ Failed to load (possibly blocked by ad-blocker):', error.message);
+          logger.warn({ error }, '[Stripe] ⚠️ Failed to load (possibly blocked by ad-blocker)');
           return null;
         });
 
@@ -155,8 +155,8 @@ const renderApp = async (initialSession: Session | null = null) => {
 };
 
 const initialize = async () => {
-  console.log('[main.tsx] 🏁 Initialize started');
-  console.info('[BUILD] Build ID:', typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : 'unknown');
+  logger.info('[main.tsx] 🏁 Initialize started');
+  logger.info({ buildId: typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : 'unknown' }, '[BUILD] Build ID');
 
   // 🔧 ServiceWorker registration with timeout to prevent indefinite hangs
   // Fire-and-forget pattern - app continues loading in parallel
@@ -170,7 +170,7 @@ const initialize = async () => {
     Promise.race([swRegistration, timeout])
       .then(registration => {
         if (registration && 'scope' in registration) {
-          console.log('[ServiceWorker] ✅ Registered with scope:', registration.scope);
+          logger.info({ scope: registration.scope }, '[ServiceWorker] ✅ Registered');
         }
       })
       .catch(error => {
@@ -181,35 +181,38 @@ const initialize = async () => {
   */
 
   if (IS_TEST_ENVIRONMENT) {
-    console.log('[main.tsx] 🧪 Test environment detected');
+    logger.info({
+      skipMSW: import.meta.env.VITE_SKIP_MSW === 'true',
+      useLiveDb: import.meta.env.VITE_USE_LIVE_DB === 'true'
+    }, '[main.tsx] 🧪 Test environment detected');
     // Check if we should skip MSW (using Playwright routes instead OR using Live DB)
     const skipMSW = import.meta.env.VITE_SKIP_MSW === 'true' || import.meta.env.VITE_USE_LIVE_DB === 'true';
 
     if (skipMSW) {
       // Playwright routes handle network mocking - skip MSW entirely
-      console.log('[E2E] VITE_SKIP_MSW=true, skipping MSW initialization');
-      console.log('[E2E] Using Playwright route interception instead');
+      logger.info('[E2E] VITE_SKIP_MSW=true, skipping MSW initialization');
+      logger.info('[E2E] Using Playwright route interception instead');
 
       // Set up mock speech recognition, MockOnDeviceWhisper, and dispatchMockTranscript
       // This is the same setup as initializeE2EEnvironment but without MSW
       const { setupSpeechRecognitionMock } = await import('@/lib/e2e-bridge');
       setupSpeechRecognitionMock();
-      console.log('[E2E] Mock speech recognition and dispatchMockTranscript configured');
+      logger.info('[E2E] Mock speech recognition and dispatchMockTranscript configured');
 
       // Set mswReady immediately since we're not using MSW
       Object.assign(window, { mswReady: true });
       window.dispatchEvent(new CustomEvent('e2e:msw-ready'));
-      console.log('[E2E] Dispatched e2e:msw-ready (no MSW)');
+      logger.info('[E2E] Dispatched e2e:msw-ready (no MSW)');
 
       await renderApp();
-      console.log('[E2E] App fully mounted (Playwright routes mode)');
+      logger.info('[E2E] App fully mounted (Playwright routes mode)');
     } else {
       // Original MSW-based initialization
       const { initializeE2EEnvironment } = await import('@/lib/e2e-bridge');
       await initializeE2EEnvironment();
-      console.log('[E2E] Environment ready, now rendering app');
+      logger.info('[E2E] Environment ready, now rendering app');
       await renderApp();
-      console.log('[E2E] App fully mounted');
+      logger.info('[E2E] App fully mounted');
     }
   } else {
     await renderApp();

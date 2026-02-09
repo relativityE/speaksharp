@@ -7,15 +7,13 @@ All notable changes to this project will be documented in this file.
 
 ### [Unreleased]
 
-- **CI Stabilization & Canary Refinement (2026-02-09):**
-  - **Fix:** Resolved `real-db-validation` failure in live integration tests by ensuring the E2E bridge respects `TestFlags.USE_REAL_DATABASE`.
-  - **Fix:** Resolved Canary tests failing with "email undefined" by propagating `CANARY_EMAIL` via `cross-env` to the test runner subprocess.
-  - **Fix:** Synced `VISUAL_TEST_*` credentials with `E2E_PRO_*` in `playwright.live.config.ts` to ensure consistent user provisioning and session association.
-  - **Fix:** Added `continue-on-error` to Lighthouse CI step to prevent artifact upload failures when LHCI crashes.
-  - **Canary Strategy:** Transitioned to a "Unique Email Persistence" strategy (`canary-${run_id}@speaksharp.app`). Automated cleanup (`cleanup-canary.mjs`) has been removed to facilitate post-mortem debugging.
-  - **Performance:** Verified Lighthouse Performance score recovery to **95** following lazy-loading optimizations for `SessionPage`.
-  - **Standardization:** Audited and standardized all CI workflows to use the `setup-environment` action for consistent `pnpm` and `node` versions.
-  - **Files:** `frontend/src/lib/e2e-bridge.ts`, `.github/workflows/canary*`, `.github/workflows/ci.yml`, `playwright.live.config.ts`, `scripts/cleanup-canary.mjs` (deleted).
+- **CI Stabilization & UI Fidelity (2026-02-09):**
+  - **Fix:** Resolved `MODULE_NOT_FOUND` in Lighthouse CI by using subshells `()` for backgrounded preview servers, ensuring `generate-lhci-config.js` is always executed from the repository root.
+  - **Fix:** Resolved "Identity Hijack" in live tests by updating `TestFlags.ts` to disable MSW whenever `VITE_USE_REAL_DATABASE` is active.
+  - **Fix:** Normalized `modelLoadingProgress` to a 0-100 percentage in `useSpeechRecognition` hook and corrected display logic in `SessionSidebar` and `LiveRecordingCard` (fixed "5000% download" bug).
+  - **Quality:** Completed final migration of all remaining `console` calls (log/error/warn) to the unified `logger` across `frontend/src`.
+  - **Robustness:** Replaced brittle placeholder selectors with `data-testid="user-filler-words-input"` in `UserFillerWordsManager` and Canary tests.
+  - **Files:** `ci.yml`, `TestFlags.ts`, `useSpeechRecognition/index.ts`, `SessionSidebar.tsx`, `LiveRecordingCard.tsx`, `UserFillerWordsManager.tsx`, `testIds.ts`, `constants.ts`, `main.tsx`, `user-filler-words.canary.spec.ts`.
 
 - **Soak Test & CI Infrastructure (2026-02-08):**
   - **Feature:** Implemented `tests/soak/api-load-test.ts` for lightweight, high-concurrency Node.js load testing (bypassing UI overhead).
@@ -118,7 +116,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### [1.0.0] - 2026-01-31
 
 - **CI Pipeline Stabilization (2026-01-31):**
-  - **Status:** Achieved 100% green status across all suites (**453 unit tests**, **60 E2E tests**).
+  - **Status:** Achieved 100% green status across all suites (**478 unit tests**, **61 E2E tests**).
   - **Fix:** Resolved persistent flakiness in `goal-setting.e2e.spec.ts` and `tier-limits.e2e.spec.ts` via state-driven synchronization.
   - **Stability:** Standardized loading UI in `AnalyticsPage.tsx` and `GoalsSection.tsx` to ensure `data-testid` visibility during data fetching, preventing E2E timeouts.
   - **Quality:** Remediated all remaining `eslint-disable` and `as any` directives in unit tests for strict type safety.
@@ -207,34 +205,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Configuration:** Updated `playwright.live.config.ts` to auto-spawn the dev server and inject required `process.env` secrets for the test runner.
 
 ### Fixed (2026-01-16) - Private STT Reliability & Code Quality
-5. 
-6. - **Private STT Reliability:**
-7.   - **Feature:** Implemented robust retry mechanism with `STT_CONFIG.MAX_PRIVATE_ATTEMPTS` (limit 2).
-8.   - **Fallback:** Automatic fallback to Native Browser STT upon exceeding retry limit.
-9.   - **UX:** Added "clear cache" repair action and improved status bar feedback during fallback.
-10.   - **Files:** `frontend/src/services/transcription/TranscriptionService.ts`, `frontend/src/config.ts`
-11. 
-12. - **Promo Code Functionality:**
-13.   - **Backend Fix:** Changed `apply-promo` Edge Function to use `.upsert()` instead of `.update()`, ensuring new users get profiles created.
-14.   - **Frontend Fix:** Added `queryClient.invalidateQueries(['sessionHistory'])` to refresh UI immediately after promo application.
-15.   - **UX:** Updated promo code prompt visibility (amber color, gift emoji) and added session saved toast.
-16.   - **Files:** `backend/supabase/functions/apply-promo/index.ts`, `frontend/src/pages/AuthPage.tsx`, `frontend/src/components/session/StatusNotificationBar.tsx`
-17. 
-18. - **Code Quality Enforcement:**
-19.   - **Strict Linting:** Removed all instances of `eslint-disable` directives across the codebase.
-20.   - **Type Safety:** Eliminated `any` types in `TranscriptionService`, `e2e-bridge`, and test files, replacing them with strict type assertions.
-21.   - **CI:** Added `scripts/check-eslint-disable.sh` to fail builds if `eslint-disable` is detected.
-22.   - **Files:** `scripts/check-eslint-disable.sh`, `scripts/test-audit.sh`, `frontend/src/**/*`
-23. 
-24. - **Stripe Integration Fixes:**
-25.   - **Tests:** Updated `PricingPage.test.tsx` to match new `stripe-checkout` payload (`returnUrlOrigin`).
-26.   - **Security:** Confirmed removal of `priceId` from frontend payload in favor of backend env var `STRIPE_PRO_PRICE_ID`.
-27.   - **Files:** `frontend/src/pages/__tests__/PricingPage.test.tsx`
-28. 
-29. - **Test Suite Corrections:**
-30.   - **Fix:** Resolved relative import paths in `domainServices.test.ts`.
-31.   - **Fix:** Updated `PricingPage` tests to mock updated Stripe payload.
-32.   - **Note:** `SignInPage` and `useSessionManager` tests pending `QueryClientProvider` wrapper fix.
+
+- **Private STT Reliability:**
+  - **Feature:** Implemented robust retry mechanism with `STT_CONFIG.MAX_PRIVATE_ATTEMPTS` (limit 2).
+  - **Fallback:** Automatic fallback to Native Browser STT upon exceeding retry limit.
+  - **UX:** Added "clear cache" repair action and improved status bar feedback during fallback.
+  - **Files:** `frontend/src/services/transcription/TranscriptionService.ts`, `frontend/src/config.ts`
+
+- **Promo Code Functionality:**
+  - **Backend Fix:** Changed `apply-promo` Edge Function to use `.upsert()` instead of `.update()`, ensuring new users get profiles created.
+  - **Frontend Fix:** Added `queryClient.invalidateQueries(['sessionHistory'])` to refresh UI immediately after promo application.
+  - **UX:** Updated promo code prompt visibility (amber color, gift emoji) and added session saved toast.
+  - **Files:** `backend/supabase/functions/apply-promo/index.ts`, `frontend/src/pages/AuthPage.tsx`, `frontend/src/components/session/StatusNotificationBar.tsx`
+
+- **Code Quality Enforcement:**
+  - **Strict Linting:** Removed all instances of `eslint-disable` directives across the codebase.
+  - **Type Safety:** Eliminated `any` types in `TranscriptionService`, `e2e-bridge`, and test files, replacing them with strict type assertions.
+  - **CI:** Added `scripts/check-eslint-disable.sh` to fail builds if `eslint-disable` is detected.
+  - **Files:** `scripts/check-eslint-disable.sh`, `scripts/test-audit.sh`, `frontend/src/**/*`
+
+- **Stripe Integration Fixes:**
+  - **Tests:** Updated `PricingPage.test.tsx` to match new `stripe-checkout` payload (`returnUrlOrigin`).
+  - **Security:** Confirmed removal of `priceId` from frontend payload in favor of backend env var `STRIPE_PRO_PRICE_ID`.
+  - **Files:** `frontend/src/pages/__tests__/PricingPage.test.tsx`
+
+- **Test Suite Corrections:**
+  - **Fix:** Resolved relative import paths in `domainServices.test.ts`.
+  - **Fix:** Updated `PricingPage` tests to mock updated Stripe payload.
+  - **Note:** `SignInPage` and `useSessionManager` tests pending `QueryClientProvider` wrapper fix.
 
 ### Added (2026-01-15) - Session Feedback & Promo Updates
 

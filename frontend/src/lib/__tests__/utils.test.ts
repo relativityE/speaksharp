@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import logger from '../logger';
 import { cn, getSyncSession } from '../utils';
 
 describe('utils.ts', () => {
@@ -23,7 +24,7 @@ describe('utils.ts', () => {
     describe('getSyncSession', () => {
         beforeEach(() => {
             localStorage.clear();
-            vi.spyOn(console, 'error').mockImplementation(() => { });
+            vi.spyOn(logger, 'error').mockImplementation(() => { });
         });
 
         afterEach(() => {
@@ -67,7 +68,7 @@ describe('utils.ts', () => {
 
             const session = getSyncSession();
             expect(session).toBeNull();
-            expect(console.error).toHaveBeenCalled();
+            expect(logger.error).toHaveBeenCalled();
         });
     });
 });

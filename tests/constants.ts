@@ -108,6 +108,7 @@ export const TEST_IDS = {
   NAV_ANALYTICS_LINK: 'nav-analytics-link',
   NAV_SIGN_IN_LINK: 'nav-sign-in-link',
   SESSION_SETTINGS_BUTTON: 'add-custom-word-button', // Filler words popover trigger button
+  USER_FILLER_WORDS_INPUT: 'user-filler-words-input',
 
   // Auth forms
   AUTH_FORM: 'auth-form',

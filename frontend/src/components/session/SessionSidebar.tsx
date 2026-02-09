@@ -95,7 +95,7 @@ const ModelLoadingIndicator: React.FC<ModelLoadingIndicatorProps> = ({ progress 
     if (progress === null) {
         return null;
     }
-    const percentage = Math.round(progress * 100);
+    const percentage = Math.round(progress);
     return (
         <div className="space-y-2 pt-2" data-testid="model-loading-indicator">
             <p className="text-xs text-muted-foreground text-center">Downloading model... {percentage}%</p>

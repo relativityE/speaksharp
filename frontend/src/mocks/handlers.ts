@@ -1,4 +1,5 @@
 import { http, HttpResponse, type RequestHandler } from 'msw';
+import logger from '@/lib/logger';
 import { createMockSession, createMockUserProfile, createMockUser } from './test-user-utils';
 
 // Pre-populated custom vocabulary store with technical terms
@@ -15,48 +16,48 @@ const mockVocabularyStore: Map<string, Array<{ id: string; user_id: string; word
 
 export const handlers: RequestHandler[] = [
   http.get('*/auth/v1/user', () => {
-    console.log('[MSW DEBUG] Intercepted: GET /auth/v1/user');
+    logger.info('[MSW DEBUG] Intercepted: GET /auth/v1/user');
     const user = createMockUser();
 
     // DEFENSIVE: Verify mock user was created
     if (!user) {
-      console.error('[MSW CRITICAL] createMockUser() returned null/undefined!');
+      logger.error('[MSW CRITICAL] createMockUser() returned null/undefined!');
       return HttpResponse.json({ error: 'Mock user creation failed' }, { status: 500 });
     }
     if (!user.id) {
-      console.error('[MSW CRITICAL] createMockUser() returned user without id!', user);
+      logger.error({ user }, '[MSW CRITICAL] createMockUser() returned user without id!');
     }
 
     return HttpResponse.json(user);
   }),
 
   http.post('*/auth/v1/signup', async () => {
-    console.log('[MSW DEBUG] Intercepted: POST /auth/v1/signup');
+    logger.info('[MSW DEBUG] Intercepted: POST /auth/v1/signup');
     const session = createMockSession();
 
     // DEFENSIVE: Verify mock session was created
     if (!session) {
-      console.error('[MSW CRITICAL] createMockSession() returned null/undefined for signup!');
+      logger.error('[MSW CRITICAL] createMockSession() returned null/undefined for signup!');
       return HttpResponse.json({ error: 'Mock session creation failed' }, { status: 500 });
     }
     if (!session.user) {
-      console.error('[MSW CRITICAL] createMockSession() returned session without user!', session);
+      logger.error({ session }, '[MSW CRITICAL] createMockSession() returned session without user!');
     }
 
     return HttpResponse.json(session);
   }),
 
   http.post('*/auth/v1/token', async () => {
-    console.log('[MSW DEBUG] Intercepted: POST /auth/v1/token');
+    logger.info('[MSW DEBUG] Intercepted: POST /auth/v1/token');
     const session = createMockSession();
 
     // DEFENSIVE: Verify mock session was created
     if (!session) {
-      console.error('[MSW CRITICAL] createMockSession() returned null/undefined for token!');
+      logger.error('[MSW CRITICAL] createMockSession() returned null/undefined for token!');
       return HttpResponse.json({ error: 'Mock session creation failed' }, { status: 500 });
     }
     if (!session.access_token) {
-      console.error('[MSW CRITICAL] createMockSession() returned session without access_token!', session);
+      logger.error({ session }, '[MSW CRITICAL] createMockSession() returned session without access_token!');
     }
 
     return HttpResponse.json(session);
@@ -65,43 +66,43 @@ export const handlers: RequestHandler[] = [
   // This is the critical handler. It must return a profile that is
   // consistent with the one created by the AuthProvider mock.
   http.get('*/rest/v1/user_profiles', ({ request }) => {
-    console.log('[MSW DEBUG] Intercepted: GET /rest/v1/user_profiles');
+    logger.info('[MSW DEBUG] Intercepted: GET /rest/v1/user_profiles');
     const profile = createMockUserProfile();
 
     // DEFENSIVE: Verify mock profile was created with required fields
     if (!profile) {
-      console.error('[MSW CRITICAL] createMockUserProfile() returned null/undefined!');
+      logger.error('[MSW CRITICAL] createMockUserProfile() returned null/undefined!');
       return HttpResponse.json({ error: 'Mock profile creation failed' }, { status: 500 });
     }
     if (!profile.id) {
-      console.error('[MSW CRITICAL] createMockUserProfile() returned profile without id!', profile);
+      logger.error({ profile }, '[MSW CRITICAL] createMockUserProfile() returned profile without id!');
     }
     if (!profile.subscription_status) {
-      console.error('[MSW WARNING] createMockUserProfile() returned profile without subscription_status!', profile);
+      logger.warn({ profile }, '[MSW WARNING] createMockUserProfile() returned profile without subscription_status!');
     }
 
     // The Supabase client uses this header to request a single object vs. an array.
     if (request.headers.get('Accept') === 'application/vnd.pgrst.object+json') {
-      console.log('[MSW DEBUG] Returning single user_profile object');
+      logger.info('[MSW DEBUG] Returning single user_profile object');
       return HttpResponse.json(profile);
     }
-    console.log('[MSW DEBUG] Returning user_profiles array');
+    logger.info('[MSW DEBUG] Returning user_profiles array');
     return HttpResponse.json([profile]);
   }),
 
   http.get('*/rest/v1/sessions', ({ request }) => {
-    console.log('[MSW DEBUG] Intercepted: GET /rest/v1/sessions');
+    logger.info('[MSW DEBUG] Intercepted: GET /rest/v1/sessions');
 
     // Check window flag for empty sessions (E2E test control)
     const windowFlag = typeof window !== 'undefined' && '__E2E_EMPTY_SESSIONS__' in window && Boolean(window['__E2E_EMPTY_SESSIONS__' as keyof typeof window]);
-    console.log('[MSW DEBUG] window.__E2E_EMPTY_SESSIONS__:', windowFlag);
+    logger.info({ windowFlag }, '[MSW DEBUG] window.__E2E_EMPTY_SESSIONS__');
 
     // Check if test wants empty sessions via custom header
     const emptyFlag = request.headers.get('x-e2e-empty-sessions') === 'true';
-    console.log('[MSW DEBUG] x-e2e-empty-sessions header:', emptyFlag);
+    logger.info({ emptyFlag }, '[MSW DEBUG] x-e2e-empty-sessions header');
 
     if (windowFlag || emptyFlag) {
-      console.log('[MSW DEBUG] Returning empty sessions array');
+      logger.info('[MSW DEBUG] Returning empty sessions array');
       return HttpResponse.json([]);
     }
 
@@ -217,16 +218,14 @@ export const handlers: RequestHandler[] = [
 
     const userWords = mockVocabularyStore.get(userId) || [];
 
-    console.log('[MSW GET] URL:', url.toString());
-    console.log('[MSW GET] user_id param:', userIdParam);
-    console.log('[MSW GET] Parsed userId:', userId);
-    console.log('[MSW GET] Returning', userWords.length, 'words:', userWords);
+    logger.info({ url: url.toString(), userIdParam, userId }, '[MSW GET] user_filler_words');
+    logger.info({ wordCount: userWords.length, userWords }, '[MSW GET] Returning words');
 
     return HttpResponse.json(userWords);
   }),
 
   http.post('*/rest/v1/user_filler_words*', async ({ request }) => {
-    console.log('[MSW POST] Intercepted: POST /rest/v1/user_filler_words');
+    logger.info('[MSW POST] Intercepted: POST /rest/v1/user_filler_words');
     const body = await request.json() as { word: string; user_id?: string };
     const userId = body.user_id || 'test-user-123';
 
@@ -242,22 +241,22 @@ export const handlers: RequestHandler[] = [
     userWords.push(newWord);
     mockVocabularyStore.set(userId, userWords);
 
-    console.log('[MSW POST] Word added:', newWord);
-    console.log('[MSW POST] User now has', userWords.length, 'words');
+    logger.info({ newWord }, '[MSW POST] Word added');
+    logger.info({ userWordCount: userWords.length }, '[MSW POST] User word count updated');
 
     // Return single object (Supabase .single() format)
     return HttpResponse.json(newWord);
   }),
 
   http.delete('*/rest/v1/user_filler_words*', ({ request }) => {
-    console.log('[MSW DELETE] Intercepted: DELETE /rest/v1/user_filler_words');
+    logger.info('[MSW DELETE] Intercepted: DELETE /rest/v1/user_filler_words');
     const url = new URL(request.url);
 
     // PostgREST format: ?id=eq.mock-word-123
     const idParam = url.searchParams.get('id');
     const wordId = idParam?.replace(/^(eq|neq|gt|gte|lt|lte|like|ilike)\./, '');
 
-    console.log('[MSW DELETE] Deleting word ID:', wordId);
+    logger.info({ wordId }, '[MSW DELETE] Deleting word ID');
 
     // Remove from store
     for (const [userId, words] of mockVocabularyStore.entries()) {
@@ -265,7 +264,7 @@ export const handlers: RequestHandler[] = [
       if (index > -1) {
         words.splice(index, 1);
         mockVocabularyStore.set(userId, words);
-        console.log('[MSW DELETE] Word removed from user:', userId);
+        logger.info({ userId }, '[MSW DELETE] Word removed from user');
         break;
       }
     }
@@ -275,7 +274,7 @@ export const handlers: RequestHandler[] = [
 
   // User Goals endpoints
   http.get('*/rest/v1/user_goals*', () => {
-    console.log('[MSW DEBUG] Intercepted: GET /rest/v1/user_goals');
+    logger.info('[MSW DEBUG] Intercepted: GET /rest/v1/user_goals');
     // Return default goals for test user
     return HttpResponse.json({
       user_id: 'test-user-123',
@@ -285,15 +284,15 @@ export const handlers: RequestHandler[] = [
   }),
 
   http.post('*/rest/v1/user_goals*', async ({ request }) => {
-    console.log('[MSW DEBUG] Intercepted: POST /rest/v1/user_goals (upsert)');
+    logger.info('[MSW DEBUG] Intercepted: POST /rest/v1/user_goals (upsert)');
     const body = await request.json();
-    console.log('[MSW DEBUG] Upserted goals:', body);
+    logger.info({ body }, '[MSW DEBUG] Upserted goals');
     return HttpResponse.json(body);
   }),
 
   // Ghost RPC: create_session_and_update_usage
   http.post('*/rpc/create_session_and_update_usage', async ({ request }) => {
-    console.log('[MSW DEBUG] Intercepted: RPC create_session_and_update_usage');
+    logger.info('[MSW DEBUG] Intercepted: RPC create_session_and_update_usage');
     const { p_session_data } = await request.json() as { p_session_data: Record<string, unknown> };
 
     const new_session = {
@@ -303,7 +302,7 @@ export const handlers: RequestHandler[] = [
       created_at: new Date().toISOString(),
     };
 
-    console.log('[MSW RPC] Created new session:', new_session);
+    logger.info({ new_session }, '[MSW RPC] Created new session');
 
     return HttpResponse.json({
       new_session,
@@ -313,7 +312,7 @@ export const handlers: RequestHandler[] = [
 
   // Edge Function: check-usage-limit
   http.post('*/functions/v1/check-usage-limit', () => {
-    console.log('[MSW DEBUG] Intercepted: POST /functions/v1/check-usage-limit');
+    logger.info('[MSW DEBUG] Intercepted: POST /functions/v1/check-usage-limit');
     // Return unlimited usage for test user (Pro tier simulation)
     return HttpResponse.json({
       allowed: true,
@@ -331,8 +330,8 @@ export const handlers: RequestHandler[] = [
   http.all('*/functions/v1/*', ({ request }) => {
     const url = new URL(request.url);
     const functionName = url.pathname.split('/functions/v1/')[1];
-    console.warn(`[MSW ⚠️ UNMOCKED FUNCTION] ${request.method} /functions/v1/${functionName}`);
-    console.warn(`[MSW ⚠️] Add a handler for this Edge Function in handlers.ts to silence this warning`);
+    logger.warn({ method: request.method, functionName }, '[MSW ⚠️ UNMOCKED FUNCTION]');
+    logger.warn('[MSW ⚠️] Add a handler for this Edge Function in handlers.ts to silence this warning');
     // Return empty success to prevent test failures
     return HttpResponse.json({ _msw_unmocked: true, function: functionName });
   }),
@@ -341,8 +340,8 @@ export const handlers: RequestHandler[] = [
   http.all('*/rest/v1/*', ({ request }) => {
     const url = new URL(request.url);
     const tableName = url.pathname.split('/rest/v1/')[1]?.split('?')[0];
-    console.warn(`[MSW ⚠️ UNMOCKED TABLE] ${request.method} /rest/v1/${tableName}`);
-    console.warn(`[MSW ⚠️] Add a handler for this table in handlers.ts to silence this warning`);
+    logger.warn({ method: request.method, tableName }, '[MSW ⚠️ UNMOCKED TABLE]');
+    logger.warn('[MSW ⚠️] Add a handler for this table in handlers.ts to silence this warning');
     // Return empty array for GET, empty object for others
     if (request.method === 'GET') {
       return HttpResponse.json([]);
@@ -362,5 +361,5 @@ export function resetMockVocabularyStore() {
     { id: 'vocab-5', user_id: 'test-user-123', word: 'neural networks', created_at: new Date(Date.now() - 2 * 86400000).toISOString() },
     { id: 'vocab-6', user_id: 'test-user-123', word: 'gradient descent', created_at: new Date(Date.now() - 1 * 86400000).toISOString() },
   ]);
-  console.log('[MSW] Vocabulary store reset with pre-populated data');
+  logger.info('[MSW] Vocabulary store reset with pre-populated data');
 }

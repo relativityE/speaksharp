@@ -3,6 +3,7 @@ import autoTable from 'jspdf-autotable';
 import { saveAs } from 'file-saver';
 import { PracticeSession as Session } from '../types/session';
 import { format, parseISO } from 'date-fns';
+import logger from './logger';
 
 // A more specific type for the internal, undocumented API
 interface jsPDFInternal {
@@ -96,12 +97,11 @@ export const generateSessionPdf = async (session: Session, username: string = 'U
 
     toast.success("PDF Downloaded!", { id: 'pdf-gen' });
   } catch (error: unknown) {
-    console.error('[pdfGenerator] Error in PDF generation:', error);
-    console.error('[pdfGenerator] Error details:', {
-      message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
-      sessionId: session.id
-    });
+    logger.error({
+      error,
+      sessionId: session.id,
+      message: error instanceof Error ? error.message : String(error)
+    }, '[pdfGenerator] Error in PDF generation');
     toast.error('Failed to generate PDF report. Please try again.', { id: 'pdf-gen' });
   }
 };

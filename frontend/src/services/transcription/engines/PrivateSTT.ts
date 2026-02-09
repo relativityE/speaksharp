@@ -52,23 +52,22 @@ export class PrivateSTT {
      * In production: Tries WhisperTurbo, falls back to TransformersJS
      */
     async init(options: PrivateSTTInitOptions): Promise<Result<EngineType, Error>> {
-        console.log('[PrivateSTT] 🚀 Automatic engine selection started...');
-        logger.info('[PrivateSTT] Automatic engine selection started.');
+        logger.info('[PrivateSTT] 🚀 Automatic engine selection started...');
 
         if (TestFlags.DEBUG_ENABLED) {
-            console.log('[PrivateSTT] Checking flags:', {
+            logger.info({
                 isTestMode: TestFlags.IS_TEST_MODE,
                 useRealTranscription: TestFlags.USE_REAL_TRANSCRIPTION,
                 shouldMock: shouldUseMockTranscription(),
                 forceCPU: TestFlags.FORCE_CPU_TRANSCRIPTION
-            });
+            }, '[PrivateSTT] Checking flags');
         }
 
         const callbacks = options;
 
         // 1. Check for manual engine override (Testability/Deep-linking)
         if (options.forceEngine) {
-            console.log(`[PrivateSTT] 🎯 Forcing engine: ${options.forceEngine}`);
+            logger.info({ forceEngine: options.forceEngine }, '[PrivateSTT] 🎯 Forcing engine');
             if (options.forceEngine === 'whisper-turbo') return this.initFastEngine(callbacks);
             if (options.forceEngine === 'transformers-js') return this.initSafeEngine(callbacks);
             if (options.forceEngine === 'mock') return this.initMockEngine(callbacks);
@@ -76,36 +75,35 @@ export class PrivateSTT {
 
         // 2. Force mock engine in CI/test environments unless specifically bypassed.
         if (shouldUseMockTranscription()) {
-            console.log('[PrivateSTT] 🧪 Test environment detected. Using MockEngine.');
-            logger.info('[PrivateSTT] Test environment detected. Using MockEngine.');
+            logger.info('[PrivateSTT] 🧪 Test environment detected. Using MockEngine.');
             return this.initMockEngine(callbacks);
         }
 
         // Try fast engine first if WebGPU is available
         const forceSafe = TestFlags.FORCE_CPU_TRANSCRIPTION;
         const webGPUAvailable = hasWebGPU() && !forceSafe;
-        console.log(`[PrivateSTT] 🔍 WebGPU support check: ${webGPUAvailable} (forceSafe: ${forceSafe})`);
+        logger.info({ webGPUAvailable, forceSafe }, '[PrivateSTT] 🔍 WebGPU support check');
 
         if (webGPUAvailable) {
-            console.log('[PrivateSTT] ⚡ WebGPU available. Attempting to initialize WhisperTurbo (Fast Path)...');
+            logger.info('[PrivateSTT] ⚡ WebGPU available. Attempting to initialize WhisperTurbo (Fast Path)...');
             logger.info('[PrivateSTT] WebGPU available. Trying WhisperTurbo engine...');
 
             const fastResult = await this.initFastEngine(callbacks);
             if (fastResult.isOk) {
-                console.log('[PrivateSTT] ✅ WhisperTurbo initialized successfully.');
-                console.log('[PrivateSTT] [DEBUG-PRIVATE] 🚀 Verified: Using Fast WhisperTurbo engine.');
+                logger.info('[PrivateSTT] ✅ WhisperTurbo initialized successfully.');
+                logger.info('[PrivateSTT] [DEBUG-PRIVATE] 🚀 Verified: Using Fast WhisperTurbo engine.');
                 return fastResult;
             }
 
-            console.warn('[PrivateSTT] ⚠️ WhisperTurbo failed to initialize. Falling back to safe engine.', fastResult.error);
+            logger.warn({ err: fastResult.error }, '[PrivateSTT] ⚠️ WhisperTurbo failed to initialize. Falling back to safe engine.');
             logger.warn({ err: fastResult.error }, '[PrivateSTT] WhisperTurbo failed. Falling back to TransformersJS...');
         } else {
-            console.log('[PrivateSTT] 🐌 WebGPU not available. Skipping WhisperTurbo.');
+            logger.info('[PrivateSTT] 🐌 WebGPU not available. Skipping WhisperTurbo.');
             logger.info('[PrivateSTT] WebGPU not available. Using TransformersJS engine.');
         }
 
         // Fallback to safe engine
-        console.log('[PrivateSTT] 🛡️ Initializing TransformersJS (Safe Path)...');
+        logger.info('[PrivateSTT] 🛡️ Initializing TransformersJS (Safe Path)...');
         return this.initSafeEngine(callbacks);
     }
 
@@ -114,25 +112,25 @@ export class PrivateSTT {
      */
     private async initMockEngine(callbacks: EngineCallbacks): Promise<Result<EngineType, Error>> {
         try {
-            console.log('[PrivateSTT] 🛠️ Loading MockEngine...');
+            logger.info('[PrivateSTT] 🛠️ Loading MockEngine...');
             const { MockEngine } = await import('./MockEngine');
             const engine = new MockEngine();
 
             const result = await engine.init(callbacks);
             if (!result || result.isErr) {
                 const err = result?.error || new Error('MockEngine initialization returned no result');
-                console.error('[PrivateSTT] ❌ MockEngine initialization failed:', err);
+                logger.error({ err }, '[PrivateSTT] ❌ MockEngine initialization failed');
                 return Result.err(err);
             }
 
             this.engine = engine;
             this.engineType = 'mock';
-            console.log('[PrivateSTT] ✅ MockEngine ready.');
+            logger.info('[PrivateSTT] ✅ MockEngine ready.');
             logger.info('[PrivateSTT] MockEngine initialized successfully.');
             return Result.ok('mock');
         } catch (error) {
             const e = error instanceof Error ? error : new Error(String(error));
-            console.error('[PrivateSTT] ❌ MockEngine import/init failed:', e);
+            logger.error({ err: e }, '[PrivateSTT] ❌ MockEngine import/init failed');
             return Result.err(e);
         }
     }
@@ -142,16 +140,16 @@ export class PrivateSTT {
      */
     private async initFastEngine(callbacks: EngineCallbacks): Promise<Result<EngineType, Error>> {
         try {
-            console.log('[PrivateSTT] 📥 Importing WhisperTurbo engine...');
+            logger.info('[PrivateSTT] 📥 Importing WhisperTurbo engine...');
             // Lazy import to reduce bundle size
             const { WhisperTurboEngine } = await import('./WhisperTurboEngine');
             const engine = new WhisperTurboEngine();
 
-            console.log('[PrivateSTT] ⏳ calling WhisperTurbo.init()...');
+            logger.info('[PrivateSTT] ⏳ calling WhisperTurbo.init()...');
             const result = await engine.init(callbacks);
 
             if (result.isErr) {
-                console.warn('[PrivateSTT] ⚠️ WhisperTurbo init returned error:', result.error);
+                logger.warn({ err: result.error }, '[PrivateSTT] ⚠️ WhisperTurbo init returned error');
                 return Result.err(result.error);
             }
 
@@ -161,7 +159,7 @@ export class PrivateSTT {
             return Result.ok('whisper-turbo');
         } catch (error) {
             const e = error instanceof Error ? error : new Error(String(error));
-            console.warn('[PrivateSTT] ⚠️ WhisperTurbo init threw exception:', e);
+            logger.warn({ err: e }, '[PrivateSTT] ⚠️ WhisperTurbo init threw exception');
             return Result.err(e);
         }
     }
@@ -171,29 +169,29 @@ export class PrivateSTT {
      */
     private async initSafeEngine(callbacks: EngineCallbacks): Promise<Result<EngineType, Error>> {
         try {
-            console.log('[PrivateSTT] 📥 Importing TransformersJS engine...');
+            logger.info('[PrivateSTT] 📥 Importing TransformersJS engine...');
             // Lazy import to reduce bundle size
             const { TransformersJSEngine } = await import('./TransformersJSEngine');
             const engine = new TransformersJSEngine();
 
-            console.log('[PrivateSTT] ⏳ calling TransformersJS.init()...');
+            logger.info('[PrivateSTT] ⏳ calling TransformersJS.init()...');
 
             // Initialize without arbitrary timeout
             const result = await engine.init(callbacks);
 
             if (result.isErr) {
-                console.error('[PrivateSTT] ❌ TransformersJS init returned error:', result.error);
+                logger.error({ err: result.error }, '[PrivateSTT] ❌ TransformersJS init returned error');
                 return Result.err(result.error);
             }
 
             this.engine = engine;
             this.engineType = 'transformers-js';
-            console.log('[PrivateSTT] ✅ TransformersJS engine initialized successfully.');
+            logger.info('[PrivateSTT] ✅ TransformersJS engine initialized successfully.');
             logger.info('[PrivateSTT] TransformersJS engine initialized successfully.');
             return Result.ok('transformers-js');
         } catch (error) {
             const e = error instanceof Error ? error : new Error(String(error));
-            console.error('[PrivateSTT] ❌ TransformersJS init threw exception:', e);
+            logger.error({ err: e }, '[PrivateSTT] ❌ TransformersJS init threw exception');
             return Result.err(e);
         }
     }

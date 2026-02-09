@@ -127,13 +127,13 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         return;
       }
 
-      setModelLoadingProgress(progress);
-
       // Handle both fraction (0-1) and percentage (0-100+) inputs
-      // ... (rest of the logic)
       const percentage = progress > 1
         ? Math.min(Math.round(progress), 100)  // Already a percentage, clamp to 100
         : Math.round(progress * 100);           // Fraction, convert to percentage
+
+      // Normalize state to percentage for UI consistency
+      setModelLoadingProgress(percentage);
 
       // Show or update toast
       if (toastIdRef.current) {
@@ -142,8 +142,8 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         toastIdRef.current = toast.loading(`Downloading AI model... ${percentage}%`);
       }
 
-      // Dismiss toast when complete (handle both 1.0 and 100)
-      if ((progress >= 1 && progress <= 1.1) || progress >= 100) {
+      // Dismiss toast when complete
+      if (percentage >= 100) {
         setTimeout(() => {
           if (toastIdRef.current) {
             toast.dismiss(toastIdRef.current);

@@ -5,33 +5,34 @@
  * Offloads CPU-bound operations from the main thread to prevent UI jank.
  */
 
-// Define message types
+// Define message types - correlationId prevents race conditions with concurrent requests
 export type AudioWorkerMessage =
-    | { type: 'DOWNSAMPLE', audio: Float32Array, inputRate: number, targetRate: number }
-    | { type: 'FLOAT_TO_WAV', samples: Float32Array, sampleRate: number }
-    | { type: 'FLOAT_TO_INT16', float32Array: Float32Array };
+    | { type: 'DOWNSAMPLE', correlationId: string, audio: Float32Array, inputRate: number, targetRate: number }
+    | { type: 'FLOAT_TO_WAV', correlationId: string, samples: Float32Array, sampleRate: number }
+    | { type: 'FLOAT_TO_INT16', correlationId: string, float32Array: Float32Array };
 
 export type AudioWorkerResponse =
-    | { type: 'DOWNSAMPLE_RESULT', result: Float32Array }
-    | { type: 'FLOAT_TO_WAV_RESULT', result: Uint8Array }
-    | { type: 'FLOAT_TO_INT16_RESULT', result: Int16Array, base64?: string }
-    | { type: 'ERROR', message: string };
+    | { type: 'DOWNSAMPLE_RESULT', correlationId: string, result: Float32Array }
+    | { type: 'FLOAT_TO_WAV_RESULT', correlationId: string, result: Uint8Array }
+    | { type: 'FLOAT_TO_INT16_RESULT', correlationId: string, result: Int16Array, base64?: string }
+    | { type: 'ERROR', correlationId: string, message: string };
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
 ctx.onmessage = (event: MessageEvent<AudioWorkerMessage>) => {
     const data = event.data;
+    const correlationId = data.correlationId;
 
     try {
         switch (data.type) {
             case 'DOWNSAMPLE': {
                 const result = downsampleAudio(data.audio, data.inputRate, data.targetRate);
-                ctx.postMessage({ type: 'DOWNSAMPLE_RESULT', result }, [result.buffer]);
+                ctx.postMessage({ type: 'DOWNSAMPLE_RESULT', correlationId, result }, [result.buffer]);
                 break;
             }
             case 'FLOAT_TO_WAV': {
                 const result = floatToWav(data.samples, data.sampleRate);
-                ctx.postMessage({ type: 'FLOAT_TO_WAV_RESULT', result }, [result.buffer]);
+                ctx.postMessage({ type: 'FLOAT_TO_WAV_RESULT', correlationId, result }, [result.buffer]);
                 break;
             }
             case 'FLOAT_TO_INT16': {
@@ -47,12 +48,12 @@ ctx.onmessage = (event: MessageEvent<AudioWorkerMessage>) => {
                 }
                 const base64 = btoa(charCodes.join(''));
 
-                ctx.postMessage({ type: 'FLOAT_TO_INT16_RESULT', result, base64 }, [result.buffer]);
+                ctx.postMessage({ type: 'FLOAT_TO_INT16_RESULT', correlationId, result, base64 }, [result.buffer]);
                 break;
             }
         }
     } catch (err) {
-        ctx.postMessage({ type: 'ERROR', message: (err as Error).message });
+        ctx.postMessage({ type: 'ERROR', correlationId, message: (err as Error).message });
     }
 };
 

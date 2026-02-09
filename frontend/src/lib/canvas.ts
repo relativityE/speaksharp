@@ -2,6 +2,8 @@
 // In a Node.js environment (like Vitest during tests), it exports the 'canvas' library.
 // In a browser environment, it exports null as canvas operations are handled by the browser's native APIs.
 
+import logger from './logger';
+
 let imageProcessor;
 
 if (import.meta.env.MODE === 'test') {
@@ -9,7 +11,7 @@ if (import.meta.env.MODE === 'test') {
   try {
     imageProcessor = await import('canvas');
   } catch (e) {
-    console.error('[imageProcessor] Failed to load "canvas" module in test mode.', e);
+    logger.error({ err: e }, '[imageProcessor] Failed to load "canvas" module in test mode.');
     imageProcessor = null;
   }
 } else {

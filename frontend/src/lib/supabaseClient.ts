@@ -2,6 +2,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@supabase/supabase-js';
 import { createMockSupabase } from './mockSupabase';
+import logger from './logger';
 
 declare global {
   // allow tests to inject a mock client on window
@@ -30,8 +31,7 @@ export function getSupabaseClient(): SupabaseClient {
     (import.meta.env.DEV && url?.includes('example.supabase.co'));
 
   if (useMock) {
-    console.log('⚠️ Using MOCK Supabase client for development');
-    console.log('[supabaseClient] Creating mock Supabase client');
+    logger.warn('[supabaseClient] Creating MOCK Supabase client for development');
     return (cachedClient = createMockSupabase() as unknown as SupabaseClient);
   }
 
@@ -47,6 +47,6 @@ export function getSupabaseClient(): SupabaseClient {
     },
   });
 
-  console.log('[Supabase] ✅ Real client connected to:', url?.replace(/https?:\/\//, '').split('.')[0] + '...');
+  logger.info({ project: url?.replace(/https?:\/\//, '').split('.')[0] }, '[Supabase] Real client connected');
   return cachedClient;
 }

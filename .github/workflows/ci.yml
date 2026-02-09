@@ -125,12 +125,14 @@ jobs:
           ls -la frontend/ || echo "frontend/ not found"
           ls -la frontend/dist/ || echo "frontend/dist/ not found"
           
-          # Debug: Verify preview command works
-          echo "=== Preview server test ==="
-          cd frontend && timeout 10 pnpm preview --port 4173 &
-          sleep 5
-          curl -s http://127.0.0.1:4173/ | head -20 || echo "Preview server not responding"
-          cd ..
+          # Debug: Verify preview command works (in subshell to preserve cwd)
+          (
+            echo "=== Preview server test ==="
+            cd frontend
+            timeout 10 pnpm preview --port 4173 &
+            sleep 5
+            curl -s http://127.0.0.1:4173/ | head -20 || echo "Preview server not responding"
+          )
           
           # Run LHCI
           mkdir -p .lighthouseci

@@ -33,8 +33,8 @@ export const getSessionHistory = async (
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const requestUrl = `${supabaseUrl}/rest/v1/sessions`;
 
-  console.log('[Supabase DB] 📥 Fetching sessions for user:', userId.slice(0, 8) + '...');
-  console.log('[Supabase DB] Request URL:', requestUrl);
+  logger.info({ userId: userId.slice(0, 8) + '...' }, '[Supabase DB] 📥 Fetching sessions');
+  logger.info({ requestUrl }, '[Supabase DB] Request URL');
 
   try {
     const { data, error }: { data: PracticeSession[] | null, error: PostgrestError | null } = await supabase
@@ -44,7 +44,7 @@ export const getSessionHistory = async (
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
-    console.log('[Supabase DB] ✅ Sessions fetched:', data?.length || 0);
+    logger.info({ sessionCount: data?.length || 0 }, '[Supabase DB] ✅ Sessions fetched');
 
     if (error) {
       logger.error({ error }, `Error fetching session history from ${requestUrl}:`);
@@ -53,7 +53,7 @@ export const getSessionHistory = async (
     return data || [];
   } catch (fetchError) {
     const errorMessage = fetchError instanceof Error ? fetchError.message : String(fetchError);
-    console.error(`[getSessionHistory] Failed to fetch from ${requestUrl}:`, errorMessage);
+    logger.error({ error: fetchError, requestUrl }, '[getSessionHistory] Failed to fetch sessions');
     // Re-throw with descriptive message including the URL
     throw new Error(`Failed to fetch sessions from ${requestUrl}: ${errorMessage}`);
   }
@@ -88,9 +88,8 @@ export const getSessionById = async (sessionId: string): Promise<PracticeSession
     }
     return data;
   } catch (fetchError) {
-    const errorMessage = fetchError instanceof Error ? fetchError.message : String(fetchError);
-    console.error(`[getSessionById] Failed for ${sessionId}:`, errorMessage);
-    throw new Error(`Failed to fetch session ${sessionId}: ${errorMessage}`);
+    logger.error({ error: fetchError, sessionId }, '[getSessionById] Failed');
+    throw new Error(`Failed to fetch session ${sessionId}: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}`);
   }
 };
 
@@ -108,12 +107,11 @@ export const saveSession = async (sessionData: Partial<PracticeSession> & { user
     return { session: null, usageExceeded: false };
   }
 
-  // ARCHITECTURAL FIX:
   // The previous implementation had a race condition where a user could save multiple
   // sessions before the usage check was performed. This has been fixed by delegating
   // the entire operation to a single, atomic RPC function in the database.
   // This function is responsible for both creating the session and updating/checking usage.
-  console.log('[Supabase DB] 💾 Saving session via RPC:', { userId: sessionData.user_id, duration: sessionData.duration });
+  logger.info({ userId: sessionData.user_id, duration: sessionData.duration }, '[Supabase DB] 💾 Saving session via RPC');
   const { data, error } = await supabase.rpc('create_session_and_update_usage', {
     p_session_data: sessionData,
     p_is_free_user: isFree(profile.subscription_status),

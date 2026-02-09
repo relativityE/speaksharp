@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-02-05
+**Last Reviewed:** 2026-02-09
 
 # Agent Instructions for SpeakSharp Repository
 
@@ -42,8 +42,15 @@ The `./scripts/env-stabilizer.sh` script is a powerful tool for recovering a bro
 The E2E test environment has known incompatibilities with heavy WebAssembly-based speech recognition libraries used for on-device transcription. These libraries are loaded via dynamic imports.
 
 *   **Symptom:** When a test triggers the import of these heavy WASM modules, the browser can crash instantly and silently, resulting in a blank screenshot with no console or network errors. This is a fatal, untraceable error.
-*   **Solution:** A source-code-level guard is in place. A `window.TEST_MODE = true` flag is injected by the test setup. The application code (`frontend/src/services/transcription/TranscriptionService.ts`) checks for this flag and conditionally skips the dynamic import of modules that cause crashes.
+*   **Solution:** A source-code-level guard is in place. A `window.TEST_MODE = true` flag is injected by the test setup. The application code (`frontend/src/config/TestFlags.ts`) checks for this flag and conditionally skips mocks if `VITE_USE_REAL_DATABASE` is true to prevent "Identity Hijack" in live tests.
 *   **Implication:** Do not remove this flag or the corresponding check in the application code. If you encounter a similar silent crash, investigate for other dynamic imports of heavy, WebAssembly-based libraries.
+
+### 5. CI Robustness: Standard Subshell Pattern
+To prevent directory drift in CI background processes (e.g., during Lighthouse CI), always use subshells `()` for backgrounded tasks:
+```bash
+(cd frontend && timeout 10 pnpm preview --port 4173 &)
+```
+This ensures the main CI shell's working directory remains stable for subsequent commands (like `node scripts/generate-lhci-config.js`).
 
 ---
 
@@ -55,7 +62,7 @@ Every claim must include file path and exact line numbers and a 2–5 line code 
 No escalation until Diagnostic Protocol completed (see §4).
 Code MUST be tested locally AND verified via CI (or explicitly waived by user) before merging/pushing to main. Agents must not check in code that is not built or tested.
 
-___
+---
 
 ## ⚡ Code Quality Standards (Strict)
 

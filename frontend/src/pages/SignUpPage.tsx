@@ -57,7 +57,7 @@ export default function SignUpPage() {
                         if (promoError) {
                             logger.error({ err: promoError }, 'Failed to apply promo during signup');
                         } else {
-                            console.log('Promo applied during signup:', promoData);
+                            logger.info({ promoData }, 'Promo applied during signup');
                             // Force refresh of user profile to show Pro status immediately
                             await queryClient.invalidateQueries({ queryKey: ['userProfile'] });
                         }

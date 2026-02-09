@@ -5,7 +5,7 @@
 
 # SpeakSharp System Architecture
 
-**Version 5.2** | **Last Updated: 2026-02-09**
+**Version 5.3** | **Last Updated: 2026-02-09**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -499,6 +499,7 @@ Standard CI environments (like GitHub Actions) are "headless" and lack access to
 #### 2. Flag Centralization (`TestFlags.ts`)
 We centralize testing logic in `frontend/src/config/TestFlags.ts` to prevent "Flag Soup". This provides a single source of truth for:
 - **`VITE_TEST_ENABLE_MOCKING`**: Master toggle for all mocks.
+- **`VITE_TEST_USE_REAL_DATABASE`**: Disables MSW when active to prevent "Identity Hijack" in live environments.
 - **`VITE_TEST_USE_REAL_TRANSCRIPTION`**: Enables real ML engines while keeping other mocks active.
 - **`VITE_TEST_TRANSCRIPTION_FORCE_CPU`**: Forces TransformersJS (CPU) even if WebGPU is available.
 
@@ -598,11 +599,11 @@ SpeakSharp uses a comprehensive test pyramid with 10 distinct categories:
                         │    Live       │ (Real Supabase)
                        ┌┴───────────────┴┐
                        │Driver-Dependent │ (Real Audio/GPU)
-                      ┌┴─────────────────┴┐
-                      │      E2E          │ (MSW Mocked)
-         ┌────────────┴───────────────────┴────────────┐
-         │            Unit Tests (453+)                │
-         └─────────────────────────────────────────────┘
+                      ┌┴─────────────────┐
+                      │      E2E         │ (MSW Mocked)
+         ┌────────────┴──────────────────┴────────────┐
+         │            Unit Tests (478)                │
+         └────────────────────────────────────────────┘
 ```
 
 | Category | Directory | Config | Infrastructure |
@@ -1063,7 +1064,7 @@ curl -i -X POST "https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/create-us
 **1. Unit Tests** (`frontend/src/**/*.test.{ts,tsx}`)
 - Run with Vitest in happy-dom environment
 - Uses `createQueryWrapper` for React Query isolation
-- 407 tests across 52+ files (verified 2026-01-30)
+- 478 tests across 52+ files (verified 2026-02-09)
 
 **2. Mock E2E Tests** (`tests/e2e/*.e2e.spec.ts`)
 - Uses Playwright with MSW (Mock Service Worker)
@@ -2566,11 +2567,11 @@ Performance quality gates are enforced via Lighthouse CI:
 5. Parse and display scores
 6. Fail CI if thresholds not met (fail-fast enabled)
 
-**Current Scores (2025-11-28):**
-- Performance: 95%
-- Accessibility: 95%
-- **SEO: 100%**
-- Best Practices: 78% (limited by Stripe third-party cookies)
+**Current Scores (2026-02-09):**
+- Performance: 94%
+- Accessibility: 94%
+- **SEO: 91%**
+- Best Practices: 93%
 
 > [!NOTE]
 > **`⚠️ GitHub token not set` Warning**
@@ -2580,32 +2581,6 @@ Performance quality gates are enforced via Lighthouse CI:
 >
 > The token is only needed if you want PR status check integration. All audit functionality works regardless.
 
-
-## 8. Technical Debt & Improvements
-
-This section tracks architectural improvements, tooling refactors, and code health initiatives. These items are distinct from product features (tracked in [ROADMAP.md](./ROADMAP.md)) and are prioritized based on their impact on developer velocity and system stability.
-
-### 🧪 Testing Infrastructure
-- **Refactor Integration Tests:** Slim down component tests (`SessionSidebar`, `AnalyticsPage`) to remove redundant coverage now handled by E2E tests.
-- **Harden E2E Architecture:** Complete the migration to event-driven synchronization across all test files.
-- **Refactor Monolithic Test Script:** Break down `scripts/test-audit.sh` into smaller, composable scripts or migrate to a dedicated task runner if complexity grows.
-- **Harden Custom Test Wrapper:** Audit `verifyOnlyStepTracker.ts` for resilience or replace with standard Playwright logging.
-- **Refactor Supabase Mock to Provider Pattern:** Replace global `window.supabase` mock with a proper `SupabaseProvider` context for better type safety and test isolation.
-- **Replace `programmaticLogin` with MSW Network Mocking:** Refactor the login helper to use pure network-level mocking instead of client-side injection, reducing fragility.
-
-### 🔒 Security & Backend
-- **Harden Supabase Security:** Enable OTP expiry (<1 hour) and leaked password protection (requires Supabase Pro).
-- **Add Deno Unit Tests:** Implement unit tests for the `assemblyai-token` Edge Function to ensure auth reliability.
-
-### 🛠️ Tooling & Code Quality
-- **ESLint Configuration:** Fix `no-unused-vars` rule to correctly ignore variables in `catch` blocks (e.g., `catch (_e)`).
-- **Update Core Dependencies:** Upgrade React, Vite, Vitest, and Tailwind to latest stable versions.
-
-
-- **Update Core Dependencies:** Upgrade React, Vite, Vitest, and Tailwind to latest stable versions.
-
-
-## 6. Technical Debt & Known Issues
 
 SpeakSharp maintains an active tracking document for architectural debt, code smells, and transient issues discovered during development.
 

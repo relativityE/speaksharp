@@ -97,7 +97,7 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
                 </h1>
                 <p className="text-muted-foreground">
                     {modelLoadingProgress !== null
-                        ? `Downloading model: ${Math.round(modelLoadingProgress * 100)}% `
+                        ? `Downloading model: ${Math.round(modelLoadingProgress)}% `
                         : isListening
                             ? "Speak clearly into your microphone"
                             : "Click the microphone to start your session"}

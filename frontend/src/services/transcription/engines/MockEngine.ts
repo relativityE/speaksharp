@@ -23,8 +23,7 @@ export class MockEngine implements IPrivateSTTEngine {
     public readonly type: EngineType = 'mock';
 
     async init(callbacks: EngineCallbacks, _timeoutMs?: number): Promise<Result<void, Error>> {
-        console.log('[MockEngine] 🎭 Initializing mock engine for CI/E2E testing...');
-        logger.info('[MockEngine] Initializing mock engine for CI/E2E testing...');
+        logger.info('[MockEngine] 🎭 Initializing mock engine for CI/E2E testing...');
 
         // Simulate loading progress
         if (callbacks.onModelLoadProgress) {

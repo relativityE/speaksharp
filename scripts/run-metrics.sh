@@ -7,13 +7,16 @@ METRICS_FILE="$TEST_RESULTS_DIR/metrics.json"
 mkdir -p "$TEST_RESULTS_DIR"
 
 # Unit Test Metrics
+# Use "N/A" marker when unit tests are skipped, not misleading "0"
 unit_metrics_file="unit-metrics.json"
+UNIT_SKIPPED=false
 if [ ! -f "$unit_metrics_file" ]; then
-    echo "⚠️ WARNING: Unit metrics file not found at $unit_metrics_file. Defaulting to 0." >&2
-    unit_passed=0
-    unit_failed=0
-    unit_skipped=0
-    unit_total=0
+    echo "⚠️ WARNING: Unit metrics file not found at $unit_metrics_file. Marking as skipped (N/A)." >&2
+    UNIT_SKIPPED=true
+    unit_passed="N/A"
+    unit_failed="N/A"
+    unit_skipped="N/A"
+    unit_total="N/A"
 else
     unit_passed=$(jq '.numPassedTests' "$unit_metrics_file")
     unit_failed=$(jq '.numFailedTests' "$unit_metrics_file")

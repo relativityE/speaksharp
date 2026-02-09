@@ -495,6 +495,12 @@ export async function programmaticLoginWithRoutes(
     'Authenticated State (Sign Out Button)',
     page.waitForSelector('[data-testid="nav-sign-out-button"]', { timeout: 30000 })
   );
+
+  // 8. Wait for profile to be fully loaded (ensures hooks like useUserProfile are settled)
+  await debugWait(
+    'Profile Loaded Flag (__e2eProfileLoaded__)',
+    page.waitForFunction(() => !!(window as any).__e2eProfileLoaded__, null, { timeout: 15000 })
+  );
 }
 
 /**

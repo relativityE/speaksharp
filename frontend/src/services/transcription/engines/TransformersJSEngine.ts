@@ -35,11 +35,11 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
             const { pipeline, env } = transformers;
 
             if (TestFlags.DEBUG_ENABLED) {
-                console.log('[TransformersJS] Import check:', {
+                logger.debug({
                     hasPipeline: !!pipeline,
                     hasEnv: !!env,
                     allKeys: Object.keys(transformers)
-                });
+                }, '[TransformersJS] Import check');
             }
 
             if (!env) {
@@ -58,11 +58,11 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
             env.useBrowserCache = isBrowser && !TestFlags.IS_TEST_MODE;
 
             if (TestFlags.DEBUG_ENABLED) {
-                console.log('[TransformersJS] Env check:', {
+                logger.debug({
                     isBrowser,
                     cacheEnabled: env.useBrowserCache,
                     userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'none'
-                });
+                }, '[TransformersJS] Env check');
             }
 
             // Report progress (transformers.js manages its own download progress callbacks)

@@ -1,6 +1,7 @@
 import { type ClassValue, clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
 import { Session } from '@supabase/supabase-js';
+import logger from './logger';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -38,7 +39,7 @@ export function getSyncSession(): Session | null {
 
     return null;
   } catch (error) {
-    console.error("Error parsing sync session from localStorage", error);
+    logger.error({ error }, "Error parsing sync session from localStorage");
     return null;
   }
 }

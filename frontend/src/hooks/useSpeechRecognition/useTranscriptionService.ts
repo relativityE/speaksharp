@@ -66,7 +66,7 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
           mockMic: mockMicRef.current ?? undefined,
         };
 
-        console.log('[useTranscriptionService] Creating new service with policy:', policyRef.current.executionIntent);
+        logger.info({ intent: policyRef.current.executionIntent }, '[useTranscriptionService] Creating new service');
         const service = new TranscriptionService(wrappedOptions);
         serviceRef.current = service as unknown as ITranscriptionService;
 

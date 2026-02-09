@@ -9,6 +9,8 @@
  * - E2E_DEBUG_ENABLED: Expose internal logs to test runner.
  */
 
+import logger from '../lib/logger';
+
 const getEnvVar = (key: string): string | undefined => {
     if (typeof import.meta !== 'undefined' && import.meta.env) {
         return (import.meta.env as Record<string, string>)[key];
@@ -83,10 +85,11 @@ export function shouldUseMockTranscription(): boolean {
  * Logic helper to determine if we should use MSW.
  */
 export function shouldEnableMocks(): boolean {
-    return TestFlags.IS_TEST_MODE;
+    // Disable MSW if we are explicitly using a real database (live/canary modes)
+    return TestFlags.IS_TEST_MODE && !TestFlags.USE_REAL_DATABASE;
 }
 
 // Helper to log current configuration in debug mode
 if (TestFlags.DEBUG_ENABLED && typeof window !== 'undefined') {
-    console.log('[TestFlags] Initialized:', TestFlags);
+    logger.debug({ flags: TestFlags }, '[TestFlags] Initialized');
 }

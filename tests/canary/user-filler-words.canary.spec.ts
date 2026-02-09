@@ -33,7 +33,7 @@ test.describe('User Filler Words Canary @canary', () => {
         await settingsBtn.click();
 
         // Updated placeholder and button names for "User Filler Words"
-        await page.getByPlaceholder('e.g., literally, basic').fill('CanaryBoostTest');
+        await page.getByTestId(TEST_IDS.USER_FILLER_WORDS_INPUT).fill('CanaryBoostTest');
         await page.getByRole('button', { name: /add word/i }).click();
         await expect(page.getByText(/canaryboosttest/i)).toBeVisible();
 
