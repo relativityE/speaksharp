@@ -12,19 +12,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v2
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
         with:
-          version: 8
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install
+          install-playwright: 'true'
 
       - name: Create .env.development from Secrets
         run: |
@@ -37,9 +28,6 @@ jobs:
           EOF
           # Verify file creation (without printing secrets)
           echo "Created .env.development with $(wc -l < .env.development) lines"
-
-      - name: Install Playwright browsers
-        run: pnpm exec playwright install chromium --with-deps
 
       - name: Run Stripe checkout test
         env:

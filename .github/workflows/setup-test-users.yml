@@ -39,19 +39,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 8
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
 
       - name: Generate and set SOAK_TEST_PASSWORD
         if: ${{ github.event.inputs.password_action == 'generate_new_credentials' }}

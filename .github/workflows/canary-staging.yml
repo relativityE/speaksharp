@@ -12,23 +12,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v2
-      - uses: actions/setup-node@v4
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
         with:
-          node-version: '20'
-          cache: 'pnpm'
-      
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Install Playwright Browsers
-        run: pnpm exec playwright install chromium
+          install-playwright: 'true'
       
       - name: Provision Canary User
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD }}
+          CANARY_EMAIL: canary-${{ github.run_id }}@speaksharp.app
         run: node scripts/provision-canary.mjs
 
       - name: Run Canary Tests
@@ -38,6 +32,14 @@ jobs:
           # Set flags if needed, though canary config handles base URL
           VITE_USE_LIVE_DB: "true" 
         run: pnpm test:canary
+
+      - name: Cleanup Canary User
+        if: always() # Run even if tests fail
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CANARY_EMAIL: canary-${{ github.run_id }}@speaksharp.app
+        run: node scripts/cleanup-canary.mjs
 
       - name: Upload Report
         if: always()

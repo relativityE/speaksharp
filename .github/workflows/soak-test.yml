@@ -22,22 +22,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - uses: pnpm/action-setup@v4
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
         with:
-          run_install: |
-            - recursive: true
-              args: [--frozen-lockfile, --strict-peer-dependencies]
-      
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Install Playwright Browsers
-        run: pnpm exec playwright install chromium --with-deps
+          install-playwright: 'true'
       
       - name: Run soak test
         env:
