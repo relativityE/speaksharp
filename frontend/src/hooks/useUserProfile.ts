@@ -59,16 +59,11 @@ export const useUserProfile = (options: UseUserProfileOptions = {}) => {
         }
 
         // Signal for E2E tests that the profile is settled and available on the window
-        const win = window as unknown as {
-          __E2E_CONTEXT__?: boolean;
-          TEST_MODE?: boolean;
-          __e2eProfileLoaded__?: boolean;
-          dispatchEvent: (e: Event) => void
-        };
-
-        if (typeof window !== 'undefined' && IS_TEST_ENVIRONMENT) {
-          win.__e2eProfileLoaded__ = true;
-          win.dispatchEvent(new CustomEvent('e2e:profile-loaded'));
+        // NOTE: Use __E2E_CONTEXT__ directly (not IS_TEST_ENVIRONMENT) because live tests
+        // don't set VITE_TEST_MODE=true, only VITE_USE_LIVE_DB=true.
+        if (typeof window !== 'undefined' && (window.__E2E_CONTEXT__ || window.TEST_MODE)) {
+          window.__e2eProfileLoaded__ = true;
+          window.dispatchEvent(new CustomEvent('e2e:profile-loaded'));
           logger.debug('[E2E Signal] Profile loaded');
         }
 

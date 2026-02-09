@@ -640,7 +640,7 @@ export async function verifyCredentialsAndInjectSession(
     // Hardening: wait for profile loaded flag first to ensure navigation has settled
     await debugWait(
       'Profile Loaded Flag (Pro Verification)',
-      page.waitForFunction(() => !!(window as any).__e2eProfileLoaded__, null, { timeout: 15000 })
+      page.waitForFunction(() => !!window.__e2eProfileLoaded__, null, { timeout: 15000 })
     );
 
     await debugWait(
