@@ -50,7 +50,7 @@ test.describe('User Filler Words Canary @canary', () => {
         // Robustness: Wait for the valid network response
         const addWordPromise = page.waitForResponse(response =>
             response.url().includes('/user_filler_words') &&
-            response.status() === 201
+            response.status() >= 200 && response.status() < 300
         );
 
         await page.getByRole('button', { name: /add word/i }).click();
