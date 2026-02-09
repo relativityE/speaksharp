@@ -89,6 +89,8 @@ export const UserFillerWordsManager: React.FC<UserFillerWordsManagerProps> = ({ 
                         disabled={!newWord.trim() || isAdding || isAtLimit}
                         aria-label="Add word"
                         className="h-8 w-8 p-0"
+                        data-testid="user-filler-words-add-button"
+                        onClick={() => logger.info('[UserFillerWordsManager] Add Button Clicked')}
                     >
                         <Plus className="h-4 w-4" />
                     </Button>
