@@ -64,11 +64,10 @@ test.describe('User Filler Words Canary @canary', () => {
         await page.getByTestId(TEST_IDS.USER_FILLER_WORDS_INPUT).fill('CanaryBoostTest');
 
         // Robustness: Wait for the valid network response (Non-blocking)
-        // Note: validating response helps debug, but we don't await it to avoid blocking UI tests
         const addWordPromise = page.waitForResponse(response =>
             response.url().includes('/user_filler_words') &&
             response.status() >= 200 && response.status() < 300
-        ).catch(() => null);
+        );
 
         // Robust mechanism to click
         const addBtn = page.getByTestId('user-filler-words-add-button').or(page.getByRole('button', { name: /add word/i }));
@@ -82,21 +81,13 @@ test.describe('User Filler Words Canary @canary', () => {
 
         // Expert Verification: Ensure backend returned the single inserted record
         if (Array.isArray(body)) {
-            expect(body).toHaveLength(1); // Standard .select() returns array unless .single() used?
-            // Wait, I used .single() in the hook.
-            // If I used .single(), Supabase returns Object.
-            // But Network Response might be different?
-            // PostgREST with Accept: application/vnd.pgrst.object+json returns Object.
-            // Supabase Client handles this. 
-            // Let's inspect body structure if we aren't sure.
-            // If .select().single() is used, the response body is usually the object.
-            // But if we used standard .insert().select(), it is array.
-            // My hook (Step 11375) used .single().
+            expect(body).toHaveLength(1);
+            // Verify the word matches (case-insensitive due to DB normalization)
+            expect(body[0].word.toLowerCase()).toBe('canaryboosttest');
+        } else {
+            // Fallback if .single() returned object
+            expect(body.word.toLowerCase()).toBe('canaryboosttest');
         }
-        // Let's assume object if single(), or array if not.
-        // Actually, safer to just check visibility first. 
-        // But to follow instructions:
-        expect(JSON.stringify(body)).toContain('CanaryBoostTest');
 
         // Assertion: Item should appear immediately (from .select() response injected into cache)
         const badges = page.getByTestId('filler-word-badge');
