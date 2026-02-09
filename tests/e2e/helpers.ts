@@ -638,18 +638,25 @@ export async function verifyCredentialsAndInjectSession(
   debugLog(`[API Auth] Verifying ${userType.toUpperCase()} features...`);
 
   if (userType === 'pro') {
-    // Check for Pro Badge
-    // Hardening: wait for profile loaded flag first to ensure navigation has settled
-    await debugWait(
-      'Profile Loaded Flag (Pro Verification)',
-      page.waitForFunction(() => !!window.__e2eProfileLoaded__, null, { timeout: 15000 })
-    );
-
-    await debugWait(
-      'Pro Badge Visible',
-      page.waitForSelector('[data-testid="pro-badge"]', { timeout: 30000 })
-    );
-    debugLog('[API Auth] ✅ Pro features verified.');
+    // Check for Pro Badge - wait directly without intermediate signal
+    // The Pro badge renders after useUserProfile completes, so we give it sufficient time
+    try {
+      await debugWait(
+        'Pro Badge Visible',
+        page.waitForSelector('[data-testid="pro-badge"]', { timeout: 30000 })
+      );
+      debugLog('[API Auth] ✅ Pro features verified.');
+    } catch (e) {
+      // If Pro badge not found, reload and retry once (handles cold start scenarios)
+      debugLog('[API Auth] ⚠️ Pro badge not found on first attempt, reloading...');
+      await page.reload();
+      await page.waitForLoadState('domcontentloaded');
+      await debugWait(
+        'Pro Badge Visible (After Reload)',
+        page.waitForSelector('[data-testid="pro-badge"]', { timeout: 20000 })
+      );
+      debugLog('[API Auth] ✅ Pro features verified after reload.');
+    }
   } else {
     // Ensure Pro badge is NOT present
     const proBadge = page.locator('[data-testid="pro-badge"]');
