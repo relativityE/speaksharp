@@ -228,11 +228,17 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 ---
 
 <!-- SQM:START -->
-## 7. Software Quality Metrics
+## 6. Software Quality Metrics
 
-**Last Updated:** Mon, 09 Feb 2026 04:06:08 GMT
+**Last Updated:** Mon, 09 Feb 2026 09:59:40 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
+
+**Metric Definitions:**
+- **Total Source Size:** Sum of all code in src, backend, tests, docs, and scripts.
+- **Total Project Size:** Total disk footprint including node_modules and assets.
+- **Initial Chunk Size:** The size of the largest initial JavaScript bundle.
+- **Code Bloat Index:** Ratio of Initial Chunk Size to Total Source Size (lower is better).
 
 ---
 
@@ -240,14 +246,15 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 539 (478 unit + 61 E2E) |
+| Total tests             | 602 (478 unit + 124 E2E) |
 | Unit tests              | 478   |
-| E2E tests (Playwright)  | 61    |
-| Passing tests           | 539 (478 unit + 61 E2E) |
-| Failing tests           | 0     |
-| Disabled/skipped tests  | 1     |
-| Passing unit tests      | 478/478 (100.0%) |
-| Passing E2E tests       | 61/61 (100.0%) |
+| E2E tests (Playwright)  | 124  |
+| Passing tests           | 538 (478 unit + 60 E2E)   |
+| Failing tests           | 0   |
+| Disabled/skipped tests  | 64 (E2E only)   |
+| Passing unit tests      | 478/478 (100.0%)   |
+| Passing E2E tests       | 60/124 (48.4%)   |
+| Total runtime           | See CI logs   |
 
 ---
 
@@ -255,10 +262,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | 61.34% |
-| Branches   | 75.21% |
-| Functions  | 73.63% |
-| Lines      | 61.34% |
+| Statements | 61.96%   |
+| Branches   | 75.21%   |
+| Functions  | 73.81%   |
+| Lines      | 61.96%   |
 
 ---
 
@@ -266,11 +273,11 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric              | Value |
 | ------------------- | ----- |
-| Total Source Size   | 6.1M   |
-| Total Project Size  | 2.3G   |
+| Total Source Size   | 6.4M   |
+| Total Project Size  | 1.3G   |
 | Initial Chunk Size  | 496K   |
 | Code Bloat Index    | 7.58%   |
-| Lighthouse Scores   | P: 94, A: 94, BP: 93, SEO: 91 |
+| Lighthouse Scores   | P: 0, A: 0, BP: 0, SEO: 0 |
 
 ---
 <!-- SQM:END -->
