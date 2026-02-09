@@ -120,10 +120,26 @@ jobs:
       - name: Run Lighthouse CI
         continue-on-error: true
         run: |
+          # Debug: Verify build artifacts exist
+          echo "=== Build artifacts check ==="
+          ls -la frontend/ || echo "frontend/ not found"
+          ls -la frontend/dist/ || echo "frontend/dist/ not found"
+          
+          # Debug: Verify preview command works
+          echo "=== Preview server test ==="
+          cd frontend && timeout 10 pnpm preview --port 4173 &
+          sleep 5
+          curl -s http://127.0.0.1:4173/ | head -20 || echo "Preview server not responding"
+          cd ..
+          
+          # Run LHCI
           mkdir -p .lighthouseci
           node scripts/generate-lhci-config.js
-          npx lhci autorun --config=lighthouserc.json || echo "LHCI failed but continuing for report upload"
-          ls -la .lighthouseci/ || echo "No reports generated"
+          npx lhci autorun --config=lighthouserc.json 2>&1 || echo "LHCI failed"
+          
+          # Debug: Check what was created
+          echo "=== LHCI output check ==="
+          ls -la .lighthouseci/ || echo "No .lighthouseci directory"
 
       - name: Upload Lighthouse Report
         if: always()

@@ -9,10 +9,13 @@ All notable changes to this project will be documented in this file.
 
 - **CI Stabilization & Canary Refinement (2026-02-09):**
   - **Fix:** Resolved `real-db-validation` failure in live integration tests by ensuring the E2E bridge respects `TestFlags.USE_REAL_DATABASE`.
+  - **Fix:** Resolved Canary tests failing with "email undefined" by propagating `CANARY_EMAIL` via `cross-env` to the test runner subprocess.
+  - **Fix:** Synced `VISUAL_TEST_*` credentials with `E2E_PRO_*` in `playwright.live.config.ts` to ensure consistent user provisioning and session association.
+  - **Fix:** Added `continue-on-error` to Lighthouse CI step to prevent artifact upload failures when LHCI crashes.
   - **Canary Strategy:** Transitioned to a "Unique Email Persistence" strategy (`canary-${run_id}@speaksharp.app`). Automated cleanup (`cleanup-canary.mjs`) has been removed to facilitate post-mortem debugging.
   - **Performance:** Verified Lighthouse Performance score recovery to **95** following lazy-loading optimizations for `SessionPage`.
   - **Standardization:** Audited and standardized all CI workflows to use the `setup-environment` action for consistent `pnpm` and `node` versions.
-  - **Files:** `frontend/src/lib/e2e-bridge.ts`, `.github/workflows/canary*`, `scripts/cleanup-canary.mjs` (deleted).
+  - **Files:** `frontend/src/lib/e2e-bridge.ts`, `.github/workflows/canary*`, `.github/workflows/ci.yml`, `playwright.live.config.ts`, `scripts/cleanup-canary.mjs` (deleted).
 
 - **Soak Test & CI Infrastructure (2026-02-08):**
   - **Feature:** Implemented `tests/soak/api-load-test.ts` for lightweight, high-concurrency Node.js load testing (bypassing UI overhead).

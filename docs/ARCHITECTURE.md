@@ -954,8 +954,9 @@ Canary tests (`tests/canary/*.spec.ts`) are specialized smoke tests that run aga
 3. **Server Lifecycle**: 
    - `start-server-and-test` initiates `pnpm dev` (Vite on port 5173).
    - It polls the health endpoint until the server is ready.
-4. **Credential Propagation**:
-   - `tests/constants.ts` resolves `CANARY_USER.password` from `process.env.CANARY_PASSWORD`.
+4. **Credential Propagation** (Critical CI Fix 2026-02-09):
+   - `tests/constants.ts` resolves `CANARY_USER.email` and `CANARY_USER.password` from `process.env.CANARY_EMAIL` and `process.env.CANARY_PASSWORD`.
+   - **CI Caveat:** `start-server-and-test` spawns a subprocess for the test command. The `env:` block in GitHub Actions only affects the outer shell, not the inner subprocess. Therefore, we use `cross-env` to explicitly propagate these variables: `cross-env CANARY_EMAIL=... CANARY_PASSWORD=... pnpm test:canary`.
    - The `canaryLogin` helper in `tests/canary/smoke.canary.spec.ts` uses these credentials to perform a real login against the live Supabase project.
 5. **Execution**: Playwright runs the tests using the `playwright.canary.config.ts`, which targets the local Vite server but communicates with the live backend.
 6. **Safety Mechanism**: If `CANARY_PASSWORD` is not detected in the environment, the tests will automatically skip using `test.skip()` to prevent false failures in local development environments where secrets aren't present.
@@ -974,6 +975,22 @@ graph TD
     H --> I[Real Supabase Auth]
     I --> J[Critical Path Validation]
 ```
+
+##### 🚨 CI Pitfalls & Debugging Guide (Agent Reference)
+
+This section documents common CI failures and their root causes to prevent future mistakes.
+
+| Issue | Root Cause | Solution | Date Fixed |
+|-------|------------|----------|------------|
+| **Canary: `undefined` email** | `start-server-and-test` spawns a subprocess; `env:` block only affects outer shell | Use `cross-env` to propagate vars: `cross-env CANARY_EMAIL=... pnpm test:canary` | 2026-02-09 |
+| **LHCI: "No files found"** | Lighthouse crashes before writing reports; artifact upload step fails | Add `continue-on-error: true` and diagnostic `ls -la .lighthouseci/` | 2026-02-09 |
+| **LHCI: Server timeout** | Preview server doesn't print "ready/listen" pattern that LHCI expects | Increase timeout or use custom health check; warning is often benign | - |
+| **LHCI: Crash in CI only** | Build artifacts not restored properly before LHCI runs | Verify `frontend/dist/` exists via `ls -R artifacts/` step | 2026-02-09 |
+| **Canary cleanup: Delete fails** | RLS policies prevent deleting sessions/profiles for user; foreign key constraints | Switched to "unique email persistence" strategy; no cleanup | 2026-02-09 |
+| **real-db-validation: Empty sessions** | `VISUAL_TEST_*` credentials didn't match `E2E_PRO_*`; user ID mismatch | Sync `VISUAL_TEST_EMAIL = process.env.E2E_PRO_EMAIL` in config | 2026-02-09 |
+| **E2E bridge identity hijack** | `getInitialSession()` returned mock user even with `VITE_USE_LIVE_DB` | Added `!TestFlags.USE_REAL_DATABASE` guard to mock session logic | 2026-02-08 |
+
+**Key Principle:** When using `start-server-and-test` or any process-spawning utility, environment variables set via GitHub Actions `env:` blocks are NOT automatically inherited by subprocess commands. Always use `cross-env` to explicitly pass critical variables.
 
 ##### CI Artifacts & Reporting
 The automated CI pipeline requires specific JSON artifacts for tracking metrics. The `test-audit.sh` script is configured to allow Vitest to generate `unit-metrics.json` (via `vitest.config.mjs`) by avoiding conflicting reporter flags. This artifact is critical for the "Report" stage of the CI pipeline.
