@@ -808,6 +808,25 @@ pnpm pw:install:all   # All Playwright browsers (optional)
 - run: pnpm exec playwright install chromium --with-deps  # Explicit browser install
 ```
 
+### Standardized Environment Setup (2026-02-09)
+
+All CI workflows now use the `.github/actions/setup-environment` composite action to ensure consistent tooling across all pipelines.
+
+**The `setup-environment` Action:**
+- **Location:** `.github/actions/setup-environment/action.yml`
+- **Purpose:** Provides a single source of truth for Node.js and pnpm versions.
+- **pnpm Version Source:** Reads `packageManager` from `package.json` (e.g., `pnpm@10.3.0`).
+
+**Workflows Using This Action:**
+- `ci.yml` (Main CI)
+- `canary.yml` (Production Smoke)
+- `canary-staging.yml` (Staging Smoke)
+- `soak-test.yml` (Load Testing)
+- `stripe-checkout-test.yml`
+- `setup-test-users.yml`
+
+**Rationale:** Prior to this standardization, some workflows used `pnpm@10.3.0` while others used `pnpm@9.x`, causing `ERR_PNPM_OUTDATED_LOCKFILE` failures and inconsistent `node_modules` states.
+
 ### CI/CD Pipeline
 
 The CI pipeline, defined in `.github/workflows/ci.yml`, is a multi-stage, parallelized workflow designed for fast feedback and efficient use of resources.
