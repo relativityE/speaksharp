@@ -27,7 +27,7 @@ test.describe('Schema Canary: Database Contract Validation @canary', () => {
 
         debugLog('🔍 Checking user_profiles schema integrity via UI exposure');
 
-        await navigateToRoute(page, ROUTES.SESSION);
+        await navigateToRoute(page, ROUTES.SESSION, { waitForMocks: false });
         await page.waitForSelector(`[data-testid="${TEST_IDS.APP_MAIN}"]`);
 
         // Check subscription tier indicators which are derived from user_profiles.subscription_status
@@ -58,7 +58,7 @@ test.describe('Schema Canary: Database Contract Validation @canary', () => {
             response.request().method() === 'GET'
             , { timeout: 20000 });
 
-        await navigateToRoute(page, ROUTES.ANALYTICS);
+        await navigateToRoute(page, ROUTES.ANALYTICS, { waitForMocks: false });
 
         const sessionResponse = await sessionPromise;
         const sessions = await sessionResponse.json();

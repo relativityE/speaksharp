@@ -27,7 +27,7 @@ test.describe('User Filler Words Canary @canary', () => {
         await canaryLogin(page, CANARY_USER.email, CANARY_USER.password);
 
         // 2. Navigate to Session and add custom word
-        await navigateToRoute(page, ROUTES.SESSION);
+        await navigateToRoute(page, ROUTES.SESSION, { waitForMocks: false });
         const settingsBtn = page.getByTestId(TEST_IDS.SESSION_SETTINGS_BUTTON);
         await expect(settingsBtn).toBeVisible({ timeout: 15000 });
         await settingsBtn.click();

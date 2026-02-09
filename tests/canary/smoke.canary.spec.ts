@@ -36,7 +36,7 @@ test.describe('Production Smoke Canary @canary', () => {
         await canaryLogin(page, CANARY_USER.email, CANARY_USER.password);
 
         // 2. Navigate to Session Page (use client-side navigation to preserve state)
-        await navigateToRoute(page, ROUTES.SESSION);
+        await navigateToRoute(page, ROUTES.SESSION, { waitForMocks: false });
         await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeVisible({ timeout: 15000 });
 
         // 3. Configure for Native STT (Free/Low Risk)
