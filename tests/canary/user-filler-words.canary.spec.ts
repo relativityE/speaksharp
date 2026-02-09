@@ -56,7 +56,8 @@ test.describe('User Filler Words Canary @canary', () => {
         await page.getByRole('button', { name: /add word/i }).click();
         await addWordPromise;
 
-        await expect(page.getByTestId('filler-word-badge').filter({ hasText: /canaryboosttest/i })).toBeVisible({ timeout: 10000 });
+        // Optimization: Badge should appear immediately after 201 response
+        await expect(page.getByTestId('filler-word-badge').filter({ hasText: /canaryboosttest/i })).toBeVisible({ timeout: 3000 });
         logStep('Word Added & Verified');
 
         // Close settings
