@@ -22,6 +22,9 @@ process.env.E2E_PRO_EMAIL = process.env.E2E_PRO_EMAIL || 'test-user@example.com'
 process.env.E2E_PRO_PASSWORD = process.env.E2E_PRO_PASSWORD || 'password123';
 process.env.REAL_WHISPER_TEST = 'true';
 process.env.VITE_USE_LIVE_DB = 'true';
+// Sync VISUAL_TEST vars with E2E_PRO to use consistent, pre-provisioned users
+process.env.VISUAL_TEST_EMAIL = process.env.E2E_PRO_EMAIL;
+process.env.VISUAL_TEST_PASSWORD = process.env.E2E_PRO_PASSWORD;
 
 export default defineConfig({
     ...baseConfig,
@@ -54,9 +57,9 @@ export default defineConfig({
             E2E_FREE_PASSWORD: process.env.E2E_FREE_PASSWORD || 'password123',
             E2E_PRO_EMAIL: process.env.E2E_PRO_EMAIL || 'test-user@example.com',
             E2E_PRO_PASSWORD: process.env.E2E_PRO_PASSWORD || 'password123',
-            // Use the static user for visual analytics test
-            VISUAL_TEST_EMAIL: 'test-user@example.com',
-            VISUAL_TEST_PASSWORD: 'password123',
+            // Sync with E2E_PRO for consistency
+            VISUAL_TEST_EMAIL: process.env.E2E_PRO_EMAIL || 'test-user@example.com',
+            VISUAL_TEST_PASSWORD: process.env.E2E_PRO_PASSWORD || 'password123',
             VISUAL_TEST_USER_TYPE: 'pro',
             VISUAL_TEST_BASE_URL: BASE_URL,
         },
