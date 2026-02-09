@@ -22,7 +22,7 @@ const config = {
         },
         upload: {
             target: 'filesystem',
-            outputDir: './.lighthouseci',
+            outputDir: './lighthouse-results',
             reportFilenamePattern: '%%PATHNAME%%-%%DATETIME%%-report.%%EXTENSION%%',
         },
     },

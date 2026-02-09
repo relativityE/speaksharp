@@ -584,6 +584,7 @@ export async function verifyCredentialsAndInjectSession(
   }
 
   debugLog(`[API Auth] ✅ Credentials valid. User ID: ${user.id}`);
+  debugLog(`[API Auth] User Metadata:`, JSON.stringify(user.user_metadata, null, 2));
 
   // 2. Session Injection
   // Construct the local storage key. Default is `sb-<project_ref>-auth-token`

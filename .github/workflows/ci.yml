@@ -132,20 +132,19 @@ jobs:
           lsof -i :4173 || echo "Port 4173 is free"
           
           # Run LHCI
-          mkdir -p .lighthouseci
+          mkdir -p lighthouse-results
           node scripts/generate-lhci-config.js
-          npx lhci autorun --config=lighthouserc.json 2>&1 || echo "LHCI failed"
+          npx lhci autorun
           
-          # Debug: Check what was created
-          echo "=== LHCI output check ==="
-          ls -la .lighthouseci/ || echo "No .lighthouseci directory"
+          echo "=== LHCI Results Debug ==="
+          ls -R lighthouse-results || echo "Directory empty or missing"
 
       - name: Upload Lighthouse Report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: lighthouse-report
-          path: .lighthouseci/
+          path: lighthouse-results/
           retention-days: 30
           if-no-files-found: warn
 
