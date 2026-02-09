@@ -315,7 +315,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro,
 };
 
 export const AnalyticsDashboardSkeleton: React.FC = () => (
-    <div className="space-y-8 animate-pulse" data-testid="analytics-dashboard-skeleton">
+    <div className="space-y-8 animate-pulse" data-testid={TEST_IDS.ANALYTICS_SKELETON}>
         <div className="grid gap-6 md:grid-cols-3">
             <Card><CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0"><Skeleton className="h-5 w-2/5" /></CardHeader><CardContent><Skeleton className="h-8 w-1/3" /></CardContent></Card>
             <Card><CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0"><Skeleton className="h-5 w-4/5" /></CardHeader><CardContent><Skeleton className="h-8 w-1/3" /></CardContent></Card>
@@ -610,13 +610,13 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         href: "/session"
                     }}
                     icon={<BarChart className="w-10 h-10 text-primary" />}
-                    testId="analytics-dashboard-empty-state"
+                    testId={TEST_IDS.ANALYTICS_EMPTY_STATE}
                     // Subtle upgrade option for FREE users - triggers Stripe checkout directly
                     secondaryAction={!isProUser ? {
                         prefix: "Want unlimited sessions?",
                         label: "Upgrade to Pro",
                         onClick: onUpgrade,
-                        testId: "analytics-dashboard-upgrade-button"
+                        testId: TEST_IDS.ANALYTICS_UPGRADE_BUTTON
                     } : undefined}
                 />
             ) : (

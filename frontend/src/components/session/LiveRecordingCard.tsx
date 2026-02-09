@@ -67,6 +67,7 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
                             size="sm"
                             className="gap-2 text-muted-foreground hover:text-foreground disabled:opacity-80"
                             title={isListening ? "Cannot change mode during recording" : "Select transcription mode"}
+                            data-testid={TEST_IDS.STT_MODE_SELECT}
                         >
                             {getModeLabel(mode)}
                             {!isListening && <ChevronDown className="h-4 w-4" />}
@@ -74,11 +75,11 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                         <DropdownMenuRadioGroup value={mode} onValueChange={(v) => onModeChange(v as RecordingMode)}>
-                            <DropdownMenuRadioItem value="native">Native (Browser)</DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="native" data-testid={TEST_IDS.STT_MODE_NATIVE}>Native (Browser)</DropdownMenuRadioItem>
                             <DropdownMenuRadioItem value="private" disabled={!isProUser}>
                                 Private {!isProUser && '(Pro)'}
                             </DropdownMenuRadioItem>
-                            <DropdownMenuRadioItem value="cloud" disabled={!isProUser}>
+                            <DropdownMenuRadioItem value="cloud" disabled={!isProUser} data-testid={TEST_IDS.STT_MODE_CLOUD}>
                                 Cloud {!isProUser && '(Pro)'}
                             </DropdownMenuRadioItem>
                         </DropdownMenuRadioGroup>

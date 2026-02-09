@@ -151,7 +151,7 @@ const Navigation = () => {
                     <Badge
                       variant="secondary"
                       className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white border-none shadow-sm animate-in fade-in zoom-in duration-300 px-3 py-1"
-                      data-testid="pro-badge"
+                      data-testid={TEST_IDS.PRO_BADGE}
                     >
                       <Zap className="w-3 h-3 mr-1 fill-current" />
                       PRO

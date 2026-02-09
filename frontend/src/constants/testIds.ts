@@ -45,9 +45,16 @@ export const TEST_IDS = {
     ANALYTICS_SKELETON: 'analytics-dashboard-skeleton',
     ANALYTICS_UPGRADE_BUTTON: 'analytics-dashboard-upgrade-button',
     SESSION_HISTORY_LIST: 'session-history-list',
+    ANALYTICS_EMPTY_STATE: 'analytics-dashboard-empty-state',
     SESSION_HISTORY_ITEM: 'session-history-item', // Base for dynamic IDs: session-history-item-${id}
     COMPARE_CHECKBOX: 'compare-checkbox',
     STAT_CARD_TOTAL_SESSIONS: 'stat-card-total_sessions',
+    PRO_BADGE: 'pro-badge',
+
+    // Session Settings / Mode Select
+    STT_MODE_SELECT: 'stt-mode-select',
+    STT_MODE_NATIVE: 'stt-mode-native',
+    STT_MODE_CLOUD: 'stt-mode-cloud',
 
     // Landing page
     HERO_SECTION: 'hero-section',

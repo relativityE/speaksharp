@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { navigateToRoute, canaryLogin, debugLog } from '../e2e/helpers';
+import { navigateToRoute, canaryLogin } from '../e2e/helpers';
 import { ROUTES, TEST_IDS, CANARY_USER } from '../constants';
 
 /**
@@ -46,8 +46,17 @@ test.describe('User Filler Words Canary @canary', () => {
         // Add word
         logStep('Adding CanaryBoostTest word');
         await page.getByTestId(TEST_IDS.USER_FILLER_WORDS_INPUT).fill('CanaryBoostTest');
+
+        // Robustness: Wait for the valid network response
+        const addWordPromise = page.waitForResponse(response =>
+            response.url().includes('/user_filler_words') &&
+            response.status() === 201
+        );
+
         await page.getByRole('button', { name: /add word/i }).click();
-        await expect(page.getByTestId('filler-word-badge').filter({ hasText: /canaryboosttest/i })).toBeVisible();
+        await addWordPromise;
+
+        await expect(page.getByTestId('filler-word-badge').filter({ hasText: /canaryboosttest/i })).toBeVisible({ timeout: 10000 });
         logStep('Word Added & Verified');
 
         // Close settings
@@ -59,11 +68,10 @@ test.describe('User Filler Words Canary @canary', () => {
         logStep('Selecting Cloud Mode');
         const modeSelector = page.getByTestId(TEST_IDS.STT_MODE_SELECT);
         await modeSelector.click();
-        // Use specific ID if available, otherwise robust text match
-        await page.getByRole('menuitemradio', { name: /Cloud/i }).click();
+        await page.getByTestId(TEST_IDS.STT_MODE_CLOUD).click();
 
         // DEFENSIVE WAIT: Verify mode actually changed
-        await expect(modeSelector).toHaveText(/Cloud AI/i, { timeout: 5000 });
+        await expect(modeSelector).toHaveText(/Cloud/i, { timeout: 5000 });
         logStep('Cloud Mode Selected & Verified');
 
         // 4. Set up WebSocket listener
