@@ -23,7 +23,8 @@ test.describe('User Filler Words Canary @canary', () => {
      * Tests that custom vocabulary is correctly sent to AssemblyAI via word_boost param.
      */
     test('should pass custom words to Cloud STT engine (High Fidelity)', async ({ page }) => {
-        const logStep = (step: string) => debugLog(`[${new Date().toISOString()}] [CANARY-STEP] ${step}`);
+        // Use console.warn to ensure logs appear in CI stdout (debugLog is suppressed without E2E_DEBUG)
+        const logStep = (step: string) => console.warn(`[${new Date().toISOString()}] [CANARY-STEP] ${step}`);
 
         test.setTimeout(130000); // Keeping high timeout for debugging, but logging will reveal actual times
 
@@ -56,9 +57,14 @@ test.describe('User Filler Words Canary @canary', () => {
 
         // 3. Select Cloud Mode
         logStep('Selecting Cloud Mode');
-        await page.getByRole('button', { name: /Native|Cloud AI|Private|On-Device/i }).click();
+        const modeSelector = page.getByTestId(TEST_IDS.STT_MODE_SELECT);
+        await modeSelector.click();
+        // Use specific ID if available, otherwise robust text match
         await page.getByRole('menuitemradio', { name: /Cloud/i }).click();
-        logStep('Cloud Mode Selected');
+
+        // DEFENSIVE WAIT: Verify mode actually changed
+        await expect(modeSelector).toHaveText(/Cloud AI/i, { timeout: 5000 });
+        logStep('Cloud Mode Selected & Verified');
 
         // 4. Set up WebSocket listener
         logStep('Setting up WebSocket Listener');
@@ -74,21 +80,25 @@ test.describe('User Filler Words Canary @canary', () => {
 
         // 5. Start Session
         logStep('Clicking Start Session');
-        await page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON).click();
-        logStep('Start Session Clicked');
+        const startStopBtn = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
+        await startStopBtn.click();
+
+        // DEFENSIVE WAIT: Verify recording actually started (Button changes to STOP)
+        await expect(startStopBtn).toHaveText(/Stop/i, { timeout: 10000 });
+        logStep('Start Session Clicked & Recording Verified');
 
         // 6. Verify WebSocket
         const ws = await wsPromise;
         logStep('WebSocket Promise Resolved');
         const wsUrl = ws.url();
-        debugLog(`[CANARY] 📡 Captured Cloud STT WebSocket: ${wsUrl} `);
+        console.warn(`[CANARY] 📡 Captured Cloud STT WebSocket: ${wsUrl} `);
 
         expect(wsUrl).toContain('boost_param');
         const decodedUrl = decodeURIComponent(wsUrl);
         expect(decodedUrl.toLowerCase()).toContain('canaryboosttest');
 
         logStep('Stopping Session');
-        await page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON).click();
+        await startStopBtn.click();
         logStep('Test Complete');
     });
 });
