@@ -2,8 +2,8 @@
   {
     "url": "http://127.0.0.1:4173/",
     "isRepresentativeRun": false,
-    "htmlPath": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/lighthouse-results/-2026_02_09_20_36_29-report.html",
-    "jsonPath": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/lighthouse-results/-2026_02_09_20_36_29-report.json",
+    "htmlPath": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/lighthouse-results/-2026_02_10_00_52_45-report.html",
+    "jsonPath": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/lighthouse-results/-2026_02_10_00_52_45-report.json",
     "summary": {
       "performance": 0.95,
       "accessibility": 0.94,
@@ -14,8 +14,8 @@
   {
     "url": "http://127.0.0.1:4173/",
     "isRepresentativeRun": false,
-    "htmlPath": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/lighthouse-results/-2026_02_09_20_36_42-report.html",
-    "jsonPath": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/lighthouse-results/-2026_02_09_20_36_42-report.json",
+    "htmlPath": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/lighthouse-results/-2026_02_10_00_53_09-report.html",
+    "jsonPath": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/lighthouse-results/-2026_02_10_00_53_09-report.json",
     "summary": {
       "performance": 0.95,
       "accessibility": 0.94,
@@ -26,8 +26,8 @@
   {
     "url": "http://127.0.0.1:4173/",
     "isRepresentativeRun": true,
-    "htmlPath": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/lighthouse-results/-2026_02_09_20_36_53-report.html",
-    "jsonPath": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/lighthouse-results/-2026_02_09_20_36_53-report.json",
+    "htmlPath": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/lighthouse-results/-2026_02_10_00_52_57-report.html",
+    "jsonPath": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/lighthouse-results/-2026_02_10_00_52_57-report.json",
     "summary": {
       "performance": 0.95,
       "accessibility": 0.94,
