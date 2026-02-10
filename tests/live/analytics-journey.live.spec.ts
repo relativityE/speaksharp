@@ -67,32 +67,48 @@ test.describe('Visual Analytics & Private STT (Real-User Flow)', () => {
         }
 
         console.log(`🔄 Provisioning unique user (${testEmail}) via Edge Function...`);
-        try {
-            const response = await fetch(edgeFnUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${agentSecret}`,
-                    'apikey': `${process.env.VITE_SUPABASE_ANON_KEY}`
-                },
-                body: JSON.stringify({
-                    email: testEmail,
-                    password: testPassword,
-                    subscription_status: USER_TYPE
-                })
-            });
 
-            const text = await response.text();
-            if (response.ok) {
-                console.log('✅ User provisioned successfully.');
-            } else if (text.includes('already registered')) {
-                console.log('ℹ️ User already exists (assuming valid credentials).');
-            } else {
-                console.warn(`⚠️ Provisioning warning (Status ${response.status}): ${text}`);
-                console.log('⚠️ Continuing, but login may fail...');
+        // Resilience: Retry provisioning up to 3 times to handle Edge Function cold starts/500s
+        let provisionSuccess = false;
+        for (let i = 0; i < 3; i++) {
+            try {
+                const response = await fetch(edgeFnUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${agentSecret}`,
+                        'apikey': `${process.env.VITE_SUPABASE_ANON_KEY}`
+                    },
+                    body: JSON.stringify({
+                        email: testEmail,
+                        password: testPassword,
+                        subscription_status: USER_TYPE
+                    })
+                });
+
+                const text = await response.text();
+                if (response.ok) {
+                    console.log(`✅ User provisioned successfully (Attempt ${i + 1}).`);
+                    provisionSuccess = true;
+                    break;
+                } else if (text.includes('already registered')) {
+                    console.log('ℹ️ User already exists (assuming valid credentials).');
+                    provisionSuccess = true;
+                    break;
+                } else {
+                    console.warn(`⚠️ Provisioning warning (Attempt ${i + 1}, Status ${response.status}): ${text}`);
+                    if (response.status >= 500) await new Promise(r => setTimeout(r, 2000 * (i + 1))); // Backoff
+                }
+            } catch (e) {
+                console.warn(`⚠️ Failed to connect to Edge Function (Attempt ${i + 1}): ${e}`);
+                await new Promise(r => setTimeout(r, 2000));
             }
-        } catch (e) {
-            console.warn(`⚠️ Failed to connect to Edge Function for provisioning: ${e}`);
+        }
+
+        if (!provisionSuccess) {
+            console.error('❌ Provisioning failed after 3 attempts. Aborting test.');
+            // Fail the test early rather than timing out later
+            throw new Error('User Provisioning Failed');
         }
     });
 
