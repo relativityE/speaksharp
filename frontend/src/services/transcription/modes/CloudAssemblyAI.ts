@@ -111,10 +111,10 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
 
           if (words && words.length > 0) {
             const wordList = words.map(w => w.word);
-            // AssemblyAI expects JSON array for word_boost
+            // AssemblyAI v3 uses 'keyterms_prompt' (JSON Array)
             const encodedBoost = encodeURIComponent(JSON.stringify(wordList));
-            wsUrl += `&word_boost=${encodedBoost}`;
-            logger.info(`[CloudAssemblyAI] Boosting ${words.length} words.`);
+            wsUrl += `&keyterms_prompt=${encodedBoost}`;
+            logger.info(`[CloudAssemblyAI] Boosting ${words.length} words (v3 keyterms).`);
           }
         }
       } catch (boostError) {
