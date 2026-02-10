@@ -137,7 +137,8 @@ test.describe('User Filler Words Canary @canary', () => {
         const wsUrl = ws.url();
         console.warn(`[CANARY] 📡 Captured Cloud STT WebSocket: ${wsUrl} `);
 
-        expect(wsUrl).toContain('word_boost');
+        expect(wsUrl).toContain('v3');
+        expect(wsUrl).toContain('keyterms_prompt');
         const decodedUrl = decodeURIComponent(wsUrl);
         expect(decodedUrl.toLowerCase()).toContain('canaryboosttest');
 

@@ -79,7 +79,7 @@ export const useUserFillerWords = () => {
         },
         onSuccess: (newItem) => {
             // Expert Fix: Manually update cache with authoritative data from DB
-            queryClient.setQueryData(['user-filler-words', session?.user?.id], (old: any[] = []) => {
+            queryClient.setQueryData(['user-filler-words', session?.user?.id], (old: CustomWord[] = []) => {
                 return [...old, newItem];
             });
             toast.success('Word added to detection list');

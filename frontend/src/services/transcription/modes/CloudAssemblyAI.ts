@@ -148,8 +148,40 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
 
         try {
           if (typeof event.data === 'string') {
-            const data = JSON.parse(event.data) as AssemblyAIMessage;
-            this.handleMessage(data);
+            const data = JSON.parse(event.data);
+
+            // Hybrid Message Handling (V2 & V3 Adapter)
+            const msgType = data.type || data.message_type;
+            const transcript = data.transcript || data.text;
+
+            if (msgType === 'SessionBegins' || msgType === 'Begin') {
+              logger.info(`[CloudAssemblyAI] Session started. ID: ${data.session_id || data.id}`);
+            }
+            else if (msgType === 'PartialTranscript') {
+              if (transcript) this.onTranscriptUpdate({ transcript: { partial: transcript } });
+            }
+            else if (msgType === 'FinalTranscript') {
+              if (transcript) this.onTranscriptUpdate({ transcript: { final: transcript } });
+            }
+            else if (msgType === 'Turn') {
+              // V3 Turn Event Adapter
+              if (transcript) {
+                // Use end_of_turn if available, else partial
+                if (data.end_of_turn === true) {
+                  this.onTranscriptUpdate({ transcript: { final: transcript } });
+                } else {
+                  this.onTranscriptUpdate({ transcript: { partial: transcript } });
+                }
+              }
+            }
+            else if (msgType === 'SessionTerminated' || msgType === 'Termination') {
+              logger.info('[CloudAssemblyAI] Session terminated.');
+              this.stopTranscription();
+            }
+
+            if (data.error) {
+              logger.error({ error: data.error }, '[CloudAssemblyAI] API Error received');
+            }
           }
         } catch (err) {
           logger.error({ err, data: event.data }, '[CloudAssemblyAI] Failed to parse message');
