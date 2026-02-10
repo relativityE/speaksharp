@@ -97,7 +97,7 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
       const token = await this.fetchToken();
 
       // Expert Feature: Fetch user's custom filler words to boost accuracy
-      let wsUrl = `wss://api.assemblyai.com/v2/realtime/ws?sample_rate=16000&token=${token}`;
+      let wsUrl = `wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&token=${token}`;
 
       try {
         const supabase = getSupabaseClient();
