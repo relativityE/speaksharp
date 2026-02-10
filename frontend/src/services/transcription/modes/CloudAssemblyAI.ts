@@ -96,13 +96,31 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
 
       const token = await this.fetchToken();
 
-      // Guard: If connection ID changed while awaiting token, abort
-      if (currentConnectionId !== this.connectionId) {
-        logger.warn(`[CloudAssemblyAI] Connection ID mismatch after token fetch. Aborting connect for ID ${currentConnectionId}`);
-        return;
-      }
+      // Expert Feature: Fetch user's custom filler words to boost accuracy
+      let wsUrl = `wss://api.assemblyai.com/v2/realtime/ws?sample_rate=16000&token=${token}`;
 
-      const wsUrl = `wss://api.assemblyai.com/v2/realtime/ws?sample_rate=16000&token=${token}`;
+      try {
+        const supabase = getSupabaseClient();
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (session?.user?.id) {
+          const { data: words } = await supabase
+            .from('user_filler_words')
+            .select('word')
+            .eq('user_id', session.user.id);
+
+          if (words && words.length > 0) {
+            const wordList = words.map(w => w.word);
+            // AssemblyAI expects JSON array for word_boost
+            const encodedBoost = encodeURIComponent(JSON.stringify(wordList));
+            wsUrl += `&word_boost=${encodedBoost}`;
+            logger.info(`[CloudAssemblyAI] Boosting ${words.length} words.`);
+          }
+        }
+      } catch (boostError) {
+        // Non-critical: don't fail connection if boost fetch fails
+        logger.warn({ boostError }, '[CloudAssemblyAI] Failed to fetch/apply word boost.');
+      }
 
       this.socket = new WebSocket(wsUrl);
 
