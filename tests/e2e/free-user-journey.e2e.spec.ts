@@ -139,7 +139,7 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
         await expect(page.getByTestId('analytics-dashboard')).toBeVisible({ timeout: 30000 });
 
         // Free users should see upgrade options
-        const upgradeButton = page.getByTestId('analytics-dashboard-upgrade-button');
+        const upgradeButton = page.getByTestId('analytics-page-upgrade-button');
         await expect(upgradeButton).toBeVisible();
     });
 });

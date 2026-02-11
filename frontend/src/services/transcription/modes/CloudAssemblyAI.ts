@@ -96,31 +96,13 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
 
       const token = await this.fetchToken();
 
-      // Expert Feature: Fetch user's custom filler words to boost accuracy
-      let wsUrl = `wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&token=${token}`;
-
-      try {
-        const supabase = getSupabaseClient();
-        const { data: { session } } = await supabase.auth.getSession();
-
-        if (session?.user?.id) {
-          const { data: words } = await supabase
-            .from('user_filler_words')
-            .select('word')
-            .eq('user_id', session.user.id);
-
-          if (words && words.length > 0) {
-            const wordList = words.map(w => w.word);
-            // AssemblyAI v3 uses 'keyterms_prompt' (JSON Array)
-            const encodedBoost = encodeURIComponent(JSON.stringify(wordList));
-            wsUrl += `&keyterms_prompt=${encodedBoost}`;
-            logger.info(`[CloudAssemblyAI] Boosting ${words.length} words (v3 keyterms).`);
-          }
-        }
-      } catch (boostError) {
-        // Non-critical: don't fail connection if boost fetch fails
-        logger.warn({ boostError }, '[CloudAssemblyAI] Failed to fetch/apply word boost.');
+      // Guard: If connection ID changed while awaiting token, abort
+      if (currentConnectionId !== this.connectionId) {
+        logger.warn(`[CloudAssemblyAI] Connection ID mismatch after token fetch. Aborting connect for ID ${currentConnectionId}`);
+        return;
       }
+
+      const wsUrl = `wss://streaming.assemblyai.com/v3/realtime/ws?sample_rate=16000&token=${token}`;
 
       this.socket = new WebSocket(wsUrl);
 
@@ -148,40 +130,8 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
 
         try {
           if (typeof event.data === 'string') {
-            const data = JSON.parse(event.data);
-
-            // Hybrid Message Handling (V2 & V3 Adapter)
-            const msgType = data.type || data.message_type;
-            const transcript = data.transcript || data.text;
-
-            if (msgType === 'SessionBegins' || msgType === 'Begin') {
-              logger.info(`[CloudAssemblyAI] Session started. ID: ${data.session_id || data.id}`);
-            }
-            else if (msgType === 'PartialTranscript') {
-              if (transcript) this.onTranscriptUpdate({ transcript: { partial: transcript } });
-            }
-            else if (msgType === 'FinalTranscript') {
-              if (transcript) this.onTranscriptUpdate({ transcript: { final: transcript } });
-            }
-            else if (msgType === 'Turn') {
-              // V3 Turn Event Adapter
-              if (transcript) {
-                // Use end_of_turn if available, else partial
-                if (data.end_of_turn === true) {
-                  this.onTranscriptUpdate({ transcript: { final: transcript } });
-                } else {
-                  this.onTranscriptUpdate({ transcript: { partial: transcript } });
-                }
-              }
-            }
-            else if (msgType === 'SessionTerminated' || msgType === 'Termination') {
-              logger.info('[CloudAssemblyAI] Session terminated.');
-              this.stopTranscription();
-            }
-
-            if (data.error) {
-              logger.error({ error: data.error }, '[CloudAssemblyAI] API Error received');
-            }
+            const data = JSON.parse(event.data) as AssemblyAIMessage;
+            this.handleMessage(data);
           }
         } catch (err) {
           logger.error({ err, data: event.data }, '[CloudAssemblyAI] Failed to parse message');

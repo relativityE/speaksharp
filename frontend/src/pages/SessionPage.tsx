@@ -70,17 +70,25 @@ export const SessionPage: React.FC = () => {
     }
     if (!metrics) return <SessionPageSkeleton />;
 
-    // Derived display status for notification bar
-    const displayStatus: SttStatus = sessionFeedbackMessage
+    // EXECUTIVE PATTERN: Dual-State Status Derivation
+    // We no longer choose between "Recording" OR "Downloading".
+    // We pass "Recording" as the primary state, and "Downloading" as the secondary state (via progress).
+
+    // 1. Determine Primary Status (Session State)
+    const baseStatus: SttStatus = sessionFeedbackMessage
         ? {
-            type: sessionFeedbackMessage.startsWith('⚠️') || sessionFeedbackMessage.startsWith('⛔') ? 'error' : 'ready',
+            type: sessionFeedbackMessage.startsWith('⚠️') || sessionFeedbackMessage.startsWith('⛔') ? 'error' as const : 'ready' as const,
             message: sessionFeedbackMessage
         }
         : showAnalyticsPrompt
             ? { type: 'ready' as const, message: '✓ Session saved. Click Analytics above to review.' }
-            : modelLoadingProgress != null
-                ? { type: 'downloading' as const, message: 'Downloading model...', progress: modelLoadingProgress }
-                : sttStatus;
+            : sttStatus; // Always use the service status as primary (e.g., "Recording active")
+
+    // 2. Compose Final Status (Attach Background Progress)
+    const displayStatus: SttStatus = {
+        ...baseStatus,
+        progress: modelLoadingProgress ?? undefined
+    };
 
     return (
         <div className="min-h-screen bg-gradient-subtle pt-20">

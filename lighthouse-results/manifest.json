@@ -2,10 +2,10 @@
   {
     "url": "http://127.0.0.1:4173/",
     "isRepresentativeRun": false,
-    "htmlPath": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/lighthouse-results/-2026_02_10_01_09_37-report.html",
-    "jsonPath": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/lighthouse-results/-2026_02_10_01_09_37-report.json",
+    "htmlPath": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/lighthouse-results/-2026_02_11_19_13_14-report.html",
+    "jsonPath": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/lighthouse-results/-2026_02_11_19_13_14-report.json",
     "summary": {
-      "performance": 0.95,
+      "performance": 0.96,
       "accessibility": 0.94,
       "best-practices": 1,
       "seo": 0.91
@@ -14,8 +14,8 @@
   {
     "url": "http://127.0.0.1:4173/",
     "isRepresentativeRun": false,
-    "htmlPath": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/lighthouse-results/-2026_02_10_01_09_48-report.html",
-    "jsonPath": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/lighthouse-results/-2026_02_10_01_09_48-report.json",
+    "htmlPath": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/lighthouse-results/-2026_02_11_19_13_27-report.html",
+    "jsonPath": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/lighthouse-results/-2026_02_11_19_13_27-report.json",
     "summary": {
       "performance": 0.95,
       "accessibility": 0.94,
@@ -26,10 +26,10 @@
   {
     "url": "http://127.0.0.1:4173/",
     "isRepresentativeRun": true,
-    "htmlPath": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/lighthouse-results/-2026_02_10_01_09_26-report.html",
-    "jsonPath": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/lighthouse-results/-2026_02_10_01_09_26-report.json",
+    "htmlPath": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/lighthouse-results/-2026_02_11_19_13_01-report.html",
+    "jsonPath": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/lighthouse-results/-2026_02_11_19_13_01-report.json",
     "summary": {
-      "performance": 0.95,
+      "performance": 0.96,
       "accessibility": 0.94,
       "best-practices": 1,
       "seo": 0.91

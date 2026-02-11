@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { NavLink } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic } from 'lucide-react';
 import logger from '@/lib/logger';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -363,7 +363,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     });
 
     const isProUser = checkIsPro(profile?.subscription_status);
-    const isUpgradeBannerVisible = !isProUser;
 
     // Stat card selection state with localStorage persistence
     const [selectedStatCards, setSelectedStatCards] = useState<string[]>(() => {
@@ -621,22 +620,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                 />
             ) : (
                 <>
-                    {/* Upgrade Banner for Free Users */}
-                    {isUpgradeBannerVisible && (
-                        <Card className="bg-gradient-to-r from-primary/10 to-secondary/10 border-primary/20" data-testid="analytics-dashboard-upgrade-button">
-                            <CardContent className="flex flex-col sm:flex-row items-center justify-between p-6 gap-4">
-                                <div className="space-y-1 text-center sm:text-left">
-                                    <h3 className="font-semibold text-lg text-foreground">Upgrade to Pro</h3>
-                                    <p className="text-sm text-muted-foreground max-w-md">
-                                        Unlock unlimited sessions coverage, advanced PDF reports, and detailed filler word analysis.
-                                    </p>
-                                </div>
-                                <Button onClick={onUpgrade} className="w-full sm:w-auto gap-2 shadow-lg">
-                                    <span className="font-bold">Upgrade Now</span>
-                                </Button>
-                            </CardContent>
-                        </Card>
-                    )}
 
                     {/* Stats Section Header with Settings */}
                     <div className="flex items-center justify-between">

@@ -1,10 +1,10 @@
-import { useMemo, useCallback, useState, useRef } from 'react';
+import { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { useAuthProvider } from '../../contexts/AuthProvider';
 import { useNavigate } from 'react-router-dom';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { calculateTranscriptStats } from '../../utils/fillerWordUtils';
 import logger from '../../lib/logger';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { checkRateLimit } from '../../lib/rateLimiter';
 
 import { useTranscriptState } from './useTranscriptState';
@@ -51,8 +51,6 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
       const supabase = getSupabaseClient();
       if (!supabase) throw new Error("Supabase client not available");
 
-      // SECURITY FIX: Removed anonymous sign-in logic that polluted auth.users table
-      // Dev testing should use devBypass query parameter for mock sessions
       if (!authSession) {
         logger.warn('[getAssemblyAIToken] No auth session available - cannot fetch token');
         toast.error('Please sign in to use transcription features');
@@ -65,23 +63,27 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
       return data.token;
     } catch (err: unknown) {
       let errorMessage = err instanceof Error ? err.message : String(err);
-
-      // Parse Supabase Edge Function "non-2xx" error for better clarity
       if (errorMessage.includes("non-2xx")) {
         errorMessage = "Cloud STT Service Unavailable. The backend service returned an error.";
         logger.error({ originalError: err }, "Edge Function 500/Non-2xx Error");
       }
-
       logger.error({ err }, "Error getting AssemblyAI token");
-
-      // Show persistent toast for critical failure
       toast.error(errorMessage, {
-        duration: 5000, // 5 seconds
+        duration: 5000,
         description: "Please switch to Native mode or try again later."
       });
       return null;
     }
   }, [authSession]);
+
+  const handleModelLoadProgress = useCallback((progress: number | null) => {
+    if (progress === null) {
+      setModelLoadingProgress(null);
+      return;
+    }
+    const percentage = progress > 1 ? Math.min(Math.round(progress), 100) : Math.round(progress * 100);
+    setModelLoadingProgress(percentage);
+  }, []);
 
   const serviceOptions = useMemo(() => ({
     onTranscriptUpdate: (data: { transcript: { partial?: string; final?: string }; speaker?: string }) => {
@@ -90,13 +92,9 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
       }
       if (data.transcript?.final) {
         addChunk(data.transcript.final, data.speaker);
-
-        // INTELLIGENT CLEAR: If the final text is a prefix of the current interim,
-        // subtract it instead of clearing completely to avoid UI flickering.
         setInterimTranscript(prev => {
           const trimmedFinal = data.transcript.final?.trim() || '';
           const trimmedPrev = prev.trim();
-
           if (trimmedPrev.startsWith(trimmedFinal)) {
             const remainder = trimmedPrev.slice(trimmedFinal.length).trim();
             return remainder;
@@ -106,68 +104,68 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
       }
     },
     onReady: () => {
-      // This callback is invoked by NativeBrowser and CloudAssemblyAI when they start successfully
-      logger.info('[useSpeechRecognition] onReady callback invoked - transcription service is ready');
-      // Dismiss loading toast if it exists
-      if (toastIdRef.current) {
-        toast.dismiss(toastIdRef.current);
-        toastIdRef.current = null;
-      }
-      setModelLoadingProgress(null);
+      logger.info('[useSpeechRecognition] onReady callback invoked');
     },
-    onModelLoadProgress: (progress: number | null) => {
-      logger.info({ progress }, '[useSpeechRecognition] onModelLoadProgress called');
-
-      if (progress === null) {
-        if (toastIdRef.current) {
-          toast.dismiss(toastIdRef.current);
-          toastIdRef.current = null;
-        }
-        setModelLoadingProgress(null);
-        return;
-      }
-
-      // Handle both fraction (0-1) and percentage (0-100+) inputs
-      const percentage = progress > 1
-        ? Math.min(Math.round(progress), 100)  // Already a percentage, clamp to 100
-        : Math.round(progress * 100);           // Fraction, convert to percentage
-
-      // Normalize state to percentage for UI consistency
-      setModelLoadingProgress(percentage);
-
-      // Show or update toast
-      if (toastIdRef.current) {
-        toast.loading(`Downloading AI model... ${percentage}%`, { id: toastIdRef.current });
-      } else {
-        toastIdRef.current = toast.loading(`Downloading AI model... ${percentage}%`);
-      }
-
-      // Dismiss toast when complete
-      if (percentage >= 100) {
-        setTimeout(() => {
-          if (toastIdRef.current) {
-            toast.dismiss(toastIdRef.current);
-            // Removed "Model loaded successfully!" toast to avoid confusion during fallback
-            // The Status Notification Bar will show "Ready" or "Recording active"
-            toastIdRef.current = null;
-          }
-          setModelLoadingProgress(null);
-        }, 500);
-      }
-    },
+    onModelLoadProgress: handleModelLoadProgress,
     profile: profile ?? null,
     session: session ?? null,
     navigate,
     getAssemblyAIToken,
     customVocabulary,
-    // PLUMBING: Pass audio frame analyzer for pause detection
     onAudioData: vocalAnalysis.processAudioFrame,
-  }), [profile, session, navigate, getAssemblyAIToken, customVocabulary, setInterimTranscript, addChunk, vocalAnalysis.processAudioFrame]);
+  }), [profile, session, navigate, getAssemblyAIToken, customVocabulary, setInterimTranscript, addChunk, vocalAnalysis.processAudioFrame, handleModelLoadProgress]);
 
+  // useSpeechRecognition.ts (Prod)
   const service = useTranscriptionService(serviceOptions);
 
+  const intentToastShownRef = useRef<boolean>(false);
+
+  // SYSTEMATIC REFINEMENT: Consolidated Toast Reactive Effect (Executive Alignment - Option 2)
+  useEffect(() => {
+    if (modelLoadingProgress === null) {
+      intentToastShownRef.current = false;
+      return;
+    }
+
+    const percentage = modelLoadingProgress;
+    logger.info({ percentage, intentToastShown: intentToastShownRef.current }, '[useSpeechRecognition] Toast Effect Check');
+
+    // 1. Toast (On Selection): Intent acknowledgment
+    // ONLY show if NOT already complete (i.e. not cached)
+    if (!intentToastShownRef.current && percentage < 100) {
+      logger.info('[useSpeechRecognition] Triggering Executive Intent Toast');
+      toast.info("Setting up private model", {
+        id: 'stt-lifecycle-toast',
+        description: "Using Cloud model for now",
+        duration: 5000
+      });
+      intentToastShownRef.current = true;
+    }
+
+    // 2. Ongoing work narration removed from toasts.
+    // Progress is now handled EXCLUSIVELY by the persistent StatusNotificationBar.
+
+    // 3. Toast (On Completion): Success confirmation
+    // Title: Private model ready
+    // Body: Now running locally
+    if (percentage >= 100) {
+      // If we are already at 100% and haven't shown the intent toast, 
+      // it means it was cached. We only show the success toast.
+
+      setModelLoadingProgress(null);
+
+      toast.success("Private model ready", {
+        id: 'stt-lifecycle-toast',
+        description: "Now running locally",
+        duration: 5000
+      });
+
+      // Mark as shown so we don't trigger intent toast if progress flickers
+      intentToastShownRef.current = true;
+    }
+  }, [modelLoadingProgress]);
+
   // Sync service state to internal state for VocalAnalysis
-  // This avoids the circular dependency where hook creation needs service state
   if (service.isListening !== internalIsListening) {
     setInternalIsListening(service.isListening);
   }
@@ -178,7 +176,6 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     fillerWords.reset();
     sessionTimer.reset();
     service.reset();
-    // Also reset model loading state
     setModelLoadingProgress(null);
     if (toastIdRef.current) {
       toast.dismiss(toastIdRef.current);
@@ -192,7 +189,6 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
   }, [service, reset]);
 
   const stopListening = useCallback(async (): Promise<(TranscriptStats & { filler_words: FillerCounts }) | null> => {
-    // P1 BUG FIX: Reset model loading state when stopping to prevent "Initializing..." from persisting
     setModelLoadingProgress(null);
     if (toastIdRef.current) {
       toast.dismiss(toastIdRef.current);

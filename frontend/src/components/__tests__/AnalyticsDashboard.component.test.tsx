@@ -1,5 +1,4 @@
 import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { AnalyticsDashboard } from '../AnalyticsDashboard';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { BrowserRouter } from 'react-router-dom';
@@ -120,38 +119,5 @@ describe('AnalyticsDashboard', () => {
         // Verify session list is rendered
         const sessionItems = screen.getAllByTestId(/session-history-item-/);
         expect(sessionItems.length).toBeGreaterThan(0);
-    });
-
-    it('should show upgrade banner for free users', () => {
-        renderComponent({
-            sessionHistory: mockSessionHistory,
-            profile: { ...mockProfile, subscription_status: 'free' }
-        });
-
-        expect(screen.getByTestId('analytics-dashboard-upgrade-button')).toBeInTheDocument();
-    });
-
-    it('should NOT show upgrade banner for pro users', () => {
-        renderComponent({
-            sessionHistory: mockSessionHistory,
-            profile: { ...mockProfile, subscription_status: 'pro' }
-        });
-
-        expect(screen.queryByTestId('analytics-dashboard-upgrade-button')).not.toBeInTheDocument();
-    });
-
-    it('should call onUpgrade when upgrade button is clicked', async () => {
-        const user = userEvent.setup();
-        const onUpgradeMock = vi.fn();
-        renderComponent({
-            sessionHistory: mockSessionHistory,
-            profile: { ...mockProfile, subscription_status: 'free' },
-            onUpgrade: onUpgradeMock
-        });
-
-        // Use standard queries to find the button
-        const upgradeBtn = screen.getByRole('button', { name: /upgrade now/i });
-        await user.click(upgradeBtn);
-        expect(onUpgradeMock).toHaveBeenCalled();
     });
 });

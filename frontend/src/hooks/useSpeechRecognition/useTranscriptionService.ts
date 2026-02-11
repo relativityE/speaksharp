@@ -8,7 +8,7 @@ import {
 } from '../../services/transcription/TranscriptionPolicy';
 import { MicStream } from '../../services/transcription/utils/types';
 import logger from '../../lib/logger';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 
 interface ITranscriptionService {
   init: () => Promise<{ success: boolean }>;
@@ -39,6 +39,7 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
   const serviceRef = useRef<ITranscriptionService | null>(null);
   const policyRef = useRef<TranscriptionPolicy>(E2E_DETERMINISTIC_NATIVE);
   const mockMicRef = useRef<MicStream | null>(null);
+  const hasShownFallbackToastRef = useRef<boolean>(false);
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
@@ -51,17 +52,35 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
         setError(null);
         setIsReady(false);
         setIsSupported(true);
+        hasShownFallbackToastRef.current = false;
 
         // Wrap the onReady callback to set our internal isReady state
         const wrappedOptions: TranscriptionServiceOptions = {
           ...optionsRef.current,
           onReady: () => {
             setIsReady(true);
-            // Also call the user-provided onReady callback
+            // EXECUTIVE PATTERN: Success Confirmation
+            toast.success("Private model ready", {
+              description: "Now running locally",
+              id: 'stt-milestone-toast',
+              duration: 3000
+            });
             optionsRef.current.onReady();
           },
           onModeChange: setCurrentMode,
-          onStatusChange: setSttStatus,
+          onStatusChange: (status) => {
+            setSttStatus(status);
+
+            if (status.type === 'fallback' && status.newMode === 'native' && !hasShownFallbackToastRef.current) {
+              hasShownFallbackToastRef.current = true;
+              // EXECUTIVE PATTERN: Intent Acknowledgment
+              toast.info("Setting up private model", {
+                description: "Using Cloud model for now",
+                id: 'stt-milestone-toast',
+                duration: 3000
+              });
+            }
+          },
           policy: policyRef.current,
           mockMic: mockMicRef.current ?? undefined,
         };

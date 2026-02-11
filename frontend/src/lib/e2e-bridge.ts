@@ -236,9 +236,6 @@ class MockPrivateWhisper {
 
                     if (progress >= 1) {
                         logger.info('[MockPrivateWhisper] Download complete via manual advance');
-                        import('sonner').then(({ toast }) => {
-                            toast.success('Model ready! You can now start your session.');
-                        });
                         if (this.onReady) this.onReady();
                         resolve();
                     }
@@ -256,9 +253,6 @@ class MockPrivateWhisper {
 
             setTimeout(() => {
                 logger.info('[MockPrivateWhisper] Model loaded (auto), triggering onReady');
-                import('sonner').then(({ toast }) => {
-                    toast.success('Model ready! You can now start your session.');
-                });
                 if (this.onReady) this.onReady();
                 resolve();
             }, 3000);

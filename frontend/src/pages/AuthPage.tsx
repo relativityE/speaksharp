@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Session } from '@supabase/supabase-js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { useQueryClient } from '@tanstack/react-query';
 import logger from '@/lib/logger';
 
@@ -68,7 +68,9 @@ export default function AuthPage() {
           try {
             const body = await promoError.context.json();
             msg = body.error || msg;
-          } catch (e) { /* ignore */ }
+          } catch (e) {
+            logger.debug({ e }, '[AuthPage] Could not parse promo error context');
+          }
           throw new Error(msg);
         }
 

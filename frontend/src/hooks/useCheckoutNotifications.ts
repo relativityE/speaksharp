@@ -1,7 +1,7 @@
 import { useRef, useEffect } from 'react';
 import logger from '../lib/logger';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { CheckCircle2, AlertCircle } from 'lucide-react';
 import React from 'react';
 

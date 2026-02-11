@@ -18,6 +18,7 @@
 
 import { Result } from 'true-myth';
 import { IPrivateSTTEngine, EngineCallbacks, EngineType } from './IPrivateSTTEngine';
+import { IPrivateSTT, PrivateSTTInitOptions } from './IPrivateSTT';
 import logger from '../../../lib/logger';
 import { TestFlags, shouldUseMockTranscription } from '../../../config/TestFlags';
 
@@ -29,20 +30,9 @@ function hasWebGPU(): boolean {
 }
 
 /**
- * Options for engine initialization
- */
-export interface PrivateSTTInitOptions extends EngineCallbacks {
-    /** 
-     * Force a specific engine, bypassing automatic selection and test-environment mocks.
-     * Useful for unit testing the routing logic.
-     */
-    forceEngine?: EngineType;
-}
-
-/**
  * Dual-engine Private STT facade
  */
-export class PrivateSTT {
+export class PrivateSTT implements IPrivateSTT {
     private engine: IPrivateSTTEngine | null = null;
     private engineType: EngineType | null = null;
 

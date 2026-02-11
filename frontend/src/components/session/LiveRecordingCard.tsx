@@ -89,18 +89,18 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
 
             {/* Header */}
             <div className="text-center mb-8 mt-2">
-                <h1 className="text-3xl font-bold text-foreground mb-2">
-                    {modelLoadingProgress !== null
-                        ? "Initializing..."
-                        : isListening
-                            ? (isReady ? "Recording..." : "Connecting...")
+                <h1 className="text-3xl font-bold text-foreground mb-2" data-testid="live-session-header">
+                    {isListening
+                        ? (isReady ? "Recording..." : "Connecting...")
+                        : modelLoadingProgress !== null
+                            ? "Initializing..."
                             : "Live Session"}
                 </h1>
-                <p className="text-muted-foreground">
-                    {modelLoadingProgress !== null
-                        ? `Downloading model: ${Math.round(modelLoadingProgress)}% `
-                        : isListening
-                            ? "Speak clearly into your microphone"
+                <p className="text-muted-foreground" data-testid="live-session-description">
+                    {isListening
+                        ? "Speak clearly into your microphone"
+                        : modelLoadingProgress !== null
+                            ? `Downloading model: ${Math.round(modelLoadingProgress)}%`
                             : "Click the microphone to start your session"}
                 </p>
             </div>

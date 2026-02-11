@@ -7,6 +7,13 @@ All notable changes to this project will be documented in this file.
 
 ### [Unreleased]
 
+- **CI Stabilization & Architectural Refinement (2026-02-11):**
+  - **Fix:** Resolved `private-stt.e2e.spec.ts` failure by updating the model loading indicator selector to `[data-testid="background-task-indicator"]`, aligning with the new Composite Status Pattern.
+  - **Refactor:** Renamed `TestAdapterRegistry` to `TestRegistry` (Architect feedback) for improved naming clarity and updated all references across `TranscriptionService.ts`.
+  - **UX:** Implemented "Composite Status Pattern" in `StatusNotificationBar`, allowing concurrent display of "Recording" and "Downloading" states for smoother "Optimistic Entry" transitions.
+  - **Harden:** Added a type guard for `window.__FAKE_PRIVATE_STT__` to prevent pollution and ensure safe DI during E2E testing.
+  - **Files:** `private-stt.e2e.spec.ts`, `TestRegistry.ts`, `TranscriptionService.ts`, `StatusNotificationBar.tsx`, `SessionPage.tsx`.
+
 - **CI Stabilization & UI Fidelity (2026-02-09):**
   - **Fix:** Resolved `MODULE_NOT_FOUND` in Lighthouse CI by using subshells `()` for backgrounded preview servers, ensuring `generate-lhci-config.js` is always executed from the repository root.
   - **Fix:** Resolved "Identity Hijack" in live tests by updating `TestFlags.ts` to disable MSW whenever `VITE_USE_REAL_DATABASE` is active.

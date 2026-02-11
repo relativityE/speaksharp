@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getSupabaseClient } from "@/lib/supabaseClient";
 import logger from "@/lib/logger";
-import { toast } from "sonner";
+import { toast } from '@/lib/toast';
 import { useQueryClient } from '@tanstack/react-query';
 
 interface PromoExpiredDialogProps {

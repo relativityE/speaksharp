@@ -60,6 +60,10 @@ export const STT_CONFIG = {
   ASSEMBLYAI_MAX_SAMPLES: 16000, // 1000ms at 16kHz
 } as const;
 
+export const UI_CONFIG = {
+  MIN_TOAST_LENGTH_SECS: 5,
+} as const;
+
 // Rate limiting configuration
 // Set to 0 to disable client-side rate limiting (AssemblyAI has server-side limits)
 export const RATE_LIMIT_CONFIG = {

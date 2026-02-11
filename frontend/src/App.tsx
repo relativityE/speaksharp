@@ -35,14 +35,15 @@ const App: React.FC = () => {
   useCheckoutNotifications();
 
   return (
-    <div>
+    <div className="min-h-screen bg-background font-sans antialiased bg-gradient-radial relative">
+      <div className="fixed inset-0 bg-grid opacity-20 pointer-events-none" />
       <Toaster
         position="top-right"
-        style={{ top: '40%', transform: 'translateY(-50%)' }}
-        expand={true}
+        expand={false}
+        duration={5000}
       />
       <Navigation />
-      <main data-testid="app-main">
+      <main data-testid="app-main" className="relative z-10">
         <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/" element={<Index />} />

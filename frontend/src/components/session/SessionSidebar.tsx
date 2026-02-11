@@ -6,7 +6,7 @@ import { isPro as checkIsPro } from '@/constants/subscriptionTiers';
 import { buildPolicyForUser, TranscriptionPolicy, TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import logger from '@/lib/logger';
 import { Mic, Square, Loader2, Zap, Cloud, Computer } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -28,7 +28,6 @@ import {
     DropdownMenuRadioItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Progress } from '@/components/ui/progress';
 import { ErrorDisplay } from '../ErrorDisplay';
 import type { PracticeSession } from '@/types/session';
 import { Label } from '@/components/ui/label';
@@ -52,10 +51,6 @@ export interface SessionSidebarProps {
 
 interface DigitalTimerProps {
     startTime: number | null;
-}
-
-interface ModelLoadingIndicatorProps {
-    progress: number | null;
 }
 
 // --- Sub-components ---
@@ -91,18 +86,6 @@ const DigitalTimerComponent: React.FC<DigitalTimerProps> = ({ startTime }) => {
 };
 const DigitalTimer = React.memo(DigitalTimerComponent);
 
-const ModelLoadingIndicator: React.FC<ModelLoadingIndicatorProps> = ({ progress }) => {
-    if (progress === null) {
-        return null;
-    }
-    const percentage = Math.round(progress);
-    return (
-        <div className="space-y-2 pt-2" data-testid="model-loading-indicator">
-            <p className="text-xs text-muted-foreground text-center">Downloading model... {percentage}%</p>
-            <Progress value={percentage} />
-        </div>
-    );
-};
 
 // --- Main Component ---
 
@@ -121,24 +104,12 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
 
     const [showEndSessionDialog, setShowEndSessionDialog] = useState(false);
     const [completedSessions, setCompletedSessions] = useState<PracticeSession[]>([]);
-    const [hasShownDownloadToast, setHasShownDownloadToast] = useState(false);
 
     const isModelLoading = modelLoadingProgress !== null;
     const isConnecting = isListening && !isReady;
 
-    // Toast notification for model download
-    useEffect(() => {
-        if (modelLoadingProgress !== null && !hasShownDownloadToast) {
-            toast.info("Downloading AI Model", {
-                description: "First-time setup may take a few moments (~30MB).",
-                duration: 5000,
-            });
-            setHasShownDownloadToast(true);
-        } else if (modelLoadingProgress === null && hasShownDownloadToast) {
-            // Reset when loading finishes or is cancelled
-            setHasShownDownloadToast(false);
-        }
-    }, [modelLoadingProgress, hasShownDownloadToast]);
+    // SYSTEMATIC REFINEMENT: Removed redundant model download toast.
+    // Progress notifications are now managed centrally by useSpeechRecognition hook.
 
     const endSessionAndSave = async () => {
         setIsEndingSession(true);
@@ -245,7 +216,6 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                     </div>
                 </CardHeader>
                 <CardContent className="space-y-4 flex-grow flex flex-col">
-                    <ModelLoadingIndicator progress={modelLoadingProgress} />
                     <ErrorDisplay error={error} />
 
                     <div className="space-y-2 border-b pb-4">

@@ -64,6 +64,8 @@ export interface TranscriptionServiceOptions {
 }
 
 import { STT_CONFIG } from '../../config';
+import { testRegistry } from './TestRegistry'; // Test Registry Pattern
+import { IPrivateSTT } from './engines/IPrivateSTT';
 
 // Extend Window interface for E2E mocks
 declare global {
@@ -72,6 +74,7 @@ declare global {
     __E2E_MOCK_LOCAL_WHISPER__?: boolean;
     MockNativeBrowser?: new (config: TranscriptionModeOptions) => ITranscriptionMode;
     __E2E_MOCK_NATIVE__?: boolean;
+    __FAKE_PRIVATE_STT__?: IPrivateSTT; // Injected Fake
   }
 }
 
@@ -326,39 +329,58 @@ export default class TranscriptionService {
     switch (mode) {
       case 'native':
         logger.info('[TranscriptionService] 🌐 Starting Native Browser mode');
-        logger.info('[TranscriptionService] Starting Native Browser mode');
-
         if (window.MockNativeBrowser && window.__E2E_MOCK_NATIVE__ === true) {
           logger.info('[TranscriptionService] 🧪 Using MockNativeBrowser for E2E');
           this.instance = new window.MockNativeBrowser(config);
           break;
         }
-
         this.instance = new NativeBrowser(config);
         break;
 
       case 'cloud':
         logger.info('[TranscriptionService] ☁️ Starting Cloud (AssemblyAI) mode');
-        logger.info('[TranscriptionService] Starting Cloud (AssemblyAI) mode');
         this.instance = new CloudAssemblyAI(config);
         break;
 
       case 'private': {
         logger.info('[TranscriptionService] 🔒 Starting Private (Whisper) mode');
-        logger.info('[TranscriptionService] Starting Private (Whisper) mode');
-        logger.info({
-          hasMockClass: !!window.MockPrivateWhisper,
-          mockFlag: window.__E2E_MOCK_LOCAL_WHISPER__
-        }, '[TranscriptionService] Checking Private Mock');
 
-        // Check for E2E mock override (Must be explicitly enabled)
+        // E2E Mock Override
         if (window.MockPrivateWhisper && window.__E2E_MOCK_LOCAL_WHISPER__ === true) {
           logger.info('[TranscriptionService] 🧪 Using MockPrivateWhisper for E2E');
           this.instance = new window.MockPrivateWhisper(config);
           break;
         }
+
+        // OPTION C: Dependency Injection via Test Registry
+        let injectedSTT: IPrivateSTT | undefined = undefined;
+        if (import.meta.env.MODE === 'test' || import.meta.env.DEV) {
+          const factory = testRegistry.get<() => IPrivateSTT>('privateSTT');
+          if (factory) {
+            const fake = factory();
+            // Runtime Type Guard
+            const isValidFakeSTT = (obj: unknown): obj is IPrivateSTT => {
+              const o = obj as Record<string, unknown>;
+              return (
+                !!o &&
+                typeof o.init === 'function' &&
+                typeof o.transcribe === 'function' &&
+                typeof o.destroy === 'function' &&
+                typeof o.getEngineType === 'function'
+              );
+            };
+
+            if (isValidFakeSTT(fake)) {
+              logger.info('[TranscriptionService] 🧪 Injecting Valid FakePrivateSTT from Registry');
+              injectedSTT = fake;
+            } else {
+              logger.warn('[TranscriptionService] ⚠️ Invalid factory result from registry. Ignoring injection.');
+            }
+          }
+        }
+
         const module = await import('./modes/PrivateWhisper');
-        this.instance = new module.default(config);
+        this.instance = new module.default(config, injectedSTT);
         break;
       }
 
@@ -367,14 +389,45 @@ export default class TranscriptionService {
     }
 
     try {
-      await this.instance.init();
-      await this.instance.startTranscription(this.mic!);
+      // Optimistic Entry Logic
+      if (mode === 'private') {
+        logger.info('[TranscriptionService] ⚡ Using Optimistic Entry for Private mode');
+        const initPromise = this.instance!.init();
+        const LOAD_CACHE_TIMEOUT_MS = 200;
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('CACHE_MISS')), LOAD_CACHE_TIMEOUT_MS);
+        });
+
+        try {
+          await Promise.race([initPromise, timeoutPromise]);
+          logger.info('[TranscriptionService] ✅ Private model Cache Hit - Instant Start');
+        } catch (err: unknown) {
+          const error = err as Error;
+          if (error.message === 'CACHE_MISS') {
+            logger.info('[TranscriptionService] ⏳ Private model Cache Miss - Triggering Background Load + Fallback');
+            this.onModelLoadProgress(0);
+
+            initPromise.then(() => {
+              logger.info('[TranscriptionService] ✨ Background Private model ready.');
+              this.onModelLoadProgress(100);
+              this.onReady();
+            }).catch(backgroundErr => {
+              logger.error({ backgroundErr }, '[TranscriptionService] Background model load failed');
+            });
+            throw err;
+          }
+          throw err;
+        }
+      } else {
+        await this.instance!.init();
+      }
+
+      await this.instance!.startTranscription(this.mic!);
       this.mode = mode;
       this.onModeChange?.(this.mode);
       this.transitionTo('RECORDING');
-
-      // Notify status: ready
       this.onStatusChange?.({ type: 'ready', message: `Recording active (${modeLabel})` });
+
     } catch (error) {
       logger.error({ error, mode }, '[TranscriptionService] execution failed');
       this.transitionTo('ERROR');
@@ -396,8 +449,6 @@ export default class TranscriptionService {
     failedMode: TranscriptionMode,
     config: TranscriptionModeOptions
   ): Promise<void> {
-    this.onModelLoadProgress(null); // Clear any loading state
-
     // Native is the base tier - no further fallback available
     if (failedMode === 'native') {
       logger.error('[TranscriptionService] ❌ Native mode failed. No fallback available.');
@@ -407,7 +458,6 @@ export default class TranscriptionService {
 
     // Cloud and Private both fall back to Native only
     logger.info({ failedMode, targetMode: 'native' }, '[TranscriptionService] 🔄 Fallback');
-    logger.info(`[TranscriptionService] Attempting fallback to native`);
 
     try {
       this.onStatusChange?.({

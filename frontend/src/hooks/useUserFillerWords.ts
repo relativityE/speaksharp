@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getSupabaseClient } from '../lib/supabaseClient';
 import { useAuthProvider } from '../contexts/AuthProvider';
 import { useUsageLimit } from './useUsageLimit';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { getMaxFillerWords } from '../constants/subscriptionTiers';
 
 interface CustomWord {

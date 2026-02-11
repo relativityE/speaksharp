@@ -38,6 +38,7 @@ Status Key: 🟡 In Progress | 🔴 Not Started | ✅ Complete | 🛡️ Gap Rem
 | **S2** | **Gemini 3.0 Flash Upgrade** | **HIGH** | ✅ Complete | Upgraded AI Coach for faster, smarter feedback. |
 | **S3** | **Tier Limit Dynamic Labels** | **HIGH** | ✅ Complete | Unified ensuring "Daily" and "Monthly" limits are correctly handled in UI/Tests. |
 | **S4** | **Canary User Persistence** | **MEDIUM** | ✅ Complete | Migrated from automated cleanup to unique email persistence for easier debugging. |
+| **S5** | **Design Parity Audit** | **MEDIUM** | ✅ Complete | Fixed "interpolation mud" in radial gradients and de-bloated upgrade banners. |
 
 
 ## 📽️ Marketing & Growth

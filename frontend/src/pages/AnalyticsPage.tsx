@@ -4,7 +4,7 @@ import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
 import { useAnalytics } from '../hooks/useAnalytics';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '@/lib/logger';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { isPro } from '@/constants/subscriptionTiers';
 import { Button } from '@/components/ui/button';
@@ -45,7 +45,7 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; onUpgrade: () =
             {!isSessionView && !isPro && (
                 <button
                     onClick={onUpgrade}
-                    className="w-full flex items-center justify-between bg-secondary hover:bg-secondary/90 text-white px-6 py-4 rounded-xl shadow-md transform transition-all hover:-translate-y-0.5"
+                    className="w-full flex items-center justify-between bg-secondary hover:bg-secondary/90 text-white px-6 py-3 rounded-xl shadow-md transform transition-all hover:-translate-y-0.5"
                     data-testid="analytics-page-upgrade-button"
                 >
                     <div className="flex items-center gap-3">
@@ -53,11 +53,11 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; onUpgrade: () =
                             <Mic className="w-5 h-5 text-white" />
                         </div>
                         <div className="text-left">
-                            <span className="font-bold block text-lg">Free Plan</span>
-                            <span className="text-sm text-white/90 hidden sm:inline">Upgrade for unlimited practice & advanced metrics</span>
+                            <span className="font-bold block text-base">Free Plan</span>
+                            <span className="text-xs text-white/90 hidden sm:inline">Upgrade for unlimited practice & advanced metrics</span>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2 font-bold bg-white text-secondary px-4 py-2 rounded-lg">
+                    <div className="flex items-center gap-2 font-bold bg-white text-secondary px-4 py-2 rounded-lg text-sm">
                         Upgrade
                     </div>
                 </button>

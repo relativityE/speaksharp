@@ -25,6 +25,16 @@ export class MockEngine implements IPrivateSTTEngine {
     async init(callbacks: EngineCallbacks, _timeoutMs?: number): Promise<Result<void, Error>> {
         logger.info('[MockEngine] 🎭 Initializing mock engine for CI/E2E testing...');
 
+        // 1. Check for E2E Hang override (allows testing persistent loading states)
+        const win = window as unknown as { __E2E_HANG_INIT__?: boolean; __E2E_RELEASE_INIT__?: (v: void) => void };
+        if (typeof window !== 'undefined' && win.__E2E_HANG_INIT__) {
+            logger.info('[MockEngine] ⏳ E2E Hang requested. Waiting for __E2E_RELEASE_INIT__...');
+            await new Promise<void>(resolve => {
+                win.__E2E_RELEASE_INIT__ = resolve;
+            });
+            logger.info('[MockEngine] 🔓 E2E Release received.');
+        }
+
         // Simulate loading progress
         if (callbacks.onModelLoadProgress) {
             callbacks.onModelLoadProgress(0);

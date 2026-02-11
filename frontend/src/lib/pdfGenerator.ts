@@ -14,7 +14,7 @@ interface jsPDFInternal {
   };
 }
 
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 
 export const generateSessionPdf = async (session: Session, username: string = 'User') => {
   const identifier = username && username !== 'User' ? username : session.user_id;

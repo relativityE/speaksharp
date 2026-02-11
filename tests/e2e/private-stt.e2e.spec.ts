@@ -68,9 +68,9 @@ test.describe('Private STT (Whisper)', () => {
 
         // Verify loading indicator appears (deterministic w/ infinite wait if needed, but 10s is plenty)
         // With manual mode, it STAYS here until advanced
-        const loadingIndicator = page.getByTestId('model-loading-indicator');
+        const loadingIndicator = page.getByTestId('background-task-indicator');
         await expect(loadingIndicator).toBeVisible({ timeout: 10000 });
-        await expect(loadingIndicator).toContainText(/downloading model/i);
+        await expect(loadingIndicator).toContainText(/downloading private model/i);
 
         // Manually advance to 50%
         await page.evaluate(() => (window as unknown as E2EWindow).__E2E_ADVANCE_PROGRESS__?.(0.5));
@@ -106,7 +106,7 @@ test.describe('Private STT (Whisper)', () => {
         await page.getByRole('menuitemradio', { name: /private/i }).click();
 
         const startButton = page.getByTestId('session-start-stop-button');
-        const loadingIndicator = page.getByTestId('model-loading-indicator');
+        const loadingIndicator = page.getByTestId('background-task-indicator');
 
         const startTime = Date.now();
         await startButton.click();
@@ -149,7 +149,7 @@ test.describe('Private STT (Whisper)', () => {
         await page.getByTestId('session-start-stop-button').click();
 
         // Wait for model to load
-        await page.waitForSelector('[data-testid="model-loading-indicator"]', {
+        await page.waitForSelector('[data-testid="background-task-indicator"]', {
             state: 'hidden',
             timeout: 30000
         });

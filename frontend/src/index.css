@@ -10,23 +10,23 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    --background: 215 25% 18%;
+    --background: 220 20% 14%;
     --foreground: 210 40% 98%;
 
-    --card: 215 22% 22%;
+    --card: 220 20% 17%;
     --card-foreground: 210 40% 98%;
 
-    --popover: 215 22% 22%;
+    --popover: 220 20% 17%;
     --popover-foreground: 210 40% 98%;
 
     --primary: 199 89% 48%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 25 85% 55%;
-    --secondary-foreground: 0 0% 100%;
+    --secondary: 45 85% 50%;
+    --secondary-foreground: 0 0% 10%;
 
-    --muted: 215 20% 25%;
-    --muted-foreground: 215 20% 70%;
+    --muted: 220 15% 22%;
+    --muted-foreground: 220 15% 58%;
 
     --accent: 199 89% 48%;
     --accent-foreground: 0 0% 100%;
@@ -34,22 +34,104 @@ All colors MUST be HSL.
     --destructive: 0 63% 31%;
     --destructive-foreground: 210 40% 98%;
 
-    --border: 215 20% 28%;
-    --input: 215 20% 28%;
+    --border: 220 15% 22%;
+    --input: 220 15% 22%;
     --ring: 199 89% 48%;
 
     --radius: 0.75rem;
 
-    --sidebar-background: 215 25% 14%;
+    --sidebar-background: 220 20% 11%;
     --sidebar-foreground: 210 40% 95%;
     --sidebar-primary: 199 89% 48%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 25 85% 55%;
-    --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 215 20% 25%;
+    --sidebar-accent: 45 85% 50%;
+    --sidebar-accent-foreground: 0 0% 10%;
+    --sidebar-border: 220 15% 20%;
     --sidebar-ring: 199 89% 48%;
+
+    /* Standardized Toast Offset */
+    --toast-offset-top: 96px;
   }
 
+  .dark {
+    --background: 220 20% 14%;
+    --foreground: 210 40% 98%;
+
+    --card: 220 20% 17%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 220 20% 17%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 199 89% 48%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 45 85% 50%;
+    --secondary-foreground: 0 0% 10%;
+
+    --muted: 220 15% 22%;
+    --muted-foreground: 220 15% 58%;
+
+    --accent: 199 89% 48%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 220 15% 22%;
+    --input: 220 15% 22%;
+    --ring: 199 89% 48%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 220 20% 11%;
+    --sidebar-foreground: 210 40% 95%;
+    --sidebar-primary: 199 89% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 45 85% 50%;
+    --sidebar-accent-foreground: 0 0% 10%;
+    --sidebar-border: 220 15% 20%;
+    --sidebar-ring: 199 89% 48%;
+  }
+}
+
+/* Utility classes for specific visual effects */
+.glass {
+  @apply bg-white/5 backdrop-blur-xl border border-white/10;
+}
+
+.glass-strong {
+  @apply bg-white/10 backdrop-blur-2xl border border-white/15;
+}
+
+.glow-primary {
+  box-shadow: 0 0 40px -10px hsl(199 89% 48% / 0.4);
+}
+
+.glow-secondary {
+  box-shadow: 0 0 40px -10px hsl(45 85% 50% / 0.4);
+}
+
+.text-gradient-hero {
+  @apply bg-clip-text text-transparent;
+  background-image: linear-gradient(135deg, hsl(0 0% 100%), hsl(199 89% 58%), hsl(45 85% 55%));
+}
+
+.text-gradient-cyan {
+  @apply bg-clip-text text-transparent;
+  background-image: linear-gradient(135deg, hsl(199 89% 48%), hsl(199 60% 70%));
+}
+
+.bg-gradient-radial {
+  background-image:
+    radial-gradient(at 30% 20%, rgba(13, 162, 231, 0.08) 0%, rgba(0, 0, 0, 0) 50%),
+    radial-gradient(at 70% 80%, rgba(236, 182, 19, 0.06) 0%, rgba(0, 0, 0, 0) 50%);
+}
+
+.bg-grid {
+  background-image: linear-gradient(hsl(220 15% 18% / 0.5) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(220 15% 18% / 0.5) 1px, transparent 1px);
+  background-size: 60px 60px;
 }
 
 @layer base {
@@ -60,6 +142,14 @@ All colors MUST be HSL.
   body {
     @apply bg-background text-foreground;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    feature-settings: "rlig" 1, "calt" 1;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* 
+   * Anti-Jarring Toast Positioning 
+   * Ensures the container is positioned statically BEFORE the first toast enters.
+   */
+  [data-sonner-toaster][data-position="top-right"] {
+    top: var(--toast-offset-top) !important;
   }
 }

@@ -1,43 +1,105 @@
 import { test, expect } from '@playwright/test';
 import { programmaticLoginWithRoutes, navigateToRoute, debugLog } from '../helpers';
 
-// Extend Window interface for E2E mock flag
+// Extend Window interface for E2E mock control
 declare global {
     interface Window {
-        __E2E_MOCK_LOCAL_WHISPER__?: boolean;
+        __TEST_REGISTRY_QUEUE__?: { key: string, factory: () => unknown }[];
+        // Control methods attached by the FakePrivateSTT during init
+        __resolvePrivateInit__?: (success: boolean) => void;
+        __simulatePrivateProgress__?: (progress: number) => void;
     }
 }
 
 /**
  * Private STT Resilience & Fallback Test
  * 
- * PURPOSE:
- * --------
- * Verifies the "Self-Healing" mechanisms of Private STT:
- * 1. 10-second hang detection (simulated via network delay).
- * 2. "Clear Cache & Reload" repair path toast.
- * 3. Automatic fallback to Native Browser STT.
+ * STRATEGY: Dependency Injection via Registry
+ * -----------------------------------------
+ * We inject a `FakePrivateSTT` via the Test Registry Queue.
+ * This fake engine exposes control methods on `window` to allow the test
+ * to simulate hangs, progress, and completion.
  */
 
 test.describe('Private STT Resilience', () => {
 
-    // SKIPPED: Logic removed. See ARCHITECTURE.md "Model Load Timeout" (Section 3, Reliability).
-    // The service now waits indefinitely with progress updates instead of timing out.
-    test.skip('should trigger 10s timeout and show repair action on hang', async ({ page }) => {
-        // Private mode requires Pro tier
+    test('should start session immediately using fallback while model downloads in background', async ({ page }) => {
+        // 1. INJECT FAKE STT (Dependency Injection via Registry Queue)
+        await page.addInitScript(() => {
+            interface STTOptions {
+                onModelLoadProgress?: (progress: number) => void;
+                onReady?: () => void;
+                [key: string]: unknown;
+            }
+
+            class FakePrivateSTT {
+                private callbacks: STTOptions = {};
+                private _engineType = 'mock-private';
+
+                async init(options: STTOptions) {
+                    console.log('[FakePrivateSTT] init() called');
+                    this.callbacks = options;
+
+                    // Simulate "Downloading..." state immediately
+                    if (this.callbacks.onModelLoadProgress) {
+                        this.callbacks.onModelLoadProgress(0);
+                    }
+
+                    // BLOCK: Return a Promise that simulates the download/init process
+                    // We attach control references to window so the Playwright test can drive it.
+                    return new Promise((resolve) => {
+                        window.__resolvePrivateInit__ = (success: boolean) => {
+                            console.log('[FakePrivateSTT] Manually resolving init...');
+                            if (success) {
+                                // Simulate 100% progress
+                                if (this.callbacks.onModelLoadProgress) {
+                                    this.callbacks.onModelLoadProgress(100);
+                                }
+                                // Simulate Ready
+                                if (this.callbacks.onReady) {
+                                    this.callbacks.onReady();
+                                }
+                                resolve({ isOk: true, value: 'mock-engine' });
+                            } else {
+                                resolve({ isErr: true, error: new Error('Mock init failed') });
+                            }
+                        };
+
+                        window.__simulatePrivateProgress__ = (progress: number) => {
+                            if (this.callbacks.onModelLoadProgress) {
+                                this.callbacks.onModelLoadProgress(progress);
+                            }
+                        };
+                    });
+                }
+
+                async transcribe(audio: Float32Array) {
+                    // Log usage to satisfy linter
+                    console.log(`[FakePrivateSTT] Processing audio chunk of size: ${audio.length}`);
+                    return { isErr: false, value: "Fake transcription" };
+                }
+
+                async destroy() {
+                    console.log('[FakePrivateSTT] destroy() called');
+                }
+
+                getEngineType() {
+                    return this._engineType;
+                }
+            }
+
+            // Register factory via queue
+            window.__TEST_REGISTRY_QUEUE__ = window.__TEST_REGISTRY_QUEUE__ || [];
+            window.__TEST_REGISTRY_QUEUE__.push({
+                key: 'privateSTT',
+                factory: () => new FakePrivateSTT()
+            });
+            console.log('[E2E Init] Registered FakePrivateSTT factory in queue');
+        });
+
+        // 2. SETUP SESSION
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
         await navigateToRoute(page, '/session');
-        await page.waitForSelector('[data-testid="app-main"]');
-
-        // Bypassing mocks to test real resilience logic
-        await page.evaluate(() => { window.__E2E_MOCK_LOCAL_WHISPER__ = false; });
-
-        // ARCHITECTURE SIMULATION: Hang the model download
-        // We intercept the model request and NEVER fulfill it, simulating a browser/DB lock.
-        await page.route('**/models/tiny-q8g16.bin', () => {
-            debugLog('[TEST] ⏳ Simulating infinite hang for model download...');
-            return new Promise(() => { }); // Never settles
-        });
 
         // Select Private mode
         await page.getByRole('button', { name: /cloud|private|native/i }).click();
@@ -46,48 +108,44 @@ test.describe('Private STT Resilience', () => {
         // Start session
         await page.getByTestId('session-start-stop-button').click();
 
-        // Check if MockEngine is being used (can't test hang behavior with mocks)
-        const isMockEngine = await page.evaluate(() => {
-            // Wait a bit for engine detection
-            return new Promise<boolean>((resolve) => {
-                setTimeout(() => {
-                    // Check console logs or internal state for MockEngine
-                    const pw = (window as unknown as { __PrivateWhisper_INT_TEST__?: { engineType?: string } }).__PrivateWhisper_INT_TEST__;
-                    resolve(pw?.engineType === 'mock');
-                }, 500);
-            });
+        // 3. VERIFY FALLBACK (Optimistic Entry Pattern)
+        await expect(page.getByTestId('session-status-indicator')).toContainText(/Recording active/i, { timeout: 10000 });
+        await expect(page.getByText(/Setting up private model/i)).toBeVisible();
+
+        // 4. VERIFY BACKGROUND DOWNLOAD (Dual-State UI)
+        const backgroundIndicator = page.getByTestId('background-task-indicator');
+        await expect(backgroundIndicator).toBeVisible();
+        await expect(backgroundIndicator).toContainText(/Downloading private model/i);
+
+        // 5. SIMULATE PROGRESS (Control the Fake via window)
+        debugLog('[TEST] ⚡ Simulating 50% progress...');
+        await page.evaluate(() => {
+            if (window.__simulatePrivateProgress__) window.__simulatePrivateProgress__(50);
+        });
+        await expect(backgroundIndicator).toContainText(/50%/);
+
+        debugLog('[TEST] ⚡ Simulating 90% progress...');
+        await page.evaluate(() => {
+            if (window.__simulatePrivateProgress__) window.__simulatePrivateProgress__(90);
+        });
+        await expect(backgroundIndicator).toContainText(/90%/);
+
+        // 6. SIMULATE COMPLETION
+        debugLog('[TEST] 🚀 Resolving init success...');
+        await page.evaluate(() => {
+            if (window.__resolvePrivateInit__) window.__resolvePrivateInit__(true);
         });
 
-        if (isMockEngine) {
-            debugLog('[TEST] ⚠️ MockEngine detected - skipping hang simulation test');
-            debugLog('[TEST] ✅ This test only runs in non-mock environment');
-            // Stop the session and return early
-            await page.getByTestId('session-start-stop-button').click();
-            return; // Test passes but skips hang verification
-        }
+        // 7. VERIFY SUCCESS STATE
+        // The "Private model ready" message is now delivered via Toast
+        await expect(page.getByText('Private model ready')).toBeVisible({ timeout: 10000 });
 
-        // 1. Verify loading indicator appears
-        const loadingIndicator = page.getByTestId('model-loading-indicator');
-        await expect(loadingIndicator).toBeVisible();
+        // The background indicator should be removed
+        await expect(backgroundIndicator).not.toBeVisible();
 
-        // 2. Wait for the 10s timeout to trigger (giving 12s for safety)
-        debugLog('[TEST] Waiting 10s for resilience timeout...');
+        debugLog('[TEST] ✅ Resilience verification complete.');
 
-        // 3. Verify Error Toast with Action appears
-        debugLog('[TEST] Waiting for error toast...');
-        await page.screenshot({ path: 'test-results/resilience-before-toast.png' });
-        await expect(page.getByText(/Private model hung or failed/i)).toBeVisible({ timeout: 20000 });
-        await page.screenshot({ path: 'test-results/resilience-with-toast.png' });
-
-        const repairButton = page.getByRole('button', { name: /Clear Cache & Reload/i });
-        await expect(repairButton).toBeVisible();
-
-        // 4. Verify Fallback to Native mode in UI
-        // In our current implementation, PrivateWhisper.ts throws the error, 
-        // which TranscriptionService.ts catches and falls back to Native.
-        const modeButton = page.getByRole('button', { name: /native/i });
-        await expect(modeButton).toBeVisible({ timeout: 5000 });
-
-        debugLog('[TEST] ✅ Resilience timeout and fallback verified');
+        // Cleanup
+        await page.getByTestId('session-start-stop-button').click();
     });
 });

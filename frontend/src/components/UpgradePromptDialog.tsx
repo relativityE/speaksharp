@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { getSupabaseClient } from "@/lib/supabaseClient";
 import logger from "@/lib/logger";
-import { toast } from "sonner";
+import { toast } from '@/lib/toast';
 
 interface UpgradePromptDialogProps {
   open: boolean;

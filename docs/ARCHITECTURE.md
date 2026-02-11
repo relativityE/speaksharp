@@ -227,6 +227,7 @@ SpeakSharp is built on a modern, serverless technology stack designed for real-t
     *   **Framework:** React (v18) with Vite (`^7.1.7`)
     *   **Language:** TypeScript (TSX)
     *   **Styling:** Tailwind CSS with a standard PostCSS setup (migrated from `@tailwindcss/vite` for improved `arm64` compatibility) and a CVA-based design system.
+    *   **Design Parity (Feb 2026):** Optimized radial gradients by replacing `transparent` with `rgba(0,0,0,0)` to eliminate "interpolation mud" (grayish borders) in ambient glows.
     *   **State Management:** React Context and custom hooks
 *   **Backend (BaaS):**
     *   **Platform:** Supabase
@@ -486,6 +487,73 @@ The `whisper-turbo` engine uses a two-layer cache (Service Worker + IndexedDB) t
 > **The WebGPU → CPU fallback chain only activates in production browsers.**
 > All automated tests use MockEngine for reliability and speed.
 > To test real engine behavior, use a production build in a real browser.
+
+### Dependency Injection & Test Registry
+
+To allow E2E tests to simulate complex resilience scenarios (e.g., "Partial Download Hangs" or "WebGPU Crashes") without relying on brittle global window pollution, we use a **Dependency Injection (DI) + Test Registry** pattern.
+
+**The Pattern:**
+1.  **Facade DI:** `PrivateWhisper` accepts an optional `injectedSTT` in its constructor (`injectedSTT || new PrivateSTT()`).
+2.  **Registry Lookup:** In `test` or `dev` modes, `TranscriptionService` checks singleton `TestRegistry` for a registered factory.
+3.  **Queue Hydration:** E2E tests use `window.__TEST_REGISTRY_QUEUE__` to register mock factories *before* the app bootstraps, ensuring the mock is available immediately upon service initialization.
+
+**Architecture Flow:**
+```
+E2E Test (Playwright)
+       │
+       ▼
+window.__TEST_REGISTRY_QUEUE__ (Push Factory)
+       │
+       ▼
+TestRegistry (Hydrate on Load)
+       │
+       ▼
+TranscriptionService (Get 'privateSTT' Factory)
+       │
+       ▼
+PrivateWhisper(FakePrivateSTT) ◀─── INJECTED MOCK
+```
+
+### ⚡ Optimistic Entry Pattern
+
+To avoid blocking the user experience during large model downloads (e.g., Private Whisper), SpeakSharp implements an "Optimistic Entry" strategy using a race condition bridge in `TranscriptionService.ts`.
+
+#### State Transition Logic
+
+```mermaid
+graph TD
+    Start["User Clicks 'Start'"] --> Race["Promise.race (200ms)"]
+    Race -- "Cache Hit (<200ms)" --> Private["Instant Private STT"]
+    Race -- "Cache Miss (>200ms)" --> Fallback["Instant Fallback (Cloud/Native)"]
+    Fallback --> Background["Background Private Download"]
+    Background -- "Download Finished" --> Ready["Success Toast: 'Private model ready'"]
+    Ready --> Switch["Optional Switch to Local Processing"]
+```
+
+#### Race Logic Implementation
+- **Timeout**: Enforced at **200ms**.
+- **Path A (Hit)**: If the WASM/ONNX model is cached in IndexedDB, initialization completes within the window, and the session begins in `private` mode immediately.
+- **Path B (Miss)**: If the model must be downloaded from the CDN (HuggingFace), the 200ms timeout triggers a `CACHE_MISS`. The system immediately starts the session using the next available mode (Cloud or Native) while the `PrivateWhisper` instance continues loading in the background.
+
+### 🧪 E2E Resilience Testing Strategy
+
+The `private-stt-resilience.spec.ts` test verifies these long-tail UX scenarios by simulating real-world failure modes.
+
+#### 1. The "Infinite Hang" Simulation
+- **Mechanism**: Use Playwright Request Interception to catch requests to the HuggingFace CDN (`https://huggingface.co/onnx-community/...`).
+- **Implementation**: The intercepted route is matched and "held" without completion, forcing the `TranscriptionService` to hit the 200ms timeout and execute the fallback.
+
+#### 2. Cache Clearance
+- **IndexedDB**: The `transformers-cache` and `models` stores are cleared before each test run to ensure a fresh download (Path B).
+- **LocalStorage**: Branded STT flags are reset to force a fresh initialization.
+
+#### 3. Verification of Executive UX
+The test suite asserts:
+1. **Immediate Intent**: "Setting up private model" toast appears within 2s.
+2. **Zero-Wait Session**: "Recording active" UI appears immediately.
+3. **Background Persistency**: The `StatusNotificationBar` persists "Downloading private model" during the fallback session.
+4. **Completion Milestone**: The success toast "Private model ready" appears AFTER the simulated download finishes.
+
 
 ### 🧪 Driver-Dependent (Unmocked) Testing
 
