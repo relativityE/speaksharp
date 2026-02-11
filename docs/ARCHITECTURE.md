@@ -2815,3 +2815,22 @@ To ensure deterministic E2E testing of the resilience flow, we've implemented a 
 ## 16. UI Optimization
 - **Composite Status UI**: The `StatusNotificationBar` now supports dual-state rendering, showing the "Recording" status (primary) alongside "Downloading" progress (secondary) during background loads.
 - **Banner Consolidation**: Redundant upgrade banners were consolidated into a single, high-visibility page header to maximize vertical space for session data.
+
+## 17. Technical Debt & Known Issues (Production Readiness Audit Feb 2026)
+
+The following issues were identified during a comprehensive production readiness audit. These are categorized by domain and severity.
+
+### 17.1 Critical Technical Debt (Production Blockers)
+- **Audio Context Leaks**: `PrivateWhisper.ts` fails to remove microphone frame listeners, leading to exponential CPU growth and memory exhaustion.
+- **Stale Closures**: `useSpeechRecognition` loses final transcription chunks due to stale closure capture during session stop.
+- **Atomic Operations**: `update_user_usage` in PostgreSQL is non-atomic, leading to lost usage counts during concurrent saves.
+- **Concurrency/Overwrite**: `TranscriptionService` overwrites the active provider instance without calling `.terminate()`.
+- **Security**: Admin secret comparison in `apply-promo` is vulnerable to timing attacks.
+- **Rate Limiting**: Missing server-side rate limiting in Edge Functions.
+
+### 17.2 High-Priority Gaps
+- **Error Boundaries**: Single top-level boundary. Sub-components (Cards) lack isolation.
+- **Performance**: High-frequency re-renders in `useSessionLifecycle.ts` due to global state updates on a 1s timer.
+- **Scalability**: Edge Function cold start latency (p99 > 5s).
+- **Database**: Missing `ON DELETE CASCADE` for `sessions.user_id`.
+- **Validation**: Lack of input length enforcement for the `transcript` field.

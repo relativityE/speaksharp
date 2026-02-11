@@ -596,3 +596,57 @@ This phase focuses on hardening the interface between frontend and backend and e
 
 ---
 
+
+---
+
+## 🚨 Phase 4: Production Readiness Hardening (Audit Feb 2026)
+
+> **Goal:** Resolve all CRITICAL and HIGH severity issues identified in the Production Readiness Audit before public release.
+
+### 🔴 DOMAIN 1: Memory Leaks & Resource Exhaustion
+| ID | Title | Severity | Status | Notes |
+|----|-------|----------|--------|-------|
+| D1.1 | **Unbounded Mic Listeners** | **CRITICAL** | 🔴 Not Started | `PrivateWhisper.ts`: Listeners accumulate on every start. Fix: `mic.offFrame`. |
+| D1.2 | **Zombie Instance Overwrite** | **HIGH** | 🔴 Not Started | `TranscriptionService.ts`: Overwriting `this.instance` without `.terminate()`. |
+
+### 🔴 DOMAIN 2: Race Conditions & State Synchronization
+| ID | Title | Severity | Status | Notes |
+|----|-------|----------|--------|-------|
+| D2.1 | **Stale Closure in Session Save** | **CRITICAL** | 🔴 Not Started | `useSpeechRecognition`: Final chunks lost on stop. Fix: Return data from service. |
+| D2.2 | **Immutable Callback Capture** | **HIGH** | 🔴 Not Started | `TranscriptionService.ts`: Captures stale `onTranscriptUpdate`. |
+
+### 🔴 DOMAIN 3: Error Boundaries & Failure Modes
+| ID | Title | Severity | Status | Notes |
+|----|-------|----------|--------|-------|
+| D3.1 | **Lack of Sub-component Boundaries** | **CRITICAL** | 🔴 Not Started | `main.tsx`: Single top-level boundary. Fix: Wrap individual cards. |
+| D3.2 | **Unhandled Promise Rejections** | **HIGH** | 🔴 Not Started | `TranscriptionService.ts`: Missing `.catch()` on background model loads. |
+
+### 🔴 DOMAIN 4: Performance Bottlenecks
+| ID | Title | Severity | Status | Notes |
+|----|-------|----------|--------|-------|
+| D4.1 | **High-Frequency Re-renders** | **CRITICAL** | 🔴 Not Started | `useSessionLifecycle.ts`: 1s timer triggers full page update via store. |
+| D4.2 | **Fake Waveform Visualization** | **HIGH** | 🔴 Not Started | `LiveRecordingCard.tsx`: Uses `Math.random()`. Fix: Use real RMS data. |
+
+### 🔴 DOMAIN 5: Test Coverage Gaps
+| ID | Title | Severity | Status | Notes |
+|----|-------|----------|--------|-------|
+| D5.1 | **Zero Tier Transition Coverage** | **CRITICAL** | 🔴 Not Started | No tests for mid-session limit hits (API cost risk). |
+| D5.2 | **Unstable Test Environment** | **HIGH** | 🔴 Not Started | Unit/E2E state pollution causing CI flakiness. |
+
+### 🔴 DOMAIN 6: Security Vulnerabilities
+| ID | Title | Severity | Status | Notes |
+|----|-------|----------|--------|-------|
+| D6.1 | **Timing Attack on Admin Secret** | **CRITICAL** | 🔴 Not Started | `apply-promo`: Uses standard `!==`. Fix: Constant-time comparison. |
+| D6.2 | **Input Length Validation** | **HIGH** | 🔴 Not Started | `storage.ts`: `transcript` field has no DB/API length limit. |
+
+### 🔴 DOMAIN 7: Database Schema & Migrations
+| ID | Title | Severity | Status | Notes |
+|----|-------|----------|--------|-------|
+| D7.1 | **Non-Atomic Usage Updates** | **CRITICAL** | 🔴 Not Started | Race condition in `update_user_usage`. Fix: Atomic SQL increment. |
+| D7.2 | **Missing Orphan Protection** | **HIGH** | 🔴 Not Started | `sessions.user_id` lacks `ON DELETE CASCADE`. |
+
+### 🔴 DOMAIN 8: Scalability Architecture
+| ID | Title | Severity | Status | Notes |
+|----|-------|----------|--------|-------|
+| D8.1 | **Missing Server-Side Rate Limits** | **CRITICAL** | 🔴 Not Started | Edge Functions vulnerable to spam/DDoS costs. |
+| D8.2 | **Edge Function Cold Starts** | **HIGH** | 🔴 Not Started | p99 > 5s. Fix: Warmup pings or bundle optimization. |
