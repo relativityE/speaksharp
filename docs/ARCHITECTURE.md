@@ -5,7 +5,7 @@
 
 # SpeakSharp System Architecture
 
-**Version 5.3** | **Last Updated: 2026-02-09**
+**Version 5.4** | **Last Updated: 2026-02-11**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -2796,3 +2796,22 @@ The filler word analysis logic (`fillerWordUtils.ts`) has been optimized to hand
 
 **Key Files:**
 - [`fillerWordUtils.ts`](../frontend/src/utils/fillerWordUtils.ts) - Optimized analysis engine.
+
+## 15. Resilience Patterns (Added v5.4)
+
+### 15.1 Optimistic Entry Pattern
+To prevent "loading fatigue" when a user selects Private STT and the model is not cached, the system uses an **Optimistic Entry** strategy in `TranscriptionService.ts`:
+1.  **Race Initialization**: We start the Private engine and a 200ms timeout.
+2.  **Instant Start**: If the engine initializes (cache hit) within 200ms, the session starts directly in Private mode.
+3.  **Background Load**: If it takes longer (cache miss), we immediately fallback to the next available engine (Cloud or Native) so the user can start recording instantly.
+4.  **Silent Swap**: The Private engine continues loading in the background. Once ready, the system acknowledges it via a toast, allowing for future sessions to be private without interruption.
+
+### 15.2 Test Registry & Dependency Injection
+To ensure deterministic E2E testing of the resilience flow, we've implemented a formal **Dependency Injection** pattern:
+- **`TestRegistry`**: A central registry for factories of test doubles.
+- **`IPrivateSTT`**: A shared interface between the real engine and the mock.
+- **Consumer Injection**: `TranscriptionService` and `PrivateWhisper` now accept optional engine instances, allowing the E2E suite to inject a `FakePrivateSTT` that can simulate specific progress percentages and download hangs.
+
+## 16. UI Optimization
+- **Composite Status UI**: The `StatusNotificationBar` now supports dual-state rendering, showing the "Recording" status (primary) alongside "Downloading" progress (secondary) during background loads.
+- **Banner Consolidation**: Redundant upgrade banners were consolidated into a single, high-visibility page header to maximize vertical space for session data.
