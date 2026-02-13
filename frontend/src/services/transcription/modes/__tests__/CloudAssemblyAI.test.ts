@@ -80,6 +80,7 @@ describe('CloudAssemblyAI (Native WebSocket)', () => {
     const onTranscriptUpdate = vi.fn();
     const onReady = vi.fn();
     const onError = vi.fn();
+    const getAssemblyAIToken = vi.fn();
     let originalWebSocket: unknown;
 
     beforeEach(() => {
@@ -91,21 +92,14 @@ describe('CloudAssemblyAI (Native WebSocket)', () => {
         global.WebSocket = MockWebSocket as unknown as typeof WebSocket;
         MockWebSocket.instances = [];
 
-        // Setup Supabase Mock
-        mockGetSession.mockResolvedValue({
-            data: { session: { access_token: 'fake-access-token' } }
-        });
-
-        // Mock fetch for the token endpoint
-        global.fetch = vi.fn().mockResolvedValue({
-            ok: true,
-            json: async () => ({ token: 'temp-assemblyai-token' })
-        });
+        // Setup Token Mock
+        getAssemblyAIToken.mockResolvedValue('temp-assemblyai-token');
 
         mode = new CloudAssemblyAI({
             onTranscriptUpdate,
             onReady,
             onError,
+            getAssemblyAIToken,
         });
     });
 
@@ -120,16 +114,8 @@ describe('CloudAssemblyAI (Native WebSocket)', () => {
         it('should fetch token and connect to WebSocket with correct URL', async () => {
             await mode.startTranscription();
 
-            // 1. Check fetch call
-            expect(global.fetch).toHaveBeenCalledWith(
-                expect.stringContaining('assemblyai-token'),
-                expect.objectContaining({
-                    method: 'POST',
-                    headers: expect.objectContaining({
-                        'Authorization': 'Bearer fake-access-token'
-                    })
-                })
-            );
+            // 1. Check callback call
+            expect(getAssemblyAIToken).toHaveBeenCalled();
 
             // 2. verify WebSocket creation
             const socket = LAST_SOCKET();

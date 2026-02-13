@@ -1,5 +1,4 @@
 import { ITranscriptionMode, TranscriptionModeOptions, Transcript, TranscriptionError } from './types';
-import { getSupabaseClient } from '../../../lib/supabaseClient';
 import { floatToInt16Async } from '../utils/AudioProcessor';
 import logger from '../../../lib/logger';
 
