@@ -70,9 +70,14 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      "@shared": path.resolve(__dirname, "../backend/supabase/functions/_shared"),
       "@config": path.resolve(__dirname, "../scripts"),
-      "tests": path.resolve(__dirname, "./tests"),
+      "@test-utils": path.resolve(__dirname, "./tests/support/test-utils"),
+      "@test-mocks": path.resolve(__dirname, "./tests/mocks"),
       "sharp": path.resolve(__dirname, "./tests/support/mocks/sharp.ts"),
+      "file-saver": path.resolve(__dirname, "./tests/mocks/file-saver.ts"),
+      "whisper-turbo": path.resolve(__dirname, "./tests/mocks/whisper-turbo.ts"),
+      "whisper-webgpu": path.resolve(__dirname, "./tests/mocks/whisper-turbo.ts"),
     },
   },
   define: {

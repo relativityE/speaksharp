@@ -34,7 +34,7 @@ export async function createMicStreamImpl(
     const mockStream: MicStream = {
       state: 'ready',
       sampleRate,
-      onFrame: () => { },
+      onFrame: () => () => { },
       offFrame: () => { },
       stop: () => { },
       close: () => { },
@@ -97,7 +97,10 @@ export async function createMicStreamImpl(
   const stream: MicStream = {
     state: 'ready',
     sampleRate,
-    onFrame: (cb: (frame: Float32Array) => void) => listeners.add(cb),
+    onFrame: (cb: (frame: Float32Array) => void) => {
+      listeners.add(cb);
+      return () => listeners.delete(cb);
+    },
     offFrame: (cb: (frame: Float32Array) => void) => listeners.delete(cb),
     stop: stopAndClose,
     close: stopAndClose,

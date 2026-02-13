@@ -14,11 +14,17 @@ vi.mock('../useTranscriptionService');
 vi.mock('../../useVocalAnalysis', () => ({
   useVocalAnalysis: vi.fn(() => ({
     pauseMetrics: {
-      pauseCount: 0,
-      totalPauseDuration: 0,
+      totalPauses: 0,
       averagePauseDuration: 0,
-      speakingPace: 0
-    }
+      longestPause: 0,
+      pausesPerMinute: 0,
+      silencePercentage: 0,
+      transitionPauses: 0,
+      extendedPauses: 0
+    },
+    setIsActive: vi.fn(),
+    processAudioFrame: vi.fn(),
+    reset: vi.fn()
   }))
 }));
 vi.mock('sonner', () => ({

@@ -13,6 +13,8 @@ export interface PaginationOptions {
   offset?: number;
 }
 
+const MAX_TRANSCRIPT_LENGTH = 500000; // ~500KB limit for transcript text
+
 /**
  * Fetches the session history for a specific user with optional pagination.
  * @param {string} userId - The ID of the user.
@@ -107,6 +109,12 @@ export const saveSession = async (sessionData: Partial<PracticeSession> & { user
     return { session: null, usageExceeded: false };
   }
 
+  // Security: Enforce input length limits to prevent DB stuffing
+  if (sessionData.transcript && sessionData.transcript.length > MAX_TRANSCRIPT_LENGTH) {
+    logger.warn({ userId: sessionData.user_id, length: sessionData.transcript.length }, 'Session save blocked: Transcript exceeds max length.');
+    throw new Error(`Transcript too long (Max ${MAX_TRANSCRIPT_LENGTH} chars). Please contact support.`);
+  }
+
   // The previous implementation had a race condition where a user could save multiple
   // sessions before the usage check was performed. This has been fixed by delegating
   // the entire operation to a single, atomic RPC function in the database.
@@ -126,8 +134,8 @@ export const saveSession = async (sessionData: Partial<PracticeSession> & { user
   // { new_session: PracticeSession, usage_exceeded: boolean }
   // We adapt this to the client-side expected return type.
   return {
-    session: data.new_session || null,
-    usageExceeded: data.usage_exceeded || false,
+    session: data?.new_session || null,
+    usageExceeded: data?.usage_exceeded || false,
   };
 };
 

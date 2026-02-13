@@ -78,6 +78,11 @@ if (!IS_TEST_ENVIRONMENT && import.meta.env.VITE_SENTRY_DSN) {
   logger.warn('[Sentry] ⚠️ No DSN provided - error tracking disabled');
 }
 
+import { setupGlobalErrorHandlers } from './lib/globalErrorHandlers';
+
+// 🌍 Global Error Handlers (Safety Net)
+setupGlobalErrorHandlers();
+
 const renderApp = async (initialSession: Session | null = null) => {
   if (rootElement && !window._speakSharpRootInitialized) {
     window._speakSharpRootInitialized = true;

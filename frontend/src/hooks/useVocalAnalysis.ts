@@ -1,7 +1,8 @@
 import { useRef, useEffect, useState } from 'react';
 import { PauseDetector, PauseMetrics } from '@/services/audio/pauseDetector';
 
-export const useVocalAnalysis = (isListening: boolean) => {
+export const useVocalAnalysis = () => {
+    const [isActive, setIsActive] = useState(false);
     const pauseDetectorRef = useRef<PauseDetector | null>(null);
     const [pauseMetrics, setPauseMetrics] = useState<PauseMetrics>({
         totalPauses: 0,
@@ -14,21 +15,21 @@ export const useVocalAnalysis = (isListening: boolean) => {
     });
 
     useEffect(() => {
-        if (isListening && !pauseDetectorRef.current) {
+        if (isActive && !pauseDetectorRef.current) {
             pauseDetectorRef.current = new PauseDetector();
         }
 
-        if (!isListening && pauseDetectorRef.current) {
+        if (!isActive && pauseDetectorRef.current) {
             // Get final metrics before resetting
             const finalMetrics = pauseDetectorRef.current.getMetrics();
             setPauseMetrics(finalMetrics);
             pauseDetectorRef.current = null;
         }
-    }, [isListening]);
+    }, [isActive]);
 
     // Update metrics every second while listening
     useEffect(() => {
-        if (!isListening || !pauseDetectorRef.current) return;
+        if (!isActive || !pauseDetectorRef.current) return;
 
         const interval = setInterval(() => {
             if (pauseDetectorRef.current) {
@@ -37,9 +38,10 @@ export const useVocalAnalysis = (isListening: boolean) => {
         }, 1000);
 
         return () => clearInterval(interval);
-    }, [isListening]);
+    }, [isActive]);
 
     const processAudioFrame = (audioData: Float32Array) => {
+        if (!isActive) return;
         pauseDetectorRef.current?.processAudioFrame(audioData);
     };
 
@@ -60,5 +62,6 @@ export const useVocalAnalysis = (isListening: boolean) => {
         pauseMetrics,
         processAudioFrame,
         reset,
+        setIsActive
     };
 };

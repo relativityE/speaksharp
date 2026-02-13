@@ -72,8 +72,9 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         const mockMic: MicStream = {
             state: 'ready',
             sampleRate: 16000,
-            onFrame: vi.fn((cb) => {
+            onFrame: vi.fn((cb: (frame: Float32Array) => void) => {
                 frameCallback = cb;
+                return () => { };
             }),
             offFrame: vi.fn(),
             stop: vi.fn(),
@@ -109,7 +110,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         const mockMic: MicStream = {
             state: 'ready',
             sampleRate: 16000,
-            onFrame: vi.fn((cb) => { frameCallback = cb; }),
+            onFrame: vi.fn((cb: (frame: Float32Array) => void) => { frameCallback = cb; return () => { }; }),
             offFrame: vi.fn(),
             stop: vi.fn(),
             close: vi.fn(),
@@ -141,7 +142,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         const mockMic: MicStream = {
             state: 'ready',
             sampleRate: 16000,
-            onFrame: vi.fn((cb) => { frameCallback = cb; }),
+            onFrame: vi.fn((cb: (frame: Float32Array) => void) => { frameCallback = cb; return () => { }; }),
             offFrame: vi.fn(),
             stop: vi.fn(),
             close: vi.fn(),
@@ -173,7 +174,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         const mockMic: MicStream = {
             state: 'ready',
             sampleRate: 16000,
-            onFrame: vi.fn((cb) => { frameCallback = cb; }),
+            onFrame: vi.fn((cb: (frame: Float32Array) => void) => { frameCallback = cb; return () => { }; }),
             offFrame: vi.fn(),
             stop: vi.fn(),
             close: vi.fn(),

@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { renderHook } from '@testing-library/react';
 import { useSessionLifecycle } from '../useSessionLifecycle';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
-import { useSessionStore } from '@/stores/useSessionStore';
+import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
+import { useSessionStore, type SessionStore as SessionStoreType } from '@/stores/useSessionStore';
 import { useSpeechRecognition } from '../useSpeechRecognition';
 import { useUsageLimit } from '../useUsageLimit';
 import type { UseQueryResult } from '@tanstack/react-query';
@@ -25,7 +25,13 @@ vi.mock('@tanstack/react-query', () => ({
 }));
 
 vi.mock('@/stores/useSessionStore', () => ({
-    useSessionStore: vi.fn(() => ({ updateElapsedTime: vi.fn(), elapsedTime: 0 })),
+    useSessionStore: vi.fn((selector: (state: unknown) => unknown) => {
+        const state = {
+            updateElapsedTime: vi.fn(),
+            elapsedTime: 0,
+        };
+        return selector ? (selector as (s: typeof state) => unknown)(state) : state;
+    }),
 }));
 
 // Global mock for useUsageLimit
@@ -143,9 +149,12 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             is_pro: false
         };
 
-        vi.mocked(useSessionStore).mockReturnValue({
-            updateElapsedTime: vi.fn(),
-            elapsedTime: mockElapsedTime,
+        (useSessionStore as unknown as Mock).mockImplementation((selector?: (state: SessionStoreType) => unknown) => {
+            const state = {
+                updateElapsedTime: vi.fn(),
+                elapsedTime: mockElapsedTime,
+            } as unknown as SessionStoreType;
+            return selector ? (selector as (s: SessionStoreType) => unknown)(state) : state;
         });
 
         vi.mocked(useSpeechRecognition).mockReturnValue({
@@ -181,9 +190,12 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
     });
 
     it('should NOT trigger stop when time remains', () => {
-        vi.mocked(useSessionStore).mockReturnValue({
-            updateElapsedTime: vi.fn(),
-            elapsedTime: 29,
+        (useSessionStore as unknown as Mock).mockImplementation((selector: (state: unknown) => unknown) => {
+            const state = {
+                updateElapsedTime: vi.fn(),
+                elapsedTime: 25,
+            };
+            return selector ? (selector as (s: typeof state) => unknown)(state) : state;
         });
 
         vi.mocked(useSpeechRecognition).mockReturnValue({

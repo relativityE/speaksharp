@@ -28,12 +28,14 @@ interface LiveRecordingCardProps {
     onStartStop: () => void;
 }
 
+import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
+
 /**
  * The main recording control panel with mode selector, mic indicator,
  * timer, and start/stop button.
  * Extracted from SessionPage for better reusability and testability.
  */
-export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
+const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     mode,
     isListening,
     isReady,
@@ -181,5 +183,11 @@ export const LiveRecordingCard: React.FC<LiveRecordingCardProps> = ({
         </div>
     );
 };
+
+export const LiveRecordingCard = (props: LiveRecordingCardProps) => (
+    <LocalErrorBoundary componentName="LiveRecordingCard">
+        <LiveRecordingCardContent {...props} />
+    </LocalErrorBoundary>
+);
 
 export default LiveRecordingCard;

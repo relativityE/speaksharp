@@ -5,7 +5,7 @@
 
 # SpeakSharp System Architecture
 
-**Version 5.4** | **Last Updated: 2026-02-11**
+**Version 5.4** | **Last Updated: 2026-02-12**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -134,6 +134,30 @@ Data Flow:
   SessionPage → check-usage-limit → Expiry Modal (if promo expired)
 ```
 
+### Phase 2 Hardening Patterns (2026-02-12)
+These core patterns were established during the Phase 2 Hardening cycle to ensure system-wide stability and security.
+
+#### 1. Lately Captured State Pattern (`useSpeechRecognition_prod.ts`)
+**Problem:** Stale closures in `useEffect` or `useCallback` when passing callbacks to async services (like Transcription).
+**Solution:** A `useRef`-based proxy that captures the "Lately Captured State" of component variables, providing a stable reference that always accesses the most recent values during async execution.
+- **Used in:** `useSpeechRecognition_prod.ts` (Lines 174-183).
+- **Benefit:** Prevents "Zombie Callbacks" where services execute logic against old component state.
+
+#### 2. Double-Dispose Guard (`TranscriptionService.ts`)
+**Problem:** Race conditions during rapid "Stop/Start" cycles where a secondary instance might be initialized before the primary teardown completes.
+**Solution:** Explicit `isDisposed` flag check in the `dispose` method and `initialized` guards in the singleton/registry.
+- **Benefit:** Guaranteed resource cleanup and prevention of overlapping audio streams.
+
+#### 3. Atomic Usage Updates (PostgreSQL)
+**Problem:** Race conditions in usage limit enforcement where concurrent sessions could bypass limits.
+**Solution:** Migrated from `SELECT -> UPDATE` (application logic) to atomic SQL `UPDATE ... SET usage = usage + 1 WHERE id = ... AND usage < limit`.
+- **Benefit:** Strong consistency for tier-based resource consumption.
+
+#### 4. Global Error Handlers & React Boundaries
+**Problem:** Unhandled promise rejections or UI component crashes silently failing.
+**Solution:** Centralized `globalErrorHandlers.ts` for browser-level events and `ErrorBoundary.tsx` for React sub-tree isolation.
+- **Benefit:** Automatic session recovery and diagnostic visibility via `logger.fatal`.
+
 ### Promo Admin System
 We prioritize a secure, dynamic promo code system for internal access/testing.
 
@@ -257,6 +281,7 @@ The following critical features are fully implemented and production-ready:
 | **Sentry Error Tracking** | ✅ Complete | Full initialization with browser tracing, session replay (10% sampling), and 100% error replay | [`main.tsx:50-68`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/main.tsx#L50-L68) |
 | **Console Logging Integration** | ✅ Complete | `consoleLoggingIntegration` captures `console.error`/`warn` → Sentry. Since Pino uses `pino-pretty`, all `logger.error()` calls are now sent to Sentry | [`main.tsx:57-61`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/main.tsx#L57-L61) |
 | **React Error Boundary** | ✅ Complete | `Sentry.ErrorBoundary` wraps entire `<App/>` component with user-friendly fallback | [`main.tsx:111-113`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/main.tsx#L111-L113) |
+| **Component Error Boundary** | ✅ Complete | `LocalErrorBoundary` wraps specific high-risk components (e.g. `LiveRecordingCard`) to prevent full app crashes | [`LocalErrorBoundary.tsx`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/components/LocalErrorBoundary.tsx) |
 | **E2E Test Isolation** | ✅ Complete | Sentry/PostHog disabled in `IS_TEST_ENVIRONMENT` to prevent test pollution | [`main.tsx:47, 83-85`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/main.tsx#L47) |
 
 > **Error Boundary Implementation Details:**
@@ -590,6 +615,9 @@ Tests MUST wait for this signal via `window.micStream.state === 'ready'` before 
 |**Hardware Race Condition**|**Synchronous Release.** Microphone is stopped immediately during `destroy()`, preventing "Device Busy" errors on session restart.|`TranscriptionService.ts`|
 |**Retry Limit Exceeded**|Limits to `STT_CONFIG.MAX_PRIVATE_ATTEMPTS` (Default: 2) | Static failure counter prevents infinite loops |
 |**"Dead" State**|User can "Clear Cache & Reload" via UI|`useTranscriptionService.ts` error handling|
+|**Memory Leaks (Listeners)**|**Disposable Pattern.** `MicStream` and `PrivateWhisper` return strict `() => void` disposers. Enforced cleanup on stop/terminate.|`PrivateWhisper.ts`|
+|**Zombie Instances**|**Double-Dispose Guard.** `safeTerminateInstance` prevents concurrent destroy calls with retry logic and instant nullification.|`TranscriptionService.ts`|
+|**UI Crashes**|**Error Boundaries.** `LocalErrorBoundary` wraps recording components to catch render errors and display a "Try Again" fallback.|`LiveRecordingCard.tsx`|
 
 ### 4. Vocal Analytics Engine
 
@@ -670,7 +698,7 @@ SpeakSharp uses a comprehensive test pyramid with 10 distinct categories:
                       ┌┴─────────────────┐
                       │      E2E         │ (MSW Mocked)
          ┌────────────┴──────────────────┴────────────┐
-         │            Unit Tests (478)                │
+         │            Unit Tests (509)                │
          └────────────────────────────────────────────┘
 ```
 

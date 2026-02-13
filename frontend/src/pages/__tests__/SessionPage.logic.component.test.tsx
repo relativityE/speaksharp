@@ -36,9 +36,12 @@ vi.mock('@/hooks/useUserProfile', () => ({
 }));
 
 vi.mock('../../stores/useSessionStore', () => ({
-    useSessionStore: () => ({
-        updateElapsedTime: mockUpdateElapsedTime,
-        elapsedTime: 0,
+    useSessionStore: vi.fn((selector?: (state: unknown) => unknown) => {
+        const state = {
+            updateElapsedTime: mockUpdateElapsedTime,
+            elapsedTime: 0,
+        };
+        return selector ? selector(state) : state;
     }),
 }));
 

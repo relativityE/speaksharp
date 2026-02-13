@@ -6,7 +6,6 @@ import { useAuthProvider } from '../contexts/AuthProvider';
 import { useUserProfile } from './useUserProfile';
 import { useSessionStore } from '../stores/useSessionStore';
 import { useSpeechRecognition } from './useSpeechRecognition';
-import { useVocalAnalysis } from './useVocalAnalysis';
 import { useSessionManager } from './useSessionManager';
 import { useSessionMetrics } from './useSessionMetrics';
 import { useUsageLimit } from './useUsageLimit';
@@ -20,7 +19,8 @@ export const useSessionLifecycle = () => {
     const { session } = useAuthProvider();
     const { data: profile, isLoading, error: profileError } = useUserProfile();
     const queryClient = useQueryClient();
-    const { updateElapsedTime, elapsedTime } = useSessionStore();
+    const updateElapsedTime = useSessionStore(state => state.updateElapsedTime);
+    const elapsedTime = useSessionStore(state => state.elapsedTime);
     const { data: usageLimit } = useUsageLimit();
     const { updateStreak } = useStreak();
     const { saveSession } = useSessionManager();
@@ -51,10 +51,9 @@ export const useSessionLifecycle = () => {
         isReady,
         modelLoadingProgress,
         sttStatus,
-        mode: activeMode
+        mode: activeMode,
+        pauseMetrics
     } = speechRecognition;
-
-    const { pauseMetrics } = useVocalAnalysis(isListening);
 
     const metrics = useSessionMetrics({
         transcript: transcript.transcript,

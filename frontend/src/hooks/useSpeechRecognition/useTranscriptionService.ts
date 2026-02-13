@@ -1,5 +1,6 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import TranscriptionService from '../../services/transcription/TranscriptionService';
+import { testRegistry } from '../../services/transcription/TestRegistry';
 import type { TranscriptionServiceOptions, SttStatus } from '../../services/transcription/TranscriptionService';
 import {
   TranscriptionPolicy,
@@ -7,8 +8,8 @@ import {
   E2E_DETERMINISTIC_NATIVE,
 } from '../../services/transcription/TranscriptionPolicy';
 import { MicStream } from '../../services/transcription/utils/types';
-import logger from '../../lib/logger';
 import { toast } from '@/lib/toast';
+import logger from '../../lib/logger';
 
 interface ITranscriptionService {
   init: () => Promise<{ success: boolean }>;
@@ -26,6 +27,7 @@ export interface UseTranscriptionServiceOptions {
   navigate: TranscriptionServiceOptions['navigate'];
   getAssemblyAIToken: TranscriptionServiceOptions['getAssemblyAIToken'];
   customVocabulary?: string[];
+  onAudioData?: TranscriptionServiceOptions['onAudioData'];
 }
 
 export const useTranscriptionService = (options: UseTranscriptionServiceOptions) => {
@@ -43,6 +45,48 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
+  // [Fix: Callback Wrapper Instability] 
+  // Wrap callbacks in useMemo to ensure wrappedOptions has a stable reference forever.
+  // This prevents the service from re-initializing or thinking callbacks have changed.
+  const wrappedOptions = useMemo<TranscriptionServiceOptions>(() => ({
+    // Spread current options (policy, session, etc. will be handled by refs if needed, 
+    // but here we focus on the callbacks)
+    ...optionsRef.current,
+
+    onTranscriptUpdate: (...args) => optionsRef.current.onTranscriptUpdate(...args),
+    onModelLoadProgress: (...args) => optionsRef.current.onModelLoadProgress(...args),
+    getAssemblyAIToken: () => optionsRef.current.getAssemblyAIToken(),
+    onAudioData: (...args) => optionsRef.current.onAudioData?.(...args),
+
+    onReady: () => {
+      setIsReady(true);
+      // EXECUTIVE PATTERN: Success Confirmation
+      toast.success("Private model ready", {
+        description: "Now running locally",
+        id: 'stt-milestone-toast',
+        duration: 3000
+      });
+      optionsRef.current.onReady();
+    },
+
+    onModeChange: (mode: TranscriptionMode | null) => setCurrentMode(mode),
+    onStatusChange: (status: SttStatus) => {
+      setSttStatus(status);
+      if (status.type === 'fallback' && status.newMode === 'native' && !hasShownFallbackToastRef.current) {
+        hasShownFallbackToastRef.current = true;
+        // EXECUTIVE PATTERN: Intent Acknowledgment
+        toast.info("Setting up private model", {
+          description: "Using Cloud model for now",
+          id: 'stt-milestone-toast',
+          duration: 3000
+        });
+      }
+    },
+    // Map refs that might change before init
+    policy: policyRef.current,
+    mockMic: mockMicRef.current ?? undefined,
+  }), []); // Empty deps = stable forever
+
   useEffect(() => {
     let isCancelled = false;
 
@@ -54,39 +98,25 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
         setIsSupported(true);
         hasShownFallbackToastRef.current = false;
 
-        // Wrap the onReady callback to set our internal isReady state
-        const wrappedOptions: TranscriptionServiceOptions = {
-          ...optionsRef.current,
-          onReady: () => {
-            setIsReady(true);
-            // EXECUTIVE PATTERN: Success Confirmation
-            toast.success("Private model ready", {
-              description: "Now running locally",
-              id: 'stt-milestone-toast',
-              duration: 3000
-            });
-            optionsRef.current.onReady();
-          },
-          onModeChange: setCurrentMode,
-          onStatusChange: (status) => {
-            setSttStatus(status);
-
-            if (status.type === 'fallback' && status.newMode === 'native' && !hasShownFallbackToastRef.current) {
-              hasShownFallbackToastRef.current = true;
-              // EXECUTIVE PATTERN: Intent Acknowledgment
-              toast.info("Setting up private model", {
-                description: "Using Cloud model for now",
-                id: 'stt-milestone-toast',
-                duration: 3000
-              });
-            }
-          },
-          policy: policyRef.current,
-          mockMic: mockMicRef.current ?? undefined,
-        };
-
         logger.info({ intent: policyRef.current.executionIntent }, '[useTranscriptionService] Creating new service');
-        const service = new TranscriptionService(wrappedOptions);
+
+        // Update the policy and mockMic in the stable object before use
+        // Note: In a pure implementation, these should also be accessed via refs 
+        // inside the service, but since we recreate the service on isListening change,
+        // we just ensure the values are fresh for THIS instantiation.
+        wrappedOptions.policy = policyRef.current;
+        wrappedOptions.mockMic = mockMicRef.current ?? undefined;
+
+        // DI / Test Registry Pattern for Constructor Injection
+        let ServiceClass = TranscriptionService;
+        if (import.meta.env.MODE === 'test' || import.meta.env.DEV) {
+          const mockConstructor = testRegistry.get<typeof TranscriptionService>('TranscriptionService');
+          if (mockConstructor) {
+            ServiceClass = mockConstructor;
+          }
+        }
+
+        const service = new ServiceClass(wrappedOptions);
         serviceRef.current = service as unknown as ITranscriptionService;
 
         try {
@@ -117,7 +147,7 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
         serviceRef.current = null;
       }
     };
-  }, [isListening]);
+  }, [isListening, wrappedOptions]);
 
   /**
    * Start listening with the given policy.

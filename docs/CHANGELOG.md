@@ -7,6 +7,17 @@ All notable changes to this project will be documented in this file.
 
 ### [Unreleased]
 
+- **Phase 2 Hardening Release (2026-02-12):**
+  - **Harden:** Resolved all high-priority linting and type errors across the project, achieving "Zero Tolerance" CI status (`pnpm typecheck && pnpm lint` verified green).
+  - **Security:** Implemented atomic SQL usage updates in `user_profiles` to prevent race conditions during session creation (migration `20260212000000`).
+  - **Security:** Added `ON DELETE CASCADE` to `sessions` and `user_profiles` for robust orphan protection.
+  - **Stability:** Implemented "Lately Captured State" pattern in `useSpeechRecognition_prod.ts` to eliminate stale closure bugs in async callbacks.
+  - **Stability:** Enforced "Double-Dispose Guard" in `TranscriptionService.ts` to prevent resource leaks during rapid start/stop cycles.
+  - **Infrastructure:** Implemented signal-based rate limiting in Edge Functions for enhanced server-side protection.
+  - **Reporting:** Generated comprehensive audit reports (`detailed expert review report.md`) and updated all mandated documentation (`README`, `AGENTS`, `PRD`, `ARCHITECTURE`, `ROADMAP`, `CHANGELOG`, `OUTLINE`) to reflect post-hardening state.
+  - **Fix:** Corrected `useVocalAnalysis` call in `useSessionLifecycle.ts` by utilizing `pauseMetrics` from existing `useSpeechRecognition` hook, resolving React render conflicts.
+  - **Quality:** Stabilized `useVocalAnalysis.component.test.tsx` with robust Vitest mocks and removed remaining `eslint-disable` comments.
+
 - **CI Stabilization & Architectural Refinement (2026-02-11):**
   - **Fix:** Resolved `private-stt.e2e.spec.ts` failure by updating the model loading indicator selector to `[data-testid="background-task-indicator"]`, aligning with the new Composite Status Pattern.
   - **Refactor:** Renamed `TestAdapterRegistry` to `TestRegistry` (Architect feedback) for improved naming clarity and updated all references across `TranscriptionService.ts`.

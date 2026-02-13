@@ -90,6 +90,7 @@ export async function clearPrivateSTTCache(): Promise<void> {
 }
 
 export default class PrivateWhisper implements ITranscriptionMode {
+  private frameListenerDisposer: (() => void) | null = null;
   private onTranscriptUpdate: (update: TranscriptUpdate) => void;
   private onModelLoadProgress?: (progress: number | null) => void;
   private onReady?: () => void;
@@ -205,7 +206,9 @@ export default class PrivateWhisper implements ITranscriptionMode {
     this.transcript = '';
 
     // Subscribe to microphone frames
-    mic.onFrame((frame: Float32Array) => {
+    this.cleanupFrameListener(); // CRITICAL: Clean up previous listener before adding new one
+
+    const listener = (frame: Float32Array) => {
       // Copy the frame to avoid buffer detachment issues
       const clonedFrame = frame.slice(0);
       this.audioChunks.push(clonedFrame);
@@ -214,7 +217,10 @@ export default class PrivateWhisper implements ITranscriptionMode {
       if (this.onAudioData) {
         this.onAudioData(clonedFrame);
       }
-    });
+    };
+
+    // Store the disposer returned by onFrame
+    this.frameListenerDisposer = mic.onFrame(listener);
 
     // Start processing loop (every 500ms) for more responsive UI
     this.processingInterval = setInterval(() => {
@@ -322,6 +328,8 @@ export default class PrivateWhisper implements ITranscriptionMode {
       this.mic = null;
     }
 
+    this.cleanupFrameListener();
+
     // Process any remaining audio
     await this.processAudio();
 
@@ -339,11 +347,20 @@ export default class PrivateWhisper implements ITranscriptionMode {
       clearInterval(this.processingInterval);
       this.processingInterval = null;
     }
+
+    this.cleanupFrameListener();
     this.isProcessing = false;
     this.audioChunks = []; // Clear buffer
 
     // Strict cleanup of the underlying engine
     await this.privateSTT.destroy();
     this.status = 'stopped';
+  }
+
+  private cleanupFrameListener(): void {
+    if (this.frameListenerDisposer) {
+      this.frameListenerDisposer();
+      this.frameListenerDisposer = null;
+    }
   }
 }

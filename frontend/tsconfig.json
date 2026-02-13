@@ -27,6 +27,12 @@
       ],
       "@shared/*": [
         "../backend/supabase/functions/_shared/*"
+      ],
+      "@test-mocks/*": [
+        "tests/mocks/*"
+      ],
+      "@test-utils/*": [
+        "tests/support/test-utils/*"
       ]
     },
     "types": [

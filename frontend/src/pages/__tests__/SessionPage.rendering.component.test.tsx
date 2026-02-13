@@ -26,13 +26,12 @@ vi.mock('../../hooks/useSpeechRecognition', () => ({
         chunks: [],
     })),
 }));
-vi.mock('../../stores/useSessionStore', () => ({
-    useSessionStore: vi.fn(() => ({
-        elapsedTime: 0,
-        updateElapsedTime: vi.fn(),
-        resetSession: vi.fn(),
-    })),
-}));
+vi.mock('../../stores/useSessionStore', () => {
+    const state = { elapsedTime: 0, updateElapsedTime: vi.fn(), resetSession: vi.fn() };
+    return {
+        useSessionStore: vi.fn((selector) => selector ? selector(state) : state),
+    };
+});
 vi.mock('../../hooks/useVocalAnalysis', () => ({
     useVocalAnalysis: vi.fn(() => ({
         pauseMetrics: { totalPauses: 0, averagePauseDuration: 0, longPauses: 0, pauseRate: 0 },
@@ -128,11 +127,15 @@ describe('SessionPage Rendering', () => {
             chunks: [],
         } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
-        mockUseSessionStore.mockReturnValue({
-            elapsedTime: 0,
-            updateElapsedTime: vi.fn(),
-            resetSession: vi.fn(),
-        } as unknown as ReturnType<typeof SessionStore.useSessionStore>);
+        mockUseSessionStore.mockImplementation((selector?: (state: SessionStore.SessionStore) => unknown) => {
+            const state = {
+                isListening: true,
+                elapsedTime: 0,
+                updateElapsedTime: vi.fn(),
+                resetSession: vi.fn(),
+            } as unknown as SessionStore.SessionStore;
+            return selector ? selector(state) : state;
+        });
 
         mockUseVocalAnalysis.mockReturnValue({
             pauseMetrics: { totalPauses: 0, averagePauseDuration: 0, longPauses: 0, pauseRate: 0 },
@@ -299,22 +302,28 @@ describe('Session Control', () => {
 
 describe('Metrics Display', () => {
     it('should display formatted time', () => {
-        mockUseSessionStore.mockReturnValue({
-            elapsedTime: 65, // 1 minute 5 seconds
-            updateElapsedTime: vi.fn(),
-            resetSession: vi.fn(),
-        } as unknown as ReturnType<typeof SessionStore.useSessionStore>);
+        mockUseSessionStore.mockImplementation((selector?: (state: SessionStore.SessionStore) => unknown) => {
+            const state = {
+                elapsedTime: 65, // 1 minute 5 seconds
+                updateElapsedTime: vi.fn(),
+                resetSession: vi.fn(),
+            } as unknown as SessionStore.SessionStore;
+            return selector ? selector(state) : state;
+        });
 
         renderWithRouter(<SessionPage />);
         expect(screen.getByText('01:05')).toBeInTheDocument();
     });
 
     it('should calculate and display WPM', () => {
-        mockUseSessionStore.mockReturnValue({
-            elapsedTime: 60,
-            updateElapsedTime: vi.fn(),
-            resetSession: vi.fn(),
-        } as unknown as ReturnType<typeof SessionStore.useSessionStore>);
+        mockUseSessionStore.mockImplementation((selector?: (state: SessionStore.SessionStore) => unknown) => {
+            const state = {
+                elapsedTime: 60,
+                updateElapsedTime: vi.fn(),
+                resetSession: vi.fn(),
+            } as unknown as SessionStore.SessionStore;
+            return selector ? selector(state) : state;
+        });
 
         mockUseSpeechRecognition.mockReturnValue({
             ...mockUseSpeechRecognition(), // Assuming default is set in global beforeEach or we need to reset

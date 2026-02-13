@@ -31,20 +31,22 @@ class TestRegistry {
 
 export const testRegistry = new TestRegistry();
 
-// Hydrate from queue if exists (from addInitScript)
-// This allows E2E tests to register factories before the app loads
-const queue = window.__TEST_REGISTRY_QUEUE__;
-if (Array.isArray(queue)) {
-    logger.info({ count: queue.length }, '[TestRegistry] Hydrating from queue');
-    queue.forEach((item) => {
-        if (item && item.key && item.factory) {
-            testRegistry.register(item.key, item.factory);
-        }
-    });
+// Hydrate from queue if exists (global scope injection)
+// This allows E2E tests to register scenarios before app init
+if (typeof window !== 'undefined') {
+    const queue = window.__TEST_REGISTRY_QUEUE__;
+    if (Array.isArray(queue)) {
+        logger.info({ count: queue.length }, '[TestRegistry] Hydrating from queue');
+        queue.forEach((item) => {
+            if (item && item.key && item.factory) {
+                testRegistry.register(item.key, item.factory);
+            }
+        });
+    }
 }
 
 // Expose ONLY in development/test environments for E2E tests to hook into
-if (import.meta.env.MODE === 'test' || import.meta.env.DEV) {
+if ((import.meta.env.MODE === 'test' || import.meta.env.DEV) && typeof window !== 'undefined') {
     // Use a specific global property for the registry
     window.__TEST_REGISTRY__ = testRegistry;
 }

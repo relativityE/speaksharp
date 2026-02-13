@@ -97,11 +97,14 @@ describe('useSessionLifecycle Timer Logic', () => {
             mode: 'native',
         } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
-        mockUseSessionStore.mockReturnValue({
-            elapsedTime: 0,
-            updateElapsedTime: mockUpdateElapsedTime,
-            resetSession: vi.fn(),
-        } as unknown as ReturnType<typeof SessionStore.useSessionStore>);
+        mockUseSessionStore.mockImplementation((selector?: (state: SessionStore.SessionStore) => unknown) => {
+            const state = {
+                elapsedTime: 0,
+                updateElapsedTime: mockUpdateElapsedTime,
+                resetSession: vi.fn(),
+            } as unknown as SessionStore.SessionStore;
+            return selector ? selector(state) : state;
+        });
 
         mockUseVocalAnalysis.mockReturnValue({
             pauseMetrics: {

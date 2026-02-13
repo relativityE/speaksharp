@@ -98,6 +98,9 @@ export default class TranscriptionService {
   private onModelLoadProgress: (progress: number | null) => void;
   private onReady: () => void;
   private onModeChange?: (mode: TranscriptionMode | null) => void;
+
+  // ZOMBIE PREVENTION: Guard against concurrent terminate calls
+  private isTerminating = false;
   private onStatusChange?: (status: SttStatus) => void;
   private onAudioData?: (data: Float32Array) => void;
   private session: Session | null;
@@ -318,10 +321,13 @@ export default class TranscriptionService {
   /**
    * Execute transcription for the given mode.
    */
-  private async executeMode(
+  protected async executeMode(
     mode: TranscriptionMode,
     config: TranscriptionModeOptions
   ): Promise<void> {
+    // CRITICAL: Always terminate previous instance safely to prevent zombies
+    await this.safeTerminateInstance();
+
     // Notify status: initializing
     const modeLabel = mode === 'native' ? 'Native Browser' : mode === 'cloud' ? 'Cloud' : 'Private';
     this.onStatusChange?.({ type: 'initializing', message: `Starting ${modeLabel} mode...` });
@@ -518,7 +524,6 @@ export default class TranscriptionService {
   public async destroy(): Promise<void> {
     if (this.state === 'IDLE') return;
 
-    const start = performance.now();
     logger.info({ currentState: this.state }, '[TranscriptionService] Destroying service.');
     this.transitionTo('STOPPING');
 
@@ -534,20 +539,54 @@ export default class TranscriptionService {
     }
 
     // Attempt strict termination if available
-    if (this.instance) {
-      try {
-        if (typeof this.instance.terminate === 'function') {
-          await this.instance.terminate();
-        } else {
-          await this.instance.stopTranscription();
-        }
-        logger.info(`[TranscriptionService] Instance cleanup completed in ${performance.now() - start}ms`);
-      } catch (error) {
-        logger.error({ error }, '[TranscriptionService] Error cleaning up instance during destroy');
-      }
-      this.instance = null;
-    }
+    await this.safeTerminateInstance();
 
     this.transitionTo('IDLE');
+  }
+
+  /**
+   * Safely terminates the current instance with double-dispose guard.
+   * Prevents race conditions where a new instance is created before the old one dies.
+   */
+  protected async safeTerminateInstance(): Promise<void> {
+    if (!this.instance) return;
+
+    // Guard against concurrent terminate calls
+    // Guard against concurrent terminate calls
+    if (this.isTerminating) {
+      logger.warn('[TranscriptionService] Terminate already in progress, waiting...');
+
+      // Retry loop: wait up to 2000ms (conservative for slow devices)
+      let retries = 40; // 40 * 50ms = 2000ms
+      while (this.isTerminating && retries > 0) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+        retries--;
+      }
+
+      if (this.isTerminating) {
+        logger.warn('[TranscriptionService] Timeout waiting for concurrent termination. Proceeding forcibly.');
+      }
+    }
+
+    this.isTerminating = true;
+
+    try {
+      const instanceToTerminate = this.instance;
+      // CRITICAL: Immediately null out to prevent use-after-free or zombie usage
+      this.instance = null;
+
+      logger.info('[TranscriptionService] Terminating active instance...');
+
+      if (typeof instanceToTerminate.terminate === 'function') {
+        await instanceToTerminate.terminate();
+      } else {
+        await instanceToTerminate.stopTranscription();
+      }
+      logger.info('[TranscriptionService] Instance terminated successfully.');
+    } catch (error) {
+      logger.error({ error }, '[TranscriptionService] Error cleaning up instance');
+    } finally {
+      this.isTerminating = false;
+    }
   }
 }

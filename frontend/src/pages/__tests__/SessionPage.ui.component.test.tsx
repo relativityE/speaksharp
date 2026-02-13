@@ -80,11 +80,14 @@ describe('SessionPage - STT Mode Selection UI', () => {
             chunks: [],
         } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
-        mockUseSessionStore.mockReturnValue({
-            elapsedTime: 0,
-            updateElapsedTime: vi.fn(),
-            resetSession: vi.fn(),
-        } as unknown as ReturnType<typeof SessionStore.useSessionStore>);
+        mockUseSessionStore.mockImplementation((selector?: (state: SessionStore.SessionStore) => unknown) => {
+            const state = {
+                elapsedTime: 0,
+                updateElapsedTime: vi.fn(),
+                resetSession: vi.fn(),
+            } as unknown as SessionStore.SessionStore;
+            return selector ? selector(state) : state;
+        });
 
         mockUseVocalAnalysis.mockReturnValue({
             pauseMetrics: { totalPauses: 0, averagePauseDuration: 0, longPauses: 0, pauseRate: 0 },

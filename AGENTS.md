@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-02-09
+**Last Reviewed:** 2026-02-12
 
 # Agent Instructions for SpeakSharp Repository
 
@@ -120,7 +120,11 @@ ___
 
 ## ⚡ Quick Reference – Non-Negotiable Rules
 
-1.  ✅ **Pre-flight Check** – Always start with `./scripts/preflight.sh`.
+6. ✅ **Phase 2 Hardening Protocols** – All agents MUST strictly follow these new stability patterns:
+    *   **Disposable Pattern**: Every class/hook that creates event listeners or long-lived resources MUST implement and call a `.dispose()` or `.terminate()` method. See `MicStream.ts` or `TranscriptionService.ts` for examples.
+    *   **Race Condition Mitigation**: Use `useRef` to capture the "Lately Captured State" for callbacks passed to long-lived services. This prevents stale closures in async operations. See `useSpeechRecognition_prod.ts` (Lines 174-183) for the implementation.
+    *   **Atomic SQL Operations**: Use single-statement atomic increments for usage counters. Avoid `SELECT` -> `UPDATE` cycles. See `20260212000000_database_hardening.sql` for the `update_user_usage` function.
+    *   **Constant-Time Secrets**: Use `safeCompare` (XOR-based) for all secret/token comparisons in Edge Functions to prevent timing attacks.
 2.  ✅ **Codebase Context** – Inspect `/frontend/src`, `/tests` (E2E), `/frontend/tests/integration` (Real DB), `/docs` before acting.
 3.  ❌ **No Code Reversals Without Consent** – Never undo user work.
 4.  ⏱️ **Timeout Constraint** – Every command must complete within 7 minutes.

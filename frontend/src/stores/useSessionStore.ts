@@ -6,7 +6,7 @@ interface TranscriptState {
     partial: string;
 }
 
-interface SessionState {
+export interface SessionState {
     isListening: boolean;
     isReady: boolean;
     transcript: TranscriptState;
@@ -25,7 +25,7 @@ interface SessionActions {
     resetSession: () => void;
 }
 
-type SessionStore = SessionState & SessionActions;
+export type SessionStore = SessionState & SessionActions;
 
 const initialState: SessionState = {
     isListening: false,

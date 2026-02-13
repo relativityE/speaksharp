@@ -120,6 +120,7 @@ vi.mock('@/components/session/SessionPageSkeleton', () => ({ SessionPageSkeleton
 
 // Import for mocking responses
 import { useSpeechRecognition } from '../../hooks/useSpeechRecognition';
+import * as SessionStore from '../../stores/useSessionStore';
 import { useSessionStore } from '../../stores/useSessionStore';
 
 describe('SessionPage Feedback Logic', () => {
@@ -139,10 +140,12 @@ describe('SessionPage Feedback Logic', () => {
             chunks: [],
         });
 
-        // Default mock for session store
-        (useSessionStore as unknown as Mock).mockReturnValue({
-            updateElapsedTime: mockUpdateElapsedTime,
-            elapsedTime: 0,
+        (useSessionStore as unknown as Mock).mockImplementation((selector?: (state: SessionStore.SessionStore) => unknown) => {
+            const state = {
+                updateElapsedTime: mockUpdateElapsedTime,
+                elapsedTime: 0,
+            } as unknown as SessionStore.SessionStore;
+            return selector ? selector(state) : state;
         });
     });
 
@@ -162,9 +165,12 @@ describe('SessionPage Feedback Logic', () => {
         });
 
         // Mock elapsed time to 2s
-        (useSessionStore as unknown as Mock).mockReturnValue({
-            updateElapsedTime: mockUpdateElapsedTime,
-            elapsedTime: 2,
+        (useSessionStore as unknown as Mock).mockImplementation((selector: (state: { elapsedTime: number }) => unknown) => {
+            const state = {
+                updateElapsedTime: mockUpdateElapsedTime,
+                elapsedTime: 2,
+            };
+            return selector ? selector(state) : state;
         });
 
         render(
@@ -202,9 +208,12 @@ describe('SessionPage Feedback Logic', () => {
             chunks: [],
         });
 
-        (useSessionStore as unknown as Mock).mockReturnValue({
-            updateElapsedTime: mockUpdateElapsedTime,
-            elapsedTime: 10,
+        (useSessionStore as unknown as Mock).mockImplementation((selector: (state: unknown) => unknown) => {
+            const state = {
+                updateElapsedTime: mockUpdateElapsedTime,
+                elapsedTime: 10,
+            };
+            return selector ? (selector as (s: typeof state) => unknown)(state) : state;
         });
 
         mockSaveSession.mockResolvedValue({ session: { id: '123' } });
