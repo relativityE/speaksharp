@@ -300,9 +300,13 @@ export default class TranscriptionService {
       }
 
       await this.executeMode(resolvedMode, providerConfig);
-    } catch (error) {
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err : new Error(String(err));
+
       // TRACK FAILURE with timestamp
-      if (resolvedMode === 'private') {
+      // NOTE: CACHE_MISS is a transient loading state, not a "hard" failure.
+      // We do NOT record it as a failure to avoid locking out the user unnecessarily.
+      if (resolvedMode === 'private' && error.message !== 'CACHE_MISS') {
         TranscriptionService.recordPrivateFailure();
         logger.warn({ failures: TranscriptionService.getEffectiveFailureCount() }, `[TranscriptionService] Private mode failed`);
       }
@@ -399,7 +403,10 @@ export default class TranscriptionService {
       if (mode === 'private') {
         logger.info('[TranscriptionService] ⚡ Using Optimistic Entry for Private mode');
         const initPromise = this.instance!.init();
-        const LOAD_CACHE_TIMEOUT_MS = 200;
+
+        // STABILITY: In CI/Slow environments, 200ms is too aggressive.
+        // Increased to 2000ms to allow cached models more time to resolve.
+        const LOAD_CACHE_TIMEOUT_MS = 2000;
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => reject(new Error('CACHE_MISS')), LOAD_CACHE_TIMEOUT_MS);
         });

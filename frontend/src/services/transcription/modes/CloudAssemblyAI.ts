@@ -25,6 +25,7 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
   private onTranscriptUpdate: (update: { transcript: Transcript }) => void;
   private onReady: () => void;
   private onError?: (error: TranscriptionError) => void;
+  private getAssemblyAIToken?: () => Promise<string | null>;
   private socket: WebSocket | null = null;
   private isListening: boolean = false;
   private audioQueue: Float32Array[] = [];
@@ -40,41 +41,16 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private isReconnect: boolean = false;
 
-  constructor({ onTranscriptUpdate, onReady, onError }: TranscriptionModeOptions) {
+  constructor({ onTranscriptUpdate, onReady, onError, getAssemblyAIToken }: TranscriptionModeOptions) {
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onReady = onReady;
     this.onError = onError;
+    this.getAssemblyAIToken = getAssemblyAIToken;
   }
 
   public async init(): Promise<void> {
     // No-op for init, connection happens on startTranscription
     logger.info('[CloudAssemblyAI] Init complete (lazy connection strategy).');
-  }
-
-  private async fetchToken(): Promise<string> {
-    try {
-      // Use our backend functionality to get a temporary token
-      const supabase = getSupabaseClient();
-      const { data: { session } } = await supabase.auth.getSession();
-
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/assemblyai-token`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session?.access_token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch token: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      return data.token;
-    } catch (error) {
-      logger.error({ error }, '[CloudAssemblyAI] Failed to fetch auth token');
-      throw error;
-    }
   }
 
   public async startTranscription(): Promise<void> {
@@ -94,7 +70,14 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
       this.updateConnectionState('connecting');
       logger.info(`[CloudAssemblyAI] Connecting... (Attempt ${this.reconnectionAttempts + 1}/${this.maxReconnectionAttempts}, ID: ${currentConnectionId})`);
 
-      const token = await this.fetchToken();
+      if (!this.getAssemblyAIToken) {
+        throw new Error('getAssemblyAIToken callback not provided to CloudAssemblyAI');
+      }
+
+      const token = await this.getAssemblyAIToken();
+      if (!token) {
+        throw new Error('Failed to obtain AssemblyAI token');
+      }
 
       // Guard: If connection ID changed while awaiting token, abort
       if (currentConnectionId !== this.connectionId) {

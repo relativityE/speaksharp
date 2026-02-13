@@ -42,7 +42,7 @@ The `./scripts/env-stabilizer.sh` script is a powerful tool for recovering a bro
 The E2E test environment has known incompatibilities with heavy WebAssembly-based speech recognition libraries used for on-device transcription. These libraries are loaded via dynamic imports.
 
 *   **Symptom:** When a test triggers the import of these heavy WASM modules, the browser can crash instantly and silently, resulting in a blank screenshot with no console or network errors. This is a fatal, untraceable error.
-*   **Solution:** A source-code-level guard is in place. A `window.TEST_MODE = true` flag is injected by the test setup. The application code (`frontend/src/config/TestFlags.ts`) checks for this flag and conditionally skips mocks if `VITE_USE_REAL_DATABASE` is true to prevent "Identity Hijack" in live tests.
+*   **Solution:** A source-code-level guard is in place. A `window.TEST_MODE = true` flag is injected by the test setup. The application code (`frontend/src/config/TestFlags.ts`) checks for this flag and conditionally skips mocks if `VITE_USE_LIVE_DB` is true to prevent "Identity Hijack" in live tests.
 *   **Implication:** Do not remove this flag or the corresponding check in the application code. If you encounter a similar silent crash, investigate for other dynamic imports of heavy, WebAssembly-based libraries.
 
 ### 5. CI Robustness: Standard Subshell Pattern

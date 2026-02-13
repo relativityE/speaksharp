@@ -130,8 +130,11 @@ export const saveSession = async (sessionData: Partial<PracticeSession> & { user
     return { session: null, usageExceeded: false };
   }
 
-  // The RPC is expected to return an object with the shape:
-  // { new_session: PracticeSession, usage_exceeded: boolean }
+  // The RPC returns { new_session: PracticeSession, usage_exceeded: boolean, reason?: string }
+  if (!data?.new_session && data?.reason) {
+    logger.warn({ reason: data.reason, userId: sessionData.user_id }, '[Supabase DB] ⚠️ Session save rejected by RPC');
+  }
+
   // We adapt this to the client-side expected return type.
   return {
     session: data?.new_session || null,
