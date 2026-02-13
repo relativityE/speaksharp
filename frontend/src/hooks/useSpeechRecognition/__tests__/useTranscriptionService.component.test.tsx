@@ -7,7 +7,7 @@ import { E2E_DETERMINISTIC_NATIVE } from '../types';
 const mockService = {
   init: vi.fn().mockResolvedValue({ success: true }),
   startTranscription: vi.fn().mockResolvedValue(undefined),
-  stopTranscription: vi.fn().mockResolvedValue(''),
+  stopTranscription: vi.fn().mockResolvedValue({ success: true, transcript: '', stats: { transcript: '', total_words: 0, accuracy: 0, duration: 0 } }),
   destroy: vi.fn().mockResolvedValue(undefined),
   getMode: vi.fn().mockReturnValue('native')
 };
@@ -74,7 +74,7 @@ describe('useTranscriptionService', () => {
     // Stop listening
     await act(async () => {
       const response = await result.current.stopListening();
-      expect(response).toEqual({ success: true });
+      expect(response).toEqual(expect.objectContaining({ success: true }));
     });
 
     // The useEffect cleanup which calls destroy is asynchronous.
