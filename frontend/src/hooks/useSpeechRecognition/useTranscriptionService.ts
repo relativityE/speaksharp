@@ -11,10 +11,12 @@ import { MicStream } from '../../services/transcription/utils/types';
 import { toast } from '@/lib/toast';
 import logger from '../../lib/logger';
 
+import { TranscriptStats } from '../../utils/fillerWordUtils';
+
 interface ITranscriptionService {
   init: () => Promise<{ success: boolean }>;
   startTranscription: () => Promise<void>;
-  stopTranscription: () => Promise<string>;
+  stopTranscription: () => Promise<{ success: boolean; transcript: string; stats: TranscriptStats } | null>;
   destroy: () => Promise<void>;
   getMode: () => TranscriptionMode | null;
 }
@@ -100,12 +102,11 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
 
         logger.info({ intent: policyRef.current.executionIntent }, '[useTranscriptionService] Creating new service');
 
-        // Update the policy and mockMic in the stable object before use
-        // Note: In a pure implementation, these should also be accessed via refs 
-        // inside the service, but since we recreate the service on isListening change,
-        // we just ensure the values are fresh for THIS instantiation.
+        // Fresh metadata from optionsRef (Fixes Issue A)
         wrappedOptions.policy = policyRef.current;
         wrappedOptions.mockMic = mockMicRef.current ?? undefined;
+        wrappedOptions.session = optionsRef.current.session;
+        wrappedOptions.customVocabulary = optionsRef.current.customVocabulary;
 
         // DI / Test Registry Pattern for Constructor Injection
         let ServiceClass = TranscriptionService;
@@ -166,10 +167,15 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
   }, [isListening]);
 
   const stopListening = useCallback(async () => {
-    if (!isListening) return null;
+    if (!isListening || !serviceRef.current) return null;
+
+    // Call stopTranscription explicitly to get the final results before destruction.
+    // This resolves the Domain 2.1 race condition.
+    const result = await serviceRef.current.stopTranscription();
+
     setIsListening(false);
     // The cleanup in the useEffect will handle the service destruction.
-    return { success: true };
+    return result;
   }, [isListening]);
 
   const reset = useCallback(() => {

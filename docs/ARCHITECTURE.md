@@ -1085,7 +1085,7 @@ This section documents common CI failures and their root causes to prevent futur
 | **LHCI: Crash in CI only** | Build artifacts not restored properly before LHCI runs | Verify `frontend/dist/` exists via `ls -R artifacts/` step | 2026-02-09 |
 | **Canary cleanup: Delete fails** | RLS policies prevent deleting sessions/profiles for user; foreign key constraints | Switched to "unique email persistence" strategy; no cleanup | 2026-02-09 |
 | **real-db-validation: Empty sessions** | `VISUAL_TEST_*` credentials didn't match `E2E_PRO_*`; user ID mismatch | Sync `VISUAL_TEST_EMAIL = process.env.E2E_PRO_EMAIL` in config | 2026-02-09 |
-| **E2E bridge identity hijack** | `getInitialSession()` returned mock user even with `VITE_USE_LIVE_DB` | Added `!TestFlags.USE_REAL_DATABASE` guard to mock session logic | 2026-02-08 |
+| **E2E bridge identity hijack** | `getInitialSession()` returned mock user even with `VITE_USE_REAL_DATABASE` | Added `!TestFlags.USE_REAL_DATABASE` guard to mock session logic | 2026-02-08 |
 | **Canary: MSW wait timeout** | `navigateToRoute()` defaults to waiting for `window.mswReady` which doesn't exist in live tests | Pass `{ waitForMocks: false }` to `navigateToRoute()` in canary/live tests | 2026-02-09 |
 
 **Key Principle:** When using `start-server-and-test` or any process-spawning utility, environment variables set via GitHub Actions `env:` blocks are NOT automatically inherited by subprocess commands. Always use `cross-env` to explicitly pass critical variables.
@@ -1108,7 +1108,7 @@ The automated CI pipeline requires specific JSON artifacts for tracking metrics.
 
 **3. Live E2E Tests** (`tests/e2e/*-real*.spec.ts` and `*.live.spec.ts`)
 - **Scope:** Critical paths ensuring backend compatibility (Auth, Payments, Edge Functions).
-- **Mocking:** **None.** Uses `VITE_USE_LIVE_DB=true`.
+- **Mocking:** **None.** Uses `VITE_USE_REAL_DATABASE=true`.
 - **Environment:** Requires `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `EDGE_FN_URL`, `AGENT_SECRET`.
     - *Why `AGENT_SECRET`?* Tests like `visual-analytics` programmatically create users via admin Edge Functions to ensure a clean state, rather than relying on UI-based signup which might be captcha-gated or slower.
 - **Goal:** Verify that the frontend correctly communicates with the real backend APIs.
@@ -1279,7 +1279,7 @@ The following tests are **intentionally skipped** by design. This is the canonic
 **Supabase Mode:** Real (uses live database, not mocks)
 
 **What it does:**
-1. Sets `VITE_USE_LIVE_DB: "true"` - Disables MSW mocking, uses real Supabase
+1. Sets `VITE_USE_REAL_DATABASE: "true"` - Disables MSW mocking, uses real Supabase
 2. Injects real Supabase credentials from GitHub secrets
 3. Uses real test user credentials (`E2E_PRO_EMAIL`/`E2E_PRO_PASSWORD`)
 4. Runs `frontend/tests/integration/live-user-flow.spec.ts`
@@ -1312,7 +1312,7 @@ Due to the sensitivity of Stripe `secret keys`, we employ a "Negative Verificati
 **Supabase Mode:** Real (uses live database and Stripe test mode)
 
 **What it does:**
-1. Sets `VITE_USE_LIVE_DB: "true"` - Disables MSW mocking, uses real Supabase
+1. Sets `VITE_USE_REAL_DATABASE: "true"` - Disables MSW mocking, uses real Supabase
 2. Injects real Supabase and Stripe credentials from GitHub secrets
 3. Uses FREE tier test user credentials (`E2E_FREE_EMAIL`/`E2E_FREE_PASSWORD`)
 4. Runs `frontend/tests/stripe/stripe-checkout.spec.ts`
@@ -1444,12 +1444,12 @@ This section documents tools and patterns for local development efficiency.
 
 All dev/preview server ports are centralized in a single configuration file:
 
-```typescript
-// scripts/build.config.ts
+```javascript
+// scripts/build.config.js
 export const PORTS = {
   DEV: 5173,     // Development server (pnpm dev)
   PREVIEW: 4173  // Preview/E2E test server (pnpm preview, Playwright)
-} as const;
+};
 ```
 
 **Files using this config:**
@@ -1832,7 +1832,7 @@ The `navigateToRoute()` helper (defined in `tests/e2e/helpers.ts`) performs clie
 | Variable | Effect | Use Case |
 |----------|--------|----------|
 | `VITE_TEST_MODE=true` | Enables e2e-bridge (speech mock + MSW) | Standard E2E tests with mocks |
-| `VITE_USE_LIVE_DB=true` | Skips MSW, uses real Supabase | Soak tests with real auth |
+| `VITE_USE_REAL_DATABASE=true` | Skips MSW, uses real Supabase | Soak tests with real auth |
 | Both flags together | Speech mock + real Supabase | Headless CI with real auth |
 
 **Required for CI Workflows:**
@@ -1841,7 +1841,7 @@ The `navigateToRoute()` helper (defined in `tests/e2e/helpers.ts`) performs clie
 VITE_TEST_MODE=true pnpm dev &
 
 # Soak/Stripe tests (real Supabase + mock speech)
-VITE_TEST_MODE=true VITE_USE_LIVE_DB=true pnpm dev &
+VITE_TEST_MODE=true VITE_USE_REAL_DATABASE=true pnpm dev &
 ```
 
 **Code Path:**
@@ -1850,7 +1850,7 @@ frontend/src/config/env.ts:14
   export const IS_TEST_ENVIRONMENT = getEnvVar('VITE_TEST_MODE') === 'true' || process.env.NODE_ENV === 'test'
 
 frontend/src/lib/e2e-bridge.ts:28-35
-  const useLiveDb = import.meta.env.VITE_USE_LIVE_DB === 'true';
+  const useLiveDb = import.meta.env.VITE_USE_REAL_DATABASE === 'true';
   if (!useLiveDb) {
     await worker.start(); // MSW intercepts requests
   } else {
@@ -2699,7 +2699,7 @@ Maintainers should consult the ROADMAP.md Tech Debt sections before starting maj
 **Architecture:** Modeled after soak test pattern:
 - Uses `playwright.canary.config.ts` (loads `.env.development`, not `.env.test`)
 - Uses `start-server-and-test` for clean process lifecycle
-- Uses `VITE_USE_LIVE_DB=true` to bypass MSW mocks
+- Uses `VITE_USE_REAL_DATABASE=true` to bypass MSW mocks
 
 **What it does:**
 1. **Provisioning:** Runs `scripts/provision-canary.mjs` (derived from `setup-test-users.mjs`) which:
@@ -2770,7 +2770,7 @@ The canary test was architected by combining patterns from two proven systems:
 |-----------|--------|-------------------|
 | `provision-canary.mjs` | `setup-test-users.mjs` | User creation/update logic, password sync, tier enforcement, login verification |
 | `playwright.canary.config.ts` | `playwright.soak.config.ts` | `loadEnv('development')`, no webServer (uses `start-server-and-test`), Chrome with mic permissions |
-| `canary.yml` workflow | `soak-test.yml` | `.env.development` creation, `start-server-and-test` pattern, `VITE_USE_LIVE_DB=true` |
+| `canary.yml` workflow | `soak-test.yml` | `.env.development` creation, `start-server-and-test` pattern, `VITE_USE_REAL_DATABASE=true` |
 | `tests/e2e/canary/smoke.canary.spec.ts` | `soak-test.spec.ts` | Real form-based auth via `setupAuthenticatedUser()` pattern, session verification flow |
 
 **Required GitHub Secret:**

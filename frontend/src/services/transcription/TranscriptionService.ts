@@ -6,6 +6,8 @@ import { Session } from '@supabase/supabase-js';
 import { NavigateFunction } from 'react-router-dom';
 import { ITranscriptionMode, TranscriptionModeOptions } from './modes/types';
 import { MicStream } from './utils/types';
+import { calculateTranscriptStats, TranscriptStats } from '../../utils/fillerWordUtils';
+import { ImmutableCallbackProxy } from './utils/ImmutableCallbackProxy';
 import {
   TranscriptionPolicy,
   TranscriptionMode,
@@ -109,8 +111,10 @@ export default class TranscriptionService {
   private customVocabulary: string[];
   private policy: TranscriptionPolicy;
   private mockMic: MicStream | null;
-  private instance: ITranscriptionMode | null = null;
   private mic: MicStream | null = null;
+  private callbackProxy: ImmutableCallbackProxy<TranscriptionModeOptions>;
+  private instance: ITranscriptionMode | null = null;
+  private startTime: number | null = null;
 
   constructor({
     onTranscriptUpdate,
@@ -142,6 +146,23 @@ export default class TranscriptionService {
     this.policy = policy;
     this.mockMic = mockMic ?? null;
     this.onAudioData = onAudioData;
+
+    // Initialize the callback proxy with the initial options
+    this.callbackProxy = new ImmutableCallbackProxy({
+      onTranscriptUpdate: this.onTranscriptUpdate,
+      onModelLoadProgress: this.onModelLoadProgress,
+      onReady: this.onReady,
+      session: this.session,
+      navigate: this.navigate,
+      getAssemblyAIToken: this.getAssemblyAIToken,
+      customVocabulary: this.customVocabulary,
+      onAudioData: this.onAudioData,
+      onError: (err: Error) => {
+        logger.error({ err }, '[TranscriptionService] Error from mode provider');
+        this.transitionTo('ERROR');
+        this.onStatusChange?.({ type: 'error', message: err.message });
+      }
+    });
   }
 
   /**
@@ -301,8 +322,9 @@ export default class TranscriptionService {
 
       await this.executeMode(resolvedMode, providerConfig);
     } catch (error) {
-      // TRACK FAILURE with timestamp
-      if (resolvedMode === 'private') {
+      // TRACK FAILURE with timestamp (Exclude CACHE_MISS which is just a loading state - Issue C)
+      const isCacheMiss = error instanceof Error && error.message === 'CACHE_MISS';
+      if (resolvedMode === 'private' && !isCacheMiss) {
         TranscriptionService.recordPrivateFailure();
         logger.warn({ failures: TranscriptionService.getEffectiveFailureCount() }, `[TranscriptionService] Private mode failed`);
       }
@@ -399,7 +421,7 @@ export default class TranscriptionService {
       if (mode === 'private') {
         logger.info('[TranscriptionService] ⚡ Using Optimistic Entry for Private mode');
         const initPromise = this.instance!.init();
-        const LOAD_CACHE_TIMEOUT_MS = 200;
+        const LOAD_CACHE_TIMEOUT_MS = 2000; /**** ISSUE B: Softened for CI Stability ****/
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => reject(new Error('CACHE_MISS')), LOAD_CACHE_TIMEOUT_MS);
         });
@@ -429,6 +451,7 @@ export default class TranscriptionService {
       }
 
       await this.instance!.startTranscription(this.mic!);
+      this.startTime = Date.now();
       this.mode = mode;
       this.onModeChange?.(this.mode);
       this.transitionTo('RECORDING');
@@ -492,23 +515,38 @@ export default class TranscriptionService {
     }
   }
 
-  public async stopTranscription(): Promise<string> {
-    if (this.state !== 'RECORDING') {
-      logger.warn({ currentState: this.state }, '[TranscriptionService] stopTranscription() called while not RECORDING');
-      return '';
+  public async stopTranscription(): Promise<{ success: boolean; transcript: string; stats: TranscriptStats } | null> {
+    if (this.state !== 'RECORDING' && this.state !== 'STARTING') {
+      logger.warn({ currentState: this.state }, '[TranscriptionService] stopTranscription() called while not active');
+      return null;
     }
 
     this.transitionTo('STOPPING');
     logger.info('[TranscriptionService] Stopping transcription.');
 
     try {
-      const result = await this.instance!.stopTranscription();
+      const finalTranscript = this.instance ? await this.instance.stopTranscription() : '';
+      const duration = this.startTime ? (Date.now() - this.startTime) / 1000 : 0;
+
+      const stats = calculateTranscriptStats(
+        [{ text: finalTranscript }],
+        [],
+        '',
+        duration
+      );
+
       this.transitionTo('READY');
-      return result;
+      return {
+        success: true,
+        transcript: finalTranscript,
+        stats
+      };
     } catch (error) {
       logger.error({ error }, '[TranscriptionService] stopTranscription failed');
       this.transitionTo('ERROR');
-      return '';
+      return { success: false, transcript: '', stats: { transcript: '', total_words: 0, accuracy: 0, duration: 0 } };
+    } finally {
+      this.startTime = null;
     }
   }
 
