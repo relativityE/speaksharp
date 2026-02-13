@@ -135,6 +135,50 @@ Data Flow:
 ```
 
 ### Phase 2 Hardening Patterns (2026-02-12)
+
+The remediation strategy focuses on "defense in depth," addressing vulnerabilities across the frontend, edge functions, and database layers.
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │                      HARDENING ARCHITECTURE OVERVIEW                      │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────┐         ┌─────────────────────────────┐
+  │ CLIENT LAYER (React/Zustand)│         │ LOGIC LAYER (Edge Functions)│
+  │                             │         │                             │
+  │  ┌───────────────────────┐  │         │  ┌───────────────────────┐  │
+  │  │ LocalErrorBoundary    │  │         │  │ safeCompare           │  │
+  │  └──────────┬────────────┘  │         │  └──────────┬────────────┘  │
+  │             │               │         │             │               │
+  │        (Isolation)          │         │        (Security)           │
+  │             ▼               │         │             ▼               │
+  │  ┌───────────────────────┐  │         │  ┌───────────────────────┐  │
+  │  │ Zone A: Transcription │──┼────┐    │  │ apply-promo           │  │
+  │  └───────────────────────┘  │    │    │  └──────────┬────────────┘  │
+  │  ┌───────────────────────┐  │    │    │             │               │
+  │  │ Zone B: Session Logic │  │    │    │        (Integrity)          │
+  │  └───────────────────────┘  │    │    │             ▼               │
+  │             │               │    │    │  ┌───────────────────────┐  │
+  │        (Isolation)          │    │    │  │ Atomic RPC            │  │
+  │             ▼               │    │    │  └──────────┬────────────┘  │
+  │  ┌───────────────────────┐  │    │    │             │               │
+  │  │ useTransSvc Hook      │  │    │    └─────────────┼───────────────┘
+  │  └──────────┬────────────┘  │    │                  │
+  │             │               │    │                  │ (Atomic)
+  │        (Stability)          │    │                  ▼
+  │             ▼               │    │   ┌───────────────────────────────────┐
+  │  ┌───────────────────────┐  │    │   │      DATA LAYER (Supabase)        │
+  │  │ Immutable Proxy       │──┼────┘   │                                   │
+  │  └───────────────────────┘  │        │  ┌─────────────────────────────┐  │
+  └─────────────────────────────┘        │  │      Sessions & Usage       │  │
+                                         │  └─────────────────────────────┘  │
+                                         │           ▲                       │
+                                         │           │ (Cleanup)             │
+                                         │  ┌─────────────────────────────┐  │
+                                         │  │     Database Hardening      │  │
+                                         │  │     (ON DELETE CASCADE)     │  │
+                                         │  └─────────────────────────────┘  │
+                                         └───────────────────────────────────┘
+
 These core patterns were established during the Phase 2 Hardening cycle to ensure system-wide stability and security.
 
 #### 1. Lately Captured State Pattern (`useSpeechRecognition_prod.ts`)
