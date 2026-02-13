@@ -11,6 +11,7 @@ tailwind.config.js
 coverage/
 /screenshots/
 /test-results/
+/lighthouse-results/
 /playwright-report/
 blob-report/
 /unit-metrics.json
