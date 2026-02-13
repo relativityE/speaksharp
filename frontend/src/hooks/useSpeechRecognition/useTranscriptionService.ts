@@ -100,12 +100,14 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
 
         logger.info({ intent: policyRef.current.executionIntent }, '[useTranscriptionService] Creating new service');
 
-        // Update the policy and mockMic in the stable object before use
-        // Note: In a pure implementation, these should also be accessed via refs 
-        // inside the service, but since we recreate the service on isListening change,
-        // we just ensure the values are fresh for THIS instantiation.
+        // Update the stable object with the latest props before instantiating the service.
+        // This ensures the service receives the most recent configuration (vocabulary, session, etc.)
+        // while maintaining the stable reference of wrappedOptions.
         wrappedOptions.policy = policyRef.current;
         wrappedOptions.mockMic = mockMicRef.current ?? undefined;
+        wrappedOptions.customVocabulary = optionsRef.current.customVocabulary;
+        wrappedOptions.session = optionsRef.current.session;
+        wrappedOptions.navigate = optionsRef.current.navigate;
 
         // DI / Test Registry Pattern for Constructor Injection
         let ServiceClass = TranscriptionService;
