@@ -25,6 +25,7 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
   private onTranscriptUpdate: (update: { transcript: Transcript }) => void;
   private onReady: () => void;
   private onError?: (error: TranscriptionError) => void;
+  private customVocabulary: string[] = [];
   private socket: WebSocket | null = null;
   private isListening: boolean = false;
   private audioQueue: Float32Array[] = [];
@@ -40,10 +41,11 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private isReconnect: boolean = false;
 
-  constructor({ onTranscriptUpdate, onReady, onError }: TranscriptionModeOptions) {
+  constructor({ onTranscriptUpdate, onReady, onError, customVocabulary = [] }: TranscriptionModeOptions) {
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onReady = onReady;
     this.onError = onError;
+    this.customVocabulary = customVocabulary;
   }
 
   public async init(): Promise<void> {
@@ -102,7 +104,16 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
         return;
       }
 
-      const wsUrl = `wss://streaming.assemblyai.com/v3/realtime/ws?sample_rate=16000&token=${token}`;
+      let wsUrl = `wss://streaming.assemblyai.com/v3/realtime/ws?sample_rate=16000&token=${token}`;
+
+      // Support for custom vocabulary (filler words / boost words) via v3 keyterms_prompt
+      if (this.customVocabulary.length > 0) {
+        const encodedVocab = encodeURIComponent(this.customVocabulary.join(','));
+        wsUrl += `&keyterms_prompt=${encodedVocab}`;
+      }
+
+      const redactedUrl = wsUrl.replace(/token=[^&]+/, 'token=REDACTED');
+      logger.info(`[CloudAssemblyAI] Connecting to WebSocket: ${redactedUrl} (ID: ${currentConnectionId})`);
 
       this.socket = new WebSocket(wsUrl);
 

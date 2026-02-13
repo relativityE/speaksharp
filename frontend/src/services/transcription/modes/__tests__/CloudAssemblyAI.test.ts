@@ -143,6 +143,20 @@ describe('CloudAssemblyAI (Native WebSocket)', () => {
             expect(onReady).toHaveBeenCalled();
         });
 
+        it('should include customVocabulary as keyterms_prompt in WebSocket URL', async () => {
+            mode = new CloudAssemblyAI({
+                onTranscriptUpdate,
+                onReady,
+                onError,
+                customVocabulary: ['Apple', 'Banana']
+            });
+
+            await mode.startTranscription();
+
+            const socket = LAST_SOCKET();
+            expect(socket.url).toContain('keyterms_prompt=Apple%2CBanana');
+        });
+
         it('should ignore events from zombie connections (Generation ID guard)', async () => {
             // Start connection 1
             await mode.startTranscription();
