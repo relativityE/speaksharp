@@ -114,8 +114,9 @@ This section contains a high-level block diagram of the SpeakSharp full-stack ar
 │  ┌───────────────────┐  │     │   Stripe (Payments)     │
 │  │TranscriptionSvc   │──┼─────┼─▶ Sentry (Errors)       │
 │  │ NativeBrowser     │  │     │   PostHog (Analytics)   │
-│  │ CloudAssemblyAI   │  │     │   PostHog (Analytics)   │
-│  │ PrivateWhisper    │  │     └─────────────────────────┘
+│  │ CloudAssemblyAI   │  │     │   Sentry (Errors)       │
+│  │ PrivateWhisper    │  │     │   PostHog (Analytics)   │
+│  └───────────────────┘  │     └─────────────────────────┘
 │  └───────────────────┘  │
 │           │             │
 │           ▼             │
@@ -436,12 +437,13 @@ External services (Supabase, Edge Functions) are mocked via Playwright routes in
 
 > **Note for Reviewers:** These features were implemented as part of Phase 2 hardening. If conducting a code review, please verify against the file references above before flagging as missing.
 
-#### Private STT (Dual-Engine Facade & Triple-Engine Strategy)
+#### Private STT (Triple-Engine Strategy)
 
-**`PrivateSTT`** is a facade that manages two local engines:
+**`PrivateSTT`** is a facade that manages three local engines:
 
-1.  **WhisperTurbo:** Fast, WebGPU-accelerated engine (primary).
-2.  **TransformersJS:** Slower, CPU-based fallback (safe).
+1.  **WhisperTurbo:** Fast, WebGPU-accelerated engine (primary). Uses **RMS-based VAD** and **Adaptive Noise Floor** for silent chunk elimination.
+2.  **TransformersJS:** CPU-based fallback (safe). Also serves as a fallback for the **No-Timeout Load** policy.
+3.  **MockEngine:** Simulation engine for testing environments.
 
 **Caching:**
 The `PrivateSTT` class itself does not implement caching logic; it delegates to the underlying engines (`whisper-turbo` / `transformers.js`), which handle caching of model weights in the browser (IndexedDB/CacheStorage). The "Zero Latency" feature relies on this browser-level caching.
@@ -603,6 +605,15 @@ graph TD
 - **Timeout**: Enforced at **200ms**.
 - **Path A (Hit)**: If the WASM/ONNX model is cached in IndexedDB, initialization completes within the window, and the session begins in `private` mode immediately.
 - **Path B (Miss)**: If the model must be downloaded from the CDN (HuggingFace), the 200ms timeout triggers a `CACHE_MISS`. The system immediately starts the session using the next available mode (Cloud or Native) while the `PrivateWhisper` instance continues loading in the background.
+- **Background Hydration**: The service remains in the fallback mode until the `PrivateSTT` engine signals readiness, at which point the user is notified via a toast.
+
+### 🛰️ Unbuffered Logging Bypass (Performance Benchmarking)
+
+To capture accurate performance metrics during heavy WASM compilation or potential process hangs, the system implements an unbuffered logging strategy:
+
+- **Bypass stdout**: In CI/Test environments, logs are written directly to `perf_direct.log` using `fs.appendFileSync`.
+- **Atomic Persistence**: This ensures logs are flushed to disk instantly, preventing loss during runner timeouts or browser crashes.
+- **Pattern**: `logger.perf(message)` -> `logger.ts` -> `fs.appendFileSync` (if in benchmarking mode).
 
 ### 🧪 E2E Resilience Testing Strategy
 
@@ -784,7 +795,7 @@ Every non-trivial component or hook must have:
 | **Retry Logic** | ✅ Exponential Backoff | ❌ Fixed sleep loop |
 | **Rate Limiting** | ✅ Enforce minimum interval | ❌ Arbitrary pauses |
 | **Failsafes** | ✅ `{ timeout: 5000 }` (upper bound) | ❌ Infinite polling |
-| **UX/Animation** | ✅ Intentional delay | ❌ Race condition |
+| **Performance Profiling** | ✅ `logger.perf` (Unbuffered) | ❌ Standard `console.log` |
 
 **Good Example (Event-Based):**
 ```typescript

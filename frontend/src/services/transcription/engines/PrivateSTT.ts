@@ -42,7 +42,8 @@ export class PrivateSTT implements IPrivateSTT {
      * In production: Tries WhisperTurbo, falls back to TransformersJS
      */
     async init(options: PrivateSTTInitOptions): Promise<Result<EngineType, Error>> {
-        logger.info('[PrivateSTT] 🚀 Automatic engine selection started...');
+        const tStart = performance.now();
+        logger.info(`[PrivateSTT] [PERF] Automatic engine selection started at ${new Date().toISOString()}`);
 
         if (TestFlags.DEBUG_ENABLED) {
             logger.info({
@@ -129,14 +130,21 @@ export class PrivateSTT implements IPrivateSTT {
      * Initialize the fast (whisper-turbo) engine
      */
     private async initFastEngine(callbacks: EngineCallbacks): Promise<Result<EngineType, Error>> {
+        const tStart = performance.now();
         try {
-            logger.info('[PrivateSTT] 📥 Importing WhisperTurbo engine...');
+            logger.info('[PrivateSTT] [PERF] Importing WhisperTurbo engine...');
+            const tImportStart = performance.now();
             // Lazy import to reduce bundle size
             const { WhisperTurboEngine } = await import('./WhisperTurboEngine');
+            const tImportEnd = performance.now();
+            logger.info(`[PrivateSTT] [PERF] Lazy import took ${(tImportEnd - tImportStart).toFixed(2)}ms`);
+
             const engine = new WhisperTurboEngine();
 
             logger.info('[PrivateSTT] ⏳ calling WhisperTurbo.init()...');
+            const tInitStart = performance.now();
             const result = await engine.init(callbacks);
+            const tInitEnd = performance.now();
 
             if (result.isErr) {
                 logger.warn({ err: result.error }, '[PrivateSTT] ⚠️ WhisperTurbo init returned error');
@@ -145,7 +153,8 @@ export class PrivateSTT implements IPrivateSTT {
 
             this.engine = engine;
             this.engineType = 'whisper-turbo';
-            logger.info('[PrivateSTT] WhisperTurbo engine initialized successfully.');
+            const tTotal = performance.now() - tStart;
+            logger.info(`[PrivateSTT] [PERF] Fast Engine Ready in ${tTotal.toFixed(2)}ms (Init only: ${(tInitEnd - tInitStart).toFixed(2)}ms)`);
             return Result.ok('whisper-turbo');
         } catch (error) {
             const e = error instanceof Error ? error : new Error(String(error));

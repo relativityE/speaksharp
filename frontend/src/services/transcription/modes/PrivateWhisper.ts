@@ -41,6 +41,7 @@ import { MicStream } from '../utils/types';
 import { concatenateFloat32Arrays } from '../utils/AudioProcessor';
 import { TranscriptUpdate } from '../TranscriptionService';
 import { IS_TEST_ENVIRONMENT } from '../../../config/env';
+import posthog from 'posthog-js';
 
 // Extend Window interface for E2E test flags
 declare global {
@@ -127,6 +128,7 @@ export default class PrivateWhisper implements ITranscriptionMode {
 
   public async init(): Promise<void> {
     logger.info('[PrivateWhisper] 🔄 init() START - Dual-Engine Mode');
+    const initStartTime = performance.now();
     logger.info('[PrivateWhisper] Initializing PrivateSTT facade...');
     this.status = 'loading';
 
@@ -177,6 +179,14 @@ export default class PrivateWhisper implements ITranscriptionMode {
       // Notify that the service is ready
       if (this.onReady) {
         this.onReady();
+      }
+
+      // [Telemetry] Track successful initialization latency
+      if (!IS_TEST_ENVIRONMENT) {
+        posthog.capture('stt_private_init_success', {
+          engine_type: this.engineType,
+          total_init_ms: performance.now() - initStartTime
+        });
       }
     } catch (err: unknown) {
       const error = err instanceof Error ? err : new Error(String(err));
@@ -239,6 +249,7 @@ export default class PrivateWhisper implements ITranscriptionMode {
     }
 
     this.isProcessing = true;
+    const tStart = performance.now();
 
     try {
       // Concatenate all chunks using shared utility
@@ -303,6 +314,15 @@ export default class PrivateWhisper implements ITranscriptionMode {
         // Append with space if transcript already has content
         this.transcript = this.transcript ? `${this.transcript} ${newText}` : newText;
         this.onTranscriptUpdate({ transcript: { final: newText } });
+
+        // [Telemetry] Track transcription latency per chunk
+        if (!IS_TEST_ENVIRONMENT) {
+          posthog.capture('stt_private_inference_latency', {
+            engine_type: this.engineType,
+            audio_duration_sec: processedAudio.length / 16000,
+            latency_ms: performance.now() - tStart,
+          });
+        }
       }
 
       // CRITICAL FIX: Slice only what we processed to preserve incoming audio

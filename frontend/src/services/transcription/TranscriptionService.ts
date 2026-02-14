@@ -31,7 +31,16 @@ export type SttStatusType = 'idle' | 'initializing' | 'downloading' | 'ready' | 
  * IDLE -> INITIALIZING -> READY -> STARTING -> RECORDING -> STOPPING -> IDLE
  * Any state -> ERROR
  */
-export type ServiceState = 'IDLE' | 'INITIALIZING' | 'READY' | 'STARTING' | 'RECORDING' | 'STOPPING' | 'ERROR';
+export type ServiceState =
+  | 'IDLE'
+  | 'INITIALIZING_ENGINE'
+  | 'ENGINE_READY'
+  | 'ACTIVATING_MIC'
+  | 'READY'
+  | 'STARTING'
+  | 'RECORDING'
+  | 'STOPPING'
+  | 'ERROR';
 
 export interface SttStatus {
   type: SttStatusType;
@@ -66,6 +75,8 @@ export interface TranscriptionServiceOptions {
 }
 
 import { STT_CONFIG } from '../../config';
+import { IS_TEST_ENVIRONMENT } from '@/config/env';
+import posthog from 'posthog-js';
 import { testRegistry } from './TestRegistry'; // Test Registry Pattern
 import { IPrivateSTT } from './engines/IPrivateSTT';
 
@@ -198,6 +209,7 @@ export default class TranscriptionService {
   }
 
   private micError: Error | null = null;
+  private engineInitPromise: Promise<void> | null = null;
 
   private transitionTo(newState: ServiceState): void {
     logger.info({ from: this.state, to: newState }, `[TranscriptionService] State transition: ${this.state} -> ${newState}`);
@@ -206,8 +218,11 @@ export default class TranscriptionService {
     // Sync external status if applicable
     const statusMap: Partial<Record<ServiceState, SttStatusType>> = {
       IDLE: 'idle',
-      INITIALIZING: 'initializing',
+      INITIALIZING_ENGINE: 'initializing',
+      ENGINE_READY: 'ready',
+      ACTIVATING_MIC: 'initializing',
       READY: 'ready',
+      STARTING: 'initializing',
       RECORDING: 'ready',
       ERROR: 'error',
       STOPPING: 'idle'
@@ -221,13 +236,57 @@ export default class TranscriptionService {
     }
   }
 
+  /**
+   * Primary Entry Point: Pre-warms the engine and optionally activates the microphone.
+   * Following Option 1 (System Integrity): Decouples WASM warmup from hardware.
+   */
   public async init(): Promise<{ success: boolean }> {
     if (this.state !== 'IDLE' && this.state !== 'ERROR') {
       logger.warn({ currentState: this.state }, '[TranscriptionService] init() called in non-IDLE state');
-      return { success: this.state === 'READY' || this.state === 'RECORDING' || this.state === 'STARTING' };
+      return { success: this.state === 'READY' || this.state === 'RECORDING' || this.state === 'ENGINE_READY' };
     }
 
-    this.transitionTo('INITIALIZING');
+    // PHASE 1: Initialize Engine (WASM, Models, Workers)
+    if (!this.engineInitPromise) {
+      this.transitionTo('INITIALIZING_ENGINE');
+      const resolvedMode = resolveMode(this.policy);
+
+      this.engineInitPromise = (async () => {
+        try {
+          logger.info({ mode: resolvedMode }, '[TranscriptionService] 🛡️ [System Integrity] Pre-loading Engine...');
+          await this.ensureInstanceInitialized(resolvedMode);
+          this.transitionTo('ENGINE_READY');
+        } catch (error) {
+          logger.error({ error }, '[TranscriptionService] Failed to initialize engine');
+          this.transitionTo('ERROR');
+          this.engineInitPromise = null;
+          throw error;
+        }
+      })();
+    }
+
+    try {
+      await this.engineInitPromise;
+    } catch (e) {
+      return { success: false };
+    }
+
+    // PHASE 2: Activate Microphone
+    return this.initializeMic();
+  }
+
+  /**
+   * Explicitly activate the microphone input.
+   * Can be called after engine is ready to finalise the pipeline.
+   */
+  public async initializeMic(): Promise<{ success: boolean }> {
+    if (this.state === 'READY') return { success: true };
+    if (this.state !== 'ENGINE_READY') {
+      logger.error({ state: this.state }, '[TranscriptionService] Cannot activate mic before engine is ready');
+      return { success: false };
+    }
+
+    this.transitionTo('ACTIVATING_MIC');
 
     // If a mock mic was injected (for E2E), use it directly
     if (this.mockMic) {
@@ -247,8 +306,81 @@ export default class TranscriptionService {
     } catch (error) {
       logger.error({ error }, '[TranscriptionService] Failed to initialize mic');
       this.micError = error instanceof Error ? error : new Error(String(error));
+
+      // Still in ENGINE_READY state effectively from a compute perspective,
+      // but the SERVICE is in ERROR because it can't record.
       this.transitionTo('ERROR');
       return { success: false };
+    }
+  }
+
+  /**
+   * Internal helper to ensure the STT instance is created and init() called.
+   * This is part of Option 1 (System Integrity) to allow background initialization.
+   */
+  private async ensureInstanceInitialized(mode: TranscriptionMode): Promise<void> {
+    if (this.instance) {
+      logger.info({ mode }, '[TranscriptionService] Instance already exists, reusing.');
+      return;
+    }
+
+    const providerConfig: TranscriptionModeOptions = this.callbackProxy.getProxy();
+
+    switch (mode) {
+      case 'native':
+        logger.info('[TranscriptionService] 🌐 Initializing Native Browser mode');
+        if (window.MockNativeBrowser && window.__E2E_MOCK_NATIVE__ === true) {
+          logger.info('[TranscriptionService] 🧪 Using MockNativeBrowser for E2E');
+          this.instance = new window.MockNativeBrowser(providerConfig);
+        } else {
+          this.instance = new NativeBrowser(providerConfig);
+        }
+        break;
+
+      case 'cloud':
+        logger.info('[TranscriptionService] ☁️ Initializing Cloud (AssemblyAI) mode');
+        this.instance = new CloudAssemblyAI(providerConfig);
+        break;
+
+      case 'private': {
+        logger.info('[TranscriptionService] 🔒 Initializing Private (Whisper) mode');
+
+        // DI / Test Registry Pattern for Constructor Injection
+        let injectedSTT: IPrivateSTT | undefined = undefined;
+        if (import.meta.env.MODE === 'test' || import.meta.env.DEV) {
+          const factory = testRegistry.get<() => IPrivateSTT>('privateSTT');
+          if (factory) {
+            const fake = factory();
+
+            // Runtime Type Guard
+            const isValidFakeSTT = (obj: unknown): obj is IPrivateSTT => {
+              const o = obj as Record<string, unknown>;
+              return (
+                !!o &&
+                typeof o.init === 'function' &&
+                typeof o.transcribe === 'function' &&
+                typeof o.destroy === 'function' &&
+                typeof o.getEngineType === 'function'
+              );
+            };
+
+            if (isValidFakeSTT(fake)) {
+              logger.info('[TranscriptionService] 🧪 Injecting Valid FakePrivateSTT from Registry');
+              injectedSTT = fake;
+            } else {
+              logger.warn('[TranscriptionService] ⚠️ Invalid factory result from registry. Ignoring injection.');
+            }
+          }
+        }
+
+        const module = await import('./modes/PrivateWhisper');
+        this.instance = new module.default(providerConfig, injectedSTT);
+        break;
+      }
+    }
+
+    if (this.instance) {
+      await this.instance.init();
     }
   }
 
@@ -354,72 +486,17 @@ export default class TranscriptionService {
     const modeLabel = mode === 'native' ? 'Native Browser' : mode === 'cloud' ? 'Cloud' : 'Private';
     this.onStatusChange?.({ type: 'initializing', message: `Starting ${modeLabel} mode...` });
 
-    switch (mode) {
-      case 'native':
-        logger.info('[TranscriptionService] 🌐 Starting Native Browser mode');
-        if (window.MockNativeBrowser && window.__E2E_MOCK_NATIVE__ === true) {
-          logger.info('[TranscriptionService] 🧪 Using MockNativeBrowser for E2E');
-          this.instance = new window.MockNativeBrowser(config);
-          break;
-        }
-        this.instance = new NativeBrowser(config);
-        break;
-
-      case 'cloud':
-        logger.info('[TranscriptionService] ☁️ Starting Cloud (AssemblyAI) mode');
-        this.instance = new CloudAssemblyAI(config);
-        break;
-
-      case 'private': {
-        logger.info('[TranscriptionService] 🔒 Starting Private (Whisper) mode');
-
-        // E2E Mock Override
-        if (window.MockPrivateWhisper && window.__E2E_MOCK_LOCAL_WHISPER__ === true) {
-          logger.info('[TranscriptionService] 🧪 Using MockPrivateWhisper for E2E');
-          this.instance = new window.MockPrivateWhisper(config);
-          break;
-        }
-
-        // OPTION C: Dependency Injection via Test Registry
-        let injectedSTT: IPrivateSTT | undefined = undefined;
-        if (import.meta.env.MODE === 'test' || import.meta.env.DEV) {
-          const factory = testRegistry.get<() => IPrivateSTT>('privateSTT');
-          if (factory) {
-            const fake = factory();
-            // Runtime Type Guard
-            const isValidFakeSTT = (obj: unknown): obj is IPrivateSTT => {
-              const o = obj as Record<string, unknown>;
-              return (
-                !!o &&
-                typeof o.init === 'function' &&
-                typeof o.transcribe === 'function' &&
-                typeof o.destroy === 'function' &&
-                typeof o.getEngineType === 'function'
-              );
-            };
-
-            if (isValidFakeSTT(fake)) {
-              logger.info('[TranscriptionService] 🧪 Injecting Valid FakePrivateSTT from Registry');
-              injectedSTT = fake;
-            } else {
-              logger.warn('[TranscriptionService] ⚠️ Invalid factory result from registry. Ignoring injection.');
-            }
-          }
-        }
-
-        const module = await import('./modes/PrivateWhisper');
-        this.instance = new module.default(config, injectedSTT);
-        break;
-      }
-
-      default:
-        throw new Error(`Unknown transcription mode: ${mode}`);
-    }
+    // [Option 1: System Integrity]
+    // Use the central initializer to ensure instance consistency 
+    // and reuse background warmup if available.
+    await this.ensureInstanceInitialized(mode);
 
     try {
       // Optimistic Entry Logic
       if (mode === 'private') {
         logger.info('[TranscriptionService] ⚡ Using Optimistic Entry for Private mode');
+
+        // At this point this.instance!.init() has already been called or is in progress
         const initPromise = this.instance!.init();
         const LOAD_CACHE_TIMEOUT_MS = 2000; /**** ISSUE B: Softened for CI Stability ****/
         const timeoutPromise = new Promise((_, reject) => {
@@ -456,6 +533,12 @@ export default class TranscriptionService {
       this.onModeChange?.(this.mode);
       this.transitionTo('RECORDING');
       this.onStatusChange?.({ type: 'ready', message: `Recording active (${modeLabel})` });
+
+      // [Bug Fix] Trigger onReady for all successfully started modes
+      // This ensures the UI reflects ready state consistently.
+      if (mode !== 'private') {
+        this.onReady();
+      }
 
     } catch (error) {
       logger.error({ error, mode }, '[TranscriptionService] execution failed');
@@ -494,6 +577,15 @@ export default class TranscriptionService {
         message: `⚠️ Switched to Native Browser mode (${failedMode} unavailable)`,
         newMode: 'native'
       });
+
+      // [Telemetry] Track fallback events
+      if (!IS_TEST_ENVIRONMENT) {
+        posthog.capture('stt_fallback_triggered', {
+          failed_mode: failedMode,
+          target_mode: 'native'
+        });
+      }
+
       await this.executeMode('native', config);
     } catch (nativeError) {
       logger.error('[TranscriptionService] ❌ Native fallback also failed');

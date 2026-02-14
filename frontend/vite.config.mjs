@@ -85,14 +85,12 @@ export default defineConfig(({ mode }) => {
     },
     optimizeDeps: {
       include: [
-        // Pre-bundle whisper-turbo and its dependencies for worker support
-        'whisper-turbo',
-        'whisper-webgpu',
+        // Pre-bundle comlink and other dependencies
         'comlink',
         'true-myth',
         'idb/with-async-ittr'
       ],
-      exclude: [],
+      exclude: ['whisper-turbo', 'whisper-webgpu'],
     },
     ssr: {
       external: ['@xenova/transformers'],

@@ -30,7 +30,8 @@ export class WhisperTurboEngine implements IPrivateSTTEngine {
     }
 
     async init(callbacks: EngineCallbacks): Promise<Result<void, Error>> {
-        logger.info('[WhisperTurbo] Initializing engine...');
+        const tStart = performance.now();
+        logger.info(`[WhisperTurbo] [PERF] Initializing engine at ${new Date().toISOString()}`);
 
         try {
             if (callbacks.onModelLoadProgress) {
@@ -39,10 +40,14 @@ export class WhisperTurboEngine implements IPrivateSTTEngine {
 
             // Load model without arbitrary timeout.
             // Network speed will determine duration. Progress callbacks keep user informed.
+            const tModelLoadStart = performance.now();
+            logger.info(`[WhisperTurbo] [PERF] Model/WASM Load START at ${new Date().toISOString()}`);
+
             const result = await this.manager.loadModel(
                 AvailableModels.WHISPER_TINY,
                 () => {
-                    logger.info('[WhisperTurbo] Model loaded callback triggered.');
+                    const tLoadCallback = performance.now();
+                    logger.info(`[WhisperTurbo] [PERF] Model compiled and ready at +${(tLoadCallback - tModelLoadStart).toFixed(2)}ms`);
                 },
                 (progress: number) => {
                     if (callbacks.onModelLoadProgress) {
@@ -55,8 +60,17 @@ export class WhisperTurboEngine implements IPrivateSTTEngine {
                 return Result.err(result.error);
             }
 
+            const tModelLoadEnd = performance.now();
+            logger.info(`[WhisperTurbo] [PERF] Model/WASM Load FINISHED at +${(tModelLoadEnd - tModelLoadStart).toFixed(2)}ms (Delta: ${(tModelLoadEnd - tModelLoadStart).toFixed(2)}ms)`);
+
+            // [System Integrity] Log presence of WebAssembly to confirm engine type
+            if (typeof WebAssembly !== 'undefined') {
+                logger.info('[WhisperTurbo] [DEBUG] WebAssembly environment confirmed.');
+            }
+
             this.session = result.value;
-            logger.info('[WhisperTurbo] Engine initialized successfully.');
+            const tTotalInit = performance.now() - tStart;
+            logger.info(`[WhisperTurbo] [PERF] Total Engine Init took ${tTotalInit.toFixed(2)}ms`);
 
             if (callbacks.onModelLoadProgress) {
                 callbacks.onModelLoadProgress(100);
@@ -91,10 +105,19 @@ export class WhisperTurboEngine implements IPrivateSTTEngine {
             return Result.err(new Error('WhisperTurbo engine not initialized. Call init() first.'));
         }
 
+        const tStart = performance.now();
         try {
             // PERFORMANCE OPTIMIZATION: Moving WAV conversion off the main thread
+            const tWavStart = performance.now();
             const wavData = await floatToWavAsync(audio);
+            const tWavEnd = performance.now();
+
+            const tTransStart = performance.now();
             const result = await this.session.transcribe(wavData, false, {});
+            const tTransEnd = performance.now();
+
+            const tTotal = performance.now() - tStart;
+            logger.info(`[WhisperTurbo] [PERF] Transcription: WAV=${(tWavEnd - tWavStart).toFixed(2)}ms, Inference=${(tTransEnd - tTransStart).toFixed(2)}ms, Total=${tTotal.toFixed(2)}ms`);
 
             if (result.isErr) {
                 return Result.err(result.error);

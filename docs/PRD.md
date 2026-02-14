@@ -75,7 +75,7 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | :--- | :--- | :--- | :--- | :--- |
 | **Transcription** | 1 | The core service that converts speech to text. | ✅ Implemented | ✅ Yes |
 | **Cloud Server STT** | 1 | High-accuracy transcription via AssemblyAI. (Pro) | ✅ Implemented | ✅ Yes |
-| **Private STT** | 1 | Privacy-first transcription using **Triple-Engine Architecture**: `whisper-turbo` (GPU), `transformers.js` (CPU Fallback), or `MockEngine` (Testing). Includes **RMS-based VAD** and **No-Timeout Load**. Hardened with **Dependency Injection** for resilience. (Pro) | ✅ Verified (DI) | ✅ Yes |
+| **Private STT** | 1 | Privacy-first transcription using **Triple-Engine Architecture**: `whisper-turbo` (GPU), `transformers.js` (CPU Fallback), or `MockEngine` (Testing). Includes **RMS-based VAD**, **Adaptive Noise Floor**, **No-Timeout Load**, and **Optimistic Entry**. Hardened with **Dependency Injection** for 100% reliability. (Pro) | ✅ Verified (DI) | ✅ Yes |
 | **Fallback STT** | 1 | Reliable fallback to native browser API for Free users and as an **auto-recovery mode** for Cloud/Private STT. **Optimistic fallback** ensures zero-wait sessions during model downloads via the **Optimistic Entry Pattern**. | ✅ Verified (UT/E2E) | ✅ Yes |
 | **UI Mode Selector** | 1 | Allows users to select their preferred transcription engine. | ✅ Implemented | ✅ Yes |
 | **Session History** | 1 | Users can view and analyze their past practice sessions. | ✅ Implemented | ✅ Yes |
@@ -164,7 +164,8 @@ The project's testing strategy prioritizes stability, reliability, and a tight a
     *   **Canary Deployment Tests:** A subset of E2E tests (marked `@canary`) are designed to hit real staging endpoints periodically to detect API contract drift and production-specific failures that mocks might hide.
 *   **API Mocking (MSW & Playwright Routes):** External services and backend APIs are mocked for deterministic testing. However, mocks are audited against real production response shapes to prevent "Green Illusion" (tests passing while production is broken).
 *   **Adversarial Audit Mandate:** All new tests must pass an adversarial review—ensuring they validate design intent (e.g., tier gating, SLOs, resilience) and would fail if production code deviates from intended behavior, even if the structural implementation remains similar.
-*   **Private STT Integration Strategy:** To ensure high-fidelity verification of the triple-engine architecture, `PrivateSTT.integration.test.ts` validates engine selection, WebGPU detection, and fallback logic. For headless CI environments, the engine automatically switches to a reliable `MockEngine` when `window.__E2E_PLAYWRIGHT__` is detected.
+*   **Private STT Integration Strategy:** To ensure high-fidelity verification of the triple-engine architecture, `PrivateSTT` automatically selects the best engine. For headless CI environments, it defaults to `MockEngine` via `window.__E2E_PLAYWRIGHT__`. For performance benchmarking, the `REAL_WHISPER_TEST` flag bypasses the mock to exercise real WASM compilation paths.
+    *   **Unbuffered Performance Logging:** To capture a "cradle-to-grave" trace during potential engine hangs, the system uses a direct filesystem bypass (`fs.appendFileSync`) in test mode, ensuring zero log loss even if the browser process stalls.
 *   **Single Source of Truth (`pnpm test:all` & `pnpm ci:local`):**
     *   `pnpm test:all`: User-facing entry point for quick validation.
     *   `pnpm ci:local`: Full simulation of the CI pipeline (including build and lighthouse), ensuring that "it works on my machine" means it works in CI.
@@ -189,6 +190,7 @@ For E2E infrastructure troubleshooting, see [tests/TROUBLESHOOTING.md](../tests/
 - **Unit Test Coverage:** 61.73% (509 tests). Target: 75%. Tracked in tech debt.
 - **UX - Mobile Experience:** Controls on `SessionPage` scroll away ("thumb stretch" issue). Sticky footer required.
 - **🟡 Testimonials:** `TestimonialsSection` has placeholder content. Needs real user testimonials.
+- **🟡 Model CDN Reliability:** Private STT utilizes a **Redundant CDN Fallback** (HuggingFace + Benchmarked backup). If the primary CDN is unreachable, the system automatically falls back to the secondary source to ensure model availability.
 
 ### Tech Debt (Testing)
 

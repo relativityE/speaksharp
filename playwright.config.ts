@@ -37,7 +37,7 @@ export default defineConfig({
   webServer: {
     command: 'pnpm dev --force',
     url: BASE_URL,
-    reuseExistingServer: true, // CRITICAL: Always restart locally to prevent stale code (Zombie Server)
+    reuseExistingServer: false, // CRITICAL: Always restart locally to prevent stale code (Zombie Server)
     timeout: 120 * 1000,
     env: {
       DOTENV_CONFIG_PATH: '.env.test',

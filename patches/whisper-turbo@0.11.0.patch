@@ -1,16 +1,7 @@
 diff --git a/dist/db/modelDB.js b/dist/db/modelDB.js
-index dede2404a72441a5c5a18fcfa97e29d36bc3eb4b..737b159d138823c0881a5a5d60ac1772090265ed 100644
+index dede2404a72441a5c5a18fcfa97e29d36bc3eb4b..5979e6a91c2c4ec8dcb4b8494b5119238eb8d2fc 100644
 --- a/dist/db/modelDB.js
 +++ b/dist/db/modelDB.js
-@@ -26,7 +26,7 @@ import pRetry from "p-retry";
-  */
- export default class ModelDB {
-     constructor(db) {
--        this.remoteUrl = "https://rmbl.us";
-+        this.remoteUrl = "";
-         this.db = db;
-     }
-     static create() {
 @@ -54,7 +54,7 @@ export default class ModelDB {
                  const reader = response.body.getReader();
                  let receivedLength = 0;
@@ -20,21 +11,40 @@ index dede2404a72441a5c5a18fcfa97e29d36bc3eb4b..737b159d138823c0881a5a5d60ac1772
                      const { done, value } = yield reader.read();
                      if (done) {
                          break;
-@@ -91,7 +91,7 @@ export default class ModelDB {
+@@ -91,7 +91,14 @@ export default class ModelDB {
              }
              let tokenizer = yield this.db.getFromIndex("tokenizer", "modelID", modelID);
              if (!tokenizer) {
 -                const tokenizerBytes = yield this.fetchBytes("https://huggingface.co/openai/whisper-large-v2/raw/main/tokenizer.json");
-+                const tokenizerBytes = yield this.fetchBytes("/models/tokenizer.json");
++                const localTokenizerURL = "/models/tokenizer.json";
++                console.log('[whisper-turbo] Attempting local tokenizer:', localTokenizerURL);
++                let tokenizerBytes = yield this.fetchBytes(localTokenizerURL);
++                if (tokenizerBytes.isErr) {
++                    console.warn('[whisper-turbo] ⚠️ Local tokenizer failed, downloading from HuggingFace...');
++                    const remoteTokenizerURL = "https://huggingface.co/openai/whisper-large-v2/raw/main/tokenizer.json";
++                    tokenizerBytes = yield this.fetchBytes(remoteTokenizerURL);
++                }
                  if (tokenizerBytes.isErr) {
                      return Result.err(tokenizerBytes.error);
                  }
-@@ -121,7 +121,7 @@ export default class ModelDB {
+@@ -121,8 +128,18 @@ export default class ModelDB {
      }
      fetchRemote(model, onProgress) {
          return __awaiter(this, void 0, void 0, function* () {
 -            const remoteURL = `${this.remoteUrl}/whisper-turbo/${model}-q8g16.bin`;
-+            const remoteURL = `/models/${model}-q8g16.bin`;
-             const fetchResult = yield this.fetchBytes(remoteURL, onProgress);
+-            const fetchResult = yield this.fetchBytes(remoteURL, onProgress);
++            const localURL = `/models/${model}-q8g16.bin`;
++            console.log('[whisper-turbo] Attempting local load:', localURL);
++            let fetchResult = yield this.fetchBytes(localURL, onProgress);
++            if (fetchResult.isErr) {
++                console.warn('[whisper-turbo] ⚠️ Local failed, downloading from CDN...');
++                const remoteURL = `${this.remoteUrl}/whisper-turbo/${model}-q8g16.bin`;
++                console.log('[whisper-turbo] Downloading from:', remoteURL);
++                fetchResult = yield this.fetchBytes(remoteURL, onProgress);
++            }
++            else {
++                console.log('[whisper-turbo] ✅ Loaded from local cache');
++            }
              if (fetchResult.isErr) {
                  return Result.err(fetchResult.error);
+             }

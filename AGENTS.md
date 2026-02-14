@@ -5,6 +5,15 @@
 
 ---
 
+## ⚡ Core Architectural Principles
+
+### 🛡️ System Integrity over Developer Velocity
+Always prioritize architectural correctness, production stability, and long-term maintainability over quick-fixes or tactical workarounds.
+- **Rule**: If a "fake" fix and a "real" (architectural) fix both exist, the real fix MUST be prioritized even if it takes significantly longer.
+- **Rule**: configuration-level hacks (like fake media flags) are "weak" and should only be used as temporary diagnostic aids, never as the final solution if an architectural decoupling path is available.
+
+---
+
 ## 🚨 Critical Environment & Workflow Rules
 
 ### 1. Mandatory Pre-flight Check (Start Here)

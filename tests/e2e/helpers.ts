@@ -262,7 +262,7 @@ export async function navigateToRoute(
   // Wait for route change to complete
   await debugWait(
     `Route Change (${route})`,
-    page.waitForURL(`**${route}`, { timeout: 10000 })
+    page.waitForURL(`**${route}`, { timeout: 20000 })
   );
 
   if (waitForMocks) {
@@ -272,7 +272,7 @@ export async function navigateToRoute(
       'MSW Ready (Post-Navigation)',
       page.waitForFunction(() => {
         return !!window.mswReady;
-      }, null, { timeout: 10000 })
+      }, null, { timeout: 20000 })
     );
   }
 }

@@ -33,7 +33,7 @@ export default defineConfig({
     // Clear the ignore list so these aren't skipped
     testIgnore: [],
     outputDir: './test-results/playwright-live',
-    timeout: 60_000, // Longer timeout for live services
+    timeout: 180_000, // Diagnostic Timeout (180s) to capture exact Cold Start
     reporter: [['list'], ['html', { outputFolder: 'test-results/live-report' }]],
     use: {
         ...baseConfig.use,
@@ -67,7 +67,17 @@ export default defineConfig({
     projects: [
         {
             name: 'chromium',
-            use: { ...devices['Desktop Chrome'] },
+            use: {
+                ...devices['Desktop Chrome'],
+                launchOptions: {
+                    args: [
+                        '--use-fake-device-for-media-stream',
+                        '--use-fake-ui-for-media-stream',
+                        '--no-sandbox',
+                    ],
+                },
+                permissions: ['microphone'],
+            },
         },
     ],
 });

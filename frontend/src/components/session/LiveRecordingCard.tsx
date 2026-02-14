@@ -78,7 +78,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                     <DropdownMenuContent align="end">
                         <DropdownMenuRadioGroup value={mode} onValueChange={(v) => onModeChange(v as RecordingMode)}>
                             <DropdownMenuRadioItem value="native" data-testid={TEST_IDS.STT_MODE_NATIVE}>Native (Browser)</DropdownMenuRadioItem>
-                            <DropdownMenuRadioItem value="private" disabled={!isProUser}>
+                            <DropdownMenuRadioItem value="private" disabled={!isProUser} data-testid={TEST_IDS.STT_MODE_PRIVATE}>
                                 Private {!isProUser && '(Pro)'}
                             </DropdownMenuRadioItem>
                             <DropdownMenuRadioItem value="cloud" disabled={!isProUser} data-testid={TEST_IDS.STT_MODE_CLOUD}>
