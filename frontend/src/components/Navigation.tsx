@@ -130,7 +130,7 @@ const Navigation = () => {
             <div className="flex items-center space-x-3">
               {session ? (
                 <>
-                  {isFreeUser && (
+                  {profile && isFreeUser && (
                     <Button
                       onClick={handleUpgrade}
                       disabled={isUpgrading}

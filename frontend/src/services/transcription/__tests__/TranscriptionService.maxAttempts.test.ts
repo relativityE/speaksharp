@@ -26,7 +26,9 @@ vi.mock('../modes/NativeBrowser', () => ({
     default: class MockNativeBrowser {
         init = mockNativeInit;
         startTranscription = mockNativeStart;
-        stopTranscription = vi.fn();
+        stopTranscription = vi.fn().mockResolvedValue({ transcript: 'test', duration: 1 });
+        terminate = vi.fn().mockResolvedValue(undefined);
+        getEngineType = vi.fn().mockReturnValue('native');
     },
 }));
 
@@ -41,7 +43,8 @@ describe('TranscriptionService - Max Attempts', () => {
     class MockPrivateWhisper {
         init = mockPrivateInit;
         startTranscription = mockPrivateStart;
-        stopTranscription = vi.fn();
+        terminate = vi.fn().mockResolvedValue(undefined);
+        getEngineType = vi.fn().mockReturnValue('whisper-turbo');
         constructor(_config: unknown) { }
     }
 
@@ -92,7 +95,9 @@ describe('TranscriptionService - Max Attempts', () => {
         } catch (e) { /* ignore fallback errors */ }
 
         expect(mockPrivateInit).toHaveBeenCalledTimes(1);
-        expect(mockNativeInit).toHaveBeenCalledTimes(1); // Standard fallback
+        await vi.waitFor(() => {
+            expect(mockNativeInit).toHaveBeenCalledTimes(1); // Standard fallback
+        });
         // Behavior check confirms logic without peeking
 
         await service.stopTranscription();
@@ -122,14 +127,17 @@ describe('TranscriptionService - Max Attempts', () => {
         await service.startTranscription();
 
         // EXPECTATIONS
-        expect(mockPrivateInit).not.toHaveBeenCalled(); // Should be skipped
+        await vi.waitFor(() => {
+            expect(mockPrivateInit).not.toHaveBeenCalled(); // Should be skipped
+            expect(mockNativeInit).toHaveBeenCalledTimes(1); // Should call Native directly
+        });
 
-        expect(mockNativeInit).toHaveBeenCalledTimes(1); // Should call Native directly
-
-        expect(onStatusChange).toHaveBeenCalledWith(expect.objectContaining({
-            type: 'fallback',
-            message: expect.stringContaining('Too many failures'),
-            newMode: 'native'
-        }));
+        await vi.waitFor(() => {
+            expect(onStatusChange).toHaveBeenCalledWith(expect.objectContaining({
+                type: 'fallback',
+                message: expect.stringContaining('Too many failures'),
+                newMode: 'native'
+            }));
+        });
     });
 });

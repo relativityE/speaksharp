@@ -55,6 +55,7 @@ export const TEST_IDS = {
     STT_MODE_SELECT: 'stt-mode-select',
     STT_MODE_NATIVE: 'stt-mode-native',
     STT_MODE_CLOUD: 'stt-mode-cloud',
+    STT_MODE_PRIVATE: 'stt-mode-private',
 
     // Landing page
     HERO_SECTION: 'hero-section',

@@ -1,5 +1,4 @@
 import type { Session as SupabaseSession } from '@supabase/supabase-js';
-import type { UserProfile } from '../../types/user';
 
 export interface Chunk {
   text: string;
@@ -18,7 +17,6 @@ export interface UseSpeechRecognitionProps {
   customWords?: string[];
   customVocabulary?: string[];
   session?: SupabaseSession | null;
-  profile?: UserProfile | null;
 }
 
 export interface TranscriptStats {

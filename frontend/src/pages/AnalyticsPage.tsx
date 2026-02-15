@@ -76,7 +76,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     const { sessionHistory, overallStats, fillerWordTrends, loading, error } = useAnalytics();
     const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
 
-    // Signal to E2E tests when session data has finished loading
+    // Signal to E2E tests when session data has finished loading OR failing
     useEffect(() => {
         if (IS_TEST_ENVIRONMENT && !loading && !isProfileLoading) {
             const win = window as unknown as { [key: string]: boolean };

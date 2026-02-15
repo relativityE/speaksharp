@@ -259,7 +259,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                         </div>
                     </div>
 
-                    {!isProUser && (
+                    {profile && !isProUser && (
                         <div className="mt-auto pt-4 border-t">
                             <div className="flex items-center gap-2 text-primary mb-2"><Zap className="w-4 h-4" /><h4 className="font-semibold text-sm">Upgrade to Pro</h4></div>
                             <p className="text-xs text-muted-foreground mb-2">

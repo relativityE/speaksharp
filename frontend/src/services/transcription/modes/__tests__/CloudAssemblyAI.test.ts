@@ -1,5 +1,6 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import CloudAssemblyAI from '../CloudAssemblyAI';
+import { Session } from '@supabase/supabase-js';
 
 // Mock Supabase client
 const mockGetSession = vi.fn();
@@ -104,9 +105,14 @@ describe('CloudAssemblyAI (Native WebSocket)', () => {
 
         mode = new CloudAssemblyAI({
             onTranscriptUpdate,
+            onModelLoadProgress: vi.fn(),
             onReady,
             onError,
+            session: { access_token: 'fake-access-token' } as Session
         });
+
+        // Force auth path for connection test by disabling E2E bypass
+        vi.spyOn(mode as unknown as { isE2EEnvironment: () => boolean }, 'isE2EEnvironment').mockReturnValue(false);
     });
 
     afterEach(() => {

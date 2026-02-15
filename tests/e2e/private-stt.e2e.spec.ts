@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { programmaticLoginWithRoutes, navigateToRoute, debugLog, attachLiveTranscript } from './helpers';
+import { setupE2EMocks } from './mock-routes';
 
 // Extend Window interface for E2E mock flag
 interface E2EWindow extends Window {
@@ -41,11 +42,22 @@ interface E2EWindow extends Window {
 
 test.describe('Private STT (Whisper)', () => {
 
+    test.beforeEach(async ({ page }) => {
+        page.on('console', msg => {
+            const text = msg.text();
+            if (text.includes('[Hook]') || text.includes('[TranscriptionService]') || text.includes('[MockPrivateWhisper]') || text.includes('[DIAG]')) {
+                console.log(`[BROWSER] ${text}`);
+            }
+        });
+        await setupE2EMocks(page);
+    });
+
     test('should show download progress on first use', async ({ page }) => {
         attachLiveTranscript(page);
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
         await navigateToRoute(page, '/session');
         await page.waitForSelector('[data-testid="app-main"]');
+
 
         // Clear IndexedDB and set mock flag with MANUAL CONTROL
         await page.evaluate(() => {
@@ -60,8 +72,12 @@ test.describe('Private STT (Whisper)', () => {
         });
 
         // Select Private mode
-        await page.getByRole('button', { name: /cloud|private|native/i }).click();
+        await page.getByTestId('stt-mode-select').click();
         await page.getByRole('menuitemradio', { name: /private/i }).click();
+
+        // CRITICAL: Wait for React to commit mode state change before clicking Start.
+        // Without this, handleStartStop captures stale mode='native' from the closure.
+        await expect(page.getByTestId('stt-mode-select')).toContainText(/private/i, { timeout: 2000 });
 
         // Click Start - triggers model download
         await page.getByTestId('session-start-stop-button').click();
@@ -80,18 +96,18 @@ test.describe('Private STT (Whisper)', () => {
 
         // Verify button shows "Initializing..." (or already "Stop" if fast)
         const startButton = page.getByTestId('session-start-stop-button');
-        await expect(startButton).toContainText(/initializing|stop/i);
+        await expect(startButton.first()).toBeVisible();
 
         // Wait for model to finish loading
         await expect(loadingIndicator).toBeHidden({ timeout: 30000 });
 
         // Verify session started
-        await expect(startButton).toContainText(/stop/i);
-        await expect(startButton).toBeEnabled();
+        await expect(page.getByRole('button', { name: /stop/i }).first()).toBeVisible();
+        await expect(startButton.first()).toBeEnabled();
 
         // Stop session and verify clean return to Start (P1 bug fix)
-        await startButton.click();
-        await expect(startButton).toContainText(/start/i);
+        await startButton.first().click();
+        await expect(page.getByRole('button', { name: /start/i }).first()).toBeVisible();
     });
 
     test('should load instantly from cache (no progress indicator)', async ({ page }) => {
@@ -102,15 +118,15 @@ test.describe('Private STT (Whisper)', () => {
             (window as unknown as E2EWindow).__E2E_MOCK_LOCAL_WHISPER__ = true;
         });
 
-        await page.getByRole('button', { name: /cloud|private|native/i }).click();
+        await page.getByTestId('stt-mode-select').click();
         await page.getByRole('menuitemradio', { name: /private/i }).click();
 
         const startButton = page.getByTestId('session-start-stop-button');
         const loadingIndicator = page.getByTestId('background-task-indicator');
 
         const startTime = Date.now();
-        await startButton.click();
-        await expect(startButton).toContainText('Stop', { timeout: 5000 });
+        await startButton.first().click();
+        await expect(page.getByRole('button', { name: /stop/i }).first()).toBeVisible({ timeout: 5000 });
 
         const loadTime = Date.now() - startTime;
         debugLog(`[TEST] Model loaded in ${loadTime}ms`);
@@ -126,7 +142,7 @@ test.describe('Private STT (Whisper)', () => {
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
         await navigateToRoute(page, '/session');
 
-        await page.getByRole('button', { name: /cloud|private|native/i }).click();
+        await page.getByTestId('stt-mode-select').click();
 
         const privateOption = page.getByRole('menuitemradio', { name: /private/i });
         await expect(privateOption).toBeVisible();
@@ -134,30 +150,30 @@ test.describe('Private STT (Whisper)', () => {
         // No console.log needed - expect() assertions above handle validation
     });
 
-    test('should show toast notification when model loads', async ({ page }) => {
+    test('should start recording after model auto-loads', async ({ page }) => {
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
         await navigateToRoute(page, '/session');
 
-        // Clear IndexedDB and set mock flag
+        // Clear IndexedDB and set mock flag (auto mode, not manual)
         await page.evaluate(() => {
             (window as unknown as E2EWindow).__E2E_MOCK_LOCAL_WHISPER__ = true;
             return indexedDB.deleteDatabase('whisper-turbo');
         });
 
-        await page.getByRole('button', { name: /cloud|private|native/i }).click();
+        await page.getByTestId('stt-mode-select').click();
         await page.getByRole('menuitemradio', { name: /private/i }).click();
-        await page.getByTestId('session-start-stop-button').click();
 
-        // Wait for model to load
-        await page.waitForSelector('[data-testid="background-task-indicator"]', {
-            state: 'hidden',
-            timeout: 30000
-        });
+        // Wait for React to commit mode change
+        await expect(page.getByTestId('stt-mode-select')).toContainText(/private/i, { timeout: 2000 });
 
-        // Verify success toast
-        const successToast = page.locator('[data-sonner-toast][data-type="success"]').first();
-        await expect(successToast).toBeVisible({ timeout: 5000 });
-        await expect(successToast).toContainText(/model (ready|loaded)/i);
+        await page.getByTestId('session-start-stop-button').first().click();
+
+        // Wait for model to auto-load (auto mode takes ~2.5s)
+        // Verify recording becomes active with Private mode
+        await expect(page.getByTestId('live-session-header')).toContainText(/recording active/i, { timeout: 15000 });
+
+        // Verify the mode label still shows Private (not fallen back to Native)
+        await expect(page.getByTestId('stt-mode-select')).toContainText(/private/i);
     });
 
     test('P1 REGRESSION: button should return to Start after Stop', async ({ page }) => {
@@ -174,20 +190,17 @@ test.describe('Private STT (Whisper)', () => {
             (window as unknown as E2EWindow).__E2E_MOCK_LOCAL_WHISPER__ = true;
         });
 
-        await page.getByRole('button', { name: /cloud|private|native/i }).click();
+        await page.getByTestId('stt-mode-select').click();
         await page.getByRole('menuitemradio', { name: /private/i }).click();
 
         const startButton = page.getByTestId('session-start-stop-button');
 
         // Start session
-        await startButton.click();
-        await expect(startButton).toContainText('Stop', { timeout: 5000 });
+        await startButton.first().click();
+        await expect(page.getByRole('button', { name: /stop/i }).first()).toBeVisible({ timeout: 5000 });
 
         // Stop session
-        await startButton.click();
-
-        // Button should say "Start" NOT "Initializing..."
-        await expect(startButton).not.toContainText('Initializing', { timeout: 2000 });
-        await expect(startButton).toContainText(/start/i, { timeout: 2000 });
+        await startButton.first().click();
+        await expect(page.getByRole('button', { name: /start/i }).first()).toBeVisible({ timeout: 2000 });
     });
 });

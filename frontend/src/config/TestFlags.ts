@@ -43,7 +43,7 @@ export const TestFlags = {
      */
     IS_TEST_MODE:
         getEnvVar('VITE_TEST_MODE') === 'true' ||
-        (typeof window !== 'undefined' && window.TEST_MODE === true),
+        (typeof window !== 'undefined' && window.TEST_MODE === true && !getEnvVar('DEV')),
 
     /**
      * Database Override: When true, use real Supabase even in test mode.

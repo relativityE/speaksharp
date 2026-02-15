@@ -177,7 +177,7 @@ describe('SessionPage Rendering', () => {
     it('should render the live recording card', () => {
         renderWithRouter(<SessionPage />);
         expect(screen.getByTestId('live-recording-card')).toBeInTheDocument();
-        expect(screen.getByText('Live Session')).toBeInTheDocument();
+        expect(screen.getByText('Ready to record')).toBeInTheDocument();
     });
 
     it('should render metrics cards', () => {

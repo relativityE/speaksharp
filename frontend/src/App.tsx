@@ -4,6 +4,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { useCheckoutNotifications } from '@/hooks/useCheckoutNotifications';
 import Navigation from './components/Navigation';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { ProfileGuard } from './components/ProfileGuard';
 import { Loader2 } from 'lucide-react';
 import ErrorBoundary from '@/components/ErrorBoundary';
 
@@ -42,36 +43,39 @@ const App: React.FC = () => {
         position="top-right"
         expand={false}
         duration={5000}
+        offset="25vh"
       />
-      <Navigation />
-      <main data-testid="app-main" className="relative z-10">
-        <ErrorBoundary>
-          <Suspense fallback={<PageLoader />}>
-            <Routes>
-              <Route path="/" element={<Index />} />
-              <Route path="/design" element={<DesignSystemPage />} />
-              <Route path="/auth" element={<Navigate to="/auth/signin" replace />} />
-              <Route path="/auth/signin" element={<SignInPage />} />
-              <Route path="/auth/signup" element={<AuthPage />} />
-              <Route path="/session" element={
-                <ProtectedRoute>
-                  <SessionPage />
-                </ProtectedRoute>
-              } />
-              <Route path="/analytics" element={
-                <ProtectedRoute>
-                  <AnalyticsPage />
-                </ProtectedRoute>
-              } />
-              <Route path="/analytics/:sessionId" element={
-                <ProtectedRoute>
-                  <AnalyticsPage />
-                </ProtectedRoute>
-              } />
-            </Routes>
-          </Suspense>
-        </ErrorBoundary>
-      </main>
+      <ProfileGuard>
+        <Navigation />
+        <main data-testid="app-main" className="relative z-10">
+          <ErrorBoundary>
+            <Suspense fallback={<PageLoader />}>
+              <Routes>
+                <Route path="/" element={<Index />} />
+                <Route path="/design" element={<DesignSystemPage />} />
+                <Route path="/auth" element={<Navigate to="/auth/signin" replace />} />
+                <Route path="/auth/signin" element={<SignInPage />} />
+                <Route path="/auth/signup" element={<AuthPage />} />
+                <Route path="/session" element={
+                  <ProtectedRoute>
+                    <SessionPage />
+                  </ProtectedRoute>
+                } />
+                <Route path="/analytics" element={
+                  <ProtectedRoute>
+                    <AnalyticsPage />
+                  </ProtectedRoute>
+                } />
+                <Route path="/analytics/:sessionId" element={
+                  <ProtectedRoute>
+                    <AnalyticsPage />
+                  </ProtectedRoute>
+                } />
+              </Routes>
+            </Suspense>
+          </ErrorBoundary>
+        </main>
+      </ProfileGuard>
     </div>
   );
 }

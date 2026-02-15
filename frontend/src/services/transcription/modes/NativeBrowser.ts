@@ -43,10 +43,10 @@ export default class NativeBrowser implements ITranscriptionMode {
   private isListening: boolean;
   private isRestarting: boolean = false;
 
-  constructor({ onTranscriptUpdate, onReady, onError }: TranscriptionModeOptions) {
-    this.onTranscriptUpdate = onTranscriptUpdate;
-    this.onReady = onReady;
-    this.onError = onError;
+  constructor(options: TranscriptionModeOptions) {
+    this.onTranscriptUpdate = options.onTranscriptUpdate;
+    this.onReady = options.onReady;
+    this.onError = options.onError;
     this.recognition = null;
     this.isSupported = true; // Assume supported, check in init
     this.transcript = '';
@@ -233,5 +233,9 @@ export default class NativeBrowser implements ITranscriptionMode {
 
   public async getTranscript(): Promise<string> {
     return this.transcript;
+  }
+
+  public getEngineType(): string {
+    return 'native';
   }
 }

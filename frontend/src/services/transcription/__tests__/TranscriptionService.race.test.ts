@@ -83,10 +83,11 @@ describe('TranscriptionService - Race Conditions', () => {
 
         await Promise.all([p1, p2, p3]);
 
-        // Assert
-        // Should only have attempted to terminate the instance ONCE
-        // The other calls should have early-returned or waited and seen it was null
-        expect(mockTerminate).toHaveBeenCalledTimes(1);
+        // Assert: Wait for microtasks to propagate state changes
+        await vi.waitFor(() => {
+            // Should only have attempted to terminate the instance ONCE
+            expect(mockTerminate).toHaveBeenCalledTimes(1);
+        });
     });
 
     it('should not throw if destroy called while initializing', async () => {

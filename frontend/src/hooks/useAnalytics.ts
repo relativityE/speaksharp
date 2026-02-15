@@ -115,11 +115,23 @@ export const useAnalytics = () => {
         };
     }, [sessionHistory]);
 
+    // CRITICAL: Don't wait for individual session query if the session list
+    // has already loaded and the session isn't in it. This prevents the
+    // "Session Not Found" UI from being blocked by a hanging session fetch
+    // (e.g., in E2E mocks where individual session routes aren't intercepted).
+    const sessionExistsInList = sessionId
+        ? sessionsToUse.some(s => s.id === sessionId)
+        : true;
+
+    const effectiveSessionLoading = sessionId && (isLoading || sessionExistsInList)
+        ? isSessionLoading
+        : false;
+
     return {
         sessionHistory,
         ...analyticsData,
         // DEV BYPASS: Force loading to false when devBypass is active so UI renders with mock data
-        loading: isDevBypass ? false : (isLoading || (!!sessionId && isSessionLoading)),
+        loading: isDevBypass ? false : (isLoading || effectiveSessionLoading),
         error
     };
 };

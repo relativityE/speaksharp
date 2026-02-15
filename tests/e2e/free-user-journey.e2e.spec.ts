@@ -38,9 +38,9 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
         const modeDropdownButton = page.getByRole('button', { name: /Native|Cloud|Private|On-Device/i });
         await expect(modeDropdownButton).toBeVisible({ timeout: 5000 });
 
-        // Get the button text - should be "Native" for free users
+        // Get the button text - should be "Browser" for free users
         const buttonText = await modeDropdownButton.textContent();
-        expect(buttonText?.toLowerCase()).toContain('native');
+        expect(buttonText?.toLowerCase()).toContain('browser');
     });
 
     test('should complete session with Native Browser STT', async ({ page }) => {
@@ -66,7 +66,7 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
         await page.waitForTimeout(6000);
         // Stop session
         await startButton.click();
-        await expect(page.getByText('Start').first()).toBeVisible({ timeout: 5000 });
+        await expect(startButton).toHaveAttribute('aria-label', /start/i, { timeout: 5000 });
     });
 
     test('should add custom vocabulary word', async ({ page }) => {

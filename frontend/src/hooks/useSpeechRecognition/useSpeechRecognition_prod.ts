@@ -1,9 +1,10 @@
-import { useMemo, useCallback, useState, useRef, useEffect } from 'react';
+import { useMemo, useCallback, useRef, useEffect } from 'react';
 import { useAuthProvider } from '../../contexts/AuthProvider';
 import { useNavigate } from 'react-router-dom';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { calculateTranscriptStats } from '../../utils/fillerWordUtils';
 import logger from '../../lib/logger';
+import { useProfile } from '../useProfile';
 import { toast } from '@/lib/toast';
 import { checkRateLimit } from '../../lib/rateLimiter';
 
@@ -14,18 +15,18 @@ import { useSessionTimer } from './useSessionTimer';
 import { useVocalAnalysis } from '../useVocalAnalysis';
 import { API_CONFIG } from '../../config';
 import type { UseSpeechRecognitionProps, TranscriptStats, TranscriptionPolicy } from './types';
-import { E2E_DETERMINISTIC_NATIVE } from './types';
+import { E2E_DETERMINISTIC_NATIVE, buildPolicyForUser } from './types';
 import type { FillerCounts } from '../../utils/fillerWordUtils';
 
 export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {}) => {
     // Memoize defaults to ensure stable references and prevent infinite loops
     const customWords = useMemo(() => props.customWords || [], [props.customWords]);
     const customVocabulary = useMemo(() => props.customVocabulary || [], [props.customVocabulary]);
-    const { session, profile } = props;
+    const { session } = props;
+    const profile = useProfile();
     const { session: authSession } = useAuthProvider();
     const navigate = useNavigate();
 
-    const [modelLoadingProgress, setModelLoadingProgress] = useState<number | null>(null);
     const toastIdRef = useRef<string | number | null>(null);
 
     const transcript = useTranscriptState();
@@ -75,15 +76,6 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         }
     }, [authSession]);
 
-    const handleModelLoadProgress = useCallback((progress: number | null) => {
-        if (progress === null) {
-            setModelLoadingProgress(null);
-            return;
-        }
-        const percentage = progress > 1 ? Math.min(Math.round(progress), 100) : Math.round(progress * 100);
-        setModelLoadingProgress(percentage);
-    }, []);
-
     const serviceOptions = useMemo(() => ({
         onTranscriptUpdate: (data: { transcript: { partial?: string; final?: string }; speaker?: string }) => {
             if (data.transcript?.partial && !data.transcript.partial.startsWith('Downloading model')) {
@@ -104,65 +96,26 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         },
         onReady: () => {
             logger.info('[useSpeechRecognition] onReady callback invoked');
+            // CRITICAL: Internal service ready does NOT mean background downloads are done.
+            // We NO LONGER clear modelLoadingProgress here because of "Optimistic Entry".
+            // If we fall back to Native while Private downloads in background, Native calls 
+            // onReady immediately. Clearing progress here would hide the background task.
         },
-        onModelLoadProgress: handleModelLoadProgress,
-        profile: profile ?? null,
+        profile: profile,
         session: session ?? null,
         navigate,
         getAssemblyAIToken,
         customVocabulary,
         onAudioData: vocalAnalysis.processAudioFrame,
-    }), [profile, session, navigate, getAssemblyAIToken, customVocabulary, setInterimTranscript, addChunk, vocalAnalysis.processAudioFrame, handleModelLoadProgress]);
+        profileLoading: false, // Guaranteed by ProfileGuard
+        policy: buildPolicyForUser(profile?.subscription_status === 'pro', null),
+    }), [profile, session, navigate, getAssemblyAIToken, customVocabulary, vocalAnalysis.processAudioFrame, setInterimTranscript, addChunk]);
 
     // useSpeechRecognition.ts (Prod)
     const service = useTranscriptionService(serviceOptions);
 
-    const intentToastShownRef = useRef<boolean>(false);
-
-    // SYSTEMATIC REFINEMENT: Consolidated Toast Reactive Effect (Executive Alignment - Option 2)
-    useEffect(() => {
-        if (modelLoadingProgress === null) {
-            intentToastShownRef.current = false;
-            return;
-        }
-
-        const percentage = modelLoadingProgress;
-        logger.info({ percentage, intentToastShown: intentToastShownRef.current }, '[useSpeechRecognition] Toast Effect Check');
-
-        // 1. Toast (On Selection): Intent acknowledgment
-        // ONLY show if NOT already complete (i.e. not cached)
-        if (!intentToastShownRef.current && percentage < 100) {
-            logger.info('[useSpeechRecognition] Triggering Executive Intent Toast');
-            toast.info("Setting up private model", {
-                id: 'stt-lifecycle-toast',
-                description: "Using Cloud model for now",
-                duration: 5000
-            });
-            intentToastShownRef.current = true;
-        }
-
-        // 2. Ongoing work narration removed from toasts.
-        // Progress is now handled EXCLUSIVELY by the persistent StatusNotificationBar.
-
-        // 3. Toast (On Completion): Success confirmation
-        // Title: Private model ready
-        // Body: Now running locally
-        if (percentage >= 100) {
-            // If we are already at 100% and haven't shown the intent toast, 
-            // it means it was cached. We only show the success toast.
-
-            setModelLoadingProgress(null);
-
-            toast.success("Private model ready", {
-                id: 'stt-lifecycle-toast',
-                description: "Now running locally",
-                duration: 5000
-            });
-
-            // Mark as shown so we don't trigger intent toast if progress flickers
-            intentToastShownRef.current = true;
-        }
-    }, [modelLoadingProgress]);
+    // [System Integrity] modelLoadingProgress is now consumed 
+    // EXCLUSIVELY by the StatusNotificationBar via service.sttStatus.
 
     // Sync service state to internal state for VocalAnalysis
     // [Fix: Circular Dependency] Use effect instead of render-time sync
@@ -187,7 +140,6 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         fillerWords.reset();
         sessionTimer.reset();
         service.reset();
-        setModelLoadingProgress(null);
         if (toastIdRef.current) {
             toast.dismiss(toastIdRef.current);
             toastIdRef.current = null;
@@ -200,7 +152,6 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     }, [service, reset]);
 
     const stopListening = useCallback(async (): Promise<(TranscriptStats & { filler_words: FillerCounts }) | null> => {
-        setModelLoadingProgress(null);
         if (toastIdRef.current) {
             toast.dismiss(toastIdRef.current);
             toastIdRef.current = null;
@@ -250,7 +201,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         isSupported: service.isSupported,
         mode: service.mode,
         sttStatus: service.sttStatus,
-        modelLoadingProgress,
+        modelLoadingProgress: service.modelLoadingProgress,
         startListening,
         stopListening,
         reset,

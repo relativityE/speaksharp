@@ -1,64 +1,91 @@
-/**
- * ============================================================================
- * MOCK ENGINE FOR CI/E2E TESTS
- * ============================================================================
- * 
- * Provides a stable mock implementation for Private STT in CI environments.
- * Both whisper-turbo and transformers.js fail in headless Playwright due to
- * WASM/ONNX runtime limitations.
- * 
- * This mock:
- * - Simulates model loading with progress
- * - Returns predefined transcription results
- * - Ensures E2E tests can verify the full UI flow
- * 
- * @see docs/ARCHITECTURE.md - "Dual-Engine Private STT"
- */
-
 import { Result } from 'true-myth';
 import { IPrivateSTTEngine, EngineCallbacks, EngineType } from './IPrivateSTTEngine';
 import logger from '../../../lib/logger';
 
+/**
+ * Industry Standard: Deterministic Mock Pattern
+ * Reference: Jest, Playwright, Cypress mock patterns
+ */
 export class MockEngine implements IPrivateSTTEngine {
     public readonly type: EngineType = 'mock';
+    private transcriptTimer: NodeJS.Timeout | null = null;
+    private isTranscribing = false;
+    private onTranscriptCallback: ((text: string, isFinal: boolean) => void) | null = null;
 
-    async init(callbacks: EngineCallbacks, _timeoutMs?: number): Promise<Result<void, Error>> {
-        logger.info('[MockEngine] 🎭 Initializing mock engine for CI/E2E testing...');
+    // Configurable mock responses
+    private readonly MOCK_TRANSCRIPT_SEQUENCE = [
+        { text: 'Hello', delay: 500, isFinal: false },
+        { text: 'Hello world', delay: 1000, isFinal: false },
+        { text: 'Hello world this is a test', delay: 1500, isFinal: false },
+        { text: 'Hello world this is a test transcript', delay: 2000, isFinal: true }
+    ];
 
-        // 1. Check for E2E Hang override (allows testing persistent loading states)
-        const win = window as unknown as { __E2E_HANG_INIT__?: boolean; __E2E_RELEASE_INIT__?: (v: void) => void };
-        if (typeof window !== 'undefined' && win.__E2E_HANG_INIT__) {
-            logger.info('[MockEngine] ⏳ E2E Hang requested. Waiting for __E2E_RELEASE_INIT__...');
-            await new Promise<void>(resolve => {
-                win.__E2E_RELEASE_INIT__ = resolve;
-            });
-            logger.info('[MockEngine] 🔓 E2E Release received.');
-        }
-
-        // Simulate loading progress
-        if (callbacks.onModelLoadProgress) {
-            callbacks.onModelLoadProgress(0);
-            await new Promise(r => setTimeout(r, 100));
-            callbacks.onModelLoadProgress(50);
-            await new Promise(r => setTimeout(r, 100));
-            callbacks.onModelLoadProgress(100);
-        }
-
-        if (callbacks.onReady) {
-            callbacks.onReady();
-        }
-
-        logger.info('[MockEngine] Mock engine initialized successfully.');
+    async init(callbacks: EngineCallbacks): Promise<Result<void, Error>> {
+        await this.initialize();
+        if (callbacks.onReady) callbacks.onReady();
         return Result.ok(undefined);
     }
 
+    async initialize(): Promise<void> {
+        logger.info('[MockEngine] 🎭 Initializing mock engine for E2E testing');
+        // Simulate async initialization
+        await this.delay(100);
+        logger.info('[MockEngine] ✅ Mock engine initialized');
+    }
+
     async transcribe(_audio: Float32Array): Promise<Result<string, Error>> {
-        // Return simulated transcription
-        const mockText = 'This is a mock transcription for testing purposes.';
-        return Result.ok(mockText);
+        // Return empty result as this mock uses callback-based emitter for realism
+        return Result.ok('');
+    }
+
+    async startTranscription(
+        onTranscript: (text: string, isFinal: boolean) => void
+    ): Promise<void> {
+        logger.info('[MockEngine] ▶️ Starting mock transcription');
+
+        this.isTranscribing = true;
+        this.onTranscriptCallback = onTranscript;
+
+        // Emit transcript sequence
+        let cumulativeDelay = 0;
+
+        for (const segment of this.MOCK_TRANSCRIPT_SEQUENCE) {
+            cumulativeDelay += segment.delay;
+
+            this.transcriptTimer = setTimeout(() => {
+                if (this.isTranscribing && this.onTranscriptCallback) {
+                    logger.info({ text: segment.text, final: segment.isFinal }, '[MockEngine] 📝 Emitting');
+                    this.onTranscriptCallback(segment.text, segment.isFinal);
+                }
+            }, cumulativeDelay);
+        }
+    }
+
+    async stopTranscription(): Promise<string> {
+        logger.info('[MockEngine] ⏸️ Stopping mock transcription');
+
+        this.isTranscribing = false;
+
+        if (this.transcriptTimer) {
+            clearTimeout(this.transcriptTimer);
+            this.transcriptTimer = null;
+        }
+
+        const finalTranscript = this.MOCK_TRANSCRIPT_SEQUENCE[
+            this.MOCK_TRANSCRIPT_SEQUENCE.length - 1
+        ].text;
+
+        return finalTranscript;
     }
 
     async destroy(): Promise<void> {
-        logger.info('[MockEngine] Mock engine destroyed.');
+        logger.info('[MockEngine] 🗑️ Destroying mock engine');
+
+        await this.stopTranscription();
+        this.onTranscriptCallback = null;
+    }
+
+    private delay(ms: number): Promise<void> {
+        return new Promise(resolve => setTimeout(resolve, ms));
     }
 }

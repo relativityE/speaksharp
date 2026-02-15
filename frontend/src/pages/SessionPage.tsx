@@ -44,9 +44,7 @@ export const SessionPage: React.FC = () => {
         fillerData,
         isProUser,
         isButtonDisabled,
-        showPromoExpiredDialog,
-        profileLoading,
-        profileError
+        showPromoExpiredDialog
     } = useSessionLifecycle();
 
     // Auto-scroll transcript to bottom
@@ -56,19 +54,7 @@ export const SessionPage: React.FC = () => {
         }
     }, [transcriptContent]);
 
-    // Error/Loading states
-    if (profileLoading) return <SessionPageSkeleton />;
-    if (profileError) {
-        return (
-            <div className="min-h-screen flex items-center justify-center bg-background p-6">
-                <div className="text-center">
-                    <h2 className="text-2xl font-bold text-destructive mb-2">Error Loading Profile</h2>
-                    <p className="text-muted-foreground">{profileError.message || 'Please check your connection and try again.'}</p>
-                    <Button onClick={() => window.location.reload()} className="mt-4">Retry</Button>
-                </div>
-            </div>
-        );
-    }
+
     if (!metrics) return <SessionPageSkeleton />;
 
     // EXECUTIVE PATTERN: Dual-State Status Derivation
@@ -76,14 +62,18 @@ export const SessionPage: React.FC = () => {
     // We pass "Recording" as the primary state, and "Downloading" as the secondary state (via progress).
 
     // 1. Determine Primary Status (Session State)
+    const isActiveStt = sttStatus.type === 'initializing' || sttStatus.type === 'downloading' || sttStatus.type === 'fallback' || isListening;
+
     const baseStatus: SttStatus = sessionFeedbackMessage
         ? {
             type: sessionFeedbackMessage.startsWith('⚠️') || sessionFeedbackMessage.startsWith('⛔') ? 'error' as const : 'ready' as const,
             message: sessionFeedbackMessage
         }
-        : showAnalyticsPrompt
-            ? { type: 'ready' as const, message: '✓ Session saved. Click Analytics above to review.' }
-            : sttStatus; // Always use the service status as primary (e.g., "Recording active")
+        : (isActiveStt && sttStatus.type !== 'idle')
+            ? sttStatus
+            : showAnalyticsPrompt
+                ? { type: 'ready' as const, message: '✓ Session saved. Click Analytics above to review.' }
+                : sttStatus;
 
     // 2. Compose Final Status (Attach Background Progress)
     const displayStatus: SttStatus = {
@@ -94,18 +84,18 @@ export const SessionPage: React.FC = () => {
     return (
         <div className="min-h-screen bg-gradient-subtle pt-20">
             {/* Page Header */}
-            <div className="text-center py-8 px-6 max-w-7xl mx-auto">
-                <h1 className="text-3xl font-bold text-foreground mb-2">Practice Session</h1>
-                <p className="text-sm text-muted-foreground">We'll analyze your speech patterns in real-time</p>
+            <div className="text-center py-4 px-6 max-w-7xl mx-auto">
+                <h1 className="text-2xl font-bold text-foreground mb-1">Practice Session</h1>
+                <p className="text-xs text-muted-foreground">We'll analyze your speech patterns in real-time</p>
             </div>
 
             {/* Status Bar */}
-            <div className="max-w-7xl mx-auto px-6 mb-6">
+            <div className="max-w-7xl mx-auto px-6 mb-2">
                 <StatusNotificationBar status={displayStatus} />
             </div>
 
             {/* Main Content Grid */}
-            <div className="max-w-7xl mx-auto px-6 pb-12">
+            <div className="max-w-7xl mx-auto px-6 pb-6">
                 <div className="space-y-6">
                     {/* Row 1: Session Control & Pause Analysis */}
                     <div className="grid lg:grid-cols-3 gap-6">
@@ -116,7 +106,7 @@ export const SessionPage: React.FC = () => {
                                     isListening={isListening}
                                     isReady={isReady}
                                     isProUser={isProUser}
-                                    modelLoadingProgress={modelLoadingProgress}
+                                    statusMessage={sttStatus.message}
                                     formattedTime={metrics.formattedTime}
                                     elapsedSeconds={elapsedTime}
                                     isButtonDisabled={isButtonDisabled}
@@ -129,7 +119,6 @@ export const SessionPage: React.FC = () => {
                             <LocalErrorBoundary isolationKey="pause-metrics" componentName="PauseMetricsDisplay">
                                 <PauseMetricsDisplay
                                     metrics={pauseMetrics}
-                                    isListening={isListening}
                                     className="h-full"
                                 />
                             </LocalErrorBoundary>

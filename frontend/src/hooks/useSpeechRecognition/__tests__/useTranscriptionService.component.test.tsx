@@ -9,7 +9,8 @@ const mockService = {
   startTranscription: vi.fn().mockResolvedValue(undefined),
   stopTranscription: vi.fn().mockResolvedValue({ success: true, transcript: '', stats: { transcript: '', total_words: 0, accuracy: 0, duration: 0 } }),
   destroy: vi.fn().mockResolvedValue(undefined),
-  getMode: vi.fn().mockReturnValue('native')
+  getMode: vi.fn().mockReturnValue('native'),
+  getEngineType: vi.fn().mockReturnValue('native')
 };
 
 vi.mock('../../../services/transcription/TranscriptionService', () => ({
@@ -63,7 +64,7 @@ describe('useTranscriptionService', () => {
   });
 
   it('should stop listening successfully', async () => {
-    const { result } = renderHook(() => useTranscriptionService(mockOptions));
+    const { result, unmount } = renderHook(() => useTranscriptionService(mockOptions));
 
     // Start listening
     await act(async () => {
@@ -75,6 +76,10 @@ describe('useTranscriptionService', () => {
     await act(async () => {
       const response = await result.current.stopListening();
       expect(response).toEqual(expect.objectContaining({ success: true }));
+    });
+
+    act(() => {
+      unmount();
     });
 
     // The useEffect cleanup which calls destroy is asynchronous.
@@ -107,7 +112,9 @@ describe('useTranscriptionService', () => {
       await result.current.startListening(E2E_DETERMINISTIC_NATIVE);
     });
 
-    unmount();
+    act(() => {
+      unmount();
+    });
 
     expect(mockService.destroy).toHaveBeenCalled();
   });

@@ -5,62 +5,45 @@ import type { PauseMetrics } from '@/services/audio/pauseDetector';
 
 interface PauseMetricsDisplayProps {
     metrics: PauseMetrics;
-    isListening: boolean;
     className?: string;
 }
 
-export const PauseMetricsDisplay: React.FC<PauseMetricsDisplayProps> = ({ metrics, isListening, className = "" }) => {
+export const PauseMetricsDisplay: React.FC<PauseMetricsDisplayProps> = ({ metrics, className = "" }) => {
     const formatDuration = (seconds: number): string => {
         if (seconds < 1) return `${Math.round(seconds * 1000)}ms`;
         return `${seconds.toFixed(1)}s`;
     };
 
     return (
-        <Card className={`h-full border-border rounded-xl flex flex-col ${className}`}>
-            <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-base">
+        <Card className={`h-auto border-border rounded-xl flex flex-col justify-center shadow-sm compact-density ${className}`}>
+            <CardHeader className="p-4 py-2 pb-0">
+                <CardTitle className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-muted-foreground/80">
                     <Pause className="h-4 w-4" />
                     Pause Analysis
                 </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                        <p className="text-xs text-muted-foreground">Total Pauses</p>
-                        <p className="text-2xl font-bold">{metrics.totalPauses}</p>
+            <CardContent className="p-4 pt-2 space-y-3">
+                <div className="grid grid-cols-2 gap-x-6">
+                    <div className="flex items-baseline gap-2">
+                        <span className="text-sm text-muted-foreground font-medium">Total Pauses</span>
+                        <span className="text-2xl font-bold font-mono">{metrics.totalPauses}</span>
                     </div>
-                    <div className="space-y-1">
-                        <p className="text-xs text-muted-foreground">Per Minute</p>
-                        <p className="text-2xl font-bold">{metrics.pausesPerMinute.toFixed(1)}</p>
-                    </div>
-                </div>
-
-                <div className="border-t pt-3 space-y-2">
-                    <div className="flex justify-between items-center">
-                        <span className="text-sm text-muted-foreground flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            Average
-                        </span>
-                        <span className="text-sm font-medium">
-                            {formatDuration(metrics.averagePauseDuration)}
-                        </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                        <span className="text-sm text-muted-foreground flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            Longest
-                        </span>
-                        <span className="text-sm font-medium">
-                            {formatDuration(metrics.longestPause)}
-                        </span>
+                    <div className="flex items-baseline gap-2">
+                        <span className="text-sm text-muted-foreground font-medium">Per Minute</span>
+                        <span className="text-2xl font-bold font-mono">{metrics.pausesPerMinute.toFixed(1)}</span>
                     </div>
                 </div>
 
-                {isListening && (
-                    <p className="text-xs text-muted-foreground italic pt-2">
-                        Live tracking... Pauses &gt;500ms are counted.
-                    </p>
-                )}
+                <div className="flex justify-between items-center text-sm border-t border-border/50 pt-3 mt-1">
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                        <Clock className="h-4 w-4" />
+                        Average: <span className="text-foreground font-bold">{formatDuration(metrics.averagePauseDuration)}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                        <Clock className="h-4 w-4" />
+                        Longest: <span className="text-foreground font-bold">{formatDuration(metrics.longestPause)}</span>
+                    </div>
+                </div>
             </CardContent>
         </Card>
     );

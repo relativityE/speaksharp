@@ -10,7 +10,10 @@ export class SessionManager {
 }
 
 export class InferenceSession {
-    async transcribe(audio: Uint8Array, dtw: boolean, options: any) {
+    async transcribe(audio: Uint8Array, dtw: boolean, options: unknown) {
+        void audio;
+        void dtw;
+        void options;
         return Result.ok({ text: "Mock transcription" });
     }
 }

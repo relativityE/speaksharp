@@ -116,13 +116,13 @@ describe('SessionPage - STT Mode Selection UI', () => {
         renderWithRouter(<SessionPage />);
 
         // Open dropdown using userEvent
-        const trigger = screen.getByText('Native'); // Initial label
+        const trigger = screen.getByText('Browser'); // Initial label
         await user.click(trigger);
 
         // Radix UI renders content in a specific way, userEvent should handle it.
-        // Wait for items to appear - Free users see "Private (Pro)" and "Cloud (Pro)"
-        const onDeviceItem = await screen.findByText(/Private.*\(Pro\)/);
-        const cloudItem = await screen.findByText(/Cloud.*\(Pro\)/);
+        // Wait for items to appear - Free users see "Private" and "Cloud"
+        const onDeviceItem = await screen.findByText('Private');
+        const cloudItem = await screen.findByText('Cloud');
 
         expect(onDeviceItem.closest('[role="menuitemradio"]')).toHaveAttribute('aria-disabled', 'true');
         expect(cloudItem.closest('[role="menuitemradio"]')).toHaveAttribute('aria-disabled', 'true');
@@ -140,7 +140,7 @@ describe('SessionPage - STT Mode Selection UI', () => {
 
         renderWithRouter(<SessionPage />);
 
-        const trigger = screen.getByText('Native');
+        const trigger = screen.getByText('Browser');
         await user.click(trigger);
 
         // Note: For Pro users, the "(Pro)" suffix is not shown

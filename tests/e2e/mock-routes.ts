@@ -574,6 +574,14 @@ export async function setupE2EMocks(
 
     // Reset per-test state
     statefulProfile = { ...MOCK_USER_PROFILE };
+
+    // CRITICAL FIX: Directly set statefulProfile.subscription_status when subscriptionStatus is passed.
+    // The route handler reads __E2E_MOCK_PROFILE__ via page.evaluate() inside the route callback,
+    // but this can fail silently (.catch(() => undefined)), causing the profile to return 'free'.
+    // By setting statefulProfile directly, we ensure correct status without fragile window reads.
+    if (subscriptionStatus) {
+        statefulProfile.subscription_status = subscriptionStatus;
+    }
     userWordStore = new Map();
     // Initialize session history (start empty if option is set)
     sessionStore = emptySessions ? [] : [...MOCK_SESSION_HISTORY];

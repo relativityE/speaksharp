@@ -22,6 +22,7 @@ const getWorkletUrl = (audioContext: AudioContext): Promise<string | null> => {
 interface WindowWithwebkitAudioContext extends Window {
   webkitAudioContext: typeof AudioContext;
   micStream?: MicStream;
+  __E2E_BRIDGE_MIC__?: boolean;
 }
 
 export async function createMicStreamImpl(
@@ -55,7 +56,22 @@ export async function createMicStreamImpl(
   }
 
   const audioCtx = new (window.AudioContext || (window as unknown as WindowWithwebkitAudioContext).webkitAudioContext)({ sampleRate: 48000 });
-  const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+  let mediaStream: MediaStream;
+
+  // [Option 2: Software Bridge Mic]
+  // In headless environments, real getUserMedia() throws NotSupportedError.
+  // We use a synthetic oscillator-based MediaStream if the bridge flag is set.
+  if (typeof window !== 'undefined' && (window as unknown as WindowWithwebkitAudioContext).__E2E_BRIDGE_MIC__) {
+    logger.info('[MicStream] 🛡️ [System Integrity] Using Software Bridge Mic (Oscillator)');
+    const oscillator = audioCtx.createOscillator();
+    const dst = audioCtx.createMediaStreamDestination();
+    oscillator.connect(dst);
+    oscillator.start();
+    mediaStream = dst.stream;
+  } else {
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  }
 
   // Load worklet URL dynamically, passing the audio context instance for the check.
   const workletUrl = await getWorkletUrl(audioCtx);

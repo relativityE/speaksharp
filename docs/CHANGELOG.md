@@ -7,6 +7,18 @@ All notable changes to this project will be documented in this file.
 
 ### [Unreleased]
 
+- **Architectural Hardening & Test Stabilization (2026-02-15):**
+  - **Stability:** Hardened `TranscriptionService` state machine by ensuring internal state updates immediately during transitions.
+  - **Stability:** Decoupled Zustand store updates using `queueMicrotask`, eliminating React 18 concurrent rendering errors.
+  - **Architecture:** Implemented the **5-Point Design Plan** for UI/Logic stability:
+    1. **ProfileGuard**: Global wrapper ensuring profile data is available before app rendering.
+    2. **canStart Checks**: Logic-level guards preventing user actions during engine initialization.
+    3. **Error Boundaries**: Component-level isolation using `LocalErrorBoundary` for all critical session widgets.
+    4. **Simplified Hooks**: Re-engineered `useProfile` to return guaranteed non-nullable data, simplifying downstream logic.
+    5. **Data-Ready Attributes**: Added `data-ready` and `data-recording` tags for deterministic E2E testing.
+  - **Concurrency:** Hardened termination logic with post-lock re-checks and `ImmutableCallbackProxy` for stale closure prevention.
+  - **Test Quality:** Restored unit test suite health (rescued `zombie.test.ts`, `race.test.ts`) using `vi.waitFor` and enhanced `setup.ts` mocks.
+
 - **Phase 2 Hardening Release (2026-02-12):**
   - **Harden:** Resolved all high-priority linting and type errors across the project, achieving "Zero Tolerance" CI status (`pnpm typecheck && pnpm lint` verified green).
   - **Security:** Implemented atomic SQL usage updates in `user_profiles` to prevent race conditions during session creation (migration `20260212000000`).

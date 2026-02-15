@@ -104,14 +104,11 @@ export default class PrivateWhisper implements ITranscriptionMode {
   private isProcessing: boolean = false;
   private processingInterval: NodeJS.Timeout | null = null;
 
-  constructor({ onTranscriptUpdate, onModelLoadProgress, onReady, onAudioData }: TranscriptionModeOptions, privateSTT?: IPrivateSTT) {
-    if (!onTranscriptUpdate) {
-      throw new Error("onTranscriptUpdate callback is required for PrivateWhisper.");
-    }
-    this.onTranscriptUpdate = onTranscriptUpdate;
-    this.onModelLoadProgress = onModelLoadProgress;
-    this.onReady = onReady;
-    this.onAudioData = onAudioData;
+  constructor(options: TranscriptionModeOptions, privateSTT?: IPrivateSTT) {
+    this.onTranscriptUpdate = options.onTranscriptUpdate;
+    this.onModelLoadProgress = options.onModelLoadProgress;
+    this.onReady = options.onReady;
+    this.onAudioData = options.onAudioData;
     this.status = 'idle';
     this.transcript = '';
     this.privateSTT = privateSTT || createPrivateSTT();
@@ -239,10 +236,13 @@ export default class PrivateWhisper implements ITranscriptionMode {
     }
 
     this.isProcessing = true;
+    const tStart = performance.now();
+    const chunkCount = this.audioChunks.length;
 
     try {
       // Concatenate all chunks using shared utility
       const concatenated = concatenateFloat32Arrays(this.audioChunks);
+      logger.debug({ chunkCount, totalSamples: concatenated.length }, '[PrivateWhisper] 🛠️ Concatenated buffer');
 
       // RMS VAD: Prevent silence from reaching the model to avoid hallucinations
       let sum = 0;
@@ -251,10 +251,10 @@ export default class PrivateWhisper implements ITranscriptionMode {
       }
       const rms = Math.sqrt(sum / concatenated.length);
 
-      // Threshold 0.005 (0.5%) to capture quieter speech/whispers
-      if (rms < 0.005) {
-        if (concatenated.length > 500) {
-          logger.debug({ rms, samples: concatenated.length }, '[PrivateWhisper] 🤫 Silent chunk skipped');
+      // Threshold 0.001 (0.1%) to capture quieter speech/whispers
+      if (rms < 0.001) {
+        if (concatenated.length > 500 && Math.random() > 0.9) {
+          logger.info({ rms, samples: concatenated.length }, '[PrivateWhisper] 🤫 Silent chunk skipped (sampling)');
         }
         // Even if silent, we still need to clear the processed chunks 
         // to prevent them from staying in the buffer forever.
@@ -262,7 +262,7 @@ export default class PrivateWhisper implements ITranscriptionMode {
         return;
       }
 
-      logger.debug({ rms, samples: concatenated.length }, '[PrivateWhisper] 🔊 Audio detected');
+      logger.info({ rms, samples: concatenated.length }, '[PrivateWhisper] 🔊 Audio detected');
 
       // CRITICAL FIX: The MicStream ALREADY downsamples to 16kHz (confirmed in audioUtils.impl.ts).
       // Double downsampling (16k -> 16k) is harmless, but if we guessed 44k -> 16k on 16k input, we'd decimate it.
@@ -300,6 +300,7 @@ export default class PrivateWhisper implements ITranscriptionMode {
       const newText = result.value || '';
 
       if (newText.trim()) {
+        logger.info({ newText, latencyMs: (performance.now() - tStart).toFixed(2) }, '[PrivateWhisper] ✨ Transcription success');
         // Append with space if transcript already has content
         this.transcript = this.transcript ? `${this.transcript} ${newText}` : newText;
         this.onTranscriptUpdate({ transcript: { final: newText } });
@@ -362,5 +363,9 @@ export default class PrivateWhisper implements ITranscriptionMode {
       this.frameListenerDisposer();
       this.frameListenerDisposer = null;
     }
+  }
+
+  public getEngineType(): string {
+    return this.privateSTT.getEngineType() || 'whisper-turbo'; // Default to turbo for identification
   }
 }

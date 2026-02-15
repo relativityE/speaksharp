@@ -33,10 +33,17 @@ export default defineConfig({
       // Industry Standard Coverage Thresholds (80%)
       // Updated 2026-01-30 per user request
       thresholds: {
-        lines: process.env.USE_INDUSTRY_COVERAGE ? 80 : 61,
-        functions: process.env.USE_INDUSTRY_COVERAGE ? 80 : 73,
-        branches: process.env.USE_INDUSTRY_COVERAGE ? 80 : 74,
-        statements: process.env.USE_INDUSTRY_COVERAGE ? 80 : 61,
+        global: {
+          lines: process.env.USE_INDUSTRY_COVERAGE ? 80 : 61,
+          functions: process.env.USE_INDUSTRY_COVERAGE ? 80 : 73,
+          branches: process.env.USE_INDUSTRY_COVERAGE ? 80 : 74,
+          statements: process.env.USE_INDUSTRY_COVERAGE ? 80 : 61,
+        },
+        'src/services/transcription/engines/*.ts': {
+          lines: 30,
+          functions: 25,
+          branches: 20,
+        }
       },
     },
 

@@ -26,16 +26,16 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
 
     return (
         <div
-            className={`bg-card border border-border rounded-2xl p-6 shadow-sm flex flex-col ${className}`}
+            className={`bg-card border border-border rounded-xl p-4 shadow-sm flex flex-col ${className}`}
             data-testid={TEST_IDS.TRANSCRIPT_PANEL}
         >
-            <div className="flex items-center gap-2 mb-4">
+            <div className="flex items-center gap-2 mb-2">
                 <div className="w-1 h-5 bg-primary rounded"></div>
                 <h3 className="text-lg font-semibold text-foreground">Live Transcript</h3>
             </div>
             <div
                 ref={containerRef}
-                className="flex-1 overflow-y-auto p-4 rounded-xl bg-muted/30 leading-relaxed transition-all min-h-[200px]"
+                className="flex-1 overflow-y-auto p-3 rounded-lg bg-muted/30 leading-relaxed transition-all min-h-[160px]"
                 data-testid={TEST_IDS.TRANSCRIPT_CONTAINER}
                 aria-live="polite"
                 aria-label="Live transcript of your speech"

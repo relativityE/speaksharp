@@ -14,13 +14,22 @@ vi.mock('../../utils/AudioProcessor', () => ({
     floatToWavAsync: vi.fn(async (samples: Float32Array) => new Uint8Array(samples.length))
 }));
 
-// Hoist mocks to be accessible inside vi.mock factory
 const mocks = vi.hoisted(() => {
     return {
         transcribe: vi.fn(),
-        loadModel: vi.fn()
+        loadModel: vi.fn(),
+        acquire: vi.fn(),
+        release: vi.fn()
     };
 });
+
+// Mock WhisperEngineRegistry
+vi.mock('../WhisperEngineRegistry', () => ({
+    WhisperEngineRegistry: {
+        acquire: mocks.acquire,
+        release: mocks.release
+    }
+}));
 
 // Mock the whisper-turbo library
 vi.mock('whisper-turbo', () => {
@@ -39,14 +48,12 @@ describe('WhisperTurboEngine (Fast Path)', () => {
         vi.clearAllMocks();
         engine = new WhisperTurboEngine();
 
-        // Setup successful init mock
-        mocks.loadModel.mockResolvedValue({
-            isErr: false,
-            value: { transcribe: mocks.transcribe }
+        // Setup successful acquire mock
+        mocks.acquire.mockResolvedValue({
+            transcribe: mocks.transcribe
         });
 
         // Setup successful transcription mock
-        // Note: WhisperTurboEngine expects the result to have isErr / value structure
         mocks.transcribe.mockResolvedValue({
             isErr: false,
             value: { text: "Hello WebGPU" }
@@ -57,10 +64,8 @@ describe('WhisperTurboEngine (Fast Path)', () => {
         const onProgress = vi.fn();
         await engine.init({ onModelLoadProgress: onProgress });
 
-        // SessionManager constructor is called via new SessionManager()
-        // We can't check the constructor call easily without mocking the class differently, 
-        // but we can check loadModel was called.
-        expect(mocks.loadModel).toHaveBeenCalled();
+        // WhisperTurboEngine calls WhisperEngineRegistry.acquire()
+        expect(mocks.acquire).toHaveBeenCalled();
         expect(onProgress).toHaveBeenCalledWith(100);
     });
 

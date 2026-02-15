@@ -1,9 +1,19 @@
 import { create } from 'zustand';
 import { FillerCounts } from '@/utils/fillerWordUtils';
+import { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 
 interface TranscriptState {
     transcript: string;
     partial: string;
+}
+
+export type SttStatusType = 'idle' | 'initializing' | 'downloading' | 'ready' | 'fallback' | 'error';
+
+export interface SttStatus {
+    type: SttStatusType;
+    message: string;
+    detail?: string;
+    progress?: number;
 }
 
 export interface SessionState {
@@ -13,6 +23,9 @@ export interface SessionState {
     fillerData: FillerCounts;
     elapsedTime: number;
     startTime: number | null;
+    sttStatus: SttStatus;
+    sttMode: TranscriptionMode | null;
+    modelLoadingProgress: number | null;
 }
 
 interface SessionActions {
@@ -22,6 +35,9 @@ interface SessionActions {
     updateTranscript: (transcript: string, partial?: string) => void;
     updateFillerData: (data: FillerCounts) => void;
     updateElapsedTime: (time: number) => void;
+    setSTTStatus: (status: SttStatus) => void;
+    setSTTMode: (mode: TranscriptionMode | null) => void;
+    setModelLoadingProgress: (progress: number | null) => void;
     resetSession: () => void;
 }
 
@@ -37,6 +53,9 @@ const initialState: SessionState = {
     fillerData: {},
     elapsedTime: 0,
     startTime: null,
+    sttStatus: { type: 'idle', message: 'Ready to record' },
+    sttMode: null,
+    modelLoadingProgress: null,
 };
 
 export const useSessionStore = create<SessionStore>((set) => ({
@@ -77,6 +96,21 @@ export const useSessionStore = create<SessionStore>((set) => ({
     updateElapsedTime: (time) =>
         set({
             elapsedTime: time,
+        }),
+
+    setSTTStatus: (status) =>
+        set({
+            sttStatus: status,
+        }),
+
+    setSTTMode: (mode) =>
+        set({
+            sttMode: mode,
+        }),
+
+    setModelLoadingProgress: (progress) =>
+        set({
+            modelLoadingProgress: progress,
         }),
 
     resetSession: () =>

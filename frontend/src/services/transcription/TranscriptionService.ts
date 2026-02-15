@@ -14,6 +14,7 @@ import {
   resolveMode,
   PROD_FREE_POLICY,
 } from './TranscriptionPolicy';
+import { useSessionStore } from '../../stores/useSessionStore';
 
 export interface TranscriptUpdate {
   transcript: {
@@ -31,11 +32,21 @@ export type SttStatusType = 'idle' | 'initializing' | 'downloading' | 'ready' | 
  * IDLE -> INITIALIZING -> READY -> STARTING -> RECORDING -> STOPPING -> IDLE
  * Any state -> ERROR
  */
-export type ServiceState = 'IDLE' | 'INITIALIZING' | 'READY' | 'STARTING' | 'RECORDING' | 'STOPPING' | 'ERROR';
+export type ServiceState =
+  | 'IDLE'
+  | 'INITIALIZING_ENGINE'
+  | 'ENGINE_READY'
+  | 'ACTIVATING_MIC'
+  | 'READY'
+  | 'STARTING'
+  | 'RECORDING'
+  | 'STOPPING'
+  | 'ERROR';
 
 export interface SttStatus {
   type: SttStatusType;
   message: string;
+  detail?: string;
   progress?: number;
   newMode?: TranscriptionMode;
 }
@@ -91,6 +102,10 @@ interface FailureRecord {
   lastFailureTime: number;
 }
 
+const VALID_MODES = ['native', 'private', 'cloud'] as const;
+
+// isValidMode moved inside class or used via export if needed
+
 export default class TranscriptionService {
   private static privateFailures: FailureRecord = { count: 0, lastFailureTime: 0 };
   private mode: TranscriptionMode | null = null;
@@ -113,8 +128,15 @@ export default class TranscriptionService {
   private mockMic: MicStream | null;
   private mic: MicStream | null = null;
   private callbackProxy: ImmutableCallbackProxy<TranscriptionModeOptions>;
+  private static hasInitializedBefore = !!localStorage.getItem('ss_stt_initialized');
+  private stateStartTime: number = Date.now();
+  private lastError: Error | null = null;
   private instance: ITranscriptionMode | null = null;
   private startTime: number | null = null;
+  private startTimestamp: number = 0;
+  private readonly MIN_RECORDING_DURATION_MS = 100;
+  private statusMessageTimeout: NodeJS.Timeout | null = null;
+  private trackedModelProgress: number | null = null;
 
   constructor({
     onTranscriptUpdate,
@@ -150,7 +172,23 @@ export default class TranscriptionService {
     // Initialize the callback proxy with the initial options
     this.callbackProxy = new ImmutableCallbackProxy({
       onTranscriptUpdate: this.onTranscriptUpdate,
-      onModelLoadProgress: this.onModelLoadProgress,
+      onModelLoadProgress: (progress: number | null) => {
+        logger.info({ progress }, '[TranscriptionService] Model load progress');
+        this.trackedModelProgress = progress;
+        this.onModelLoadProgress?.(progress);
+        useSessionStore.getState().setModelLoadingProgress(progress ? Math.round(progress * 100) : null);
+        // Push progress to UI status specifically for downloading state
+        if (progress !== null && progress < 100) {
+          this.onStatusChange?.({
+            type: 'downloading',
+            message: 'Getting ready...',
+            detail: TranscriptionService.hasInitializedBefore
+              ? undefined
+              : 'Downloading speech model (6 MB)',
+            progress
+          });
+        }
+      },
       onReady: this.onReady,
       session: this.session,
       navigate: this.navigate,
@@ -160,7 +198,10 @@ export default class TranscriptionService {
       onError: (err: Error) => {
         logger.error({ err }, '[TranscriptionService] Error from mode provider');
         this.transitionTo('ERROR');
-        this.onStatusChange?.({ type: 'error', message: err.message });
+        this.onStatusChange?.({
+          type: 'error',
+          message: 'Unable to start recording'
+        });
       }
     });
   }
@@ -171,6 +212,78 @@ export default class TranscriptionService {
    */
   public static resetFailureCount(): void {
     TranscriptionService.privateFailures = { count: 0, lastFailureTime: 0 };
+  }
+
+  /**
+   * Update the policy on an existing service instance.
+   * 
+   * CRITICAL: Fixes the Free/Pro Policy Race Condition where the singleton
+   * is constructed before the user profile loads, defaulting to prod-free.
+   * Call this before startTranscription() to ensure the correct policy
+   * (e.g. prod-pro with allowPrivate: true) is used for mode resolution.
+   */
+  public updatePolicy(newPolicy: TranscriptionPolicy): void {
+    if (this.policy.executionIntent !== newPolicy.executionIntent) {
+      logger.info(
+        { oldPolicy: this.policy.executionIntent, newPolicy: newPolicy.executionIntent },
+        '[TranscriptionService] 🔄 Policy updated on existing singleton'
+      );
+    }
+    this.policy = newPolicy;
+  }
+
+  /**
+   * Update callbacks on an existing service instance.
+   * 
+   * CRITICAL: Fixes Stale Callback Closures after React Remounts.
+   * When the app remounts (e.g. after ProfileGuard loads), the hook 
+   * provides fresh callbacks. We must re-hydrate the singleton with them.
+   */
+  public updateCallbacks(options: Partial<TranscriptionServiceOptions>): void {
+    logger.info('[TranscriptionService] 🔄 Hydrating callbacks on existing singleton');
+
+    if (options.onTranscriptUpdate) this.onTranscriptUpdate = options.onTranscriptUpdate;
+    if (options.onModelLoadProgress) this.onModelLoadProgress = options.onModelLoadProgress;
+    if (options.onReady) this.onReady = options.onReady;
+    if (options.onModeChange) this.onModeChange = options.onModeChange;
+    if (options.onStatusChange) this.onStatusChange = options.onStatusChange;
+    if (options.onAudioData) this.onAudioData = options.onAudioData;
+    if (options.session !== undefined) this.session = options.session;
+    if (options.getAssemblyAIToken) this.getAssemblyAIToken = options.getAssemblyAIToken;
+
+    // Update the proxy to ensure child modes use the latest callbacks
+    this.callbackProxy.update({
+      onTranscriptUpdate: this.onTranscriptUpdate,
+      onModelLoadProgress: (progress: number | null) => {
+        this.trackedModelProgress = progress;
+        this.onModelLoadProgress?.(progress);
+        useSessionStore.getState().setModelLoadingProgress(progress ? Math.round(progress * 100) : null);
+        if (progress !== null && progress < 100) {
+          this.onStatusChange?.({
+            type: 'downloading',
+            message: 'Getting ready...',
+            detail: TranscriptionService.hasInitializedBefore
+              ? undefined
+              : 'Downloading speech model (6 MB)',
+            progress
+          });
+        }
+      },
+      onReady: this.onReady,
+      session: this.session,
+      navigate: this.navigate,
+      getAssemblyAIToken: this.getAssemblyAIToken,
+      customVocabulary: this.customVocabulary,
+      onAudioData: this.onAudioData,
+      onError: (err: Error) => {
+        logger.error({ err }, '[TranscriptionService] Error from mode provider');
+        this.transitionTo('ERROR');
+        this.onStatusChange?.({
+          type: 'error',
+          message: 'Unable to start recording'
+        });
+      }
+    });
   }
 
   /**
@@ -199,35 +312,175 @@ export default class TranscriptionService {
 
   private micError: Error | null = null;
 
-  private transitionTo(newState: ServiceState): void {
-    logger.info({ from: this.state, to: newState }, `[TranscriptionService] State transition: ${this.state} -> ${newState}`);
-    this.state = newState;
+  private getFriendlyError(error: Error): string {
+    const msg = error.message.toLowerCase();
+    const name = error.name;
 
-    // Sync external status if applicable
-    const statusMap: Partial<Record<ServiceState, SttStatusType>> = {
-      IDLE: 'idle',
-      INITIALIZING: 'initializing',
-      READY: 'ready',
-      RECORDING: 'ready',
-      ERROR: 'error',
-      STOPPING: 'idle'
-    };
-
-    if (statusMap[newState]) {
-      this.onStatusChange?.({
-        type: statusMap[newState]!,
-        message: `State: ${newState}`
-      });
+    if (name === 'NotAllowedError' || msg.includes('permission')) {
+      return 'Microphone access blocked';
     }
+    if (name === 'NotFoundError' || msg.includes('not found')) {
+      return 'No microphone detected';
+    }
+    if (msg.includes('timeout')) {
+      return 'Taking longer than expected';
+    }
+    return 'Unable to start recording';
   }
 
+  private getErrorAction(error: Error): string {
+    const msg = error.message.toLowerCase();
+    const name = error.name;
+
+    if (name === 'NotAllowedError' || msg.includes('permission')) {
+      return 'Check browser settings to allow microphone access';
+    }
+    if (name === 'NotFoundError' || msg.includes('not found')) {
+      return 'Please connect a microphone and try again';
+    }
+    return 'Try refreshing the page';
+  }
+
+  private transitionTo(newState: ServiceState, error?: Error): void {
+    const elapsedSinceStart = Date.now() - this.stateStartTime;
+    logger.info({ from: this.state, to: newState, elapsedSinceStart }, `[TranscriptionService] State transition: ${this.state} -> ${newState}`);
+
+    const store = useSessionStore.getState();
+    this.state = newState; // CRITICAL: Update internal state for lifecycle methods
+    this.stateStartTime = Date.now();
+    if (error) this.lastError = error;
+
+    // Clear any pending progressive disclosure timers
+    if (this.statusMessageTimeout) {
+      clearTimeout(this.statusMessageTimeout);
+      this.statusMessageTimeout = null;
+    }
+
+    const isFirstTime = !TranscriptionService.hasInitializedBefore;
+
+    // Map internal states to 3-tier user messages (Expert Recommendation)
+    const updateUI = () => {
+      switch (newState) {
+        case 'IDLE': {
+          const idleStatus: SttStatus = { type: 'idle', message: '' };
+          this.onStatusChange?.(idleStatus);
+          store.setSTTStatus(idleStatus);
+          break;
+        }
+
+        case 'INITIALIZING_ENGINE': {
+          const initStatus: SttStatus = {
+            type: 'initializing',
+            message: 'Preparing...',
+            detail: isFirstTime ? 'Setting up speech recognition (one-time setup)' : undefined
+          };
+          this.onStatusChange?.(initStatus);
+          store.setSTTStatus(initStatus);
+
+          // Strategy 1: Time-Based Progressive Disclosure (> 8s)
+          this.statusMessageTimeout = setTimeout(() => {
+            if (this.state === 'INITIALIZING_ENGINE' && !this.trackedModelProgress) {
+              const loadingStatus: SttStatus = {
+                type: 'initializing',
+                message: 'Loading speech engine...',
+                detail: 'Taking longer than expected. Please wait.'
+              };
+              this.onStatusChange?.(loadingStatus);
+              store.setSTTStatus(loadingStatus);
+            }
+          }, 8000);
+          break;
+        }
+
+        case 'ACTIVATING_MIC':
+        case 'READY': {
+          TranscriptionService.hasInitializedBefore = true;
+          localStorage.setItem('ss_stt_initialized', 'true');
+          const readyStatus: SttStatus = {
+            type: 'ready',
+            message: 'Ready to record',
+            detail: this.mode === 'private'
+              ? '✓ Private mode active. Your audio stays on-device.'
+              : undefined
+          };
+          this.onStatusChange?.(readyStatus);
+          store.setSTTStatus(readyStatus);
+          break;
+        }
+
+        case 'STARTING': {
+          const startingStatus: SttStatus = {
+            type: 'initializing',
+            message: 'Starting...',
+            detail: undefined
+          };
+          this.onStatusChange?.(startingStatus);
+          store.setSTTStatus(startingStatus);
+          break;
+        }
+
+        case 'RECORDING': {
+          const recordingStatus: SttStatus = {
+            type: 'ready',
+            message: 'Recording',
+            detail: undefined
+          };
+          this.onStatusChange?.(recordingStatus);
+          store.setSTTStatus(recordingStatus);
+          break;
+        }
+
+        case 'STOPPING': {
+          const finishingStatus: SttStatus = {
+            type: 'initializing',
+            message: 'Converting speech to text...',
+            detail: undefined
+          };
+          this.onStatusChange?.(finishingStatus);
+          store.setSTTStatus(finishingStatus);
+          break;
+        }
+
+        case 'ERROR': {
+          const err = error || this.lastError || new Error('Unknown error');
+          const errorStatus: SttStatus = {
+            type: 'error',
+            message: this.getFriendlyError(err),
+            detail: this.getErrorAction(err)
+          };
+          this.onStatusChange?.(errorStatus);
+          store.setSTTStatus(errorStatus);
+          break;
+        }
+
+        default: {
+          const defaultStatus: SttStatus = { type: 'idle', message: 'Ready' };
+          this.onStatusChange?.(defaultStatus);
+          store.setSTTStatus(defaultStatus);
+        }
+      }
+    };
+
+    // ARCHITECTURE (Senior Architect): 
+    // Decouple Store updates from State transitions using queueMicrotask.
+    // This prevents "Should not already be working" errors in React 18 during unmount
+    // or concurrent rendering cycles where store updates might trigger nested renders.
+    queueMicrotask(() => {
+      updateUI();
+    });
+  }
+
+  /**
+   * Primary Entry Point: Pre-warms the engine and optionally activates the microphone.
+   * Following Option 1 (System Integrity): Decouples WASM warmup from hardware.
+   */
   public async init(): Promise<{ success: boolean }> {
     if (this.state !== 'IDLE' && this.state !== 'ERROR') {
       logger.warn({ currentState: this.state }, '[TranscriptionService] init() called in non-IDLE state');
       return { success: this.state === 'READY' || this.state === 'RECORDING' || this.state === 'STARTING' };
     }
 
-    this.transitionTo('INITIALIZING');
+    this.transitionTo('ACTIVATING_MIC');
 
     // If a mock mic was injected (for E2E), use it directly
     if (this.mockMic) {
@@ -252,7 +505,18 @@ export default class TranscriptionService {
     }
   }
 
-  public async startTranscription(): Promise<void> {
+  /**
+   * Starts the transcription process.
+   * Auto-initializes the microphone if it's in IDLE or ERROR state.
+   * 
+   * @param runtimePolicy - Optional policy to apply immediately before starting.
+   * Forces the service to use this policy for mode resolution, overriding constructor defaults.
+   */
+  public async startTranscription(runtimePolicy?: TranscriptionPolicy): Promise<void> {
+    if (runtimePolicy) {
+      this.updatePolicy(runtimePolicy);
+    }
+
     if (this.state === 'RECORDING' || this.state === 'STARTING') {
       logger.warn({ currentState: this.state }, '[TranscriptionService] startTranscription() called while already active');
       return;
@@ -270,17 +534,21 @@ export default class TranscriptionService {
       }
     }
 
-    this.transitionTo('STARTING');
+    this.transitionTo('INITIALIZING_ENGINE');
+    let resolvedMode = resolveMode(this.policy);
+    useSessionStore.getState().setSTTMode(resolvedMode);
+    this.mode = resolvedMode;
+    this.startTimestamp = Date.now();
     logger.info('[TranscriptionService] Attempting to start transcription...');
 
     // Resolve the mode using the injected policy
-    let resolvedMode = resolveMode(this.policy);
     logger.info({ resolvedMode, policy: this.policy.executionIntent }, `[TranscriptionService] 🎯 Mode resolved`);
 
+    const proxy = this.callbackProxy.getProxy();
     const providerConfig: TranscriptionModeOptions = {
-      onTranscriptUpdate: this.onTranscriptUpdate,
-      onModelLoadProgress: this.onModelLoadProgress,
-      onReady: this.onReady,
+      onTranscriptUpdate: proxy.onTranscriptUpdate,
+      onModelLoadProgress: proxy.onModelLoadProgress,
+      onReady: proxy.onReady,
       session: this.session,
       navigate: this.navigate,
       getAssemblyAIToken: this.getAssemblyAIToken,
@@ -295,6 +563,7 @@ export default class TranscriptionService {
 
     // CHECK MAX ATTEMPTS FOR PRIVATE MODE (with time-based decay)
     const effectiveFailures = TranscriptionService.getEffectiveFailureCount();
+    logger.info({ effectiveFailures, threshold: STT_CONFIG.MAX_PRIVATE_ATTEMPTS }, '[TranscriptionService] Threshold check');
     if (resolvedMode === 'private' && effectiveFailures >= STT_CONFIG.MAX_PRIVATE_ATTEMPTS) {
       logger.warn({ attempts: effectiveFailures }, `[TranscriptionService] ⚠️ Max Private STT attempts reached. Forcing Native.`);
 
@@ -340,21 +609,49 @@ export default class TranscriptionService {
     }
   }
 
-  /**
-   * Execute transcription for the given mode.
-   */
   protected async executeMode(
     mode: TranscriptionMode,
     config: TranscriptionModeOptions
   ): Promise<void> {
-    // CRITICAL: Always terminate previous instance safely to prevent zombies
-    await this.safeTerminateInstance();
+    const normalizedMode = mode.trim().toLowerCase();
+    logger.info({ mode, normalizedMode, currentState: this.state }, '[TranscriptionService] executeMode START');
 
-    // Notify status: initializing
+    const isValidMode = (m: unknown): m is TranscriptionMode =>
+      typeof m === 'string' && (VALID_MODES as readonly string[]).includes(m);
+
+    if (!isValidMode(normalizedMode)) {
+      throw new Error(`CRITICAL: Guard triggered. Invalid transcription mode: "${mode}" (normalized: "${normalizedMode}")`);
+    }
+    // EXECUTIVE REFINEMENT: Component Reusability
+    // Only terminate if we are switching modes. If the current instance 
+    // matches the requested mode (e.g., already warmed up), reuse it.
+    const currentEngine = this.instance?.getEngineType() ?? null;
+    const requestedEngine = mode === 'private' ? 'whisper-turbo' : mode;
+
+    if (this.instance && currentEngine !== requestedEngine) {
+      logger.info({ currentEngine, requestedEngine }, '[TranscriptionService] Mode mismatch, terminating previous instance...');
+      await this.safeTerminateInstance();
+    }
+
     const modeLabel = mode === 'native' ? 'Native Browser' : mode === 'cloud' ? 'Cloud' : 'Private';
-    this.onStatusChange?.({ type: 'initializing', message: `Starting ${modeLabel} mode...` });
 
-    switch (mode) {
+    // Notify status: initializing (if not already warmed or different mode)
+    if (!this.instance) {
+      this.onStatusChange?.({ type: 'initializing', message: `Starting ${modeLabel} mode...` });
+    }
+
+    // CRITICAL (Expert RCA): Log exact bytes to detect hidden characters or stale artifacts
+    logger.info({
+      mode,
+      modeType: typeof mode,
+      modeValue: JSON.stringify(mode),
+      modeCharCodes: Array.from(String(mode)).map(c => c.charCodeAt(0))
+    }, '[TranscriptionService] executeMode diagnostics:');
+
+    // Normalize (Expert RCA): Defensive trim and case normalization
+    // (Already normalized at method start for validation)
+
+    switch (normalizedMode) {
       case 'native':
         logger.info('[TranscriptionService] 🌐 Starting Native Browser mode');
         if (window.MockNativeBrowser && window.__E2E_MOCK_NATIVE__ === true) {
@@ -412,8 +709,17 @@ export default class TranscriptionService {
         break;
       }
 
-      default:
-        throw new Error(`Unknown transcription mode: ${mode}`);
+      default: {
+        // Exhaustive check (Expert RCA)
+        const exhaustiveCheck: never = normalizedMode;
+        void exhaustiveCheck;
+        throw new Error(
+          `Unknown transcription mode: "${mode}" ` +
+          `(normalized: "${normalizedMode}") ` +
+          `[Type: ${typeof mode}] ` +
+          `[Bytes: ${Array.from(String(mode)).map(c => c.charCodeAt(0)).join(',')}]`
+        );
+      }
     }
 
     try {
@@ -421,7 +727,7 @@ export default class TranscriptionService {
       if (mode === 'private') {
         logger.info('[TranscriptionService] ⚡ Using Optimistic Entry for Private mode');
         const initPromise = this.instance!.init();
-        const LOAD_CACHE_TIMEOUT_MS = 2000; /**** ISSUE B: Softened for CI Stability ****/
+        const LOAD_CACHE_TIMEOUT_MS = 30000; /**** 🛡️ [System Integrity] Increased for CI Cold-Start Stability (from 2s) ****/
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => reject(new Error('CACHE_MISS')), LOAD_CACHE_TIMEOUT_MS);
         });
@@ -454,8 +760,12 @@ export default class TranscriptionService {
       this.startTime = Date.now();
       this.mode = mode;
       this.onModeChange?.(this.mode);
-      this.transitionTo('RECORDING');
-      this.onStatusChange?.({ type: 'ready', message: `Recording active (${modeLabel})` });
+
+      // GUARD: Only transition if we haven't hit an error already (Issue C)
+      if (this.state !== 'ERROR') {
+        this.transitionTo('RECORDING');
+        this.onStatusChange?.({ type: 'ready', message: `Recording active (${modeLabel})` });
+      }
 
     } catch (error) {
       logger.error({ error, mode }, '[TranscriptionService] execution failed');
@@ -496,9 +806,12 @@ export default class TranscriptionService {
       });
       await this.executeMode('native', config);
     } catch (nativeError) {
-      logger.error('[TranscriptionService] ❌ Native fallback also failed');
-      logger.error({ error: nativeError }, '[TranscriptionService] Native fallback also failed');
-      this.onStatusChange?.({ type: 'error', message: '❌ All transcription modes failed' });
+      logger.error({ error: nativeError }, '[TranscriptionService] ❌ Native fallback also failed');
+      this.transitionTo('ERROR');
+      this.onStatusChange?.({
+        type: 'error',
+        message: 'Unable to start recording'
+      });
       throw new Error('[TranscriptionService] All fallback modes failed');
     }
   }
@@ -516,10 +829,22 @@ export default class TranscriptionService {
   }
 
   public async stopTranscription(): Promise<{ success: boolean; transcript: string; stats: TranscriptStats } | null> {
+    const elapsed = Date.now() - this.startTimestamp;
+
+    // INDUSTRY STANDARD: Prevent rapid start/stop cycles
+    if (elapsed < this.MIN_RECORDING_DURATION_MS) {
+      logger.warn(
+        `[TranscriptionService] ⚠️ Stop ignored - called too quickly (${elapsed}ms < ${this.MIN_RECORDING_DURATION_MS}ms)`
+      );
+      return null;
+    }
+
     if (this.state !== 'RECORDING' && this.state !== 'STARTING') {
       logger.warn({ currentState: this.state }, '[TranscriptionService] stopTranscription() called while not active');
       return null;
     }
+
+    logger.info(`[TranscriptionService] Stopping transcription (elapsed: ${elapsed}ms)`);
 
     this.transitionTo('STOPPING');
     logger.info('[TranscriptionService] Stopping transcription.');
@@ -590,7 +915,6 @@ export default class TranscriptionService {
     if (!this.instance) return;
 
     // Guard against concurrent terminate calls
-    // Guard against concurrent terminate calls
     if (this.isTerminating) {
       logger.warn('[TranscriptionService] Terminate already in progress, waiting...');
 
@@ -609,6 +933,13 @@ export default class TranscriptionService {
     this.isTerminating = true;
 
     try {
+      // ARCHITECTURE (Senior Architect):
+      // Re-check after waiting for lock. The instance might have been
+      // nulled out by the previous holder of the lock.
+      if (!this.instance) {
+        return;
+      }
+
       const instanceToTerminate = this.instance;
       // CRITICAL: Immediately null out to prevent use-after-free or zombie usage
       this.instance = null;
@@ -617,6 +948,8 @@ export default class TranscriptionService {
 
       if (typeof instanceToTerminate.terminate === 'function') {
         await instanceToTerminate.terminate();
+      } else if ('destroy' in instanceToTerminate && typeof (instanceToTerminate as unknown as { destroy: () => Promise<void> }).destroy === 'function') {
+        await (instanceToTerminate as unknown as { destroy: () => Promise<void> }).destroy();
       } else {
         await instanceToTerminate.stopTranscription();
       }

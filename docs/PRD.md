@@ -76,7 +76,7 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Transcription** | 1 | The core service that converts speech to text. | ✅ Implemented | ✅ Yes |
 | **Cloud Server STT** | 1 | High-accuracy transcription via AssemblyAI. (Pro) | ✅ Implemented | ✅ Yes |
 | **Private STT** | 1 | Privacy-first transcription using **Triple-Engine Architecture**: `whisper-turbo` (GPU), `transformers.js` (CPU Fallback), or `MockEngine` (Testing). Includes **RMS-based VAD** and **No-Timeout Load**. Hardened with **Dependency Injection** for resilience. (Pro) | ✅ Verified (DI) | ✅ Yes |
-| **Fallback STT** | 1 | Reliable fallback to native browser API for Free users and as an **auto-recovery mode** for Cloud/Private STT. **Optimistic fallback** ensures zero-wait sessions during model downloads via the **Optimistic Entry Pattern**. | ✅ Verified (UT/E2E) | ✅ Yes |
+| **Fallback STT** | 1 | Reliable fallback to native browser API for Free users and as an **auto-recovery mode** for Cloud/Private STT. **Optimistic fallback** ensures zero-wait sessions during model downloads via the **Optimistic Entry Pattern**. Hardened with **Microtask Decoupling** for React 18 stability. | ✅ Verified (UT/E2E) | ✅ Yes |
 | **UI Mode Selector** | 1 | Allows users to select their preferred transcription engine. | ✅ Implemented | ✅ Yes |
 | **Session History** | 1 | Users can view and analyze their past practice sessions. | ✅ Implemented | ✅ Yes |
 | **Filler Word Detection** | 1 | Detects and counts common filler words (um, uh, like, etc.). | ✅ Implemented | ✅ Yes |
@@ -92,7 +92,7 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Usage Limit Pre-Check** | 2 | Checks remaining usage BEFORE session starts. Shows upgrade prompt if exceeded. | ✅ Implemented | ✅ Yes |
 | **Session Comparison** | 1 | Compares stats from the 4 most recent sessions. | ✅ Implemented | ✅ Yes |
 | **PDF Export** | 1 | Allows users to download a PDF report of their session (FileSaver.js). | ✅ Implemented | ✅ Yes |
-| **STT Accuracy Comparison** | 1 | Rolling average comparison of STT engine accuracy against a ground truth. | ✅ Implemented | ✅ Yes |
+| **STT Accuracy Comparison** | 1 | Rolling average comparison of STT engine accuracy against a ground truth. | Partial | ✅ Yes |
 | **Top 2 Filler Words**| 1 | Maintains the top 2 highest filler words for the most recent 4 sessions. | ✅ Implemented | ✅ Yes |
 | **Weekly Activity Chart** | 2 | Visual chart showing practice frequency over the past week. | ✅ Implemented | ✅ Yes |
 | **Premium Loading States** | 2.5 | Skeleton loading UI for premium user experience. | ✅ Implemented | ✅ Yes |

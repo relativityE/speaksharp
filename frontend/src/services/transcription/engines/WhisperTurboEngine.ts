@@ -15,48 +15,32 @@
  */
 
 import { Result } from 'true-myth';
-import { SessionManager, AvailableModels, InferenceSession } from 'whisper-turbo';
 import { IPrivateSTTEngine, EngineCallbacks, EngineType } from './IPrivateSTTEngine';
 import { floatToWavAsync } from '../utils/AudioProcessor';
+import { WhisperEngineRegistry } from './WhisperEngineRegistry';
 import logger from '../../../lib/logger';
 
 export class WhisperTurboEngine implements IPrivateSTTEngine {
     public readonly type: EngineType = 'whisper-turbo';
-    private manager: SessionManager;
-    private session: InferenceSession | null = null;
+    private session: unknown | null = null; // Use unknown for Comlink compatibility
 
-    constructor() {
-        this.manager = new SessionManager();
-    }
+    constructor() { }
 
     async init(callbacks: EngineCallbacks): Promise<Result<void, Error>> {
-        logger.info('[WhisperTurbo] Initializing engine...');
+        const tStart = performance.now();
+        logger.info(`[WhisperTurbo] [PERF] Initializing engine via Registry at ${new Date().toISOString()}`);
 
         try {
             if (callbacks.onModelLoadProgress) {
                 callbacks.onModelLoadProgress(0);
             }
 
-            // Load model without arbitrary timeout.
-            // Network speed will determine duration. Progress callbacks keep user informed.
-            const result = await this.manager.loadModel(
-                AvailableModels.WHISPER_TINY,
-                () => {
-                    logger.info('[WhisperTurbo] Model loaded callback triggered.');
-                },
-                (progress: number) => {
-                    if (callbacks.onModelLoadProgress) {
-                        callbacks.onModelLoadProgress(progress);
-                    }
-                }
-            );
+            // Acquire engine from singleton registry
+            // This avoids re-downloading/re-compiling if already warmed up.
+            this.session = await WhisperEngineRegistry.acquire(callbacks.onModelLoadProgress);
 
-            if (result.isErr) {
-                return Result.err(result.error);
-            }
-
-            this.session = result.value;
-            logger.info('[WhisperTurbo] Engine initialized successfully.');
+            const tTotalInit = performance.now() - tStart;
+            logger.info(`[WhisperTurbo] [PERF] Engine acquisition took ${tTotalInit.toFixed(2)}ms`);
 
             if (callbacks.onModelLoadProgress) {
                 callbacks.onModelLoadProgress(100);
@@ -69,19 +53,7 @@ export class WhisperTurboEngine implements IPrivateSTTEngine {
             return Result.ok(undefined);
         } catch (error) {
             const e = error instanceof Error ? error : new Error(String(error));
-            logger.error({ err: e }, '[WhisperTurbo] Failed to initialize engine.');
-
-            // Self-healing: Clear IndexedDB cache on failure to prevent permanent hang
-            try {
-                logger.info('[WhisperTurbo] Attempting self-healing cache clear...');
-                const deleteRequest = indexedDB.deleteDatabase('whisper-turbo');
-                deleteRequest.onsuccess = () => {
-                    logger.info('[WhisperTurbo] Cache cleared successfully. Retry may succeed.');
-                };
-            } catch (cacheError) {
-                logger.warn({ err: cacheError }, '[WhisperTurbo] Failed to clear cache.');
-            }
-
+            logger.error({ err: e }, '[WhisperTurbo] Failed to acquire engine from registry.');
             return Result.err(e);
         }
     }
@@ -92,9 +64,8 @@ export class WhisperTurboEngine implements IPrivateSTTEngine {
         }
 
         try {
-            // PERFORMANCE OPTIMIZATION: Moving WAV conversion off the main thread
             const wavData = await floatToWavAsync(audio);
-            const result = await this.session.transcribe(wavData, false, {});
+            const result = await (this.session as { transcribe: (...args: unknown[]) => Promise<Result<{ text: string }, Error>> }).transcribe(wavData, false, {});
 
             if (result.isErr) {
                 return Result.err(result.error);
@@ -109,7 +80,8 @@ export class WhisperTurboEngine implements IPrivateSTTEngine {
     }
 
     async destroy(): Promise<void> {
-        logger.info('[WhisperTurbo] Destroying engine...');
+        logger.info('[WhisperTurbo] [PERF] Releasing engine back to registry...');
+        WhisperEngineRegistry.release();
         this.session = null;
     }
 }

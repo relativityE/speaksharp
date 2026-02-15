@@ -147,4 +147,31 @@ describe('TransformersJSEngine (Unit)', () => {
         // @ts-expect-error forcing readonly property for test coverage
         TestFlags.IS_TEST_MODE = true;
     });
+
+    it('should handle "Unexpected token <" error specifically', async () => {
+        mockPipeline.mockRejectedValueOnce(new Error("Unexpected token < at position 0"));
+
+        const result = await engine.init({});
+        expect(result.isErr).toBe(true);
+    });
+
+    it('should trigger progress callback from transformers.js', async () => {
+        const callbacks = { onModelLoadProgress: vi.fn() };
+
+        mockPipeline.mockImplementationOnce(async (type, model, options) => {
+            if (options.progress_callback) {
+                options.progress_callback({ progress: 50 });
+            }
+            return async () => ({ text: 'ok' });
+        });
+
+        await engine.init(callbacks);
+        expect(callbacks.onModelLoadProgress).toHaveBeenCalledWith(50);
+    });
+
+    it('should handle non-Error catch during init', async () => {
+        mockPipeline.mockImplementationOnce(() => { throw "string error"; });
+        const result = await engine.init({});
+        expect(result.isErr).toBe(true);
+    });
 });

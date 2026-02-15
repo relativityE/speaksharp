@@ -153,3 +153,9 @@ All colors MUST be HSL.
     top: var(--toast-offset-top) !important;
   }
 }
+/* Industry Standard: Compact Density (2/3 Height) */
+.compact-density {
+  padding-top: 0.5rem !important;
+  padding-bottom: 0.5rem !important;
+  min-height: auto !important;
+}

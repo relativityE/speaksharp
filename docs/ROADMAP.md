@@ -40,6 +40,7 @@ Status Key: 🟡 In Progress | 🔴 Not Started | ✅ Complete | 🛡️ Gap Rem
 | **S4** | **Canary User Persistence** | **MEDIUM** | ✅ Complete | Migrated from automated cleanup to unique email persistence for easier debugging. |
 | **S5** | **Design Parity Audit** | **MEDIUM** | ✅ Complete | Fixed "interpolation mud" in radial gradients and de-bloated upgrade banners. |
 | **S6** | **Phase 2 Hardening Remediation**| **CRITICAL**| ✅ Complete | **Zero Tolerance CI:** Resolved all lint/type errors. Implemented stability guards (Stale closures, DI pattern, Global Error Handlers) and security hardening (Atomic updates, Rate limiting). |
+| **S7** | **Architectural Lifecycle Stability**| **CRITICAL**| ✅ Complete | **Stability Audit:** Resolved state machine synchronization defects, decoupled store updates via microtasks, and stabilized unit test suite for high-concurrency lifecycle race conditions. |
 
 
 ## 📽️ Marketing & Growth
@@ -297,8 +298,8 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - Cosmetic warning from transitive dependency chain. Suppressed via `NODE_NO_WARNINGS=1`.
   - **Status:** Safe to ignore
 
-- **ℹ️ INFO - STT Comparison Not Integrated (2026-01-06)**
-  - `STTAccuracyComparison.tsx` component exists (renamed from `AccuracyComparison.tsx`) but is not currently rendered in Analytics UI.
+- **ℹ️ INFO - **STT Comparison Partially Integrated (2026-02-15)**: Component exists in settings carousel but requires ground truth input feature for full utility. 
+- **PDF Export Fully Functional**: Pro users can now export session reports as PDF.
   - **Status:** Deferred feature - requires sessions with `ground_truth`, `transcript`, and `engine` fields populated.
   - **Priority:** P3 - Nice-to-have for beta
 

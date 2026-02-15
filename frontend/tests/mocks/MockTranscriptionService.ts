@@ -1,5 +1,5 @@
-
-import { TranscriptUpdate, SttStatus, TranscriptionServiceOptions } from '@/services/transcription/TranscriptionService';
+import { SttStatus } from '@/services/transcription/TranscriptionService';
+import { TranscriptionModeOptions } from '@/services/transcription/modes/types';
 
 export class MockTranscriptionService {
     // Static reference for tests to access the latest instance
@@ -14,25 +14,24 @@ export class MockTranscriptionService {
     public sttStatus: SttStatus = { type: 'idle', message: 'Idle' };
 
     // Callbacks provided by the hook
-    private options: TranscriptionServiceOptions;
+    private options: TranscriptionModeOptions;
 
-    constructor(options: TranscriptionServiceOptions) {
+    constructor(options: TranscriptionModeOptions) {
         this.options = options;
         MockTranscriptionService.latestInstance = this;
     }
 
     // --- ITranscriptionService Interface Implementation ---
 
-    init = async (): Promise<{ success: boolean }> => {
+    init = async (): Promise<void> => {
         this.isReady = true;
         this.options.onReady?.();
-        return Promise.resolve({ success: true });
+        return Promise.resolve();
     }
 
     startTranscription = async (): Promise<void> => {
         this.isListening = true;
         this.sttStatus = { type: 'ready', message: 'Recording active' };
-        this.options.onStatusChange?.(this.sttStatus);
         return Promise.resolve();
     }
 
@@ -46,7 +45,7 @@ export class MockTranscriptionService {
         };
     }
 
-    destroy = async (): Promise<void> => {
+    terminate = async (): Promise<void> => {
         this.isListening = false;
         return Promise.resolve();
     }
@@ -58,6 +57,7 @@ export class MockTranscriptionService {
     }
 
     getMode = () => this.mode;
+    getEngineType = () => this.mode === 'private' ? 'whisper-turbo' : this.mode;
 
     getTranscript = async (): Promise<string> => {
         return "Current transcript";
@@ -73,8 +73,7 @@ export class MockTranscriptionService {
             this.options.onTranscriptUpdate({
                 transcript: isFinal
                     ? { final: text, partial: '' }
-                    : { final: '', partial: text },
-                chunks: isFinal ? [{ timestamp: [0, 100], text }] : []
+                    : { final: '', partial: text }
             });
         }
     }
@@ -85,7 +84,16 @@ export class MockTranscriptionService {
     simulateError(error: Error): void {
         this.error = error;
         this.sttStatus = { type: 'error', message: error.message };
-        this.options.onStatusChange?.(this.sttStatus);
+
+        // Propagate via standard error callback if available (Issue C)
+        if (this.options.onError) {
+            this.options.onError({
+                message: error.message,
+                code: 'UNKNOWN',
+                recoverable: false,
+                name: 'TranscriptionError'
+            } as unknown as import('@/services/transcription/modes/types').TranscriptionError);
+        }
     }
 
     /**
@@ -93,6 +101,13 @@ export class MockTranscriptionService {
      */
     simulateStatusChange(status: SttStatus): void {
         this.sttStatus = status;
-        this.options.onStatusChange?.(status);
+        if (status.type === 'error' && this.options.onError) {
+            this.options.onError({
+                message: status.message,
+                code: 'UNKNOWN',
+                recoverable: false,
+                name: 'TranscriptionError'
+            } as unknown as import('@/services/transcription/modes/types').TranscriptionError);
+        }
     }
 }

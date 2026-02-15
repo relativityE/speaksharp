@@ -21,15 +21,15 @@ export const FillerWordsCard: React.FC<FillerWordsCardProps> = ({
     headerAction,
 }) => {
     return (
-        <div className="bg-card border border-border rounded-xl p-6 shadow-sm h-full">
-            <div className="flex items-center justify-between mb-4">
+        <div className="bg-card border border-border rounded-xl p-4 shadow-sm h-full">
+            <div className="flex items-center justify-between mb-2">
                 <h2 className="text-lg font-semibold text-foreground">
                     Filler Words <span data-testid="filler-count-value" className="text-secondary ml-1">{fillerCount > 0 ? `(${fillerCount})` : ''}</span>
                 </h2>
                 {headerAction}
             </div>
 
-            <div className="space-y-3" data-testid="filler-words-list">
+            <div className="space-y-2" data-testid="filler-words-list">
                 {Object.entries(fillerData)
                     .filter(([key]) => key !== 'total')
                     .sort(([, a], [, b]) => b.count - a.count)

@@ -31,7 +31,8 @@ test.describe('Core User Journey', () => {
         await startButton.click();
 
         // 4. Simulate Speech - wait for recording to start
-        await expect(page.getByRole('button', { name: /stop/i })).toBeVisible();
+        const stopButton = page.getByRole('button', { name: /stop/i }).first();
+        await expect(stopButton).toBeVisible();
         await mockLiveTranscript(page, [
             "Hello everyone,",
             "um, today I want to talk about,",
@@ -43,11 +44,11 @@ test.describe('Core User Journey', () => {
         await page.waitForTimeout(6000);
 
         // 5. Stop Recording
-        const stopButton = page.getByTestId('session-start-stop-button');
+        // (stopButton already defined above)
         await stopButton.click();
 
         // 6. Verify session stopped
-        await expect(page.getByRole('button', { name: /start/i })).toBeVisible({ timeout: 10000 });
+        await expect(page.getByRole('button', { name: /start/i }).first()).toBeVisible({ timeout: 10000 });
 
         // 7. Navigate to Analytics
         await navigateToRoute(page, '/analytics');

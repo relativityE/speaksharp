@@ -149,22 +149,114 @@ export const getInitialSession = (fallbackSession: Session | null = null): Sessi
 
 // Mock SpeechRecognition for E2E tests - exported for use when MSW is skipped
 export class MockSpeechRecognition {
-    continuous = false;
-    interimResults = false;
-    onresult: ((event: unknown) => void) | null = null;
-    onerror: ((event: unknown) => void) | null = null;
-    onend: (() => void) | null = null;
+    private isListening = false;
+    private resultTimer: NodeJS.Timeout | null = null;
 
-    start() {
-        logger.info('[MockSpeechRecognition] start() called');
-        // Register this instance as the active one so we can dispatch events to it
+    // Event handlers (Web Speech API standard)
+    onstart: ((event: Event) => void) | null = null;
+    onresult: ((event: { results: unknown[][]; resultIndex: number }) => void) | null = null;
+    onend: ((event: Event) => void) | null = null;
+    onerror: ((event: ErrorEvent) => void) | null = null;
+
+    // Configuration (Web Speech API standard)
+    continuous = true;
+    interimResults = true;
+    lang = 'en-US';
+
+    start(): void {
+        logger.info('[MockSpeechRecognition] ▶️ start() called');
+
+        if (this.isListening) {
+            logger.warn('[MockSpeechRecognition] Already listening');
+            return;
+        }
+
+        this.isListening = true;
+
+        // Register this instance as the active one for manual dispatching
         (window as unknown as E2EWindow).__activeSpeechRecognition = this;
-        dispatchE2EEvent('e2e:speech-recognition-ready');
+
+        // Emit start event (immediate)
+        setTimeout(() => {
+            this.emit('start', {});
+        }, 10);
+
+        // Emit progressive results (realistic timing)
+        const mockResults = [
+            { text: 'Testing', delay: 500, isFinal: false },
+            { text: 'Testing one', delay: 1000, isFinal: false },
+            { text: 'Testing one two', delay: 1500, isFinal: false },
+            { text: 'Testing one two three', delay: 2000, isFinal: true }
+        ];
+
+        let cumulativeDelay = 0;
+
+        mockResults.forEach((result, index) => {
+            cumulativeDelay += result.delay;
+
+            this.resultTimer = setTimeout(() => {
+                if (!this.isListening) return;
+
+                logger.info({ text: result.text }, '[MockSpeechRecognition] 📝 Emitting result');
+
+                this.emit('result', {
+                    results: [[{
+                        transcript: result.text,
+                        confidence: 0.95,
+                        isFinal: result.isFinal
+                    }]],
+                    resultIndex: index
+                });
+            }, cumulativeDelay);
+        });
     }
-    stop() {
-        logger.info('[MockSpeechRecognition] stop() called');
+
+    stop(): void {
+        logger.info('[MockSpeechRecognition] ⏸️ stop() called');
+
+        if (!this.isListening) {
+            logger.warn('[MockSpeechRecognition] Not listening');
+            return;
+        }
+
+        this.isListening = false;
+
+        if (this.resultTimer) {
+            clearTimeout(this.resultTimer);
+            this.resultTimer = null;
+        }
+
+        // Emit final result and end event
+        setTimeout(() => {
+            this.emit('result', {
+                results: [[{
+                    transcript: 'Final mock transcript',
+                    confidence: 0.95,
+                    isFinal: true
+                }]],
+                resultIndex: 0
+            });
+
+            this.emit('end', {});
+        }, 100);
     }
-    abort() { }
+
+    abort(): void {
+        logger.info('[MockSpeechRecognition] ⏹️ abort() called');
+        this.isListening = false;
+
+        if (this.resultTimer) {
+            clearTimeout(this.resultTimer);
+            this.resultTimer = null;
+        }
+    }
+
+    private emit(eventName: string, data: unknown): void {
+        const handler = (this as Record<string, unknown>)[`on${eventName}`];
+        if (typeof handler === 'function') {
+            handler.call(this, data);
+        }
+    }
 }
 
 
@@ -226,8 +318,16 @@ class MockPrivateWhisper {
             if (e2eWindow.__E2E_MANUAL_PROGRESS__) {
                 logger.info('[MockPrivateWhisper] 🛠️ Manual progress mode enabled');
 
-                // Start with 10% to ensure UI shows "Downloading..."
-                if (this.onModelLoadProgress) this.onModelLoadProgress(0.1);
+                // CRITICAL: Delay the first progress callback by 100ms to let React
+                // commit the start → initializing state transition before we fire
+                // onModelLoadProgress. Without this, React 18 batches both updates
+                // and the UI never sees the intermediate 'downloading' state.
+                setTimeout(() => {
+                    if (this.onModelLoadProgress) {
+                        logger.info('[MockPrivateWhisper] Firing initial progress: 0.1');
+                        this.onModelLoadProgress(0.1);
+                    }
+                }, 100);
 
                 // Expose advance function to Playwright
                 e2eWindow.__E2E_ADVANCE_PROGRESS__ = (progress: number) => {
@@ -243,19 +343,28 @@ class MockPrivateWhisper {
                 return;
             }
 
-            // Fallback: Automatic Time-based Mode
-            if (this.onModelLoadProgress) {
-                this.onModelLoadProgress(0);
-                setTimeout(() => this.onModelLoadProgress!(0.1), 1000);
-                setTimeout(() => this.onModelLoadProgress!(0.5), 2000);
-                setTimeout(() => this.onModelLoadProgress!(1), 2500);
-            }
+            // Fallback: Automatic Time-based Mode with interval for reliable updates
+            const progressSteps = [0.1, 0.3, 0.5, 0.7, 0.9, 1.0];
+            let stepIndex = 0;
 
+            // Delay first progress by 100ms (React 18 batching fix)
             setTimeout(() => {
-                logger.info('[MockPrivateWhisper] Model loaded (auto), triggering onReady');
-                if (this.onReady) this.onReady();
-                resolve();
-            }, 3000);
+                const interval = setInterval(() => {
+                    const progress = progressSteps[stepIndex];
+                    logger.info(`[MockPrivateWhisper] Auto progress: ${progress}`);
+
+                    if (this.onModelLoadProgress) this.onModelLoadProgress(progress);
+
+                    if (progress >= 1.0) {
+                        clearInterval(interval);
+                        logger.info('[MockPrivateWhisper] Model loaded (auto), triggering onReady');
+                        if (this.onReady) this.onReady();
+                        resolve();
+                    }
+
+                    stepIndex++;
+                }, 400); // 400ms per step = ~2.4s total
+            }, 100);
         });
     }
 
@@ -270,6 +379,10 @@ class MockPrivateWhisper {
 
     async getTranscript() {
         return '';
+    }
+
+    public getEngineType(): string {
+        return 'mock';
     }
 }
 

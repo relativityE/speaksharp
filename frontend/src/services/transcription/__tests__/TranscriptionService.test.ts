@@ -19,6 +19,7 @@ const mockNativeInstance = {
     stopTranscription: vi.fn(),
     terminate: vi.fn(), // Include terminate for testing
     getTranscript: vi.fn(),
+    getEngineType: vi.fn().mockReturnValue('native'),
 };
 
 // Mock PrivateSTT mode
@@ -28,7 +29,19 @@ const mockPrivateInstance = {
     stopTranscription: vi.fn(),
     terminate: vi.fn(),
     getTranscript: vi.fn(),
+    getEngineType: vi.fn().mockReturnValue('whisper-turbo'),
 };
+
+// Mock CloudAssistant mode
+const mockCloudInstance = {
+    init: vi.fn(),
+    startTranscription: vi.fn(),
+    stopTranscription: vi.fn(),
+    terminate: vi.fn(),
+    getTranscript: vi.fn(),
+    getEngineType: vi.fn().mockReturnValue('cloud'),
+};
+
 
 vi.mock('../modes/NativeBrowser', () => ({
     default: vi.fn().mockImplementation(() => mockNativeInstance)
@@ -36,6 +49,10 @@ vi.mock('../modes/NativeBrowser', () => ({
 
 vi.mock('../modes/PrivateWhisper', () => ({
     default: vi.fn().mockImplementation(() => mockPrivateInstance)
+}));
+
+vi.mock('../modes/CloudAssemblyAI', () => ({
+    default: vi.fn().mockImplementation(() => mockCloudInstance)
 }));
 
 describe('TranscriptionService', () => {
@@ -83,14 +100,18 @@ describe('TranscriptionService', () => {
 
         // Assert
         // Check finding: Verify we received the 'fallback' status with 'newMode: native'
-        expect(mockOnStatusChange).toHaveBeenCalledWith(expect.objectContaining({
-            type: 'fallback',
-            message: expect.stringContaining('Switched to Native Browser mode'),
-            newMode: 'native' // THIS IS THE KEY FIX WE ARE VERIFYING
-        }));
+        await vi.waitFor(() => {
+            expect(mockOnStatusChange).toHaveBeenCalledWith(expect.objectContaining({
+                type: 'fallback',
+                message: expect.stringContaining('Switched to Native Browser mode'),
+                newMode: 'native' // THIS IS THE KEY FIX WE ARE VERIFYING
+            }));
+        });
 
         // Verify it actually switched
-        expect(mockOnModeChange).toHaveBeenCalledWith('native');
+        await vi.waitFor(() => {
+            expect(mockOnModeChange).toHaveBeenCalledWith('native');
+        });
     });
 
     it('should call terminate() on destroy if available', async () => {
@@ -104,7 +125,9 @@ describe('TranscriptionService', () => {
         await service.destroy();
 
         // Assert
-        expect(mockPrivateInstance.terminate).toHaveBeenCalled();
+        await vi.waitFor(() => {
+            expect(mockPrivateInstance.terminate).toHaveBeenCalled();
+        });
     });
 
     it('should fall back to stopTranscription() on destroy if terminate is missing', async () => {
@@ -123,7 +146,9 @@ describe('TranscriptionService', () => {
         await service.destroy();
 
         // Assert
-        expect(legacyInstance.stopTranscription).toHaveBeenCalled();
+        await vi.waitFor(() => {
+            expect(legacyInstance.stopTranscription).toHaveBeenCalled();
+        });
     });
 
     it('should release the microphone IMMEDIATELY on destroy', async () => {
@@ -170,4 +195,5 @@ describe('TranscriptionService', () => {
 
         await destroyPromise;
     });
+
 });

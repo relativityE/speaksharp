@@ -2,6 +2,7 @@ import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { viteStaticCopy } from 'vite-plugin-static-copy';
 
 import { PORTS } from '../scripts/build.config.js';
 
@@ -19,7 +20,26 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [react()],
+    plugins: [
+      react(),
+      viteStaticCopy({
+        targets: [
+          {
+            src: '../node_modules/whisper-turbo/dist/session.worker.js',
+            dest: 'whisper-turbo'
+          },
+          {
+            src: '../node_modules/whisper-turbo/dist/db/*',
+            dest: 'whisper-turbo/db'
+          },
+          {
+            src: '../node_modules/whisper-webgpu/whisper-wasm_bg.wasm',
+            dest: 'whisper-turbo'
+          }
+        ]
+      })
+    ],
+    assetsInlineLimit: 0, // Prevent WASM from being base64 encoded
     worker: {
       format: 'es'
     },
@@ -90,7 +110,9 @@ export default defineConfig(({ mode }) => {
         'whisper-webgpu',
         'comlink',
         'true-myth',
-        'idb/with-async-ittr'
+        'idb/with-async-ittr',
+        'whisper-turbo',
+        'whisper-webgpu'
       ],
       exclude: [],
     },

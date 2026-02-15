@@ -3,7 +3,7 @@ import posthog from 'posthog-js';
 import logger from '@/lib/logger';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthProvider } from '../contexts/AuthProvider';
-import { useUserProfile } from './useUserProfile';
+import { useProfile } from './useProfile';
 import { useSessionStore } from '../stores/useSessionStore';
 import { useSpeechRecognition } from './useSpeechRecognition';
 import { useSessionManager } from './useSessionManager';
@@ -17,7 +17,7 @@ import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 
 export const useSessionLifecycle = () => {
     const { session } = useAuthProvider();
-    const { data: profile, isLoading, error: profileError } = useUserProfile();
+    const profile = useProfile();
     const queryClient = useQueryClient();
     const updateElapsedTime = useSessionStore(state => state.updateElapsedTime);
     const elapsedTime = useSessionStore(state => state.elapsedTime);
@@ -37,7 +37,8 @@ export const useSessionLifecycle = () => {
         customWords: userFillerWords,
         customVocabulary: userFillerWords,
         session,
-        profile
+        profile,
+        profileLoading: false // Guaranteed by ProfileGuard
     }), [userFillerWords, session, profile]);
 
     const speechRecognition = useSpeechRecognition(speechConfig);
@@ -139,6 +140,7 @@ export const useSessionLifecycle = () => {
             }
 
             updateElapsedTime(0);
+            setSessionFeedbackMessage(null);
             const policy = buildPolicyForUser(isProUser, mode);
             await startListening(policy);
             posthog.capture('session_started', { mode });
@@ -211,10 +213,10 @@ export const useSessionLifecycle = () => {
         transcriptContent: transcript.transcript,
         fillerData,
         isProUser,
-        isButtonDisabled: false, // Architectural decision: never block stop/cancel
+        isButtonDisabled: !isListening && !isReady, // Prevents starting while not ready, but always allow stopping
         showPromoExpiredDialog: !!usageLimit?.promo_just_expired,
         usageLimit,
-        profileLoading: isLoading,
-        profileError
+        profileLoading: false,
+        profileError: null
     };
 };

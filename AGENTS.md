@@ -21,6 +21,31 @@ This script performs a fast, minimal sanity check of your environment to ensure 
 
 Do not proceed until this script completes successfully. If it fails, follow the instructions in the `README.md` to stabilize your environment.
 
+---
+
+## 🛡️ Project Manifesto: Core Principles
+
+### 🧪 Testing & Quality
+- **Integrity over Implementation**: Tests must validate requirements and design intent, not just structural implementation.
+- **Fail Fast, Fail Hard**: Avoid hanging tests; use aggressive 30s timeouts and explicit assertions to surface failures immediately.
+- **Strict Linting (ADR-001)**: `eslint-disable` is banned. Fix root causes (types, dependency arrays) for long-term stability.
+- **Log, Don't Suppress**: Never swallow exceptions with empty `catch` blocks. Always log the error via `logger` before falling back or re-throwing.
+- **Single Source of Truth**: Perfect alignment between local (`test-audit.sh`) and CI environments.
+
+### 🏛️ Architecture & Design
+- **System Integrity over Developer Velocity**: Prioritize explicit contracts (interfaces) and robust error handling even if they trigger lint warnings or require more code. Never sacrifice the "Gold Standard" for quick check-ins.
+- **Privacy-First**: Core differentiator. All audio stays on-device in "Private" mode.
+- **Event-Based Synchronization**: Never use arbitrary `sleep()` or timeouts for waiting. Use selectors or events.
+- **Dual-Engine Facade**: Multi-stage fallback (WhisperTurbo -> TransformersJS -> Native) for 99.9% reliability.
+- **Lean Schema**: Exclude optional fields to minimize data footprint and PII.
+- **Zero-Wait UX (Optimistic Entry)**: Fallback immediately if heavy models aren't cached, but continue loading in background.
+
+### 🚀 Development & Pipeline
+- **Cross-Env Persistence**: Explicitly propagate env vars to subprocesses in CI.
+- **Boundary Separation**: `postinstall` is for app setup; Workflows are for environment setup (browsers).
+
+---
+
 ### 2. The Local Audit Script (Single Source of Truth for Testing)
 
 The primary runner for all local validation is `./scripts/test-audit.sh`, which is accessed via `pnpm` scripts. This script is the SSOT for running lint, type-checking, and all tests.

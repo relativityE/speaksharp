@@ -38,6 +38,7 @@ export default defineConfig({
     use: {
         ...baseConfig.use,
         baseURL: BASE_URL,
+        headless: false,
         video: 'on-first-retry',
     },
     webServer: {
@@ -68,6 +69,24 @@ export default defineConfig({
         {
             name: 'chromium',
             use: { ...devices['Desktop Chrome'] },
+        },
+        {
+            name: 'live-performance',
+            use: {
+                ...devices['Desktop Chrome'],
+                headless: false,
+                launchOptions: {
+                    args: [
+                        '--use-fake-device-for-media-stream',
+                        '--use-fake-ui-for-media-stream',
+                        '--no-sandbox',
+                        '--enable-unsafe-webgpu',
+                        '--ignore-gpu-blocklist',
+                        '--use-angle=metal',
+                    ],
+                },
+                permissions: ['microphone'],
+            },
         },
     ],
 });

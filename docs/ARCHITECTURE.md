@@ -197,10 +197,35 @@ These core patterns were established during the Phase 2 Hardening cycle to ensur
 **Solution:** Migrated from `SELECT -> UPDATE` (application logic) to atomic SQL `UPDATE ... SET usage = usage + 1 WHERE id = ... AND usage < limit`.
 - **Benefit:** Strong consistency for tier-based resource consumption.
 
-#### 4. Global Error Handlers & React Boundaries
-**Problem:** Unhandled promise rejections or UI component crashes silently failing.
-**Solution:** Centralized `globalErrorHandlers.ts` for browser-level events and `ErrorBoundary.tsx` for React sub-tree isolation.
-- **Benefit:** Automatic session recovery and diagnostic visibility via `logger.fatal`.
+#### 5. Microtask Store Decoupling (`TranscriptionService.ts`)
+**Problem:** React 18 concurrent update errors ("Should not already be working") occurring when store updates are triggered during component unmounting or concurrent rendering cycles.
+**Solution:** Decouple Zustand store updates from synchronous state transitions using `queueMicrotask`. This ensures the rendering cycle completes before the store notifies listeners.
+- **Benefit:** Prevents internal React inconsistency and stabilizes UI updates during rapid lifecycle transitions.
+
+#### 6. ProfileGuard & useProfile Hook (`App.tsx` / `useProfile.ts`)
+**Problem:** Transcription services or hooks initializing before the user profile is loaded, leading to null pointer errors or incorrect policy application.
+**Solution:** A global `ProfileGuard` component that blocks rendering of sensitive routes until the profile is fetched. Paired with a `useProfile` context hook that guarantees non-null access to profile data for downstream components.
+- **Benefit:** Eliminates "early initialization" race conditions and simplifies component logic by removing redundant null-checks.
+
+#### 7. Post-Lock Instance Validation (`TranscriptionService.ts`)
+**Problem:** Race conditions in `safeTerminateInstance` where concurrent `destroy` calls might access a nulled instance after waiting for a lock.
+**Solution:** Re-verify the existence of `this.instance` immediately after acquiring the termination lock.
+- **Benefit:** Robust prevention of null-pointer exceptions in high-concurrency lifecycle scenarios.
+
+#### 8. Dynamic Policy Synchronization (`TranscriptionService.ts`)
+**Problem:** The service singleton initializes with a default (Free) policy before the user profile is available, leading to restricted features even for Pro users.
+**Solution:** Explicit `updatePolicy()` and `updateCallbacks()` methods that re-synchronize the service with the latest user data immediately before transcription starts.
+- **Benefit:** Resolves the "Wrong ID" and "Stale Callback" race conditions.
+
+#### 9. Error Isolation Boundaries (`SessionPage.tsx`)
+**Problem:** A failure in a secondary UI widget (e.g., Pause metrics) could crash the entire transcription session.
+**Solution:** Use of `<LocalErrorBoundary>` per-widget to isolate failures and provide a "Retry" mechanism without impacting the core recording logic.
+- **Benefit:** Increased system resilient and improved UX during partial failures.
+
+#### 10. Test-Deterministic Data Attributes
+**Problem:** Flaky E2E tests due to unpredictable loading states and race conditions during "Play" button clicks.
+**Solution:** Enforced use of `data-ready` and `data-recording` attributes on interactive elements, allowing tests to wait for a definitive state before interacting.
+- **Benefit:** Deterministic, non-flaky testing suite.
 
 ### Promo Admin System
 We prioritize a secure, dynamic promo code system for internal access/testing.

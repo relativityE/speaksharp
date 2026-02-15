@@ -26,7 +26,7 @@ describe('LiveRecordingCard', () => {
         // Check for the mode selector button
         const modeSelect = screen.getByTestId(TEST_IDS.STT_MODE_SELECT);
         expect(modeSelect).toBeDefined();
-        expect(modeSelect.textContent).toContain('Native');
+        expect(modeSelect.textContent).toContain('Browser');
     });
 
     it('displays the correct label for the mode', () => {

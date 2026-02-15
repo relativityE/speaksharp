@@ -24,11 +24,10 @@ test.describe('Session Metrics', () => {
         // Target the WPM card
         const wpmValue = page.getByTestId(TEST_IDS.WPM_VALUE);
 
-        // Verify initial WPM is 0
-        await expect(wpmValue).toHaveText('0');
-
-        // Initial word stats check - wait for the grid to render
-        await expect(page.getByTestId('filler-badge-count')).toHaveCount(Object.keys(FILLER_WORD_KEYS).length, { timeout: 10000 });
+        // Wait for the metrics grid to fully render before interacting
+        // Note: WPM is NOT 0 initially because MockSpeechRecognition auto-emits transcript text
+        await expect(wpmValue).toBeVisible({ timeout: 5000 });
+        await expect(page.getByTestId('filler-badge-count')).toHaveCount(Object.keys(FILLER_WORD_KEYS).length, { timeout: 15000 });
 
         // Ensure E2E bridge is ready before dispatching transcripts
         debugLog('[TEST] ⏳ Waiting for E2E bridge readiness...');

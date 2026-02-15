@@ -129,49 +129,47 @@ export const countFillerWords = (text: string, customWords: string[] = []): Fill
     }
 
     // 2. Process context-dependent fillers via NLP (compromise)
+    // INDUSTRY STANDARD: Boundary-based detection for unpunctuated streams
 
-    // LIKE: Count as filler ONLY if not used as a Verb or Preposition (in a non-discourse way)
-    // Speech filler "like" is often tagged as Expression, Adverb, or even Verb (mistakenly).
-    // Better heuristic: if it's flanked by commas or at start of phrase, it's a filler.
+    // LIKE: Count as filler ONLY if not used as a main Verb/Preposition 
+    // unless it appears in a clear discourse position (Start/End of segment)
     const likeMatches = doc.match('like').filter(m => {
         const json = m.json()[0];
         const term = json?.terms[0];
         if (!term) return false;
 
         const tags = term.tags || [];
-        // Definitely fillers:
-        if (tags.includes('Expression')) return true;
-
-        // Context-based:
         const isStart = m.has('#Start');
+        const isEnd = m.has('#End');
+
+        // Loose heuristic: if it's at a segment boundary in a raw stream, 
+        // it's highly likely to be a filler "Like," or ", like."
+        if (isStart || isEnd) return true;
+
+        // Context-based (punctuation fallback)
         const hasCommaPost = (term.post || '').includes(',');
         const hasCommaPre = (term.pre || '').includes(',');
+        if (hasCommaPost || hasCommaPre) return true;
 
-        if (isStart || hasCommaPost || hasCommaPre) {
-            // Even if tagged as Verb, if it has commas or starts a sentence it's likely a filler in spoken transcript
-            return true;
-        }
-
-        // Fallback for standard NLP filtering
+        // Strict NLP fallback
         return !tags.includes('Verb') && !tags.includes('Preposition');
     });
     counts[FILLER_WORD_KEYS.LIKE].count = likeMatches.length;
     totalCount += likeMatches.length;
 
-    // SO: Count as filler if it's at the start of a sentence or followed by a comma/pause
+    // SO: Count as filler if it's used as a discourse marker
     const soMatches = doc.match('so').filter(m => {
         const json = m.json()[0];
         const term = json?.terms[0];
         if (!term) return false;
 
-        // Discourse marker 'so' is dominant at start of phrase or with a pause (comma)
         const isStart = m.has('#Start');
         const isEnd = m.has('#End');
         const hasCommaPost = (term.post || '').includes(',');
         const hasCommaPre = (term.pre || '').includes(',');
 
-        // If it's "So," OR "^So " OR ", so"
-        return isStart || hasCommaPost || hasCommaPre || isEnd;
+        // Discourse marker 'so' is dominant at boundaries or with a pause
+        return isStart || isEnd || hasCommaPost || hasCommaPre;
     });
     counts[FILLER_WORD_KEYS.SO].count = soMatches.length;
     totalCount += soMatches.length;

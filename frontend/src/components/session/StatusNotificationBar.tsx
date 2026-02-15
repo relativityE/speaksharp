@@ -6,6 +6,7 @@ export type SttStatusType = 'idle' | 'initializing' | 'downloading' | 'ready' | 
 export interface SttStatus {
     type: SttStatusType;
     message: string;
+    detail?: string;
     progress?: number; // 0-100 for downloading state
 }
 
@@ -17,33 +18,33 @@ interface StatusNotificationBarProps {
 const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: string; textClass: string }> = {
     idle: {
         icon: Info,
-        bgClass: 'bg-secondary',
-        textClass: 'text-secondary-foreground',
+        bgClass: 'bg-yellow-400 border-yellow-600 shadow-md',
+        textClass: 'text-black font-black uppercase',
     },
     initializing: {
         icon: Loader2,
-        bgClass: 'bg-secondary',
-        textClass: 'text-secondary-foreground',
+        bgClass: 'bg-yellow-400 border-yellow-600 shadow-xl',
+        textClass: 'text-black font-black uppercase',
     },
     downloading: {
         icon: Loader2,
-        bgClass: 'bg-secondary',
-        textClass: 'text-secondary-foreground',
+        bgClass: 'bg-yellow-400 border-yellow-600 shadow-xl',
+        textClass: 'text-black font-black uppercase',
     },
     ready: {
         icon: CheckCircle2,
-        bgClass: 'bg-secondary',
-        textClass: 'text-secondary-foreground',
+        bgClass: 'bg-yellow-400 border-yellow-600 shadow-xl',
+        textClass: 'text-black font-black uppercase',
     },
     fallback: {
         icon: AlertTriangle,
-        bgClass: 'bg-secondary',
-        textClass: 'text-secondary-foreground',
+        bgClass: 'bg-yellow-400 border-yellow-600 shadow-xl',
+        textClass: 'text-black font-black uppercase',
     },
     error: {
         icon: AlertCircle,
-        bgClass: 'bg-destructive',
-        textClass: 'text-destructive-foreground',
+        bgClass: 'bg-red-600 border-red-800 shadow-xl',
+        textClass: 'text-white font-black uppercase',
     },
 };
 
@@ -53,53 +54,57 @@ const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: st
  * fallback, and error states.
  */
 export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ status, className = '' }) => {
-    // EXECUTIVE PATTERN: Dual-State Display
-    // If we have a secondary status (background task), we show it alongside the primary status.
-    // If not, we fallback to the original single-state behavior.
-
     // Primary Status Configuration
     const config = statusConfig[status.type];
     const Icon = config.icon;
-    const isAnimated = status.type === 'initializing';
+    const isAnimated = status.type === 'initializing' || status.type === 'downloading';
 
     // Secondary Status (Background Download)
-    // We explicitly look for the 'progress' field in the status object.
-    // In the new pattern, 'status.progress' being defined implies a secondary background task.
     const hasSecondary = status.progress !== undefined;
 
     return (
         <div
-            className={`flex items-center gap-3 px-4 py-3 rounded-lg border ${config.bgClass} ${className}`}
+            className={`flex items-center gap-3 w-full px-6 py-2 rounded-none border-y-2 ${config.bgClass} ${className} transition-all duration-300`}
             role="status"
             aria-live="polite"
             data-testid="stt-status-bar"
         >
             {/* Primary Status Indicator */}
-            <div className="flex items-center gap-2" data-testid="session-status-indicator">
+            <div className="flex items-center gap-3 flex-1" data-testid="session-status-indicator">
                 <Icon className={`h-5 w-5 ${config.textClass} ${isAnimated ? 'animate-spin' : ''}`} />
-                <span className={`text-sm font-bold ${config.textClass}`}>
-                    {status.message || (status.type === 'idle' ? 'Ready' : '')}
-                </span>
+                <div className="flex flex-col">
+                    <span className={`text-sm font-black uppercase tracking-tight ${config.textClass}`}>
+                        {status.message || (status.type === 'idle' ? 'Ready' : '')}
+                    </span>
+                    {status.detail && (
+                        <span className={`text-[10px] font-medium opacity-80 ${config.textClass}`}>
+                            {status.detail}
+                        </span>
+                    )}
+                </div>
             </div>
 
             {/* Secondary Status Indicator (Background Task) */}
             {hasSecondary && (
                 <div
-                    className="flex items-center gap-3 pl-4 ml-auto border-l border-black/20"
+                    className="flex items-center gap-3 pl-3 ml-auto border-l border-current/20"
                     data-testid="background-task-indicator"
                 >
-                    <span className={`text-xs font-medium ${config.textClass}`}>
+                    <span className={`text-[10px] font-medium ${config.textClass}`}>
                         Downloading private model
                     </span>
-                    <div className="flex items-center gap-2 w-32">
-                        <div className="flex-1 h-1.5 bg-black/20 rounded-full overflow-hidden">
+                    <div className="flex items-center gap-2 w-24">
+                        <div className="flex-1 h-1 bg-current/10 rounded-full overflow-hidden">
                             <div
-                                className="h-full bg-black transition-all duration-300"
-                                style={{ width: `${status.progress}%` }}
+                                className="h-full bg-current transition-all duration-300 opacity-60"
+                                style={{
+                                    width: status.progress === -1 ? '40%' : `${status.progress}%`,
+                                    backgroundColor: 'currentColor'
+                                }}
                             />
                         </div>
-                        <span className={`text-[10px] font-bold ${config.textClass} min-w-[24px]`}>
-                            {Math.round(status.progress!)}%
+                        <span className={`text-[9px] font-bold ${config.textClass} min-w-[20px] text-right`}>
+                            {status.progress === -1 ? 'Indeterminate' : `${Math.round(status.progress!)}%`}
                         </span>
                     </div>
                 </div>
