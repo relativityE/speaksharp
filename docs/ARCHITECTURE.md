@@ -20,8 +20,9 @@ frontend/
   │   ├── components/   # React components (UI library, features)
   │   ├── config/       # Configuration files
   │   ├── constants/    # App constants (testIds, etc.)
-  │   ├── contexts/     # React Context providers (AuthContext)
-  │   ├── hooks/        # Custom React hooks (business logic)
+  │    - `contexts/`: Global contexts (e.g., `AuthProvider`).
+    - `stores/`: Zustand stores for global UI state and session data (`useSessionStore.ts`).
+    - `hooks/`: Custom React hooks, including the decomposed `useSpeechRecognition`.
   │   ├── lib/          # Utilities (pdfGenerator, logger, storage)
   │   ├── mocks/        # MSW handlers for E2E testing
   │   ├── pages/        # Route-level page components
@@ -227,13 +228,54 @@ These core patterns were established during the Phase 2 Hardening cycle to ensur
 **Solution:** Enforced use of `data-ready` and `data-recording` attributes on interactive elements, allowing tests to wait for a definitive state before interacting.
 - **Benefit:** Deterministic, non-flaky testing suite.
 
+#### Pattern 11: Mock Poisoning Mitigation
+*   **Problem:** Top-level imports of services in `setup.ts` were caching real instances before test-level mocks could be applied.
+*   **Solution:** Use dynamic imports within `beforeEach` and ensure all infrastructure polyfills (like `Worker`) are defined at the very top of `setup.ts`.
+*   **Result:** Reliable mocking even for transitively imported modules.
+
+#### Pattern 12: Single Source of Truth for Session State (Zustand)
+*   **Problem:** Session state (timer, listening status) was fragmented across multiple hooks, leading to race conditions.
+*   **Solution:** Centralized all ephemeral session state in a single Zustand store (`useSessionStore`).
+*   **Result:** Deterministic state updates and simplified reasoning for React-STT synchronization.
+
+#### Pattern 13: Deterministic Asynchronous Operations
+*   **Problem:** Flaky tests in `useSessionLifecycle` due to non-deterministic `requestAnimationFrame` or `setTimeout` updates.
+*   **Solution:** Unified heartbeat/tick logic in the store, allowing tests to use `vi.useFakeTimers()` for precise time advancement.
+*   **Result:** 100% green CI for high-frequency state updates.
+
+#### Phase 4: Expert CI Stabilization (2026-02-15)
+
+The following patterns were implemented following the Expert code review to achieve "Zero Tolerance" CI stability.
+
+#### Pattern 14: Advanced Mock Poisoning Mitigation [Expert 1A]
+*   **Problem:** Standard Mock Poisoning mitigation (Pattern 11) was insufficient for complex transitive dependencies in `setup.ts`.
+*   **Solution:**
+    *   **Hoisted Mocks:** Use `vi.hoisted()` for shared constants and infrastructure polyfills.
+    *   **Lazy Initialization:** Created `tests/unit/helpers/serviceHelper.ts` to provide `createTestTranscriptionService`, which uses dynamic `import()` to ensure mocks are applied before the service class is even loaded.
+*   **Result:** Reliable, isolated testing environment with zero cross-test interference.
+
+#### Pattern 15: Over-Mocking Regression Prevention [Expert 2A]
+*   **Problem:** Blindly mocking large modules (like `@/services/transcription/TranscriptionService`) often breaks transitive dependencies that actually need a real implementation to function (e.g., `AudioProcessor` or utility functions).
+*   **Solution:**
+    *   **Targeted Unmocking:** Explicitly call `vi.unmock()` in tests that require the real logic of a component while its parent or peer is mocked.
+    *   **Conditional Mocking:** In `setup.ts`, mocks are only applied if a specific test file hasn't opted out, preventing "Global Mock Poisoning."
+*   **Result:** High-fidelity tests that exercise real logic where appropriate, reducing "Mock Divergence" risk.
+
+#### Pattern 16: Mock Divergence / Isolated Store Factory [Expert 3A]
+*   **Problem:** Manual, incomplete mocks of Zustand stores in component tests were drifting away from the real store implementation, leading to false positives or logic failures that didn't match production.
+*   **Solution:**
+    *   **Shared Factory:** Created `frontend/tests/unit/factories/storeFactory.ts` which provides `createTestSessionStore`.
+    *   **Real Store Logic:** The factory creates a *real* Zustand store but with **mocked actions** (via `vi.fn()`).
+    *   **Isolation:** Each test receives a fresh, isolated instance of the store, preventing state leakage between tests.
+*   **Result:** Tests interact with a store that behaves exactly like production (state-wise) while allowing verification of action calls.
+
 ### Promo Admin System
 We prioritize a secure, dynamic promo code system for internal access/testing.
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                         DYNAMIC PROMO ADMIN FLOW                             │
-└──────────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────┐
+│                         DYNAMIC PROMO ADMIN FLOW                      │
+└───────────────────────────────────────────────────────────────────────┘
 
   STEP 1: GENERATE CODE (Admin/Tester)
   ════════════════════════════════════
@@ -316,10 +358,16 @@ We prioritize a secure, dynamic promo code system for internal access/testing.
 
 SpeakSharp is built on a modern, serverless technology stack designed for real-time applications.
 
-*   **Frontend:**
-    *   **Framework:** React (v18) with Vite (`^7.1.7`)
-    *   **Language:** TypeScript (TSX)
-    *   **Styling:** Tailwind CSS with a standard PostCSS setup (migrated from `@tailwindcss/vite` for improved `arm64` compatibility) and a CVA-based design system.
+### Technology Stack
+
+*   **Core:** React (`^18.3.1`), TypeScript (`^5.2.2`).
+*   **Build Tool:** Vite (`^7.1.7`).
+*   **Styling:** Tailwind CSS (`^3.4.18`).
+*   **State Management:**
+    *   **Zustand (`^5.0.9`):** Primary state manager for UI and session data.
+    *   **React Context:** Used sparingly for Auth identity (`AuthProvider`).
+*   **Data Fetching:** TanStack Query (`^5.90.5`).
+*   **Testing:** Vitest (`^3.2.4`), Playwright (`^1.57.0`).
     *   **Design Parity (Feb 2026):** Optimized radial gradients by replacing `transparent` with `rgba(0,0,0,0)` to eliminate "interpolation mud" (grayish borders) in ambient glows.
     *   **State Management:** React Context and custom hooks
 *   **Backend (BaaS):**
@@ -572,8 +620,10 @@ The `whisper-turbo` engine uses a two-layer cache (Service Worker + IndexedDB) t
 | Environment | Engine Used | Why |
 |-------------|-------------|-----|
 | **E2E Tests (Playwright)** | MockEngine | `window.__E2E_PLAYWRIGHT__` detected |
-| **Unit Tests (Vitest)** | MockEngine | `window.TEST_MODE` detected |
-| **Smoke Tests** | MockEngine | Still runs in Playwright context |
+- **Unit Tests (Vitest):** 526 tests across 86 files (verified 2026-02-15)
+- **E2E Tests (Playwright):** 61 tests
+- **Soak/Performance Tests:** 1 concurrent multi-user scenario
+- **Canary Tests:** 1 production smoke test
 | **Production (WebGPU)** | WhisperTurbo → TransformersJS | Real fallback chain |
 | **Production (no WebGPU)** | TransformersJS | CPU-based ONNX runtime |
 
@@ -1229,7 +1279,7 @@ curl -i -X POST "https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/create-us
 **1. Unit Tests** (`frontend/src/**/*.test.{ts,tsx}`)
 - Run with Vitest in happy-dom environment
 - Uses `createQueryWrapper` for React Query isolation
-- 478 tests across 52+ files (verified 2026-02-09)
+- 526 tests across 86+ files (verified 2026-02-15)
 
 **2. Mock E2E Tests** (`tests/e2e/*.e2e.spec.ts`)
 - Uses Playwright with MSW (Mock Service Worker)
@@ -2917,11 +2967,13 @@ To ensure deterministic E2E testing of the resilience flow, we've implemented a 
 
 The following issues were identified during a comprehensive production readiness audit. These are categorized by domain and severity.
 
-### 17.1 Critical Technical Debt (Production Blockers)
-- **Audio Context Leaks**: `PrivateWhisper.ts` fails to remove microphone frame listeners, leading to exponential CPU growth and memory exhaustion.
-- **Stale Closures**: `useSpeechRecognition` loses final transcription chunks due to stale closure capture during session stop.
+### 17.1 Resolved Production Hardening (Feb 2026)
+- **[RESOLVED] Audio Context Leaks**: Implemented `isTerminating` flag and explicit cleanup in `TranscriptionService.ts` to prevent zombie instances and resource leaks.
+- **[RESOLVED] Stale Closures**: Unified session state in `useSessionStore` with deterministic `tick()` logic, ensuring state consistency during session stop.
+- **[RESOLVED] Concurrency/Overwrite**: Hardened `TranscriptionService` to await termination of active instances before switching modes, preventing overlapping worker threads.
+
+### 17.2 Pending Technical Debt
 - **Atomic Operations**: `update_user_usage` in PostgreSQL is non-atomic, leading to lost usage counts during concurrent saves.
-- **Concurrency/Overwrite**: `TranscriptionService` overwrites the active provider instance without calling `.terminate()`.
 - **Security**: Admin secret comparison in `apply-promo` is vulnerable to timing attacks.
 - **Rate Limiting**: Missing server-side rate limiting in Edge Functions.
 

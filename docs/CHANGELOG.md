@@ -18,6 +18,9 @@ All notable changes to this project will be documented in this file.
     5. **Data-Ready Attributes**: Added `data-ready` and `data-recording` tags for deterministic E2E testing.
   - **Concurrency:** Hardened termination logic with post-lock re-checks and `ImmutableCallbackProxy` for stale closure prevention.
   - **Test Quality:** Restored unit test suite health (rescued `zombie.test.ts`, `race.test.ts`) using `vi.waitFor` and enhanced `setup.ts` mocks.
+  - **Hardening (Expert 1A):** Mitigated "Mock Poisoning" by hoisting polyfills and implementing `serviceHelper.ts` for lazy, dynamic service initialization in tests.
+  - **Hardening (Expert 2A):** Prevented "Over-Mocking" regressions by implementing targeted `vi.unmock()` calls for transitive dependencies.
+  - **Hardening (Expert 3A):** Resolved "Mock Divergence" by standardizing on `storeFactory.ts`, providing real Zustand store instances with mocked actions for component tests.
 
 - **Phase 2 Hardening Release (2026-02-12):**
   - **Harden:** Resolved all high-priority linting and type errors across the project, achieving "Zero Tolerance" CI status (`pnpm typecheck && pnpm lint` verified green).

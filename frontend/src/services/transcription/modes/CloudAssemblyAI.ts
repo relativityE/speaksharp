@@ -1,8 +1,8 @@
 import { ITranscriptionMode, TranscriptionModeOptions, Transcript, TranscriptionError } from './types';
 import { getSupabaseClient } from '../../../lib/supabaseClient';
 import { Session } from '@supabase/supabase-js';
-import { floatToInt16Async } from '../utils/AudioProcessor';
-import logger from '../../../lib/logger';
+import { floatToInt16Async } from '@/services/transcription/utils/AudioProcessor';
+import logger from '@/lib/logger';
 
 // Message types for AssemblyAI WebSocket
 interface AssemblyAIMessage {
@@ -34,6 +34,7 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
 
   // Connection State Machine
   private connectionId: number = 0;
+  private flushPromise: Promise<void> | null = null;
 
   // Reconnection logic
   private reconnectionAttempts: number = 0;
@@ -156,7 +157,6 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
           return;
         }
 
-        logger.info(`[CloudAssemblyAI] WebSocket connected (ID: ${currentConnectionId}).`);
         this.updateConnectionState('connected');
         this.reconnectionAttempts = 0; // Reset counters on successful connection
 
@@ -321,6 +321,11 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
   }
 
   private async flushAudioQueue() {
+    this.flushPromise = this._doFlush();
+    await this.flushPromise;
+  }
+
+  private async _doFlush() {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
 
     logger.info(`[CloudAssemblyAI] Flushing ${this.audioQueue.length} queued audio chunks.`);
@@ -330,6 +335,14 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
       if (chunk) {
         await this.sendAudioChunk(chunk);
       }
+    }
+  }
+
+  public async waitForFlush(): Promise<void> {
+    // If flush is already in progress or completed, await it.
+    // If not yet started, we don't wait indefinitely here (the test should trigger it).
+    if (this.flushPromise) {
+      await this.flushPromise;
     }
   }
 

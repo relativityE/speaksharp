@@ -1,5 +1,4 @@
-// @vitest-environment happy-dom
-import { renderHook } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import { useSessionLifecycle } from '../useSessionLifecycle';
 import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
 import { useSessionStore, type SessionStore as SessionStoreType } from '@/stores/useSessionStore';
@@ -12,26 +11,30 @@ import type { UsageLimitCheck } from '../useUsageLimit';
 import type { PauseMetrics } from '@/services/audio/pauseDetector';
 
 // Mock ALL hooks used inside useSessionLifecycle
+vi.mock('@/hooks/useProfile', () => ({
+    useProfile: vi.fn(() => ({
+        id: 'test-user',
+        subscription_status: 'free',
+        email: 'test@example.com'
+    })),
+}));
+
+import { useProfile } from '@/hooks/useProfile';
+
 vi.mock('@/contexts/AuthProvider', () => ({
     useAuthProvider: () => ({ session: { access_token: 'mock-token' }, user: { id: 'test-user' } }),
 }));
 
-vi.mock('../useUserProfile', () => ({
-    useUserProfile: () => ({ data: { subscription_status: 'free' }, isLoading: false }),
-}));
+// Redundant useUserProfile removed
 
 vi.mock('@tanstack/react-query', () => ({
     useQueryClient: () => ({ invalidateQueries: vi.fn() }),
 }));
 
+import { createTestSessionStore } from '../../../tests/unit/factories/storeFactory';
+
 vi.mock('@/stores/useSessionStore', () => ({
-    useSessionStore: vi.fn((selector: (state: unknown) => unknown) => {
-        const state = {
-            updateElapsedTime: vi.fn(),
-            elapsedTime: 0,
-        };
-        return selector ? (selector as (s: typeof state) => unknown)(state) : state;
-    }),
+    useSessionStore: vi.fn(),
 }));
 
 // Global mock for useUsageLimit
@@ -78,19 +81,24 @@ const baseSttStatus: SttStatus = {
     message: 'Ready',
 };
 
+// Shared mocks for useSpeechRecognition to ensure reference equality in tests
+const mockStartListening = vi.fn();
+const mockStopListening = vi.fn();
+const mockReset = vi.fn();
+
 vi.mock('../useSpeechRecognition', () => ({
     useSpeechRecognition: vi.fn(() => ({
         transcript: baseTranscript,
         chunks: [],
         interimTranscript: '',
         fillerData: {},
-        startListening: vi.fn(),
-        stopListening: vi.fn(),
+        startListening: mockStartListening,
+        stopListening: mockStopListening,
         isListening: false,
         isReady: true,
         isSupported: true,
         error: null,
-        reset: vi.fn(),
+        reset: mockReset,
         pauseMetrics: basePauseMetrics,
         modelLoadingProgress: 0,
         sttStatus: baseSttStatus,
@@ -108,6 +116,14 @@ vi.mock('../useVocalAnalysis', () => ({
 
 vi.mock('../useSessionManager', () => ({
     useSessionManager: () => ({ saveSession: vi.fn(async () => ({ session: { id: 'test-session' }, error: null })) }),
+}));
+
+vi.mock('@/components/session/ClarityScoreCard', () => ({
+    ClarityScoreCard: (props: any) => <div data-testid="clarity-score-card">Clarity: {props.clarityScore}</div>,
+}));
+
+vi.mock('@/components/session/SpeakingRateCard', () => ({
+    SpeakingRateCard: (props: any) => <div data-testid="speaking-rate-card">WPM: {props.wpm}</div>,
 }));
 
 vi.mock('../useSessionMetrics', () => ({
@@ -137,9 +153,19 @@ vi.mock('@/config/env', () => ({
 describe('useSessionLifecycle - Auto-Stop Logic', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+
+        // Use factory for a fresh store each test
+        (useSessionStore as any).mockImplementation(createTestSessionStore());
+
+        // Ensure default is free for auto-stop tests
+        vi.mocked(useProfile).mockReturnValue({
+            id: 'test-user',
+            subscription_status: 'free',
+            email: 'test@example.com'
+        } as any);
     });
 
-    it('should trigger handleStartStop when elapsed time exceeds limit', () => {
+    it('should trigger handleStartStop when elapsed time exceeds limit', async () => {
         const mockElapsedTime = 31;
         const mockLimit: UsageLimitCheck = {
             remaining_seconds: 30,
@@ -149,26 +175,24 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             is_pro: false
         };
 
-        (useSessionStore as unknown as Mock).mockImplementation((selector?: (state: SessionStoreType) => unknown) => {
-            const state = {
-                updateElapsedTime: vi.fn(),
-                elapsedTime: mockElapsedTime,
-            } as unknown as SessionStoreType;
-            return selector ? (selector as (s: SessionStoreType) => unknown)(state) : state;
-        });
+        (useSessionStore as any).mockImplementation(createTestSessionStore({
+            isListening: true, // AUTO-STOP logic requires isListening to be true
+            elapsedTime: mockElapsedTime,
+            startTime: Date.now() - (mockElapsedTime * 1000),
+        }));
 
         vi.mocked(useSpeechRecognition).mockReturnValue({
             transcript: baseTranscript,
             chunks: [],
             interimTranscript: '',
             fillerData: {},
-            startListening: vi.fn(),
-            stopListening: vi.fn(),
+            startListening: mockStartListening,
+            stopListening: mockStopListening,
             isListening: true,
             isReady: true,
             isSupported: true,
             error: null,
-            reset: vi.fn(),
+            reset: mockReset,
             pauseMetrics: basePauseMetrics,
             modelLoadingProgress: 0,
             sttStatus: { type: 'ready', message: 'Recording' },
@@ -183,33 +207,35 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             status: 'success',
         } as unknown as UseQueryResult<UsageLimitCheck, Error>);
 
+        // Verify it is indeed a Free user via isPro mock if necessary, 
+        // but isPro(profile.subscription_status) handles it.
+
         renderHook(() => useSessionLifecycle());
 
-        const { stopListening } = useSpeechRecognition();
-        expect(stopListening).toHaveBeenCalled();
+        await waitFor(() => {
+            expect(mockStopListening).toHaveBeenCalled();
+        }, { timeout: 2000 });
     });
 
     it('should NOT trigger stop when time remains', () => {
-        (useSessionStore as unknown as Mock).mockImplementation((selector: (state: unknown) => unknown) => {
-            const state = {
-                updateElapsedTime: vi.fn(),
-                elapsedTime: 25,
-            };
-            return selector ? (selector as (s: typeof state) => unknown)(state) : state;
-        });
+        (useSessionStore as any).mockImplementation(createTestSessionStore({
+            elapsedTime: 25,
+            isListening: true,
+            startTime: Date.now() - 25000,
+        }));
 
         vi.mocked(useSpeechRecognition).mockReturnValue({
             transcript: baseTranscript,
             chunks: [],
             interimTranscript: '',
             fillerData: {},
-            startListening: vi.fn(),
-            stopListening: vi.fn(),
+            startListening: mockStartListening,
+            stopListening: mockStopListening,
             isListening: true,
             isReady: true,
             isSupported: true,
             error: null,
-            reset: vi.fn(),
+            reset: mockReset,
             pauseMetrics: basePauseMetrics,
             modelLoadingProgress: 0,
             sttStatus: { type: 'ready', message: 'Recording' },
@@ -232,7 +258,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         renderHook(() => useSessionLifecycle());
 
-        const { stopListening } = useSpeechRecognition();
-        expect(stopListening).not.toHaveBeenCalled();
+        expect(mockStopListening).not.toHaveBeenCalled();
     });
 });

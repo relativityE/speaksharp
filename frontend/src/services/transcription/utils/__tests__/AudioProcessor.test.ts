@@ -1,4 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+// ✅ CRITICAL: Unmock for THIS file only (Prevent Over-Mocking)
+vi.unmock('../AudioProcessor');
+
 import {
     floatToInt16,
     floatToWav,

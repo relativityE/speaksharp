@@ -10,7 +10,7 @@ if (import.meta.env.MODE === 'development') {
     },
   };
 } else if (import.meta.env.MODE === 'test') {
-  options.level = 'silent';
+  options.level = 'info';
 }
 
 const logger = pino(options);

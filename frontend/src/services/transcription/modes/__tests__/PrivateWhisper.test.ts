@@ -8,6 +8,10 @@
  */
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// ✅ CRITICAL: Unmock for THIS file only (Prevent Over-Mocking)
+vi.unmock('../PrivateWhisper');
+
 import PrivateWhisper from '../PrivateWhisper';
 import { Result } from 'true-myth';
 import { MicStream } from '../../utils/types';

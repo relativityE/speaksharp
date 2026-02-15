@@ -108,8 +108,8 @@ const VALID_MODES = ['native', 'private', 'cloud'] as const;
 
 export default class TranscriptionService {
   private static privateFailures: FailureRecord = { count: 0, lastFailureTime: 0 };
-  private mode: TranscriptionMode | null = null;
-  private state: ServiceState = 'IDLE';
+  protected mode: TranscriptionMode | null = null;
+  protected state: ServiceState = 'IDLE';
   // ... existing private properties ...
   private onTranscriptUpdate: (update: TranscriptUpdate) => void;
   private onModelLoadProgress: (progress: number | null) => void;
@@ -117,7 +117,7 @@ export default class TranscriptionService {
   private onModeChange?: (mode: TranscriptionMode | null) => void;
 
   // ZOMBIE PREVENTION: Guard against concurrent terminate calls
-  private isTerminating = false;
+  protected isTerminating = false;
   private onStatusChange?: (status: SttStatus) => void;
   private onAudioData?: (data: Float32Array) => void;
   private session: Session | null;
@@ -131,7 +131,7 @@ export default class TranscriptionService {
   private static hasInitializedBefore = !!localStorage.getItem('ss_stt_initialized');
   private stateStartTime: number = Date.now();
   private lastError: Error | null = null;
-  private instance: ITranscriptionMode | null = null;
+  protected instance: ITranscriptionMode | null = null;
   private startTime: number | null = null;
   private startTimestamp: number = 0;
   private readonly MIN_RECORDING_DURATION_MS = 100;

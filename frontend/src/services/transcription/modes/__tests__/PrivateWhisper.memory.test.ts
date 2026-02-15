@@ -1,5 +1,9 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+// ✅ CRITICAL: Unmock for THIS file only (Prevent Over-Mocking)
+vi.unmock('../PrivateWhisper');
+
 import PrivateWhisper from '../PrivateWhisper';
 import { MicStream } from '../../utils/types';
 import { testRegistry } from '../../TestRegistry';

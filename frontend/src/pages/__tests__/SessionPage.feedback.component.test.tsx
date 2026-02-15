@@ -122,6 +122,7 @@ vi.mock('@/components/session/SessionPageSkeleton', () => ({ SessionPageSkeleton
 import { useSpeechRecognition } from '../../hooks/useSpeechRecognition';
 import * as SessionStore from '../../stores/useSessionStore';
 import { useSessionStore } from '../../stores/useSessionStore';
+import { createTestSessionStore } from '../../../tests/unit/factories/storeFactory';
 
 describe('SessionPage Feedback Logic', () => {
     beforeEach(() => {
@@ -140,13 +141,9 @@ describe('SessionPage Feedback Logic', () => {
             chunks: [],
         });
 
-        (useSessionStore as unknown as Mock).mockImplementation((selector?: (state: SessionStore.SessionStore) => unknown) => {
-            const state = {
-                updateElapsedTime: mockUpdateElapsedTime,
-                elapsedTime: 0,
-            } as unknown as SessionStore.SessionStore;
-            return selector ? selector(state) : state;
-        });
+        (useSessionStore as any).mockImplementation(createTestSessionStore({
+            elapsedTime: 0,
+        }));
     });
 
     it('should show "Session too short" warning in status bar when stopped < 5s', async () => {
@@ -165,13 +162,9 @@ describe('SessionPage Feedback Logic', () => {
         });
 
         // Mock elapsed time to 2s
-        (useSessionStore as unknown as Mock).mockImplementation((selector: (state: { elapsedTime: number }) => unknown) => {
-            const state = {
-                updateElapsedTime: mockUpdateElapsedTime,
-                elapsedTime: 2,
-            };
-            return selector ? selector(state) : state;
-        });
+        (useSessionStore as any).mockImplementation(createTestSessionStore({
+            elapsedTime: 2,
+        }));
 
         render(
             <MemoryRouter>
@@ -208,13 +201,9 @@ describe('SessionPage Feedback Logic', () => {
             chunks: [],
         });
 
-        (useSessionStore as unknown as Mock).mockImplementation((selector: (state: unknown) => unknown) => {
-            const state = {
-                updateElapsedTime: mockUpdateElapsedTime,
-                elapsedTime: 10,
-            };
-            return selector ? (selector as (s: typeof state) => unknown)(state) : state;
-        });
+        (useSessionStore as any).mockImplementation(createTestSessionStore({
+            elapsedTime: 10,
+        }));
 
         mockSaveSession.mockResolvedValue({ session: { id: '123' } });
 

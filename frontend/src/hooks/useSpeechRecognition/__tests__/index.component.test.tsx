@@ -119,10 +119,17 @@ describe('useSpeechRecognition', () => {
     expect(useTranscriptionService).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
         session: null,
-        onTranscriptUpdate: expect.any(Function),
-        onReady: expect.any(Function),
-        onModelLoadProgress: expect.any(Function),
-        navigate: expect.any(Function),
+        profile: {
+          id: 'mock-user-id',
+          subscription_status: 'pro',
+          email: 'test@example.com'
+        },
+        customVocabulary: [],
+        getAssemblyAIToken: expect.any(Function),
+        policy: expect.objectContaining({
+          executionIntent: 'prod-pro-default',
+          preferredMode: null
+        })
       })
     );
   });

@@ -38,6 +38,7 @@ interface SessionActions {
     setSTTStatus: (status: SttStatus) => void;
     setSTTMode: (mode: TranscriptionMode | null) => void;
     setModelLoadingProgress: (progress: number | null) => void;
+    tick: () => void;
     resetSession: () => void;
 }
 
@@ -112,6 +113,11 @@ export const useSessionStore = create<SessionStore>((set) => ({
         set({
             modelLoadingProgress: progress,
         }),
+
+    tick: () => set((state) => {
+        if (!state.isListening || !state.startTime) return state;
+        return { elapsedTime: Math.floor((Date.now() - state.startTime) / 1000) };
+    }),
 
     resetSession: () =>
         set(initialState),

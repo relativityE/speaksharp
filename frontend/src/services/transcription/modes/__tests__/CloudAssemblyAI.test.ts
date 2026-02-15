@@ -1,10 +1,23 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import CloudAssemblyAI from '../CloudAssemblyAI';
-import { Session } from '@supabase/supabase-js';
+
+// Mock AudioProcessor - MUST BE AT TOP LEVEL FOR HOISTING
+vi.mock('@/services/transcription/utils/AudioProcessor', () => ({
+    floatToInt16Async: vi.fn(async (input: Float32Array) => ({
+        result: new Int16Array(input.length),
+        base64: 'fake-base64'
+    })),
+    floatToInt16: vi.fn((input: Float32Array) => new Int16Array(input.length)),
+    concatenateFloat32Arrays: vi.fn((arrays: Float32Array[]) => new Float32Array(0)),
+    AudioBuffer: class {
+        addSamples = vi.fn(() => null);
+        flush = vi.fn(() => new Int16Array(0));
+        clear = vi.fn();
+    }
+}));
 
 // Mock Supabase client
 const mockGetSession = vi.fn();
-vi.mock('../../../../lib/supabaseClient', () => ({
+vi.mock('@/lib/supabaseClient', () => ({
     getSupabaseClient: () => ({
         auth: {
             getSession: mockGetSession
@@ -12,16 +25,11 @@ vi.mock('../../../../lib/supabaseClient', () => ({
     })
 }));
 
-// Mock AudioProcessor
-vi.mock('../../utils/AudioProcessor', () => ({
-    floatToInt16Async: vi.fn(async (input: Float32Array) => ({
-        result: new Int16Array(input.length),
-        base64: 'fake-base64'
-    }))
-}));
+import CloudAssemblyAI from '@/services/transcription/modes/CloudAssemblyAI';
+import { Session } from '@supabase/supabase-js';
 
 // Mock Logger
-vi.mock('../../../../lib/logger', () => ({
+vi.mock('@/lib/logger', () => ({
     default: {
         info: vi.fn(),
         warn: vi.fn(),
@@ -253,21 +261,31 @@ describe('CloudAssemblyAI (Native WebSocket)', () => {
     });
 
     describe('Audio Processing', () => {
-        it('should queue audio when connecting and flush on open', async () => {
+        it('should queue audio when connecting and flush on open (Behavioral)', async () => {
             await mode.startTranscription();
-            // Socket created but not open (readyState = CONNECTING)
+
+            // Allow microtasks to complete (fetchToken, etc.)
+            await Promise.resolve();
 
             const audioData = new Float32Array([0.5, -0.5]);
             mode.processAudio(audioData);
 
-            const socket = LAST_SOCKET();
+            // ✅ Behavioral check: Queue should have 1 item while connecting
+            expect(mode['audioQueue'].length).toBe(1);
 
-            expect(socket.send).not.toHaveBeenCalled(); // Queued
+            const socket = LAST_SOCKET();
+            if (!socket) throw new Error('No socket found');
 
             socket.simulateOpen();
-            // Should flush queue - wait for async operations
-            await vi.waitUntil(() => socket.send.mock.calls.length > 0);
-            expect(socket.send).toHaveBeenCalledWith(expect.stringContaining('audio_data'));
+
+            // ✅ Use behavioral waiting: Wait for the socket to actually send the data
+            // This handles the async nature of _doFlush and floatToInt16Async
+            await vi.waitFor(() => {
+                expect(socket.send).toHaveBeenCalledWith(expect.stringContaining('audio_data'));
+            }, { timeout: 2000 });
+
+            // ✅ Behavioral check: Queue should also be empty now
+            expect(mode['audioQueue'].length).toBe(0);
         });
     });
 

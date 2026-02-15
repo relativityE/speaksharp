@@ -10,6 +10,12 @@ import * as SpeechRecognitionHook from '../../hooks/useSpeechRecognition';
 import * as SessionStore from '../../stores/useSessionStore';
 import * as VocalAnalysisHook from '../../hooks/useVocalAnalysis';
 import * as AuthProvider from '../../contexts/AuthProvider';
+import { createTestSessionStore } from '../../../tests/unit/factories/storeFactory';
+
+// ARCHITECTURE: Mock useSessionLifecycle to strictly unit test the View
+vi.mock('@/hooks/useSessionLifecycle');
+import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
+const mockUseSessionLifecycle = vi.mocked(useSessionLifecycle);
 
 // Mock dependencies
 vi.mock('../../hooks/useSpeechRecognition');
@@ -43,7 +49,6 @@ vi.mock('@/components/session/PauseMetricsDisplay', () => ({ PauseMetricsDisplay
 vi.mock('@/components/session/UserFillerWordsManager', () => ({ UserFillerWordsManager: () => <div>User Filler Words</div> }));
 
 // Helper to render with router
-// Helper to render with router
 const renderWithRouter = (ui: React.ReactElement) => {
     const queryClient = new QueryClient();
     return render(
@@ -65,29 +70,36 @@ describe('SessionPage - STT Mode Selection UI', () => {
     beforeEach(() => {
         vi.clearAllMocks();
 
-        // Default mocks needed for render
-        mockUseSpeechRecognition.mockReturnValue({
-            transcript: { transcript: '', confidence: 0, isFinal: false },
-            fillerData: {},
-            startListening: vi.fn(),
-            stopListening: vi.fn(),
+        // Default Lifecycle Mock
+        mockUseSessionLifecycle.mockReturnValue({
             isListening: false,
             isReady: true,
-            modelLoadingProgress: null,
-            error: null,
-            resetTranscript: vi.fn(),
+            isProUser: false, // Default to false
+            mode: 'native',
             sttStatus: { type: 'ready', message: '' },
-            chunks: [],
-        } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
+            modelLoadingProgress: null,
+            metrics: {
+                formattedTime: '00:00',
+                wpm: 0,
+                clarityScore: 100,
+                clarityLabel: 'Excellent',
+                wpmLabel: 'Optimal',
+                fillerCount: 0
+            },
+            pauseMetrics: { totalPauses: 0, averagePauseDuration: 0, longPauses: 0, pauseRate: 0 },
+            transcriptContent: '',
+            fillerData: {},
+            setMode: vi.fn(),
+            handleStartStop: vi.fn(),
+            isButtonDisabled: false,
+            showPromoExpiredDialog: false,
+            showAnalyticsPrompt: false,
+            sessionFeedbackMessage: null
+        } as any);
 
-        mockUseSessionStore.mockImplementation((selector?: (state: SessionStore.SessionStore) => unknown) => {
-            const state = {
-                elapsedTime: 0,
-                updateElapsedTime: vi.fn(),
-                resetSession: vi.fn(),
-            } as unknown as SessionStore.SessionStore;
-            return selector ? selector(state) : state;
-        });
+        (mockUseSessionStore as any).mockImplementation(createTestSessionStore({
+            elapsedTime: 0,
+        }));
 
         mockUseVocalAnalysis.mockReturnValue({
             pauseMetrics: { totalPauses: 0, averagePauseDuration: 0, longPauses: 0, pauseRate: 0 },
@@ -106,17 +118,16 @@ describe('SessionPage - STT Mode Selection UI', () => {
     it('should disable Pro options (Private, Cloud) for Free users', async () => {
         const user = userEvent.setup();
 
-        // Mock Free User
-        mockUseUserProfile.mockReturnValue({
-            data: { id: 'test-profile', subscription_status: 'free' },
-            isLoading: false,
-            error: null,
-        } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
+        // Mock Free User via Lifecycle Hook
+        mockUseSessionLifecycle.mockReturnValue({
+            ...mockUseSessionLifecycle(),
+            isProUser: false
+        } as any);
 
         renderWithRouter(<SessionPage />);
 
         // Open dropdown using userEvent
-        const trigger = screen.getByText('Browser'); // Initial label
+        const trigger = screen.getByText('Native Browser'); // Initial label
         await user.click(trigger);
 
         // Radix UI renders content in a specific way, userEvent should handle it.
@@ -131,16 +142,15 @@ describe('SessionPage - STT Mode Selection UI', () => {
     it('should enable options for Pro users', async () => {
         const user = userEvent.setup();
 
-        // Mock Pro User
-        mockUseUserProfile.mockReturnValue({
-            data: { id: 'test-profile', subscription_status: 'pro' },
-            isLoading: false,
-            error: null,
-        } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
+        // Mock Pro User via Lifecycle Hook
+        mockUseSessionLifecycle.mockReturnValue({
+            ...mockUseSessionLifecycle(),
+            isProUser: true
+        } as any);
 
         renderWithRouter(<SessionPage />);
 
-        const trigger = screen.getByText('Browser');
+        const trigger = screen.getByText('Native Browser');
         await user.click(trigger);
 
         // Note: For Pro users, the "(Pro)" suffix is not shown

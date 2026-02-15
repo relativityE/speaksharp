@@ -236,7 +236,10 @@ describe('SignUpPage', () => {
 
         it('should disable submit button while submitting', async () => {
             const user = userEvent.setup();
-            mockSignUp.mockImplementation(() => new Promise(resolve => setTimeout(resolve, 100)));
+            mockSignUp.mockImplementation(() => new Promise(resolve => setTimeout(() => resolve({
+                data: { user: null, session: null },
+                error: null
+            }), 100)));
 
             renderSignUpPage();
 

@@ -10,7 +10,9 @@ const mockService = {
   stopTranscription: vi.fn().mockResolvedValue({ success: true, transcript: '', stats: { transcript: '', total_words: 0, accuracy: 0, duration: 0 } }),
   destroy: vi.fn().mockResolvedValue(undefined),
   getMode: vi.fn().mockReturnValue('native'),
-  getEngineType: vi.fn().mockReturnValue('native')
+  getEngineType: vi.fn().mockReturnValue('native'),
+  updateCallbacks: vi.fn(),
+  updatePolicy: vi.fn()
 };
 
 vi.mock('../../../services/transcription/TranscriptionService', () => ({

@@ -19,7 +19,7 @@ export const useSessionLifecycle = () => {
     const { session } = useAuthProvider();
     const profile = useProfile();
     const queryClient = useQueryClient();
-    const updateElapsedTime = useSessionStore(state => state.updateElapsedTime);
+    const tick = useSessionStore(state => state.tick);
     const elapsedTime = useSessionStore(state => state.elapsedTime);
     const { data: usageLimit } = useUsageLimit();
     const { updateStreak } = useStreak();
@@ -29,7 +29,6 @@ export const useSessionLifecycle = () => {
     const [mode, setMode] = useState<'cloud' | 'native' | 'private'>('native');
     const [showAnalyticsPrompt, setShowAnalyticsPrompt] = useState(false);
     const [sessionFeedbackMessage, setSessionFeedbackMessage] = useState<string | null>(null);
-    const startTimeRef = useRef<number | null>(null);
 
     const isProUser = isPro(profile?.subscription_status);
 
@@ -139,38 +138,31 @@ export const useSessionLifecycle = () => {
                 return;
             }
 
-            updateElapsedTime(0);
             setSessionFeedbackMessage(null);
             const policy = buildPolicyForUser(isProUser, mode);
             await startListening(policy);
             posthog.capture('session_started', { mode });
         }
-    }, [isListening, elapsedTime, stopListening, updateStreak, saveSession, queryClient, isProUser, usageLimit, updateElapsedTime, mode, startListening]);
+    }, [isListening, elapsedTime, stopListening, updateStreak, saveSession, queryClient, isProUser, usageLimit, mode, startListening]);
 
-    // Timer logic
+    // Timer logic: Heartbeat for the store's tick
     useEffect(() => {
         if (isListening) {
-            startTimeRef.current = Date.now();
             const interval = setInterval(() => {
-                if (startTimeRef.current) {
-                    updateElapsedTime(Math.floor((Date.now() - startTimeRef.current) / 1000));
-                }
+                tick();
             }, 1000);
             return () => clearInterval(interval);
         }
-    }, [isListening, updateElapsedTime]);
+    }, [isListening, tick]);
 
     const hasMountedRef = useRef(false);
 
-    // Cleanup/Reset logic for testing and UI consistency
+    // Initial clean state check
     useEffect(() => {
         if (!hasMountedRef.current) {
-            if (!isListening) {
-                updateElapsedTime(0);
-            }
             hasMountedRef.current = true;
         }
-    }, [isListening, updateElapsedTime]); // Run once on mount (guarded by ref) to ensure clean state
+    }, []);
 
     // Tier enforcement: Auto-stop when daily limit reached
     useEffect(() => {
