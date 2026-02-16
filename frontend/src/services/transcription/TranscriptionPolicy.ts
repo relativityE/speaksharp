@@ -8,6 +8,8 @@
  * environment/tier policy from execution strategy.
  */
 
+import logger from '../../lib/logger';
+
 export type TranscriptionMode = 'native' | 'cloud' | 'private';
 
 /**
@@ -118,20 +120,37 @@ export function resolveMode(
     policy: TranscriptionPolicy,
     userPreference?: TranscriptionMode | null
 ): TranscriptionMode {
+    logger.info({
+        policyId: policy.executionIntent,
+        userPref: userPreference,
+        policyPref: policy.preferredMode,
+        allowNative: policy.allowNative,
+        allowCloud: policy.allowCloud,
+        allowPrivate: policy.allowPrivate
+    }, '[TranscriptionPolicy] Resolving mode:');
+
     // 1. Check user preference (if allowed)
     if (userPreference && isModeAllowed(userPreference, policy)) {
+        logger.info({ resolved: userPreference, source: 'user-preference' }, '[TranscriptionPolicy] Resolved mode');
         return userPreference;
     }
 
     // 2. Check policy's preferred mode
     if (policy.preferredMode && isModeAllowed(policy.preferredMode, policy)) {
+        logger.info({ resolved: policy.preferredMode, source: 'policy-preference' }, '[TranscriptionPolicy] Resolved mode');
         return policy.preferredMode;
     }
 
     // 3. Fallback order: native -> cloud -> private
-    if (policy.allowNative) return 'native';
-    if (policy.allowCloud) return 'cloud';
-    if (policy.allowPrivate) return 'private';
+    let fallback: TranscriptionMode | null = null;
+    if (policy.allowNative) fallback = 'native';
+    else if (policy.allowCloud) fallback = 'cloud';
+    else if (policy.allowPrivate) fallback = 'private';
+
+    if (fallback) {
+        logger.info({ resolved: fallback, source: 'fallback' }, '[TranscriptionPolicy] Resolved mode');
+        return fallback;
+    }
 
     throw new Error('[TranscriptionPolicy] No allowed transcription mode in policy');
 }

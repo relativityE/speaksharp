@@ -24,77 +24,46 @@ declare global {
 test.describe('Private STT Resilience', () => {
 
     test('should start session immediately using fallback while model downloads in background', async ({ page }) => {
-        // 1. INJECT FAKE STT (Dependency Injection via Registry Queue)
+        // 1. ENABLE REGISTRY & INJECT FAKE STT
         await page.addInitScript(() => {
-            interface STTOptions {
-                onModelLoadProgress?: (progress: number) => void;
-                onReady?: () => void;
-                [key: string]: unknown;
-            }
+            (window as any).__TEST_REGISTRY__.enable();
 
             class FakePrivateSTT {
-                private callbacks: STTOptions = {};
-                private _engineType = 'mock-private';
+                private callbacks: any = {};
+                private _engineType = 'mock-private-resilience';
 
-                async init(options: STTOptions) {
+                async init(options: any) {
                     console.log('[FakePrivateSTT] init() called');
                     this.callbacks = options;
+                    if (this.callbacks.onModelLoadProgress) this.callbacks.onModelLoadProgress(0);
 
-                    // Simulate "Downloading..." state immediately
-                    if (this.callbacks.onModelLoadProgress) {
-                        this.callbacks.onModelLoadProgress(0);
-                    }
-
-                    // BLOCK: Return a Promise that simulates the download/init process
-                    // We attach control references to window so the Playwright test can drive it.
                     return new Promise((resolve) => {
-                        window.__resolvePrivateInit__ = (success: boolean) => {
-                            console.log('[FakePrivateSTT] Manually resolving init...');
+                        (window as any).__resolvePrivateInit__ = (success: boolean) => {
                             if (success) {
-                                // Simulate 100% progress
-                                if (this.callbacks.onModelLoadProgress) {
-                                    this.callbacks.onModelLoadProgress(100);
-                                }
-                                // Simulate Ready
-                                if (this.callbacks.onReady) {
-                                    this.callbacks.onReady();
-                                }
+                                if (this.callbacks.onModelLoadProgress) this.callbacks.onModelLoadProgress(100);
+                                if (this.callbacks.onReady) this.callbacks.onReady();
                                 resolve({ isOk: true, value: 'mock-engine' });
                             } else {
                                 resolve({ isErr: true, error: new Error('Mock init failed') });
                             }
                         };
 
-                        window.__simulatePrivateProgress__ = (progress: number) => {
-                            if (this.callbacks.onModelLoadProgress) {
-                                this.callbacks.onModelLoadProgress(progress);
-                            }
+                        (window as any).__simulatePrivateProgress__ = (progress: number) => {
+                            if (this.callbacks.onModelLoadProgress) this.callbacks.onModelLoadProgress(progress);
                         };
                     });
                 }
 
                 async transcribe(audio: Float32Array) {
-                    // Log usage to satisfy linter
                     console.log(`[FakePrivateSTT] Processing audio chunk of size: ${audio.length}`);
                     return { isErr: false, value: "Fake transcription" };
                 }
 
-                async destroy() {
-                    console.log('[FakePrivateSTT] destroy() called');
-                }
-
-                getEngineType() {
-                    return this._engineType;
-                }
+                async destroy() { }
+                getEngineType() { return this._engineType; }
             }
 
-            // Register factory via queue
-            window.__TEST_REGISTRY_QUEUE__ = window.__TEST_REGISTRY_QUEUE__ || [];
-            window.__TEST_REGISTRY_QUEUE__.push({
-                key: 'privateSTT',
-                factory: () => new FakePrivateSTT()
-            });
-            console.log('[E2E Init] Registered FakePrivateSTT factory in queue');
+            (window as any).__TEST_REGISTRY__.register('private', () => new FakePrivateSTT(), { testName: 'resilience-fake' });
         });
 
         // 2. SETUP SESSION
@@ -102,14 +71,14 @@ test.describe('Private STT Resilience', () => {
         await navigateToRoute(page, '/session');
 
         // Select Private mode
-        await page.getByRole('button', { name: /cloud|private|native/i }).click();
-        await page.getByRole('menuitemradio', { name: /private/i }).click();
+        await page.getByRole('button', { name: /Cloud|Private|Native Browser/i }).click();
+        await page.getByRole('menuitemradio', { name: /Private/i }).click();
 
         // Start session
         await page.getByTestId('session-start-stop-button').click();
 
         // 3. VERIFY FALLBACK (Optimistic Entry Pattern)
-        await expect(page.getByTestId('session-status-indicator')).toContainText(/Recording active/i, { timeout: 10000 });
+        await expect(page.getByTestId('live-session-header')).toContainText(/Recording active/i, { timeout: 10000 });
         await expect(page.getByText(/Setting up private model/i)).toBeVisible();
 
         // 4. VERIFY BACKGROUND DOWNLOAD (Dual-State UI)

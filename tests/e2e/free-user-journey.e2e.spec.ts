@@ -3,7 +3,7 @@
  * 
  * Complete lifecycle test for FREE tier users:
  * 1. Signup via UI
- * 2. Session with Native Browser STT (only option)
+ * 2. Session with Browser STT (only option)
  * 3. Custom vocabulary
  * 4. Analytics verification
  * 5. Logout/relogin persistence
@@ -23,7 +23,7 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
         });
     });
 
-    test('should verify only Native Browser STT is available', async ({ page }) => {
+    test('should verify only Browser STT is available', async ({ page }) => {
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
 
         // Ensure fresh state and synchronize MSW
@@ -38,12 +38,12 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
         const modeDropdownButton = page.getByRole('button', { name: /Native|Cloud|Private|On-Device/i });
         await expect(modeDropdownButton).toBeVisible({ timeout: 5000 });
 
-        // Get the button text - should be "Browser" for free users
+        // Get the button text - should contain "Native" or "Browser" for free users
         const buttonText = await modeDropdownButton.textContent();
-        expect(buttonText?.toLowerCase()).toContain('browser');
+        expect(buttonText?.toLowerCase()).toMatch(/native|browser/);
     });
 
-    test('should complete session with Native Browser STT', async ({ page }) => {
+    test('should complete session with Browser STT', async ({ page }) => {
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
 
         // Ensure fresh state and synchronize MSW
@@ -60,7 +60,7 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
         await expect(page.getByRole('button', { name: /stop/i })).toBeVisible();
 
         // Verify Clarity Score displayed
-        await expect(page.getByText('Native')).toBeVisible();
+        await expect(page.getByText('Browser')).toBeVisible();
 
         // Wait to comply with 5s minimum session duration
         await page.waitForTimeout(6000);

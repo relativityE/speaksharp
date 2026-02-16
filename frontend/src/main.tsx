@@ -14,6 +14,8 @@ import * as Sentry from "@sentry/react";
 import ConfigurationNeededPage from "./pages/ConfigurationNeededPage";
 import App from './App';
 import { IS_TEST_ENVIRONMENT } from '@/config/env';
+import { initE2EConfig } from '../../tests/types/e2eConfig';
+import { migrateOldFlags } from '../../tests/types/flagAdapter';
 
 const REQUIRED_ENV_VARS: string[] = [
   'VITE_SUPABASE_URL',
@@ -161,6 +163,13 @@ const renderApp = async (initialSession: Session | null = null) => {
 
 const initialize = async () => {
   logger.info('[main.tsx] 🏁 Initialize started');
+
+  if (IS_TEST_ENVIRONMENT) {
+    initE2EConfig({});
+    migrateOldFlags();
+    // CRITICAL: Ensure bridge is initialized so MockPrivateWhisper is available
+    import('@/lib/e2e-bridge').then(m => m.initializeE2EEnvironment());
+  }
   logger.info({ buildId: typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : 'unknown' }, '[BUILD] Build ID');
 
   // 🔧 ServiceWorker registration with timeout to prevent indefinite hangs

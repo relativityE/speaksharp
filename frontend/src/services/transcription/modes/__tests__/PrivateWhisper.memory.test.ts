@@ -61,7 +61,7 @@ describe('PrivateWhisper Memory Leaks', () => {
     beforeEach(() => {
         mic = new RealHasListenersMicStream();
         // Inject mock engine via registry
-        testRegistry.register('privateSTT', () => mockSTTEngine);
+        testRegistry.register('private', () => mockSTTEngine);
         whisper = new PrivateWhisper(mockOptions, mockSTTEngine);
     });
 

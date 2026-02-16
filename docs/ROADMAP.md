@@ -539,6 +539,7 @@ This phase is about confirming the core feature set works as expected and polish
 | 8 | **Minimum Session Duration UX** | `SessionPage.tsx` | P2 | ✅ FIXED - Added HUD indicator and feedback message |
 | 9 | **Test Harness Config (Stale Closure)** | `useSpeechRecognition/__tests__` | P3 | 🔴 Skipped reproduction test due to module resolution issues. Simulator misconfigured for this file. |
 | 10 | **Unified Documentation Metric Sync** | `scripts/update-prd-metrics.mjs` | P2 | Automate metric sync for `README.md` and `ARCHITECTURE.md` using markers (currently manual). |
+| 11 | **Remove Mock Timeout Bypass** | `TranscriptionService.ts` | P2 | Evolve the Optimistic Entry logic to handle mocks via a more generic "ready-on-init" flag rather than explicitly checking for mocks, reducing test-prod coupling. |
 
 ### ℹ️ Known Limitations (Accepted)
 

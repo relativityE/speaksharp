@@ -142,7 +142,7 @@ test.describe('Session Comparison & Progress Tracking', () => {
         // 2. Start Recording
         await page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON).click();
         debugLog('[TEST] ✅ Recording started');
-        await expect(page.getByText('Stop').first()).toBeVisible();
+        await expect(page.getByLabel(/Stop Recording/i)).toBeVisible();
 
         // Simulate speech to ensure metrics are calculated
         await mockLiveTranscript(page, ["Hello world this is a test for clarity score."]);

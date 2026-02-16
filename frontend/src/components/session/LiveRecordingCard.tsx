@@ -23,6 +23,7 @@ interface LiveRecordingCardProps {
     formattedTime: string;
     elapsedSeconds: number; // Added for minimum session duration check
     isButtonDisabled: boolean;
+    activeEngine: RecordingMode | 'none' | null;
     // Callbacks
     onModeChange: (mode: RecordingMode) => void;
     onStartStop: () => void;
@@ -44,6 +45,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     formattedTime,
     elapsedSeconds,
     isButtonDisabled,
+    activeEngine,
     onModeChange,
     onStartStop,
 }) => {
@@ -92,7 +94,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                     </div>
                     <div className="flex items-center gap-2">
                         <h1 className="text-base font-semibold text-foreground" data-testid="live-session-header">
-                            {isListening ? (isReady ? "Recording active" : (statusMessage || "Connecting...")) : "Ready to record"}
+                            {isListening ? (activeEngine && activeEngine !== 'none' ? "Recording active" : (statusMessage || "Connecting...")) : "Ready to record"}
                         </h1>
                         {isListening && mode === 'private' && (
                             <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 text-[10px] font-bold border border-emerald-500/20 uppercase tracking-tighter">

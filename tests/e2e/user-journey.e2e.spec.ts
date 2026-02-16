@@ -27,8 +27,8 @@ test.describe('User Journey - Full Onboarding to Trend Analysis', () => {
         await expect(startButton).toBeVisible();
         await startButton.click();
 
-        // Wait for session to start (button should show Stop)
-        await expect(page.getByText('Stop').first()).toBeVisible({ timeout: 10000 });
+        // Wait for session to start (button should show Stop Recording label)
+        await expect(page.getByLabel(/Stop Recording/i)).toBeVisible({ timeout: 10000 });
         debugLog('[TEST] ✅ Step 2: Session started');
 
         // Step 4: Verify Clarity Score card is displayed (core metric)
@@ -41,7 +41,7 @@ test.describe('User Journey - Full Onboarding to Trend Analysis', () => {
         // Step 5: Stop the session
         await startButton.click();
         // Wait for button to return to Start state
-        await expect(page.getByText('Start').first()).toBeVisible({ timeout: 5000 });
+        await expect(page.getByLabel(/Start Recording/i)).toBeVisible({ timeout: 5000 });
         debugLog('[TEST] ✅ Step 4: Session stopped');
 
         // Step 6: Navigate to analytics
@@ -71,7 +71,7 @@ test.describe('User Journey - Full Onboarding to Trend Analysis', () => {
         const startButton = page.getByTestId('session-start-stop-button').first();
         await expect(startButton).toBeVisible();
         await startButton.click();
-        await expect(page.getByText('Stop').first()).toBeVisible({ timeout: 10000 });
+        await expect(page.getByLabel(/Stop Recording/i)).toBeVisible({ timeout: 10000 });
 
         // Wait to comply with 5s minimum session duration
         await page.waitForTimeout(6000);
@@ -104,7 +104,7 @@ test.describe('Free User Tier Restrictions', () => {
         // They should only see Native Browser mode is active
         const nativeBrowserIndicator = page.getByText('Native Browser');
 
-        // The mode should default to Native Browser for free users
+        // The mode should default to Browser for free users
         // Cloud AI and Private should not be selectable or show upgrade prompt
         if (await nativeBrowserIndicator.count() > 0) {
             debugLog('[TEST] ✅ Free user defaults to Native Browser mode');
@@ -114,7 +114,7 @@ test.describe('Free User Tier Restrictions', () => {
         const startButton = page.getByTestId('session-start-stop-button').first();
         await expect(startButton).toBeVisible();
         await startButton.click();
-        await expect(page.getByText('Stop').first()).toBeVisible({ timeout: 10000 });
+        await expect(page.getByLabel(/Stop Recording/i)).toBeVisible({ timeout: 10000 });
         debugLog('[TEST] ✅ Free user can start session with Native Browser');
 
         // Wait to comply with 5s minimum session duration

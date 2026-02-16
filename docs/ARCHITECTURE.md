@@ -632,71 +632,108 @@ The `whisper-turbo` engine uses a two-layer cache (Service Worker + IndexedDB) t
 > All automated tests use MockEngine for reliability and speed.
 > To test real engine behavior, use a production build in a real browser.
 
-### Dependency Injection & Test Registry
+### Universal TestRegistry Priority Pattern
 
-To allow E2E tests to simulate complex resilience scenarios (e.g., "Partial Download Hangs" or "WebGPU Crashes") without relying on brittle global window pollution, we use a **Dependency Injection (DI) + Test Registry** pattern.
+To allow E2E tests to simulate complex resilience scenarios and ensure deterministic mocking across varying environments (Mock, Live, Canary, Driver-Dependent), SpeakSharp implements a strict **Universal Priority Pattern** for STT engine resolution.
 
-**The Pattern:**
-1.  **Facade DI:** `PrivateWhisper` accepts an optional `injectedSTT` in its constructor (`injectedSTT || new PrivateSTT()`).
-2.  **Registry Lookup:** In `test` or `dev` modes, `TranscriptionService` checks singleton `TestRegistry` for a registered factory.
-3.  **Queue Hydration:** E2E tests use `window.__TEST_REGISTRY_QUEUE__` to register mock factories *before* the app bootstraps, ensuring the mock is available immediately upon service initialization.
+**The Priority Chain:**
+
+The `TranscriptionService` resolves the engine instance using `resolveSTTImplementation`, which follows this hierarchy:
+
+1.  **`TestRegistry` (Selection Container):** Priority 100. A singleton-based lookup. Injected mocks (e.g., `StandardMocks.Failure`) take absolute precedence.
+    *   **Partnership with Facade DI:** The `TestRegistry` provides the *source* of the dependency. The injection itself happens via **Facade DI**: the `PrivateWhisper` wrapper accepts an optional `injectedSTT` engine (`IPrivateSTT`) in its constructor (`injectedSTT || new PrivateSTT()`).
+    *   **Queue Hydration:** E2E tests can push factories to `window.__TEST_REGISTRY_QUEUE__` *before* the app bootstraps to ensure immediate availability during service initialization.
+2.  **`E2EConfig` (Environment Mocks):** Priority 50. Injected via `initializeE2EEnvironment`. These are the standard "Fast Mocks" (`MockPrivateWhisper`, etc.) used in CI.
+3.  **Real Implementation:** Priority 0. The default production engines (OpenAI, TransformersJS, Web Speech API).
+
+**Mechanics:**
+- **Diagnostic Introspection:** `TestRegistry.getInfo()` returns the current state and priority of all registered engines, accessible via `window.__TEST_REGISTRY__.getInfo()` in the browser console.
+- **Standard Mocks:** Shared mock behaviors (`failure`, `slow-load`, `controlled-progress`) are defined in `tests/helpers/testRegistry.helpers.ts`.
 
 **Architecture Flow:**
-```
-E2E Test (Playwright)
+```ascii
+TranscriptionService.init(mode)
        │
        ▼
-window.__TEST_REGISTRY_QUEUE__ (Push Factory)
+resolveSTTImplementation(mode)
        │
        ▼
-TestRegistry (Hydrate on Load)
-       │
-       ▼
-TranscriptionService (Get 'privateSTT' Factory)
-       │
-       ▼
-PrivateWhisper(FakePrivateSTT) ◀─── INJECTED MOCK
+TestRegistry.get(mode)? ───────────┐
+       │                           │
+    [No]                         [Yes]
+       │                           │
+       ▼                           ▼
+E2EConfig active? ─────────┐    Mock (Prio 100)
+       │                   │    (e.g. ControlledProgress)
+    [No]                 [Yes]
+       │                   │
+       ▼                   ▼
+Real Engine (Prio 0)    Standard Mock (Prio 50)
+                        (e.g. MockWhisper)
 ```
 
 ### ⚡ Optimistic Entry Pattern
 
-To avoid blocking the user experience during large model downloads (e.g., Private Whisper), SpeakSharp implements an "Optimistic Entry" strategy using a race condition bridge in `TranscriptionService.ts`.
+To avoid blocking the user experience during large model downloads (e.g., Private Whisper), SpeakSharp implements an "Optimistic Entry" strategy in `TranscriptionService.ts`.
 
 #### State Transition Logic
 
-```mermaid
-graph TD
-    Start["User Clicks 'Start'"] --> Race["Promise.race (200ms)"]
-    Race -- "Cache Hit (<200ms)" --> Private["Instant Private STT"]
-    Race -- "Cache Miss (>200ms)" --> Fallback["Instant Fallback (Cloud/Native)"]
-    Fallback --> Background["Background Private Download"]
-    Background -- "Download Finished" --> Ready["Success Toast: 'Private model ready'"]
-    Ready --> Switch["Optional Switch to Local Processing"]
+```ascii
++-----------------------+
+| User Clicks 'Start'   |
++-----------+-----------+
+            |
+            v
++-----------+-----------+
+|   Promise.race (2s)   |
++-----------+-----------+
+            |
+      +-----+-----+
+      |           |
+      v           v
++-----------+ +-----------+
+| Cache Hit | |   Miss    |
+|  (<2s)    | |  (Fallback)|
++-----+-----+ +-----+-----+
+      |           |
+      v           v
++-----------+ +-----------+
+| Instant   | | Background|
+| Private   | | Load      |
++-----------+ +-----+-----+
+                    |
+                    v
+              +-----------+
+              | Success   |
+              | Toast     |
+              +-----------+
 ```
 
 #### Race Logic Implementation
-- **Timeout**: Enforced at **200ms**.
-- **Path A (Hit)**: If the WASM/ONNX model is cached in IndexedDB, initialization completes within the window, and the session begins in `private` mode immediately.
-- **Path B (Miss)**: If the model must be downloaded from the CDN (HuggingFace), the 200ms timeout triggers a `CACHE_MISS`. The system immediately starts the session using the next available mode (Cloud or Native) while the `PrivateWhisper` instance continues loading in the background.
+- **Timeout**: Enforced at **2000ms (2s)**.
+- **Path A (Hit)**: If the model is cached, initialization completes within the window, and the session begins in `private` mode immediately.
+- **Path B (Miss/Slow)**: If the model must be downloaded or initialization is slow, the 2s timeout triggers a `CACHE_MISS`. The system immediately falls back to the next available mode to ensure zero-wait recording.
+- **Mock Handling**: Mock instances (from `TestRegistry` or `E2EConfig`) **bypass the Optimistic Entry timeout** to prevent race conditions during automated tests, ensuring deterministic behavior even on slow CI runners.
 
 ### 🧪 E2E Resilience Testing Strategy
 
-The `private-stt-resilience.spec.ts` test verifies these long-tail UX scenarios by simulating real-world failure modes.
+The `private-stt.e2e.spec.ts` and `private-stt-resilience.spec.ts` tests verify these long-tail UX scenarios using the `TestRegistry`.
 
-#### 1. The "Infinite Hang" Simulation
-- **Mechanism**: Use Playwright Request Interception to catch requests to the HuggingFace CDN (`https://huggingface.co/onnx-community/...`).
-- **Implementation**: The intercepted route is matched and "held" without completion, forcing the `TranscriptionService` to hit the 200ms timeout and execute the fallback.
+#### 1. The "Controlled Progress" Simulation
+- **Mechanism**: Register a `StandardMocks.ControlledProgress` mock in the `TestRegistry`.
+- **Implementation**: The test manually advances model loading progress using `window.__TEST_REGISTRY__.advanceProgress(0.5)`, allowing precise verification of progress bars and fallback logic.
 
 #### 2. Cache Clearance
-- **IndexedDB**: The `transformers-cache` and `models` stores are cleared before each test run to ensure a fresh download (Path B).
-- **LocalStorage**: Branded STT flags are reset to force a fresh initialization.
+- **IndexedDB**: The `transformers-cache` and `models` stores are cleared *before* navigation in E2E tests (via `addInitScript`) to ensure a fresh download simulation (Path B).
+- **LocalStorage**: Branded STT flags and `ss_stt_initialized` are reset to force a fresh initialization cycle.
+- **Cleanup**: `TestRegistry.reset()` is called in `afterEach` hooks to prevent mock leakage between tests.
 
 #### 3. Verification of Executive UX
-The test suite asserts:
-1. **Immediate Intent**: "Setting up private model" toast appears within 2s.
-2. **Zero-Wait Session**: "Recording active" UI appears immediately.
+The resilience test suite asserts:
+1. **Immediate Intent**: "Setting up private model" toast appears within 2s (Optimistic Entry window).
+2. **Zero-Wait Session**: "Recording active" UI appears immediately using fallback mode.
 3. **Background Persistency**: The `StatusNotificationBar` persists "Downloading private model" during the fallback session.
-4. **Completion Milestone**: The success toast "Private model ready" appears AFTER the simulated download finishes.
+4. **Completion Milestone**: The success toast "Private model ready" appears AFTER the simulated download finishes, indicating the engine is hot-swapped or ready for the next session.
 
 
 ### 🧪 Driver-Dependent (Unmocked) Testing

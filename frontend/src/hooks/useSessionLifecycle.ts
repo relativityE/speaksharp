@@ -25,6 +25,7 @@ export const useSessionLifecycle = () => {
     const { updateStreak } = useStreak();
     const { saveSession } = useSessionManager();
     const { userFillerWords } = useUserFillerWords();
+    const activeEngine = useSessionStore(state => state.activeEngine);
 
     const [mode, setMode] = useState<'cloud' | 'native' | 'private'>('native');
     const [showAnalyticsPrompt, setShowAnalyticsPrompt] = useState(false);
@@ -205,6 +206,7 @@ export const useSessionLifecycle = () => {
         transcriptContent: transcript.transcript,
         fillerData,
         isProUser,
+        activeEngine,
         isButtonDisabled: isListening && !isReady, // Only disable IF we have started (isListening) but aren't yet ready. Always allow start (when !isListening) and always allow stop (once ready or if error occurs).
         showPromoExpiredDialog: !!usageLimit?.promo_just_expired,
         usageLimit,

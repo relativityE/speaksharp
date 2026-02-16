@@ -43,6 +43,7 @@ export const SessionPage: React.FC = () => {
         transcriptContent,
         fillerData,
         isProUser,
+        activeEngine,
         isButtonDisabled,
         showPromoExpiredDialog
     } = useSessionLifecycle();
@@ -106,6 +107,7 @@ export const SessionPage: React.FC = () => {
                                     isListening={isListening}
                                     isReady={isReady}
                                     isProUser={isProUser}
+                                    activeEngine={activeEngine}
                                     statusMessage={sttStatus.message}
                                     formattedTime={metrics.formattedTime}
                                     elapsedSeconds={elapsedTime}

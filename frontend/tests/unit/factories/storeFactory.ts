@@ -15,6 +15,7 @@ const initialState: SessionState = {
     sttStatus: { type: 'idle', message: 'Ready to record' },
     sttMode: null,
     modelLoadingProgress: null,
+    activeEngine: null,
 };
 
 /**
@@ -82,6 +83,16 @@ export function createTestSessionStore(
             if (!state.isListening || !state.startTime) return state;
             return { elapsedTime: Math.floor((Date.now() - state.startTime) / 1000) };
         })),
+
+        setActiveEngine: vi.fn((engine) =>
+            set({
+                activeEngine: engine,
+            })),
+
+        setElapsedTime: vi.fn((seconds) =>
+            set({
+                elapsedTime: seconds,
+            })),
 
         resetSession: vi.fn(() =>
             set(initialState)),

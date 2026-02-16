@@ -26,6 +26,7 @@ export interface SessionState {
     sttStatus: SttStatus;
     sttMode: TranscriptionMode | null;
     modelLoadingProgress: number | null;
+    activeEngine: TranscriptionMode | 'none' | null;
 }
 
 interface SessionActions {
@@ -37,8 +38,10 @@ interface SessionActions {
     updateElapsedTime: (time: number) => void;
     setSTTStatus: (status: SttStatus) => void;
     setSTTMode: (mode: TranscriptionMode | null) => void;
+    setActiveEngine: (engine: TranscriptionMode | 'none' | null) => void;
     setModelLoadingProgress: (progress: number | null) => void;
     tick: () => void;
+    setElapsedTime: (seconds: number) => void;
     resetSession: () => void;
 }
 
@@ -57,6 +60,7 @@ const initialState: SessionState = {
     sttStatus: { type: 'idle', message: 'Ready to record' },
     sttMode: null,
     modelLoadingProgress: null,
+    activeEngine: null,
 };
 
 export const useSessionStore = create<SessionStore>((set) => ({
@@ -109,6 +113,11 @@ export const useSessionStore = create<SessionStore>((set) => ({
             sttMode: mode,
         }),
 
+    setActiveEngine: (engine) =>
+        set({
+            activeEngine: engine,
+        }),
+
     setModelLoadingProgress: (progress) =>
         set({
             modelLoadingProgress: progress,
@@ -119,6 +128,16 @@ export const useSessionStore = create<SessionStore>((set) => ({
         return { elapsedTime: Math.floor((Date.now() - state.startTime) / 1000) };
     }),
 
+    setElapsedTime: (seconds) =>
+        set({
+            elapsedTime: seconds,
+        }),
+
     resetSession: () =>
         set(initialState),
 }));
+
+// Expose store to window for E2E tests
+if (typeof window !== 'undefined') {
+    (window as any).useSessionStore = useSessionStore;
+}

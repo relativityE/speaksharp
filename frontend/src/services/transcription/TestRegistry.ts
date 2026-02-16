@@ -1,52 +1,154 @@
+/**
+ * Industry Standard: Dependency Injection Container
+ * Pattern: Singleton Registry with Type Safety
+ * Priority Order: Registry > Config > Real
+ */
+
 import logger from '../../lib/logger';
 
-// Type declaration for global usage
-declare global {
-    interface Window {
-        __TEST_REGISTRY__?: TestRegistry;
-        __TEST_REGISTRY_QUEUE__?: { key: string; factory: unknown }[];
-    }
+export type STTMode = 'native' | 'private' | 'cloud';
+
+export interface RegistryEntry {
+    implementation: any;
+    priority: number;
+    testName: string;
+    timestamp: number;
 }
 
-class TestRegistry {
-    private factories = new Map<string, unknown>();
+class TestRegistryClass {
+    private registry = new Map<string, RegistryEntry>();
+    private isEnabled = true; // Default to true in test environments
 
-    register(key: string, factory: unknown): void {
-        // Safety check: Only allow registration in test/dev modes
-        if (import.meta.env.MODE === 'test' || import.meta.env.DEV) {
-            this.factories.set(key, factory);
-        } else {
-            logger.warn('[TestRegistry] Registration blocked in production mode');
+    /**
+     * Enable registry (called by test setup)
+     */
+    enable(): void {
+        this.isEnabled = true;
+        logger.info('[TestRegistry] Enabled');
+    }
+
+    /**
+     * Disable registry (called by test cleanup)
+     */
+    disable(): void {
+        this.isEnabled = false;
+        this.clear();
+        logger.info('[TestRegistry] Disabled and cleared');
+    }
+
+    /**
+     * Register a custom implementation (factory)
+     * 
+     * @param mode - STT mode (native, private, cloud)
+     * @param factory - Factory function that returns an implementation
+     * @param options - Registration options
+     */
+    register(
+        mode: STTMode,
+        factory: unknown,
+        options?: {
+            priority?: number;
+            testName?: string;
+        }
+    ): void {
+        const key = `${mode}STT`;
+        const entry: RegistryEntry = {
+            implementation: factory,
+            priority: options?.priority ?? 100,
+            testName: options?.testName ?? 'unknown',
+            timestamp: Date.now()
+        };
+
+        this.registry.set(key, entry);
+
+        logger.info({
+            key,
+            priority: entry.priority,
+            testName: entry.testName
+        }, '[TestRegistry] Registered factory');
+    }
+
+    /**
+     * Get implementation factory for a mode
+     */
+    get<T>(mode: STTMode): T | undefined {
+        // Dynamic Hydration from queue (for early injections)
+        this.hydrateFromQueue();
+
+        if (!this.isEnabled) {
+            return undefined;
+        }
+
+        const key = `${mode}STT`;
+        const entry = this.registry.get(key);
+
+        if (entry) {
+            logger.info({
+                key,
+                testName: entry.testName,
+                age: Date.now() - entry.timestamp
+            }, '[TestRegistry] Retrieved factory');
+            return entry.implementation as T;
+        }
+
+        return undefined;
+    }
+
+    /**
+     * Check if implementation is registered
+     */
+    has(mode: STTMode): boolean {
+        this.hydrateFromQueue();
+        const key = `${mode}STT`;
+        return this.isEnabled && this.registry.has(key);
+    }
+
+    /**
+     * Hydrate from __TEST_REGISTRY_QUEUE__ if it exists
+     */
+    private hydrateFromQueue(): void {
+        if (typeof window !== 'undefined' && Array.isArray((window as any).__TEST_REGISTRY_QUEUE__)) {
+            const queue = (window as any).__TEST_REGISTRY_QUEUE__;
+            while (queue.length > 0) {
+                const item = queue.shift();
+                if (item && item.key && item.factory) {
+                    // Map 'privateSTT' etc to just 'private' for the unified registry logic if needed,
+                    // but here we normalize to the mode-based registration.
+                    const mode = item.key.replace('STT', '') as STTMode;
+                    this.register(mode, item.factory, { testName: 'queued-injection' });
+                }
+            }
         }
     }
 
-    get<T>(key: string): T | undefined {
-        return this.factories.get(key) as T | undefined;
-    }
-
+    /**
+     * Clear all registrations
+     */
     clear(): void {
-        this.factories.clear();
+        this.registry.clear();
+        logger.info('[TestRegistry] Cleared all registrations');
+    }
+
+    /**
+     * Get diagnostic info
+     */
+    getInfo() {
+        return {
+            enabled: this.isEnabled,
+            registrations: Array.from(this.registry.entries()).map(([key, entry]) => ({
+                mode: key,
+                priority: entry.priority,
+                testName: entry.testName,
+                age: Date.now() - entry.timestamp
+            }))
+        };
     }
 }
 
-export const testRegistry = new TestRegistry();
+// Singleton instance
+export const testRegistry = new TestRegistryClass();
 
-// Hydrate from queue if exists (global scope injection)
-// This allows E2E tests to register scenarios before app init
+// Expose to window for E2E tests
 if (typeof window !== 'undefined') {
-    const queue = window.__TEST_REGISTRY_QUEUE__;
-    if (Array.isArray(queue)) {
-        logger.info({ count: queue.length }, '[TestRegistry] Hydrating from queue');
-        queue.forEach((item) => {
-            if (item && item.key && item.factory) {
-                testRegistry.register(item.key, item.factory);
-            }
-        });
-    }
-}
-
-// Expose ONLY in development/test environments for E2E tests to hook into
-if ((import.meta.env.MODE === 'test' || import.meta.env.DEV) && typeof window !== 'undefined') {
-    // Use a specific global property for the registry
-    window.__TEST_REGISTRY__ = testRegistry;
+    (window as any).__TEST_REGISTRY__ = testRegistry;
 }

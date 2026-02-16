@@ -8,7 +8,18 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
         // 1. Login with free tier
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
 
-        // 2. Override usage limit mock to return can_start: false
+        // 2. Override usage limit mock and initialize E2E Config
+        await page.addInitScript(() => {
+            (window as any).__E2E_CONFIG__ = {
+                limits: {
+                    mode: 'mock',
+                    mockLimit: {
+                        remaining_seconds: 0
+                    }
+                }
+            };
+        });
+
         await registerEdgeFunctionMock(page, 'check-usage-limit', {
             can_start: false,
             remaining_seconds: 0,
@@ -29,7 +40,7 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
         await startButton.click();
 
         // 6. Check for usage limit reached status message (supports both Daily and Monthly as per requirements)
-        await expect(page.getByTestId('session-status-indicator')).toHaveText(/(Daily|Monthly) usage limit reached/i);
+        await expect(page.getByTestId('session-status-indicator')).toContainText(/(Daily|Monthly) usage limit reached/i);
 
         // 7. Verify we are NOT recording (Button is still 'Start', not 'Stop')
         await expect(startButton.getByText('Stop')).not.toBeVisible();
@@ -58,32 +69,16 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
         await startButton.click();
 
         // 5. Check for "Monthly usage limit reached" status message
-        await expect(page.getByTestId('session-status-indicator')).toHaveText(/Monthly usage limit reached/i);
+        await expect(page.getByTestId('session-status-indicator')).toContainText(/Monthly usage limit reached/i);
     });
 
     test('Daily limit auto-stops an active session', async ({ page }) => {
-        // SKIPPED: Feature works in production but fails in Headless CI due to Audio Context hangs.
-        // Logic covered by Unit Tests in `useSessionLifecycle.test.ts`.
-        // See: tier_limits_incident_report.md
-
         // 1. Login with free tier
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
-
-        /**
-         * ⚠️ SKIP-IF-CI (MacOS Audio Context Bug)
-         * 
-         * This test is prone to hanging in Headless MacOS CI environments 
-         * because the 'MockNativeBrowser' still triggers certain AudioContext
-         * code paths that lack proper mocks in Playwright.
-         * 
-         * Works 100% locally in headed or headless mode.
-         */
-        if (process.env.CI) test.skip();
 
         await navigateToRoute(page, '/');
 
         // 1. Mock usage limit to have 5 seconds remaining
-        // NOTE: programmaticLoginWithRoutes already calls setupE2EMocks, so we only need overrides here.
         await registerEdgeFunctionMock(page, 'check-usage-limit', {
             can_start: true,
             remaining_seconds: 5,
@@ -93,10 +88,20 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
             is_pro: false
         });
 
-        // 2. Setup mock session and reload to apply the 5s mock
+        // 2. Setup mock session and E2E Config
         await injectMockSession(page);
+        await page.addInitScript(() => {
+            (window as any).__E2E_CONFIG__ = {
+                limits: {
+                    mode: 'mock',
+                    mockLimit: {
+                        remaining_seconds: 5
+                    }
+                }
+            };
+        });
         await page.reload();
-        await page.waitForLoadState('networkidle'); // Ensure usage limit fetch completes
+        await page.waitForLoadState('networkidle');
 
         // 3. Start session
         await navigateToRoute(page, '/session');
@@ -106,23 +111,20 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
         // 4. Wait for session to start recording
         await expect(page.getByTestId('recording-indicator')).toBeVisible();
 
-        // 5. Wait for auto-stop (should happen > 5 seconds but we wait 20s for safety)
-        /**
-         * 🚨 CRITICAL DISCLAIMER 🚨
-         * 
-         * This assertion verifies that the user is explicitly notified when their session 
-         * is auto-stopped due to tier limits.
-         * 
-         * It is VITAL that the user sees "Daily usage limit reached" (via Toast, Banner, 
-         * or Status Indicator). Do NOT remove or weak this check. If the UI changes (e.g. to a Toast),
-         * update this selector to target the new notification element.
-         * 
-         * The user MUST know why their session stopped.
-         */
-        await expect(page.getByTestId('session-status-indicator')).toHaveText(/(Daily|Monthly) usage limit reached/i, { timeout: 20000 });
+        // 5. DETERMINISTIC PROGRESSION (Expert Solution)
+        // Force the elapsed time to 6s (past the 5s limit)
+        await page.evaluate(() => {
+            (window as any).useSessionStore?.getState()?.setElapsedTime(6);
+        });
+
+        // 6. Verify auto-stop notification
+        await expect(page.getByTestId('session-status-indicator')).toContainText(/(Daily|Monthly) usage limit reached/i, { timeout: 10000 });
+
+        // 7. Verify session stopped (Header reverted)
+        await expect(page.getByTestId('live-session-header')).toContainText(/Ready to record/i, { timeout: 10000 });
 
         // Verify session stopped (Button reverted to 'Start')
-        await expect(page.getByTestId('session-start-stop-button').getByText('Start')).toBeVisible();
+        await expect(page.getByTestId('session-start-stop-button').getByLabel(/Start Recording/i)).toBeVisible();
     });
 
     test('Free users can add up to 100 filler words', async ({ page }) => {

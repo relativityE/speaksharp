@@ -96,6 +96,7 @@ Code MUST be tested locally AND verified via CI (or explicitly waived by user) b
 - **Testing "Gold Standard"**: Mandates that all unit tests must use proper wrappers (like `QueryClientProvider`) and avoid "green illusions" (tests that pass but test nothing).
 - **Fail Fast, Fail Hard**: Tests should never hang. Use aggressive timeouts and explicit assertions to surface failures immediately.
 - **Print/Log Negatives, Assert Positives**: Only log errors and warnings. Use assertions for success verification (no `console.log("✅ Success")` noise).
+- **ASCII Diagrams Only**: Do not use Mermaid. All architectural diagrams must use ASCII for maximum compatibility and readability across all agents and environments.
 - **Event-Based Waits > Timeouts**: Arbitrary timeouts are forbidden unless for failsafes or specific UX timing. Always prefer `waitForSelector`, `vi.waitUntil`, or similar event-driven checks.
 
 ___

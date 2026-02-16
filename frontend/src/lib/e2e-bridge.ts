@@ -37,6 +37,7 @@ import { Session } from '@supabase/supabase-js';
 import logger from '@/lib/logger';
 import { TranscriptionModeOptions, Transcript } from '@/services/transcription/modes/types';
 import { TestFlags } from '@/config/TestFlags';
+import { getE2EConfig } from '../../../tests/types/e2eConfig';
 
 /**
  * E2E Window interface - extends Window with all E2E-specific properties.
@@ -53,6 +54,7 @@ interface E2EWindow extends Window {
     mswReady?: boolean;
     __e2eBridgeReady__?: boolean;
     __e2eProfileLoaded__?: boolean;
+    __E2E_ADVANCE_PROGRESS__?: (progress: number) => void;
 }
 
 /** Type for speech recognition result with isFinal flag */
@@ -307,29 +309,27 @@ class MockPrivateWhisper {
 
     async init() {
         logger.info('[MockPrivateWhisper] init() called - simulating model load');
+        const config = getE2EConfig();
 
         return new Promise<void>((resolve) => {
-            const e2eWindow = window as unknown as E2EWindow & {
-                __E2E_MANUAL_PROGRESS__?: boolean;
-                __E2E_ADVANCE_PROGRESS__?: (progress: number) => void;
-            };
+            const e2eWindow = window as unknown as E2EWindow;
 
-            // Manual Deterministic Mode (Recommended)
-            if (e2eWindow.__E2E_MANUAL_PROGRESS__) {
-                logger.info('[MockPrivateWhisper] 🛠️ Manual progress mode enabled');
+            // Manual Deterministic Mode
+            if (config.progress.mode === 'manual') {
+                logger.info('[MockPrivateWhisper] 🛠️ Manual progress mode enabled via E2EConfig');
 
-                // CRITICAL: Delay the first progress callback by 100ms to let React
-                // commit the start → initializing state transition before we fire
-                // onModelLoadProgress. Without this, React 18 batches both updates
-                // and the UI never sees the intermediate 'downloading' state.
+                if (this.onModelLoadProgress) {
+                    this.onModelLoadProgress(0);
+                }
+
                 setTimeout(() => {
                     if (this.onModelLoadProgress) {
                         logger.info('[MockPrivateWhisper] Firing initial progress: 0.1');
                         this.onModelLoadProgress(0.1);
                     }
-                }, 100);
+                }, 50);
 
-                // Expose advance function to Playwright
+                // Expose advance function to E2EConfig and Window
                 e2eWindow.__E2E_ADVANCE_PROGRESS__ = (progress: number) => {
                     logger.info(`[MockPrivateWhisper] Advancing progress to ${progress}`);
                     if (this.onModelLoadProgress) this.onModelLoadProgress(progress);
@@ -340,6 +340,12 @@ class MockPrivateWhisper {
                         resolve();
                     }
                 };
+
+                // Keep E2EConfig in sync (if advance is missing)
+                if (!config.progress.advance) {
+                    config.progress.advance = e2eWindow.__E2E_ADVANCE_PROGRESS__;
+                }
+
                 return;
             }
 

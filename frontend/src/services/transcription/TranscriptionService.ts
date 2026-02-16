@@ -15,6 +15,7 @@ import {
   PROD_FREE_POLICY,
 } from './TranscriptionPolicy';
 import { useSessionStore } from '../../stores/useSessionStore';
+import { getE2EConfig } from '../../../../tests/types/e2eConfig';
 
 export interface TranscriptUpdate {
   transcript: {
@@ -176,7 +177,7 @@ export default class TranscriptionService {
         logger.info({ progress }, '[TranscriptionService] Model load progress');
         this.trackedModelProgress = progress;
         this.onModelLoadProgress?.(progress);
-        useSessionStore.getState().setModelLoadingProgress(progress ? Math.round(progress * 100) : null);
+        useSessionStore.getState().setModelLoadingProgress(progress !== null ? Math.round(progress * 100) : null);
         // Push progress to UI status specifically for downloading state
         if (progress !== null && progress < 100) {
           this.onStatusChange?.({
@@ -257,7 +258,7 @@ export default class TranscriptionService {
       onModelLoadProgress: (progress: number | null) => {
         this.trackedModelProgress = progress;
         this.onModelLoadProgress?.(progress);
-        useSessionStore.getState().setModelLoadingProgress(progress ? Math.round(progress * 100) : null);
+        useSessionStore.getState().setModelLoadingProgress(progress !== null ? Math.round(progress * 100) : null);
         if (progress !== null && progress < 100) {
           this.onStatusChange?.({
             type: 'downloading',
@@ -539,10 +540,14 @@ export default class TranscriptionService {
     useSessionStore.getState().setSTTMode(resolvedMode);
     this.mode = resolvedMode;
     this.startTimestamp = Date.now();
-    logger.info('[TranscriptionService] Attempting to start transcription...');
-
-    // Resolve the mode using the injected policy
-    logger.info({ resolvedMode, policy: this.policy.executionIntent }, `[TranscriptionService] 🎯 Mode resolved`);
+    logger.info({
+      resolvedMode,
+      policyIntent: this.policy.executionIntent,
+      allowNative: this.policy.allowNative,
+      allowCloud: this.policy.allowCloud,
+      allowPrivate: this.policy.allowPrivate,
+      preferred: this.policy.preferredMode
+    }, '[TranscriptionService] startTranscription: Mode resolved');
 
     const proxy = this.callbackProxy.getProxy();
     const providerConfig: TranscriptionModeOptions = {
@@ -614,7 +619,12 @@ export default class TranscriptionService {
     config: TranscriptionModeOptions
   ): Promise<void> {
     const normalizedMode = mode.trim().toLowerCase();
-    logger.info({ mode, normalizedMode, currentState: this.state }, '[TranscriptionService] executeMode START');
+    logger.info({
+      mode,
+      normalizedMode,
+      currentState: this.state,
+      policyIntent: this.policy.executionIntent
+    }, '[TranscriptionService] executeMode START');
 
     const isValidMode = (m: unknown): m is TranscriptionMode =>
       typeof m === 'string' && (VALID_MODES as readonly string[]).includes(m);
@@ -666,46 +676,29 @@ export default class TranscriptionService {
         logger.info('[TranscriptionService] ☁️ Starting Cloud (AssemblyAI) mode');
         this.instance = new CloudAssemblyAI(config);
         break;
-
       case 'private': {
-        logger.info('[TranscriptionService] 🔒 Starting Private (Whisper) mode');
+        const configObj = getE2EConfig();
 
-        // E2E Mock Override
-        if (window.MockPrivateWhisper && window.__E2E_MOCK_LOCAL_WHISPER__ === true) {
-          logger.info('[TranscriptionService] 🧪 Using MockPrivateWhisper for E2E');
+        // PRIORITY 1: TestRegistry (Most Specific Injection)
+        const factory = testRegistry.get<() => IPrivateSTT>('private');
+        if (factory) {
+          const fake = factory();
+          logger.info({ engine: fake.getEngineType() }, '[TranscriptionService] 🧪 Injecting engine from Registry');
+          this.instance = new (await import('./modes/PrivateWhisper')).default(config, fake);
+          break;
+        }
+
+        // PRIORITY 2: E2E Config Mocks
+        if (configObj.stt.mocks.private !== false && window.MockPrivateWhisper) {
+          logger.info('[TranscriptionService] 🧪 Using MockPrivateWhisper from Config');
           this.instance = new window.MockPrivateWhisper(config);
           break;
         }
 
-        // OPTION C: Dependency Injection via Test Registry
-        let injectedSTT: IPrivateSTT | undefined = undefined;
-        if (import.meta.env.MODE === 'test' || import.meta.env.DEV) {
-          const factory = testRegistry.get<() => IPrivateSTT>('privateSTT');
-          if (factory) {
-            const fake = factory();
-            // Runtime Type Guard
-            const isValidFakeSTT = (obj: unknown): obj is IPrivateSTT => {
-              const o = obj as Record<string, unknown>;
-              return (
-                !!o &&
-                typeof o.init === 'function' &&
-                typeof o.transcribe === 'function' &&
-                typeof o.destroy === 'function' &&
-                typeof o.getEngineType === 'function'
-              );
-            };
-
-            if (isValidFakeSTT(fake)) {
-              logger.info('[TranscriptionService] 🧪 Injecting Valid FakePrivateSTT from Registry');
-              injectedSTT = fake;
-            } else {
-              logger.warn('[TranscriptionService] ⚠️ Invalid factory result from registry. Ignoring injection.');
-            }
-          }
-        }
-
+        // PRIORITY 3: Real Implementation
         const module = await import('./modes/PrivateWhisper');
-        this.instance = new module.default(config, injectedSTT);
+        this.instance = new module.default(config);
+        logger.info({ engine: this.instance.getEngineType() }, '[TranscriptionService] 🔒 Instance created');
         break;
       }
 
@@ -725,32 +718,42 @@ export default class TranscriptionService {
     try {
       // Optimistic Entry Logic
       if (mode === 'private') {
-        logger.info('[TranscriptionService] ⚡ Using Optimistic Entry for Private mode');
-        const initPromise = this.instance!.init();
-        const LOAD_CACHE_TIMEOUT_MS = 30000; /**** 🛡️ [System Integrity] Increased for CI Cold-Start Stability (from 2s) ****/
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('CACHE_MISS')), LOAD_CACHE_TIMEOUT_MS);
-        });
+        const configObj = getE2EConfig();
+        const isMock = configObj.stt.mode === 'mock' ||
+          configObj.stt.mocks.private !== false ||
+          testRegistry.has('private');
 
-        try {
-          await Promise.race([initPromise, timeoutPromise]);
-          logger.info('[TranscriptionService] ✅ Private model Cache Hit - Instant Start');
-        } catch (err: unknown) {
-          const error = err as Error;
-          if (error.message === 'CACHE_MISS') {
-            logger.info('[TranscriptionService] ⏳ Private model Cache Miss - Triggering Background Load + Fallback');
-            this.onModelLoadProgress(0);
+        if (isMock) {
+          logger.info({ config: configObj.stt }, '[TranscriptionService] 🧪 Mock detected - Bypassing Optimistic Entry timeout');
+          await this.instance!.init();
+        } else {
+          logger.info('[TranscriptionService] ⚡ Using Optimistic Entry for Private mode');
+          const initPromise = this.instance!.init();
+          const LOAD_CACHE_TIMEOUT_MS = 2000; /**** 🛡️ [System Integrity] Reduced to 2s for rapid Optimistic Entry / Fallback (from 30s) ****/
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('CACHE_MISS')), LOAD_CACHE_TIMEOUT_MS);
+          });
 
-            initPromise.then(() => {
-              logger.info('[TranscriptionService] ✨ Background Private model ready.');
-              this.onModelLoadProgress(100);
-              this.onReady();
-            }).catch(backgroundErr => {
-              logger.error({ backgroundErr }, '[TranscriptionService] Background model load failed');
-            });
+          try {
+            await Promise.race([initPromise, timeoutPromise]);
+            logger.info('[TranscriptionService] ✅ Private model Cache Hit - Instant Start');
+          } catch (err: unknown) {
+            const error = err as Error;
+            if (error.message === 'CACHE_MISS') {
+              logger.info('[TranscriptionService] ⏳ Private model Cache Miss - Triggering Background Load + Fallback');
+              this.onModelLoadProgress(0);
+
+              initPromise.then(() => {
+                logger.info('[TranscriptionService] ✨ Background Private model ready.');
+                this.onModelLoadProgress(100);
+                this.onReady();
+              }).catch(backgroundErr => {
+                logger.error({ backgroundErr }, '[TranscriptionService] Background model load failed');
+              });
+              throw err;
+            }
             throw err;
           }
-          throw err;
         }
       } else {
         await this.instance!.init();
@@ -760,6 +763,7 @@ export default class TranscriptionService {
       this.startTime = Date.now();
       this.mode = mode;
       this.onModeChange?.(this.mode);
+      useSessionStore.getState().setActiveEngine(mode);
 
       // GUARD: Only transition if we haven't hit an error already (Issue C)
       if (this.state !== 'ERROR') {
@@ -768,8 +772,14 @@ export default class TranscriptionService {
       }
 
     } catch (error) {
-      logger.error({ error, mode }, '[TranscriptionService] execution failed');
-      this.transitionTo('ERROR');
+      const isCacheMiss = error instanceof Error && error.message === 'CACHE_MISS';
+      logger.error({ error, mode, isCacheMiss }, '[TranscriptionService] execution failed');
+
+      // If it's a CACHE_MISS, we don't transition to ERROR here because 
+      // the caller (startTranscription) will handle the fallback or final error transition.
+      if (!isCacheMiss) {
+        this.transitionTo('ERROR');
+      }
       throw error;
     }
   }
@@ -861,6 +871,7 @@ export default class TranscriptionService {
       );
 
       this.transitionTo('READY');
+      useSessionStore.getState().setActiveEngine(null);
       return {
         success: true,
         transcript: finalTranscript,

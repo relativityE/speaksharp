@@ -113,8 +113,8 @@ test.describe('Live Transcript Feature', () => {
 
     // Verify that the UI updates to show the session is active
     debugLog('[TEST DEBUG] Waiting for session status indicator...');
-    const sessionActiveIndicator = page.getByTestId('session-status-indicator');
-    await expect(sessionActiveIndicator).toHaveText(/Recording active/); // Match with or without mode suffix
+    const sessionActiveIndicator = page.getByTestId('live-session-header');
+    await expect(sessionActiveIndicator).toHaveText(/Recording active/);
 
     // The transcript container should show that we're listening
     debugLog('[TEST DEBUG] Waiting for transcript container to show "Listening..."...');

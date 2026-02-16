@@ -60,7 +60,9 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
     const isAnimated = status.type === 'initializing' || status.type === 'downloading';
 
     // Secondary Status (Background Download)
-    const hasSecondary = status.progress !== undefined;
+    const hasSecondary = typeof status.progress === 'number';
+    const displayMessage = status.message?.replace(/^[⛔⚠️🚫]\s*/, '').trim() || status.message;
+    const emoji = status.message?.match(/^[⛔⚠️🚫]/)?.[0];
 
     return (
         <div
@@ -71,10 +73,14 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
         >
             {/* Primary Status Indicator */}
             <div className="flex items-center gap-3 flex-1" data-testid="session-status-indicator">
-                <Icon className={`h-5 w-5 ${config.textClass} ${isAnimated ? 'animate-spin' : ''}`} />
+                {emoji ? (
+                    <span className="text-lg leading-none" role="img" aria-label="status-icon">{emoji}</span>
+                ) : (
+                    <Icon className={`h-5 w-5 ${config.textClass} ${isAnimated ? 'animate-spin' : ''}`} />
+                )}
                 <div className="flex flex-col">
-                    <span className={`text-sm font-black uppercase tracking-tight ${config.textClass}`}>
-                        {status.message || (status.type === 'idle' ? 'Ready' : '')}
+                    <span className={`text-sm font-black uppercase tracking-tight ${config.textClass}`} data-testid="status-message-text">
+                        {displayMessage || (status.type === 'idle' ? 'Ready' : '')}
                     </span>
                     {status.detail && (
                         <span className={`text-[10px] font-medium opacity-80 ${config.textClass}`}>

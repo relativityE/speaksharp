@@ -29,36 +29,37 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
             await modeSelector.click();
 
             // Check for all three options
-            const nativeOption = page.getByText('Native').first();
-            const cloudOption = page.getByText(/Cloud/i).first();
-            const privateOption = page.getByText(/Private/i).first();
+            const nativeOption = page.getByText(/Browser/i, { exact: true }).first();
+            const cloudOption = page.getByText(/Cloud/i, { exact: true }).first();
+            const privateOption = page.getByText(/Private/i, { exact: true }).first();
 
             debugLog('[PRO] Checking STT mode options...');
-            if (await nativeOption.count() > 0) debugLog('[PRO] ✅ Native Browser available');
-            if (await cloudOption.count() > 0) debugLog('[PRO] ✅ Cloud (AssemblyAI) available');
-            if (await privateOption.count() > 0) debugLog('[PRO] ✅ Private (Whisper) available');
+            if (await nativeOption.count() > 0) debugLog('[PRO] ✅ Browser available');
+            if (await cloudOption.count() > 0) debugLog('[PRO] ✅ Cloud available');
+            if (await privateOption.count() > 0) debugLog('[PRO] ✅ Private available');
         } else {
             debugLog('[PRO] ⚠️ STT mode selector not found, checking default mode');
         }
     });
 
-    test('should complete session with Native Browser STT', async ({ page }) => {
+    test('should complete session with Browser STT', async ({ page }) => {
         await navigateToRoute(page, '/session');
 
         const startButton = page.getByTestId('session-start-stop-button').first();
         await expect(startButton).toBeVisible();
 
         await startButton.click();
-        await expect(page.getByText('Stop').first()).toBeVisible({ timeout: 10000 });
-        debugLog('[PRO] ✅ Session started with Native Browser');
+        await expect(page.getByLabel(/Stop Recording/i)).toBeVisible({ timeout: 10000 });
+        await expect(page.getByTestId('live-session-header')).toHaveText(/Recording active/i);
+        debugLog('[PRO] ✅ Session started with Browser');
 
-        await expect(page.getByText('Clarity Score')).toBeVisible();
+        await expect(page.getByText('Live Stats')).toBeVisible();
 
         // Wait to comply with 5s minimum session duration
         await page.waitForTimeout(6000);
         await startButton.click();
-        await expect(page.getByText('Start').first()).toBeVisible({ timeout: 5000 });
-        debugLog('[PRO] ✅ Native Browser session completed');
+        await expect(page.getByLabel(/Start Recording/i)).toBeVisible({ timeout: 5000 });
+        debugLog('[PRO] ✅ Browser session completed');
     });
 
     test('should complete session with Cloud STT', async ({ page }) => {
@@ -68,7 +69,7 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
         const modeSelector = page.getByTestId('stt-mode-selector');
         if (await modeSelector.count() > 0) {
             await modeSelector.click();
-            const cloudOption = page.getByText(/Cloud/i).first();
+            const cloudOption = page.getByText(/Cloud/i, { exact: true }).first();
             if (await cloudOption.count() > 0) {
                 await cloudOption.click();
                 debugLog('[PRO] ✅ Cloud STT mode selected');
@@ -79,11 +80,12 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
         await expect(startButton).toBeVisible();
 
         await startButton.click();
-        await expect(page.getByText('Stop').first()).toBeVisible({ timeout: 15000 });
+        await expect(page.getByLabel(/Stop Recording/i)).toBeVisible({ timeout: 15000 });
+        await expect(page.getByTestId('live-session-header')).toHaveText(/Recording active/i);
         // Wait to comply with 5s minimum session duration
         await page.waitForTimeout(6000);
         await startButton.click();
-        await expect(page.getByText('Start').first()).toBeVisible({ timeout: 5000 });
+        await expect(page.getByLabel(/Start Recording/i)).toBeVisible({ timeout: 5000 });
         debugLog('[PRO] ✅ Cloud STT session completed');
     });
 
@@ -94,7 +96,7 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
         const modeSelector = page.getByTestId('stt-mode-selector');
         if (await modeSelector.count() > 0) {
             await modeSelector.click();
-            const privateOption = page.getByText(/Private|Whisper/i).first();
+            const privateOption = page.getByText(/Private/i).first();
             if (await privateOption.count() > 0) {
                 await privateOption.click();
                 debugLog('[PRO] ✅ Private STT mode selected');
@@ -114,17 +116,18 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
 
         // Start session - Private may need extra time for model initialization
         await startButton.click();
-        await expect(page.getByText('Stop').first()).toBeVisible({ timeout: 20000 });
+        await expect(page.getByLabel(/Stop Recording/i)).toBeVisible({ timeout: 20000 });
+        await expect(page.getByTestId('live-session-header')).toHaveText(/Recording active/i);
         debugLog('[PRO] ✅ Session started with Private STT');
 
         // Verify session is running
-        await expect(page.getByText('Clarity Score')).toBeVisible();
+        await expect(page.getByText('Live Stats')).toBeVisible();
 
         // Wait to comply with 5s minimum session duration
         await page.waitForTimeout(6000);
         // Stop session
         await startButton.click();
-        await expect(page.getByText('Start').first()).toBeVisible({ timeout: 5000 });
+        await expect(page.getByLabel(/Start Recording/i)).toBeVisible({ timeout: 5000 });
         debugLog('[PRO] ✅ Private STT session completed');
     });
 
@@ -147,7 +150,7 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
 
         // 3. Verify word appears in the list (Filler Words card)
         // Wait for popover to close
-        await expect(page.getByText('User Filler Words')).not.toBeVisible({ timeout: 10000 });
+        await expect(page.getByText(/User Filler Words/i)).not.toBeVisible({ timeout: 10000 });
 
         // Verify in metrics list
         await expect(page.getByTestId('filler-words-list').getByText(new RegExp(word, 'i'))).toBeVisible({ timeout: 10000 });
@@ -204,11 +207,12 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
 
         const startButton = page.getByTestId('session-start-stop-button').first();
         await startButton.click();
-        await expect(page.getByText('Stop').first()).toBeVisible({ timeout: 10000 });
+        await expect(page.getByLabel(/Stop Recording/i)).toBeVisible({ timeout: 10000 });
+        await expect(page.getByTestId('live-session-header')).toHaveText(/Recording active/i);
         // Wait to comply with 5s minimum session duration
         await page.waitForTimeout(6000);
         await startButton.click();
-        await expect(page.getByText('Start').first()).toBeVisible({ timeout: 5000 });
+        await expect(page.getByLabel(/Start Recording/i)).toBeVisible({ timeout: 5000 });
         debugLog('[PRO] ✅ Session completed');
 
         // Analytics

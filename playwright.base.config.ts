@@ -82,8 +82,8 @@ export function getChromeBasic() {
  * Base configuration options shared across all test types
  */
 export const baseConfig: Partial<PlaywrightTestConfig> = {
-    workers: 1,
-    fullyParallel: false,
+    workers: process.env.CI ? 2 : undefined,
+    fullyParallel: true,
     use: {
         headless: true,
         viewport: { width: 1280, height: 720 },

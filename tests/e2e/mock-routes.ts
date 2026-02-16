@@ -453,6 +453,7 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
     // POST /functions/v1/check-usage-limit
     await registerRoute(page, '**/functions/v1/check-usage-limit', async (route) => {
         // Determine subscription status from mock profile injection
+        // This is used for free user tier gating tests
         const profileOverride = await page.evaluate(() => {
             return (window as Window & { __E2E_MOCK_PROFILE__?: { subscription_status: string } }).__E2E_MOCK_PROFILE__;
         }).catch(() => undefined);
@@ -473,6 +474,15 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
                 subscription_status: subscriptionStatus,
                 is_pro: isPro
             }),
+        });
+    });
+
+    // POST /functions/v1/assemblyai-token
+    await registerRoute(page, '**/functions/v1/assemblyai-token', async (route) => {
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ token: 'mock-assemblyai-token' }),
         });
     });
 }
@@ -606,9 +616,9 @@ export async function setupE2EMocks(
     // Catches any unhandled requests to mock.supabase.co to prevent DNS errors
     await page.route('**', async (route) => {
         const url = route.request().url();
-        if (url.includes('mock.supabase.co')) {
-            mockLog(`[E2E MOCK] ⚠️ Unhandled request to mock domain: ${route.request().method()} ${url} `);
-            // Return 404 instead of failing with network error
+        if (url.includes('supabase.co')) {
+            mockLog(`[E2E MOCK] ⚠️ Unhandled request to Supabase domain: ${route.request().method()} ${url}`);
+            // Return 404 instead of failing with network error to prevent DNS/hang issues
             await route.fulfill({
                 status: 404,
                 contentType: 'application/json',
