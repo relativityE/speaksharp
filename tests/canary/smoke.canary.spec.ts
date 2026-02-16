@@ -37,7 +37,17 @@ test.describe('Production Smoke Canary @canary', () => {
 
         // 2. Navigate to Session Page (use client-side navigation to preserve state)
         await navigateToRoute(page, ROUTES.SESSION, { waitForMocks: false });
+
+        // 🔹 SCHEMA CHECK: User Profile
+        // Verify that the profile loaded correctly and reflects the subscription status
+        // This implicitly validates the 'user_profiles' table schema
         await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeVisible({ timeout: 15000 });
+        const upgradeButton = page.getByRole('button', { name: /upgrade to pro/i });
+        const proBadge = page.getByTestId(TEST_IDS.PRO_BADGE);
+        // We don't enforce WHICH one is visible (depends on the canary user state), but ONE must be.
+        // This confirms the frontend correctly mapped the database columns.
+        const isProfileValid = (await upgradeButton.isVisible()) || (await proBadge.isVisible());
+        expect(isProfileValid, 'Schema Valid: Profile must reflect a known tier (Free/Pro)').toBe(true);
 
         // 3. Configure for Native STT (Free/Low Risk)
         debugLog('[CANARY] Configuring Native STT mode...');
@@ -80,6 +90,29 @@ test.describe('Production Smoke Canary @canary', () => {
             emptyStateLocator.waitFor({ timeout: 10000 }).catch(() => null),
             analyticsUrl,
         ]);
+
+        // If we reached analytics, perform SCHEMA CHECK on Sessions
+        if (page.url().includes('/analytics')) {
+            debugLog('[CANARY] 🔍 Validating Sessions Schema...');
+            // Intercept the next list fetch to validate fields
+            const sessionResponsePromise = page.waitForResponse(res =>
+                res.url().includes('/rest/v1/sessions') && res.status() === 200
+            );
+
+            // Force a reload or wait for data
+            await page.reload();
+            const response = await sessionResponsePromise;
+            const sessions = await response.json();
+
+            if (Array.isArray(sessions) && sessions.length > 0) {
+                const latestSession = sessions[0];
+                const requiredFields = ['id', 'user_id', 'total_words', 'duration', 'created_at', 'engine'];
+                for (const field of requiredFields) {
+                    expect(latestSession[field], `Schema Valid: Session missing ${field}`).toBeDefined();
+                }
+                debugLog('[CANARY] ✅ Sessions Schema Valid');
+            }
+        }
 
         // If dialog appeared, dismiss it
         if (await dialogLocator.isVisible().catch(() => false)) {

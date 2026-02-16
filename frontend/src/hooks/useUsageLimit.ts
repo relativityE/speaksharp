@@ -65,7 +65,6 @@ export function useUsageLimit() {
                 };
             }
 
-            logger.debug('[useUsageLimit] Usage limit check result:', data);
             return data as UsageLimitCheck;
         },
         enabled: !!user && !!session, // Only run when user is authenticated with session

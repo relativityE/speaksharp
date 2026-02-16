@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-02-12
+**Last Reviewed:** 2026-02-16
 
 # SpeakSharp
 
@@ -93,7 +93,7 @@ To get started with SpeakSharp, you'll need to have Node.js (version 22.12.0 or 
     ```
 3.  **Install Dependencies from Lockfile:**
     ```bash
-    pnpm run setup
+    pnpm setup
     ```
     > **Tip:** For a complete development setup (dependencies + Playwright browsers), you can run `./scripts/dev-init.sh`.
 4.  **Configure Environment Variables:**
@@ -163,10 +163,10 @@ This project uses a strict `pnpm-lock.yaml` file to guarantee that every develop
     ```
 2.  **Re-install using the canonical setup script:**
     ```bash
-    pnpm run setup
+    pnpm setup
     ```
 
-The `pnpm run setup` command executes `pnpm install --frozen-lockfile`, which is the **only** correct way to install dependencies in this project. It forces pnpm to install the exact versions specified in the lockfile, ensuring a reproducible environment.
+The `pnpm setup` command executes `pnpm install --frozen-lockfile`, which is the **only** correct way to install dependencies in this project. It forces pnpm to install the exact versions specified in the lockfile, ensuring a reproducible environment.
 
 ## Running the Full Test & Audit Suite
 
@@ -217,7 +217,7 @@ This project provides multiple npm scripts for different use cases. Use this dec
 
 **🎯 Want to run the full CI simulation locally?**
 ```bash
-pnpm run ci:local
+pnpm ci:local
 ```
 - Runs frozen lockfile check, quality checks, build, E2E shards (1-4), Lighthouse CI
 - Mirrors GitHub CI workflow exactly

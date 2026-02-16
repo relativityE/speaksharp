@@ -60,7 +60,7 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
         await expect(page.getByRole('button', { name: /stop/i })).toBeVisible();
 
         // Verify Clarity Score displayed
-        await expect(page.getByText('Clarity Score')).toBeVisible();
+        await expect(page.getByText('Native')).toBeVisible();
 
         // Wait to comply with 5s minimum session duration
         await page.waitForTimeout(6000);

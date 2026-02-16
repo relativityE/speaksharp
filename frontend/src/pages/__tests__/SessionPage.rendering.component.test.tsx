@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('@/components/LocalErrorBoundary', () => ({
-    LocalErrorBoundary: ({ children }: any) => <>{children}</>,
+    LocalErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
 vi.mock('@sentry/react', () => ({
@@ -27,7 +27,7 @@ const renderWithRouter = (ui: React.ReactElement) => {
 // Mock everything
 // Child component mocks for deterministic testing
 vi.mock('@/components/session/LiveRecordingCard', () => ({
-    LiveRecordingCard: ({ onStartStop, isListening, formattedTime }: any) => (
+    LiveRecordingCard: ({ onStartStop, isListening, formattedTime }: { onStartStop: () => void, isListening: boolean, formattedTime: string }) => (
         <div data-testid="live-recording-card">
             <button data-testid="session-start-stop-button" onClick={onStartStop}>
                 {isListening ? 'Stop' : 'Start'}
@@ -43,7 +43,7 @@ vi.mock('@/components/session/PauseMetricsDisplay', () => ({
 }));
 
 vi.mock('@/components/session/StatusNotificationBar', () => ({
-    StatusNotificationBar: ({ status }: any) => (
+    StatusNotificationBar: ({ status }: { status: { message?: string, type?: string } }) => (
         <div data-testid="status-notification-bar">
             <span data-testid="session-status-indicator">{status.message || status.type}</span>
         </div>
@@ -51,13 +51,13 @@ vi.mock('@/components/session/StatusNotificationBar', () => ({
 }));
 
 vi.mock('@/components/session/LiveTranscriptPanel', () => ({
-    LiveTranscriptPanel: ({ transcript }: any) => (
+    LiveTranscriptPanel: ({ transcript }: { transcript: string }) => (
         <div data-testid="live-transcript-panel">{transcript}</div>
     ),
 }));
 
 vi.mock('@/components/session/FillerWordsCard', () => ({
-    FillerWordsCard: ({ fillerCount, headerAction }: any) => (
+    FillerWordsCard: ({ fillerCount, headerAction }: { fillerCount: number, headerAction: React.ReactNode }) => (
         <div data-testid="filler-words-card">
             <span>Filler Words</span>
             <span data-testid="filler-count-value">({fillerCount})</span>
@@ -71,7 +71,7 @@ vi.mock('@/components/session/UserFillerWordsManager', () => ({
 }));
 
 vi.mock('@/components/session/ClarityScoreCard', () => ({
-    ClarityScoreCard: ({ clarityScore }: any) => (
+    ClarityScoreCard: ({ clarityScore }: { clarityScore: number }) => (
         <div data-testid="clarity-score-card">
             <span>Clarity Score</span>
             Clarity: {clarityScore}
@@ -80,7 +80,7 @@ vi.mock('@/components/session/ClarityScoreCard', () => ({
 }));
 
 vi.mock('@/components/session/SpeakingRateCard', () => ({
-    SpeakingRateCard: ({ wpm }: any) => (
+    SpeakingRateCard: ({ wpm }: { wpm: number }) => (
         <div data-testid="speaking-rate-card">
             <span>Speaking Pace</span>
             WPM: {wpm}
@@ -143,7 +143,7 @@ describe('SessionPage Rendering', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.useRealTimers();
-        mockUseSessionLifecycle.mockReturnValue(defaultLifecycle as any);
+        mockUseSessionLifecycle.mockReturnValue(defaultLifecycle as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
     });
 
 
@@ -194,7 +194,7 @@ describe('Loading States', () => {
         mockUseSessionLifecycle.mockReturnValue({
             ...defaultLifecycle,
             metrics: null,
-        } as any);
+        } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
 
         renderWithRouter(<SessionPage />);
         expect(screen.getByTestId('session-page-skeleton')).toBeInTheDocument();
@@ -207,7 +207,7 @@ describe('Session Control', () => {
         mockUseSessionLifecycle.mockReturnValue({
             ...defaultLifecycle,
             handleStartStop: mockHandleStartStop,
-        } as any);
+        } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
 
         renderWithRouter(<SessionPage />);
 
@@ -227,7 +227,7 @@ describe('Session Control', () => {
         mockUseSessionLifecycle.mockReturnValue({
             ...defaultLifecycle,
             sttStatus: { type: 'initializing', message: 'Connecting...' },
-        } as any);
+        } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
 
         renderWithRouter(<SessionPage />);
         expect(screen.getByTestId('session-status-indicator')).toHaveTextContent('Connecting...');
@@ -239,7 +239,7 @@ describe('Metrics Display', () => {
         mockUseSessionLifecycle.mockReturnValue({
             ...defaultLifecycle,
             metrics: { ...defaultLifecycle.metrics, formattedTime: '01:05' },
-        } as any);
+        } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
 
         renderWithRouter(<SessionPage />);
         expect(screen.getByText('01:05')).toBeInTheDocument();
@@ -249,7 +249,7 @@ describe('Metrics Display', () => {
         mockUseSessionLifecycle.mockReturnValue({
             ...defaultLifecycle,
             metrics: { ...defaultLifecycle.metrics, wpm: 145 },
-        } as any);
+        } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
 
         renderWithRouter(<SessionPage />);
         expect(screen.getByText(/145/)).toBeInTheDocument();
@@ -259,7 +259,7 @@ describe('Metrics Display', () => {
         mockUseSessionLifecycle.mockReturnValue({
             ...defaultLifecycle,
             metrics: { ...defaultLifecycle.metrics, fillerCount: 7 },
-        } as any);
+        } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
 
         renderWithRouter(<SessionPage />);
         expect(screen.getByTestId('filler-count-value')).toHaveTextContent('(7)');
@@ -271,7 +271,7 @@ describe('Transcript Display', () => {
         mockUseSessionLifecycle.mockReturnValue({
             ...defaultLifecycle,
             transcriptContent: 'Hello world',
-        } as any);
+        } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
 
         renderWithRouter(<SessionPage />);
         expect(screen.getByText(/Hello/)).toBeInTheDocument();

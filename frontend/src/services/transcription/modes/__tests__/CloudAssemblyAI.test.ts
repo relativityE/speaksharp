@@ -7,7 +7,7 @@ vi.mock('@/services/transcription/utils/AudioProcessor', () => ({
         base64: 'fake-base64'
     })),
     floatToInt16: vi.fn((input: Float32Array) => new Int16Array(input.length)),
-    concatenateFloat32Arrays: vi.fn((arrays: Float32Array[]) => new Float32Array(0)),
+    concatenateFloat32Arrays: vi.fn((_arrays: Float32Array[]) => new Float32Array(0)),
     AudioBuffer: class {
         addSamples = vi.fn(() => null);
         flush = vi.fn(() => new Int16Array(0));

@@ -5,7 +5,7 @@
 
 # SpeakSharp System Architecture
 
-**Version 5.4** | **Last Updated: 2026-02-12**
+**Version 5.5** | **Last Updated: 2026-02-16**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -2959,27 +2959,36 @@ To ensure deterministic E2E testing of the resilience flow, we've implemented a 
 - **`IPrivateSTT`**: A shared interface between the real engine and the mock.
 - **Consumer Injection**: `TranscriptionService` and `PrivateWhisper` now accept optional engine instances, allowing the E2E suite to inject a `FakePrivateSTT` that can simulate specific progress percentages and download hangs.
 
-## 16. UI Optimization
-- **Composite Status UI**: The `StatusNotificationBar` now supports dual-state rendering, showing the "Recording" status (primary) alongside "Downloading" progress (secondary) during background loads.
-- **Banner Consolidation**: Redundant upgrade banners were consolidated into a single, high-visibility page header to maximize vertical space for session data.
+#### Phase 4: Expert CI Stabilization (2026-02-15)
+
+The following patterns were implemented following the Expert code review to achieve "Zero Tolerance" CI stability.
+
+#### Pattern 14: Advanced Mock Poisoning Mitigation [Expert 1A]
+*   **Problem:** Singleton services cached during top-level imports prevented test-level mocking.
+*   **Solution:** Implemented `serviceHelper.ts` for lazy initialization and hoisted Vitest polyfills.
+
+#### Pattern 15: Session Lifecycle Mutual Exclusion Lock
+*   **Problem:** E2E tests failing due to rapid Start/Stop cycles triggering concurrent state transitions (deadlocks).
+*   **Solution:** Implemented an `isProcessing` boolean ref in `useSessionLifecycle.ts` that acts as a mutual exclusion lock, discarding any concurrent requests until the current transition completes.
+
+#### Pattern 16: Transactional Store Updates
+*   **Problem:** React 18 Concurrent mode errors when updating Zustand stores during a render or rapid unmount.
+*   **Solution:** Logic now updates internal class state immediately, but defers the external Zustand store notification using `queueMicrotask`. This ensures the UI reflects a consistent state only after the logic transition is stable.
+
+---
 
 ## 17. Technical Debt & Known Issues (Production Readiness Audit Feb 2026)
 
-The following issues were identified during a comprehensive production readiness audit. These are categorized by domain and severity.
-
 ### 17.1 Resolved Production Hardening (Feb 2026)
-- **[RESOLVED] Audio Context Leaks**: Implemented `isTerminating` flag and explicit cleanup in `TranscriptionService.ts` to prevent zombie instances and resource leaks.
-- **[RESOLVED] Stale Closures**: Unified session state in `useSessionStore` with deterministic `tick()` logic, ensuring state consistency during session stop.
-- **[RESOLVED] Concurrency/Overwrite**: Hardened `TranscriptionService` to await termination of active instances before switching modes, preventing overlapping worker threads.
+- **[RESOLVED] Audio Context Leaks**: Explicit cleanup in `TranscriptionService.ts`.
+- **[RESOLVED] Stale Closures**: Unified session state in `useSessionStore` with `tick()` logic.
+- **[RESOLVED] Concurrency/Overwrite**: Hardened with `isProcessing` locks.
+- **[RESOLVED] Atomic Operations**: `create_session_and_update_usage` migrated to atomic SQL.
+- **[RESOLVED] Security**: Constant-time secret comparison implemented in `apply-promo`.
+- **[RESOLVED] Rate Limiting**: Signal-based rate limiting added to Edge Functions.
+- **[RESOLVED] Database**: `ON DELETE CASCADE` added to all orphan-prone tables.
+- **[RESOLVED] Error Boundaries**: Local boundaries implemented for all session widgets.
 
-### 17.2 Pending Technical Debt
-- **Atomic Operations**: `update_user_usage` in PostgreSQL is non-atomic, leading to lost usage counts during concurrent saves.
-- **Security**: Admin secret comparison in `apply-promo` is vulnerable to timing attacks.
-- **Rate Limiting**: Missing server-side rate limiting in Edge Functions.
-
-### 17.2 High-Priority Gaps
-- **Error Boundaries**: Single top-level boundary. Sub-components (Cards) lack isolation.
-- **Performance**: High-frequency re-renders in `useSessionLifecycle.ts` due to global state updates on a 1s timer.
-- **Scalability**: Edge Function cold start latency (p99 > 5s).
-- **Database**: Missing `ON DELETE CASCADE` for `sessions.user_id`.
-- **Validation**: Lack of input length enforcement for the `transcript` field.
+### 17.2 Residual Technical Debt
+- **Validation**: Lack of input length enforcement for the `transcript` field in the database layer.
+- **Scalability**: Cold start optimization for deeply nested Edge Function imports.

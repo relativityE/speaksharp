@@ -29,9 +29,9 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
             await modeSelector.click();
 
             // Check for all three options
-            const nativeOption = page.getByText('Native Browser');
-            const cloudOption = page.getByText(/Cloud|AssemblyAI/i);
-            const privateOption = page.getByText(/Private|Whisper/i);
+            const nativeOption = page.getByText('Native').first();
+            const cloudOption = page.getByText(/Cloud/i).first();
+            const privateOption = page.getByText(/Private/i).first();
 
             debugLog('[PRO] Checking STT mode options...');
             if (await nativeOption.count() > 0) debugLog('[PRO] ✅ Native Browser available');
@@ -68,7 +68,7 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
         const modeSelector = page.getByTestId('stt-mode-selector');
         if (await modeSelector.count() > 0) {
             await modeSelector.click();
-            const cloudOption = page.getByText(/Cloud|AssemblyAI/i).first();
+            const cloudOption = page.getByText(/Cloud/i).first();
             if (await cloudOption.count() > 0) {
                 await cloudOption.click();
                 debugLog('[PRO] ✅ Cloud STT mode selected');

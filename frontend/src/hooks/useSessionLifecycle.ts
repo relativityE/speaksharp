@@ -205,7 +205,7 @@ export const useSessionLifecycle = () => {
         transcriptContent: transcript.transcript,
         fillerData,
         isProUser,
-        isButtonDisabled: !isListening && !isReady, // Prevents starting while not ready, but always allow stopping
+        isButtonDisabled: isListening && !isReady, // Only disable IF we have started (isListening) but aren't yet ready. Always allow start (when !isListening) and always allow stop (once ready or if error occurs).
         showPromoExpiredDialog: !!usageLimit?.promo_just_expired,
         usageLimit,
         profileLoading: false,

@@ -7,7 +7,8 @@ All notable changes to this project will be documented in this file.
 
 ### [Unreleased]
 
-- **Architectural Hardening & Test Stabilization (2026-02-15):**
+- **Architectural Hardening & Test Stabilization (2026-02-16):**
+  - **Stability:** Fixed E2E deadlocks in `useSessionLifecycle.ts` by implementing a mutual exclusion lock.
   - **Stability:** Hardened `TranscriptionService` state machine by ensuring internal state updates immediately during transitions.
   - **Stability:** Decoupled Zustand store updates using `queueMicrotask`, eliminating React 18 concurrent rendering errors.
   - **Architecture:** Implemented the **5-Point Design Plan** for UI/Logic stability:

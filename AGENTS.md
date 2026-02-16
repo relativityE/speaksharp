@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-02-12
+**Last Reviewed:** 2026-02-16
 
 # Agent Instructions for SpeakSharp Repository
 
@@ -159,7 +159,7 @@ ___
      "test:all": "./scripts/test-audit.sh local",
      "ci:local": "./scripts/test-audit.sh ci-simulate",
      "test:health-check": "./scripts/test-audit.sh health-check",
-     "test": "cd frontend && vitest --coverage",
+     "test": "echo 'NOTE: Running Unit and Component Integration tests...' && cd frontend && vitest run --coverage",
      "dev": "cd frontend && vite",
      "build": "cd frontend && vite build",
      "pw:install": "playwright install chromium --with-deps",

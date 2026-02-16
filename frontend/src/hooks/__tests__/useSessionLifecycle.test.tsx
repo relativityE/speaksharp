@@ -1,7 +1,7 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { useSessionLifecycle } from '../useSessionLifecycle';
 import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
-import { useSessionStore, type SessionStore as SessionStoreType } from '@/stores/useSessionStore';
+import { useSessionStore } from '@/stores/useSessionStore';
 import { useSpeechRecognition } from '../useSpeechRecognition';
 import { useUsageLimit } from '../useUsageLimit';
 import type { UseQueryResult } from '@tanstack/react-query';
@@ -9,6 +9,7 @@ import type { TranscriptStats } from '../useSpeechRecognition/types';
 import type { SttStatus } from '@/services/transcription/TranscriptionService';
 import type { UsageLimitCheck } from '../useUsageLimit';
 import type { PauseMetrics } from '@/services/audio/pauseDetector';
+import type { UserProfile } from '@/types/user';
 
 // Mock ALL hooks used inside useSessionLifecycle
 vi.mock('@/hooks/useProfile', () => ({
@@ -119,11 +120,11 @@ vi.mock('../useSessionManager', () => ({
 }));
 
 vi.mock('@/components/session/ClarityScoreCard', () => ({
-    ClarityScoreCard: (props: any) => <div data-testid="clarity-score-card">Clarity: {props.clarityScore}</div>,
+    ClarityScoreCard: (props: { clarityScore: number }) => <div data-testid="clarity-score-card">Clarity: {props.clarityScore}</div>,
 }));
 
 vi.mock('@/components/session/SpeakingRateCard', () => ({
-    SpeakingRateCard: (props: any) => <div data-testid="speaking-rate-card">WPM: {props.wpm}</div>,
+    SpeakingRateCard: (props: { wpm: number }) => <div data-testid="speaking-rate-card">WPM: {props.wpm}</div>,
 }));
 
 vi.mock('../useSessionMetrics', () => ({
@@ -155,14 +156,14 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         vi.clearAllMocks();
 
         // Use factory for a fresh store each test
-        (useSessionStore as any).mockImplementation(createTestSessionStore());
+        (useSessionStore as unknown as Mock).mockImplementation(createTestSessionStore());
 
         // Ensure default is free for auto-stop tests
         vi.mocked(useProfile).mockReturnValue({
             id: 'test-user',
             subscription_status: 'free',
             email: 'test@example.com'
-        } as any);
+        } as unknown as UserProfile);
     });
 
     it('should trigger handleStartStop when elapsed time exceeds limit', async () => {
@@ -175,7 +176,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             is_pro: false
         };
 
-        (useSessionStore as any).mockImplementation(createTestSessionStore({
+        (useSessionStore as unknown as Mock).mockImplementation(createTestSessionStore({
             isListening: true, // AUTO-STOP logic requires isListening to be true
             elapsedTime: mockElapsedTime,
             startTime: Date.now() - (mockElapsedTime * 1000),
@@ -218,7 +219,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
     });
 
     it('should NOT trigger stop when time remains', () => {
-        (useSessionStore as any).mockImplementation(createTestSessionStore({
+        (useSessionStore as unknown as Mock).mockImplementation(createTestSessionStore({
             elapsedTime: 25,
             isListening: true,
             startTime: Date.now() - 25000,

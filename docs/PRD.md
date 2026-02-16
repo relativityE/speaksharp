@@ -5,7 +5,7 @@
 
 # SpeakSharp Product Requirements Document
 
-**Version 9.3** | **Last Updated:** 2026-02-12
+**Version 9.4** | **Last Updated:** 2026-02-16
 
 ## 1. Executive Summary
 
@@ -155,6 +155,14 @@ The project's testing strategy prioritizes stability, reliability, and a tight a
 
 > **See Also:** [ARCHITECTURE.md § Test Pyramid](./ARCHITECTURE.md#test-pyramid) for technical implementation details of all 10 test categories.
 
+### The 5-Point Design Plan for Stability
+To eliminate non-deterministic failures and "flakiness," the system adheres to a strict 5-point design plan:
+1.  **ProfileGuard**: Global wrapper ensuring profile data is available before any app rendering.
+2.  **canStart Checks**: Logic-level guards in `useSessionLifecycle` preventing actions during engine initialization.
+3.  **Error Boundaries**: Per-widget isolation using `LocalErrorBoundary` for all critical session components.
+4.  **Simplified Hooks**: Re-engineered `useProfile` to return guaranteed non-nullable data, eliminating "null-check fatigue."
+5.  **Data-Ready Attributes**: Explicit use of `data-ready` and `data-recording` tags for deterministic E2E synchronization.
+
 *   **Unit & Integration Tests (Vitest):** These form the foundation of our testing pyramid. They are fast, focused, and verify the correctness of individual components and hooks in isolation. **Target: ≥75% line coverage with integrity-preserving validation (avoiding implementation coupling).**
 *   **End-to-End Tests (Playwright):** E2E tests validate complete user flows from start to finish. To combat the flakiness often associated with UI-driven tests, we have adopted a critical strategic decision:
     *   **Programmatic Login Only:** All E2E tests that require an authenticated state **must** use the `programmaticLogin` helper. This method directly injects a session into `localStorage`, bypassing the UI for sign-up and login. This approach is significantly faster and more reliable than attempting to simulate user input in the auth form.
@@ -187,14 +195,14 @@ For E2E infrastructure troubleshooting, see [tests/TROUBLESHOOTING.md](../tests/
 
 - **Theming:** Dark Theme fully implemented with polished UI (Inter font, glassmorphism). Light theme pending.
 - **Unit Test Coverage:** 61.73% (509 tests). Target: 75%. Tracked in tech debt.
-- **UX - Mobile Experience:** Controls on `SessionPage` scroll away ("thumb stretch" issue). Sticky footer required.
+- **UX - Mobile Experience:** Controls on `SessionPage` scroll away ("thumb stretch" issue). Sticky footer required. (Tracked in ROADMAP)
 - **🟡 Testimonials:** `TestimonialsSection` has placeholder content. Needs real user testimonials.
 
 ### Tech Debt (Testing)
 
 - **✅ Native STT Headless Test:** Resolved via `MockNativeBrowser` injection (see `tier-limits.e2e.spec.ts`).
 - **✅ Tier Limit Logic:** `tier-limits.e2e.spec.ts` now dynamically verifies "Daily" (Edge Function) or "Monthly" (RPC) limits based on backend response. Mock duration remains 6s to satisfy `MIN_SESSION_DURATION_SECONDS` (5s).
-- **🟡 PDF Content Extraction:** `pdf-parse` requires `DOMMatrix`. PDF structure validated only.
+- **🟡 PDF Content Extraction:** `pdf-parse` requires `DOMMatrix`. PDF structure validated only. (By design)
 - ✅ **Cloud STT (Production) (2026-01-28):** Resolved CORS (`ALLOWED_ORIGIN` mismatch) blocking production usage.
 - ✅ **Cloud STT E2E (2026-01-28):** Resolved mode selector and button dropdown unresponsiveness.
 - ✅ **Initialization Crash (2026-01-28):** Resolved `__BUILD_ID__` ReferenceError causing 15s E2E timeouts.

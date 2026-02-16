@@ -20,7 +20,7 @@ import { MemoryRouter } from 'react-router-dom';
 
 // --- Mocks ---
 const mockNavigate = vi.fn();
-const mockUpdateElapsedTime = vi.fn();
+// const mockUpdateElapsedTime = vi.fn(); // Removed unused
 const mockSaveSession = vi.fn();
 const mockStartListening = vi.fn();
 const mockStopListening = vi.fn().mockResolvedValue({
@@ -120,7 +120,6 @@ vi.mock('@/components/session/SessionPageSkeleton', () => ({ SessionPageSkeleton
 
 // Import for mocking responses
 import { useSpeechRecognition } from '../../hooks/useSpeechRecognition';
-import * as SessionStore from '../../stores/useSessionStore';
 import { useSessionStore } from '../../stores/useSessionStore';
 import { createTestSessionStore } from '../../../tests/unit/factories/storeFactory';
 
@@ -141,7 +140,7 @@ describe('SessionPage Feedback Logic', () => {
             chunks: [],
         });
 
-        (useSessionStore as any).mockImplementation(createTestSessionStore({
+        (useSessionStore as unknown as Mock).mockImplementation(createTestSessionStore({
             elapsedTime: 0,
         }));
     });
@@ -162,7 +161,7 @@ describe('SessionPage Feedback Logic', () => {
         });
 
         // Mock elapsed time to 2s
-        (useSessionStore as any).mockImplementation(createTestSessionStore({
+        (useSessionStore as unknown as Mock).mockImplementation(createTestSessionStore({
             elapsedTime: 2,
         }));
 
@@ -201,7 +200,7 @@ describe('SessionPage Feedback Logic', () => {
             chunks: [],
         });
 
-        (useSessionStore as any).mockImplementation(createTestSessionStore({
+        (useSessionStore as unknown as Mock).mockImplementation(createTestSessionStore({
             elapsedTime: 10,
         }));
 

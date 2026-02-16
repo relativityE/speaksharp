@@ -453,13 +453,15 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
     // POST /functions/v1/check-usage-limit
     await registerRoute(page, '**/functions/v1/check-usage-limit', async (route) => {
         // Determine subscription status from mock profile injection
-        // Determine subscription status from mock profile injection
         const profileOverride = await page.evaluate(() => {
-            return (window as Window & { __E2E_MOCK_PROFILE__?: { id: string; subscription_status: string } }).__E2E_MOCK_PROFILE__;
+            return (window as Window & { __E2E_MOCK_PROFILE__?: { subscription_status: string } }).__E2E_MOCK_PROFILE__;
         }).catch(() => undefined);
 
-        const isPro = profileOverride?.subscription_status === 'pro';
+        const subscriptionStatus = profileOverride?.subscription_status || 'free';
+        const isPro = subscriptionStatus === 'pro';
 
+        // Fix: Ensure free users are not blocked prematurely in E2E
+        // Real logic allows 60 mins/day for free users.
         await route.fulfill({
             status: 200,
             contentType: 'application/json',
@@ -468,7 +470,7 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
                 remaining_seconds: isPro ? -1 : 3600,
                 limit_seconds: isPro ? -1 : 3600,
                 used_seconds: 0,
-                subscription_status: isPro ? 'pro' : 'free',
+                subscription_status: subscriptionStatus,
                 is_pro: isPro
             }),
         });

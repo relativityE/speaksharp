@@ -23,7 +23,7 @@ const initialState: SessionState = {
  */
 export function createTestSessionStore(
     overrides?: Partial<SessionState>
-): ReturnType<typeof create<SessionStore>> {
+) {
     return create<SessionStore>((set) => ({
         ...initialState,
         ...overrides,
