@@ -9,7 +9,7 @@ import { toast } from '@/lib/toast';
 import { checkRateLimit } from '../../lib/rateLimiter';
 
 import { useTranscriptionState } from './useTranscriptionState';
-import { useFillerWordCounter } from './useFillerWordCounter';
+import { useFillerWords } from './useFillerWords';
 import { useTranscriptionControl } from './useTranscriptionControl';
 import { useTranscriptionCallbacks } from './useTranscriptionCallbacks';
 import { useSessionTimer } from './useSessionTimer';
@@ -41,7 +41,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     // 1. Core Service Hooks
     const stt = useTranscriptionState();
     const control = useTranscriptionControl();
-    const filler = useFillerWordCounter(customWords);
+    const filler = useFillerWords(stt.finalChunks, stt.interimTranscript, customWords);
     const vocal = useVocalAnalysis();
     const timer = useSessionTimer(stt.isRecording);
 
@@ -76,7 +76,6 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
             }
             if (data.transcript?.final) {
                 stt.addChunk(data.transcript.final);
-                filler.processSegment(data.transcript.final);
                 stt.setInterimTranscript('');
             }
         },
@@ -134,7 +133,6 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     // 5. Public Actions
     const reset = useCallback(() => {
         stt.reset();
-        filler.resetCounts();
         timer.reset();
         stopSession();
         if (toastIdRef.current) {
@@ -164,7 +162,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
             );
             return {
                 ...stats,
-                filler_words: { total: { count: filler.totalCount, color: '' }, ...filler.counts }, // Adapter for legacy shape if needed
+                filler_words: filler.counts,
             };
         }
         return null;
@@ -184,7 +182,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         transcript: transcriptStats,
         chunks: stt.finalChunks,
         interimTranscript: stt.interimTranscript,
-        fillerData: { total: { count: filler.totalCount, color: '' } }, // Simplified return for now
+        fillerData: filler.counts,
         isListening: stt.isRecording || stt.isInitializing,
         isReady: control.isServiceReady,
         error: stt.error,
