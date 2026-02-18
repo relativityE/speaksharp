@@ -11,7 +11,7 @@ import { loadEnv, getChromeWithMic, baseConfig, urls } from './playwright.base.c
 // Load test environment variables
 loadEnv('test');
 
-const BASE_URL = urls.preview;
+const BASE_URL = 'http://localhost:5173'; // switched to dev server
 
 export default defineConfig({
   ...baseConfig,
@@ -28,21 +28,50 @@ export default defineConfig({
   use: {
     ...baseConfig.use,
     baseURL: BASE_URL,
+    // ✅ CRITICAL: Disable all browser caching
+    launchOptions: {
+      args: [
+        '--disable-blink-features=AutomationControlled',
+        '--disable-cache',           // ← Disable disk cache
+        '--disable-application-cache', // ← Disable app cache
+        '--disable-offline-load-stale-cache',
+        '--disk-cache-size=0',       // ← Zero cache size
+        '--media-cache-size=0'
+      ],
+    },
+
+    // ✅ Use incognito context (no persistent state)
+    contextOptions: {
+      ignoreHTTPSErrors: true,
+    },
+
+    // ✅ Force fresh context for each test
+    viewport: { width: 1280, height: 720 },
+
+    // ✅ No service workers
+    serviceWorkers: 'block',
+
+    trace: 'on-first-retry',
+    screenshot: 'only-on-failure',
     video: 'retain-on-failure',
-    // FAIL FAST: Action timeout (click, fill, etc.)
-    actionTimeout: 10_000,
-    navigationTimeout: 15_000,
   },
   updateSnapshots: process.env.CI ? 'missing' : 'none',
+  // ✅ CRITICAL: Web server configuration
   webServer: {
-    command: 'pnpm preview:test',
-    url: BASE_URL,
-    reuseExistingServer: true, // CRITICAL: Always restart locally to prevent stale code (Zombie Server)
-    timeout: 120 * 1000,
-    env: {
-      DOTENV_CONFIG_PATH: '.env.test',
-      VITE_MODE: 'test', // Ensure frontend loads test env vars if needed
-    },
+    // ✅ Use Dev Server for E2E (No build artifacts, faster HMR, fresh code)
+    command: 'pnpm run dev --port 5173',
+
+    port: 5173,
+
+    // ✅ CRITICAL: Never reuse existing server
+    reuseExistingServer: false,
+
+    // ✅ Wait for server to be ready
+    timeout: 120000,
+
+    // ✅ Log server output
+    stdout: 'pipe',
+    stderr: 'pipe',
   },
   projects: [
     {
