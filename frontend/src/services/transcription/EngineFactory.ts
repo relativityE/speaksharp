@@ -23,9 +23,8 @@ export class EngineFactory {
         if (typeof window !== 'undefined' && 'window' in globalThis) {
             const win = window as unknown as Record<string, unknown>;
             if (win.__TEST_REGISTRY__) {
-                // Fix untyped function call by casting first
-                const registry = win.__TEST_REGISTRY__ as Map<TranscriptionMode, (opts: TranscriptionModeOptions) => ITranscriptionMode>;
-                const factory = registry.get(mode);
+                const registry = win.__TEST_REGISTRY__ as typeof testRegistry;
+                const factory = registry.get<(options: TranscriptionModeOptions) => ITranscriptionMode>(mode);
 
                 if (factory) {
                     const instance = factory(options); // Pass options to factory
