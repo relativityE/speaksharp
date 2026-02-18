@@ -44,13 +44,15 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
   private isReconnect: boolean = false;
 
   private session: Session | null;
+  private options: TranscriptionModeOptions;
 
-  constructor({ onTranscriptUpdate, onModelLoadProgress, onReady, onError, session }: TranscriptionModeOptions) {
-    this.onTranscriptUpdate = onTranscriptUpdate;
-    this.onModelLoadProgress = onModelLoadProgress ?? (() => { });
-    this.onReady = onReady;
-    this.onError = onError;
-    this.session = session ?? null;
+  constructor(options: TranscriptionModeOptions) {
+    this.options = options;
+    this.onTranscriptUpdate = options.onTranscriptUpdate;
+    this.onModelLoadProgress = options.onModelLoadProgress ?? (() => { });
+    this.onReady = options.onReady;
+    this.onError = options.onError;
+    this.session = options.session ?? null;
   }
 
   public async init(): Promise<void> {
@@ -145,7 +147,13 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
         return;
       }
 
-      const wsUrl = `wss://streaming.assemblyai.com/v3/realtime/ws?sample_rate=16000&token=${token}`;
+      // 🚀 PERFORMANCE: Add STT Word Boosting for custom vocabulary (Fixes Domain 4)
+      const vocabulary = this.options.customVocabulary || [];
+      const keytermsParam = vocabulary.length > 0
+        ? `&keyterms_prompt=${encodeURIComponent(vocabulary.join(','))}`
+        : '';
+
+      const wsUrl = `wss://streaming.assemblyai.com/v3/realtime/ws?sample_rate=16000&token=${token}${keytermsParam}`;
 
       this.socket = new WebSocket(wsUrl);
 
@@ -196,6 +204,11 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
       this.socket.onerror = (event) => {
         if (currentConnectionId !== this.connectionId) return;
         logger.error({ event }, `[CloudAssemblyAI] WebSocket error (ID: ${currentConnectionId}).`);
+
+        // 🛡️ RELIABILITY: Trigger reconnection logic on error (Fixes Domain 3)
+        if (this.isListening) {
+          this.handleConnectionLoss();
+        }
       };
 
     } catch (error) {

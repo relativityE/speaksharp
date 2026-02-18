@@ -1,6 +1,7 @@
 import React, { useState, useEffect, ReactNode, useMemo, useCallback, useContext, createContext } from 'react';
 import { getSupabaseClient } from '../lib/supabaseClient';
 import { Session, User } from '@supabase/supabase-js';
+import { useQueryClient } from '@tanstack/react-query';
 import logger from '../lib/logger';
 
 /**
@@ -170,14 +171,20 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     };
   }, [initialSession, supabase]);
 
+  const queryClient = useQueryClient();
+
   const signOut = useCallback(async () => {
     try {
+      // 🔒 SECURITY: Clear all sensitive data from cache on logout (Fixes Domain 1)
+      queryClient.clear();
+      logger.info('[AuthProvider] QueryClient cache cleared');
+
       await supabase.auth.signOut();
     } catch (err) {
       logger.error({ err }, '[AuthProvider] Error during signOut');
     }
     setSessionState(null);
-  }, [supabase]);
+  }, [supabase, queryClient]);
 
   const value = useMemo((): AuthContextType => ({
     session: sessionState ?? null,

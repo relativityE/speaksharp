@@ -17,7 +17,10 @@ export class MockTranscriptionService {
     private options: TranscriptionModeOptions;
 
     constructor(options: TranscriptionModeOptions) {
-        this.options = options;
+        if (!options) {
+            console.error('[MockTranscriptionService] Constructor called without options!');
+        }
+        this.options = options || {} as TranscriptionModeOptions;
         MockTranscriptionService.latestInstance = this;
     }
 

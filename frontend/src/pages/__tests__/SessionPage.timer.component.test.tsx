@@ -26,6 +26,9 @@ vi.mock('../../hooks/useSpeechRecognition');
 vi.mock('../../stores/useSessionStore');
 vi.mock('../../hooks/useVocalAnalysis');
 vi.mock('../../contexts/AuthProvider');
+vi.mock('../../hooks/useProfile', () => ({
+    useProfile: vi.fn(() => ({ subscription_status: 'pro' }))
+}));
 vi.mock('@/hooks/useUserProfile');
 vi.mock('@/hooks/useUsageLimit');
 vi.mock('@/hooks/useUserFillerWords', () => ({

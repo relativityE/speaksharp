@@ -6,6 +6,8 @@ export default defineConfig({
     resolve: {
         alias: {
             '@': path.resolve(__dirname, './src'),
+            '@test-utils': path.resolve(__dirname, './tests/support/test-utils'),
+            '@test-mocks': path.resolve(__dirname, './tests/mocks'),
         },
     },
     test: {

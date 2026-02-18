@@ -8,6 +8,14 @@ import { useSessionStore, type SessionStore } from '../../../stores/useSessionSt
 import { type Session } from '@supabase/supabase-js';
 
 // Mock dependencies
+vi.mock('@/providers/useTranscriptionContext', () => ({
+    useTranscriptionContext: vi.fn(),
+}));
+
+vi.mock('../../../stores/useSessionStore', () => ({
+    useSessionStore: vi.fn(),
+}));
+
 vi.mock('@/lib/toast', () => ({
     toast: { success: vi.fn(), info: vi.fn(), error: vi.fn() },
 }));
@@ -33,6 +41,10 @@ const mockService = {
     updateCallbacks: vi.fn(),
     updatePolicy: vi.fn(),
     getMode: vi.fn().mockReturnValue('native'),
+    getState: vi.fn().mockReturnValue('IDLE'),
+    fsm: {
+        subscribe: vi.fn().mockReturnValue(() => { }),
+    },
     destroy: vi.fn()
 } as unknown as TranscriptionService;
 

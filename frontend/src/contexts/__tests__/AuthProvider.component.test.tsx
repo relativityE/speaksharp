@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import { AuthProvider, AuthContext } from '../AuthProvider';
 import React, { useContext } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as supabaseClient from '../../lib/supabaseClient';
 
 // Mock dependencies
@@ -27,6 +28,8 @@ const TestConsumer = () => {
         </div>
     );
 };
+
+const queryClient = new QueryClient();
 
 describe('AuthProvider', () => {
     let mockSupabase: {
@@ -61,9 +64,11 @@ describe('AuthProvider', () => {
         mockSupabase.auth.getSession.mockResolvedValue({ data: { session: null }, error: null });
 
         render(
-            <AuthProvider>
-                <TestConsumer />
-            </AuthProvider>
+            <QueryClientProvider client={queryClient}>
+                <AuthProvider>
+                    <TestConsumer />
+                </AuthProvider>
+            </QueryClientProvider>
         );
 
         await waitFor(() => expect(screen.getByText('Unauthenticated')).toBeInTheDocument());
@@ -75,9 +80,11 @@ describe('AuthProvider', () => {
         mockSupabase.auth.getSession.mockResolvedValue({ data: { session: mockSession }, error: null });
 
         render(
-            <AuthProvider>
-                <TestConsumer />
-            </AuthProvider>
+            <QueryClientProvider client={queryClient}>
+                <AuthProvider>
+                    <TestConsumer />
+                </AuthProvider>
+            </QueryClientProvider>
         );
 
         await waitFor(() => expect(screen.getByTestId('user-id')).toHaveTextContent('user-123'));
@@ -88,9 +95,11 @@ describe('AuthProvider', () => {
         mockSupabase.auth.getSession.mockResolvedValue({ data: { session: mockSession }, error: null });
 
         render(
-            <AuthProvider>
-                <TestConsumer />
-            </AuthProvider>
+            <QueryClientProvider client={queryClient}>
+                <AuthProvider>
+                    <TestConsumer />
+                </AuthProvider>
+            </QueryClientProvider>
         );
 
         await waitFor(() => expect(screen.getByText('Sign Out')).toBeInTheDocument());
@@ -107,9 +116,11 @@ describe('AuthProvider', () => {
         });
 
         render(
-            <AuthProvider>
-                <TestConsumer />
-            </AuthProvider>
+            <QueryClientProvider client={queryClient}>
+                <AuthProvider>
+                    <TestConsumer />
+                </AuthProvider>
+            </QueryClientProvider>
         );
 
         // Should complete loading and show unauthenticated state
@@ -120,9 +131,11 @@ describe('AuthProvider', () => {
         const injectedSession = { user: { id: 'injected-user' } };
 
         render(
-            <AuthProvider initialSession={injectedSession as Parameters<typeof AuthProvider>[0]['initialSession']}>
-                <TestConsumer />
-            </AuthProvider>
+            <QueryClientProvider client={queryClient}>
+                <AuthProvider initialSession={injectedSession as Parameters<typeof AuthProvider>[0]['initialSession']}>
+                    <TestConsumer />
+                </AuthProvider>
+            </QueryClientProvider>
         );
 
         // Should immediately show the injected session without calling getSession
@@ -141,9 +154,11 @@ describe('AuthProvider', () => {
         });
 
         render(
-            <AuthProvider>
-                <TestConsumer />
-            </AuthProvider>
+            <QueryClientProvider client={queryClient}>
+                <AuthProvider>
+                    <TestConsumer />
+                </AuthProvider>
+            </QueryClientProvider>
         );
 
         // Initially unauthenticated
@@ -170,9 +185,11 @@ describe('AuthProvider', () => {
         });
 
         render(
-            <AuthProvider>
-                <TestConsumer />
-            </AuthProvider>
+            <QueryClientProvider client={queryClient}>
+                <AuthProvider>
+                    <TestConsumer />
+                </AuthProvider>
+            </QueryClientProvider>
         );
 
         // Initially authenticated
