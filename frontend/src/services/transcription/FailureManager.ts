@@ -63,3 +63,14 @@ export class FailureManager {
         this.privateFailures = { count: 0, lastFailureTime: 0 };
     }
 }
+
+// Expose to window for E2E tests
+declare global {
+    interface Window {
+        __FAILURE_MANAGER__?: FailureManager;
+    }
+}
+
+if (typeof window !== 'undefined') {
+    window.__FAILURE_MANAGER__ = FailureManager.getInstance();
+}

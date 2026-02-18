@@ -8,6 +8,7 @@ import { waitForStoreState } from './helpers/e2e-state.helpers';
 interface E2EWindow extends Window {
     __E2E_CONFIG__?: unknown;
     __E2E_ADVANCE_PROGRESS__?: (progress: number | null) => void;
+    __FAILURE_MANAGER__?: { resetFailureCount: () => void };
     __DIAGNOSTIC__?: {
         factoryCalled: boolean;
         factoryReceivedOpts: string[] | null;
@@ -39,6 +40,14 @@ test.describe('Private STT (Whisper)', () => {
         });
         await setupE2EMocks(page);
         await enableTestRegistry(page);
+        // Reset FailureManager to prevent sticky failures from previous tests
+        await page.evaluate(() => {
+            const win = window as unknown as E2EWindow;
+            if (win.__FAILURE_MANAGER__) {
+                win.__FAILURE_MANAGER__.resetFailureCount();
+                console.log('[E2E Setup] FailureManager count reset');
+            }
+        });
     });
 
     test('should show download progress on first use', async ({ page }) => {
