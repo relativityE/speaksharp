@@ -5,7 +5,7 @@ import React from 'react';
 import { TranscriptionProvider } from '../../../providers/TranscriptionProvider';
 import { useSpeechRecognition_prod as useSpeechRecognition } from '../index';
 import { useTranscriptionState } from '../useTranscriptionState';
-import { useFillerWordCounter } from '../useFillerWordCounter';
+import { useFillerWords } from '../useFillerWords';
 // Real service dependencies
 import { testRegistry } from '../../../services/transcription/TestRegistry';
 import { ITranscriptionMode } from '../../../services/transcription/modes/types';
@@ -13,7 +13,7 @@ import { TranscriptionServiceOptions } from '../../../services/transcription/Tra
 import { Mock } from 'vitest';
 
 vi.mock('../useTranscriptionState');
-vi.mock('../useFillerWordCounter');
+vi.mock('../useFillerWords');
 vi.mock('@/providers/useTranscriptionContext');
 // REMOVED: vi.mock('../useTranscriptionService'); -- We want the real one!
 
@@ -32,6 +32,10 @@ vi.mock('sonner', () => ({
 
 vi.mock('../../../contexts/AuthProvider', () => ({
   useAuthProvider: vi.fn(() => ({ session: { user: { id: 'mock-id' } } }))
+}));
+
+vi.mock('../../useProfile', () => ({
+  useProfile: vi.fn(() => ({ subscription_status: 'free' }))
 }));
 
 vi.mock('../../../utils/fillerWordUtils', () => ({
@@ -81,11 +85,9 @@ describe('useSpeechRecognition', () => {
     setError: vi.fn()
   };
 
-  const mockUseFillerWordCounter = {
-    counts: {},
-    totalCount: 0,
-    processSegment: vi.fn(),
-    resetCounts: vi.fn()
+  const mockUseFillerWords = {
+    counts: { total: { count: 0, color: '' } },
+    totalCount: 0
   };
 
   let mockUseTranscriptionContext: ReturnType<typeof useTranscriptionContext>;
@@ -114,7 +116,7 @@ describe('useSpeechRecognition', () => {
     testRegistry.register('native', () => mockEngine);
 
     vi.mocked(useTranscriptionState).mockReturnValue(mockUseTranscriptionState as unknown as ReturnType<typeof useTranscriptionState>); // Cast to avoid strict type checks on mock
-    vi.mocked(useFillerWordCounter).mockReturnValue(mockUseFillerWordCounter);
+    vi.mocked(useFillerWords).mockReturnValue(mockUseFillerWords);
     vi.mocked(useTranscriptionContext).mockReturnValue(mockUseTranscriptionContext);
   });
 
@@ -187,7 +189,6 @@ describe('useSpeechRecognition', () => {
     });
 
     expect(mockUseTranscriptionState.reset).toHaveBeenCalled();
-    expect(mockUseFillerWordCounter.resetCounts).toHaveBeenCalled();
     // Verify engine start was called (Behavior verification)
     expect(mockUseTranscriptionContext.service!.startTranscription).toHaveBeenCalled();
   });

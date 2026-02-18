@@ -5,7 +5,7 @@ import { calculateTranscriptStats } from '../../../utils/fillerWordUtils';
 
 // Helper to mock the hooks
 import { useTranscriptionState } from '../useTranscriptionState';
-import { useFillerWordCounter } from '../useFillerWordCounter';
+import { useFillerWords } from '../useFillerWords';
 import { useTranscriptionControl } from '../useTranscriptionControl';
 import { useTranscriptionService } from '../useTranscriptionService';
 import { useSessionTimer } from '../useSessionTimer';
@@ -19,6 +19,10 @@ vi.mock('../../../utils/fillerWordUtils', () => ({
 
 vi.mock('../../../contexts/AuthProvider', () => ({
     useAuthProvider: vi.fn(() => ({ session: { user: { id: 'test-user' } } })),
+}));
+
+vi.mock('../../useProfile', () => ({
+    useProfile: vi.fn(() => ({ subscription_status: 'free' })),
 }));
 
 vi.mock('../../../lib/logger', () => ({
@@ -35,7 +39,7 @@ vi.mock('react-router-dom', () => ({
 
 // Mock internal hooks using simple factories
 vi.mock('../useTranscriptionState');
-vi.mock('../useFillerWordCounter');
+vi.mock('../useFillerWords');
 vi.mock('../useTranscriptionControl');
 vi.mock('../useTranscriptionCallbacks');
 vi.mock('../useTranscriptionService');
@@ -46,7 +50,7 @@ vi.mock('../../useVocalAnalysis');
 describe('useSpeechRecognition - Stale Closure Fix', () => {
     // Typed mocks
     const mockUseTranscriptionState = vi.mocked(useTranscriptionState);
-    const mockUseFillerWordCounter = vi.mocked(useFillerWordCounter);
+    const mockUseFillerWords = vi.mocked(useFillerWords);
     const mockUseTranscriptionControl = vi.mocked(useTranscriptionControl);
     const mockUseTranscriptionCallbacks = vi.mocked(useTranscriptionCallbacks);
     const mockUseTranscriptionService = vi.mocked(useTranscriptionService);
@@ -79,11 +83,9 @@ describe('useSpeechRecognition - Stale Closure Fix', () => {
             setError: vi.fn()
         } as unknown as ReturnType<typeof useTranscriptionState>);
 
-        mockUseFillerWordCounter.mockReturnValue({
+        mockUseFillerWords.mockReturnValue({
             counts: {},
-            totalCount: 0,
-            processSegment: vi.fn(),
-            resetCounts: vi.fn()
+            totalCount: 0
         });
 
         mockUseTranscriptionService.mockReturnValue({
@@ -129,11 +131,9 @@ describe('useSpeechRecognition - Stale Closure Fix', () => {
 
         mockUseSessionTimer.mockReturnValue({ duration: 10, reset: vi.fn() });
 
-        mockUseFillerWordCounter.mockReturnValue({
+        mockUseFillerWords.mockReturnValue({
             counts: {},
-            totalCount: 0,
-            processSegment: vi.fn(),
-            resetCounts: vi.fn()
+            totalCount: 0
         });
 
         const { result, rerender } = renderHook(() => useSpeechRecognition_prod());
@@ -158,11 +158,9 @@ describe('useSpeechRecognition - Stale Closure Fix', () => {
 
         mockUseSessionTimer.mockReturnValue({ duration: 20, reset: vi.fn() });
 
-        mockUseFillerWordCounter.mockReturnValue({
-            counts: { 'um': 1 },
-            totalCount: 1,
-            processSegment: vi.fn(),
-            resetCounts: vi.fn()
+        mockUseFillerWords.mockReturnValue({
+            counts: { 'um': { count: 1, color: '' } },
+            totalCount: 1
         });
 
         rerender();

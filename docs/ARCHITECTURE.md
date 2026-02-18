@@ -107,7 +107,7 @@ This section contains a high-level block diagram of the SpeakSharp full-stack ar
 │  │ ├─useTranscriptionState│  │  │  │  │  └───────────────────┘  │
 │  │ ├─useTranscriptionCtrl │  │  │  │  │                         │
 │  │ ├─useTranscriptionCallb│  │  │  │  └─────────────────────────┘
-│  │ ├─useFillerWordCounter │  │  │
+│  │ ├─useFillerWords       │  │  │
 │  │ └─useTranscriptionCtx  │  │  │  ┌─────────────────────────┐
 │  └──────────┬─────────────┘  │  │  │   3RD PARTY SERVICES    │
 │             │                │  │  │                         │
@@ -699,7 +699,7 @@ To achieve React Refresh compliance and high maintainability, the monolithic `us
 - **`useTranscriptionState`**: Manages transcript, status, and duration state.
 - **`useTranscriptionControl`**: Handles `start`/`stop`/`cancel` orchestration.
 - **`useTranscriptionCallbacks`**: Manages event listeners and Lately Captured State proxies.
-- **`useFillerWordCounter`**: Isolated NLP logic for high-frequency filler word analysis.
+- **`useFillerWords`**: Isolated NLP logic for high-frequency filler word analysis.
 - **`TranscriptionProvider`**: Injects these hooks via `TranscriptionContext` to avoid prop-drilling and enable Fast Refresh.
 
 > [!IMPORTANT]
