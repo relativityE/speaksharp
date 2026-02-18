@@ -62,8 +62,8 @@ export default defineConfig({
 
   port: 5173,
 
-  // ✅ CRITICAL: Never reuse existing server
-  reuseExistingServer: false,
+  // ✅ CRITICAL: Reuse server in dev (faster), restart in CI (fresh)
+  reuseExistingServer: !process.env.CI,
 
   // ✅ Wait for server to be ready
   timeout: 120000,
