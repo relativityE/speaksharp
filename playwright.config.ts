@@ -37,7 +37,7 @@ export default defineConfig({
   webServer: {
     command: 'pnpm preview:test',
     url: BASE_URL,
-    reuseExistingServer: true, // CRITICAL: Always restart locally to prevent stale code (Zombie Server)
+    reuseExistingServer: !process.env.CI, // Restart in CI to prevent stale code
     timeout: 120 * 1000,
     env: {
       DOTENV_CONFIG_PATH: '.env.test',

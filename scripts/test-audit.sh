@@ -268,11 +268,14 @@ run_sqm_report_local() {
 
 run_ci_simulation() {
     echo "🤖 Running Full CI Simulation..."
+    export CI=true
     
     # Clean up previous runs
     rm -rf test-results merged-reports blob-report
     
-
+    # Kill any existing zombie servers
+    lsof -t -i :4173 | xargs kill -9 2>/dev/null || true
+    lsof -t -i :5173 | xargs kill -9 2>/dev/null || true
     
     # 1. Setup (Match GitHub CI "prepare" job steps)
     echo "🔧 CI Setup: Installing dependencies..."
