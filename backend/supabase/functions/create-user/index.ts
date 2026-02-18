@@ -168,31 +168,24 @@ Deno.serve(async (req: Request) => {
         console.log(`[Provisioning] Decision - Tier: ${tier}, Limit: ${usageLimit} (Input Status: '${subscription_status}')`);
 
         console.log(`Upserting profile for ${userId} (status: ${tier})`);
-        const { error: profileError } = await supabase
+        // OPTIMIZATION: Combine upsert and select to reduce round-trips
+        const { data: verifiedProfile, error: profileError } = await supabase
             .from('user_profiles')
             .upsert({
                 id: userId,
-                // user_id column does not exist (id is the PK/FK)
-                // user_id: userId,
                 subscription_status: tier,
-                // usage_limit column does not exist in schema yet
-                // usage_limit: usageLimit, 
-            }, { onConflict: 'id' });
+            }, { onConflict: 'id' })
+            .select('*')
+            .single();
 
         if (profileError) {
             console.error("Profile provision failed:", profileError);
             return new Response(JSON.stringify({ error: "profile_provision_failed", details: profileError }), { status: 500 });
         }
 
-        // VERIFICATION: Read back the profile to ensure persistence
-        const { data: verifiedProfile, error: verifyError } = await supabase
-            .from('user_profiles')
-            .select('*')
-            .eq('id', userId)
-            .single();
-
-        if (verifyError) {
-            console.error("Profile verification read failed:", verifyError);
+        // VERIFICATION: Ensure the profile was upserted correctly
+        if (!verifiedProfile) {
+            console.error("Profile verification failed: No data returned from upsert");
         } else {
             console.log(`[Provisioning] Verification Read - ID: ${verifiedProfile.id}, Status: ${verifiedProfile.subscription_status}`);
 
