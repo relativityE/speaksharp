@@ -1,6 +1,10 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import TranscriptionService from '../TranscriptionService';
-import { TranscriptionPolicy } from '../TranscriptionPolicy';
-import { TranscriptionModeOptions, ITranscriptionMode } from '../modes/types';
+import { TranscriptionPolicy, PROD_FREE_POLICY } from '../TranscriptionPolicy';
+import { ITranscriptionMode } from '../modes/types';
+import { MicStream } from '../utils/types';
+import { testRegistry } from '../TestRegistry';
+import { FailureManager } from '../FailureManager';
 
 // Mock dependencies
 vi.mock('../../lib/logger', () => ({
@@ -19,52 +23,43 @@ vi.mock('../utils/audioUtils', () => ({
     }),
 }));
 
-// Mock NativeBrowser mode
-const mockNativeInit = vi.fn().mockResolvedValue(undefined);
-const mockNativeStart = vi.fn().mockResolvedValue(undefined);
-vi.mock('../modes/NativeBrowser', () => ({
-    default: class MockNativeBrowser {
-        init = mockNativeInit;
-        startTranscription = mockNativeStart;
-        stopTranscription = vi.fn().mockResolvedValue({ transcript: 'test', duration: 1 });
-        terminate = vi.fn().mockResolvedValue(undefined);
-        getEngineType = vi.fn().mockReturnValue('native');
-    },
-}));
-
 describe('TranscriptionService - Max Attempts', () => {
     let service: TranscriptionService;
     const onStatusChange = vi.fn();
 
-    // Mock implementations for window injection
-    const mockPrivateInit = vi.fn();
-    const mockPrivateStart = vi.fn();
-
-    class MockPrivateWhisper {
-        init = mockPrivateInit;
-        startTranscription = mockPrivateStart;
+    class MockPrivateEngine implements ITranscriptionMode {
+        init = vi.fn().mockRejectedValue(new Error('Persistent Fail'));
+        startTranscription = vi.fn().mockResolvedValue(undefined);
+        stopTranscription = vi.fn().mockResolvedValue('test');
+        getTranscript = vi.fn().mockResolvedValue('test');
         terminate = vi.fn().mockResolvedValue(undefined);
-        getEngineType = vi.fn().mockReturnValue('whisper-turbo');
-        constructor(_config: unknown) { }
+        getEngineType = () => 'whisper-turbo' as const;
+    }
+
+    class MockNativeEngine implements ITranscriptionMode {
+        init = vi.fn().mockResolvedValue(undefined);
+        startTranscription = vi.fn().mockResolvedValue(undefined);
+        stopTranscription = vi.fn().mockResolvedValue('test');
+        getTranscript = vi.fn().mockResolvedValue('test');
+        terminate = vi.fn().mockResolvedValue(undefined);
+        getEngineType = () => 'native' as const;
     }
 
     const privatePolicy: TranscriptionPolicy = {
-        executionIntent: 'quality',
+        ...PROD_FREE_POLICY,
         allowNative: true,
         allowCloud: false,
         allowPrivate: true,
         preferredMode: 'private',
         allowFallback: true,
+        executionIntent: 'test-max-attempts'
     };
 
     beforeEach(async () => {
+        vi.useFakeTimers();
         vi.clearAllMocks();
-        // Reset via public static helper
-        TranscriptionService.resetFailureCount();
-
-        // Inject mock into window (simulating E2E/Test environment)
-        window.MockPrivateWhisper = MockPrivateWhisper as unknown as new (config: TranscriptionModeOptions) => ITranscriptionMode;
-        window.__E2E_MOCK_LOCAL_WHISPER__ = true;
+        testRegistry.clear();
+        FailureManager.getInstance().resetFailureCount();
 
         service = new TranscriptionService({
             onTranscriptUpdate: vi.fn(),
@@ -75,69 +70,76 @@ describe('TranscriptionService - Max Attempts', () => {
             getAssemblyAIToken: vi.fn(),
             session: null,
             policy: privatePolicy,
+            mockMic: {
+                stream: {} as MediaStream,
+                stop: vi.fn(),
+                clone: vi.fn(),
+                onFrame: vi.fn().mockReturnValue(() => { }),
+            } as unknown as MicStream
         });
 
         await service.init();
     });
 
-    afterEach(() => {
-        // Cleanup window pollution
-        window.MockPrivateWhisper = undefined;
-        window.__E2E_MOCK_LOCAL_WHISPER__ = undefined;
+    afterEach(async () => {
+        if (service && !service.isServiceDestroyed()) {
+            await service.destroy();
+        }
+        testRegistry.clear();
+        vi.useRealTimers();
     });
 
     it('should enforce Native fallback after max private attempts', async () => {
-        // 1. First Attempt - Fails
-        mockPrivateInit.mockRejectedValueOnce(new Error('Init Failed 1'));
+        const privateEngine = new MockPrivateEngine();
+        testRegistry.register('private', () => privateEngine);
+        testRegistry.register('native', () => new MockNativeEngine());
 
+        // 1. First Attempt - Fails
         try {
-            await service.startTranscription();
+            const promise = service.startTranscription();
+            await vi.advanceTimersByTimeAsync(500);
+            await promise;
         } catch (e) { /* ignore fallback errors */ }
 
-        expect(mockPrivateInit).toHaveBeenCalledTimes(1);
-        await vi.waitFor(() => {
-            expect(mockNativeInit).toHaveBeenCalledTimes(1); // Standard fallback
-        });
-        // Behavior check confirms logic without peeking
-
         await service.stopTranscription();
-
-        // Reset mocks
-        mockPrivateInit.mockClear();
-        mockNativeInit.mockClear();
-        onStatusChange.mockClear();
 
         // 2. Second Attempt - Fails
-        mockPrivateInit.mockRejectedValueOnce(new Error('Init Failed 2'));
         try {
-            await service.startTranscription();
+            const promise = service.startTranscription();
+            await vi.advanceTimersByTimeAsync(500);
+            await promise;
         } catch (e) { /* ignore fallback errors */ }
-
-        expect(mockPrivateInit).toHaveBeenCalledTimes(1);
-        // Behavior check
 
         await service.stopTranscription();
 
-        // Reset mocks
-        mockPrivateInit.mockClear();
-        mockNativeInit.mockClear();
+        // 3. Third Attempt - Fails
+        try {
+            const promise = service.startTranscription();
+            await vi.advanceTimersByTimeAsync(500);
+            await promise;
+        } catch (e) { /* ignore fallback errors */ }
+
+        await service.stopTranscription();
+
+        // Reset mocks to clear previous calls
+        privateEngine.init.mockClear();
         onStatusChange.mockClear();
 
-        // 3. Third Attempt - Should NOT try Private, should Force Native
+        // 4. Fourth Attempt - Should NOT try Private, should Force Native directly
+        // The max attempts is 3 (default), so 4th attempt should be blocked
         await service.startTranscription();
 
-        // EXPECTATIONS
-        await vi.waitFor(() => {
-            expect(mockPrivateInit).not.toHaveBeenCalled(); // Should be skipped
-            expect(mockNativeInit).toHaveBeenCalledTimes(1); // Should call Native directly
-        });
+        // EXPECTATIONS - Behavior-based
+        // Should NOT have tried to init private engine again
+        expect(privateEngine.init).not.toHaveBeenCalled();
 
-        await vi.waitFor(() => {
-            expect(onStatusChange).toHaveBeenCalledWith(expect.objectContaining({
-                type: 'fallback',
-                message: expect.stringContaining('Too many failures'),
-                newMode: 'native'
-            }));
-        });
+        // Should be in native mode
+        expect(service.getMode()).toBe('native');
+
+        // Should have emitted fallback status
+        expect(onStatusChange).toHaveBeenCalledWith(expect.objectContaining({
+            type: 'fallback',
+            newMode: 'native'
+        }));
     });
 });

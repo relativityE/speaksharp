@@ -14,7 +14,7 @@
  * @see SessionPage.tsx for the component under test
  */
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act } from '../../../tests/support/test-utils';
 import SessionPage from '../SessionPage';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -44,13 +44,9 @@ vi.mock('react-router-dom', async () => {
     };
 });
 
-vi.mock('../../contexts/AuthProvider', () => ({
-    useAuthProvider: () => ({ session: { user: { id: 'test-user' } } }),
-}));
 
-vi.mock('@/hooks/useUserProfile', () => ({
-    useUserProfile: () => ({ data: { subscription_status: 'pro' }, isLoading: false }),
-}));
+
+
 
 vi.mock('../../stores/useSessionStore', () => ({
     useSessionStore: vi.fn(),
@@ -67,9 +63,13 @@ vi.mock('../../hooks/useVocalAnalysis', () => ({
     }),
 }));
 
-vi.mock('@tanstack/react-query', () => ({
-    useQueryClient: () => ({ invalidateQueries: vi.fn() }),
-}));
+vi.mock('@tanstack/react-query', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@tanstack/react-query')>();
+    return {
+        ...actual,
+        useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+    };
+});
 
 vi.mock('@/hooks/useUsageLimit', () => ({
     useUsageLimit: () => ({ data: { can_start: true, remaining_seconds: 3600 }, isLoading: false }),
@@ -117,6 +117,7 @@ vi.mock('@/components/session/SpeakingTipsCard', () => ({ SpeakingTipsCard: () =
 vi.mock('@/components/session/MobileActionBar', () => ({ MobileActionBar: () => <div /> }));
 vi.mock('@/components/session/UserFillerWordsManager', () => ({ UserFillerWordsManager: () => <div /> }));
 vi.mock('@/components/session/SessionPageSkeleton', () => ({ SessionPageSkeleton: () => <div /> }));
+vi.mock('@/components/session/PauseMetricsDisplay', () => ({ PauseMetricsDisplay: () => <div /> }));
 
 // Import for mocking responses
 import { useSpeechRecognition } from '../../hooks/useSpeechRecognition';
@@ -165,11 +166,7 @@ describe('SessionPage Feedback Logic', () => {
             elapsedTime: 2,
         }));
 
-        render(
-            <MemoryRouter>
-                <SessionPage />
-            </MemoryRouter>
-        );
+        render(<SessionPage />, { authMock: { session: { user: { id: 'test-user', email: 'test@example.com' } } as any } });
 
         // Click stop
         const btn = screen.getByTestId('start-stop-btn');
@@ -206,11 +203,7 @@ describe('SessionPage Feedback Logic', () => {
 
         mockSaveSession.mockResolvedValue({ session: { id: '123' } });
 
-        render(
-            <MemoryRouter>
-                <SessionPage />
-            </MemoryRouter>
-        );
+        render(<SessionPage />, { authMock: { session: { user: { id: 'test-user', email: 'test@example.com' } } as any } });
 
         // Click stop
         const btn = screen.getByTestId('start-stop-btn');
@@ -248,11 +241,7 @@ describe('SessionPage Feedback Logic', () => {
             chunks: [],
         });
 
-        render(
-            <MemoryRouter>
-                <SessionPage />
-            </MemoryRouter>
-        );
+        render(<SessionPage />, { authMock: { session: { user: { id: 'test-user', email: 'test@example.com' } } as any } });
 
         // Should show STT status, which means feedback message (priority 1) must be null
         // If feedback message was somehow stuck, it would show that instead.

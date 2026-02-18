@@ -6,7 +6,8 @@ import { useSpeechRecognition } from '../useSpeechRecognition';
 import { useUsageLimit } from '../useUsageLimit';
 import type { UseQueryResult } from '@tanstack/react-query';
 import type { TranscriptStats } from '../useSpeechRecognition/types';
-import type { SttStatus } from '@/services/transcription/TranscriptionService';
+import { SttStatus } from '@/types/transcription';
+
 import type { UsageLimitCheck } from '../useUsageLimit';
 import type { PauseMetrics } from '@/services/audio/pauseDetector';
 import type { UserProfile } from '@/types/user';
@@ -92,7 +93,7 @@ vi.mock('../useSpeechRecognition', () => ({
         transcript: baseTranscript,
         chunks: [],
         interimTranscript: '',
-        fillerData: {},
+        fillerData: { total: { count: 0, color: '' } },
         startListening: mockStartListening,
         stopListening: mockStopListening,
         isListening: false,
@@ -101,7 +102,7 @@ vi.mock('../useSpeechRecognition', () => ({
         error: null,
         reset: mockReset,
         pauseMetrics: basePauseMetrics,
-        modelLoadingProgress: 0,
+        modelLoadingProgress: null,
         sttStatus: baseSttStatus,
         mode: 'native'
     })),
@@ -144,7 +145,18 @@ vi.mock('@/constants/subscriptionTiers', () => ({
 }));
 
 vi.mock('@/services/transcription/TranscriptionPolicy', () => ({
-    buildPolicyForUser: vi.fn(),
+    buildPolicyForUser: vi.fn(() => ({
+        allowNative: true,
+        allowCloud: false,
+        allowPrivate: false,
+        preferredMode: 'native',
+        allowFallback: false,
+        executionIntent: 'test'
+    })),
+    TranscriptionMode: {
+        NATIVE: 'native',
+        CLOUD: 'cloud',
+    },
 }));
 
 vi.mock('@/config/env', () => ({
@@ -186,7 +198,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             transcript: baseTranscript,
             chunks: [],
             interimTranscript: '',
-            fillerData: {},
+            fillerData: { total: { count: 0, color: '' } },
             startListening: mockStartListening,
             stopListening: mockStopListening,
             isListening: true,
@@ -195,7 +207,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             error: null,
             reset: mockReset,
             pauseMetrics: basePauseMetrics,
-            modelLoadingProgress: 0,
+            modelLoadingProgress: null,
             sttStatus: { type: 'ready', message: 'Recording' },
             mode: 'native'
         });
@@ -229,7 +241,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             transcript: baseTranscript,
             chunks: [],
             interimTranscript: '',
-            fillerData: {},
+            fillerData: { total: { count: 0, color: '' } },
             startListening: mockStartListening,
             stopListening: mockStopListening,
             isListening: true,
@@ -238,7 +250,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             error: null,
             reset: mockReset,
             pauseMetrics: basePauseMetrics,
-            modelLoadingProgress: 0,
+            modelLoadingProgress: null,
             sttStatus: { type: 'ready', message: 'Recording' },
             mode: 'native'
         });

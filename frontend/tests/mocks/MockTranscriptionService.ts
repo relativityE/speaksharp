@@ -1,4 +1,4 @@
-import { SttStatus } from '@/services/transcription/TranscriptionService';
+import { SttStatus } from '@/types/transcription';
 import { TranscriptionModeOptions } from '@/services/transcription/modes/types';
 
 export class MockTranscriptionService {

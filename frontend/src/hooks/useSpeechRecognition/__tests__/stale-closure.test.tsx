@@ -4,19 +4,17 @@ import { useSpeechRecognition_prod } from '../useSpeechRecognition_prod'; // Tes
 import { calculateTranscriptStats } from '../../../utils/fillerWordUtils';
 
 // Helper to mock the hooks
-import { useTranscriptState } from '../useTranscriptState';
-import { useFillerWords } from '../useFillerWords';
+import { useTranscriptionState } from '../useTranscriptionState';
+import { useFillerWordCounter } from '../useFillerWordCounter';
+import { useTranscriptionControl } from '../useTranscriptionControl';
 import { useTranscriptionService } from '../useTranscriptionService';
 import { useSessionTimer } from '../useSessionTimer';
 import { useVocalAnalysis } from '../../useVocalAnalysis';
 
+import { useTranscriptionCallbacks } from '../useTranscriptionCallbacks';
 // Mock dependencies
 vi.mock('../../../utils/fillerWordUtils', () => ({
-    calculateTranscriptStats: vi.fn().mockReturnValue({
-        total_words: 10,
-        accuracy: 95,
-        transcript: 'mock transcript',
-    }),
+    calculateTranscriptStats: vi.fn(), // We spy on this
 }));
 
 vi.mock('../../../contexts/AuthProvider', () => ({
@@ -36,16 +34,21 @@ vi.mock('react-router-dom', () => ({
 }));
 
 // Mock internal hooks using simple factories
-vi.mock('../useTranscriptState');
-vi.mock('../useFillerWords');
+vi.mock('../useTranscriptionState');
+vi.mock('../useFillerWordCounter');
+vi.mock('../useTranscriptionControl');
+vi.mock('../useTranscriptionCallbacks');
 vi.mock('../useTranscriptionService');
 vi.mock('../useSessionTimer');
 vi.mock('../../useVocalAnalysis');
 
+
 describe('useSpeechRecognition - Stale Closure Fix', () => {
     // Typed mocks
-    const mockUseTranscriptState = vi.mocked(useTranscriptState);
-    const mockUseFillerWords = vi.mocked(useFillerWords);
+    const mockUseTranscriptionState = vi.mocked(useTranscriptionState);
+    const mockUseFillerWordCounter = vi.mocked(useFillerWordCounter);
+    const mockUseTranscriptionControl = vi.mocked(useTranscriptionControl);
+    const mockUseTranscriptionCallbacks = vi.mocked(useTranscriptionCallbacks);
     const mockUseTranscriptionService = vi.mocked(useTranscriptionService);
     const mockUseSessionTimer = vi.mocked(useSessionTimer);
     const mockUseVocalAnalysis = vi.mocked(useVocalAnalysis);
@@ -53,20 +56,34 @@ describe('useSpeechRecognition - Stale Closure Fix', () => {
     beforeEach(() => {
         vi.clearAllMocks();
 
-        // Default mock implementations using defaults to avoid destructuring errors
-        mockUseTranscriptState.mockReturnValue({
-            finalChunks: [],
-            interimTranscript: '',
-            reset: vi.fn(),
-            setInterimTranscript: vi.fn(),
-            addChunk: vi.fn(),
-            transcript: '',
+        mockUseTranscriptionControl.mockReturnValue({
+            startListening: vi.fn(),
+            stopListening: vi.fn().mockResolvedValue({ success: true }),
+            isServiceReady: true
         });
 
-        mockUseFillerWords.mockReturnValue({
-            fillerData: {},
+        mockUseTranscriptionCallbacks.mockImplementation(() => { });
+
+        // Default implementation
+        mockUseTranscriptionState.mockReturnValue({
+            finalChunks: [],
+            interimTranscript: '',
+            transcript: '',
+            addChunk: vi.fn(),
+            setInterimTranscript: vi.fn(),
             reset: vi.fn(),
-            finalFillerData: { total: { count: 0, color: '' } },
+            state: 'IDLE',
+            error: null,
+            isRecording: false,
+            isInitializing: false,
+            setError: vi.fn()
+        } as unknown as ReturnType<typeof useTranscriptionState>);
+
+        mockUseFillerWordCounter.mockReturnValue({
+            counts: {},
+            totalCount: 0,
+            processSegment: vi.fn(),
+            resetCounts: vi.fn()
         });
 
         mockUseTranscriptionService.mockReturnValue({
@@ -89,71 +106,84 @@ describe('useSpeechRecognition - Stale Closure Fix', () => {
         mockUseVocalAnalysis.mockReturnValue({
             setIsActive: vi.fn(),
             pauseMetrics: {},
+            processAudioFrame: vi.fn(),
+            reset: vi.fn()
         } as unknown as ReturnType<typeof useVocalAnalysis>);
     });
 
     it('should use the LATEST state in stopListening, not the render-time state', async () => {
-        // 1. Initial Render
-        // State A
-        const stateA = {
-            finalChunks: ['Start'],
+        // 1. Initial Render (State A)
+        mockUseTranscriptionState.mockReturnValue({
+            finalChunks: [{ text: 'Start', timestamp: 0, confidence: 1 }],
             interimTranscript: '',
+            transcript: 'Start',
             reset: vi.fn(),
             setInterimTranscript: vi.fn(),
             addChunk: vi.fn(),
-            transcript: 'Start',
-        } as unknown as ReturnType<typeof useTranscriptState>;
-        mockUseTranscriptState.mockReturnValue(stateA);
+            state: 'RECORDING',
+            error: null,
+            isRecording: true,
+            isInitializing: false,
+            setError: vi.fn()
+        } as unknown as ReturnType<typeof useTranscriptionState>);
 
         mockUseSessionTimer.mockReturnValue({ duration: 10, reset: vi.fn() });
 
-        const fillerStateA = {
-            fillerData: {},
-            reset: vi.fn(),
-            finalFillerData: { total: { count: 0, color: '' } },
-        } as unknown as ReturnType<typeof useFillerWords>;
-        mockUseFillerWords.mockReturnValue(fillerStateA);
+        mockUseFillerWordCounter.mockReturnValue({
+            counts: {},
+            totalCount: 0,
+            processSegment: vi.fn(),
+            resetCounts: vi.fn()
+        });
 
         const { result, rerender } = renderHook(() => useSpeechRecognition_prod());
 
         // 2. Update to State B (simulate time passing / transcript updating)
-        // If the hook captures variables in closure, it might stick to State A
-        const stateB = {
-            finalChunks: ['Start', 'End'], // Changed!
+        mockUseTranscriptionState.mockReturnValue({
+            finalChunks: [
+                { text: 'Start', timestamp: 0, confidence: 1 },
+                { text: 'End', timestamp: 10, confidence: 1 }
+            ],
             interimTranscript: '',
+            transcript: 'Start End',
             reset: vi.fn(),
             setInterimTranscript: vi.fn(),
             addChunk: vi.fn(),
-            transcript: 'Start End',
-        } as unknown as ReturnType<typeof useTranscriptState>;
-        mockUseTranscriptState.mockReturnValue(stateB);
+            state: 'RECORDING',
+            error: null,
+            isRecording: true,
+            isInitializing: false,
+            setError: vi.fn()
+        } as unknown as ReturnType<typeof useTranscriptionState>);
 
-        mockUseSessionTimer.mockReturnValue({ duration: 20, reset: vi.fn() }); // Changed!
+        mockUseSessionTimer.mockReturnValue({ duration: 20, reset: vi.fn() });
 
-        const fillerStateB = {
-            fillerData: { 'um': { count: 1, color: '' } },
-            reset: vi.fn(),
-            finalFillerData: { total: { count: 1, color: '' } }, // Changed!
-        } as unknown as ReturnType<typeof useFillerWords>;
-        mockUseFillerWords.mockReturnValue(fillerStateB);
+        mockUseFillerWordCounter.mockReturnValue({
+            counts: { 'um': 1 },
+            totalCount: 1,
+            processSegment: vi.fn(),
+            resetCounts: vi.fn()
+        });
 
         rerender();
 
         // 3. Call stopListening
-        // This function was created during render. 
-        // If the fix works (refs), it should see ['Start', 'End'], duration 20, and count 1.
         await act(async () => {
+            // Mock control.stopListening response handled by orchestrator logic
             await result.current.stopListening();
         });
 
         // 4. Verify what verifyTranscriptStats was called with
-        // calculateTranscriptStats args: (finalChunks, finalTranscripts, interimTranscript, duration)
-        // Note: mockUseTranscriptState mocks finalChunks and duration from sessionTimer
+        // Since we mocked useTranscriptionState to return ['Start', 'End'], 
+        // calculateTranscriptStats should be called with THAT array, not the initial one.
         expect(calculateTranscriptStats).toHaveBeenCalledWith(
-            ['Start', 'End'], // Expected NEW state
+            expect.arrayContaining([
+                expect.objectContaining({ text: 'Start' }),
+                expect.objectContaining({ text: 'End' })
+            ]),
             expect.anything(),
             expect.anything(),
-            20 // Expected NEW state (duration)
+            20 // Expected NEW duration
         );
     });
 });

@@ -23,13 +23,6 @@ import { TestFlags } from './TestFlags';
 
 export const IS_TEST_ENVIRONMENT = TestFlags.IS_TEST_MODE;
 
-/**
- * SOURCE OF TRUTH: Driver-Dependent Tests
- * Gated by REAL_WHISPER_TEST. When true, we bypass all mocks (Audio/Worker)
- * to verify real engine performance against real audio hardware/drivers.
- */
-export const IS_DRIVER_DEPENDENT_TEST = TestFlags.USE_REAL_TRANSCRIPTION;
-
 // ServiceWorker registration timeout (in milliseconds)
 export const SW_TIMEOUT_MS = 2000;
 

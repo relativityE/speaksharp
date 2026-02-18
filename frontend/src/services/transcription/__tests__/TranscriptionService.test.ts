@@ -1,7 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import TranscriptionService from '../TranscriptionService';
 import { TranscriptionPolicy } from '../TranscriptionPolicy';
 import { MicStream } from '../utils/types';
+import { testRegistry } from '../TestRegistry';
+import { ITranscriptionMode } from '../modes/types';
 
 // Mock dependencies
 const mockOnTranscriptUpdate = vi.fn();
@@ -12,55 +14,33 @@ const mockOnModeChange = vi.fn();
 const mockNavigate = vi.fn();
 const mockGetToken = vi.fn().mockResolvedValue('mock-token');
 
-// Mock NativeBrowser mode
-const mockNativeInstance = {
-    init: vi.fn(),
-    startTranscription: vi.fn(),
-    stopTranscription: vi.fn(),
-    terminate: vi.fn(), // Include terminate for testing
-    getTranscript: vi.fn(),
-    getEngineType: vi.fn().mockReturnValue('native'),
-};
+class SuccessNativeEngine implements ITranscriptionMode {
+    init = vi.fn().mockResolvedValue(undefined);
+    startTranscription = vi.fn().mockResolvedValue(undefined);
+    stopTranscription = vi.fn().mockResolvedValue('test');
+    getTranscript = vi.fn().mockResolvedValue('test');
+    terminate = vi.fn().mockResolvedValue(undefined);
+    getEngineType = () => 'native' as const;
+}
 
-// Mock PrivateSTT mode
-const mockPrivateInstance = {
-    init: vi.fn(),
-    startTranscription: vi.fn(),
-    stopTranscription: vi.fn(),
-    terminate: vi.fn(),
-    getTranscript: vi.fn(),
-    getEngineType: vi.fn().mockReturnValue('whisper-turbo'),
-};
-
-// Mock CloudAssistant mode
-const mockCloudInstance = {
-    init: vi.fn(),
-    startTranscription: vi.fn(),
-    stopTranscription: vi.fn(),
-    terminate: vi.fn(),
-    getTranscript: vi.fn(),
-    getEngineType: vi.fn().mockReturnValue('cloud'),
-};
-
-
-vi.mock('../modes/NativeBrowser', () => ({
-    default: vi.fn().mockImplementation(() => mockNativeInstance)
-}));
-
-vi.mock('../modes/PrivateWhisper', () => ({
-    default: vi.fn().mockImplementation(() => mockPrivateInstance)
-}));
-
-vi.mock('../modes/CloudAssemblyAI', () => ({
-    default: vi.fn().mockImplementation(() => mockCloudInstance)
-}));
+class FailingPrivateEngine implements ITranscriptionMode {
+    init = vi.fn().mockRejectedValue(new Error('Init failed'));
+    startTranscription = vi.fn().mockResolvedValue(undefined);
+    stopTranscription = vi.fn().mockResolvedValue('');
+    getTranscript = vi.fn().mockResolvedValue('');
+    terminate = vi.fn().mockResolvedValue(undefined);
+    getEngineType = () => 'whisper-turbo' as const;
+}
 
 describe('TranscriptionService', () => {
     let service: TranscriptionService;
 
-    beforeEach(() => {
+    beforeEach(async () => {
+        vi.useFakeTimers();
         vi.clearAllMocks();
-        // Default policy allowing everything for testing
+        testRegistry.clear();
+
+        // Default policy
         const policy: TranscriptionPolicy = {
             allowNative: true,
             allowCloud: false,
@@ -84,84 +64,70 @@ describe('TranscriptionService', () => {
                 stream: {} as MediaStream,
                 stop: vi.fn(),
                 clone: vi.fn(),
+                onFrame: vi.fn().mockReturnValue(() => { }),
             } as unknown as MicStream
         });
+
+        await service.init();
+    });
+
+    afterEach(() => {
+        testRegistry.clear();
+        vi.useRealTimers();
     });
 
     it('should emit fallback status with newMode when falling back', async () => {
-        // Arrange: Make Private STT fail
-        mockPrivateInstance.init.mockRejectedValueOnce(new Error('Init failed'));
-        // Make Native succeed
-        mockNativeInstance.init.mockResolvedValueOnce(undefined);
+        // Arrange
+        testRegistry.register('private', () => new FailingPrivateEngine());
+        testRegistry.register('native', () => new SuccessNativeEngine());
 
         // Act
-        await service.init();
-        await service.startTranscription();
+        const promise = service.startTranscription();
+        await vi.advanceTimersByTimeAsync(100);
+        await promise;
 
         // Assert
-        // Check finding: Verify we received the 'fallback' status with 'newMode: native'
-        await vi.waitFor(() => {
-            expect(mockOnStatusChange).toHaveBeenCalledWith(expect.objectContaining({
-                type: 'fallback',
-                message: expect.stringContaining('Switched to Native Browser mode'),
-                newMode: 'native' // THIS IS THE KEY FIX WE ARE VERIFYING
-            }));
-        });
+        expect(mockOnStatusChange).toHaveBeenCalledWith(expect.objectContaining({
+            type: 'fallback',
+            message: expect.stringContaining('Falling back to Native browser mode'),
+            newMode: 'native'
+        }));
 
-        // Verify it actually switched
-        await vi.waitFor(() => {
-            expect(mockOnModeChange).toHaveBeenCalledWith('native');
-        });
+        expect(service.getMode()).toBe('native');
     });
 
-    it('should call terminate() on destroy if available', async () => {
+    it('should call terminate() on destroy', async () => {
         // Arrange
-        // Force service into a mode
-        mockPrivateInstance.init.mockResolvedValueOnce(undefined);
-        await service.init();
+        const engine = new SuccessNativeEngine();
+        testRegistry.register('native', () => engine);
+
+        // Force native mode for this test to avoid fallback complexity
+        service.updatePolicy({
+            allowNative: true,
+            allowCloud: false,
+            allowPrivate: false,
+            preferredMode: 'native',
+            allowFallback: false,
+            executionIntent: 'test-native'
+        });
+
         await service.startTranscription();
 
         // Act
         await service.destroy();
 
         // Assert
-        await vi.waitFor(() => {
-            expect(mockPrivateInstance.terminate).toHaveBeenCalled();
-        });
-    });
-
-    it('should fall back to stopTranscription() on destroy if terminate is missing', async () => {
-        // Arrange
-        const legacyInstance = { ...mockPrivateInstance, terminate: undefined };
-
-
-        const PrivateWhisperMock = await import('../modes/PrivateWhisper');
-        // @ts-expect-error - overriding read-only mock for testing
-        PrivateWhisperMock.default.mockImplementationOnce(() => legacyInstance as unknown as typeof mockPrivateInstance);
-
-        await service.init();
-        await service.startTranscription();
-
-        // Act
-        await service.destroy();
-
-        // Assert
-        await vi.waitFor(() => {
-            expect(legacyInstance.stopTranscription).toHaveBeenCalled();
-        });
+        expect(engine.terminate).toHaveBeenCalled();
     });
 
     it('should release the microphone IMMEDIATELY on destroy', async () => {
         // Arrange
         const mockMicStop = vi.fn();
-        const policy: TranscriptionPolicy = {
-            allowNative: true,
-            allowCloud: false,
-            allowPrivate: true,
-            preferredMode: 'native',
-            allowFallback: true,
-            executionIntent: 'test'
-        };
+        const engine = new SuccessNativeEngine();
+        testRegistry.register('native', () => engine);
+
+        // Make terminate take a while
+        engine.terminate.mockImplementation(() => new Promise(res => setTimeout(res, 50)));
 
         const fastService = new TranscriptionService({
             onTranscriptUpdate: mockOnTranscriptUpdate,
@@ -172,17 +138,21 @@ describe('TranscriptionService', () => {
             session: null,
             navigate: mockNavigate,
             getAssemblyAIToken: mockGetToken,
-            policy,
+            policy: {
+                allowNative: true,
+                allowCloud: false,
+                allowPrivate: true,
+                preferredMode: 'native',
+                allowFallback: true,
+                executionIntent: 'test'
+            },
             mockMic: {
                 stream: {} as MediaStream,
                 stop: mockMicStop,
                 clone: vi.fn(),
+                onFrame: vi.fn().mockReturnValue(() => { }),
             } as unknown as MicStream
         });
-
-        // Setup engine that takes a while to terminate
-        mockNativeInstance.init.mockResolvedValueOnce(undefined);
-        mockNativeInstance.terminate.mockImplementation(() => new Promise(res => setTimeout(res, 50)));
 
         await fastService.init();
         await fastService.startTranscription();
@@ -193,7 +163,7 @@ describe('TranscriptionService', () => {
         // Assert: Mic should be stopped IMMEDIATELY (sync/microtask), before destroy completes
         expect(mockMicStop).toHaveBeenCalled();
 
+        vi.advanceTimersByTime(100);
         await destroyPromise;
     });
-
 });

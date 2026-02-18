@@ -2,6 +2,13 @@ import { describe, it, expect, vi } from 'vitest';
 import { ImmutableCallbackProxy } from '../ImmutableCallbackProxy';
 
 describe('ImmutableCallbackProxy', () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
     it('should forward calls to initial callbacks', () => {
         const initial = {
             onUpdate: vi.fn(),

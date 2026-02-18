@@ -5,6 +5,9 @@ import { AuthContext, AuthContextType } from '@/contexts/AuthProvider';
 import { Toaster } from '@/components/ui/sonner';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
+import { ProfileProvider } from '@/contexts/ProfileContext';
+import { UserProfile } from '@/types/user';
+
 export const MockElements = ({ children }: { children: ReactNode }) => <>{children}</>;
 
 export const MockAuthProvider = ({ children, mockValue }: { children: ReactNode, mockValue: Partial<AuthContextType> }) => (
@@ -14,13 +17,14 @@ export const MockAuthProvider = ({ children, mockValue }: { children: ReactNode,
 interface AllTheProvidersProps {
   children: ReactNode;
   authMock?: Partial<AuthContextType>;
+  profileMock?: Partial<UserProfile>; // ✅ Added
   route?: string | Partial<Location>;
   path?: string;
 }
 
 const queryClient = new QueryClient();
 
-export const AllTheProviders = ({ children, authMock, route = '/', path }: AllTheProvidersProps) => {
+export const AllTheProviders = ({ children, authMock, profileMock, route = '/', path }: AllTheProvidersProps) => {
   const initialEntries = [typeof route === 'string' ? { pathname: route } : route];
 
   const defaultAuthMock: AuthContextType = {
@@ -31,16 +35,29 @@ export const AllTheProviders = ({ children, authMock, route = '/', path }: AllTh
     setSession: vi.fn(),
   };
 
+  // ✅ Default Profile Mock
+  const defaultProfile: UserProfile = {
+    id: 'test-user-id',
+    email: 'test@example.com',
+    subscription_status: 'free',
+    usage_seconds: 0,
+    usage_reset_date: new Date().toISOString(),
+    created_at: new Date().toISOString(),
+    ...profileMock
+  };
+
   const content = path ? <Routes><Route path={path} element={<>{children}</>} /></Routes> : children;
 
   return (
     <MemoryRouter initialEntries={initialEntries}>
       <QueryClientProvider client={queryClient}>
         <MockAuthProvider mockValue={{ ...defaultAuthMock, ...authMock }}>
-          <MockElements>
-            {content}
-            <Toaster />
-          </MockElements>
+          <ProfileProvider value={{ profile: defaultProfile }}>
+            <MockElements>
+              {content}
+              <Toaster />
+            </MockElements>
+          </ProfileProvider>
         </MockAuthProvider>
       </QueryClientProvider>
     </MemoryRouter>

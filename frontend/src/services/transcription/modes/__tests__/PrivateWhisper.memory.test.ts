@@ -59,6 +59,7 @@ describe('PrivateWhisper Memory Leaks', () => {
     };
 
     beforeEach(() => {
+        vi.useFakeTimers();
         mic = new RealHasListenersMicStream();
         // Inject mock engine via registry
         testRegistry.register('private', () => mockSTTEngine);
@@ -68,6 +69,7 @@ describe('PrivateWhisper Memory Leaks', () => {
     afterEach(async () => {
         await whisper.terminate();
         testRegistry.clear();
+        vi.useRealTimers();
     });
 
     it('should not accumulate listeners on multiple start/stop cycles', async () => {

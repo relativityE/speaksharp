@@ -1,14 +1,8 @@
 import React from 'react';
 import { AlertCircle, CheckCircle2, Loader2, Info, AlertTriangle } from 'lucide-react';
 
-export type SttStatusType = 'idle' | 'initializing' | 'downloading' | 'ready' | 'fallback' | 'error';
-
-export interface SttStatus {
-    type: SttStatusType;
-    message: string;
-    detail?: string;
-    progress?: number; // 0-100 for downloading state
-}
+import { SttStatus, SttStatusType } from '../../types/transcription';
+import { useSessionStore } from '../../stores/useSessionStore';
 
 interface StatusNotificationBarProps {
     status: SttStatus;
@@ -36,6 +30,11 @@ const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: st
         bgClass: 'bg-yellow-400 border-yellow-600 shadow-xl',
         textClass: 'text-black font-black uppercase',
     },
+    recording: {
+        icon: Info, // Using Info as generic icon, similar to idle but distinct state
+        bgClass: 'bg-red-500 border-red-700 shadow-xl',
+        textClass: 'text-white font-black uppercase',
+    },
     fallback: {
         icon: AlertTriangle,
         bgClass: 'bg-yellow-400 border-yellow-600 shadow-xl',
@@ -59,10 +58,37 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
     const Icon = config.icon;
     const isAnimated = status.type === 'initializing' || status.type === 'downloading';
 
-    // Secondary Status (Background Download)
-    const hasSecondary = typeof status.progress === 'number';
-    const displayMessage = status.message?.replace(/^[⛔⚠️🚫]\s*/, '').trim() || status.message;
-    const emoji = status.message?.match(/^[⛔⚠️🚫]/)?.[0];
+    // Secondary Status (Background Download) - Read directly from store to persist across mode changes
+    const modelLoadingProgress = useSessionStore((s) => s.modelLoadingProgress);
+    const hasSecondary = modelLoadingProgress !== null;
+    // console.log('[E2E_DEBUG] [StatusNotificationBar] Render. Status:', status.type, 'Progress:', modelLoadingProgress, 'HasSecondary:', hasSecondary);
+
+    // ✅ FIX: Explicit defaults for display message
+    let displayMessage = status.message?.replace(/^(?:⛔|⚠️|🚫)\s*/u, '').trim();
+
+    if (!displayMessage) {
+        switch (status.type) {
+            case 'idle':
+                displayMessage = 'Ready';
+                break;
+            case 'recording':
+                displayMessage = 'Recording active';
+                break;
+            case 'ready':
+                displayMessage = 'Ready to record';
+                break;
+            case 'error':
+                displayMessage = 'Error occurred';
+                break;
+            case 'downloading':
+                displayMessage = 'Downloading...';
+                break;
+            default:
+                displayMessage = 'Ready';
+        }
+    }
+
+    const emoji = status.message?.match(/^(?:⛔|⚠️|🚫)/u)?.[0];
 
     return (
         <div
@@ -80,7 +106,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                 )}
                 <div className="flex flex-col">
                     <span className={`text-sm font-black uppercase tracking-tight ${config.textClass}`} data-testid="status-message-text">
-                        {displayMessage || (status.type === 'idle' ? 'Ready' : '')}
+                        {displayMessage}
                     </span>
                     {status.detail && (
                         <span className={`text-[10px] font-medium opacity-80 ${config.textClass}`}>
@@ -104,13 +130,13 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                             <div
                                 className="h-full bg-current transition-all duration-300 opacity-60"
                                 style={{
-                                    width: status.progress === -1 ? '40%' : `${status.progress}%`,
+                                    width: `${modelLoadingProgress}%`,
                                     backgroundColor: 'currentColor'
                                 }}
                             />
                         </div>
                         <span className={`text-[9px] font-bold ${config.textClass} min-w-[20px] text-right`}>
-                            {status.progress === -1 ? 'Indeterminate' : `${Math.round(status.progress!)}%`}
+                            {Math.round(modelLoadingProgress)}%
                         </span>
                     </div>
                 </div>

@@ -26,9 +26,12 @@ Do not proceed until this script completes successfully. If it fails, follow the
 ## 🛡️ Project Manifesto: Core Principles
 
 ### 🧪 Testing & Quality
+- **📖 Testing Strategy (MANDATORY)**: All agents MUST read **[tests/TESTING.md](tests/TESTING.md)** and **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#3-testing-strategy--governance)** before writing any tests.
 - **Integrity over Implementation**: Tests must validate requirements and design intent, not just structural implementation.
 - **Fail Fast, Fail Hard**: Avoid hanging tests; use aggressive 30s timeouts and explicit assertions to surface failures immediately.
-- **Strict Linting (ADR-001)**: `eslint-disable` is banned. Fix root causes (types, dependency arrays) for long-term stability.
+- **Strict Linting (ADR-001)**: `eslint-disable` is banned. Fix root causes (types, dependency arrays) for long-term stability. Permanent "Zero-Debt" mandate.
+- **Decomposition over Monoliths**: Never create or expand "God Files" (e.g., `TranscriptionProvider.tsx`). Always decompose logic into atomic hooks (`useTranscriptionState`, `useTranscriptionControl`).
+- **TestRegistry for DI**: Centralized engine injection via `TestRegistry` is the only way to register STT engines. This ensures deterministic mocking.
 - **Log, Don't Suppress**: Never swallow exceptions with empty `catch` blocks. Always log the error via `logger` before falling back or re-throwing.
 - **Single Source of Truth**: Perfect alignment between local (`test-audit.sh`) and CI environments.
 
@@ -86,6 +89,7 @@ Always provide ≥2 solutions for any non-trivial problem (fast fix + robust fix
 Every claim must include file path and exact line numbers and a 2–5 line code snippet as evidence.
 No escalation until Diagnostic Protocol completed (see §4).
 Code MUST be tested locally AND verified via CI (or explicitly waived by user) before merging/pushing to main. Agents must not check in code that is not built or tested.
+- **Full Health Mandate**: Every session MUST end with a 100% clean pass of `pnpm typecheck` and `pnpm lint`. No exceptions.
 
 ---
 
@@ -140,6 +144,7 @@ Exact failing command and raw error.
 File:line snippets used as evidence.
 Two options (fast + robust) with code snippets and risks.
 Artifacts: trace.zip path, run.log, screenshot(s).
+**Changelog**: All `CHANGELOG.md` entries MUST include the primary file(s) modified or implemented to verify the claim.
 PRs missing these will be returned for more detail.
 
 ___

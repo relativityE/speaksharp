@@ -2,7 +2,7 @@ import nlp from 'compromise';
 import { FILLER_WORD_KEYS } from '../config';
 
 // Interfaces for our data structures
-interface FillerData {
+export interface FillerData {
     count: number;
     color: string;
 }

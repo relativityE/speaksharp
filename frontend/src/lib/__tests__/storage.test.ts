@@ -15,6 +15,7 @@ describe('storage.ts', () => {
     };
 
     beforeEach(() => {
+        vi.useFakeTimers();
         vi.clearAllMocks();
         vi.mocked(getSupabaseClient).mockReturnValue(mockSupabase as unknown as SupabaseClient);
         vi.spyOn(logger, 'error').mockImplementation(() => { });
@@ -22,6 +23,7 @@ describe('storage.ts', () => {
 
     afterEach(() => {
         vi.restoreAllMocks();
+        vi.useRealTimers();
     });
 
     describe('getSessionHistory', () => {

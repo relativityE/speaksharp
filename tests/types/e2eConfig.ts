@@ -47,12 +47,12 @@ export interface E2EConfig {
     };
 
     registry: {
-        overrides: Map<string, any>;
+        overrides: Map<string, unknown>;
     };
 
     exposedState: {
-        sessionStore?: any;
-        activeSpeechRecognition?: any;
+        sessionStore?: unknown;
+        activeSpeechRecognition?: unknown;
     };
 }
 
@@ -69,12 +69,12 @@ export const DEFAULT_E2E_CONFIG: E2EConfig = {
 
 export function getE2EConfig(): E2EConfig {
     if (typeof window === 'undefined') return DEFAULT_E2E_CONFIG;
-    return (window as any).__E2E_CONFIG__ || DEFAULT_E2E_CONFIG;
+    return window.__E2E_CONFIG__ || DEFAULT_E2E_CONFIG;
 }
 
 export function initE2EConfig(config: Partial<E2EConfig>): void {
     if (typeof window === 'undefined') return;
-    (window as any).__E2E_CONFIG__ = {
+    window.__E2E_CONFIG__ = {
         ...DEFAULT_E2E_CONFIG,
         ...config,
         stt: { ...DEFAULT_E2E_CONFIG.stt, ...config.stt },

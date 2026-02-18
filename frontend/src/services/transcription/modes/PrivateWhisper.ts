@@ -39,7 +39,7 @@ import { IPrivateSTT } from '../engines/IPrivateSTT';
 import { ITranscriptionMode, TranscriptionModeOptions } from './types';
 import { MicStream } from '../utils/types';
 import { concatenateFloat32Arrays } from '../utils/AudioProcessor';
-import { TranscriptUpdate } from '../TranscriptionService';
+import { TranscriptUpdate } from '@/types/transcription';
 import { IS_TEST_ENVIRONMENT } from '../../../config/env';
 
 // Extend Window interface for E2E test flags

@@ -135,6 +135,7 @@ import '@testing-library/jest-dom';
 
 beforeEach(async () => {
     vi.clearAllMocks();
+    vi.useFakeTimers();
 
     // Lazy load the store to prevent top-level poisoning
     const storeModule = await import('@/stores/useSessionStore');

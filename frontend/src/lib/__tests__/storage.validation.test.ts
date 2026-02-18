@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { saveSession } from '../storage';
 import { getSupabaseClient } from '../supabaseClient';
 import type { PracticeSession } from '../../types/session';
@@ -19,7 +19,12 @@ vi.mock('../logger', () => ({
 
 describe('storage.ts validation', () => {
     beforeEach(() => {
+        vi.useFakeTimers();
         vi.clearAllMocks();
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
     });
 
     it('should throw an error if transcript exceeds MAX_TRANSCRIPT_LENGTH', async () => {

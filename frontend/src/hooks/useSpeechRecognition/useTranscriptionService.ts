@@ -1,5 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
-import TranscriptionService from '../../services/transcription/TranscriptionService';
+import { useCallback, useRef, useEffect } from 'react';
 import { TranscriptionServiceOptions } from '../../services/transcription/TranscriptionService';
 import {
   TranscriptionPolicy,
@@ -9,6 +8,9 @@ import { toast } from '@/lib/toast';
 import logger from '../../lib/logger';
 import { TranscriptStats } from '../../utils/fillerWordUtils';
 import { useSessionStore } from '../../stores/useSessionStore';
+import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
+import { useTranscriptionState } from './useTranscriptionState';
+import { useTranscriptionCallbacks } from './useTranscriptionCallbacks';
 
 // Re-exporting to satisfy architectural contract and linting
 export type { TranscriptStats };
@@ -41,23 +43,9 @@ export interface UseTranscriptionServiceOptions {
 
 export const useTranscriptionService = (options: UseTranscriptionServiceOptions) => {
   // ============================================
-  // REFS (Survive re-renders & prevent death loops)
+  // CONTEXT & STORE
   // ============================================
-  const serviceRef = useRef<TranscriptionService | null>(null);
-  const isInitializingRef = useRef(false);
-  const isMountedRef = useRef(true);
-  const optionsRef = useRef(options);
-  const manualPolicyRef = useRef<TranscriptionPolicy | null>(null);
-
-  // Sync latest options from parent but preserve manual policy (intent) if it was set
-  optionsRef.current = {
-    ...options,
-    policy: manualPolicyRef.current || options.policy
-  };
-
-  // ============================================
-  // STORE (Single Source of Truth)
-  // ============================================
+  const { service, isReady: isServiceReady } = useTranscriptionContext();
   const {
     isListening,
     isReady,
@@ -71,148 +59,127 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
     stopSession
   } = useSessionStore();
 
-  const [error, setError] = useState<Error | null>(null);
-  const [isSupported, setIsSupported] = useState<boolean>(true);
+  const isMountedRef = useRef(true);
+  const optionsRef = useRef(options);
+  const manualPolicyRef = useRef<TranscriptionPolicy | null>(null);
+
+  // Sync latest options
+  optionsRef.current = {
+    ...options,
+    policy: manualPolicyRef.current || options.policy
+  };
 
   // ============================================
-  // SERVICE INITIALIZATION (Runs ONCE per mount)
+  // HOOK COMPOSITION
+  // ============================================
+
+  // 1. State Management (Reactive Updates)
+  const { error, setError } = useTranscriptionState();
+
+  // 2. Callback Management (Stable References)
+  // We construct the callbacks object to pass to the helper hook
+  const callbacks: Partial<TranscriptionServiceOptions> = {
+    onTranscriptUpdate: (update) => optionsRef.current.onTranscriptUpdate(update),
+    onModelLoadProgress: (progress) => optionsRef.current.onModelLoadProgress?.(progress),
+    onReady: () => {
+      if (isMountedRef.current) {
+        setReady(true);
+        optionsRef.current.onReady?.();
+      }
+    },
+    onModeChange: (mode) => {
+      if (isMountedRef.current) setSTTMode(mode);
+    },
+    onStatusChange: (status) => {
+      if (isMountedRef.current) setSTTStatus(status);
+    },
+    onAudioData: (data) => optionsRef.current.onAudioData?.(data),
+    onError: (err) => setError(err),
+    getAssemblyAIToken: () => optionsRef.current.getAssemblyAIToken(),
+    session: options.session,
+    navigate: options.navigate,
+    customVocabulary: options.customVocabulary,
+  };
+
+  useTranscriptionCallbacks(callbacks);
+
+  // ============================================
+  // SYNC WITH SINGLETON (Policy)
   // ============================================
   useEffect(() => {
     isMountedRef.current = true;
-
-    // GUARD 1: Prevent double-init in React StrictMode
-    if (isInitializingRef.current) {
-      logger.info('[Hook] Already initializing, skipping');
-      return;
-    }
-
-    // GUARD 2: Prevent recreation if service exists and is active
-    if (serviceRef.current) {
-      logger.info('[Hook] Service already exists, updating policy and callbacks');
-
-      // CRITICAL: Hydrate singleton with fresh callbacks from this mount.
-      // This fixes the stale closure issue after ProfileGuard remounts.
-      serviceRef.current.updateCallbacks(optionsRef.current);
-
-      if (optionsRef.current.policy) {
-        serviceRef.current.updatePolicy(optionsRef.current.policy);
-      }
-      serviceRef.current.startTranscription().catch(err => {
-        handleTranscriptionError(err, setError, setIsSupported, stopSession);
-      });
-      return;
-    }
-
-    const initializeService = async () => {
-      // Only init if we actually want to listen
-      if (!isListening) return;
-
-      // GUARD: Wait for profile if provided
-      if (optionsRef.current.profileLoading) {
-        logger.info('[Hook] Profile still loading, deferring initialization');
-        return;
-      }
-
-
-      isInitializingRef.current = true;
-      setError(null);
-      setReady(false);
-
-      try {
-        const wrappedOptions: TranscriptionServiceOptions = {
-          ...optionsRef.current,
-          // Use proxies to avoid stale closures
-          onTranscriptUpdate: (update) => optionsRef.current.onTranscriptUpdate(update),
-          onModelLoadProgress: (progress) => optionsRef.current.onModelLoadProgress?.(progress),
-          getAssemblyAIToken: () => optionsRef.current.getAssemblyAIToken(),
-          onAudioData: (data) => optionsRef.current.onAudioData?.(data),
-          onReady: () => {
-            if (isMountedRef.current) {
-              setReady(true);
-              optionsRef.current.onReady?.();
-            }
-          },
-          onModeChange: (mode) => {
-            if (isMountedRef.current) setSTTMode(mode);
-          },
-          onStatusChange: (status) => {
-            if (isMountedRef.current) setSTTStatus(status);
-          },
-          policy: optionsRef.current.policy,
-        };
-
-        const service = new TranscriptionService(wrappedOptions);
-        await service.init();
-
-        if (!isMountedRef.current) {
-          logger.info('[Hook] Unmounted during init, destroying');
-          await service.destroy();
-          return;
-        }
-
-        serviceRef.current = service;
-
-        // Literal Expert Compliance: Start immediately upon successful init if isListening
-        await service.startTranscription(optionsRef.current.policy);
-
-        if (!isMountedRef.current) {
-          logger.info('[Hook] Unmounted after start, destroying');
-          await service.destroy();
-          serviceRef.current = null;
-          return;
-        }
-
-        setSTTMode(service.getMode());
-        logger.info('[Hook] ✅ Service initialized successfully');
-
-      } catch (err) {
-        if (isMountedRef.current) {
-          handleTranscriptionError(err, setError, setIsSupported, stopSession);
-        }
-      } finally {
-        isInitializingRef.current = false;
-      }
-    };
-
-    initializeService();
-
-    // CLEANUP (Only on true unmount)
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, [isListening, options.profileLoading, setReady, setSTTMode, setSTTStatus, stopSession]); // Added missing store dependencies
-
-  // Final teardown on unmount
-  useEffect(() => {
-    return () => {
-      isMountedRef.current = false;
-      if (serviceRef.current && !isInitializingRef.current) {
-        logger.info('[Hook] 🧹 Final Teardown: Destroying service');
-        serviceRef.current.destroy().catch(err => {
-          logger.error({ err }, 'Error destroying singleton service');
-        });
-        serviceRef.current = null;
-      }
-    };
+    return () => { isMountedRef.current = false; };
   }, []);
 
+  useEffect(() => {
+    if (!service || !isServiceReady) return;
+    if (optionsRef.current.policy) {
+      service.updatePolicy(optionsRef.current.policy);
+    }
+  }, [service, isServiceReady, options.policy]);
+
+  // ============================================
+  // ERROR HANDLING (Side Effects from State)
+  // ============================================
+  useEffect(() => {
+    if (error) {
+      handleTranscriptionError(error, stopSession);
+    }
+  }, [error, stopSession]);
+
+  // ============================================
+  // LIFECYCLE MANAGEMENT (Start/Init)
+  // ============================================
+  useEffect(() => {
+    if (!service || !isServiceReady || !isListening) return;
+
+    // GUARD: Profile loading
+    if (optionsRef.current.profileLoading) return;
+
+    // GUARD: Already recording? (Optimization)
+    // if (isRecording) return; // Maybe?
+
+    const manageSession = async () => {
+      try {
+        await service.startTranscription(optionsRef.current.policy);
+
+        if (isMountedRef.current) {
+          setSTTMode(service.getMode());
+        }
+      } catch (err) {
+        // Errors handled via state hook -> effect above
+        // But synchronous start errors might be caught here too?
+        // Service startPropagation throws? Yes.
+        if (isMountedRef.current) {
+          handleTranscriptionError(err, stopSession);
+        }
+      }
+    };
+
+    manageSession();
+  }, [service, isServiceReady, isListening, options.profileLoading, stopSession, setSTTMode]);
+
+  // ============================================
+  // ACTIONS
+  // ============================================
   const startListening = useCallback(async (policy: TranscriptionPolicy) => {
     if (isListening) return;
+    logger.info('[Hook] startListening called');
     manualPolicyRef.current = policy;
-    startSession();
+    startSession(); // Triggers effect above
   }, [isListening, startSession]);
 
   const stopListening = useCallback(async () => {
-    if (!isListening || !serviceRef.current) return null;
+    if (!isListening || !service) return null;
+    logger.info('[Hook] stopListening called');
 
-    const result = await serviceRef.current.stopTranscription();
+    const result = await service.stopTranscription();
     stopSession();
     return result;
-  }, [isListening, stopSession]);
+  }, [isListening, service, stopSession]);
 
   const reset = useCallback(() => {
     stopSession();
-    setError(null);
     manualPolicyRef.current = null;
     setSTTStatus({ type: 'idle', message: 'Ready to record' });
   }, [stopSession, setSTTStatus]);
@@ -221,7 +188,7 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
     isListening,
     isReady,
     error,
-    isSupported,
+    isSupported: true, // Legacy prop
     mode: currentMode,
     sttStatus,
     modelLoadingProgress,
@@ -229,15 +196,13 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
     stopListening,
     reset,
     setReady,
-    setIsSupported,
+    setIsSupported: () => { }, // Deprecated
   };
 };
 
-// Error handling extracted from original hook
+// Error handling helper
 function handleTranscriptionError(
   err: unknown,
-  setError: (error: Error) => void,
-  setIsSupported: (supported: boolean) => void,
   stopSession: () => void
 ) {
   let friendlyMessage: string;
@@ -246,7 +211,6 @@ function handleTranscriptionError(
 
   if (message.includes('permission denied')) {
     friendlyMessage = 'Microphone permission denied. Please enable microphone access in your browser settings.';
-    setIsSupported(false);
   } else if (message.includes('assemblyai token')) {
     friendlyMessage = 'Could not connect to the cloud transcription service. Please check your internet connection and try again.';
   } else if (message.includes('failed to load model')) {
@@ -265,6 +229,5 @@ function handleTranscriptionError(
     id: 'stt-error-toast',
     duration: 5000
   });
-  setError(new Error(friendlyMessage));
   stopSession();
 }

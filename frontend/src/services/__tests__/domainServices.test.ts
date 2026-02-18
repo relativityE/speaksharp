@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
 import { createSupabaseMock, createSupabaseNotFoundMock, createSupabaseErrorMock } from '../../../tests/utils/supabase-mock';
 import * as supabaseModule from '@/lib/supabaseClient';
 import {
@@ -10,7 +10,12 @@ import {
 
 describe('domainServices', () => {
     beforeEach(() => {
+        vi.useFakeTimers();
         vi.restoreAllMocks();
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
     });
 
     // =========================================================================

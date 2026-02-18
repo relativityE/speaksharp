@@ -101,33 +101,34 @@ This section contains a high-level block diagram of the SpeakSharp full-stack ar
 │  └───────────────────┘  │  │  │           │             │
 │           │             │  │  │           ▼             │
 │           ▼             │  │  │  ┌───────────────────┐  │
-│  ┌───────────────────┐  │  │  │  │  Edge Functions   │  │
-│  │useSpeechRecognit* │  │  │  │  │  assemblyai-token │  │
-│  │ (DECOMPOSED)      │  │  │  │  │  stripe-checkout  │  │
-│  │ ├─useTranscript   │  │  │  │  └───────────────────┘  │
-│  │ ├─useUserFillerWords│  │  │  │                         │
-│  │ ├─useTranscSvc    │  │  │  └─────────────────────────┘
-│  │ ├─useSessionTimer │  │  │
-│  │ └─useVocalAnalys  │  │  │  ┌─────────────────────────┐
-│  └───────────────────┘  │  │  │   3RD PARTY SERVICES    │
-│           │             │  │  │                         │
-│           ▼             │  └──┼─▶ AssemblyAI (STT)      │
-│  ┌───────────────────┐  │     │   Stripe (Payments)     │
-│  │TranscriptionSvc   │──┼─────┼─▶ Sentry (Errors)       │
-│  │ NativeBrowser     │  │     │   PostHog (Analytics)   │
-│  │ CloudAssemblyAI   │  │     │   PostHog (Analytics)   │
-│  │ PrivateWhisper    │  │     └─────────────────────────┘
-│  └───────────────────┘  │
-│           │             │
-│           ▼             │
-│  ┌───────────────────┐  │
-│  │ Microphone Input  │  │
-│  └───────────────────┘  │
-│                         │
-└─────────────────────────┘
+│  ┌────────────────────────┐  │  │  │  │  │  Edge Functions   │  │
+│  │ useSpeechRecognition  │  │  │  │  │  assemblyai-token │  │
+│  │ (Composite Hook)      │  │  │  │  │  stripe-checkout  │  │
+│  │ ├─useTranscriptionState│  │  │  │  │  └───────────────────┘  │
+│  │ ├─useTranscriptionCtrl │  │  │  │  │                         │
+│  │ ├─useTranscriptionCallb│  │  │  │  └─────────────────────────┘
+│  │ ├─useFillerWordCounter │  │  │
+│  │ └─useTranscriptionCtx  │  │  │  ┌─────────────────────────┐
+│  └──────────┬─────────────┘  │  │  │   3RD PARTY SERVICES    │
+│             │                │  │  │                         │
+│             ▼                │  └──┼─▶ AssemblyAI (STT)      │
+│  ┌────────────────────────┐  │     │   Stripe (Payments)     │
+│  │TranscriptionService    │──┼─────┼─▶ Sentry (Errors)       │
+│  │ (via EngineFactory)    │  │     │   PostHog (Analytics)   │
+│  │ ├─ NativeBrowser       │  │     │                         │
+│  │ ├─ CloudAssemblyAI     │  │     └─────────────────────────┘
+│  │ └─ PrivateWhisper      │  │
+│  └────────────────────────┘  │
+│             │                │
+│             ▼                │
+│  ┌────────────────────────┐  │
+│  │   Microphone Input     │  │
+│  └────────────────────────┘  │
+│                              │
+└──────────────────────────────┘
 
 Data Flow:
-  Browser → Hooks → TranscriptionService → AssemblyAI (WebSocket)
+  Browser → Components → Composite Hooks → Atomic Hooks → TranscriptionContext → TranscriptionService → EngineFactory → STT Engine
   Hooks ↔ Supabase DB (RPC)
   Edge Functions ↔ Stripe (Webhooks)
   CLI (generate-promo) → apply-promo/generate → promo_codes TABLE
@@ -182,10 +183,10 @@ The remediation strategy focuses on "defense in depth," addressing vulnerabiliti
 
 These core patterns were established during the Phase 2 Hardening cycle to ensure system-wide stability and security.
 
-#### 1. Lately Captured State Pattern (`useSpeechRecognition_prod.ts`)
+#### 1. Lately Captured State Pattern (`useTranscriptionCallbacks.ts`)
 **Problem:** Stale closures in `useEffect` or `useCallback` when passing callbacks to async services (like Transcription).
 **Solution:** A `useRef`-based proxy that captures the "Lately Captured State" of component variables, providing a stable reference that always accesses the most recent values during async execution.
-- **Used in:** `useSpeechRecognition_prod.ts` (Lines 174-183).
+- **Used in:** `useTranscriptionCallbacks.ts` (Handles `onTranscriptUpdate`, `onStatusUpdate`).
 - **Benefit:** Prevents "Zombie Callbacks" where services execute logic against old component state.
 
 #### 2. Double-Dispose Guard (`TranscriptionService.ts`)
@@ -268,6 +269,24 @@ The following patterns were implemented following the Expert code review to achi
     *   **Real Store Logic:** The factory creates a *real* Zustand store but with **mocked actions** (via `vi.fn()`).
     *   **Isolation:** Each test receives a fresh, isolated instance of the store, preventing state leakage between tests.
 *   **Result:** Tests interact with a store that behaves exactly like production (state-wise) while allowing verification of action calls.
+
+#### Phase 5: Logic & Infrastructure Reliability (2026-02-17)
+
+The following patterns were added to address persistent "Zombie Build" and "Shadowed State" issues.
+
+#### Pattern 17: Nuclear Clean Strategy [Infrastructure]
+*   **Problem:** Standard `vite build` commands were serving stale code due to aggressive caching in `node_modules/.cache`, `.vite`, and Playwright's distinct browser cache.
+*   **Solution:**
+    *   **Script:** `scripts/nuclear-clean.sh` aggressively kills processes and deletes all cache directories (`dist`, `.vite`, `node_modules/.cache`, `test-results`).
+    *   **Dev Server:** E2E tests now default to `pnpm dev` (Vite Dev Server) instead of `preview`, ensuring 0ms build latency and fresh code execution.
+*   **Result:** Deterministic test environments free from "Zombie Code."
+
+#### Pattern 18: Shadowed State Prevention [Logic]
+*   **Problem:** Hooks returning hardcoded derived state (e.g., `status: 'ready'`) masked the actual state transitions occurring in the global `useSessionStore` (e.g., `status: 'recording'`), causing UI/Logic Desync.
+*   **Solution:**
+    *   **Store Authority:** All hooks must return state *only* by selecting from the global store, never by deriving it from local variables that might be stale.
+    *   **Audit:** Any hook returning `sttStatus` must pull it via `useSessionStore.getState().sttStatus`.
+*   **Result:** UI faithfully reflects the exact state of the business logic.
 
 ### Promo Admin System
 We prioritize a secure, dynamic promo code system for internal access/testing.
@@ -477,6 +496,54 @@ try {
 | **fetchWithRetry Utility** | ✅ Complete | Generic retry wrapper with exponential backoff (100ms → 200ms → 400ms → 800ms → 1600ms) | [`utils/fetchWithRetry.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/utils/fetchWithRetry.ts) |
 | **AuthProvider Integration** | ✅ Complete | Profile fetch wrapped with 5 retries to handle cold starts | [`AuthProvider.tsx:65-92`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/contexts/AuthProvider.tsx#L65-L92) |
 
+### 3. Testing Strategy & Governance
+
+Strict adherence to these patterns is required to maintain CI stability.
+
+#### 3.1 Test Mock Hierarchy (The Decision Tree)
+
+When adding a test, choose the **highest fidelity** option possible:
+
+1.  **REAL IMPLEMENTATION** (Highest Confidence)
+    *   **Use for:** Integration tests, critical paths, logic verification.
+    *   **Rule:** Do not mock internal logic (e.g., `ProfileGuard`, `TranscriptionFSM`). Use `renderWithAllProviders`.
+2.  **E2E CONFIG PRESET** (Standard Scenarios)
+    *   **Use for:** Happy path E2E, standard user flows.
+    *   **Tool:** `applyE2EPreset(page, 'proUser')`
+3.  **TEST REGISTRY** (Edge Cases)
+    *   **Use for:** Simulating specific failures (Network error, quota exceeded).
+    *   **Tool:** `registerStandardMock(page, 'private', 'failure')`
+4.  **VI.MOCK** (Unit Tests Only | Lowest Fidelity)
+    *   **Use for:** Isolated pure functions, external modules preventing test run (e.g., `fs`).
+    *   **Rule:** **NEVER** use `vi.mock` for core domain logic (Stores, Providers, Hooks) in feature tests.
+
+#### 3.2 Real Stores vs Mock Stores
+*   **Pattern:** Use **Real Zustand Stores** + Reset.
+*   **Anti-Pattern:** `vi.mock('../../stores/useSessionStore')` (leads to "Mock Divergence").
+*   **Implementation:**
+    ```typescript
+    beforeEach(() => {
+      useSessionStore.getState().reset();
+    });
+    ```
+*   **Exception:** For *view* tests where you need to force a specific state impossible to reach naturally, use `createTestSessionStore` factory.
+
+#### 3.3 Error Classification
+Distinguish between "Business Events" and "System Failures":
+*   **Expected Events:** `CacheMissEvent`, `QuotaExceededEvent` -> Handled via extensive logic (Circuit Breaker).
+*   **Unexpected Failures:** `MicrophoneError`, `NetworkDisconnect` -> Handled via `LocalErrorBoundary`.
+
+#### 3.4 Behavior Testing
+*   **Philosophy:** Test the *Contract*, not the *Implementation*.
+*   **Assert:** State changes (`service.state === 'error'`), **NOT** method calls (`expect(spy).toHaveBeenCalled`).
+*   **Reasoning:** Refactoring internal methods should not break tests if the external behavior remains the same.
+
+#### 3.5 Coverage Thresholds
+*   **Business Logic:** **85%** (High) - Core FSM, Billing, Auth.
+*   **Hooks:** **80%** (High) - Complex composition logic.
+*   **Global:** **61%** (Baseline) - Includes UI glue code.
+*   **Infrastructure:** **30%** (Low) - Setup scripts, config.
+
 ### 🧪 E2E Mock Integrity
 External services (Supabase, Edge Functions) are mocked via Playwright routes in `mock-routes.ts`. To distinguish between automated tests and manual browser checks (which use MSW), a `window.__E2E_PLAYWRIGHT__` flag is injected. For infrastructure-level debugging, refer to [tests/TROUBLESHOOTING.md](../tests/TROUBLESHOOTING.md).
 
@@ -626,6 +693,14 @@ The `whisper-turbo` engine uses a two-layer cache (Service Worker + IndexedDB) t
 - **Canary Tests:** 1 production smoke test
 | **Production (WebGPU)** | WhisperTurbo → TransformersJS | Real fallback chain |
 | **Production (no WebGPU)** | TransformersJS | CPU-based ONNX runtime |
+
+#### Atomic Hook Architecture (2026-02-16)
+To achieve React Refresh compliance and high maintainability, the monolithic `useSpeechRecognition` hook was decomposed into specific, logic-focused atomic hooks:
+- **`useTranscriptionState`**: Manages transcript, status, and duration state.
+- **`useTranscriptionControl`**: Handles `start`/`stop`/`cancel` orchestration.
+- **`useTranscriptionCallbacks`**: Manages event listeners and Lately Captured State proxies.
+- **`useFillerWordCounter`**: Isolated NLP logic for high-frequency filler word analysis.
+- **`TranscriptionProvider`**: Injects these hooks via `TranscriptionContext` to avoid prop-drilling and enable Fast Refresh.
 
 > [!IMPORTANT]
 > **The WebGPU → CPU fallback chain only activates in production browsers.**

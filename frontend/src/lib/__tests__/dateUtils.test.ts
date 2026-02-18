@@ -1,7 +1,15 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { formatDate, formatDateTime } from '../dateUtils';
 
 describe('formatDate', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('should format a valid date string', () => {
     const dateStr = '2023-10-27T10:00:00.000Z';
     expect(formatDate(dateStr)).toBe('October 27, 2023');

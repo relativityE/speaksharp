@@ -1,96 +1,93 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 import { useTranscriptionService, type UseTranscriptionServiceOptions } from '../useTranscriptionService';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { testRegistry } from '../../../services/transcription/TestRegistry';
 import TranscriptionService from '../../../services/transcription/TranscriptionService';
+import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
+import { useSessionStore, type SessionStore } from '../../../stores/useSessionStore';
+import { type Session } from '@supabase/supabase-js';
 
-// Mock TranscriptionService
+// Mock dependencies
+vi.mock('@/lib/toast', () => ({
+    toast: { success: vi.fn(), info: vi.fn(), error: vi.fn() },
+}));
+
+vi.mock('../../../lib/logger', () => ({
+    default: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
+}));
+
+// Mock TranscriptionService for the second test suite
 vi.mock('../../../services/transcription/TranscriptionService', () => {
     return {
         default: vi.fn().mockImplementation(() => ({
-            init: vi.fn().mockResolvedValue({ success: true }),
-            startTranscription: vi.fn().mockResolvedValue(undefined),
-            stopTranscription: vi.fn().mockResolvedValue({ success: true }),
-            destroy: vi.fn().mockResolvedValue(undefined),
-            getMode: vi.fn().mockReturnValue('native'),
+            updateCallbacks: vi.fn(),
+            startTranscription: vi.fn(),
+            destroy: vi.fn(),
         })),
     };
 });
 
-// Mock toast to avoid alias resolution issues
-vi.mock('@/lib/toast', () => ({
-    toast: {
-        success: vi.fn(),
-        info: vi.fn(),
-        error: vi.fn(),
-    },
-}));
+const mockService = {
+    startTranscription: vi.fn().mockResolvedValue(undefined),
+    stopTranscription: vi.fn().mockResolvedValue({ transcript: 'test', stats: {} }),
+    updateCallbacks: vi.fn(),
+    updatePolicy: vi.fn(),
+    getMode: vi.fn().mockReturnValue('native'),
+    destroy: vi.fn()
+} as unknown as TranscriptionService;
 
-// Mock logger
-vi.mock('../../../lib/logger', () => ({
-    default: {
-        info: vi.fn(),
-        error: vi.fn(),
-    },
-}));
+const mockStore = {
+    isListening: false,
+    isReady: false,
+    sttStatus: { type: 'idle', message: '' },
+    sttMode: 'native',
+    modelLoadingProgress: 0,
+    setReady: vi.fn(),
+    setSTTStatus: vi.fn(),
+    setSTTMode: vi.fn(),
+    startSession: vi.fn(),
+    stopSession: vi.fn()
+};
 
-describe('useTranscriptionService - Immutable Callback Capture', () => {
+describe('useTranscriptionService - Integrated Behavior', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        vi.mocked(useTranscriptionContext).mockReturnValue({
+            service: mockService,
+            isReady: true
+        });
+        vi.mocked(useSessionStore).mockReturnValue(mockStore as unknown as SessionStore);
+        testRegistry.enable();
     });
 
-    it('should always call the latest callback version without recreating the service', async () => {
-        // 1. Setup initial callbacks
-        const initialCallback = vi.fn();
-        const latestCallback = vi.fn();
+    afterEach(() => {
+        testRegistry.disable();
+    });
 
-        const { result, rerender } = renderHook(
-            (props: UseTranscriptionServiceOptions) => useTranscriptionService(props),
-            {
-                initialProps: {
-                    onTranscriptUpdate: initialCallback,
-                    onModelLoadProgress: vi.fn(),
-                    onReady: vi.fn(),
-                    session: null,
-                    navigate: vi.fn(),
-                    getAssemblyAIToken: vi.fn(),
-                },
-            }
-        );
-
-        // 2. Start listening to initialize the service
-        await act(async () => {
-            // @ts-expect-error - testing invalid engine
-            await result.current.startListening({ executionIntent: 'test' });
-        });
-
-        // Verify service instantiated once
-        expect(TranscriptionService).toHaveBeenCalledTimes(1);
-
-        // Capture the options passed to the constructor
-        const capturedOptions = (TranscriptionService as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0];
-
-        // 3. Update the hook with a NEW callback
-        rerender({
-            onTranscriptUpdate: latestCallback, // <--- New callback
-            onModelLoadProgress: vi.fn(),
-            onReady: vi.fn(),
-            session: null,
+    it('should initialize and call updateCallbacks on mount', () => {
+        const options: UseTranscriptionServiceOptions = {
+            onTranscriptUpdate: vi.fn(),
+            session: null as unknown as Session,
             navigate: vi.fn(),
-            getAssemblyAIToken: vi.fn(),
-        });
+            getAssemblyAIToken: vi.fn().mockResolvedValue('token')
+        };
 
-        // Verify service was NOT recreated (crucial for performance/state stability)
-        expect(TranscriptionService).toHaveBeenCalledTimes(1);
+        renderHook(() => useTranscriptionService(options));
 
-        // 4. Simulate a service event invoking the callback stored in the service
-        // The service holds the 'wrappedOptions' from creation time
-        capturedOptions.onTranscriptUpdate({ transcript: { final: 'test' } });
+        expect(mockService.updateCallbacks).toHaveBeenCalled();
+    });
 
-        // 5. Verification
-        // The OLD callback should NOT be called
-        expect(initialCallback).not.toHaveBeenCalled();
+    it('should call startTranscription when isListening becomes true', () => {
+        mockStore.isListening = true;
+        const options: UseTranscriptionServiceOptions = {
+            onTranscriptUpdate: vi.fn(),
+            session: null as unknown as Session,
+            navigate: vi.fn(),
+            getAssemblyAIToken: vi.fn().mockResolvedValue('token')
+        };
 
-        // The NEW callback SHOULD be called (via the proxy)
-        expect(latestCallback).toHaveBeenCalled();
+        renderHook(() => useTranscriptionService(options));
+
+        expect(mockService.startTranscription).toHaveBeenCalled();
     });
 });

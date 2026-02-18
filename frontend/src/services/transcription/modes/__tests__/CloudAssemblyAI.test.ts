@@ -280,9 +280,9 @@ describe('CloudAssemblyAI (Native WebSocket)', () => {
 
             // ✅ Use behavioral waiting: Wait for the socket to actually send the data
             // This handles the async nature of _doFlush and floatToInt16Async
-            await vi.waitFor(() => {
-                expect(socket.send).toHaveBeenCalledWith(expect.stringContaining('audio_data'));
-            }, { timeout: 2000 });
+            await vi.waitUntil(() => socket.send.mock.calls.length > 0);
+
+            expect(socket.send).toHaveBeenCalledWith(expect.stringContaining('audio_data'));
 
             // ✅ Behavioral check: Queue should also be empty now
             expect(mode['audioQueue'].length).toBe(0);

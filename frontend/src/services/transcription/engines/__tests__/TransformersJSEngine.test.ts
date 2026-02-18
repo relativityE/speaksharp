@@ -37,6 +37,7 @@ describe('TransformersJSEngine (Unit)', () => {
     let engine: TransformersJSEngine;
 
     beforeEach(() => {
+        vi.useFakeTimers();
         engine = new TransformersJSEngine();
         vi.clearAllMocks();
 
@@ -52,6 +53,10 @@ describe('TransformersJSEngine (Unit)', () => {
                 return { text: 'Mocked transcription result' };
             };
         });
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
     });
 
     it('should have correct engine type', () => {

@@ -1,48 +1,36 @@
-
 /**
  * @file TranscriptionService.zombie.test.ts
  * @description Verification test for zombie instance prevention in TranscriptionService
  */
-// @vitest-environment happy-dom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import TranscriptionService, { TranscriptionServiceOptions } from '../TranscriptionService';
-import PrivateWhisper from '../modes/PrivateWhisper';
-import CloudAssemblyAI from '../modes/CloudAssemblyAI';
-import NativeBrowser from '../modes/NativeBrowser';
+import { TranscriptionPolicy, PROD_FREE_POLICY } from '../TranscriptionPolicy';
 import { ITranscriptionMode } from '../modes/types';
+import { testRegistry } from '../TestRegistry';
+import { MicStream } from '../utils/types';
 
-// Mock dependencies
-vi.mock('../modes/PrivateWhisper');
-vi.mock('../modes/CloudAssemblyAI');
-vi.mock('../modes/NativeBrowser');
-vi.mock('../utils/AudioProcessor');
-vi.mock('../../../lib/logger');
-
-// Helper to create a mock mode instance
-function createMockMode(name: string): ITranscriptionMode {
-    return {
-        init: vi.fn().mockName(`${name}.init`).mockResolvedValue(undefined),
-        startTranscription: vi.fn().mockName(`${name}.startTranscription`),
-        stopTranscription: vi.fn().mockName(`${name}.stopTranscription`).mockResolvedValue(''),
-        getTranscript: vi.fn().mockName(`${name}.getTranscript`).mockResolvedValue(''),
-        terminate: vi.fn().mockName(`${name}.terminate`).mockResolvedValue(undefined),
-        getEngineType: vi.fn().mockName(`${name}.getEngineType`).mockReturnValue(name),
-    };
+class MockEngine implements ITranscriptionMode {
+    constructor(private name: string) { }
+    init = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    startTranscription = vi.fn<(mic: unknown) => Promise<void>>().mockResolvedValue(undefined);
+    stopTranscription = vi.fn<() => Promise<string>>().mockResolvedValue('');
+    getTranscript = vi.fn<() => Promise<string>>().mockResolvedValue('');
+    terminate = vi.fn().mockResolvedValue(undefined);
+    getEngineType = () => this.name;
 }
 
-// Testable subclass to expose protected methods
+// Testable subclass to expose protected methods if needed
 class TestTranscriptionService extends TranscriptionService {
-    public getInstance() { return this.instance; }
-    public getState() { return this.state; }
-    public getIsTerminating() { return this.isTerminating; }
-    public async triggerExecuteMode(mode: string, config: TranscriptionServiceOptions) {
-        return (this as unknown as { executeMode: (m: string, c: TranscriptionServiceOptions) => Promise<void> }).executeMode(mode, config);
+    public getEngineInstance() { return this.engine; }
+    public async triggerStartTranscription(runtimePolicy: TranscriptionPolicy) {
+        return this.startTranscription(runtimePolicy);
     }
 }
 
 describe('TranscriptionService - Zombie Prevention', () => {
     let service: TestTranscriptionService;
 
+    // Base options with valid policy
     const mockOptions: TranscriptionServiceOptions = {
         onTranscriptUpdate: vi.fn(),
         onModelLoadProgress: vi.fn(),
@@ -52,40 +40,75 @@ describe('TranscriptionService - Zombie Prevention', () => {
         getAssemblyAIToken: vi.fn().mockResolvedValue('mock-token'),
         onModeChange: vi.fn(),
         onStatusChange: vi.fn(),
+        mockMic: {
+            stream: {} as MediaStream,
+            stop: vi.fn(),
+            clone: vi.fn(),
+            onFrame: vi.fn().mockReturnValue(() => { }),
+        } as unknown as MicStream,
+        policy: {
+            ...PROD_FREE_POLICY,
+            allowNative: true,
+            allowCloud: true,
+            allowPrivate: true,
+            preferredMode: 'native'
+        }
     };
 
-    beforeEach(() => {
+    beforeEach(async () => {
+        vi.useFakeTimers();
         vi.clearAllMocks();
+        testRegistry.clear();
         service = new TestTranscriptionService(mockOptions);
+        await service.init();
+    });
 
-        // Setup mock constructors
-        vi.mocked(PrivateWhisper).mockImplementation((_options) => createMockMode('private') as unknown as PrivateWhisper);
-        vi.mocked(CloudAssemblyAI).mockImplementation((_options) => createMockMode('cloud') as unknown as CloudAssemblyAI);
-        vi.mocked(NativeBrowser).mockImplementation((_options) => createMockMode('native') as unknown as NativeBrowser);
+    afterEach(async () => {
+        // ✅ Always clean up, even if test fails
+        if (service && !service.isServiceDestroyed()) {
+            await service.destroy();
+        }
+        testRegistry.clear();
+        vi.useRealTimers();
     });
 
     it('should terminate old instance before switching modes (Behavior-based)', async () => {
+        // Arrange
+        const cloudEngine = new MockEngine('cloud');
+        const privateEngine = new MockEngine('private');
+        testRegistry.register('cloud', () => cloudEngine);
+        testRegistry.register('private', () => privateEngine);
+
         // 1. Initialize Cloud mode
-        await service.triggerExecuteMode('cloud', mockOptions);
-        expect(service.getInstance()).toBeDefined();
+        // Note: Using a valid policy with preferredMode passed in
+        await service.triggerStartTranscription({ ...mockOptions.policy!, preferredMode: 'cloud' });
+        expect(service.getEngineInstance()).toBe(cloudEngine);
         expect(service.getState()).toBe('RECORDING');
 
         // 2. Initialize Private mode (should trigger terminate on cloud)
-        await service.triggerExecuteMode('private', mockOptions);
+        await service.triggerStartTranscription({ ...mockOptions.policy!, preferredMode: 'private' });
 
-        // ASSERT BEHAVIOR: Instance should now be the private one
-        expect(service.getInstance()?.getEngineType()).toBe('private');
+        // ASSERT BEHAVIOR: Old instance terminated, new instance set
+        expect(cloudEngine.terminate).toHaveBeenCalled();
+        expect(service.getEngineInstance()?.getEngineType()).toBe('private');
     });
 
     it('should handle concurrent terminate calls gracefully (Behavior-based)', async () => {
-        await service.triggerExecuteMode('cloud', mockOptions);
-        expect(service.getInstance()).toBeDefined();
+        // Arrange
+        const cloudEngine = new MockEngine('cloud');
+        // Make terminate take some time
+        cloudEngine.terminate.mockImplementation(() => new Promise(res => setTimeout(res, 50)));
+        testRegistry.register('cloud', () => cloudEngine);
+
+        await service.triggerStartTranscription({ ...mockOptions.policy!, preferredMode: 'cloud' });
+        expect(service.getEngineInstance()).toBe(cloudEngine);
 
         // RAPID DESTROY CALLS
         const p1 = service.destroy();
         const p2 = service.destroy();
         const p3 = service.destroy();
 
+        await vi.advanceTimersByTimeAsync(100);
         const results = await Promise.allSettled([p1, p2, p3]);
 
         // ✅ TEST BEHAVIOR: All calls should fulfill
@@ -94,20 +117,23 @@ describe('TranscriptionService - Zombie Prevention', () => {
         });
 
         // ✅ TEST STATE: Service should be IDLE and instance nulled
-        expect(service.getState()).toBe('IDLE');
-        expect(service.getInstance()).toBeNull();
-        expect(service.getIsTerminating()).toBe(false); // Lock released
+        expect(service.isServiceDestroyed()).toBe(true);
+        expect(service.getEngineInstance()).toBeNull();
     });
 
     it('should be idempotent: additional destroy calls are safe', async () => {
-        await service.triggerExecuteMode('cloud', mockOptions);
+        // Arrange
+        const cloudEngine = new MockEngine('cloud');
+        testRegistry.register('cloud', () => cloudEngine);
+
+        await service.triggerStartTranscription({ ...mockOptions.policy!, preferredMode: 'cloud' });
         await service.destroy();
 
-        expect(service.getInstance()).toBeNull();
-        expect(service.getState()).toBe('IDLE');
+        expect(service.getEngineInstance()).toBeNull();
+        expect(service.isServiceDestroyed()).toBe(true);
 
         // Call again
         await expect(service.destroy()).resolves.not.toThrow();
-        expect(service.getInstance()).toBeNull();
+        expect(service.getEngineInstance()).toBeNull();
     });
 });

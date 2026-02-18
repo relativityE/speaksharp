@@ -14,6 +14,8 @@ import { useUserFillerWords } from './useUserFillerWords';
 import { isPro } from '@/constants/subscriptionTiers';
 import { buildPolicyForUser } from '@/services/transcription/TranscriptionPolicy';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
+import type { FillerCounts } from '@/utils/fillerWordUtils';
+import type { Chunk } from './useSpeechRecognition/types';
 
 export const useSessionLifecycle = () => {
     const { session } = useAuthProvider();
@@ -58,8 +60,8 @@ export const useSessionLifecycle = () => {
 
     const metrics = useSessionMetrics({
         transcript: transcript.transcript,
-        chunks,
-        fillerData,
+        chunks: chunks as Chunk[],
+        fillerData: fillerData as FillerCounts,
         elapsedTime,
     });
 
@@ -106,7 +108,7 @@ export const useSessionLifecycle = () => {
                 const result = await saveSession({
                     transcript: finalStats.transcript,
                     duration: elapsedTime,
-                    filler_words: finalStats.filler_words,
+                    filler_words: finalStats.filler_words as FillerCounts,
                     wpm: finalWpm,
                     clarity_score: finalStats.accuracy,
                     title: `Session ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`
@@ -182,10 +184,10 @@ export const useSessionLifecycle = () => {
 
     // Mode sync
     useEffect(() => {
-        if (isListening && activeMode && activeMode !== mode) {
-            setMode(activeMode);
+        if (isListening && activeEngine && activeEngine !== 'none' && activeEngine !== mode) {
+            setMode(activeEngine as 'cloud' | 'native' | 'private');
         }
-    }, [isListening, activeMode, mode]);
+    }, [isListening, activeEngine, mode]);
 
     return {
         isListening,

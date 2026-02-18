@@ -1,10 +1,11 @@
 import { test, expect } from '@playwright/test';
 import { programmaticLoginWithRoutes, navigateToRoute, debugLog } from '../helpers';
+import { waitForStoreState } from '../helpers/e2e-state.helpers';
 
 // Extend Window interface for E2E mock control
 declare global {
     interface Window {
-        __TEST_REGISTRY_QUEUE__?: { key: string, factory: () => unknown }[];
+        __TEST_REGISTRY_QUEUE__?: unknown[];
         // Control methods attached by the FakePrivateSTT during init
         __resolvePrivateInit__?: (success: boolean) => void;
         __simulatePrivateProgress__?: (progress: number) => void;
@@ -17,28 +18,38 @@ declare global {
  * STRATEGY: Dependency Injection via Registry
  * -----------------------------------------
  * We inject a `FakePrivateSTT` via the Test Registry Queue.
- * This fake engine exposes control methods on `window` to allow the test
  * to simulate hangs, progress, and completion.
  */
+
+interface E2EWindow extends Window {
+    __TEST_REGISTRY__: {
+        register: (mode: string, factory: unknown, opts?: unknown) => void;
+        enable: () => void;
+        disable: () => void;
+    };
+    __resolvePrivateInit__?: (success: boolean) => void;
+    __simulatePrivateProgress__?: (progress: number) => void;
+}
 
 test.describe('Private STT Resilience', () => {
 
     test('should start session immediately using fallback while model downloads in background', async ({ page }) => {
         // 1. ENABLE REGISTRY & INJECT FAKE STT
         await page.addInitScript(() => {
-            (window as any).__TEST_REGISTRY__.enable();
+            const win = window as unknown as E2EWindow;
+            win.__TEST_REGISTRY__.enable();
 
             class FakePrivateSTT {
-                private callbacks: any = {};
+                private callbacks: Record<string, (...args: unknown[]) => void> = {};
                 private _engineType = 'mock-private-resilience';
 
-                async init(options: any) {
+                async init(options: Record<string, (...args: unknown[]) => void>) {
                     console.log('[FakePrivateSTT] init() called');
                     this.callbacks = options;
                     if (this.callbacks.onModelLoadProgress) this.callbacks.onModelLoadProgress(0);
 
                     return new Promise((resolve) => {
-                        (window as any).__resolvePrivateInit__ = (success: boolean) => {
+                        win.__resolvePrivateInit__ = (success: boolean) => {
                             if (success) {
                                 if (this.callbacks.onModelLoadProgress) this.callbacks.onModelLoadProgress(100);
                                 if (this.callbacks.onReady) this.callbacks.onReady();
@@ -48,7 +59,7 @@ test.describe('Private STT Resilience', () => {
                             }
                         };
 
-                        (window as any).__simulatePrivateProgress__ = (progress: number) => {
+                        win.__simulatePrivateProgress__ = (progress: number) => {
                             if (this.callbacks.onModelLoadProgress) this.callbacks.onModelLoadProgress(progress);
                         };
                     });
@@ -63,7 +74,7 @@ test.describe('Private STT Resilience', () => {
                 getEngineType() { return this._engineType; }
             }
 
-            (window as any).__TEST_REGISTRY__.register('private', () => new FakePrivateSTT(), { testName: 'resilience-fake' });
+            win.__TEST_REGISTRY__.register('private', () => new FakePrivateSTT(), { testName: 'resilience-fake' });
         });
 
         // 2. SETUP SESSION
@@ -91,12 +102,21 @@ test.describe('Private STT Resilience', () => {
         await page.evaluate(() => {
             if (window.__simulatePrivateProgress__) window.__simulatePrivateProgress__(50);
         });
+
+        await waitForStoreState(page,
+            (state: Record<string, unknown>) => state.modelLoadingProgress,
+            50
+        );
         await expect(backgroundIndicator).toContainText(/50%/);
 
         debugLog('[TEST] ⚡ Simulating 90% progress...');
         await page.evaluate(() => {
             if (window.__simulatePrivateProgress__) window.__simulatePrivateProgress__(90);
         });
+        await waitForStoreState(page,
+            (state: Record<string, unknown>) => state.modelLoadingProgress,
+            90
+        );
         await expect(backgroundIndicator).toContainText(/90%/);
 
         // 6. SIMULATE COMPLETION
@@ -104,6 +124,11 @@ test.describe('Private STT Resilience', () => {
         await page.evaluate(() => {
             if (window.__resolvePrivateInit__) window.__resolvePrivateInit__(true);
         });
+
+        await waitForStoreState(page,
+            (state: Record<string, unknown>) => (state.sttStatus as Record<string, unknown>)?.type,
+            'ready'
+        );
 
         // 7. VERIFY SUCCESS STATE
         // The "Private model ready" message is now delivered via Toast

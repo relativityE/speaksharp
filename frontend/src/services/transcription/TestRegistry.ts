@@ -9,10 +9,17 @@ import logger from '../../lib/logger';
 export type STTMode = 'native' | 'private' | 'cloud';
 
 export interface RegistryEntry {
-    implementation: any;
+    implementation: unknown;
     priority: number;
     testName: string;
     timestamp: number;
+}
+
+declare global {
+    interface Window {
+        __TEST_REGISTRY__?: TestRegistryClass;
+        __TEST_REGISTRY_QUEUE__?: { key: string; factory: unknown; opts?: unknown }[];
+    }
 }
 
 class TestRegistryClass {
@@ -107,14 +114,13 @@ class TestRegistryClass {
      * Hydrate from __TEST_REGISTRY_QUEUE__ if it exists
      */
     private hydrateFromQueue(): void {
-        if (typeof window !== 'undefined' && Array.isArray((window as any).__TEST_REGISTRY_QUEUE__)) {
-            const queue = (window as any).__TEST_REGISTRY_QUEUE__;
+        if (typeof window !== 'undefined' && Array.isArray(window.__TEST_REGISTRY_QUEUE__)) {
+            const queue = window.__TEST_REGISTRY_QUEUE__;
             while (queue.length > 0) {
                 const item = queue.shift();
                 if (item && item.key && item.factory) {
-                    // Map 'privateSTT' etc to just 'private' for the unified registry logic if needed,
-                    // but here we normalize to the mode-based registration.
                     const mode = item.key.replace('STT', '') as STTMode;
+                    logger.info({ mode, key: item.key }, '[TestRegistry] Hydrating from queue');
                     this.register(mode, item.factory, { testName: 'queued-injection' });
                 }
             }
@@ -150,5 +156,5 @@ export const testRegistry = new TestRegistryClass();
 
 // Expose to window for E2E tests
 if (typeof window !== 'undefined') {
-    (window as any).__TEST_REGISTRY__ = testRegistry;
+    window.__TEST_REGISTRY__ = testRegistry;
 }

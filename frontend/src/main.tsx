@@ -15,7 +15,6 @@ import ConfigurationNeededPage from "./pages/ConfigurationNeededPage";
 import App from './App';
 import { IS_TEST_ENVIRONMENT } from '@/config/env';
 import { initE2EConfig } from '../../tests/types/e2eConfig';
-import { migrateOldFlags } from '../../tests/types/flagAdapter';
 
 const REQUIRED_ENV_VARS: string[] = [
   'VITE_SUPABASE_URL',
@@ -166,7 +165,6 @@ const initialize = async () => {
 
   if (IS_TEST_ENVIRONMENT) {
     initE2EConfig({});
-    migrateOldFlags();
     // CRITICAL: Ensure bridge is initialized so MockPrivateWhisper is available
     import('@/lib/e2e-bridge').then(m => m.initializeE2EEnvironment());
   }

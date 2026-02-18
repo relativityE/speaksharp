@@ -2,7 +2,7 @@ import { generateSessionPdf } from '../pdfGenerator';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { saveAs } from 'file-saver';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { PracticeSession as Session } from '../../types/session';
 
 // Mock toast
@@ -63,6 +63,7 @@ const mockAppendChild = vi.fn();
 const mockRemoveChild = vi.fn();
 
 beforeEach(() => {
+  vi.useFakeTimers();
   vi.clearAllMocks();
   // Mock document methods
   vi.spyOn(document, 'createElement').mockImplementation(mockCreateElement as unknown as typeof document.createElement);
@@ -70,6 +71,10 @@ beforeEach(() => {
   vi.spyOn(document.body, 'removeChild').mockImplementation(mockRemoveChild);
   vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock-url');
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(vi.fn());
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('generateSessionPdf', () => {

@@ -1,6 +1,8 @@
 import { Session } from '@supabase/supabase-js';
 import { NavigateFunction } from 'react-router-dom';
 import { MicStream } from '../utils/types';
+import { SttStatus } from '@/types/transcription';
+import { TranscriptionMode } from '../TranscriptionPolicy';
 
 export interface Transcript {
   partial?: string;
@@ -62,6 +64,8 @@ export interface TranscriptionModeOptions {
   onConnectionStateChange?: (state: 'connected' | 'reconnecting' | 'disconnected' | 'error') => void;
   /** Callback for raw audio data (for visualization/analysis) */
   onAudioData?: (data: Float32Array) => void;
+  onModeChange?: (mode: TranscriptionMode | null) => void;
+  onStatusChange?: (status: SttStatus) => void;
 }
 
 export interface ITranscriptionMode {

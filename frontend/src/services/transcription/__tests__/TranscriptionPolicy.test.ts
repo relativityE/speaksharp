@@ -13,6 +13,14 @@ import {
 } from '../TranscriptionPolicy';
 
 describe('TranscriptionPolicy', () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
     describe('isModeAllowed', () => {
         const policy: TranscriptionPolicy = {
             allowNative: true,

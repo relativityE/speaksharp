@@ -14,6 +14,7 @@ describe('supabaseClient.ts', () => {
     const originalEnv = process.env;
 
     beforeEach(() => {
+        vi.useFakeTimers();
         vi.clearAllMocks();
         vi.resetModules();
     });
@@ -21,6 +22,7 @@ describe('supabaseClient.ts', () => {
     afterEach(() => {
         process.env = originalEnv;
         delete window.supabase;
+        vi.useRealTimers();
     });
 
     // Helper to re-import module to reset cachedClient

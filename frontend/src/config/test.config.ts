@@ -5,14 +5,8 @@ import { IS_TEST_ENVIRONMENT } from './env';
  * Used to decouple application logic from 'window' access.
  */
 export const getTestConfig = () => {
-    const win = typeof window !== 'undefined' ? (window as unknown as Record<string, unknown>) : {};
-
     return {
         isTestMode: IS_TEST_ENVIRONMENT,
-        useMockPrivateWhisper: !!win.__E2E_MOCK_LOCAL_WHISPER__,
-        mockSession: !!win.__E2E_MOCK_SESSION__,
-        // Helper to check if we should skip heavy inits
-        shouldSkipMicInit: !!win.__E2E_MOCK_SESSION__,
     };
 };
 

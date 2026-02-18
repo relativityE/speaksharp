@@ -13,7 +13,7 @@ describe('LiveRecordingCard', () => {
         formattedTime: '00:00',
         elapsedSeconds: 0,
         isButtonDisabled: false,
-        activeEngine: null as any,
+        activeEngine: null as 'native' | 'cloud' | 'private' | 'none' | null,
         onModeChange: vi.fn(),
         onStartStop: vi.fn(),
     };

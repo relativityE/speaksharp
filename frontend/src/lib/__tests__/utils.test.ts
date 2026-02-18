@@ -23,12 +23,14 @@ describe('utils.ts', () => {
 
     describe('getSyncSession', () => {
         beforeEach(() => {
+            vi.useFakeTimers();
             localStorage.clear();
             vi.spyOn(logger, 'error').mockImplementation(() => { });
         });
 
         afterEach(() => {
             vi.restoreAllMocks();
+            vi.useRealTimers();
         });
 
         it('should return null if no session key found', () => {

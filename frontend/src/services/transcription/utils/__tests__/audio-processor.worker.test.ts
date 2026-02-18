@@ -2,6 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { floatToInt16, floatToWav, downsampleAudio, writeString as workerWriteString } from '../audio-processor.worker';
 
 describe('audio-processor.worker', () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
     describe('floatToInt16', () => {
         it('should convert Float32Array to Int16Array correctly', () => {
             const floatArray = new Float32Array([0, 1, -1, 0.5, -0.5]);

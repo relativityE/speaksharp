@@ -1,6 +1,12 @@
 import { test, expect } from '@playwright/test';
 import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
 import { injectMockSession, registerEdgeFunctionMock } from './mock-routes';
+import { enableTestRegistry, registerMockInE2E } from '../helpers/testRegistry.helpers';
+import { waitForStoreState } from './helpers/e2e-state.helpers';
+
+interface TierLimitsWindow extends Window {
+    __E2E_CONFIG__?: unknown;
+}
 
 test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
 
@@ -8,9 +14,12 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
         // 1. Login with free tier
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
 
-        // 2. Override usage limit mock and initialize E2E Config
+        // 2. Initialize E2E Config with mock limits
+        await enableTestRegistry(page);
+
+        // Register mock limits via E2E Config (still needed for limits, but managed cleaner)
         await page.addInitScript(() => {
-            (window as any).__E2E_CONFIG__ = {
+            (window as unknown as TierLimitsWindow).__E2E_CONFIG__ = {
                 limits: {
                     mode: 'mock',
                     mockLimit: {
@@ -19,6 +28,16 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
                 }
             };
         });
+
+        // Register a mock STT engine to ensure we don't hit real backend issues
+        await registerMockInE2E(page, 'native', `() => ({
+             init: async () => {},
+             startTranscription: async () => {},
+             stopTranscription: async () => 'test',
+             getTranscript: async () => 'test',
+             terminate: async () => {},
+             getEngineType: () => 'mock-native'
+        })`);
 
         await registerEdgeFunctionMock(page, 'check-usage-limit', {
             can_start: false,
@@ -90,8 +109,11 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
 
         // 2. Setup mock session and E2E Config
         await injectMockSession(page);
+        await enableTestRegistry(page);
+
+        // Register mock limits
         await page.addInitScript(() => {
-            (window as any).__E2E_CONFIG__ = {
+            (window as unknown as TierLimitsWindow).__E2E_CONFIG__ = {
                 limits: {
                     mode: 'mock',
                     mockLimit: {
@@ -100,6 +122,16 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
                 }
             };
         });
+
+        // Mock STT to prevent real device access
+        await registerMockInE2E(page, 'native', `() => ({
+             init: async () => {},
+             startTranscription: async () => {},
+             stopTranscription: async () => 'test',
+             getTranscript: async () => 'test',
+             terminate: async () => {},
+             getEngineType: () => 'mock-native'
+        })`);
         await page.reload();
         await page.waitForLoadState('networkidle');
 
@@ -113,9 +145,10 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
 
         // 5. DETERMINISTIC PROGRESSION (Expert Solution)
         // Force the elapsed time to 6s (past the 5s limit)
-        await page.evaluate(() => {
-            (window as any).useSessionStore?.getState()?.setElapsedTime(6);
-        });
+        await waitForStoreState(page,
+            (state: Record<string, unknown>) => state.setElapsedTime,
+            true
+        );
 
         // 6. Verify auto-stop notification
         await expect(page.getByTestId('session-status-indicator')).toContainText(/(Daily|Monthly) usage limit reached/i, { timeout: 10000 });

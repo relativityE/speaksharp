@@ -45,6 +45,7 @@ describe('WhisperTurboEngine (Fast Path)', () => {
     let engine: WhisperTurboEngine;
 
     beforeEach(() => {
+        vi.useFakeTimers();
         vi.clearAllMocks();
         engine = new WhisperTurboEngine();
 
@@ -58,6 +59,10 @@ describe('WhisperTurboEngine (Fast Path)', () => {
             isErr: false,
             value: { text: "Hello WebGPU" }
         });
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
     });
 
     it('initializes the session manager and loads model', async () => {

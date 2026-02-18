@@ -25,13 +25,6 @@ const getEnvVar = (key: string): string | undefined => {
 declare global {
     interface Window {
         __E2E_CONTEXT__?: boolean;
-        __FORCE_TRANSFORMERS_JS__?: boolean;
-        __E2E_MOCK_SESSION__?: boolean;
-        __E2E_MOCK_PROFILE__?: { id: string; subscription_status: string };
-        __e2eProfileLoaded__?: boolean;
-        __e2eBridgeReady__?: boolean;
-        __e2eSessionDataLoaded__?: boolean;
-        REAL_WHISPER_TEST?: boolean;
         TEST_MODE?: boolean;
     }
 }
@@ -51,37 +44,26 @@ export const TestFlags = {
     USE_REAL_DATABASE: getEnvVar('VITE_USE_LIVE_DB') === 'true',
 
     /**
-     * Transcription Override: When true, use real STT engines (Private STT)
-     * instead of the MockEngine, even in test mode.
+     * Transcription Override: When true, use real AI models even in test mode.
      */
-    USE_REAL_TRANSCRIPTION:
-        getEnvVar('REAL_WHISPER_TEST') === 'true' ||
-        (typeof window !== 'undefined' && window.REAL_WHISPER_TEST === true),
+    USE_REAL_TRANSCRIPTION: getEnvVar('VITE_TEST_USE_REAL_TRANSCRIPTION') === 'true',
 
     /**
-     * Hardware Override: Force TransformersJS (CPU) even if WebGPU is available.
-     * Useful for stable headless testing or low-end devices.
+     * Force CPU Override: Force model execution on CPU (TransformersJS) even if WebGPU is available.
      */
-    FORCE_CPU_TRANSCRIPTION:
-        getEnvVar('VITE_FORCE_CPU_TRANSCRIPTION') === 'true' ||
-        (typeof window !== 'undefined' && window.__FORCE_TRANSFORMERS_JS__ === true),
+    FORCE_CPU_TRANSCRIPTION: getEnvVar('VITE_TEST_TRANSCRIPTION_FORCE_CPU') === 'true',
 
     /**
      * Debug Switch: Exposes internal logs and bridge state for E2E runners.
      */
     DEBUG_ENABLED: typeof window !== 'undefined' && !!window.__E2E_CONTEXT__,
-
-    /**
-     * Session Mock: Bypass real mic recording with a mock session flow.
-     */
-    IS_SESSION_MOCKED: typeof window !== 'undefined' && window.__E2E_MOCK_SESSION__ === true,
 } as const;
 
 /**
  * Logic helper to determine if we should use the MockEngine for STT.
  */
 export function shouldUseMockTranscription(): boolean {
-    return TestFlags.IS_TEST_MODE && !TestFlags.USE_REAL_TRANSCRIPTION;
+    return TestFlags.IS_TEST_MODE;
 }
 
 /**

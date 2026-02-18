@@ -1,20 +1,14 @@
 import { create } from 'zustand';
 import { FillerCounts } from '@/utils/fillerWordUtils';
 import { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
+import { SttStatus } from '@/types/transcription';
 
 interface TranscriptState {
     transcript: string;
     partial: string;
 }
 
-export type SttStatusType = 'idle' | 'initializing' | 'downloading' | 'ready' | 'fallback' | 'error';
-
-export interface SttStatus {
-    type: SttStatusType;
-    message: string;
-    detail?: string;
-    progress?: number;
-}
+// SttStatus imported from '@/types/transcription'
 
 export interface SessionState {
     isListening: boolean;
@@ -103,10 +97,20 @@ export const useSessionStore = create<SessionStore>((set) => ({
             elapsedTime: time,
         }),
 
-    setSTTStatus: (status) =>
-        set({
-            sttStatus: status,
-        }),
+    setSTTStatus: (status) => {
+        // console.log('[Store] setSTTStatus called:', status);
+        // console.trace('[Store] Call stack trace'); // Uncomment for deep debugging if needed
+
+        set((state) => {
+            // ✅ GUARD: Don't allow overwriting 'recording' with 'idle' or 'ready' silently
+            if (state.sttStatus.type === 'recording') {
+                if (status.type === 'idle' || status.type === 'ready') {
+                    console.warn('[Store] ⚠️ Attempted to overwrite recording state with:', status);
+                }
+            }
+            return { sttStatus: status };
+        });
+    },
 
     setSTTMode: (mode) =>
         set({
@@ -138,6 +142,14 @@ export const useSessionStore = create<SessionStore>((set) => ({
 }));
 
 // Expose store to window for E2E tests
+declare global {
+    interface Window {
+        useSessionStore?: typeof useSessionStore;
+        __SESSION_STORE_API__?: typeof useSessionStore;
+    }
+}
+
 if (typeof window !== 'undefined') {
-    (window as any).useSessionStore = useSessionStore;
+    window.useSessionStore = useSessionStore;
+    window.__SESSION_STORE_API__ = useSessionStore;
 }

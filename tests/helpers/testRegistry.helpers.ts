@@ -1,5 +1,16 @@
 import type { Page } from '@playwright/test';
 
+declare global {
+    interface Window {
+        __TEST_REGISTRY__?: {
+            register: (mode: string, factory: unknown, opts?: unknown) => void;
+            enable: () => void;
+            disable: () => void;
+        };
+        __TEST_REGISTRY_QUEUE__?: unknown[];
+    }
+}
+
 /**
  * Standard test implementations (commonly used)
  * Note: These are factories that return an implementation object.
@@ -41,7 +52,7 @@ export const StandardMocks = {
      */
     nativeSTTWithTranscript: (transcript: string) => ({
         async init() { },
-        async startTranscription(onTranscript: (update: any) => void) {
+        async startTranscription(onTranscript: (update: unknown) => void) {
             console.log('[FakeNativeSTT] Emitting transcript:', transcript);
             setTimeout(() => onTranscript({ transcript: { text: transcript, isFinal: true } }), 100);
         },
@@ -65,12 +76,43 @@ export async function registerMockInE2E(
 ): Promise<void> {
     // We pass the factory as a string because we can't easily serialize functions over the bridge
     // if they have closures. For simple factories, we can use eval or Function.
+
+    // 1. Persist for future reloads
     await page.addInitScript(
         ({ mode, factoryStr, opts }) => {
-            if ((window as any).__TEST_REGISTRY__) {
-                const factory = eval(factoryStr);
-                (window as any).__TEST_REGISTRY__.register(mode, factory, opts);
-                console.log('[E2E Help] Registered mock for:', mode);
+            const key = `${mode}STT`;
+            const registration = { key, factory: eval(factoryStr), opts };
+
+            if (window.__TEST_REGISTRY__) {
+                window.__TEST_REGISTRY__.register(mode, registration.factory, opts);
+                console.log('[E2E Help] Registered mock for (init):', mode);
+            } else {
+                // Buffer for late hydration
+                window.__TEST_REGISTRY_QUEUE__ = window.__TEST_REGISTRY_QUEUE__ || [];
+                window.__TEST_REGISTRY_QUEUE__.push(registration);
+                console.log('[E2E Help] Queued mock for (init):', mode);
+            }
+        },
+        {
+            mode,
+            factoryStr: mockImplementationFactoryString,
+            opts: options
+        }
+    );
+
+    // 2. Apply IMMEDIATELY if page is open (Fixes Client-Side Nav issue)
+    await page.evaluate(
+        ({ mode, factoryStr, opts }) => {
+            const key = `${mode}STT`;
+            const registration = { key, factory: eval(factoryStr), opts };
+
+            if (window.__TEST_REGISTRY__) {
+                window.__TEST_REGISTRY__.register(mode, registration.factory, opts);
+                console.log('[E2E Help] Registered mock for (immediate):', mode);
+            } else {
+                window.__TEST_REGISTRY_QUEUE__ = window.__TEST_REGISTRY_QUEUE__ || [];
+                window.__TEST_REGISTRY_QUEUE__.push(registration);
+                console.log('[E2E Help] Queued mock for (immediate):', mode);
             }
         },
         {
@@ -86,8 +128,8 @@ export async function registerMockInE2E(
  */
 export async function enableTestRegistry(page: Page): Promise<void> {
     await page.addInitScript(() => {
-        if ((window as any).__TEST_REGISTRY__) {
-            (window as any).__TEST_REGISTRY__.enable();
+        if (window.__TEST_REGISTRY__) {
+            window.__TEST_REGISTRY__.enable();
         }
     });
 }
@@ -97,8 +139,8 @@ export async function enableTestRegistry(page: Page): Promise<void> {
  */
 export async function cleanupTestRegistry(page: Page): Promise<void> {
     await page.evaluate(() => {
-        if ((window as any).__TEST_REGISTRY__) {
-            (window as any).__TEST_REGISTRY__.disable();
+        if (window.__TEST_REGISTRY__) {
+            window.__TEST_REGISTRY__.disable();
         }
     });
 }

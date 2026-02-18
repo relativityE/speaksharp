@@ -13,7 +13,8 @@ import { LiveTranscriptPanel } from '@/components/session/LiveTranscriptPanel';
 import { SpeakingTipsCard } from '@/components/session/SpeakingTipsCard';
 import { LiveRecordingCard } from '@/components/session/LiveRecordingCard';
 import { MobileActionBar } from '@/components/session/MobileActionBar';
-import { StatusNotificationBar, SttStatus } from '@/components/session/StatusNotificationBar';
+import { StatusNotificationBar } from '@/components/session/StatusNotificationBar';
+import { SttStatus } from '@/types/transcription';
 import { PromoExpiredDialog } from '@/components/PromoExpiredDialog';
 import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
 
@@ -65,16 +66,28 @@ export const SessionPage: React.FC = () => {
     // 1. Determine Primary Status (Session State)
     const isActiveStt = sttStatus.type === 'initializing' || sttStatus.type === 'downloading' || sttStatus.type === 'fallback' || isListening;
 
-    const baseStatus: SttStatus = sessionFeedbackMessage
-        ? {
-            type: sessionFeedbackMessage.startsWith('⚠️') || sessionFeedbackMessage.startsWith('⛔') ? 'error' as const : 'ready' as const,
-            message: sessionFeedbackMessage
+    // Executive Pattern: Status resolution logic
+    const getBaseStatus = (): SttStatus => {
+        if (sessionFeedbackMessage) {
+            const isError = sessionFeedbackMessage.startsWith('⚠️') || sessionFeedbackMessage.startsWith('⛔');
+            return {
+                type: isError ? 'error' : 'ready',
+                message: sessionFeedbackMessage
+            } as SttStatus;
         }
-        : (isActiveStt && sttStatus.type !== 'idle')
-            ? sttStatus
-            : showAnalyticsPrompt
-                ? { type: 'ready' as const, message: '✓ Session saved. Click Analytics above to review.' }
-                : sttStatus;
+        if (isActiveStt && (sttStatus as SttStatus).type !== 'idle') {
+            return sttStatus as SttStatus;
+        }
+        if (showAnalyticsPrompt) {
+            return {
+                type: 'ready',
+                message: '✓ Session saved. Click Analytics above to review.'
+            } as SttStatus;
+        }
+        return sttStatus as SttStatus;
+    };
+
+    const baseStatus = getBaseStatus();
 
     // 2. Compose Final Status (Attach Background Progress)
     const displayStatus: SttStatus = {
