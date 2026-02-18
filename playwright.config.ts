@@ -57,28 +57,27 @@ export default defineConfig({
   },
   updateSnapshots: process.env.CI ? 'missing' : 'none',
   // ✅ CRITICAL: Web server configuration
-  webServer: {
-    // ✅ Use Dev Server for E2E (No build artifacts, faster HMR, fresh code)
-    command: 'pnpm run dev --port 5173',
+  // ✅ Use Dev Server for E2E (No build artifacts, faster HMR, fresh code)
+  command: 'pnpm run dev --port 5173',
 
-    port: 5173,
+  port: 5173,
 
-    // ✅ CRITICAL: Never reuse existing server
-    reuseExistingServer: false,
+  // ✅ CRITICAL: Never reuse existing server
+  reuseExistingServer: false,
 
-    // ✅ Wait for server to be ready
-    timeout: 120000,
+  // ✅ Wait for server to be ready
+  timeout: 120000,
 
-    // ✅ Log server output
-    stdout: 'pipe',
-    stderr: 'pipe',
-  },
+  // ✅ Log server output
+  stdout: 'pipe',
+  stderr: 'pipe',
+},
   projects: [
-    {
-      name: 'chromium',
-      snapshotPathTemplate: '{testDir}/{testFileDir}/{testFileName}-snapshots/{arg}-{projectName}{ext}',
-      use: getChromeWithMic(),
-    },
-    // Soak tests run separately via: npx playwright test --config=playwright.soak.config.ts
-  ],
+  {
+    name: 'chromium',
+    snapshotPathTemplate: '{testDir}/{testFileDir}/{testFileName}-snapshots/{arg}-{projectName}{ext}',
+    use: getChromeWithMic(),
+  },
+  // Soak tests run separately via: npx playwright test --config=playwright.soak.config.ts
+],
 });

@@ -16,7 +16,7 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { render, screen, act } from '../../../tests/support/test-utils';
 import SessionPage from '../SessionPage';
-import { MemoryRouter } from 'react-router-dom';
+import type { Session } from '@supabase/supabase-js';
 
 // --- Mocks ---
 const mockNavigate = vi.fn();
@@ -166,7 +166,7 @@ describe('SessionPage Feedback Logic', () => {
             elapsedTime: 2,
         }));
 
-        render(<SessionPage />, { authMock: { session: { user: { id: 'test-user', email: 'test@example.com' } } as any } });
+        render(<SessionPage />, { authMock: { session: { user: { id: 'test-user', email: 'test@example.com' } } as unknown as Session } });
 
         // Click stop
         const btn = screen.getByTestId('start-stop-btn');
@@ -203,7 +203,7 @@ describe('SessionPage Feedback Logic', () => {
 
         mockSaveSession.mockResolvedValue({ session: { id: '123' } });
 
-        render(<SessionPage />, { authMock: { session: { user: { id: 'test-user', email: 'test@example.com' } } as any } });
+        render(<SessionPage />, { authMock: { session: { user: { id: 'test-user', email: 'test@example.com' } } as unknown as Session } });
 
         // Click stop
         const btn = screen.getByTestId('start-stop-btn');
@@ -241,7 +241,7 @@ describe('SessionPage Feedback Logic', () => {
             chunks: [],
         });
 
-        render(<SessionPage />, { authMock: { session: { user: { id: 'test-user', email: 'test@example.com' } } as any } });
+        render(<SessionPage />, { authMock: { session: { user: { id: 'test-user', email: 'test@example.com' } } as unknown as Session } });
 
         // Should show STT status, which means feedback message (priority 1) must be null
         // If feedback message was somehow stuck, it would show that instead.
