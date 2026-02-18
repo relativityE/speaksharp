@@ -2,14 +2,19 @@ import { handler } from './index.ts';
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { FakeTime } from "https://deno.land/std@0.224.0/testing/time.ts";
 
+// Helper to create a fake JWT for testing
+// We intentionally remove padding to test the local parser's padding restoration logic
+function createFakeJWT(userId: string) {
+    const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).replace(/=/g, '');
+    const payload = btoa(JSON.stringify({ sub: userId, exp: Math.floor(Date.now() / 1000) + 3600 })).replace(/=/g, '');
+    return `${header}.${payload}.signature`;
+}
+
 Deno.test("check-usage-limit adversarial boundary tests", async (t) => {
     
-    const mockUser = { id: 'test-user' };
+    const userId = 'test-user';
     
     const setupMock = (profileData: any) => () => ({
-        auth: {
-            getUser: () => Promise.resolve({ data: { user: mockUser }, error: null }),
-        },
         from: () => ({
             select: () => ({
                 eq: () => ({
@@ -35,7 +40,7 @@ Deno.test("check-usage-limit adversarial boundary tests", async (t) => {
                 subscription_status: 'free'
             };
             
-            const req = new Request('http://localhost/check-usage-limit', { method: 'GET', headers: { 'Authorization': 'Bearer token' } });
+            const req = new Request('http://localhost/check-usage-limit', { method: 'GET', headers: { 'Authorization': `Bearer ${createFakeJWT(userId)}` } });
             const res = await handler(req, setupMock(profileData));
             const json = await res.json();
             
@@ -57,7 +62,7 @@ Deno.test("check-usage-limit adversarial boundary tests", async (t) => {
                 subscription_status: 'free'
             };
             
-            const req = new Request('http://localhost/check-usage-limit', { method: 'GET' });
+            const req = new Request('http://localhost/check-usage-limit', { method: 'GET', headers: { 'Authorization': `Bearer ${createFakeJWT(userId)}` } });
             const res = await handler(req, setupMock(profileData));
             const json = await res.json();
             
@@ -78,7 +83,7 @@ Deno.test("check-usage-limit adversarial boundary tests", async (t) => {
                 subscription_status: 'free'
             };
             
-            const req = new Request('http://localhost/check-usage-limit', { method: 'GET' });
+            const req = new Request('http://localhost/check-usage-limit', { method: 'GET', headers: { 'Authorization': `Bearer ${createFakeJWT(userId)}` } });
             const res = await handler(req, setupMock(profileData));
             const json = await res.json();
             
