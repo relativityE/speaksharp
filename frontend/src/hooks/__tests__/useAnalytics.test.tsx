@@ -4,26 +4,54 @@ import { useAnalytics } from '../useAnalytics';
 import { usePracticeHistory } from '../usePracticeHistory';
 import { useSession } from '../useSession';
 import { useParams } from 'react-router-dom';
+import { useAuthProvider } from '../../contexts/AuthProvider';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { getSessionCount } from '../../lib/storage';
 
 // Mock dependencies
 vi.mock('../usePracticeHistory');
 vi.mock('../useSession');
+vi.mock('../../lib/storage', () => ({
+    getAnalyticsSummary: vi.fn(),
+    getSessionCount: vi.fn(),
+}));
+vi.mock('../../contexts/AuthProvider', () => ({
+    useAuthProvider: vi.fn(),
+}));
 vi.mock('react-router-dom', () => ({
     useParams: vi.fn(),
 }));
 
+const queryClient = new QueryClient({
+    defaultOptions: {
+        queries: {
+            retry: false,
+        },
+    },
+});
+
+const wrapper = ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+);
+
 describe('useAnalytics', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        queryClient.clear();
         (useParams as Mock).mockReturnValue({});
         (useSession as Mock).mockReturnValue({ data: null, isLoading: false });
+        (useAuthProvider as unknown as Mock).mockReturnValue({ user: { id: 'test-user' } });
     });
 
     it('should process analytics data correctly from usePracticeHistory', async () => {
+        const now = new Date();
+        const yesterday = new Date(now);
+        yesterday.setDate(now.getDate() - 1);
+
         const mockSessions = [
             {
                 id: 's1',
-                created_at: '2023-10-27T10:00:00.000Z',
+                created_at: now.toISOString(),
                 duration: 60,
                 total_words: 100,
                 accuracy: 0.9,
@@ -34,7 +62,7 @@ describe('useAnalytics', () => {
             },
             {
                 id: 's2',
-                created_at: '2023-10-26T10:00:00.000Z',
+                created_at: yesterday.toISOString(),
                 duration: 120,
                 total_words: 200,
                 accuracy: 0.8,
@@ -50,8 +78,9 @@ describe('useAnalytics', () => {
             isLoading: false,
             error: null
         });
+        (getSessionCount as Mock).mockResolvedValue(mockSessions.length);
 
-        const { result } = renderHook(() => useAnalytics());
+        const { result } = renderHook(() => useAnalytics(), { wrapper });
 
         expect(result.current.loading).toBe(false);
         expect(result.current.error).toBe(null);
@@ -65,6 +94,8 @@ describe('useAnalytics', () => {
 
         expect(result.current.overallStats.totalSessions).toBe(2);
         expect(result.current.overallStats.totalPracticeTime).toBe(3); // 180s / 60 = 3m
+        expect(result.current.weeklySessionsCount).toBe(2);
+        expect(result.current.weeklyActivity).toHaveLength(7);
     });
 
     it('should filter sessions when sessionId is present in URL', async () => {
@@ -78,10 +109,11 @@ describe('useAnalytics', () => {
             isLoading: false,
             error: null
         });
+        (getSessionCount as Mock).mockResolvedValue(mockSessions.length);
 
         (useParams as Mock).mockReturnValue({ sessionId: 's1' });
 
-        const { result } = renderHook(() => useAnalytics());
+        const { result } = renderHook(() => useAnalytics(), { wrapper });
 
         expect(result.current.sessionHistory).toHaveLength(1);
         expect(result.current.sessionHistory[0].id).toBe('s1');

@@ -3,6 +3,7 @@ import logger from './logger';
 import type { PracticeSession } from '../types/session';
 import type { UserProfile } from '../types/user';
 import type { PostgrestError } from '@supabase/supabase-js';
+import type { AnalyticsSummary } from '../types/analytics';
 import { isFree } from '@/constants/subscriptionTiers';
 
 /**
@@ -160,6 +161,57 @@ export const deleteSession = async (sessionId: string): Promise<boolean> => {
     return false;
   }
   return true;
+};
+
+/**
+ * Fetches an aggregated analytics summary for a user via Supabase RPC.
+ * @param {string} userId - The ID of the user.
+ * @returns {Promise<AnalyticsSummary | null>}
+ */
+export const getAnalyticsSummary = async (userId: string): Promise<AnalyticsSummary | null> => {
+  const supabase = getSupabaseClient();
+  if (!userId) return null;
+
+  try {
+    logger.info({ userId: userId.slice(0, 8) + '...' }, '[Supabase DB] 📊 Fetching analytics summary via RPC');
+    const { data, error } = await supabase.rpc('get_analytics_summary', { p_user_id: userId });
+
+    if (error) {
+      logger.error({ error }, 'Error calling get_analytics_summary:');
+      throw error;
+    }
+
+    return data as AnalyticsSummary;
+  } catch (err) {
+    logger.error({ err }, '[getAnalyticsSummary] Failed');
+    return null;
+  }
+};
+
+/**
+ * Fetches the total count of sessions for a user.
+ * @param {string} userId - The ID of the user.
+ * @returns {Promise<number>}
+ */
+export const getSessionCount = async (userId: string): Promise<number> => {
+  const supabase = getSupabaseClient();
+  if (!userId) return 0;
+
+  try {
+    const { count, error } = await supabase
+      .from('sessions')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId);
+
+    if (error) {
+      logger.error({ error }, 'Error fetching session count:');
+      return 0;
+    }
+    return count || 0;
+  } catch (err) {
+    logger.error({ err }, '[getSessionCount] Failed');
+    return 0;
+  }
 };
 
 /**

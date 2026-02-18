@@ -8,37 +8,23 @@ import { Skeleton } from '@/components/ui/skeleton';
 const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export const WeeklyActivityChart: React.FC = () => {
-    const { sessionHistory, loading, error } = useAnalytics();
+    const { weeklyActivity, loading, error } = useAnalytics();
 
-    // Calculate weekly activity from real session data
+    // Use pre-computed chart data from useAnalytics (which handles RPC or fallback)
     const chartData = useMemo(() => {
-        // Initialize all days with 0 sessions
-        const dayCounts: Record<string, number> = {};
-        DAYS_OF_WEEK.forEach(day => { dayCounts[day] = 0; });
-
-        // Get the start of the current week (Sunday)
-        const now = new Date();
-        const startOfWeek = new Date(now);
-        startOfWeek.setDate(now.getDate() - now.getDay());
-        startOfWeek.setHours(0, 0, 0, 0);
-
-        // Count sessions per day for the current week
-        sessionHistory?.forEach(session => {
-            const sessionDate = new Date(session.created_at);
-            // Only count sessions from the current week
-            if (sessionDate >= startOfWeek) {
-                const dayName = DAYS_OF_WEEK[sessionDate.getDay()];
-                dayCounts[dayName]++;
-            }
-        });
+        if (!weeklyActivity || weeklyActivity.length === 0) return [];
 
         // Convert to array format for recharts, starting with Mon for display
+        // weeklyActivity from RPC/hook uses standard ['Sun', ..., 'Sat'] order
         const orderedDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-        return orderedDays.map(day => ({
-            day,
-            sessions: dayCounts[day]
-        }));
-    }, [sessionHistory]);
+        return orderedDays.map(day => {
+            const dayData = weeklyActivity.find(d => d.day === day);
+            return {
+                day,
+                sessions: dayData ? dayData.sessions : 0
+            };
+        });
+    }, [weeklyActivity]);
 
     if (loading) {
         return (

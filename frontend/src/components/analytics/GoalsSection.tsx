@@ -9,7 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { EditGoalsDialog } from './EditGoalsDialog';
 
 export const GoalsSection: React.FC = () => {
-    const { sessionHistory, overallStats, loading, error } = useAnalytics();
+    const { weeklySessionsCount, overallStats, loading, error } = useAnalytics();
     const { goals, setGoals } = useGoals();
 
     if (loading) {
@@ -35,14 +35,8 @@ export const GoalsSection: React.FC = () => {
         );
     }
 
-    // Calculate weekly sessions (last 7 days)
-    const now = new Date();
-    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-    const weeklySessions = sessionHistory?.filter(session => {
-        const sessionDate = new Date(session.created_at);
-        return sessionDate >= sevenDaysAgo;
-    }).length || 0;
+    // Use pre-computed weekly session count from useAnalytics
+    const weeklySessions = weeklySessionsCount || 0;
 
     // Use customizable goals from localStorage
     const { weeklyGoal, clarityGoal } = goals;
